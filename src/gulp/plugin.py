@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import ipaddress
 import json
+import orjson
 import os
 import sys
 from abc import ABC, abstractmethod
@@ -1927,7 +1928,7 @@ class GulpPluginBase(ABC):
         if fields_mapping.flatten_json:
             # flatten json, i.e. {"a": {"b": 1}} -> {"a.b": 1}
             if isinstance(source_value, str):
-                js: dict = json.loads(source_value)
+                js: dict = orjson.loads(source_value)
             else:
                 js: dict = source_value
             flattened: dict = muty.dict.flatten(js, prefix="%s." % (source_key))
@@ -2300,7 +2301,7 @@ class GulpPluginBase(ABC):
                 mapping_file
             )
             file_content = await muty.file.read_file_async(mapping_file_path)
-            mapping_data = json.loads(file_content)
+            mapping_data = orjson.loads(file_content)
 
             if not mapping_data:
                 raise ValueError(f"mapping file {mapping_file_path} is empty!")
@@ -2340,7 +2341,7 @@ class GulpPluginBase(ABC):
                 additional_mapping_id = file_info[1]
 
                 file_content = await muty.file.read_file_async(additional_file_path)
-                mapping_data = json.loads(file_content)
+                mapping_data = orjson.loads(file_content)
 
                 if not mapping_data:
                     raise ValueError(

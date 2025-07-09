@@ -13,20 +13,12 @@ The plugin supports:
 - Integrating with Gulp's ingestion system
 """
 
-import json
+import orjson
 import os
 from typing import Any, override
-import muty.dict
-import muty.file
-import muty.log
 import muty.os
-import muty.string
-import muty.time
-import muty.xml
 from evtx import PyEvtxParser
 from muty.log import MutyLogger
-from sigma.backends.opensearch import OpensearchLuceneBackend
-from sigma.pipelines.elasticsearch.windows import ecs_windows
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -40,11 +32,6 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpMappingParameters, GulpPluginParameters
-
-# needs the following backends for sigma support (add others if needed)
-muty.os.check_and_install_package("pysigma-backend-elasticsearch", ">=1.1.3,<2.0.0")
-muty.os.check_and_install_package("pysigma-backend-opensearch", ">=1.0.3,<2.0.0")
-
 
 class Plugin(GulpPluginBase):
     def type(self) -> list[GulpPluginType]:
@@ -110,7 +97,7 @@ class Plugin(GulpPluginBase):
         return {}
 
     async def _process_leaf(
-        self, path: str, value: Any, result: dict, root: dict, **kwargs
+        self, path: str, value: Any, result: dict, **kwargs
     ) -> None:
         if not value or path.endswith("xmlns"):
             # skip these
@@ -119,74 +106,55 @@ class Plugin(GulpPluginBase):
         if path.endswith(",,#attributes,,Name"):
             # this is a special case where the source key becomes the ,, separated value before _#attributes in the string
             # i.e. this happens for Provider,,#attributes,,Name: we want "Provider" to be the source key, not Name
-            path = path.split(",,#attributes,,Name")[-2].split(",,")[-1]
+            key = path.split(",,#attributes,,Name")[-2].split(",,")[-1]
+        elif path.endswith(",,#text"):
+            # further special case for #text, similar to above
+            # i.e. this happens for Event,,System,,Execution,,#text: we want "Execution" to be the source key, not #text
+            key = path.split(",,#text")[-2].split(",,")[-1]
         else:
             # the source key is the last part of the string (default)
             # i.e. Event,,System,,Execution,,#attributes,,ProcessID
-            path = path.split(",,")[-1]
+            key = path.rsplit(",,", 1)[-1]
 
         # map the key
-        mapped = await self._process_key(path, value, result, **kwargs)
+        mapped = await self._process_key(key, value, result, **kwargs)
         result.update(mapped)
 
-    async def _parse_dict(
-        self, data: dict, path_segments: list = None, root: dict = None, **kwargs
-    ) -> dict:
+    async def _parse_dict(self, data: dict, **kwargs) -> dict:
         """
-        recursively parse dictionary and call process_leaf() for each leaf node
+        parses dictionary and call process_leaf() for each leaf node
 
         Args:
             data: Dictionary to parse
-            path_segments: List of path segments (used in recursion)
-            root: The root dictionary (used in recursion)
             **kwargs: Additional keyword arguments for processing
         Returns:
             dict
         """
         result = {}
-        if path_segments is None:
-            path_segments = []
 
-        for key, value in data.items():
-            current_path = path_segments + [key]
+        # stack for iterative processing: (value, path_segments)
+        stack = [(data, [])]
 
-            if value is None:
-                continue
+        while stack:
+            current_value, current_path_segments = stack.pop()
 
-            elif isinstance(value, dict):
-                if value:
-                    nested_results = await self._parse_dict(
-                        value, path_segments=current_path, root=data, **kwargs
-                    )
-                    result.update(nested_results)
-
-            elif isinstance(value, list):
-                if value:
-                    for i, item in enumerate(value):
-                        if isinstance(item, dict):
-                            if item:
-                                nested_results = await self._parse_dict(
-                                    item,
-                                    path_segments=current_path + [str(i)],
-                                    root=data,
-                                    **kwargs,
-                                )
-                                result.update(nested_results)
-                        else:
-                            if item not in (None, ""):
-                                await self._process_leaf(
-                                    ",,".join(current_path + [str(i)]),
-                                    item,
-                                    result,
-                                    data,
-                                    **kwargs,
-                                )
+            if isinstance(current_value, dict):
+                for key, value in current_value.items():
+                    if value is not None:
+                        stack.append((value, current_path_segments + [key]))
+            elif isinstance(current_value, list):
+                for i, item in enumerate(current_value):
+                    if item is not None:
+                        stack.append((item, current_path_segments + [str(i)]))
             else:
-                if value != "":
+                # it's a leaf node
+                if current_value != "":
                     await self._process_leaf(
-                        ",,".join(current_path), value, result, data, **kwargs
+                        ",,".join(current_path_segments),
+                        current_value,
+                        result,
+                        **kwargs,
                     )
-
         return result
 
     @override
@@ -197,17 +165,16 @@ class Plugin(GulpPluginBase):
         event_original: str = record["data"]
 
         # parse record
-        js_record = json.loads(event_original)
-        d = await self._parse_dict(js_record, root=js_record, **kwargs)
+        js_record = orjson.loads(event_original)
+        d = await self._parse_dict(js_record, **kwargs)
 
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
         d["@timestamp"] = record["timestamp"]
 
-        if d.get("event.code") == "0":
-            MutyLogger.get_instance().debug(json.dumps(d, indent=2))
-            muty.os.exit_now()
+        # if d.get("event.code") == "0":
+        #     MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2))
 
         return GulpDocument(
             self,
