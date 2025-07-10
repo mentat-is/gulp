@@ -283,6 +283,7 @@ class GulpCollabCreateUpdatePacket(BaseModel):
     """
 
     model_config = ConfigDict(
+        extra="allow",
         json_schema_extra={
             "examples": [
                 {
@@ -298,7 +299,7 @@ class GulpCollabCreateUpdatePacket(BaseModel):
                     "created": True,
                 }
             ]
-        }
+        },
     )
     data: list | dict = Field(..., description="The created or updated data.")
     bulk: Optional[bool] = Field(
@@ -310,6 +311,10 @@ class GulpCollabCreateUpdatePacket(BaseModel):
         description="Type of the event (i.e. one of the COLLABTYPE strings).",
     )
     bulk_size: Optional[int] = Field(None, description="The size of the bulk event.")
+    last: Optional[bool] = Field(
+        True,
+        description="indicates the last chunk.",
+    )
     created: Optional[bool] = Field(
         default=False, description="If the event is a create event."
     )

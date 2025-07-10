@@ -6,6 +6,7 @@ __pycache__
 .venv
 pyrightconfig.json
 venv
+chatmodes
 
 # VSCode
 .vscode/

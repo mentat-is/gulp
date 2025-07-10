@@ -842,7 +842,7 @@ class GulpPluginBase(ABC):
         ingested_docs: list[dict] = []
         success_after_retry: bool = False
 
-        # MutyLogger.get_instance().debug(orjson.dumps(data, option=orjson.OPT_INDENT_2))
+        # MutyLogger.get_instance().debug(orjson.dumps(data, option=orjson.OPT_INDENT_2).decode())
         # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
         if self._ingestion_enabled:
             # perform ingestion, ingested_docs may be different from data in the end due to skipped documents
@@ -893,7 +893,7 @@ class GulpPluginBase(ABC):
             == GulpDocumentFilterResult.ACCEPT
         ]
         if ws_docs:
-            # MutyLogger.get_instance().debug("_ingest_chunk_and_or_send_to_ws: %s" % (orjson.dumps(ws_docs, option=orjson.OPT_INDENT_2)))
+            # MutyLogger.get_instance().debug("_ingest_chunk_and_or_send_to_ws: %s" % (orjson.dumps(ws_docs, option=orjson.OPT_INDENT_2).decode()))
             # send documents to the websocket
             chunk = GulpDocumentsChunkPacket(
                 docs=ws_docs,
@@ -1555,10 +1555,10 @@ class GulpPluginBase(ABC):
             return [doc.model_dump(by_alias=True)]
 
         base_doc_dump = doc.model_dump()
-        # MutyLogger.get_instance().debug(orjson.dumps("base doc:\n%s" % (base_doc_dump), option=orjson.OPT_INDENT_2))
+        # MutyLogger.get_instance().debug(orjson.dumps("base doc:\n%s" % (base_doc_dump), option=orjson.OPT_INDENT_2).decode())
         extra_docs = []
         for extra_fields in self._extra_docs:
-            # MutyLogger.get_instance().debug("creating new doc with %s\nand\n%s" % (orjson.dumps(extra_fields, option=orjson.OPT_INDENT_2), orjson.dumps(base_doc_dump, option=orjson.OPT_INDENT_2)))
+            # MutyLogger.get_instance().debug("creating new doc with %s\nand\n%s" % (orjson.dumps(extra_fields, option=orjson.OPT_INDENT_2), orjson.dumps(base_doc_dump, option=orjson.OPT_INDENT_2).decode()))
 
             new_doc_data = {**base_doc_dump, **extra_fields}
 
@@ -1575,9 +1575,9 @@ class GulpPluginBase(ABC):
             # MutyLogger.get_instance().debug(
             #     "creating new doc with base=\n%s\ndata=\n%s\nnew_doc=%s"
             #     % (
-            #         orjson.dumps(base_doc_dump, option=orjson.OPT_INDENT_2),
-            #         orjson.dumps(new_doc_data, option=orjson.OPT_INDENT_2),
-            #         orjson.dumps(new_doc.model_dump(), option=orjson.OPT_INDENT_2),
+            #         orjson.dumps(base_doc_dump, option=orjson.OPT_INDENT_2).decode(),
+            #         orjson.dumps(new_doc_data, option=orjson.OPT_INDENT_2).decode(),
+            #         orjson.dumps(new_doc.model_dump(), option=orjson.OPT_INDENT_2).decode(),
             #     )
             # )
             extra_docs.append(new_doc.model_dump(by_alias=True))
@@ -2421,7 +2421,9 @@ class GulpPluginBase(ABC):
             % (
                 self.filename,
                 self._stacked,
-                orjson.dumps(self._plugin_params.model_dump(), option=orjson.OPT_INDENT_2),
+                orjson.dumps(
+                    self._plugin_params.model_dump(), option=orjson.OPT_INDENT_2
+                ).decode(),
             )
         )
 
@@ -2448,7 +2450,14 @@ class GulpPluginBase(ABC):
         # initialize index type mappings
         await self._fetch_index_type_mappings()
 
-        # MutyLogger.get_instance().debug("---> finished _initialize: plugin=%s, mapping_id=%s, mappings=%s"% (self.filename, self._mapping_id, self._mappings))
+        # MutyLogger.get_instance().debug(
+        #     "---> finished _initialize: plugin=%s, mapping_id=%s, mappings=%s"
+        #     % (
+        #         self.filename,
+        #         self._mapping_id,
+        #         self._mappings,
+        #     )
+        # )
 
     def _type_checks(
         self, k: str, v: Any, force_type_set: bool = False
