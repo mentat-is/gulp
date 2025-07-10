@@ -178,6 +178,10 @@ class GulpDocument(GulpBasicDocument):
             else:
                 ns = muty.time.string_to_nanos_from_unix_epoch(timestamp)
 
+            # Timestamp is epoch or before, that's usually a sign of an invalid timestamp
+            if ns <= 0:
+                raise ValueError("timestamp is before unix epoch")
+            
             if offset_msec:
                 # apply offset in milliseconds to the timestamp
                 ns += offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS
