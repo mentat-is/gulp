@@ -2311,6 +2311,7 @@ class GulpPluginBase(ABC):
 
         # validation checks
         if not mappings and not mapping_parameters.mapping_id:
+            # empty mapping will be used
             MutyLogger.get_instance().warning(
                 "mappings/mapping_file and mapping_id are both None/empty!"
             )
@@ -2320,14 +2321,15 @@ class GulpPluginBase(ABC):
         mapping_id = mapping_parameters.mapping_id or list(mappings.keys())[0]
         MutyLogger.get_instance().debug(f"mapping_id={mapping_id}")
 
-        # check for additional mapping
-        # skip if using direct mappings or no additional files
+        # if we have specified direct mapping alone, just stop here and use it
         if mapping_parameters.mappings or (
             not mapping_parameters.additional_mapping_files
             and not mapping_parameters.additional_mappings
         ):
             return mappings, mapping_id
 
+        # we may have additional mapping specified in mapping_parameters.additional_mapping_files and/or
+        # mapping_parameters.additional_mappings. so, merge them
         if mapping_parameters.additional_mapping_files:
             MutyLogger.get_instance().debug(
                 f"loading additional mapping files/id: {mapping_parameters.additional_mapping_files} ..."

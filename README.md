@@ -16,20 +16,13 @@ _made with :heart: by Mentat._
 
 <div align="center">
 
-[Description](#description) - [Architecture](#architecture) - [Installation](#installation) - [Run & examples](#commandline-examples) - [GUI](#clients) - [Troubleshooting](./docs/Troubleshooting.md)
+[Description](#description) - [Architecture](#architecture) - [Installation](#installation) - [Run & examples](#commandline-examples) - [GUI](#clients) - [Troubleshooting](./docs/troubleshooting.md)
 
 </div>
 
 ## description
 
-Gulp is a powerful software tool designed to streamline incident response and analysis. Its core features include:
-
-## architecture
-
-- [GULP architecture](./docs/Architecture.md)
-- [Plugins](./docs/Plugins.md)
-
-### current features
+Gulp is a powerful software tool designed to streamline incident response and analysis. Its core features includes:
 
 - **Data Ingestion Plugins**: Gulp can ingest data from a variety of sources, thanks to its versatile plugin system.
 - **OpenSearch and ECS**: Gulp is built on OpenSearch and uses the _Elasticsearch Common Scheme (ECS)_ as its ingestion format, ensuring compatibility and ease of use.
@@ -40,11 +33,24 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - **Scalable**: Gulp is designed with scalability in mind. As your data and team grow, you can simply add more cores to increase parallel ingestion and query capabilities, and more OpenSearch and PostgreSQL hosts. This makes Gulp a flexible solution that can adapt to your evolving needs!
 - **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
 
+## architecture
+
+- [GULP architecture](./docs/architecture.md)
+
+## plugins development
+
+- [plugins and mapping](./docs/plugins_and_mapping.md)
+- [testing guidelines](./docs/testing.md)
+
 ## installation
 
-[install with docker](./docs/Install%20Docker.md)
+- [docker](<./docs/install_docker.md>)
+- [install from sources/dev setup](<./docs/instal_dev.md>)
+- [installing extra plugins](<./docs/install_dev.md/#-installing-extra-plugins>)
 
-[install for development](./docs/Install%20Dev.md)
+### clients
+
+[gulp web ui](https://github.com/mentat-is/gulpui-web)
 
 ### exposed services
 
@@ -60,12 +66,6 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - [opensearch on http://localhost:9200](http://localhost:9200)
   - **user/pwd: `admin/Gulp1234!`**
   - [elasticvue on http://localhost:8082](http://localhost:8082)
-
-### installation details
-
-- [docker](<./docs/Install Docker.md>)
-- [install from sources/dev setup](<./docs/Install Dev.md>)
-- [installing extra plugins](<./docs/Install Dev.md/#-installing-extra-plugins>)
 
 ### environment variables
 
@@ -142,13 +142,3 @@ acts only on `my_operation`: creates/recreates operation, deletes all related da
 ~~~bash
 gulp --create my_operation
 ~~~
-
-## clients
-
-### web UI
-
-get it [here](https://github.com/mentat-is/gulpui-web) !
-
-## test
-
-[read here](./docs/Testing%20Plugins.md)

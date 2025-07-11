@@ -10,18 +10,19 @@
 - [architecture](#architecture)
   - [plugin internals](#plugin-internals)
     - [ingestion plugins](#ingestion-plugins)
-    - [external plugins](#external-plugins)
-    - [extension plugins](#extension-plugins)
     - [enrichment plugins](#enrichment-plugins)
-  - [mapping files](#mapping-files)
-    - [mapping files load order](#mapping-files-load-order)
-    - [context and source](#context-and-source)
-    - [example](#example)
+    - [external plugins](#external-plugins)
+      - [call external plugins](#call-external-plugins)
+    - [extension plugins](#extension-plugins)
   - [stacked plugins](#stacked-plugins)
-    - [flow](#flow)
-  - [extension plugins](#extension-plugins-1)
-- [addendum](#addendum)
-  - [external plugins](#external-plugins-1)
+    - [flow in stacked plugins](#flow-in-stacked-plugins)
+- [mapping 101](#mapping-101)
+  - [mapping files](#mapping-files)
+    - [select a mapping](#select-a-mapping)
+    - [mapping files load order](#mapping-files-load-order)
+  - [advanced mapping](#advanced-mapping)
+    - [context and source](#context-and-source)
+  - [mapping file example](#mapping-file-example)
 
 # plugins
 
@@ -118,7 +119,7 @@ then, different methods may be implemented:
 - `ingest_raw`: may be implemented in `ingestion` plugins to allow ingestion of `raw` data, which the plugin turns into proper `GulpDocuments`
   - this is currently used only by the [raw](../src/gulp/plugins/raw.py) plugin.
 
-- `query_external`: implemented by `external` plugins, queries (and possibly ingest from, at the same time) an external source.
+- `query_external`: implemented by `external` plugins, queries and ingest from an external source.
   - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
   - `GulpQueryExternalParameters` holds parameters to query the external source, including the `plugin` and `GulpPluginParameters` to be used.
 
@@ -153,21 +154,17 @@ the plugins must implement:
 
 - for `ingestion` plugins:
   - format parser to extract single records.
+- for `enrichment` plugins:
+  - the logic to enrich one or more documents
 - for `external` plugins:
   - the logic to connect to the external server.
   - query conversion
   - record format conversion
-- for `enrichment` plugins:
-  - the logic to enrich a set of documents
 - for `extension` plugins, they may install additional `API routes` during gulp initialization.
 
 ### ingestion plugins
 
-ingestion plugins must implement `ingest_file` and/or `ingest_raw` (the ingestion entrypoints).
-
-optionally, `ingestion` plugins may implement:
-
-- `_enrich_documents_chunk` to perform enrichment before storing each chunk in gulp's Opensearch.
+`ingestion` plugins must implement `ingest_file` and/or `ingest_raw` (the ingestion entrypoints).
 
 this is how the data flows through an `ingestion plugin` when ingesting into gulp through `ingest_file` API.
 
@@ -178,13 +175,12 @@ sequenceDiagram
     participant Plugin as Plugin
     participant Parser as Format parser
     participant Mapper as Field Mapper
-    participant Enrich as Enrichment
 
     Engine->>Plugin: ingest_file(file_path)
     Plugin->>Base: super().ingest_file()
     Base-->>Plugin: Initialize state
     Plugin->>Base: _initialize()
-    Base-->>Plugin: Load windows.json mappings
+    Base-->>Plugin: Load mappings
 
     Plugin->>Parser: Initialize source file parser
 
@@ -199,13 +195,10 @@ sequenceDiagram
             Mapper-->>Plugin: Return mapped fields
         end
 
-        Plugin->>Plugin: _map_evt_code()
         Plugin->>Base: process_record()
         Base->>Base: Buffer records
         opt When buffer full
             Base->>Base: _flush_buffer()
-            Base-->>Enrich: _enrich_documents_chunk(), if implemented
-            Enrich-->>Base: Return enriched documents
             Base->>Base: _ingest_chunk_and_or_send_to_ws()
             Base-->>Engine: Stream to websocket
             Base-->>Engine: Ingest to OpenSearch
@@ -216,9 +209,43 @@ sequenceDiagram
     Base-->>Engine: Send completion status
 ~~~
 
+### enrichment plugins
+
+enrichment plugins takes one or more `GulpDocuments` and returns them augmented with extra data: they are meant to work on data already stored in gulp's Opensearch.
+
+they must implement `enrich_documents`, `enrich_single_documents` and `_enrich_documents_chunk`.
+
+[here is a basic example](../src/gulp/plugins/enrich_example.py).
+
+> a plugin may support both `enrichment` and `ingestion` by declaring its `type` as `[GulpPluginType.INGESTION, GulpPluginType.ENRICH]` and implement both types entrypoints.
+
+here is the illustrated data flow for the [enrich_whois plugin](../src/gulp/plugins/enrich_whois.py), which enriches gulp data with whois information.
+
+```mermaid
+sequenceDiagram
+    participant Engine as Gulp Engine
+    participant Plugin as enrich_whois Plugin
+    participant WHOIS as WHOIS Service
+
+    Engine->>Plugin: enrich_documents(docs, params)
+    Plugin->>Plugin: extract host fields from docs
+    loop For each entity (IP/hostname)
+        Plugin->>Plugin: check cache for WHOIS data
+        alt Not in cache
+            Plugin->>WHOIS: perform WHOIS lookup
+            WHOIS-->>Plugin: return WHOIS info
+            Plugin->>Plugin: cache WHOIS result
+        else In cache
+            Plugin->>Plugin: use cached WHOIS info
+        end
+        Plugin->>Plugin: enrich document with WHOIS data
+    end
+    Plugin-->>Engine: return enriched documents
+```
+
 ### external plugins
 
-this is how the data flows through an `external plugin` when querying (and possibly ingesting from) an external source.
+this is how the data flows through an `external plugin` when querying and ingesting from an external source.
 
 ~~~mermaid
 sequenceDiagram
@@ -242,16 +269,30 @@ sequenceDiagram
         Base->>Base: Buffer records
         Base->>Base: _ingest_chunk_and_or_send_to_ws()
         Base-->>Engine: Stream to websocket
-        opt If ingestion enabled
-            Base-->>Engine: Ingest to OpenSearch
-        end
+        Base-->>Engine: Ingest to OpenSearch        
     end
 
     Plugin->>Base: _source_done()
     Base-->>Engine: Send completion status
 ~~~
 
+#### call external plugins
+
+to query an external source with an `external plugin`, a client uses the `query_external` API:
+
+1. specify the `plugin` to be used (must implement `query_external`)
+2. pass the specific `GulpPluginParameters.custom_parameters`, which may include i.e. `uri`, `username`, `password` to allow the plugin to connect to the external source
+3. pass the `q` parameter, which is the query in the `external specific DSL(Domain Specific Language) format`.
+4. optionally pass the `q_options` parameter, which controls how the query is performed (*not all parameters may be supported by the plugin*)
+
+> look at [test_elasticsearch](../tests/query.py) in the query tests for an example usage
+
+
 ### extension plugins
+
+extensions plugins starts with gulp and mostly runs **in the main process context** (but may use gulp workers as well).
+
+they may be used to extend gulp API, i.e. implement new sign-in code, ...
 
 > this is [just an example](../src/gulp/plugins/extension/example.py) which adds a REST API entrypoint and runs sample code in a worker when the API is called.
 
@@ -286,19 +327,43 @@ sequenceDiagram
     Plugin-->>App: Return JSendResponse
 ~~~
 
-### enrichment plugins
+## stacked plugins
 
-enrichment plugins takes one or more `GulpDocuments` and returns them augmented with extra data.
+plugins may be stacked one on top of the another, as a `lower` and `higher` plugin: the idea is the `higher` plugin has access to the data processed by `lower` and can process it further.
 
-they must implement `enrich_documents`, `enrich_single_documents` and `_enrich_documents_chunk`.
+stacked plugins are usually based on generic *ingestion* plugins such as [csv](../src/gulp/plugins/csv) or [sqlite](../src/gulp/plugins/sqlite.py)
 
-> a plugin may support both `enrichment` and `ingestion` by declaring its `type` as `[GulpPluginType.INGESTION, GulpPluginType.ENRICH]` and implement both types entrypoints.
+An example of a basic extension plugin is [stacked_example](../src/gulp/plugins/stacked_example.py), or for a real one you may look at [chrome_history](../src/gulp/plugins/chrome_history_sqlite_stacked.py) which sits on top of the [sqlite](../src/gulp/plugins/sqlite.py) plugin.
 
-a preliminary example is [here](../src/gulp/plugins/enrich_example.py).
+### flow in stacked plugins
 
-## mapping files
+stacking is handled by the engine, which basically does this `for every record` being processed in the source document:
+
+- calls plugin's own `_record_to_gulp_document`
+- if there is a plugin stacked on top, calls its `_record_to_gulp_document` with the `GulpDocument` returned as `dict`.
+- if the stacked plugin also implements `_enrich_documents_chunk`, this is called with each chunk of documents`right before` storing into gulp.
+
+```mermaid
+flowchart TD
+    A(Log file) -->|parsed by| B[Base plugin]
+    B --> |Generates GulpDocument| C[Stacked plugin]
+    C --> |Modifies GulpDocument.model_dump| D(Ingest events)
+```
+
+so, basically, as every other plugin they must implement `_record_to_gulp_document`, but instead of a `GulpDocument` object they receives (and returns) `record` as its `dict` representation: here they can postprocess the record (i.e. change/add/delete fields).
+
+- they must call `setup_stacked_plugin(lower_plugin)` in their `ingest_file`, `ingest_raw`, `query_external` entrypoints (depending on where it is needed)
+
+- some plugins may want to bypass the engine and call lower's `_record_to_gulp_document` by itself: so, they must use `load_plugin` instead of `setup_stacked_pugin` in their initialization: for an example of this, look at the [mbox](../src/gulp/plugins/mbox.py) which sits on top of the [eml](../src/gulp/plugins/eml.py) plugin.
+
+
+# mapping 101
 
 `ingestion` and `external` plugins both support mapping files through [GulpPluginParameters](../src/gulp/structs.py), to customize mapping for both ingested documents and/or documents returned from an `external` query.
+
+mapping can be done both through `mapping files` and/or via direct definition of the mappings in the [GulpPluginParameters](../src/gulp/structs.py) structure.
+
+## mapping files
 
 a mapping file basically instructs a plugin how to parse fields from the log, using a simplified `json` stucture.
 
@@ -312,11 +377,91 @@ remember, the more standardized the logs we collect are, the easier it will be t
 
 > [Mapping files](../src/gulp/mapping_files/) are extremely useful when using a base plugin such as the `csv`, `sqlite` or `regex` plugins: just with a mapping file, one may i.e. use the `csv` plugin to parse a log without creating a full python plugin!
 
+### select a mapping
+
+when a plugin parses the input data, it needs to know which mapping to select, since a mapping file may contain more than one `GulpMapping`, i.e. the mapping file for [mtfecmd](../src/gulp/mapping_files/mftecmd_csv.json) to be used with the [csv](../src/gulp/plugins/csv.py)plugin.
+
+this is done via [GulpPluginParameter.mapping_id](../src/gulp/structs.py), which tells the plugin to use `mapping_id` as the key in the (possibly multiple) [GulpMapping](../src/gulp/api/mapping/models.py) defined in the file (or in `mappings` directly, as we will see in the next section...).
+
+> if no `mapping_id` is provided, the first mapping found in the specified mapping is used.
+
 ### mapping files load order
 
 mapping files load order follows the same rules as [plugins](#loading-plugins):
 
 if an `extra` mapping directory is defined (either via environment `PATH_MAPPING_FILES_EXTRA` or `path_maping_files_extra` in the configuration file), mapping files are first searched there before the main mapping files directory `$GULPDIR/src/gulp/mapping_files`.
+
+## advanced mapping
+
+sometimes, it may be useful to directly specify the mappings when calling a plugin (i.e. to extend the mapping provided via a `mapping file` with further definitions): this may be done via [GulpPluginParameters.mapping_parameters](../src/gulp/structs.py), which allows you to also specify `mappings`, `additional_mapping_files`, `additional_mappings`.
+
+- **mappings**: this simply allows to load the mappings from the defined [dict[str, GulpMapping]](../src/gulp/structs.py) instead than from `mapping_file`, which will be ignored if specified.
+  `mapping_id` behaviour applies the same as described above for `mapping_file`.
+
+- **additional_mapping_files**: this allows to specify a list of tuples `(mapping_file,mapping_id)`, i.e. `[("windows.json", "windows")]` to extend the mapping obtained via `mapping_file` or `mappings`.
+  one or more [GulpMapping](../src/gulp/api/mapping/models.py) to be used are choosen from each `tuple.mapping_file`,`tuple.mapping_id` in the given list and **merged with the mappings already selected by the engine via `GulpMappingParameters.mapping_file` or `ulpMappingParameters.mappings`.
+
+-  **additional_mappings**: same as for `additional_mapping_files` but specifies the mappings directly without using files.
+
+example setup of [GulpPluginParameters](../src/gulp/structs.py) for an advanced mapping:
+
+```python
+async def test_splunk(use_full_set: bool = False, ingest_only: bool = False):
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    # set plugin parameters
+    plugin_params: GulpPluginParameters = GulpPluginParameters()
+    plugin_params.custom_parameters["uri"] = "http://localhost:8089"
+    plugin_params.custom_parameters["username"] = "admin"
+    plugin_params.custom_parameters["password"] = "password"
+    plugin_params.custom_parameters["index"] = SPLUNK_INDEX
+    plugin_params.override_chunk_size = 200
+
+    # add additional windows mapping
+    plugin_params.mapping_parameters.additional_mapping_files = [
+        ("windows.json", "windows")
+    ]
+
+    # and some custom mappings for this incident only
+    additional_mappings: dict = {
+        "custom": GulpMapping(
+            fields={
+                "Porta_di_destinazione": GulpMappingField(
+                    ecs="destination.port", force_type="int"
+                ),
+                "Porta_di_origine": GulpMappingField(
+                    ecs="source.port", force_type="int"
+                ),
+                "Nome_applicazione": GulpMappingField(ecs="process.name"),
+                "Indirizzo_di_destinazione": GulpMappingField(ecs="destination.ip"),
+                "Indirizzo_di_origine": GulpMappingField(ecs="source.ip"),
+                "EventCode": GulpMappingField(ecs="event.code"),
+                "ID_processo": GulpMappingField(ecs="process.pid", force_type="int"),
+            }
+        )
+    }
+    plugin_params.mapping_parameters.additional_mappings = additional_mappings
+
+    # this is the query
+    q = 'sourcetype="WinEventLog:Security" Nome_applicazione="blabla.exe"'
+
+    # test ingest preview
+    q_options: GulpQueryParameters = GulpQueryParameters()
+    q_options.preview_mode = True
+    preview: dict = await GulpAPIQuery.query_external(
+        guest_token,
+        TEST_OPERATION_ID,
+        q=[q],
+        plugin=SPLUNK_PLUGIN,
+        plugin_params=plugin_params,
+        q_options=q_options,
+    )
+    total_hits = preview["total_hits"]
+    len_data = len(preview["docs"])
+    assert total_hits == 10
+    assert len_data == 10
+```
 
 ### context and source
 
@@ -326,9 +471,9 @@ when performing ingestion via external plugins (or using the `ingest_raw` or `ws
 
 when using the `ingest_file` API this is usually not needed, since you pass `context` and `source` as parameters (`source` is derived from the filename): anyway, overriding with mappings is possible there as well if needed, i.e. when having a file which have the context/source information internally.
 
-### example
+## mapping file example
 
-Here's a commented example, further details in the [model definition source](../src/gulp/api/mapping/models.py)
+Here's a commented example mapping file, further details in the [model definition source](../src/gulp/api/mapping/models.py)
 
 ```json
 {
@@ -459,53 +604,3 @@ Here's a commented example, further details in the [model definition source](../
   }
 }
 ```
-
-## stacked plugins
-
-plugins may be stacked one on top of the another, as a `lower` and `higher` plugin: the idea is the `higher` plugin has access to the data processed by `lower` and can process it further.
-
-Stacked plugins are usually based on generic python *ingestion* plugins such as `csv`, `sqlite`.
-
-An example of a basic extension plugin is [stacked_example](../src/gulp/plugins/stacked_example.py), or for a real one you may look at [chrome_history](../src/gulp/plugins/chrome_history_sqlite_stacked.py) which sits on top of the [sqlite](../src/gulp/plugins/sqlite.py) plugin.
-
-### flow
-
-stacking is handled by the engine, which basically does this `for every record` being processed in the source document:
-
-- calls plugin's own `_record_to_gulp_document`
-- if there is a plugin stacked on top, calls its `_record_to_gulp_document` with the `GulpDocument` returned as `dict`.
-- if the stacked plugin also implements `_enrich_documents_chunk`, this is called with each chunk of documents`right before` storing into gulp.
-
-```mermaid
-flowchart TD
-    A(Log file) -->|parsed by| B[Base plugin]
-    B --> |Generates GulpDocument| C[Stacked plugin]
-    C --> |Modifies GulpDocument.model_dump| D(Ingest events)
-```
-
-so, basically, as every other plugin they must implement `_record_to_gulp_document`, but instead of a `GulpDocument` object they receives (and returns) `record` as its `dict` representation: here they can postprocess the record (i.e. change/add/delete fields).
-
-- they must call `setup_stacked_plugin(lower_plugin)` in their `ingest_file`, `ingest_raw`, `query_external` entrypoints (depending on where it is needed)
-
-- some plugins may want to bypass the engine and call lower's `_record_to_gulp_document` by itself: so, they must use `load_plugin` instead of `setup_stacked_pugin` in their initialization: for an example of this, look at the [mbox](../src/gulp/plugins/mbox.py) which sits on top of the [eml](../src/gulp/plugins/eml.py) plugin.
-
-## extension plugins
-
-extensions plugins starts with gulp and mostly runs **in the main process context**, even if it is supported to spwan them across worker processes.
-
-they may be used to extend gulp API, i.e. implement new sign-in code, ...
-
-# addendum
-
-## external plugins
-
-to query an external source with an `external plugin`, we use the `query_external` API:
-
-1. specify the `plugin` to be used (must implement `query_external`)
-2. pass the specific `GulpPluginParameters.custom_parameters`, which may include i.e. `uri`, `username`, `password` to allow the plugin to connect to the external source
-3. pass the `q` parameter, which is the query in the `external specific DSL(Domain Specific Language) format`.
-4. optionally pass the `q_options` parameter, which controls how the query is performed (*not all parameters may be supported by the plugin*)
-5. optionally pass `ingest=True` to ingest data into gulp while querying.
-
-> look at [test_elasticsearch](../tests/query.py) in the query tests for an example usage
-

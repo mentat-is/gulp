@@ -61,6 +61,7 @@ class GulpAPIParameter(BaseModel):
         None, description="an example value for the parameter, if any."
     )
 
+
 class GulpAPIMethod(BaseModel):
     """
     describes a Gulp API method.
@@ -100,7 +101,11 @@ class GulpMappingParameters(BaseModel):
     )
     mapping_file: Optional[str] = Field(
         None,
-        description="mapping file name in the mapping files directory (main or extra) to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).",
+        description="""
+mapping file name in the mapping files directory (main or extra) to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).
+
+- `mappings` is ignored if this is set.
+""",
     )
     mapping_id: Optional[str] = Field(
         None,
@@ -110,7 +115,8 @@ class GulpMappingParameters(BaseModel):
         None,
         description="""
 used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping } to use directly.
-- `mapping_file` and `additional_mapping_files` are ignored if this is set.
+
+- `mapping_file` is ignored if this is set.
 """,
     )
     additional_mapping_files: Optional[list[tuple[str, str]]] = Field(
@@ -119,8 +125,6 @@ used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping }
 if this is set, it allows to specify further mappings from other mapping files.
 
 each tuple is defined as (other_mapping_file, mapping_id): each `mapping_id` from `other_mapping_file` will be loaded and merged to the mappings identified by `mapping_id` selected during parsing of the **main** `mapping_file`.
-
-- ignored if `mappings` is set.
 """,
     )
     additional_mappings: Optional[dict[str, GulpMapping]] = Field(
@@ -129,13 +133,12 @@ each tuple is defined as (other_mapping_file, mapping_id): each `mapping_id` fro
         same as `additional_mapping_files`, but used to pass additional mappings as a dictionary of { mapping_id: GulpMapping }.
 
         each `mapping_id` GulpMapping defined will be merged to the mappings identified by `mapping_id` selected during parsing of the **main** `mapping_file`.
-
-        - ignored if `mappings` is set.
         """,
     )
+    # NOTE: should this be exposed to the query api ?
     sigma_mappings: Optional[GulpSigmaMapping] = Field(
         None,
-        description="if set, rules to map sigma rules `logsource`, in reference to the mapping expressed by mapping_file/mappings/additional_mapping_files.",
+        description="internal use only with sigma queries: if set, rules to map sigma rules `logsource`, in reference to the stored mapping for the given source.",
     )
 
     def is_empty(self) -> bool:
@@ -236,7 +239,7 @@ class GulpPluginCustomParameter(GulpAPIParameter):
                     "required": True,
                 }
             ]
-        }
+        },
     )
 
 
