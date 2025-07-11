@@ -45,8 +45,8 @@ Gulp is a powerful software tool designed to streamline incident response and an
 ## installation
 
 - [docker](<./docs/install_docker.md>)
-- [install from sources/dev setup](<./docs/instal_dev.md>)
-- [installing extra plugins](<./docs/install_dev.md/#-installing-extra-plugins>)
+- [install from sources/dev setup](./docs/instal_dev.md)
+- [installing extra plugins](./docs/install_dev.md#7-optional-installing-extra-plugins)
 
 ### clients
 
