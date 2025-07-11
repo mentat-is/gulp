@@ -716,6 +716,8 @@ async def query_raw_handler(
         Body(
             description="""
 one or more queries according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
+
+- each query in `q` is run in a task in one of the worker processes, unless `preview_mode` is set.
 """,
             examples=[[EXAMPLE_QUERY_RAW], [{"query": {"match_all": {}}}]],
         ),
@@ -961,6 +963,7 @@ query an external source using the target source query language, ingesting data 
 - `plugin_params.custom_parameters` must include all the parameters needed to connect to the external source.
 - token must have `ingest` permission (unless `q_options.preview_mode` is set).
 - if `q_options.preview_mode` is set, this API only accepts a single query in the `q` array and the data is returned directly without using the websocket.
+- each query in `q` is run in a task in one of the worker processes, unless `preview_mode` is set.
 """,
 )
 async def query_external_handler(

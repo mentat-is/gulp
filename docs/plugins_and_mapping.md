@@ -167,7 +167,7 @@ the plugins must implement:
 
 `ingest_file`, `ingest_raw`, `query_external` are guaranteed to be called in a task running in a *worker process*, so each operation will run in parallel, unless (for `ingest_file` and `query_external`) `preview_mode` is set.
 
-> gulp spawns different worker processes at startup (controlled by `parallel_processes_max` in the configuration) to maximize the usage of available cores, using both `multiprocessing` and `asyncio` to run lenghty operations `concurrently` and in `parallel` as much as possible.
+> gulp spawns different worker processes at startup (controlled by `parallel_processes_max` in the configuration) to maximize the usage of available cores, using both `multiprocessing` and `asyncio` to run lenghty operations (queries, ingestion) `concurrently` and in `parallel` as much as possible.
 
 ### ingestion plugins
 
