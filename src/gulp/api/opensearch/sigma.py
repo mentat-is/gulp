@@ -142,6 +142,7 @@ async def sigmas_to_queries(
         tags (list[str], optional): list of tags to check. Defaults to None.
         paths (bool, optional): if True, sigmas are paths to files (will be read). Defaults to False.
         req_id (str, optional): the request id. Defaults to None.
+        ws_id (str, optional): the websocket id. Defaults to None.
     Returns:
         list[GulpQuery]: the list of GulpQuery objects
     """
@@ -181,6 +182,9 @@ async def sigmas_to_queries(
     mapping_params_cache: dict[str, GulpMappingParameters] = {}
     sigma_mappings_cache: dict[str, dict[str, GulpSigmaMapping]] = {}
 
+    # optimization: group sources by their mapping parameters to reduce redundant conversions
+    mapping_groups: dict[str, list[str]] = {}  # mapping_key -> list of src_ids
+
     for src_id in src_ids:
         mp = mp_by_source_id[src_id] or {}
         mapping_parameters = GulpMappingParameters.model_validate(mp)
@@ -189,6 +193,12 @@ async def sigmas_to_queries(
         # preload sigma mappings for this source
         sigma_mappings = await get_sigma_mappings(mapping_parameters)
         sigma_mappings_cache[src_id] = sigma_mappings
+
+        # create a unique key for this mapping configuration
+        mapping_key = _create_mapping_key(mapping_parameters)
+        if mapping_key not in mapping_groups:
+            mapping_groups[mapping_key] = []
+        mapping_groups[mapping_key].append(src_id)
 
     # optimization: batch file reading for path mode
     rule_contents: list[str] = []
@@ -212,6 +222,11 @@ async def sigmas_to_queries(
     used: int = 0
     generated_q: int = 0
     total: int = len(sigmas)
+
+    # optimization: cache base conversions per mapping configuration
+    base_conversion_cache: dict[str, dict[str, list["GulpQuery"]]] = (
+        {}
+    )  # mapping_key -> rule_content -> base_queries
 
     for idx, rule_content in enumerate(rule_contents):
         if count % 100 == 0 and req_id:
@@ -239,8 +254,8 @@ async def sigmas_to_queries(
                 )
 
             print("processed %d sigma rules, total=%d, used=%d" % (count, total, used))
-        
-        count+=1
+
+        count += 1
 
         # skip invalid files in path mode
         if paths and rule_content is None:
@@ -261,37 +276,68 @@ async def sigmas_to_queries(
 
         used += 1
 
-        # optimization: use cached mapping parameters and sigma mappings
-        for src_id in src_ids:
-            mapping_parameters = mapping_params_cache[src_id]
-            mapping_parameters.sigma_mappings = sigma_mappings_cache[src_id]
+        # optimization: process each unique mapping configuration only once
+        for mapping_key, source_ids in mapping_groups.items():
+            # get a representative source for this mapping group
+            representative_src_id = source_ids[0]
+            mapping_parameters = mapping_params_cache[representative_src_id]
+            mapping_parameters.sigma_mappings = sigma_mappings_cache[
+                representative_src_id
+            ]
 
-            # if we have mappings AND rule have service names set, we check if the rule is for this source.
-            # either, the rule will be always used.
+            # check if we need to process this mapping for this rule
             if mapping_parameters.sigma_mappings and sigma_service_names:
-                # check if this sigma rule is for this source
+                # check if this sigma rule is for this mapping group
                 service_match_found: bool = False
                 for service_name in sigma_service_names:
                     if service_name in mapping_parameters.sigma_mappings:
                         service_match_found = True
                         break
                 if not service_match_found:
-                    # this sigma rule is not for this source
+                    # this sigma rule is not for this mapping group
                     continue
 
-            use_sigma_mappings = True
-            if not sigma_service_names:
-                # no service names found in the rule, we don't need to use sigma mappings
-                use_sigma_mappings = False
+            # check cache for base conversion
+            if mapping_key not in base_conversion_cache:
+                base_conversion_cache[mapping_key] = {}
 
-            try:
-                q: list[GulpQuery] = await sigma_convert_default(
-                    rule_content,
-                    mapping_parameters,
-                    use_sigma_mappings=use_sigma_mappings,
-                    sigma_service_names=sigma_service_names,
-                )
-                for qq in q:
+            if rule_content not in base_conversion_cache[mapping_key]:
+                # perform base conversion only once per mapping configuration
+                use_sigma_mappings = True
+                if not sigma_service_names:
+                    # no service names found in the rule, we don't need to use sigma mappings
+                    use_sigma_mappings = False
+
+                try:
+                    base_queries: list[GulpQuery] = await sigma_convert_default(
+                        rule_content,
+                        mapping_parameters,
+                        use_sigma_mappings=use_sigma_mappings,
+                        sigma_service_names=sigma_service_names,
+                    )
+                    base_conversion_cache[mapping_key][rule_content] = base_queries
+                except Exception as ex:
+                    # error converting sigma
+                    MutyLogger.get_instance().error(
+                        "%s, rule:\n%s"
+                        % (
+                            str(ex),
+                            muty.string.make_shorter(rule_content, max_len=100),
+                        ),
+                    )
+                    base_conversion_cache[mapping_key][rule_content] = []
+                    continue
+
+            # get cached base queries
+            base_queries = base_conversion_cache[mapping_key][rule_content]
+
+            # optimization: apply source-specific modifications to cached queries
+            for src_id in source_ids:
+                for base_q in base_queries:
+                    # create a deep copy of the base query
+                    import copy
+
+                    qq = copy.deepcopy(base_q)
                     q_dict: dict = qq.q
 
                     # tie this query to the source id
@@ -310,26 +356,13 @@ async def sigmas_to_queries(
                         }
                     }
                     qq.q = new_q
-
-                queries.extend(q)
-                generated_q += len(q)
-
-            except Exception as ex:
-                # error converting sigma
-                # MutyLogger.get_instance().exception(
-                #     "ERROR converting sigma rule:\n%s", rule_content
-                # )
-                MutyLogger.get_instance().error(
-                    "%s, rule:\n%s"
-                    % (str(ex), muty.string.make_shorter(rule_content,max_len=100)),
-                )
+                    queries.append(qq)
+                    generated_q += 1
 
     # log the number of queries generated
     print(
-        "******* converted sigma rules (total=%d, used=%d) to %d GulpQuery objects *******" % (
-        total,
-        used,
-        len(queries))
+        "******* converted sigma rules (total=%d, used=%d) to %d GulpQuery objects *******"
+        % (total, used, len(queries))
     )
 
     if ws_id and req_id:
@@ -367,6 +400,46 @@ async def sigmas_to_queries(
         dbg_count += 1
 
     return queries
+
+
+def _create_mapping_key(mapping_parameters: GulpMappingParameters) -> str:
+    """
+    create a unique key for mapping parameters to group sources with identical configurations.
+
+    Args:
+        mapping_parameters (GulpMappingParameters): the mapping parameters
+
+    Returns:
+        str: unique key representing the mapping configuration
+    """
+    import hashlib
+
+    # create a deterministic representation of the mapping parameters
+    key_components = []
+
+    if mapping_parameters.mapping_file:
+        key_components.append(f"mapping_file:{mapping_parameters.mapping_file}")
+
+    if mapping_parameters.additional_mapping_files:
+        sorted_files = sorted(
+            [f[0] for f in mapping_parameters.additional_mapping_files]
+        )
+        key_components.append(f"additional_files:{','.join(sorted_files)}")
+
+    if mapping_parameters.sigma_mappings:
+        # create a deterministic representation of sigma mappings
+        sigma_keys = sorted(mapping_parameters.sigma_mappings.keys())
+        sigma_repr = []
+        for key in sigma_keys:
+            mapping = mapping_parameters.sigma_mappings[key]
+            sigma_repr.append(
+                f"{key}:{mapping.service_field}:{','.join(sorted(mapping.service_values or []))}"
+            )
+        key_components.append(f"sigma_mappings:{';'.join(sigma_repr)}")
+
+    # create hash of the combined components
+    key_string = "|".join(key_components)
+    return hashlib.md5(key_string.encode()).hexdigest()
 
 
 def use_this_sigma(

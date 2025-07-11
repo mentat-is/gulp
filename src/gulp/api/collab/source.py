@@ -50,27 +50,26 @@ class GulpSource(GulpCollabBase, type=COLLABTYPE_SOURCE):
         doc="mapping used for ingestion.",
     )
 
+    @classmethod
+    async def get_by_ids(
+        cls, sess: AsyncSession, source_ids: list[str]
+    ) -> list["GulpSource"]:
+        """
+        get sources by a list of ids in a single database query
 
-@classmethod
-async def get_by_ids(
-    cls, sess: AsyncSession, source_ids: list[str]
-) -> list["GulpSource"]:
-    """
-    get sources by a list of ids in a single database query
+        Args:
+            sess (AsyncSession): the database session
+            source_ids (list[str]): list of source ids
 
-    Args:
-        sess (AsyncSession): the database session
-        source_ids (list[str]): list of source ids
+        Returns:
+            list[GulpSource]: list of sources (may contain None for not found sources)
+        """
+        stmt = select(cls).where(cls.id.in_(source_ids))
+        result = await sess.execute(stmt)
+        sources = result.scalars().all()
 
-    Returns:
-        list[GulpSource]: list of sources (may contain None for not found sources)
-    """
-    stmt = select(cls).where(cls.id.in_(source_ids))
-    result = await sess.execute(stmt)
-    sources = result.scalars().all()
+        # create a mapping for fast lookup
+        source_map = {s.id: s for s in sources}
 
-    # create a mapping for fast lookup
-    source_map = {s.id: s for s in sources}
-
-    # return sources in the same order as requested, with None for missing ones
-    return [source_map.get(src_id) for src_id in source_ids]
+        # return sources in the same order as requested, with None for missing ones
+        return [source_map.get(src_id) for src_id in source_ids]
