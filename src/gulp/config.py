@@ -138,10 +138,16 @@ class GulpConfig:
             )
             muty.file.copy_file(src, config_file_path)
             os.chmod(config_file_path, 0o0600)
-            print("****** PID=%d, NO CONFIGURATION FILE FOUND, creating default configuration %s from template ******" % (os.getpid(), config_file_path))
+            print(
+                "****** PID=%d, NO CONFIGURATION FILE FOUND, creating default configuration %s from template ******"
+                % (os.getpid(), config_file_path)
+            )
 
         # read
-        print("******  PID=%d, reading configuration file: %s ******" % (os.getpid(), config_file_path))
+        print(
+            "******  PID=%d, reading configuration file: %s ******"
+            % (os.getpid(), config_file_path)
+        )
 
         with open(config_file_path, "rb") as f:
             js = f.read()
@@ -161,6 +167,7 @@ class GulpConfig:
             # ensure extra plugins path exists
             ui_plugins_path = muty.file.safe_path_join(extra_path, "ui")
             os.makedirs(ui_plugins_path, exist_ok=True)
+
     def set_config(self, config: dict):
         """
         Sets the configuration dictionary.
@@ -219,7 +226,7 @@ class GulpConfig:
         Returns the default ignore_above value for dynamic keyword fields in the index template (default=not specified, use default).
         """
         return self._config.get("index_dynamic_keyword_ignore_above", None)
-    
+
     def index_template_default_total_fields_limit(self) -> int:
         """
         Returns the default total fields limit for the index template (default=10000).
@@ -267,7 +274,7 @@ class GulpConfig:
             # create if not exist
             os.makedirs(n, exist_ok=True)
         return n
-    
+
     def ingestion_retry_max(self) -> int:
         """
         Returns the maximum number of retries for ingestion.
@@ -520,10 +527,11 @@ class GulpConfig:
         Returns the number of tasks to spawn before respawning a process.
         if not set, 10 will be used.
         """
-        n = self._config.get("parallel_processes_respawn_after_tasks", 10)
-        if n == 0:
+        n = self._config.get("parallel_processes_respawn_after_tasks", 100)
+        if n < 100:
             MutyLogger.get_instance().warning(
-                "parallel_processes_respawn_after_tasks=0, may cause leaks after some time!"
+                "parallel_processes_respawn_after_tasks n=%d too low, set to 100 (minimum)"
+                % (n)
             )
         return n
 
@@ -721,11 +729,13 @@ class GulpConfig:
 
         if n > 50:
             MutyLogger.get_instance().warning(
-                "!!!WARNING!!! query_history_max_size value too big (%d), set to max(50)!" % (n)
+                "!!!WARNING!!! query_history_max_size value too big (%d), set to max(50)!"
+                % (n)
             )
-            n=50
+            n = 50
 
         return n
+
     def aggregation_max_buckets(self) -> int:
         """
         Returns the maximum number of buckets to return for aggregations (default: 999).
