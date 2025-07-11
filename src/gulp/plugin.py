@@ -1040,9 +1040,9 @@ class GulpPluginBase(ABC):
         **kwargs,
     ) -> tuple[int, int, str] | tuple[int, list[dict]]:
         """
-        query an external source and stream results, converted to gulpdocument dictionaries, to the websocket.
+        query an external source, convert results to gulpdocument dictionaries, ingest them and stream them to the websocket.
 
-        optionally ingest them.
+        NOTE: this is guaranteed to be called by the gulp API in a worker process, unless preview_mode is set in **kwargs.
 
         Args:
             sess (AsyncSession): The database session.
@@ -1119,6 +1119,7 @@ class GulpPluginBase(ABC):
         - it is the responsibility of the plugin to process the chunk and convert it to GulpDocuments ready to be ingested
         - it is the responsibility of the plugin to create context and source, i.e. from each document data.
 
+        NOTE: guaranteed to be called by the engine in a worker process.
         NOTE: to ingest pre-processed GulpDocuments, use the raw plugin which implements ingest_raw.
 
         Args:
@@ -1246,6 +1247,8 @@ class GulpPluginBase(ABC):
         to be implemented in a plugin to enrich a chunk of GulpDocuments dictionaries on-demand.
 
         the resulting documents will be streamed to the websocket `ws_id` as GulpDocumentsChunkPacket.
+
+        NOTE: this is guaranteed to be called by the gulp API in a worker process
 
         Args:
             sess (AsyncSession): The database session.
@@ -1380,6 +1383,8 @@ class GulpPluginBase(ABC):
     ) -> GulpRequestStatus:
         """
         ingests a file containing records in the plugin specific format.
+
+        NOTE: this is guaranteed to be called by the gulp API in a worker process, unless preview_mode is set in **kwargs.
 
         Args:
             sess (AsyncSession): The database session.
