@@ -231,14 +231,30 @@ async def sigmas_to_queries(
     Returns:
         list[GulpQuery]: the list of GulpQuery objects
     """
+    srcs: list[GulpSource] = []
     if not src_ids:
         # get all source ids, if not provided
         srcs = await GulpSource.get_by_filter(sess, user_id=user_id)
-        src_ids = [s.id for s in srcs]
         MutyLogger.get_instance().warning(
             "using all sources for user %s: %s", user_id, src_ids
         )
+    else:
+        # use specified
+        for src_id in src_ids:
+            src: GulpSource = await GulpSource.get_by_id(sess, src_id)
+            if not src:
+                MutyLogger.get_instance().warning(
+                    "source %s not found for user %s, skipping", src_id, user_id
+                )
+                continue
+            srcs.append(src)
 
+    # get all source ids and preload a dict with mapping parameters
+    src_ids = [s.id for s in srcs]
+    mp_by_source_id: dict={}
+    for src in srcs:
+        mp_by_source_id[src.id] =  src.mapping_parameters
+        
     # convert sigma rule/s using pysigma
     queries: list[GulpQuery] = []
     count: int = 0
@@ -246,7 +262,7 @@ async def sigmas_to_queries(
     generated_q: int = 0
     total: int = len(sigmas)
     for sigma in sigmas:
-        if count % 50 == 0 and req_id:
+        if count % 100 == 0 and req_id:
             # check if the request is cancelled
             canceled = await GulpRequestStats.is_canceled(sess, req_id)
             if canceled:
@@ -281,24 +297,23 @@ async def sigmas_to_queries(
             continue
 
         used += 1
-        if count % 100 == 0:
-            if ws_id and req_id:
-                # send progress packet to the websocket (this may be a lenghty operation)
-                p = GulpProgressPacket(
-                    total=total,
-                    current=count,
-                    used=used,
-                    generated_q=generated_q,
-                    msg="converting sigma rules...",
-                )
-                wsq = GulpWsSharedQueue.get_instance()
-                await wsq.put(
-                    type=WSDATA_PROGRESS,
-                    ws_id=ws_id,
-                    user_id=user_id,
-                    req_id=req_id,
-                    data=p.model_dump(exclude_none=True),
-                )
+        if count % 100 == 0 and ws_id and req_id:
+            # send progress packet to the websocket (this may be a lenghty operation)
+            p = GulpProgressPacket(
+                total=total,
+                current=count,
+                used=used,
+                generated_q=generated_q,
+                msg="converting sigma rules...",
+            )
+            wsq = GulpWsSharedQueue.get_instance()
+            await wsq.put(
+                type=WSDATA_PROGRESS,
+                ws_id=ws_id,
+                user_id=user_id,
+                req_id=req_id,
+                data=p.model_dump(exclude_none=True),
+            )
 
             MutyLogger.get_instance().debug(
                 "processed %d sigma rules, total=%d, used=%d" % (count, total, used)
@@ -306,8 +321,7 @@ async def sigmas_to_queries(
 
         for src_id in src_ids:
             # for each source, we convert this sigma using mapping specific for this source
-            src: GulpSource = await GulpSource.get_by_id(sess, src_id)
-            mp: dict = src.mapping_parameters or {}
+            mp: dict = mp_by_source_id[src_id] or {}
             mapping_parameters: GulpMappingParameters = (
                 GulpMappingParameters.model_validate(mp)
             )
