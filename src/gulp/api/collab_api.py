@@ -110,6 +110,8 @@ class GulpCollab:
         for _, module_name, _ in pkgutil.iter_modules(package.__path__):
             import_module(f"{package_name}.{module_name}")
 
+        # ensure no engine is already running, either shutdown it before reinit
+        await self.shutdown()
         if main_process:
             MutyLogger.get_instance().debug("init in MAIN process ...")
             if force_recreate:
@@ -117,7 +119,6 @@ class GulpCollab:
                 await GulpCollab.db_drop(url)
                 await GulpCollab.db_create(url)
 
-            await self.shutdown()
             self._engine = await self._create_engine()
             self._collab_sessionmaker = async_sessionmaker(
                 bind=self._engine, expire_on_commit=expire_on_commit
@@ -457,7 +458,7 @@ class GulpCollab:
                 "admin",
                 permission=[GulpUserPermission.ADMIN],
             )
-            
+
             # login admin user
             # admin_session = await GulpUser.login(sess, "admin", "admin", None, None)
 
@@ -516,7 +517,9 @@ class GulpCollab:
             # dump admin user
             MutyLogger.get_instance().debug("---> admin user:")
             MutyLogger.get_instance().debug(
-                orjson.dumps(admin_user.to_dict(nested=True), option=orjson.OPT_INDENT_2)
+                orjson.dumps(
+                    admin_user.to_dict(nested=True), option=orjson.OPT_INDENT_2
+                )
             )
 
     @staticmethod
