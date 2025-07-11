@@ -169,6 +169,45 @@ the plugins must implement:
 
 > gulp spawns different worker processes at startup (controlled by `parallel_processes_max` in the configuration) to maximize the usage of available cores, using both `multiprocessing` and `asyncio` to run lenghty operations (queries, ingestion) `concurrently` and in `parallel` as much as possible.
 
+following are basic rules to use multiprocessing and concurrency effectively in gulp plugins:
+
+- both `main` and `worker` processes are guaranteed to have a dedicated `coroutine pool`:
+
+  the coroutines pool makes sure no more than n (`concurrency_max_tasks` in the configuration) coroutines are executed concurrently in the process, efficiently queueing them if needed.
+
+  ```python
+  # submit a coroutine to the coroutines pool to be executed asap
+  await GulpProcess.get_instance().coro_pool.spawn(coroutine)
+  ```
+
+- moreover, a dedicated `thread pool` is also available for both `main` and `worker` processes.
+
+  ```python
+  # for example, a running task may run code in a separated thread
+  loop = asyncio.get_running_loop()
+  fut: asyncio.Future = loop.run_in_executor(
+      GulpProcess.get_instance().thread_pool,
+      self._read_file,
+      q,
+      file_path,
+      encoding,
+      keys,
+  )
+  ```
+
+  > for an example on how to effectively use another thread, look at the [json plugin](../src/gulp/plugins/json.py)
+
+- **in the main process only**, a plugin may also run a coroutine in one of the worker processes using the `process` pool.
+
+  ```python
+    # run the _ingest_file_internal coroutines with `kwds` parameters in one of the worker processes
+    await GulpProcess.get_instance().process_pool.apply(
+        _ingest_file_internal, kwds=kwds
+    )
+  ```
+
+- in `external`, `ingestion`, `enrich` plugins a `collab` session is guaranteed to exist when `ingest_file`, `ingest_raw`, `query_external`, `enrich_documents` are called: **this session is valid in the `current running` task only**.
+
 ### ingestion plugins
 
 `ingestion` plugins must implement `ingest_file` and/or `ingest_raw` (the ingestion entrypoints).
