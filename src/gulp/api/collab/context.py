@@ -25,6 +25,7 @@ from gulp.api.collab.structs import COLLABTYPE_CONTEXT, GulpCollabBase
 from gulp.api.ws_api import WSDATA_NEW_SOURCE
 from gulp.structs import GulpMappingParameters
 
+
 class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
     """
     Represents a context object
@@ -94,7 +95,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
         src_id: str = None,
         color: str = None,
         plugin: str = None,
-        mapping_parameters: GulpMappingParameters = None
+        mapping_parameters: GulpMappingParameters = None,
     ) -> tuple[GulpSource, bool]:
         """
         Add a source to the context.
@@ -116,7 +117,9 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
         bare_name = name.split("/")[-1]
         if not src_id:
             # create a new source id
-            src_id = GulpContext.make_source_id_key(self.operation_id, self.id, bare_name)
+            src_id = GulpContext.make_source_id_key(
+                self.operation_id, self.id, bare_name
+            )
 
         try:
             await GulpSource.acquire_advisory_lock(sess, src_id)
@@ -141,7 +144,16 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             }
             if plugin and mapping_parameters:
                 object_data["plugin"] = plugin
-                object_data["mapping_parameters"] = mapping_parameters.model_dump(exclude_none=True)
+
+                # ensure sigma mappings are stored in the mapping parameters if set, to avoid having to reload them from file
+                from gulp.api.opensearch.sigma import get_sigma_mappings
+                sigma_mappings = await get_sigma_mappings(mapping_parameters)
+                if sigma_mappings:
+                    mapping_parameters.sigma_mappings = sigma_mappings
+
+                object_data["mapping_parameters"] = mapping_parameters.model_dump(
+                    exclude_none=True
+                )
 
             # pylint: disable=protected-access
             src = await GulpSource._create_internal(
@@ -152,12 +164,13 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 ws_queue_datatype=WSDATA_NEW_SOURCE if ws_id else None,
                 ws_id=ws_id,
                 req_id=req_id,
-                commit=False
+                commit=False,
             )
 
             # add same grants to the source as the context
             MutyLogger.get_instance().debug(
-                "context %s granted_user_ids=%s, granted_group_ids=%s" % (
+                "context %s granted_user_ids=%s, granted_group_ids=%s"
+                % (
                     self.id,
                     self.granted_user_ids,
                     self.granted_user_group_ids,

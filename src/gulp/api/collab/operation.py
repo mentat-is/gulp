@@ -83,43 +83,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             )
         return d
 
-    async def create_default_source_and_context(
-        self,
-        sess: AsyncSession,
-        user_id: str,
-        ws_id: str = None,
-        req_id: str = None,
-    ) -> None:
-        """
-        Create the default context and source for the operation.
-
-        Args:
-            sess (AsyncSession): The session to use.
-            user_id (str): The id of the user creating the context and source.
-            ws_id (str, optional): The websocket id to stream NEW_CONTEXT to. Defaults to None.
-            req_id (str, optional): The request id. Defaults to None.
-        """
-
-        # add default context to the operation
-        ctx: GulpContext
-        ctx, _ = await self.add_context(
-            sess,
-            user_id=user_id,
-            name=DEFAULT_CONTEXT_ID,
-            ctx_id="%s_%s" % (self.id, DEFAULT_CONTEXT_ID),
-            ws_id=ws_id,
-            req_id=req_id,
-        )
-
-        await ctx.add_source(
-            sess,
-            user_id=user_id,
-            name=DEFAULT_SOURCE_ID,
-            src_id="%s_%s" % (self.id, DEFAULT_SOURCE_ID),
-            ws_id=ws_id,
-            req_id=req_id,
-        )
-
     @staticmethod
     async def create_wrapper(
         name: str,
@@ -214,14 +177,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                     sess, d, obj_id=operation_id, owner_id=user_id
                 )
 
-                # create default source and context
-                # await op.create_default_source_and_context(
-                #     sess,
-                #     user_id=user_id,
-                #     ws_id=ws_id,
-                #     req_id=req_id,
-                # )
-
                 # done
                 return op.to_dict(exclude_none=True)
 
@@ -230,7 +185,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 # fail, delete the previously created index
                 await GulpOpenSearch.get_instance().datastream_delete(index)
             raise exx
-
 
     async def add_context(
         self,

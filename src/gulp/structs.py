@@ -138,7 +138,10 @@ each tuple is defined as (other_mapping_file, mapping_id): each `mapping_id` fro
     # NOTE: should this be exposed to the query api ?
     sigma_mappings: Optional[GulpSigmaMapping] = Field(
         None,
-        description="internal use only with sigma queries: if set, rules to map sigma rules `logsource`, in reference to the stored mapping for the given source.",
+        description="""
+internal use only with sigma queries: if set, rules to map `logsource` for sigma rules when using the mapping previously stored for each GulpSource.
+         
+each key corresponds to `logsource.service` in the sigma rule: basically, we want to use the sigma rule only if a (mapped) "logsource.service" is defined in the sigma rule (or no `logsource` is defined at all in the sigma rule)."""
     )
 
     def is_empty(self) -> bool:

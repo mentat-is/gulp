@@ -41,7 +41,31 @@ if TYPE_CHECKING:
     from gulp.api.opensearch.query import GulpQuery
 
 
-async def _get_sigma_mappings(
+async def _read_sigma_mappings_from_file(
+    mapping_file: str,
+) -> dict[str, GulpSigmaMapping]:
+    """
+    read sigma mappings from a mapping file.
+
+    Args:
+        mapping_file (str): the mapping file to read
+    Returns:
+        dict[str, GulpSigmaMapping]: the sigma mappings, or None if not found
+    """
+    mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(mapping_file)
+    file_content = await muty.file.read_file_async(mapping_file_path)
+    mapping_data = orjson.loads(file_content)
+    mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
+    sigma_mappings = mapping_file_obj.sigma_mappings
+    if not sigma_mappings:
+        MutyLogger.get_instance().warning(
+            "mapping file %s has no sigma mappings!", mapping_file
+        )
+        return None
+    return sigma_mappings
+
+
+async def get_sigma_mappings(
     m: GulpMappingParameters,
 ) -> dict[str, GulpSigmaMapping]:
     """
@@ -57,28 +81,32 @@ async def _get_sigma_mappings(
         # get it from mapping parameters
         return m.sigma_mappings
 
+    sigma_mappings: dict = {}
     if m.mapping_file:
         # get it from mapping file
-        mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
-            m.mapping_file
-        )
-        file_content = await muty.file.read_file_async(mapping_file_path)
-        mapping_data = orjson.loads(file_content)
-        mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
-        sigma_mappings = mapping_file_obj.sigma_mappings
-        if not sigma_mappings:
-            MutyLogger.get_instance().warning(
-                "mapping file %s has no sigma mappings", m.mapping_file
-            )
-            return None
-        return sigma_mappings
+        sigma_mappings = await _read_sigma_mappings_from_file(m.mapping_file)
 
-    # no sigma mappings found
-    MutyLogger.get_instance().warning(
-        "no sigma mappings found in mapping parameters or mapping file: %s",
-        m.mapping_file,
-    )
-    return None
+    if m.additional_mapping_files:
+        # for each additional mapping file, get the sigma mappings and merge them with sigma_mappings
+        for additional_mapping_file, _ in m.additional_mapping_files:
+            additional_sigma_mappings = await _read_sigma_mappings_from_file(
+                additional_mapping_file
+            )
+
+            if additional_sigma_mappings:
+                # merge the sigma mappings
+                if not sigma_mappings:
+                    sigma_mappings = {}
+                sigma_mappings.update(additional_sigma_mappings)
+
+    if not sigma_mappings:
+        # no sigma mappings found
+        MutyLogger.get_instance().warning(
+            "no sigma mappings found in mapping parameters or mapping file: %s",
+            m.mapping_file,
+        )
+        return None
+    return sigma_mappings
 
 
 def use_this_sigma(
@@ -285,12 +313,12 @@ async def sigmas_to_queries(
             )
 
             # we also get sigma mappings, if any, to handle (mostly windows) different logsource peculiarities
-            sigma_mappings: dict[str, GulpSigmaMapping] = await _get_sigma_mappings(
+            sigma_mappings: dict[str, GulpSigmaMapping] = await get_sigma_mappings(
                 mapping_parameters
             )
             mapping_parameters.sigma_mappings = sigma_mappings
 
-            # if we have mappings AND rule have service names, we check if the rule is for this source.
+            # if we have mappings AND rule have service names set, we check if the rule is for this source.
             # either, the rule will be always used.
             if mapping_parameters.sigma_mappings and sigma_service_names:
                 # check if this sigma rule is for this source
@@ -737,7 +765,7 @@ async def sigma_convert_default(
                     "must": [
                         q.q["query"],
                         {
-                            # this is the new part of the query, to handle sigma mappings
+                            # this is the new part of the query, to handle sigma mappings (restrict to specific service values)
                             "query_string": {
                                 "query": new_query_string,
                             }

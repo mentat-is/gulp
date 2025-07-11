@@ -228,11 +228,12 @@ class GulpMappingFile(BaseModel):
         min_length=1,
     )
     sigma_mappings: Optional[dict[str, GulpSigmaMapping]] = Field(
-        None,
-        description="""if set, rules to map `logsource` for sigma rules referring to this mapping: each key corresponds to `logsource.service` in the sigma rule.
-        
-        basically, we want to apply the sigma rule only if a "logsource.service" is defined in the sigma rule (or no `logsource` is defined at all).
-        """,
+        None,        
+        description="""
+internal use only with sigma queries: if set, rules to map `logsource` for sigma rules when using this mapping file.
+         
+each key corresponds to `logsource.service` in the sigma rule: basically, we want to use the sigma rule only if a (mapped) "logsource.service" is defined in the sigma rule (or no `logsource` is defined at all in the sigma rule).
+        """
     )
     metadata: Optional[GulpMappingFileMetadata] = Field(
         ...,

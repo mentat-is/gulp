@@ -138,7 +138,6 @@ class GulpPluginEntry(BaseModel):
                     "desc": "Windows Event Log plugin.",
                     "path": "/path/to/win_evtx.py",
                     "filename": "win_evtx.py",
-                    "sigma_support": True,
                     "regex": r"^\[.*\]",
                     "custom_parameters": [
                         muty.pydantic.autogenerate_model_example_by_class(
@@ -2672,6 +2671,10 @@ class GulpPluginBase(ABC):
         add mapping parameters to source, to keep track of which mappings has been used for this source
         """
         if self._plugin_params.mapping_parameters:
+            from gulp.api.opensearch.sigma import get_sigma_mappings
+            sm = await get_sigma_mappings(self._plugin_params.mapping_parameters)
+            self._plugin_params.mapping_parameters.sigma_mappings = sm
+
             d = {
                 "plugin": self.bare_filename,
                 "mapping_parameters": self._plugin_params.mapping_parameters.model_dump(

@@ -465,7 +465,7 @@ async def test_splunk(use_full_set: bool = False, ingest_only: bool = False):
 
 ### context and source
 
-when performing ingestion via external plugins (or using the `ingest_raw` or `ws_ingest_raw` API with a custom raw plugin different than the [default](../src/gulp/plugins/raw.py)), it is particularly important to use the `is_context`, `is_source`, `context_field` mapping field parameters to indicate which fields in the records are the `context` and/or the `source.
+when performing ingestion via external plugins (or using the `ingest_raw` or `ws_ingest_raw` API with a custom raw plugin different than the [default](../src/gulp/plugins/raw.py)), it is particularly important to use the [GulpMappingParameters.is_context](../src/gulp/api/mapping/models.py) and [GulpMappingParameters.is_source](../src/gulp/api/mapping/models.py) parameters to indicate which fields in the records represents a `context` and/or a `source`.
 
 > Gulp needs to group data in a `GulpOperation` in one or more `GulpContext`(i.e. the hosts involved), each one having one or more `GulpSource`: each source corresponds to a `timeline` horizontal band in the UI.
 
@@ -590,17 +590,19 @@ Here's a commented example mapping file, further details in the [model definitio
       }
     }
   },
-  // this is used only by `sigma_query` API: it allows, during conversion of a sigma query to a raw OpenSearch query, to target documents with a specific sigma `logsource.service`.
+  // this is **internally** used only by the `sigma_query` API: it allows, during conversion of a sigma query to a raw OpenSearch query, to target only documents with specific `logsource.service`.
   "sigma_mappings": {
-    // this is the `logsource.service" listed in the sigma rule
-    "service_name": "windefend",
-    // this is the FIELD NAME in the documents
-    "service_name": "winlog.channel",
-    // these are possible values for FIELD NAME in the documents (they're matched as substring CASE SENSITIVE)
-    // basically, the sigma is "patched" after conversion to match only documents with i.e. `winlog.channel` = any of the values in `service_values`.
-    "service_values": [
-        "Microsoft-Windows-Windows Defender",
-    ]
+      // this is the `logsource.service" listed in the sigma rule
+      "application": {
+          // this is the FIELD NAME in the documents
+          "service_field": "winlog.channel",
+          // these are possible values for FIELD NAME in the documents (they're matched as substring CASE SENSITIVE)
+          // basically, the sigma is "patched" after conversion to match only documents with i.e. `winlog.channel` = any of the values in `service_values`.
+          "service_values": [
+              "Application"
+          ]
+      },
+    // more may be added ...
   }
 }
 ```
