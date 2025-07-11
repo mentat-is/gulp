@@ -495,8 +495,8 @@ async def _worker_coro(kwds: dict) -> None:
             all_errors.extend(batch_errors)
 
         # log summary of query group results
-        MutyLogger.get_instance().info(
-            "query group=%s matched %d/%d queries, total hits=%d"
+        print(
+            "FINISHED query group=%s matched %d/%d queries, total hits=%d"
             % (q_options.group, query_matched_total, num_queries, total_doc_matches)
         )
 

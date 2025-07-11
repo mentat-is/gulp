@@ -109,92 +109,6 @@ async def get_sigma_mappings(
     return sigma_mappings
 
 
-def use_this_sigma(
-    yml: str,
-    levels: list[str] = None,
-    products: list[str] = None,
-    categories: list[str] = None,
-    services: list[str] = None,
-    tags: list[str] = None,
-) -> tuple[bool, list[str]]:
-    """
-    check if this sigma rule should be used, depending on filters
-
-    Args:
-        yml (str): the sigma rule YAML
-        levels (list[str], optional): list of levels to check. Defaults to None.
-        products (list[str], optional): list of products to check. Defaults to None.
-        categories (list[str], optional): list of categories to check. Defaults to None.
-        services (list[str], optional): list of services to check. Defaults to None.
-        tags (list[str], optional): list of tags to check. Defaults to None.
-
-    Returns:
-        tuple[bool, list[str]]: True if the rule should be used, False otherwise. Also returns a list of service names found in the rule (logsource.service) if the sigma must be used.
-    """
-    sc = SigmaCollection.from_yaml(yml)
-    l: int = len(sc)
-    passed: int = 0
-    sigma_service_names: list[str] = []
-    # MutyLogger.get_instance().warning(
-    #     "checking %d sigma rules against filters: levels=%s, products=%s, categories=%s, services=%s, tags=%s",
-    #     l,
-    #     levels,
-    #     products,
-    #     categories,
-    #     services,
-    #     tags,
-    # )
-    for r in sc:
-        r: SigmaRule
-        if levels:
-            # check if level is in levels
-            if r.level and str(r.level.name).lower() not in levels:
-                continue
-        if products:
-            if (
-                r.logsource
-                and r.logsource.product
-                and r.logsource.product.lower() not in products
-            ):
-                continue
-        if categories:
-            if (
-                r.logsource
-                and r.logsource.category
-                and r.logsource.category.lower() not in categories
-            ):
-                continue
-        if services:
-            if (
-                r.logsource
-                and r.logsource.service
-                and r.logsource.service.lower() not in services
-            ):
-                continue
-        if tags:
-            # check if any tag is in tags
-            tag_found: bool = False
-            if r.tags:
-                for t in r.tags:
-                    if t.name and t.name.lower() in tags:
-                        tag_found = True
-                        break
-            if not tag_found:
-                continue
-        # passed
-        passed += 1
-        if r.logsource.service:
-            # add service name to the list
-            sigma_service_names.append(r.logsource.service.lower())
-
-    if passed == l:
-        # all rules passed
-        return True, sigma_service_names
-
-    # do not use this sigma
-    return False, []
-
-
 async def sigmas_to_queries(
     sess: AsyncSession,
     user_id: str,
@@ -231,6 +145,14 @@ async def sigmas_to_queries(
     Returns:
         list[GulpQuery]: the list of GulpQuery objects
     """
+    # optimization: precompute filter lists for faster comparison
+    levels_set = set(levels) if levels else None
+    products_set = set(products) if products else None
+    categories_set = set(categories) if categories else None
+    services_set = set(services) if services else None
+    tags_set = set(tags) if tags else None
+
+    # optimization: batch database operations
     srcs: list[GulpSource] = []
     if not src_ids:
         # get all source ids, if not provided
@@ -239,98 +161,110 @@ async def sigmas_to_queries(
             "using all sources for user %s: %s", user_id, src_ids
         )
     else:
-        # use specified
+        # optimization: batch get sources instead of individual queries
+        srcs = await GulpSource.get_by_ids(sess, src_ids)
+        # filter out None sources
+        found_ids = {s.id for s in srcs if s}
         for src_id in src_ids:
-            src: GulpSource = await GulpSource.get_by_id(sess, src_id)
-            if not src:
+            if src_id not in found_ids:
                 MutyLogger.get_instance().warning(
                     "source %s not found for user %s, skipping", src_id, user_id
                 )
-                continue
-            srcs.append(src)
 
     # get all source ids and preload a dict with mapping parameters
     src_ids = [s.id for s in srcs]
-    mp_by_source_id: dict={}
+    mp_by_source_id: dict = {}
     for src in srcs:
-        mp_by_source_id[src.id] =  src.mapping_parameters
-        
+        mp_by_source_id[src.id] = src.mapping_parameters
+
+    # optimization: preload sigma mappings cache for all sources
+    mapping_params_cache: dict[str, GulpMappingParameters] = {}
+    sigma_mappings_cache: dict[str, dict[str, GulpSigmaMapping]] = {}
+
+    for src_id in src_ids:
+        mp = mp_by_source_id[src_id] or {}
+        mapping_parameters = GulpMappingParameters.model_validate(mp)
+        mapping_params_cache[src_id] = mapping_parameters
+
+        # preload sigma mappings for this source
+        sigma_mappings = await get_sigma_mappings(mapping_parameters)
+        sigma_mappings_cache[src_id] = sigma_mappings
+
+    # optimization: batch file reading for path mode
+    rule_contents: list[str] = []
+    if paths:
+        # batch read all files
+        for sigma in sigmas:
+            is_file = await aiofiles.os.path.isfile(sigma)
+            if is_file and (
+                sigma.lower().endswith(".yml") or sigma.lower().endswith(".yaml")
+            ):
+                rule_content: bytes = await muty.file.read_file_async(sigma)
+                rule_contents.append(rule_content.decode())
+            else:
+                rule_contents.append(None)  # placeholder for invalid files
+    else:
+        rule_contents = sigmas
+
     # convert sigma rule/s using pysigma
     queries: list[GulpQuery] = []
     count: int = 0
     used: int = 0
     generated_q: int = 0
     total: int = len(sigmas)
-    for sigma in sigmas:
+
+    for idx, rule_content in enumerate(rule_contents):
         if count % 100 == 0 and req_id:
             # check if the request is cancelled
             canceled = await GulpRequestStats.is_canceled(sess, req_id)
             if canceled:
                 raise Exception("request canceled")
 
-        # check if this sigma should be used
-        if paths:
-            # the sigma is a path to a file
-            is_file = await aiofiles.os.path.isfile(sigma)
-            if is_file and (
-                sigma.lower().endswith(".yml") or sigma.lower().endswith(".yaml")
-            ):
-                rule_content: bytes = await muty.file.read_file_async(sigma)
-                rule_content = rule_content.decode()
-            else:
-                continue
-        else:
-            # the rule itself
-            rule_content = sigma
+            if ws_id:
+                # send progress packet to the websocket (this may be a lenghty operation)
+                p = GulpProgressPacket(
+                    total=total,
+                    current=count,
+                    used=used,
+                    generated_q=generated_q,
+                    msg="converting sigma rules...",
+                )
+                wsq = GulpWsSharedQueue.get_instance()
+                await wsq.put(
+                    type=WSDATA_PROGRESS,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    req_id=req_id,
+                    data=p.model_dump(exclude_none=True),
+                )
 
-        count += 1
+            print("processed %d sigma rules, total=%d, used=%d" % (count, total, used))
+        
+        count+=1
+
+        # skip invalid files in path mode
+        if paths and rule_content is None:
+            continue
+
+        # optimization: pass precomputed sets to use_this_sigma
         use, sigma_service_names = use_this_sigma(
             rule_content,
-            levels=levels,
-            products=products,
-            categories=categories,
-            services=services,
-            tags=tags,
+            levels_set=levels_set,
+            products_set=products_set,
+            categories_set=categories_set,
+            services_set=services_set,
+            tags_set=tags_set,
         )
+
         if not use:
-            # MutyLogger.get_instance().debug("skipping sigma rule %s, not matching filters !" % (rule_content))
             continue
 
         used += 1
-        if count % 100 == 0 and ws_id and req_id:
-            # send progress packet to the websocket (this may be a lenghty operation)
-            p = GulpProgressPacket(
-                total=total,
-                current=count,
-                used=used,
-                generated_q=generated_q,
-                msg="converting sigma rules...",
-            )
-            wsq = GulpWsSharedQueue.get_instance()
-            await wsq.put(
-                type=WSDATA_PROGRESS,
-                ws_id=ws_id,
-                user_id=user_id,
-                req_id=req_id,
-                data=p.model_dump(exclude_none=True),
-            )
 
-            MutyLogger.get_instance().debug(
-                "processed %d sigma rules, total=%d, used=%d" % (count, total, used)
-            )
-
+        # optimization: use cached mapping parameters and sigma mappings
         for src_id in src_ids:
-            # for each source, we convert this sigma using mapping specific for this source
-            mp: dict = mp_by_source_id[src_id] or {}
-            mapping_parameters: GulpMappingParameters = (
-                GulpMappingParameters.model_validate(mp)
-            )
-
-            # we also get sigma mappings, if any, to handle (mostly windows) different logsource peculiarities
-            sigma_mappings: dict[str, GulpSigmaMapping] = await get_sigma_mappings(
-                mapping_parameters
-            )
-            mapping_parameters.sigma_mappings = sigma_mappings
+            mapping_parameters = mapping_params_cache[src_id]
+            mapping_parameters.sigma_mappings = sigma_mappings_cache[src_id]
 
             # if we have mappings AND rule have service names set, we check if the rule is for this source.
             # either, the rule will be always used.
@@ -343,7 +277,6 @@ async def sigmas_to_queries(
                         break
                 if not service_match_found:
                     # this sigma rule is not for this source
-                    # MutyLogger.get_instance().debug("skipping (service not found) sigma rule %s, not for source %s", rule_content, src_id)
                     continue
 
             use_sigma_mappings = True
@@ -383,16 +316,20 @@ async def sigmas_to_queries(
 
             except Exception as ex:
                 # error converting sigma
-                MutyLogger.get_instance().exception(
-                    "ERROR converting sigma rule:\n%s", rule_content
+                # MutyLogger.get_instance().exception(
+                #     "ERROR converting sigma rule:\n%s", rule_content
+                # )
+                MutyLogger.get_instance().error(
+                    "%s, rule:\n%s"
+                    % (str(ex), muty.string.make_shorter(rule_content,max_len=100)),
                 )
 
     # log the number of queries generated
-    MutyLogger.get_instance().debug(
-        "converted sigma rules (total=%d, used=%d) to %d GulpQuery objects",
+    print(
+        "******* converted sigma rules (total=%d, used=%d) to %d GulpQuery objects *******" % (
         total,
         used,
-        len(queries),
+        len(queries))
     )
 
     if ws_id and req_id:
@@ -421,15 +358,94 @@ async def sigmas_to_queries(
         )
 
     # DEBUG PRINTS
-    count: int = 0
+    dbg_count: int = 0
     for q in queries:
         # dump each query
         MutyLogger.get_instance().debug(
-            "query[%d]: %s" % (count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2))
+            "query[%d]: %s" % (dbg_count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2))
         )
-        count += 1
+        dbg_count += 1
 
     return queries
+
+
+def use_this_sigma(
+    yml: str,
+    levels_set: set[str] = None,
+    products_set: set[str] = None,
+    categories_set: set[str] = None,
+    services_set: set[str] = None,
+    tags_set: set[str] = None,
+) -> tuple[bool, list[str]]:
+    """
+    optimized version of use_this_sigma that uses sets for faster lookups
+
+    Args:
+        yml (str): the sigma rule YAML
+        levels_set (set[str], optional): set of levels to check. Defaults to None.
+        products_set (set[str], optional): set of products to check. Defaults to None.
+        categories_set (set[str], optional): set of categories to check. Defaults to None.
+        services_set (set[str], optional): set of services to check. Defaults to None.
+        tags_set (set[str], optional): set of tags to check. Defaults to None.
+
+    Returns:
+        tuple[bool, list[str]]: True if the rule should be used, False otherwise. Also returns a list of service names found in the rule (logsource.service) if the sigma must be used.
+    """
+    sc = SigmaCollection.from_yaml(yml)
+    l: int = len(sc)
+    passed: int = 0
+    sigma_service_names: list[str] = []
+
+    for r in sc:
+        r: SigmaRule
+
+        # optimization: use set membership which is O(1) instead of list membership which is O(n)
+        if levels_set:
+            if r.level and str(r.level.name).lower() not in levels_set:
+                continue
+        if products_set:
+            if (
+                r.logsource
+                and r.logsource.product
+                and r.logsource.product.lower() not in products_set
+            ):
+                continue
+        if categories_set:
+            if (
+                r.logsource
+                and r.logsource.category
+                and r.logsource.category.lower() not in categories_set
+            ):
+                continue
+        if services_set:
+            if (
+                r.logsource
+                and r.logsource.service
+                and r.logsource.service.lower() not in services_set
+            ):
+                continue
+        if tags_set:
+            # optimization: check if any tag is in tags_set using set intersection
+            tag_found: bool = False
+            if r.tags:
+                tag_names = {t.name.lower() for t in r.tags if t.name}
+                if tag_names & tags_set:  # set intersection
+                    tag_found = True
+            if not tag_found:
+                continue
+
+        # passed
+        passed += 1
+        if r.logsource.service:
+            # add service name to the list
+            sigma_service_names.append(r.logsource.service.lower())
+
+    if passed == l:
+        # all rules passed
+        return True, sigma_service_names
+
+    # do not use this sigma
+    return False, []
 
 
 def to_gulp_query_struct(
