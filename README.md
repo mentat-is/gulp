@@ -42,6 +42,12 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - [plugins and mapping](./docs/plugins_and_mapping.md)
 - [testing guidelines](./docs/testing.md)
 
+## integration with other applications
+
+gulp can be of course [integrated with other application !](./docs/integration.md)
+
+> both websocket and REST API is available!
+
 ## installation
 
 - [docker](<./docs/install_docker.md>)

@@ -37,7 +37,11 @@ from pydantic import BaseModel, Field
 
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
-from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission, MissingPermission
+from gulp.api.collab.structs import (
+    GulpRequestStatus,
+    GulpUserPermission,
+    MissingPermission,
+)
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest_api import GulpRestServer
@@ -73,9 +77,10 @@ class InternalWsIngestPacket(BaseModel):
 
     user_id: str = Field(..., description="the user id")
     index: str = Field(..., description="the index to ingest into")
-    dict_data: GulpWsIngestPacket = Field(..., description="a GulpWsIngestPacket dictionary")
+    dict_data: GulpWsIngestPacket = Field(
+        ..., description="a GulpWsIngestPacket dictionary"
+    )
     raw_data: bytes = Field(..., description="raw data received from the websocket")
-
 
 
 class WsIngestRawWorker:
@@ -110,7 +115,9 @@ class WsIngestRawWorker:
                     # this is the last packet, close the stats and break the loop
                     if stats:
                         time_updated = muty.time.now_msec()
-                        msecs_to_expiration = GulpConfig.get_instance().stats_ttl() * 1000
+                        msecs_to_expiration = (
+                            GulpConfig.get_instance().stats_ttl() * 1000
+                        )
                         time_expire = time_updated + msecs_to_expiration
                         object_data = {
                             "time_expire": time_expire,
@@ -168,7 +175,7 @@ class WsIngestRawWorker:
                     MutyLogger.get_instance().exception(ex)
                     # just append error
                     d = {
-                        "error":ex,
+                        "error": ex,
                     }
                     await stats.update(
                         sess, d, ws_id=packet.dict_data.ws_id, user_id=packet.user_id
@@ -251,7 +258,7 @@ class GulpAPIWebsocket:
             )
 
         user_id = None
-        
+
         # special case for monitor token
         if params.token.lower() == WSTOKEN_MONITOR and not required_permission:
             return params.ws_id, user_id
@@ -326,7 +333,7 @@ class GulpAPIWebsocket:
             run_loop_fn (Callable): the main loop function for this socket type
             socket_type (GulpWsType): the type of socket connection
             permission (Optional[GulpUserPermission]): required permission for this endpoint
-                        
+
         """
         if not socket_type:
             socket_type = GulpWsType.WS_DEFAULT
@@ -448,7 +455,8 @@ class GulpAPIWebsocket:
             await ws.run_loop()
 
         await GulpAPIWebsocket._handle_websocket(
-            websocket, run_loop,
+            websocket,
+            run_loop,
         )
 
     @router.websocket("/ws_ingest_raw")
@@ -457,10 +465,11 @@ class GulpAPIWebsocket:
         """
         a websocket endpoint specific for ingestion
 
-        1. client sends a json request with GulpWsAuthParameters
-        2. server accepts the connection and checks the token (needs INGEST permission) and ws_id
+        1. client (i.e. an agent, or a bridge) sends a json request with GulpWsAuthParameters
+        2. Gulp accepts the connection and checks the token (needs INGEST permission) and ws_id
         3. on error, server sends a GulpWsErrorPacket and closes the connection. on success, it sends a GulpWsAcknowledgedPacket and starts the main loop.
-        4. client streams GulpWsIngestPackets each followed by raw data over the websocket, the server replies ingested data on GulpWsIngestPacket.ws_id as it would be a normal ingestion using the http API.
+        4. client streams GulpWsIngestPackets to gulp on the given ws_id: each contains the ws_id on which the UI is connected, the plugin to be used (optional, default "raw"), the GulpPluginParameters (optional), followed by the raw data.
+        5. Gulp ingests the raw data and finally streams it on GulpWsIngestPacket.ws_id as it would normally when using the HTTP API.
 
         Args:
             websocket (WebSocket): The websocket object.
@@ -564,7 +573,10 @@ class GulpAPIWebsocket:
 
                         # package data for worker
                         packet = InternalWsIngestPacket(
-                            user_id=user_id, index=operation.index, dict_data=ingest_packet, raw_data=raw_data
+                            user_id=user_id,
+                            index=operation.index,
+                            dict_data=ingest_packet,
+                            raw_data=raw_data,
                         )
 
                         # and put in the worker queue

@@ -869,7 +869,8 @@ the json payload may contain the following fields:
 
 ### plugin
 
-by default, the `raw` plugin is used: the data `chunk` is expected as a JSON text with a list of `GulpDocument` dictionaries.
+by default, the `raw` plugin is used (and it is the recommended one): the data `chunk` is expected as a JSON text with a list of `GulpDocument` dictionaries.
+it is possible, however, to implement another plugin which sends raw data (i.e. bytes), as long as it can process the `chunk` data.
 """,
     summary="ingest raw documents.",
 )
