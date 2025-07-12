@@ -77,6 +77,8 @@ class Plugin(GulpPluginBase):
         stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
+        last: bool=False,
+        **kwargs
     ) -> GulpRequestStatus:
 
         js: list[dict] = []
@@ -106,6 +108,8 @@ class Plugin(GulpPluginBase):
                 stats=stats,
                 flt=flt,
                 plugin_params=plugin_params,
+                last=last,
+                **kwargs,
             )
 
             # chunk is a list of dicts, each dict being a GulpDocument record

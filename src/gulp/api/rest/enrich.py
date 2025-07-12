@@ -208,7 +208,6 @@ async def _enrich_documents_internal(
                 ws_id=ws_id,
                 user_id=user_id,
                 hits=total,
-                ws_queue_datatype=WSDATA_ENRICH_DONE,
                 errors=[error] if error else [],
             )
 

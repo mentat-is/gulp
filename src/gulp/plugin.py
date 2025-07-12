@@ -627,6 +627,9 @@ class GulpPluginBase(ABC):
         self._license_stub: "GulpPluginBase" = None
         self._license_func: callable = None
 
+        # indicates the last chunk in a raw ingestion
+        self._last_raw_chunk: bool = False
+
     def _init_license_stub(self, **kwargs) -> None:
         """
         to be called in __init__ to set the license stub and function pointers
@@ -911,7 +914,7 @@ class GulpPluginBase(ABC):
                 type=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
-                req_id=self._ws_id,
+                req_id=self._req_id,
                 data=data,
             )
             self._chunks_ingested += 1
@@ -1112,6 +1115,9 @@ class GulpPluginBase(ABC):
         stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
+        last: bool=False,
+        **kwargs
+
     ) -> GulpRequestStatus:
         """
         ingest a chunk of arbitrary data
@@ -1131,8 +1137,10 @@ class GulpPluginBase(ABC):
             operation_id (str): id of the operation on collab database.
             chunk: bytes: a raw bytes buffer containing the raw data to be converted to GulpDocuments.
             stats (GulpRequestStats, optional): The ingestion stats.
-            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
+            last: bool, whether this is the last chunk to ingest, defaults to False
+            **kwargs: additional keyword arguments
 
         Returns:
             GulpRequestStatus: The status of the ingestion.
@@ -1149,11 +1157,10 @@ class GulpPluginBase(ABC):
         self._ingest_index = index
         self._raw_ingestion = True
         self._stats = stats
+        self._last_raw_chunk= last
 
         MutyLogger.get_instance().debug(
-            f"ingesting raw,  num documents={len(chunk)}, plugin {self.name}, user_id={user_id}, operation_id={
-                operation_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
-        )
+            f"ingesting raw,  num documents={len(chunk)}, plugin {self.name}, last={last}, user_id={user_id}, operation_id={operation_id}, index={index}, ws_id={ws_id}, req_id={req_id}")
 
         # initialize
         await self._initialize(plugin_params=plugin_params)
@@ -1182,21 +1189,21 @@ class GulpPluginBase(ABC):
 
         # call the plugin function
         docs = await self._enrich_documents_chunk(docs, **kwargs)
-        self._tot_enriched += len(docs)
+        self._tot_enriched += len(docs)        
         MutyLogger.get_instance().debug(f"enriched ({self.name}) {len(docs)} documents")
 
-        # update the documents, also ensure no highlight field is left from the query
-        dd: list[dict] = []
-        for d in docs:
-            d.pop("highlight", None)
-            dd.append(d)
-
-        last = kwargs.get("last", False)
-        await GulpOpenSearch.get_instance().update_documents(
-            self._enrich_index, dd, wait_for_refresh=last
-        )
-
         if docs:
+            # update the documents, also ensure no highlight field is left from the query
+            dd: list[dict] = []
+            for d in docs:
+                d.pop("highlight", None)
+                dd.append(d)
+
+            last = kwargs.get("last", False)
+            await GulpOpenSearch.get_instance().update_documents(
+                self._enrich_index, dd, wait_for_refresh=last
+            )
+
             # send the enriched documents to the websocket
             chunk = GulpDocumentsChunkPacket(
                 docs=dd,
@@ -2725,7 +2732,7 @@ class GulpPluginBase(ABC):
             return
 
         if self._ws_id and not self._raw_ingestion:
-            # send ingest_source_done packet on ws
+            # send ingest_source_done packet on ws (this is not needed for raw ingestion)
             if self._is_source_failed:
                 status = GulpRequestStatus.FAILED
             elif self._req_canceled:
@@ -2751,7 +2758,6 @@ class GulpPluginBase(ABC):
             )
 
         if self._stats:
-
             d = {
                 "source_failed": (
                     1 if (self._is_source_failed and not self._raw_ingestion) else 0
@@ -2764,8 +2770,11 @@ class GulpPluginBase(ABC):
                 "error": self._source_error,
             }
             if self._raw_ingestion and not self._req_canceled:
-                # force status update, keep status as ongoing
-                d["status"] = GulpRequestStatus.ONGOING
+                # force status update, keep status as ongoing until the last raw chunk is processed
+                if self._last_raw_chunk:
+                    d["status"] = GulpRequestStatus.DONE
+                else:
+                    d["status"] = GulpRequestStatus.ONGOING
 
             try:
                 await self._stats.update(

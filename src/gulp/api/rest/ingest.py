@@ -608,7 +608,7 @@ the following are the differences from the default `ingest_file` function:
 
 - needs the `ingestion_local_directory` to be set in the configuration, default=`~/.config/gulp/ingest_local`: `path` is relative to this directory.
 - `plugin_params` and `flt` are passed as json in the payload, and are optional.
-"""
+""",
 )
 async def ingest_file_local_handler(
     token: Annotated[
@@ -620,7 +620,8 @@ async def ingest_file_local_handler(
         Query(
             description="the path of the file to be ingested, must be relative to the directory defined as `ingestion_local_directory` in the configuration.",
             example="/samples/win_evtx/Security_short_selected.evtx",
-        )],
+        ),
+    ],
     operation_id: Annotated[
         str,
         Depends(APIDependencies.param_operation_id),
@@ -640,9 +641,10 @@ async def ingest_file_local_handler(
     plugin_params: Annotated[
         GulpPluginParameters,
         Depends(APIDependencies.param_plugin_params_optional),
-    ] = None,    
+    ] = None,
     flt: Annotated[
-        GulpIngestionFilter, Depends(APIDependencies.param_ingestion_flt_optional),
+        GulpIngestionFilter,
+        Depends(APIDependencies.param_ingestion_flt_optional),
     ] = None,
     file_total: Annotated[
         Optional[int],
@@ -676,7 +678,9 @@ if set, this function is **synchronous** and returns the preview chunk of docume
     ServerUtils.dump_params(params)
 
     # compute local path
-    path = muty.file.safe_path_join(GulpConfig.get_instance().ingestion_local_path(), path)
+    path = muty.file.safe_path_join(
+        GulpConfig.get_instance().ingestion_local_path(), path
+    )
     MutyLogger.get_instance().info("ingesting local file: %s" % (path))
 
     try:
@@ -769,6 +773,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 async def _ingest_raw_internal(
     req_id: str,
     ws_id: str,
@@ -779,6 +784,8 @@ async def _ingest_raw_internal(
     flt: GulpIngestionFilter,
     plugin: str,
     plugin_params: GulpPluginParameters,
+    last: bool,
+    **kwargs: Any,
 ) -> None:
     """
     runs in a worker process to ingest a raw chunk of GulpDocuments
@@ -786,21 +793,25 @@ async def _ingest_raw_internal(
     # MutyLogger.get_instance().debug("---> ingest_raw_internal")
 
     async with GulpCollab.get_instance().session() as sess:
-        # create a stats that never expire
-        stats = await GulpRequestStats.create(
+        if last:
+            # on last chunk, we will let the stats expire
+            object_data = None
+        else:
+            # create a stats that never expire
+            object_data = {
+                "never_expire": True,
+            }
+        stats: GulpRequestStats = await GulpRequestStats.create(
             token=None,
             ws_id=ws_id,
             req_id=req_id,
-            object_data={
-                "never_expire": True,
-            },
+            object_data=object_data,
             operation_id=operation_id,
             sess=sess,
             user_id=user_id,
         )
 
         mod: GulpPluginBase = None
-
         try:
             # run plugin
             plugin = plugin or "raw"
@@ -816,10 +827,15 @@ async def _ingest_raw_internal(
                 stats=stats,
                 flt=flt,
                 plugin_params=plugin_params,
+                last=last,
+                **kwargs,
             )
         except Exception as ex:
-            # just append error
+            # set failed
+            status = GulpRequestStatus.FAILED
             d = {
+                "source_failed": 1,
+                "status": status,
                 "error": ex,
             }
             await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
@@ -879,6 +895,12 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
             example="raw",
         ),
     ] = None,
+    last: Annotated[
+        bool,
+        Query(
+            description="if set, indicates the last chunk in a raw ingestion.",
+        ),
+    ] = False,
     req_id: Annotated[
         str,
         Depends(APIDependencies.ensure_req_id),
@@ -903,7 +925,9 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
 
         # get body
         payload, chunk = await ServerUtils.handle_multipart_body(r)
-        flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(payload.get("flt", GulpIngestionFilter()))
+        flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
+            payload.get("flt", GulpIngestionFilter())
+        )
         plugin_params: GulpPluginParameters = GulpPluginParameters.model_validate(
             payload.get("plugin_params", GulpPluginParameters())
         )
@@ -920,6 +944,7 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
             flt=flt,
             plugin=plugin,
             plugin_params=plugin_params,
+            last=last,
         )
         # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2))
 
@@ -990,7 +1015,7 @@ async def _process_metadata_json(
     responses={
         100: _EXAMPLE_INCOMPLETE_UPLOAD,
         200: _EXAMPLE_DONE_UPLOAD,
-    },    
+    },
     openapi_extra={
         "parameters": [
             {
@@ -1193,7 +1218,7 @@ the following are the differences from the default `ingest_file` function:
 
 - needs the `ingestion_local_directory` to be set in the configuration, default=`~/.config/gulp/ingest_local`: `path` is relative to this directory.
 - `flt` is optionally passed as json in the payload
-"""
+""",
 )
 async def ingest_zip_local_handler(
     token: Annotated[
@@ -1202,8 +1227,11 @@ async def ingest_zip_local_handler(
     ],
     path: Annotated[
         str,
-        Query(description="the path of the ZIP file to be ingested, must be relative to the directory defined as `ingestion_local_directory` in the configuration.",
-            example="/test.zip")],
+        Query(
+            description="the path of the ZIP file to be ingested, must be relative to the directory defined as `ingestion_local_directory` in the configuration.",
+            example="/test.zip",
+        ),
+    ],
     operation_id: Annotated[
         str,
         Depends(APIDependencies.param_operation_id),
@@ -1217,7 +1245,8 @@ async def ingest_zip_local_handler(
         Depends(APIDependencies.param_ws_id),
     ],
     flt: Annotated[
-        GulpIngestionFilter, Depends(APIDependencies.param_ingestion_flt_optional),
+        GulpIngestionFilter,
+        Depends(APIDependencies.param_ingestion_flt_optional),
     ] = None,
     delete_after: Annotated[
         Optional[bool],
@@ -1235,7 +1264,9 @@ async def ingest_zip_local_handler(
     ServerUtils.dump_params(params)
 
     # compute local path
-    path = muty.file.safe_path_join(GulpConfig.get_instance().ingestion_local_path(), path)
+    path = muty.file.safe_path_join(
+        GulpConfig.get_instance().ingestion_local_path(), path
+    )
     MutyLogger.get_instance().info("ingesting local ZIP file: %s" % (path))
 
     try:
@@ -1317,6 +1348,7 @@ async def ingest_zip_local_handler(
         if delete_after:
             await muty.file.delete_file_or_dir_async(path)
 
+
 @router.get(
     "/ingest_local_list",
     tags=["ingest"],
@@ -1344,7 +1376,7 @@ async def ingest_zip_local_handler(
     description="""
 - needs the `ingestion_local_directory` to be set in the configuration, default=`~/.config/gulp/ingest_local`
 - returned paths are relative to the `ingestion_local_directory`
-"""
+""",
 )
 async def ingest_local_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -1353,7 +1385,7 @@ async def ingest_local_list_handler(
     params = locals()
     ServerUtils.dump_params(params)
     try:
-        async with GulpCollab.get_instance().session() as sess:       
+        async with GulpCollab.get_instance().session() as sess:
             await GulpUserSession.check_token(
                 sess, token, permission=GulpUserPermission.INGEST
             )
@@ -1362,15 +1394,16 @@ async def ingest_local_list_handler(
         MutyLogger.get_instance().info(
             "listing local ingestion directory: %s" % (local_dir)
         )
-        l = await muty.file.list_directory_async(local_dir, files_only=True, recursive=True)
+        l = await muty.file.list_directory_async(
+            local_dir, files_only=True, recursive=True
+        )
 
         # remove the local_dir prefix from the path
         d = []
         for f in l:
             f = os.path.relpath(f, local_dir)
             d.append(f)
-        
+
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-        

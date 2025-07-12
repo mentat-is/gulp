@@ -233,6 +233,8 @@ async def test_raw(raw_data: list[dict] = None):
         token=ingest_token,
         raw_data=buf,
         operation_id=TEST_OPERATION_ID,
+        # if we're passing raw_data (as in the enrich_whois test, this is the onlyu chunk)
+        last=True if raw_data else False,
     )
     # wait ws
     await _test_ingest_ws_loop(
@@ -251,6 +253,7 @@ async def test_raw(raw_data: list[dict] = None):
         await GulpAPIIngest.ingest_raw(
             token=ingest_token,
             raw_data=buf,
+            last=True,
             operation_id=TEST_OPERATION_ID,
         )
         await _test_ingest_ws_loop(

@@ -109,7 +109,12 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _ensure_test_operation()
+    if os.getenv("SKIP_RESET", "0") == "1":
+        GulpAPICommon.get_instance().init(
+            host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+        )
+    else:
+        await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -118,10 +123,11 @@ async def test_enrich_whois_documents():
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 
-    # ingest some data
-    from tests.ingest.test_ingest import test_raw
+    if os.getenv("SKIP_RESET", "0") == "0":
+        # ingest some data
+        from tests.ingest.test_ingest import test_raw
 
-    await test_raw(RAW_DATA)
+        await test_raw(RAW_DATA)
 
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
@@ -159,13 +165,15 @@ async def test_enrich_whois_documents():
                         "GulpQueryDonePacket=%s" % (q_done_packet)
                     )
                     MutyLogger.get_instance().debug(
-                        "enrich done, total_enriched=%d", q_done_packet.total_enriched
+                        "enrich done, req_id=%s, total_enriched=%d"
+                        % (data["req_id"], q_done_packet.total_enriched)
                     )
                     if q_done_packet.total_enriched == 7:
                         test_completed = True
                     else:
-                        assert False, "enrich done, but total_enriched=%d" % (
-                            q_done_packet.total_enriched
+                        assert False, (
+                            "enrich done, req_id=%s, total_enriched expected=7 but received total_enriched=%d"
+                            % (data["req_id"], q_done_packet.total_enriched)
                         )
                     break
 
@@ -176,7 +184,7 @@ async def test_enrich_whois_documents():
             MutyLogger.get_instance().exception(ex)
 
     assert test_completed
-    MutyLogger.get_instance().info(test_enrich_whois_single.__name__ + " succeeded!")
+    MutyLogger.get_instance().info(test_enrich_whois_documents.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio
@@ -193,10 +201,6 @@ async def test_enrich_whois_single():
     from tests.ingest.test_ingest import test_raw
 
     await test_raw(RAW_DATA)
-
-    _, host = TEST_HOST.split("://")
-    ws_url = f"ws://{host}/ws"
-    test_completed = False
 
     plugin_params: GulpPluginParameters = GulpPluginParameters()
     plugin_params.custom_parameters = {

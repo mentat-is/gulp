@@ -387,7 +387,7 @@ class GulpQueryHelpers:
 
         MutyLogger.get_instance().debug(
             "GulpQueryHelpers.query_raw: index=%s, q=%s"
-            % (index, orjson.dumps(q, option=orjson.OPT_INDENT_2))
+            % (index, orjson.dumps(q, option=orjson.OPT_INDENT_2).decode())
         )
 
         from gulp.api.opensearch_api import GulpOpenSearch

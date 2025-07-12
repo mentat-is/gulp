@@ -525,14 +525,23 @@ class GulpConfig:
     def parallel_processes_respawn_after_tasks(self) -> int:
         """
         Returns the number of tasks to spawn before respawning a process.
-        if not set, 10 will be used.
+        this can be set to -1 to never respawn processes, every other value < 100 will be set to 100.
         """
         n = self._config.get("parallel_processes_respawn_after_tasks", 100)
+        if n == -1:
+            # -1 means never respawn
+            MutyLogger.get_instance().warning(
+                "parallel_processes_respawn_after_tasks is set to -1, never respawning processes."
+            )
+            return 0
+
         if n < 100:
             MutyLogger.get_instance().warning(
                 "parallel_processes_respawn_after_tasks n=%d too low, set to 100 (minimum)"
                 % (n)
             )
+            n = 100
+
         return n
 
     def debug_allow_insecure_passwords(self) -> bool:

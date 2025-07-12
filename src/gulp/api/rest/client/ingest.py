@@ -233,6 +233,7 @@ class GulpAPIIngest:
         plugin: str = None,
         plugin_params: Optional[GulpPluginParameters] = None,
         flt: Optional[GulpIngestionFilter] = None,
+        last: bool = False,
         ws_id: str = None,
         req_id: str = None,
         expected_status: int = 200,
@@ -243,6 +244,7 @@ class GulpAPIIngest:
         params = {
             "operation_id": operation_id,
             "plugin": plugin,
+            "last": last,
             "ws_id": ws_id or api_common.ws_id,
             "req_id": req_id or api_common.req_id,
         }

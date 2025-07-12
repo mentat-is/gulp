@@ -49,8 +49,8 @@
   "parallel_queries_max": 8,
   // maximum number of processes to be used for the pool (default=0=number of CPU cores)
   "parallel_processes_max": 0,
-  // respawn a process after this number of tasks, may help against leaks (default=10)
-  "parallel_processes_respawn_after_tasks": 10,
+  // respawn a process after this number of tasks: set to -1 to never respawn processes, every other value < 100 will be set to 100 (default=100)
+  "parallel_processes_respawn_after_tasks": 100,
   // certificates directory (may be overridden by CERTS_DIRECTORY environment variable)
   "path_certs": "~/repos/gulp/certs",
   // extra path to load mapping files from. leave null to use the default "GULPDIR/mapping_files". can be overridden with PATH_MAPPING_FILES_EXTRA environment variable

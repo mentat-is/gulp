@@ -65,8 +65,9 @@ class SourceCanceledError(Exception):
 
 class PreviewDone(Exception):
     """
-    Raised when a preview is done on ingestion    
+    Raised when a preview is done on ingestion
     """
+
     def __init__(self, message: str, processed: int = 0):
         """
         Initialize the PreviewDone exception.
@@ -77,6 +78,7 @@ class PreviewDone(Exception):
         """
         super().__init__(message)
         self.processed = processed
+
 
 class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     """
@@ -222,7 +224,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         user_id: str = kwargs["user_id"]
 
         MutyLogger.get_instance().debug(
-            "---> create stats: id=%s, operation_id=%s, source_total=%d, sess=%s, user_id=%s",
+            "---> create/get stats: id=%s, operation_id=%s, source_total=%d, sess=%s, user_id=%s",
             req_id,
             operation_id,
             source_total,
@@ -379,11 +381,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             OperationalError: if locking fails after retries.
         """
         log = MutyLogger.get_instance()
-        updated_data: dict = (
-            {}
-        )  # dictionary to hold changes for super().update if needed, though current super().update ignores 'd'
         should_update: bool = True
-        
+
         try:
             # acquire lock for the duration of the update
             await self.__class__.acquire_advisory_lock(sess, self.id)
@@ -402,10 +401,15 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     self.status,
                 )
                 # return current state: we will need to commit the transaction in finally block, to release the lock
-                should_update = False 
+                should_update = False
                 return self.to_dict()
 
             # apply updates from d
+            time_expire: int = d.get("time_expire", 0)
+            if time_expire > 0:
+                # update time_expire if provided
+                self.time_expire = time_expire
+
             self.source_processed += d.get("source_processed", 0)
             self.source_failed += d.get("source_failed", 0)
             self.records_failed += d.get("records_failed", 0)
@@ -532,7 +536,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             # it uses the current state of 'self', so passing d=None is correct if parent doesn't need incremental changes.
             updated_dict: dict = await super().update(
                 sess,
-                d=updated_data,  # pass empty dict or specific fields if parent needs them
+                d=None,
                 ws_id=ws_id,
                 user_id=user_id,
                 ws_queue_datatype=ws_queue_datatype,

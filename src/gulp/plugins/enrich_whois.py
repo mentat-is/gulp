@@ -676,6 +676,7 @@ class Plugin(GulpPluginBase):
         for doc in docs:
             # TODO: when opensearch will support runtime mappings, this can be removed and done with "highlight" queries.
             # either, we may also add text mappings to ip fields in the index template..... but keep it as is for now...
+            enriched: bool=False
             for host_field in host_fields:
                 f = doc.get(host_field)
                 if not f:
@@ -684,6 +685,7 @@ class Plugin(GulpPluginBase):
                 # append flattened whois data to the document
                 whois_data = await self._get_whois(f)
                 if whois_data:
+                    enriched=True
                     for key, value in whois_data.items():
                         if value:
                             # also replace . with _ in the field name
@@ -691,7 +693,9 @@ class Plugin(GulpPluginBase):
                                 "gulp.%s.%s.%s"
                                 % (self.name, host_field.replace(".", "_"), key)
                             ] = value
-            dd.append(doc)
+            if enriched:
+                # at least one host field was enriched
+                dd.append(doc)
 
         return dd
 

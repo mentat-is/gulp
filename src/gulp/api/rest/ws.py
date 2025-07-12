@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field
 
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
-from gulp.api.collab.structs import GulpUserPermission, MissingPermission
+from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission, MissingPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest_api import GulpRestServer
@@ -58,6 +58,7 @@ from gulp.api.ws_api import (
     GulpWsSharedQueue,
     GulpWsType,
 )
+from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase, GulpPluginCacheMode
 from gulp.process import GulpProcess
 from gulp.structs import ObjectNotFound
@@ -101,12 +102,30 @@ class WsIngestRawWorker:
 
         async with GulpCollab.get_instance().session() as sess:
             stats: GulpRequestStats = None
-
+            prev_ws_id: str = None
+            prev_user_id: str = None
             while True:
                 packet: InternalWsIngestPacket = input_queue.get()
-                if packet is None:
+                if not packet:
+                    # this is the last packet, close the stats and break the loop
+                    if stats:
+                        time_updated = muty.time.now_msec()
+                        msecs_to_expiration = GulpConfig.get_instance().stats_ttl() * 1000
+                        time_expire = time_updated + msecs_to_expiration
+                        object_data = {
+                            "time_expire": time_expire,
+                            "time_updated": time_updated,
+                            "time_finished": time_updated,
+                            "status": GulpRequestStatus.DONE.value,
+                        }
+                        await stats.update(
+                            sess, object_data, ws_id=prev_ws_id, user_id=prev_user_id
+                        )
                     break
 
+                # these will be used to end the loop and update the final stats so the stat can expire
+                prev_ws_id = packet.dict_data.ws_id
+                prev_user_id = packet.user_id
                 if not stats:
                     # create a stats that never expire
                     stats: GulpRequestStats = await GulpRequestStats.create(
@@ -131,6 +150,7 @@ class WsIngestRawWorker:
                     )
 
                     # process raw data using plugin
+                    # handling "last" here is not needed, the termination is handled above setting the stats to DONE
                     await mod.ingest_raw(
                         sess,
                         user_id=packet.user_id,
