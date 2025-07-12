@@ -44,7 +44,7 @@ Gulp is a powerful software tool designed to streamline incident response and an
 
 ## integration with other applications
 
-gulp can be of course [integrated with other application !](./docs/integration.md)
+gulp can be of course [integrated with other applications](./docs/integration.md) !
 
 > both websocket and REST API is available!
 
