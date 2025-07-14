@@ -434,6 +434,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             self.records_skipped += d.get("records_skipped", 0)
             self.records_processed += d.get("records_processed", 0)
             self.records_ingested += d.get("records_ingested", 0)
+            self.total_hits = d.get("total_hits", 0)
 
             # process errors
             error: Union[Exception, str, list[str]] = d.get("error")
@@ -462,7 +463,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     self.errors = self.errors  # type: ignore
 
             # log update details
-            log.debug("---> update stats (pre): %s" % (self))
+            log.debug("---> update stats (pre): %s, ws_queue_datatype=%s, ws_id=%s" % (self, ws_queue_datatype, ws_id))
             if error:
                 log.error("---> update stats error: id=%s, error=%s", self.id, error)
 
@@ -539,7 +540,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             if is_completed:
                 self.time_finished = muty.time.now_msec()
                 log.info(
-                    'request "%s" **COMPLETED** with status=%s, total time: %d seconds',
+                    'request "%s" **COMPLETED** with status=%s, total time: %d seconds, ws_queue_datatype=%s, ws_id=%s',
                     self.id,
                     self.status,
                     (
@@ -547,6 +548,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                         if self.time_created
                         else -1
                     ),
+                    ws_queue_datatype,
+                    ws_id,
                 )
 
             # --- call parent update ---
@@ -604,6 +607,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         Returns:
             dict: the updated stats as a dictionary
         """
+        status: str = GulpRequestStatus.DONE
         try:
             await GulpRequestStats.acquire_advisory_lock(sess, req_id)
             stats: GulpRequestStats = await GulpRequestStats.get_by_id(
@@ -612,26 +616,16 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             dd: dict = {}
             if stats and stats.status != GulpRequestStatus.CANCELED.value:
                 # mark as completed
-                stats.status = GulpRequestStatus.DONE.value
-                stats.time_finished = muty.time.now_msec()
-
-                # add any errors
                 if errors:
-                    if not stats.errors:
-                        stats.errors = errors
-                    else:
-                        stats.errors.extend(errors)
-
-                if stats.errors:
-                    stats.status = GulpRequestStatus.FAILED.value
-                stats.total_hits = hits
-
-                MutyLogger.get_instance().debug(
-                    "update_query_stats id=%s, with status=%s, hits=%d"
-                    % (stats.id, stats.status, hits)
-                )
-                dd = stats.to_dict(exclude_none=True)
-                await sess.commit()
+                    status = GulpRequestStatus.FAILED
+                else:
+                    status = GulpRequestStatus.DONE
+                object_data = {
+                    "status": status,
+                    "error": errors or [],
+                    "total_hits": hits,
+                }
+                dd = await stats.update(sess, object_data, user_id=user_id, ws_id=ws_id)
 
         except Exception as e:
             await sess.rollback()
@@ -660,6 +654,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             req_id=req_id,
             data=p.model_dump(exclude_none=True),
         )
+        return dd
 
     @staticmethod
     async def is_canceled(sess: AsyncSession, req_id: str) -> bool:

@@ -432,7 +432,6 @@ async def _worker_coro(kwds: dict) -> None:
     total_doc_matches: int = 0
     all_errors: list[str] = []
     all_query_names: list[str] = []
-
     try:
         # process in batches to limit resource usage
         num_queries = len(queries)
@@ -482,7 +481,7 @@ async def _worker_coro(kwds: dict) -> None:
                     req_id=req_id,
                     data=p.model_dump(exclude_none=True),
                 )
-                print(
+                MutyLogger.get_instance().debug(
                     "processed %d queries, total=%d, total_matches=%d"
                     % (processed, num_queries, total_doc_matches)
                 )
@@ -495,7 +494,7 @@ async def _worker_coro(kwds: dict) -> None:
             all_errors.extend(batch_errors)
 
         # log summary of query group results
-        print(
+        MutyLogger.get_instance().debug(
             "FINISHED query group=%s matched %d/%d queries, total hits=%d"
             % (q_options.group, query_matched_total, num_queries, total_doc_matches)
         )
