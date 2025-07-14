@@ -395,7 +395,7 @@ async def sigmas_to_queries(
     for q in queries:
         # dump each query
         MutyLogger.get_instance().debug(
-            "query[%d]: %s" % (dbg_count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2))
+            "query[%d]: %s" % (dbg_count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2).decode())
         )
         dbg_count += 1
 
@@ -831,7 +831,7 @@ async def sigma_convert_default(
         # count: int =0
         # for q in qs:
         #     MutyLogger.get_instance().debug(
-        #         "sigma_convert_default, q[%d]:\n%s" % (count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2))
+        #         "sigma_convert_default, q[%d]:\n%s" % (count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2).decode())
         #     )
         #     count += 1
         return qs
@@ -885,7 +885,7 @@ async def sigma_convert_default(
     # count: int=0
     # for q in qs:
     #     MutyLogger.get_instance().debug(
-    #         "sigma_convert_default, q[%d]:\n%s" % (count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2))
+    #         "sigma_convert_default, q[%d]:\n%s" % (count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2).decode())
     #     )
     #     count += 1
     return qs

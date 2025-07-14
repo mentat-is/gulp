@@ -285,7 +285,7 @@ async def _rebase_internal(
 
     # done
     MutyLogger.get_instance().debug(
-        "rebase done, result=%s" % (orjson.dumps(res, option=orjson.OPT_INDENT_2))
+        "rebase done, result=%s" % (orjson.dumps(res, option=orjson.OPT_INDENT_2).decode())
     )
     # signal the websocket
     wsq = GulpWsSharedQueue.get_instance()

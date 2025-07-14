@@ -300,7 +300,7 @@ if set, the query is **synchronous** and returns the preview chunk of documents,
         else:
             n["search_after"] = None
 
-        # MutyLogger.get_instance().debug("query options: %s" % (orjson.dumps(n, option=orjson.OPT_INDENT_2)))
+        # MutyLogger.get_instance().debug("query options: %s" % (orjson.dumps(n, option=orjson.OPT_INDENT_2).decode()))
         return n
 
 

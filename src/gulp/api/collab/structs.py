@@ -1670,7 +1670,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 "User %s get_by_filter_result: %s"
                 % (
                     s.user.id,
-                    orjson.dumps(data, option=orjson.OPT_INDENT_2),
+                    orjson.dumps(data, option=orjson.OPT_INDENT_2).decode(),
                 )
             )
 

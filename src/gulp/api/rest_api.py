@@ -466,7 +466,7 @@ class GulpRestServer:
         from gulp.api.opensearch_api import GulpOpenSearch
         api = GulpOpenSearch.get_instance()
         p = await api.index_template_get("test_operation")
-        MutyLogger.get_instance().info(orjson.dumps(p, option=orjson.OPT_INDENT_2))
+        MutyLogger.get_instance().info(orjson.dumps(p, option=orjson.OPT_INDENT_2).decode())
         """
         return
 

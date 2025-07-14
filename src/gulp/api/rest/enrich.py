@@ -311,7 +311,7 @@ async def enrich_documents_handler(
             plugin_params=plugin_params,
         )
 
-        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2))
+        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2).decode())
         async def worker_coro(kwds: dict):
             await GulpProcess.get_instance().process_pool.apply(
                 _enrich_documents_internal, kwds=kwds
@@ -484,7 +484,7 @@ async def tag_documents_handler(
             tags=tags,
         )
 
-        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2))
+        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2).decode())
         async def worker_coro(kwds: dict):
             await GulpProcess.get_instance().process_pool.apply(
                 _tag_documents_internal, kwds=kwds

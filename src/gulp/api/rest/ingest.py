@@ -556,7 +556,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             preview_mode=preview_mode,
             delete_after=True,
         )
-        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2))
+        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2).decode())
         if preview_mode:
             # preview, return sync
             status, preview_chunk = await _ingest_file_internal(**kwds)
@@ -741,7 +741,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             preview_mode=preview_mode,
             delete_after=delete_after,
         )
-        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2))
+        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2).decode())
         if preview_mode:
             # preview, return sync
             status, preview_chunk = await _ingest_file_internal(**kwds)
@@ -947,7 +947,7 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
             plugin_params=plugin_params,
             last=last,
         )
-        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2))
+        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2).decode())
 
         # spawn a task which runs the ingestion in a worker process's task
         async def worker_coro(kwds: dict):

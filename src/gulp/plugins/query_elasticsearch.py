@@ -149,7 +149,7 @@ class Plugin(GulpPluginBase):
         #     "operation_id=%s, doc=\n%s"
         #     % (
         #         self._operation_id,
-        #         orjson.dumps(d, option=orjson.OPT_INDENT_2),
+        #         orjson.dumps(d, option=orjson.OPT_INDENT_2).decode(),
         #     )
         # )
 

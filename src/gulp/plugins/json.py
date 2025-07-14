@@ -85,12 +85,12 @@ class Plugin(GulpPluginBase):
 
         # map
         final: dict = {}
-        #print("processing record %d:\n%s" % (record_idx, orjson.dumps(d, option=orjson.OPT_INDENT_2)))
+        #print("processing record %d:\n%s" % (record_idx, orjson.dumps(d, option=orjson.OPT_INDENT_2).decode()))
         for k, v in d.items():
             mapped = await self._process_key(k, v, final, **kwargs)
             final.update(mapped)
 
-        # MutyLogger.get_instance().debug("final mapped record:\n%s" % (orjson.dumps(final, option=orjson.OPT_INDENT_2)))
+        # MutyLogger.get_instance().debug("final mapped record:\n%s" % (orjson.dumps(final, option=orjson.OPT_INDENT_2).decode()))
         return GulpDocument(
             self,
             operation_id=self._operation_id,

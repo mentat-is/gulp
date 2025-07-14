@@ -46,7 +46,7 @@ class ServerUtils:
         caller_frame = inspect.currentframe().f_back
         caller_name = caller_frame.f_code.co_name
         MutyLogger.get_instance().debug(
-            "---> %s() params: %s" % (caller_name, orjson.dumps(params, option=orjson.OPT_INDENT_2))
+            "---> %s() params: %s" % (caller_name, orjson.dumps(params, option=orjson.OPT_INDENT_2).decode())
         )
 
     @staticmethod
@@ -124,7 +124,7 @@ class ServerUtils:
             payload = content.decode("utf-8")
             payload_dict = orjson.loads(payload)
             MutyLogger.get_instance().debug(
-                "parsed payload: %s" % orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2)
+                "parsed payload: %s" % orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2).decode()
             )            
             return payload_dict
         except Exception:
@@ -315,7 +315,7 @@ class ServerUtils:
         )
         MutyLogger.get_instance().debug(
             "file_path=%s,\npayload=%s,\nresult=%s"
-            % (cache_file_path, orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2), result)
+            % (cache_file_path, orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2).decode(), result)
         )
 
         return (cache_file_path, payload_dict, result)

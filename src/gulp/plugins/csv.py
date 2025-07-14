@@ -97,7 +97,7 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
         date_format = kwargs.get("date_format")
 
-        # MutyLogger.get_instance().debug("processing record:\n%s" % (orjson.dumps(record, option=orjson.OPT_INDENT_2)))
+        # MutyLogger.get_instance().debug("processing record:\n%s" % (orjson.dumps(record, option=orjson.OPT_INDENT_2).decode()))
 
         # get raw csv line (then remove it)
         event_original: str = record["__line__"]

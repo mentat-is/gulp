@@ -174,7 +174,7 @@ class Plugin(GulpPluginBase):
         d["@timestamp"] = record["timestamp"]
 
         # if d.get("event.code") == "0":
-        #     MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2))
+        #     MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2).decode())
 
         return GulpDocument(
             self,

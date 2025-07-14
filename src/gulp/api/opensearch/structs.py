@@ -306,7 +306,7 @@ class GulpDocument(GulpBasicDocument):
             # anyway, we ensure timestamp is valid (iso8601 format) and extract the timestamp in nanoseconds from unix epoch
             if not ensure_extra_doc_timestamp:
                 # this is the default case, either timestamp has been passed through args when generating extra documents (and ensure_extra_doc_timestamp is true)
-                # print(orjson.dumps(data, option=orjson.OPT_INDENT_2))
+                # print(orjson.dumps(data, option=orjson.OPT_INDENT_2).decode())
                 timestamp: str = data.get("timestamp", 0)
             ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(str(timestamp))
 

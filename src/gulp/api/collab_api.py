@@ -511,7 +511,7 @@ class GulpCollab:
             )
             for group in groups:
                 MutyLogger.get_instance().debug(
-                    orjson.dumps(group.to_dict(nested=True), option=orjson.OPT_INDENT_2)
+                    orjson.dumps(group.to_dict(nested=True), option=orjson.OPT_INDENT_2).decode()
                 )
 
             # dump admin user
@@ -519,7 +519,7 @@ class GulpCollab:
             MutyLogger.get_instance().debug(
                 orjson.dumps(
                     admin_user.to_dict(nested=True), option=orjson.OPT_INDENT_2
-                )
+                ).decode()
             )
 
     @staticmethod

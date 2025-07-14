@@ -856,7 +856,7 @@ class GulpPluginBase(ABC):
                     wait_for_refresh=wait_for_refresh,
                 )
             )
-            # print(orjson.dumps(ingested_docs, option=orjson.OPT_INDENT_2))
+            # print(orjson.dumps(ingested_docs, option=orjson.OPT_INDENT_2).decode())
             if ingestion_errors > 0:
                 # NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
                 # ideally, function should NEVER append errors and the errors total should be the same before and

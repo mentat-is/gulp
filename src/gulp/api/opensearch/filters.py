@@ -368,7 +368,7 @@ include documents matching the given `gulp.source_id`/s.
             # merge with the provided filter using a bool query
             bool_dict["filter"] = [flt.to_opensearch_dsl()["query"]]
 
-        # MutyLogger.get_instance().debug('flt=%s, resulting query=%s' % (flt, orjson.dumps(query_dict, option=orjson.OPT_INDENT_2)))
+        # MutyLogger.get_instance().debug('flt=%s, resulting query=%s' % (flt, orjson.dumps(query_dict, option=orjson.OPT_INDENT_2).decode()))
         return query_dict
 
     def merge_to_opensearch_dsl(self, dsl: dict) -> dict:

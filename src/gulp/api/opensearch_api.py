@@ -19,6 +19,7 @@ operations (like bulk ingestion) and high-level functionality (like querying ope
 
 import asyncio
 import orjson
+import json
 from importlib import resources as impresources
 import os
 import tempfile
@@ -234,7 +235,7 @@ class GulpOpenSearch:
             )
             return {}
 
-        # MutyLogger.get_instance().debug("index_get_mapping: %s" % (orjson.dumps(res, option=orjson.OPT_INDENT_2)))
+        # MutyLogger.get_instance().debug("index_get_mapping: %s" % (orjson.dumps(res, option=orjson.OPT_INDENT_2).decode()))
         if return_raw_result:
             return res
 
@@ -804,7 +805,7 @@ class GulpOpenSearch:
         """
         headers = {"accept": "text/plain,application/json"}
         l = await self._opensearch.indices.get_data_stream(headers=headers)
-        # MutyLogger.get_instance().debug(orjson.dumps(l, option=orjson.OPT_INDENT_2))
+        # MutyLogger.get_instance().debug(orjson.dumps(l, option=orjson.OPT_INDENT_2).decode())
         ll = []
         ds = l.get("data_streams", [])
         for c in ds:
@@ -1236,7 +1237,7 @@ class GulpOpenSearch:
                     for item in res["items"]
                     if item["create"]["status"] not in [200, 201]
                 ]
-                s = orjson.dumps(failed_items, option=orjson.OPT_INDENT_2)
+                s = orjson.dumps(failed_items, option=orjson.OPT_INDENT_2).decode()
                 MutyLogger.get_instance().error(
                     f"{failed} failed ingestion, {skipped} skipped: {muty.string.make_shorter(s, max_len=10000)}"
                 )
@@ -1538,12 +1539,12 @@ class GulpOpenSearch:
             }
             MutyLogger.get_instance().debug(
                 f"aggregations with group_by={group_by}: {
-                    orjson.dumps(aggregations, option=orjson.OPT_INDENT_2)}"
+                    orjson.dumps(aggregations, option=orjson.OPT_INDENT_2).decode()}"
             )
 
         q = flt.to_opensearch_dsl()
         MutyLogger.get_instance().debug(
-            f"query_max_min_per_field: q={orjson.dumps(q, option=orjson.OPT_INDENT_2)}"
+            f"query_max_min_per_field: q={orjson.dumps(q, option=orjson.OPT_INDENT_2).decode()}"
         )
         body = {
             "track_total_hits": True,
@@ -1562,7 +1563,7 @@ class GulpOpenSearch:
         if group_by:
             MutyLogger.get_instance().debug(
                 f"group_by={group_by}, res['aggregations']={
-                    orjson.dumps(res['aggregations'], option=orjson.OPT_INDENT_2)}"
+                    orjson.dumps(res['aggregations'], option=orjson.OPT_INDENT_2).decode()}"
             )
             return self._parse_query_max_min(res["aggregations"])
 
@@ -1596,7 +1597,7 @@ class GulpOpenSearch:
             list[dict]: Parsed operations with context and source details
         """
         # get all operations from collab db
-        # MutyLogger.get_instance().debug(f"parsing operations aggregations: {orjson.dumps(aggregations, option=orjson.OPT_INDENT_2)}")
+        # MutyLogger.get_instance().debug(f"parsing operations aggregations: {orjson.dumps(aggregations, option=orjson.OPT_INDENT_2).decode()}")
         async with GulpCollab.get_instance().session() as sess:
             all_operations = await GulpOperation.get_by_filter(
                 sess,
@@ -1747,10 +1748,10 @@ class GulpOpenSearch:
             )
             # raise ObjectNotFound()
             return []
-        MutyLogger.get_instance().debug(orjson.dumps(res, option=orjson.OPT_INDENT_2))
+        MutyLogger.get_instance().debug(orjson.dumps(res, option=orjson.OPT_INDENT_2).decode())
 
         d = {"total": hits, "aggregations": res["aggregations"]}
-        # MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2))
+        # MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2).decode())
         return await self._parse_operation_aggregation(d["aggregations"], user_id)
 
     async def query_single_document(
@@ -1839,7 +1840,7 @@ class GulpOpenSearch:
         for k, v in parsed_options.items():
             if v:
                 body[k] = v
-        # MutyLogger.get_instance().debug("index=%s, query_raw body=%s, parsed_options=%s" % (index, orjson.dumps(body, option=orjson.OPT_INDENT_2), orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2)))
+        # MutyLogger.get_instance().debug("index=%s, query_raw body=%s, parsed_options=%s" % (index, orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(), orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode()))
 
         headers = {
             "content-type": "application/json",
@@ -1875,7 +1876,7 @@ class GulpOpenSearch:
                 body=body, index=index, headers=headers, params=params
             )
 
-        # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s" % (orjson.dumps(res, option=orjson.OPT_INDENT_2)))
+        # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s" % (orjson.dumps(res, option=orjson.OPT_INDENT_2).decode()))
         hits = res["hits"]["hits"]
         if not hits:
             if raise_on_error:
@@ -2193,7 +2194,7 @@ class GulpOpenSearch:
                     for d in docs:
                         # convert to json and write to file, remove highlight if any
                         d.pop("highlight", None)
-                        d = orjson.dumps(d, indent="\t")
+                        d = json.dumps(d, indent="\t")
 
                         await f.write(f"\t{d},\n".encode())
                     
