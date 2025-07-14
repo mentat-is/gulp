@@ -46,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
-from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab.stats import GulpRequestStats, RequestStatsType
 from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpRequestStatus,
@@ -652,6 +652,7 @@ async def _spawn_query_group_workers(
                 req_id=req_id,
                 object_data=None,  # uses default
                 operation_id=operation_id,
+                stats_type=RequestStatsType.REQUEST_TYPE_QUERY,
                 sess=sess,
                 user_id=user_id,
             )

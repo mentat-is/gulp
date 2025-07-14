@@ -22,7 +22,7 @@ from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab.stats import GulpRequestStats, RequestStatsType
 from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -293,6 +293,7 @@ async def enrich_documents_handler(
                 req_id=req_id,
                 object_data=None, # uses default
                 operation_id=operation_id,
+                stats_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
                 sess=sess,
                 user_id=user_id,
             )
@@ -468,6 +469,7 @@ async def tag_documents_handler(
                 req_id=req_id,
                 object_data=None,  # uses default
                 operation_id=operation_id,
+                stats_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
                 sess=sess,
                 user_id=user_id,
             )

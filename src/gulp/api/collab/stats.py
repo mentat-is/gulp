@@ -22,11 +22,12 @@ long-running ingestion processes.
 
 """
 
+from enum import StrEnum
 from typing import Optional, Union, override
 
 import muty.time
 from muty.log import MutyLogger
-from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String
+from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String, Boolean
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
@@ -62,7 +63,15 @@ class SourceCanceledError(Exception):
     Raised when a source is aborted (by API or in case of too many failures).
     """
 
-
+class RequestStatsType(StrEnum):
+    """
+    types of request stats
+    """
+    REQUEST_TYPE_INGESTION = "ingest"
+    REQUEST_TYPE_QUERY = "query"
+    REQUEST_TYPE_ENRICHMENT = "enrich"
+    REQUEST_TYPE_GENERIC = "generic"
+    
 class PreviewDone(Exception):
     """
     Raised when a preview is done on ingestion
@@ -138,6 +147,11 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         default=0,
         doc="The total number of hits for the query (used for search requests).",
     )
+    req_type: Mapped[Optional[str]] = mapped_column(
+        String,
+        default=RequestStatsType.REQUEST_TYPE_INGESTION,
+        doc="The type of request stats (ingestion, query, enrichment, generic).",
+    )
     __table_args__ = (Index("idx_stats_operation", "operation_id"),)
 
     @override
@@ -191,6 +205,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         obj_id: str = None,
         private: bool = True,
         operation_id: str = None,
+        stats_type: RequestStatsType = RequestStatsType.REQUEST_TYPE_INGESTION,
         **kwargs,
     ) -> T:
         """
@@ -209,6 +224,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             obj_id (str, optional): ignored, req_id is used
             private (bool, optional): ignored
             operation_id (str): The operation associated with the stats
+            stats_type (RequestStatsType, optional): The type of request stats. Defaults to RequestStatsType.REQUEST_TYPE_INGESTION.
             **kwargs: Additional keyword arguments.
                 - sess: AsyncSession (mandatory)
                 - user_id: str (mandatory)
@@ -224,12 +240,13 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         user_id: str = kwargs["user_id"]
 
         MutyLogger.get_instance().debug(
-            "---> create/get stats: id=%s, operation_id=%s, source_total=%d, sess=%s, user_id=%s",
+            "---> create/get stats: id=%s, operation_id=%s, source_total=%d, sess=%s, user_id=%s, stats_type=%s",
             req_id,
             operation_id,
             source_total,
             sess,
             user_id,
+            stats_type
         )
 
         # determine expiration time
@@ -266,6 +283,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 "time_expire": time_expire,
                 "operation_id": operation_id,
                 "source_total": source_total,
+                "req_type": stats_type.value
             }
             return await super()._create_internal(
                 sess,
