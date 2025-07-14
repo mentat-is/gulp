@@ -118,11 +118,10 @@ class WsIngestRawWorker:
                         msecs_to_expiration = (
                             GulpConfig.get_instance().stats_ttl() * 1000
                         )
+                        # setting status=DONE will automatically set the finish time too
                         time_expire = time_updated + msecs_to_expiration
                         object_data = {
                             "time_expire": time_expire,
-                            "time_updated": time_updated,
-                            "time_finished": time_updated,
                             "status": GulpRequestStatus.DONE.value,
                         }
                         await stats.update(

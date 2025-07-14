@@ -2,6 +2,7 @@
   - [the raw plugin](#the-raw-plugin)
     - [using a custom raw ingestion plugin](#using-a-custom-raw-ingestion-plugin)
   - [flow](#flow)
+    - [completing raw requests](#completing-raw-requests)
 
 # integrate with other applications
 
@@ -43,3 +44,16 @@ examples for both methods are provided in the test code:
 - [for /ws/ingest_raw](../tests/ingest/test_ingest.py#async-def-test_ws_raw)
 
 > for `/ws/ingest_raw`, [here is the detailed inner working of the endpoint](../src/gulp/api/rest/ws.py#async_def_ws_ingest_raw_handler)
+
+### completing raw requests
+
+raw ingestion, by its nature, keeps the related [GulpRequestStats](../src/gulp/api/collab/stats.py) (the structure used to keep track of each request gulp is processing) always in the `ongoing` state.
+
+> once a request `status` turns to `done`, `failed`, `canceled`, the engine takes care of deleting the completed requests after their `expire_time` is due: this is done automatically for non-raw requests (i.e. ingest, query, ...).
+
+while using the `/ws/ingest_raw` also handles this automatically when the websocket is closed, using the `/ingest_raw` REST endpoint the client must notify gulp when the request is done (so it can clean it up later).
+
+this may be done both via:
+
+- setting the `last` parameter when calling `/ingest_raw` (**the preferred way**)
+- using the provided `/request_set_completed` REST API

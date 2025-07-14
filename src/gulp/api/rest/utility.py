@@ -27,7 +27,11 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
 from gulp.api.collab.stats import GulpRequestStats
-from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
+from gulp.api.collab.structs import (
+    GulpCollabFilter,
+    GulpRequestStatus,
+    GulpUserPermission,
+)
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.mapping.models import GulpMappingFile
@@ -124,6 +128,73 @@ async def request_cancel_handler(
             )
             await stats.cancel(sess)
         return JSendResponse.success(req_id=req_id, data={"id": req_id_to_cancel})
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.patch(
+    "/request_set_completed",
+    tags=["stats"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"id": "test_req"},
+                    }
+                }
+            }
+        }
+    },
+    summary="complete the request.",
+    description="""
+set a running request `status` to `DONE` or `FAILED`, so the engine can delete it after the expiration time.
+
+- `token` needs `admin` permission or to be the owner of the request.
+""",
+)
+async def request_set_completed_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id_to_complete: Annotated[
+        str, Query(description="request id to set completed.", example=TEST_REQ_ID)
+    ],
+    failed: Annotated[
+        bool, Query(description="if set, the request is marked as failed.")
+    ] = False,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            stats: GulpRequestStats = await GulpRequestStats.get_by_id(
+                sess, req_id_to_complete
+            )
+            s = await GulpUserSession.check_token(
+                sess, token, obj=stats, enforce_owner=True
+            )
+
+            # set status to DONE or FAILED, will set the finish time automatically
+            status = GulpRequestStatus.FAILED if failed else GulpRequestStatus.DONE
+            object_data = {
+                "status": status,
+            }
+
+            if not stats.time_expire:
+                # this is a raw request, set the expiration time so the engine can delete it later
+                time_updated = muty.time.now_msec()
+                msecs_to_expiration = GulpConfig.get_instance().stats_ttl() * 1000
+
+                time_expire = time_updated + msecs_to_expiration
+                object_data["time_expire"] = time_expire
+            await stats.update(sess, object_data, user_id=s.user_id)
+
+        return JSendResponse.success(req_id=req_id, data={"id": req_id_to_complete})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1179,4 +1250,3 @@ async def mapping_file_get_handler(
         )
     except Exception as ex:
         raise JSendException(req_id=req_id, status_code=404) from ex
-
