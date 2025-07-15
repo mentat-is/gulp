@@ -5,6 +5,7 @@
     - [ws](#ws)
     - [ws\_ingest\_raw](#ws_ingest_raw)
     - [ws\_client\_data](#ws_client_data)
+    - [tracking status](#tracking-status)
 
 ## GULP architecture
 
@@ -220,3 +221,7 @@ each `GulpClientDataPacket` is as follows:
   "data": { "arbitrary": "data" }
 }
 ```
+
+#### tracking status
+
+a client can keep track of operations [via data sent by gulp on the connected websockets](../src/gulp/api/ws_api.py#WS_DATA_STATS_UPDATE) during operations (i.e. queries, ingestion, ...)

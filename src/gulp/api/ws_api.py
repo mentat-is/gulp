@@ -43,25 +43,27 @@ class GulpWsType(StrEnum):
 # data types for the websocket
 WSDATA_ERROR = "ws_error"
 WSDATA_CONNECTED = "ws_connected"
-WSDATA_STATS_UPDATE = "stats_update"
 WSDATA_COLLAB_UPDATE = "collab_update"
 WSDATA_USER_LOGIN = "user_login"
 WSDATA_USER_LOGOUT = "user_logout"
 WSDATA_DOCUMENTS_CHUNK = "docs_chunk"
 WSDATA_COLLAB_DELETE = "collab_delete"
-WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"
-WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of each individual query
-WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
-WSDATA_ENRICH_DONE = "enrich_done"
-WSDATA_TAG_DONE = "tag_done"
-WSDATA_QUERY_GROUP_MATCH = "query_group_match"
 WSDATA_REBASE_DONE = "rebase_done"
 WSDATA_CLIENT_DATA = "client_data"
 WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
 WSDATA_NEW_SOURCE = "new_source"
 WSDATA_NEW_CONTEXT = "new_context"
-WSDATA_PROGRESS = "progress"
 WSDATA_GENERIC = "generic"
+
+# the following data types sent on the websocket are to be used to track status
+WSDATA_STATS_UPDATE = "stats_update" # this is sent each time a GulpRequestStats is updated on the collab db (at start of the operation, and in the end, usually)
+WSDATA_INGEST_SOURCE_DONE = "ingest_source_done" # this is sent in the end of an ingestion operation, one per source
+WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
+WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
+WSDATA_PROGRESS = "progress" # this is sent to indicate query progrress during, indicates current/total queries being performed and optionally a progress message
+WSDATA_ENRICH_DONE = "enrich_done" # this is sent in the end of an enrichment operation
+WSDATA_TAG_DONE = "tag_done" # this is sent in the end of a tag operation
+WSDATA_QUERY_GROUP_MATCH = "query_group_match" # this is sent to indicate a query group match, i.e. a query group that matched some queries
 
 # special token used to monitor also logins
 WSTOKEN_MONITOR = "monitor"

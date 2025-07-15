@@ -584,7 +584,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         hits: int = 0,
         ws_queue_datatype: str = WSDATA_QUERY_DONE,
         errors: list[str] = None,
-        send_query_done: bool = True,
         num_queries: int = 0,
         q_group: str = None,
     ) -> dict:
@@ -630,9 +629,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         except Exception as e:
             await sess.rollback()
             raise e
-
-        if not send_query_done:
-            return dd
 
         # inform the websocket
         MutyLogger.get_instance().debug(
