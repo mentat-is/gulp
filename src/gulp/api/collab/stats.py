@@ -46,6 +46,7 @@ from gulp.api.ws_api import (
     WSDATA_COLLAB_DELETE,
     WSDATA_QUERY_DONE,
     WSDATA_STATS_UPDATE,
+    GulpCollabCreateUpdatePacket,
     GulpQueryDonePacket,
     GulpWsSharedQueue,
 )
@@ -63,15 +64,18 @@ class SourceCanceledError(Exception):
     Raised when a source is aborted (by API or in case of too many failures).
     """
 
+
 class RequestStatsType(StrEnum):
     """
     types of request stats
     """
+
     REQUEST_TYPE_INGESTION = "ingest"
     REQUEST_TYPE_QUERY = "query"
     REQUEST_TYPE_ENRICHMENT = "enrich"
     REQUEST_TYPE_GENERIC = "generic"
-    
+
+
 class PreviewDone(Exception):
     """
     Raised when a preview is done on ingestion
@@ -246,7 +250,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             source_total,
             sess,
             user_id,
-            stats_type
+            stats_type,
         )
 
         # determine expiration time
@@ -276,6 +280,21 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     s.time_expire = time_expire
 
                 await sess.commit()
+                await sess.refresh(s)
+
+                # notify the websocket
+                data = s.to_dict(exclude_none=True)
+                p = GulpCollabCreateUpdatePacket(data=data, created=True)
+                wsq = GulpWsSharedQueue.get_instance()
+                await wsq.put(
+                    WSDATA_STATS_UPDATE,
+                    ws_id=ws_id,
+                    user_id=s.owner_user_id,
+                    operation_id=s.operation_id,
+                    req_id=req_id,
+                    data=p.model_dump(exclude_none=True, exclude_defaults=True),
+                    private=private,
+                )
                 return s
 
             # create new
@@ -283,7 +302,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 "time_expire": time_expire,
                 "operation_id": operation_id,
                 "source_total": source_total,
-                "req_type": stats_type.value
+                "req_type": stats_type.value,
             }
             return await super()._create_internal(
                 sess,
@@ -463,7 +482,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     self.errors = self.errors  # type: ignore
 
             # log update details
-            log.debug("---> update stats (pre): %s, ws_queue_datatype=%s, ws_id=%s" % (self, ws_queue_datatype, ws_id))
+            log.debug(
+                "---> update stats (pre): %s, ws_queue_datatype=%s, ws_id=%s"
+                % (self, ws_queue_datatype, ws_id)
+            )
             if error:
                 log.error("---> update stats error: id=%s, error=%s", self.id, error)
 

@@ -71,6 +71,8 @@
   "postgres_verify_certs": false,
   // how many queries to keep in the history per user(default=20, max=50)
   "query_history_max_size": 20,
+  // delete pending request stats on the collab database on gulp shutdown (default=true)
+  "stats_delete_pending_on_shutdown": true,
   // how many seconds before automatically delete non-live stats, default=1 day (86400 seconds))
   "stats_ttl": 86400,
   // admin/impersonation token expiration seconds, default=10 min (600 seconds)

@@ -547,8 +547,9 @@ class GulpRestServer:
         MutyLogger.get_instance().info("gulp shutting down!")
         self.set_shutdown()
 
-        # delete pending stats
-        await GulpRequestStats.delete_pending()
+        if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
+            # delete pending stats
+            await GulpRequestStats.delete_pending()
 
         # unload extension plugins
         await self._unload_extension_plugins()

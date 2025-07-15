@@ -426,6 +426,17 @@ class GulpConfig:
             )
         return n
 
+    def stats_delete_pending_on_shutdown(self) -> bool:
+        """
+        Returns whether to delete pending stats on server shutdown (default: True).
+
+        this is useful to avoid having pending stats from previous runs.
+        """
+        n = GulpConfig.get_instance()._config.get(
+            "stats_delete_pending_on_shutdown", True
+        )
+        return n
+
     def https_cert_password(self) -> str:
         """
         Returns the password for the HTTPS certificate of the gulp server.
