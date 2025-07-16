@@ -19,13 +19,29 @@ understanding their relationships and the underlying query mechanics is essentia
     the following is an example of what you may use as the `q` parameter in `query_raw`:
 
     ```json
-        [{
+    [
+        {
             "query": {
-                "query_string": {
-                    "query": "event.code: 4625 AND gulp.operation_id: test_operation"
+                "bool": {
+                    "must": [
+                        {
+                            "query_string": {
+                                "query": "(gulp.operation_id: test_operation AND gulp.context_id: dbdcd5d70efd3e4242cedd1e4a0c9b2d186a5a8f AND gulp.source_id: 7344ed16e93ee2dcb2a1e019c01596e72249d4c3 AND gulp.timestamp: [1727734017000000000 TO 1730414835000000000])"
+                            }
+                        },
+                        {
+                            "wildcard": {
+                                "gulp.unmapped.Guid": {
+                                    "case_insensitive": true,
+                                    "value": "*8-4994-a5bA*"
+                                }
+                            }
+                        }
+                    ]
                 }
             }
-        }]  
+        }
+    ]
     ```
 
 - **`query_sigma`**: accepts [Sigma rules](https://github.com/SigmaHQ/sigma), translates them to OpenSearch queries, and executes them: useful for threat detection and security analytics.
