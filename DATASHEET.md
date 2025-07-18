@@ -7,7 +7,7 @@ Gulp is a powerful, scalable, and Python-based incident response and analysis pl
 **Main Use Cases:**
 
 * Centralized log aggregation and analysis.
-* Collaborative incident response and digital forensics (**\***)
+* Collaborative incident response and digital forensics (**WIP**)
 * Security event correlation and threat hunting.
 * Extensible data processing and enrichment pipelines.
 
@@ -95,13 +95,14 @@ Gulp is designed for seamless integration into existing security ecosystems.
 
 * **REST API:** The primary method for integration, allowing external applications to ingest data, run queries, and manage collaboration objects.
 * **WebSocket Endpoints:** For real-time data streaming and notifications. Gulp uses WebSockets to push query results and status updates to clients.
-* **Python SDK:** A [Python SDK](https://github.com/mentat-is/gulp-sdk-python) is available to simplify interactions with the Gulp API.
+* **External Plugins:** Allows Gulp to query and ingest data from external systems (i.e. SIEMS, other security tools)
+
+> A [WIP Python SDK](https://github.com/mentat-is/gulp-sdk-python) is available to simplify interactions with the Gulp API.
 
 ```mermaid
 graph TD
-    A[External Application] -- REST API / WebSocket --> B(Gulp)
-    B -- External Plugins --> C[SIEM/Other Tools]
-    D[Script/SDK] -- REST API --> B
+    A[Gulp SDK] <-- REST API / WebSocket --> B(Gulp)
+    B -- External Plugins <--> C[SIEM/Other Tools]
 ```
 
 ## 4. Testing and Development
