@@ -1,12 +1,18 @@
-- [integrate with other applications](#integrate-with-other-applications)
+- [integrate with other applications using gulp bridges](#integrate-with-other-applications-using-gulp-bridges)
   - [the raw plugin](#the-raw-plugin)
     - [using a custom raw ingestion plugin](#using-a-custom-raw-ingestion-plugin)
   - [flow](#flow)
     - [completing raw requests](#completing-raw-requests)
 
-# integrate with other applications
+# integrate with other applications using gulp bridges
 
-this guide explains how to integrate Gulp with another application (i.e. a SIEM, an external bridge, ...) which uses the provided REST API (`/ingest_raw`) and/or the WebSocket endpoint (`/ws_ingest_raw`) to feed the data.
+while integration with an external application may be done using an [external plugin](./plugins_and_mapping.md#external-plugins), this may not be possible due to the external application not exposing a proper API or methid to access the data.
+
+so, it is possible to create a `bridge` between gulp and the external application using custom methods (depending on the source) to access the data and then feed it to gulp via the `REST API`.
+
+> to develop bridges using python, a [WIP gulp SDK](https://github.com/mentat-is/gulp-python-sdk) is in the works.
+
+this guide explains how to perform the integration leveraging the `/ingest_raw` and/or the WebSocket endpoint `/ws_ingest_raw` to feed the data.
 
 ## the raw plugin
 
@@ -27,11 +33,11 @@ as specified above, GULP supports real-time and batch ingestion of data from ext
 - **REST API** (`/ingest_raw`): For sending data chunks via HTTP POST requests.
 - **WebSocket** (`/ws_ingest_raw`): For streaming data in real-time.
 
-below is a diagram illustrating the typical data flow for ingestion:
+below is a diagram illustrating the typical data flow for ingestion using a `bridge`:
 
 ```mermaid
 graph TD
-    A[External Application] -- HTTP POST /ingest_raw --> B(GULP REST API)
+    A[Gulp Bridge] -- HTTP POST /ingest_raw --> B(GULP REST API)
     A -- WebSocket /ws_ingest_raw --> C(GULP WebSocket API)
     B -- Ingests Data --> D[GULP Core]
     C -- Streams Data --> D

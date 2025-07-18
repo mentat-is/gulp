@@ -93,16 +93,19 @@ Gulp's functionality can be extended through various types of plugins:
 
 Gulp is designed for seamless integration into existing security ecosystems.
 
-* **REST API:** The primary method for integration, allowing external applications to ingest data, run queries, and manage collaboration objects.
-* **WebSocket Endpoints:** For real-time data streaming and notifications. Gulp uses WebSockets to push query results and status updates to clients.
-* **External Plugins:** Allows Gulp to query and ingest data from external systems (i.e. SIEMS, other security tools)
+* **External Plugins:** Allows Gulp to query and ingest data from external data sources (i.e. SIEMS, other security tools)
+* **Bridges**: Allows Gulp to be fed with data by a custom application (i.e. if the external data source do not expose a proper API)
+  * **REST API:** The primary method for integration.
+  * **WebSocket Endpoints:** For real-time data streaming.
 
-> A [WIP Python SDK](https://github.com/mentat-is/gulp-sdk-python) is available to simplify interactions with the Gulp API.
+> A [WIP Python SDK](https://github.com/mentat-is/gulp-sdk-python) is available to simplify interactions with the Gulp API from Python applications.
 
 ```mermaid
 graph TD
-    A[Gulp SDK] <-- REST API / WebSocket --> B(Gulp)
-    B -- External Plugins <--> C[SIEM/Other Tools]
+    A[Gulp Bridge] <--> D 
+    A <-- REST API / WebSocket --> B(Gulp)
+    Gulp -- External Plugins <--> C[SIEM API]
+    D[External data source]
 ```
 
 ## 4. Testing and Development
