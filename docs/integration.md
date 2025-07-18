@@ -1,18 +1,24 @@
-- [integrate with other applications using gulp bridges](#integrate-with-other-applications-using-gulp-bridges)
+- [integrate with other applications](#integrate-with-other-applications)
+  - [gulp bridges](#gulp-bridges)
   - [the raw plugin](#the-raw-plugin)
     - [using a custom raw ingestion plugin](#using-a-custom-raw-ingestion-plugin)
   - [flow](#flow)
     - [completing raw requests](#completing-raw-requests)
 
-# integrate with other applications using gulp bridges
+# integrate with other applications
+
+## gulp bridges
 
 while integration with an external application may be done using an [external plugin](./plugins_and_mapping.md#external-plugins), this may not be possible due to the external application not exposing a proper API or methid to access the data.
 
 so, it is possible to create a `bridge` between gulp and the external application using custom methods (depending on the source) to access the data and then feed it to gulp via the `REST API`.
 
-> to develop bridges using python, a [WIP gulp SDK](https://github.com/mentat-is/gulp-python-sdk) is in the works.
+> ideally, a gulp bridge should be a `microservice` running alongside gulp, possibly exposing itself an API for integration.
+>
 
-this guide explains how to perform the integration leveraging the `/ingest_raw` and/or the WebSocket endpoint `/ws_ingest_raw` to feed the data.
+to ease developing bridges using python, a [WIP gulp SDK](https://github.com/mentat-is/gulp-python-sdk) is in the works.
+
+this guide explains how to perform the integration leveraging the `/ingest_raw` and/or the WebSocket endpoint `/ws_ingest_raw` to feed the data from a `gulp bridge`.
 
 ## the raw plugin
 
