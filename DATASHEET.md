@@ -129,7 +129,7 @@ Gulp offers several deployment options to fit different environments.
 * **Supported Platforms:** Gulp is primarily developed and tested on Linux, but it is reported to run on other unix-like platforms as well, like MacOS and Windows WSL (**although not recommended**).
 * **Installation Methods:**
   * **Docker:** The recommended method for production deployment, using the provided `docker-compose.yml` file.
-  * **Setup Script:** A `setup.sh` script is available for guided manual installation.
+  * **Setup Script:** A `setup.sh` script is available for guided manual installation (**WIP**)
   * **Manual Installation:** Step-by-step instructions are provided for manual setup.
 * **Configuration:** Gulp's behavior is controlled through a central `gulp_cfg.json` file, which allows for customization of database connections, OpenSearch endpoints, logging, and more.
 
