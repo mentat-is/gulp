@@ -119,7 +119,7 @@ Gulp includes features for securing the platform and controlling access to data.
 
 * **Authentication:** User access is controlled via API tokens.
 * **User and Group Management:** Gulp supports the creation of users and groups, with permissions managed at a granular level.
-* **Permissions:** Permissions can be assigned to operations, contexts, and sources, ensuring that users can only access the data they are authorized to see.
+* **Permissions:** Permissions can be assigned and enforced to any object managed by gulp (users, operations, sources, ...), ensuring that users can only access the data they are authorized to see.
 * **HTTPS Support:** Gulp can be configured to enforce HTTPS and require client-side certificates for enhanced security.
 
 ## 6. Deployment
