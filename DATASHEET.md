@@ -109,7 +109,7 @@ graph TD
 
 Gulp includes a comprehensive testing suite and clear guidelines for developers.
 
-* **Test Suite:** The project provides a `test_suite.sh` script that covers the entire REST API, ingestion plugins, and query functionality. A `test_lite.sh` script is available for quicker, focused tests.
+* **Test Suite:** The project provides a `test_suite.sh` script that covers the entire REST API, ingestion plugins, and query functionality. A `test_lite.sh` script is available for quicker, focused tests (**WIP**)
 * **Developer Setup:** Detailed instructions are available for setting up a development environment, either manually or using the provided Docker container.
 * **Plugin Development:** The documentation offers extensive guidance on developing new plugins, including the internal architecture and data flow.
 
