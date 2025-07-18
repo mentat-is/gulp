@@ -4,11 +4,11 @@ import pytest_asyncio
 from muty.log import MutyLogger
 
 from gulp.api.collab.structs import COLLABTYPE_GLYPH, GulpCollabFilter
-from gulp.api.rest.client.common import _ensure_test_operation
-from gulp.api.rest.client.glyph import GulpAPIGlyph
-from gulp.api.rest.client.object_acl import GulpAPIObjectACL
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import TEST_OPERATION_ID
+from gulp_client.common import _ensure_test_operation
+from gulp_client.glyph import GulpAPIGlyph
+from gulp_client.object_acl import GulpAPIObjectACL
+from gulp_client.user import GulpAPIUser
+from gulp_client.test_values import TEST_OPERATION_ID
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -69,9 +69,7 @@ async def test_glyph():
 
     # make glyph private
     st_id = st["id"]
-    await GulpAPIObjectACL.object_make_private(
-        edit_token, st["id"], COLLABTYPE_GLYPH
-    )
+    await GulpAPIObjectACL.object_make_private(edit_token, st["id"], COLLABTYPE_GLYPH)
     st = await GulpAPIGlyph.glyph_get_by_id(guest_token, st["id"], expected_status=401)
     l = await GulpAPIGlyph.glyph_list(
         guest_token,

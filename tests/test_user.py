@@ -2,12 +2,12 @@ import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.rest.client.common import _ensure_reset, _ensure_test_operation
-from gulp.api.rest.client.db import GulpAPIDb
-from gulp.api.rest.client.operation import GulpAPIOperation
-from gulp.api.rest.client.query import GulpAPIQuery
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import TEST_OPERATION_ID
+from gulp_client.common import _ensure_reset, _ensure_test_operation
+from gulp_client.db import GulpAPIDb
+from gulp_client.operation import GulpAPIOperation
+from gulp_client.query import GulpAPIQuery
+from gulp_client.user import GulpAPIUser
+from gulp_client.test_values import TEST_OPERATION_ID
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)

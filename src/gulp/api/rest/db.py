@@ -34,7 +34,6 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
-from gulp.api.rest.test_values import TEST_OPERATION_ID
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpRebaseDonePacket, GulpWsSharedQueue
 from gulp.config import GulpConfig
@@ -205,7 +204,7 @@ async def gulp_reset_handler(
         # reset
         await db_reset(
             user_id=s.user_id,
-            operation_id=TEST_OPERATION_ID if create_default_operation else None,
+            operation_id="test_operation" if create_default_operation else None,
             force_recreate_db=True,
         )
         if restart_processes:

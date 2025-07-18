@@ -9,11 +9,11 @@ import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.rest.client.common import GulpAPICommon, _ensure_test_operation
-from gulp.api.rest.client.enrich import GulpAPIEnrich
-from gulp.api.rest.client.query import GulpAPIQuery
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import (
+from gulp_client.common import GulpAPICommon, _ensure_test_operation
+from gulp_client.enrich import GulpAPIEnrich
+from gulp_client.query import GulpAPIQuery
+from gulp_client.user import GulpAPIUser
+from gulp_client.test_values import (
     TEST_HOST,
     TEST_INDEX,
     TEST_OPERATION_ID,

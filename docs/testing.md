@@ -1,10 +1,19 @@
 - [testing gulp](#testing-gulp)
+  - [prerequisites](#prerequisites)
   - [running the test suite](#running-the-test-suite)
   - [running single tests manually](#running-single-tests-manually)
   - [ingestion tool](#ingestion-tool)
   - [query external tool](#query-external-tool)
 
 # testing gulp
+
+## prerequisites
+
+install [gulp api client sdk](https://github.com/mentat-is/gulp-sdk-python) if you haven't already (i.e. you're not in the dev environment)
+
+~~~bash
+pip3 install https://github.com/mentat-is/gulp-sdk-python
+~~~
 
 start gulp first
 
@@ -16,7 +25,7 @@ export PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-p
 
 # setting GULP_INTEGRATION_TEST is mandatory when running tests (disables debug features if forgotten activated)
 # we also ensure to start in the most clean way (recreate collab db, create test operation, delete all existing data)
-GULP_INTEGRATION_TEST=1 gulp --reset-collab --create test_operation --delete-data
+GULP_INTEGRATION_TEST=1 gulp --reset-collab --create test_operation 
 ~~~
 
 ## running the test suite

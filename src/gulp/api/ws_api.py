@@ -21,14 +21,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.rest.test_values import (
-    TEST_CONTEXT_ID,
-    TEST_INDEX,
-    TEST_OPERATION_ID,
-    TEST_REQ_ID,
-    TEST_SOURCE_ID,
-    TEST_WS_ID,
-)
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
 
@@ -248,9 +240,9 @@ class GulpIngestSourceDonePacket(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "source_id": TEST_SOURCE_ID,
-                    "context_id": TEST_CONTEXT_ID,
-                    "req_id": TEST_REQ_ID,
+                    "source_id": "fabae8858452af6c2acde7f90786b3de3a928289",
+                    "context_id": "66d98ed55d92b6b7382ffc77df70eda37a6efaa1",
+                    "req_id": "test_req",
                     "num_docs": 100,
                     "status": GulpRequestStatus.DONE,
                 }
@@ -341,7 +333,7 @@ class GulpRebaseDonePacket(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "src_index": TEST_INDEX,
+                    "src_index": "test_operation",
                     "dest_index": "destination_index",
                     "status": GulpRequestStatus.DONE,
                     "result": "error message or successful rebase result",
@@ -407,8 +399,8 @@ class GulpWsIngestPacket(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "operation_id": TEST_OPERATION_ID,
-                    "ws_id": TEST_WS_ID,
+                    "operation_id": "test_operation",
+                    "ws_id": "test_ws",
                     "flt": autogenerate_model_example_by_class(GulpIngestionFilter),
                     "plugin": "raw",
                     "plugin_params": autogenerate_model_example_by_class(
@@ -456,8 +448,8 @@ class GulpWsAuthPacket(BaseModel):
             "examples": [
                 {
                     "token": "token_admin",
-                    "ws_id": TEST_WS_ID,
-                    "operation_id": [TEST_OPERATION_ID],
+                    "ws_id": "test_ws",
+                    "operation_id": ["test_operation"],
                     "type": [WSDATA_DOCUMENTS_CHUNK],
                 }
             ]

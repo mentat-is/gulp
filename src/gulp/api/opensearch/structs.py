@@ -28,7 +28,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
-from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID, TEST_SOURCE_ID
 import json
 
 T = TypeVar("T", bound=GulpBaseDocumentFilter)
@@ -46,9 +45,9 @@ class GulpBasicDocument(BaseModel):
                     "@timestamp": "2021-01-01T00:00:00Z",
                     "gulp.timestamp": 1609459200000000000,
                     "gulp.timestamp_invalid": False,
-                    "gulp.operation_id": TEST_OPERATION_ID,
-                    "gulp.context_id": TEST_CONTEXT_ID,
-                    "gulp.source_id": TEST_SOURCE_ID,
+                    "gulp.operation_id": "test_operation",
+                    "gulp.context_id": "66d98ed55d92b6b7382ffc77df70eda37a6efaa1",
+                    "gulp.source_id": "fa144510fd16cf5ffbaeec79d68b593f3ba7e7e0",
                 }
             ]
         },
@@ -103,9 +102,9 @@ class GulpDocument(GulpBasicDocument):
                     "@timestamp": "2021-01-01T00:00:00Z",
                     "gulp.timestamp": 1609459200000000000,
                     "gulp.timestamp_invalid": False,
-                    "gulp.operation_id": TEST_OPERATION_ID,
-                    "gulp.context_id": TEST_CONTEXT_ID,
-                    "gulp.source_id": TEST_SOURCE_ID,
+                    "gulp.operation_id": "test_operation",
+                    "gulp.context_id": "66d98ed55d92b6b7382ffc77df70eda37a6efaa1",
+                    "gulp.source_id": "fa144510fd16cf5ffbaeec79d68b593f3ba7e7e0",
                     "agent.type": "win_evtx",
                     "event.original": "raw event content",
                     "event.sequence": 1,

@@ -35,7 +35,6 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import REGEX_CHECK_USERNAME, APIDependencies
-from gulp.api.rest.test_values import TEST_REQ_ID
 from gulp.structs import GulpAPIMethod
 
 
@@ -305,7 +304,7 @@ async def logout_handler(
                     "example": {
                         "status": "success",
                         "timestamp_msec": 1732901220291,
-                        "req_id": TEST_REQ_ID,
+                        "req_id": "test_req",
                         "data": GulpUser.example(),
                     }
                 }
@@ -438,7 +437,7 @@ async def user_delete_handler(
                     "example": {
                         "status": "success",
                         "timestamp_msec": 1732908917521,
-                        "req_id": TEST_REQ_ID,
+                        "req_id": "test_req",
                         "data": GulpUser.example(),
                     }
                 }

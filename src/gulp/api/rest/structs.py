@@ -24,14 +24,6 @@ from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 from gulp.api.opensearch.filters import GulpIngestionFilter, GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.test_values import (
-    TEST_CONTEXT_ID,
-    TEST_INDEX,
-    TEST_OPERATION_ID,
-    TEST_REQ_ID,
-    TEST_SOURCE_ID,
-    TEST_WS_ID,
-)
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
 
@@ -512,13 +504,13 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
         return APIDependencies._strip_or_none(user_id)
 
     _DESC_INDEX = "the gulp's opensearch index/datastream name."
-    _EXAMPLE_INDEX = TEST_INDEX
+    _EXAMPLE_INDEX = "test_operation"
 
     @staticmethod
     def param_index(
         index: Annotated[
             str,
-            Query(description=_DESC_INDEX, example=TEST_INDEX),
+            Query(description=_DESC_INDEX, example=_EXAMPLE_INDEX),
         ],
     ) -> int:
         """
@@ -536,7 +528,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
     def param_index_optional(
         index: Annotated[
             Optional[str],
-            Query(description=_DESC_INDEX, example=TEST_INDEX),
+            Query(description=_DESC_INDEX, example=_EXAMPLE_INDEX),
         ] = None,
     ) -> int:
         """
@@ -556,7 +548,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
             str,
             Query(
                 description="id of an `operation` in the collab database.",
-                example=TEST_OPERATION_ID,
+                example="test_operation",
             ),
         ],
     ) -> str:
@@ -579,7 +571,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
                 description="""
 id of a `context` object on the collab database.
 """,
-                example=TEST_CONTEXT_ID,
+                example="66d98ed55d92b6b7382ffc77df70eda37a6efaa1",
             ),
         ],
     ) -> str:
@@ -602,7 +594,7 @@ id of a `context` object on the collab database.
                 description="""
 id of a `source` object on the collab database.
 """,
-                example=TEST_SOURCE_ID,
+                example="fa144510fd16cf5ffbaeec79d68b593f3ba7e7e0",
             ),
         ],
     ) -> str:
@@ -669,7 +661,7 @@ it must be the `bare filename` of the plugin (`.py`,`.pyc` extension may be omit
                 description="""
 id of the websocket to send progress and results during the processing of a request.
 """,
-                example=TEST_WS_ID,
+                example="test_ws",
             ),
         ],
     ) -> str:
@@ -834,7 +826,7 @@ id of a request, will be replicated in the response `req_id`.
 
 - leave empty to autogenerate.
 """,
-                example=TEST_REQ_ID,
+                example="test_req",
             ),
         ] = None,
     ) -> str:

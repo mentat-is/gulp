@@ -5,9 +5,6 @@ gulp operations rest api
 import os
 from typing import Annotated, Optional
 
-import muty.file
-import muty.string
-import muty.uploadfile
 from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
@@ -18,13 +15,11 @@ from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
-from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
-from gulp.api.rest.test_values import TEST_INDEX, TEST_OPERATION_ID
 from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists
 
@@ -63,7 +58,7 @@ async def operation_create_handler(
         str,
         Query(
             description="the name of the operation. It will be used to derive the `operation_id`.",
-            example=TEST_OPERATION_ID,
+            example="test_operation",
         ),
     ],
     index: Annotated[

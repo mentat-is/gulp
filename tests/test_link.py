@@ -3,11 +3,11 @@ import pytest_asyncio
 from muty.log import MutyLogger
 
 from gulp.api.collab.structs import COLLABTYPE_LINK, GulpCollabFilter
-from gulp.api.rest.client.common import _ensure_test_operation
-from gulp.api.rest.client.link import GulpAPILink
-from gulp.api.rest.client.object_acl import GulpAPIObjectACL
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import TEST_OPERATION_ID
+from gulp_client.common import _ensure_test_operation
+from gulp_client.link import GulpAPILink
+from gulp_client.object_acl import GulpAPIObjectACL
+from gulp_client.user import GulpAPIUser
+from gulp_client.test_values import TEST_OPERATION_ID
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -61,9 +61,7 @@ async def test_link():
 
     l = await GulpAPILink.link_list(
         guest_token,
-        GulpCollabFilter(
-            operation_ids=[TEST_OPERATION_ID], doc_ids=["aaaaa"]
-        ),
+        GulpCollabFilter(operation_ids=[TEST_OPERATION_ID], doc_ids=["aaaaa"]),
     )
     assert not l  # 0 len
 
@@ -76,10 +74,8 @@ async def test_link():
     assert lnk["doc_ids"] == ["aaaaa"]
 
     # make link private
-    lnk_id=lnk["id"]
-    await GulpAPIObjectACL.object_make_private(
-        edit_token, lnk["id"], COLLABTYPE_LINK
-    )
+    lnk_id = lnk["id"]
+    await GulpAPIObjectACL.object_make_private(edit_token, lnk["id"], COLLABTYPE_LINK)
     lnk = await GulpAPILink.link_get_by_id(guest_token, lnk["id"], expected_status=401)
     l = await GulpAPILink.link_list(
         guest_token,
@@ -89,9 +85,7 @@ async def test_link():
     )
     assert not l
 
-    await GulpAPIObjectACL.object_make_public(
-        edit_token, lnk_id, COLLABTYPE_LINK
-    )
+    await GulpAPIObjectACL.object_make_public(edit_token, lnk_id, COLLABTYPE_LINK)
     lnk = await GulpAPILink.link_get_by_id(guest_token, lnk_id)
     assert lnk
 

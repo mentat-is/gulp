@@ -6,36 +6,15 @@ __pycache__
 .venv
 pyrightconfig.json
 venv
-chatmodes
 
 # VSCode
 .vscode/
-gulp_cfg.json
-*.egg-info
-test.py
-elastic_data1
-elastic_data2
-elastic_data3
-elastic_data
-redis_data
-postgres_data
-opensearch_data
-opensearch_data1
-opensearch_data2
-opensearch_data3
-kibana_data
-build
-.DS_Store
-test_scripts/test.json
-*log*.txt
-.config
-gulpconfig
-rules
-ingest_local
 
 # symlinks
 muty-python
 gulp-paid-plugins
+slurp
+gulp-sdk-python
 
 #auto generated docs
 docs/html
@@ -44,6 +23,15 @@ docs/html
 # native
 src/gulp/libgulp
 *.so
-export.json
+
+# misc
+chatmodes
 export.csv
+export.json
+gulp_cfg.json
+*.egg-info
+test.py
+build
+.DS_Store
+*log*.txt
 

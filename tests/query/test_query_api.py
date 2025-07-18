@@ -12,18 +12,18 @@ from muty.log import MutyLogger
 from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabFilter
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.client.common import (
+from gulp_client.common import (
     GulpAPICommon,
     _ensure_test_operation,
     _test_ingest_ws_loop,
 )
-from gulp.api.rest.client.ingest import GulpAPIIngest
-from gulp.api.rest.client.note import GulpAPINote
-from gulp.api.rest.client.object_acl import GulpAPIObjectACL
-from gulp.api.rest.client.operation import GulpAPIOperation
-from gulp.api.rest.client.query import GulpAPIQuery
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import (
+from gulp_client.ingest import GulpAPIIngest
+from gulp_client.note import GulpAPINote
+from gulp_client.object_acl import GulpAPIObjectACL
+from gulp_client.operation import GulpAPIOperation
+from gulp_client.query import GulpAPIQuery
+from gulp_client.user import GulpAPIUser
+from gulp_client.test_values import (
     TEST_CONTEXT_ID,
     TEST_HOST,
     TEST_INDEX,
@@ -158,7 +158,7 @@ async def test_queries():
                             "query done, name=%s", q_done_packet.name
                         )
                         if q_done_packet.name == "test_gulp_query":
-                            hits_to_check = 7 #98633
+                            hits_to_check = 7  # 98633
                             assert q_done_packet.total_hits == hits_to_check
                             test_completed = True
                         else:

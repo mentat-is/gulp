@@ -7,12 +7,12 @@ import websockets
 from muty.log import MutyLogger
 
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.rest.client.common import _ensure_test_operation
-from gulp.api.rest.client.db import GulpAPIDb
-from gulp.api.rest.client.operation import GulpAPIOperation
-from gulp.api.rest.client.query import GulpAPIQuery
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import (
+from gulp_client.common import _ensure_test_operation
+from gulp_client.db import GulpAPIDb
+from gulp_client.operation import GulpAPIOperation
+from gulp_client.query import GulpAPIQuery
+from gulp_client.user import GulpAPIUser
+from gulp_client.test_values import (
     TEST_HOST,
     TEST_OPERATION_ID,
     TEST_WS_ID,
@@ -91,11 +91,15 @@ async def test_db_api():
     # clear indexes to start clean
     indexes = await GulpAPIDb.opensearch_list_index(admin_token)
     for l in indexes:
-        await GulpAPIDb.opensearch_delete_index(admin_token, l["name"], delete_operation=False)
+        await GulpAPIDb.opensearch_delete_index(
+            admin_token, l["name"], delete_operation=False
+        )
 
     # recreate operation
     await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
-    await GulpAPIOperation.operation_create(admin_token, TEST_OPERATION_ID, set_default_grants=True)
+    await GulpAPIOperation.operation_create(
+        admin_token, TEST_OPERATION_ID, set_default_grants=True
+    )
 
     # ingest some data
     await test_win_evtx()

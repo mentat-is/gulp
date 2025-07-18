@@ -5,11 +5,11 @@ import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.rest.client.common import GulpAPICommon, _ensure_test_operation
-from gulp.api.rest.client.db import GulpAPIDb
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.client.utility import GulpAPIUtility
-from gulp.api.rest.test_values import TEST_HOST, TEST_INDEX, TEST_REQ_ID, TEST_WS_ID
+from gulp_client.common import GulpAPICommon, _ensure_test_operation
+from gulp_client.db import GulpAPIDb
+from gulp_client.user import GulpAPIUser
+from gulp_client.utility import GulpAPIUtility
+from gulp_client.test_values import TEST_HOST, TEST_INDEX, TEST_REQ_ID, TEST_WS_ID
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 
@@ -49,7 +49,7 @@ async def test_utility():
         l = await GulpAPIUtility.plugin_list(admin_token)
         assert l
 
-        l_ui = await GulpAPIUtility.ui_plugin_list() # tokenless
+        l_ui = await GulpAPIUtility.ui_plugin_list()  # tokenless
         assert l_ui and len(l_ui) >= 1
 
         # path should be the default path
@@ -72,15 +72,16 @@ async def test_utility():
 
         # get the sample test ui plugin
         tsx = await GulpAPIUtility.ui_plugin_get("example_ui_plugin.tsx")
-        assert tsx and isinstance(tsx["content"], str) # base64 encoded string, the plugin TSX content
+        assert tsx and isinstance(
+            tsx["content"], str
+        )  # base64 encoded string, the plugin TSX content
         assert tsx["filename"] == "example_ui_plugin.tsx"
 
     async def _test_mapping_files():
         if not os.environ.get("PATH_MAPPING_FILES_EXTRA"):
             raise ValueError("PATH_MAPPING_FILES_EXTRA not set")
         MutyLogger.get_instance().info(
-            "PATH_MAPPING_FILES_EXTRA: " +
-            os.environ.get("PATH_MAPPING_FILES_EXTRA")
+            "PATH_MAPPING_FILES_EXTRA: " + os.environ.get("PATH_MAPPING_FILES_EXTRA")
         )
 
         # ensure clean
@@ -142,8 +143,9 @@ async def test_utility():
     MutyLogger.get_instance().info(
         "PATH_MAPPING_FILES_EXTRA: " + os.environ["PATH_MAPPING_FILES_EXTRA"]
     )
-    MutyLogger.get_instance().info("PATH_PLUGINS_EXTRA: " +
-                                   os.environ["PATH_PLUGINS_EXTRA"])
+    MutyLogger.get_instance().info(
+        "PATH_PLUGINS_EXTRA: " + os.environ["PATH_PLUGINS_EXTRA"]
+    )
     # assert os.path.exists(os.environ["PATH_MAPPING_FILES_EXTRA"])
     # assert os.path.exists(os.environ["PATH_PLUGINS_EXTRA"])
 

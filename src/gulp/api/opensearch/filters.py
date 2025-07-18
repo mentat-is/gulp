@@ -20,8 +20,6 @@ from typing import Optional, override
 import orjson
 from pydantic import BaseModel, ConfigDict, Field
 
-from gulp.api.rest.test_values import TEST_CONTEXT_ID, TEST_OPERATION_ID, TEST_SOURCE_ID
-
 # mandatory fields to be included in the result for queries
 QUERY_DEFAULT_FIELDS = [
     "_id",
@@ -173,9 +171,9 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             "examples": [
                 {
                     "agent_types": ["win_evtx"],
-                    "operation_ids": [TEST_OPERATION_ID],
-                    "context_ids": [TEST_CONTEXT_ID],
-                    "source_ids": [TEST_SOURCE_ID],
+                    "operation_ids": ["test_operation"],
+                    "context_ids": ["66d98ed55d92b6b7382ffc77df70eda37a6efaa1"],
+                    "source_ids": ["fa144510fd16cf5ffbaeec79d68b593f3ba7e7e0"],
                     "doc_ids": ["d0739e61e3566845838fd78012b8201d"],
                     "event_codes": ["5152"],
                     "time_range": [

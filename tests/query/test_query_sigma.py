@@ -11,11 +11,11 @@ from muty.log import MutyLogger
 
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.client.common import GulpAPICommon, _ensure_test_operation
-from gulp.api.rest.client.note import GulpAPINote
-from gulp.api.rest.client.query import GulpAPIQuery
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import (
+from gulp_client.common import GulpAPICommon, _ensure_test_operation
+from gulp_client.note import GulpAPINote
+from gulp_client.query import GulpAPIQuery
+from gulp_client.user import GulpAPIUser
+from gulp_client.test_values import (
     TEST_HOST,
     TEST_INDEX,
     TEST_OPERATION_ID,
@@ -237,7 +237,7 @@ async def test_sigma_single():
         current_dir,
         "sigma/windows/create_stream_hash/create_stream_hash_susp_ip_domains.yml",
         ##"sigma/windows/builtin/windefend/win_defender_antimalware_platform_expired.yml"
-        #"sigma/windows/builtin/system/service_control_manager/win_system_hack_smbexec.yml"
+        # "sigma/windows/builtin/system/service_control_manager/win_system_hack_smbexec.yml"
     )
     await _test_sigma_single_internal(guest_token, sigma_path, expected_matches=6)
 

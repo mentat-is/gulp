@@ -18,16 +18,16 @@ from muty.log import MutyLogger
 
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
-from gulp.api.rest.client.common import (
+from gulp_client.common import (
     _ensure_test_operation,
     _test_ingest_generic,
     _test_ingest_ws_loop,
 )
-from gulp.api.rest.client.ingest import GulpAPIIngest
-from gulp.api.rest.client.operation import GulpAPIOperation
-from gulp.api.rest.client.query import GulpAPIQuery
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import (
+from gulp_client.ingest import GulpAPIIngest
+from gulp_client.operation import GulpAPIOperation
+from gulp_client.query import GulpAPIQuery
+from gulp_client.user import GulpAPIUser
+from gulp_client.test_values import (
     TEST_CONTEXT_NAME,
     TEST_HOST,
     TEST_INDEX,
@@ -190,7 +190,7 @@ async def test_ingest_filter():
     await _test_ingest_ws_loop(check_ingested=1, check_processed=7)
 
     # ingest another part
-    from gulp.api.rest.client.common import _ensure_test_operation
+    from gulp_client.common import _ensure_test_operation
 
     await _ensure_test_operation()
     flt = GulpIngestionFilter(time_range=[1467213874345999999, 0])
@@ -709,5 +709,3 @@ async def test_mysql_general():
     ]
     await _test_ingest_generic(files, "mysql_general", 4056)
     MutyLogger.get_instance().info(test_mysql_general.__name__ + " succeeded!")
-
-

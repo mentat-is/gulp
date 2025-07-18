@@ -2,9 +2,9 @@ import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp.api.rest.client.common import _ensure_test_operation
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.client.user_group import GulpAPIUserGroup
+from gulp_client.common import _ensure_test_operation
+from gulp_client.user import GulpAPIUser
+from gulp_client.user_group import GulpAPIUserGroup
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)

@@ -21,7 +21,7 @@ from typing import Annotated
 import muty.file
 import muty.obj
 import psutil
-from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -34,14 +34,11 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from gulp.api.mapping.models import GulpMappingFile
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
-from gulp.api.rest.test_values import TEST_REQ_ID
 from gulp.api.rest_api import GulpRestServer
 from gulp.config import GulpConfig
-from gulp.plugin import GulpPluginBase, GulpUiPluginMetadata
-from gulp.structs import ObjectAlreadyExists
+from gulp.plugin import GulpPluginBase
 
 router: APIRouter = APIRouter()
 
@@ -112,7 +109,7 @@ set a running request `status` to `CANCELED`.
 async def request_cancel_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     req_id_to_cancel: Annotated[
-        str, Query(description="request id to cancel.", example=TEST_REQ_ID)
+        str, Query(description="request id to cancel.", example="test_req")
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -161,7 +158,7 @@ set a running request `status` to `DONE` or `FAILED`, so the engine can delete i
 async def request_set_completed_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     req_id_to_complete: Annotated[
-        str, Query(description="request id to set completed.", example=TEST_REQ_ID)
+        str, Query(description="request id to set completed.", example="test_req")
     ],
     failed: Annotated[
         bool, Query(description="if set, the request is marked as failed.")
@@ -228,7 +225,7 @@ deletes a `request_stats` object.
 async def request_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     req_id_to_delete: Annotated[
-        str, Query(description="request id to delete.", example=TEST_REQ_ID)
+        str, Query(description="request id to delete.", example="test_req")
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:

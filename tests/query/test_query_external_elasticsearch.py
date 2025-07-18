@@ -8,10 +8,10 @@ import websockets
 from muty.log import MutyLogger
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.query import GulpQueryParameters
-from gulp.api.rest.client.common import _ensure_test_operation
-from gulp.api.rest.client.query import GulpAPIQuery
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import (
+from gulp_client.common import _ensure_test_operation
+from gulp_client.query import GulpAPIQuery
+from gulp_client.user import GulpAPIUser
+from gulp_client.test_values import (
     TEST_HOST,
     TEST_INDEX,
     TEST_OPERATION_ID,

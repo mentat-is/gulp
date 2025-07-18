@@ -35,7 +35,6 @@ from starlette.middleware.sessions import SessionMiddleware
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.rest.test_values import TEST_OPERATION_ID
 from gulp.api.ws_api import GulpConnectedSockets, GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -129,12 +128,13 @@ class GulpRestServer:
 
         count: int = 0
         for f in files:
-            if "__init__.py" not in f:
+            if "__init__.py" not in f and (f.endswith(".pyc") or f.endswith(".py")):
                 # load
                 try:
                     p = await GulpPluginBase.load(f, extension=True)
                 except Exception as ex:
-                    # plugin failed to load
+                    # plugin failed to load             
+                    MutyLogger.get_instance().error("failed to load (extension) plugin file: %s" % (f))     
                     MutyLogger.get_instance().exception(ex)
                     continue
                 self._extension_plugins.append(p)
@@ -487,7 +487,7 @@ class GulpRestServer:
 
         if self._check_first_run():
             # first run, force --create and --reset-collab
-            self._create_operation = TEST_OPERATION_ID
+            self._create_operation = "test_operation"
             self._reset_collab = True
             first_run = True
             MutyLogger.get_instance().warning(

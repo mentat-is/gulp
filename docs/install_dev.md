@@ -33,6 +33,9 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
   git clone --recurse-submodules https://github.com/mentat-is/gulp.git
   # clone other repos, i.e. the devteam may want to clone also the paid-plugins repo...
   git clone https://github.com/mentat-is/gulp-paid-plugins
+  # i.e. if you want to develop a gulp client or slurp
+  git clone https://github.com/mentat-is/gulp-sdk-python
+  git clone https://github.com/mentat-is/slurp
   ~~~
 
 3. in vscode, open the [gulp workspace](../gulp.code-workspace) and it should prompt you to reopen it in the dev container: the devcontainer will be built *first time only*.
@@ -96,6 +99,9 @@ install all packages as editable
 ~~~bash
 # install all packages as editable (-e)
 pip3 install -e . && pip3 install -e ../muty-python
+
+# i.e. if you need the api client
+pip3 install -e ../gulp-sdk-python
 ~~~
 
 ### 6. run

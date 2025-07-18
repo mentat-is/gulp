@@ -31,12 +31,6 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy_utils import create_database, database_exists, drop_database
 
 from gulp.api.collab.structs import GulpCollabBase
-from gulp.api.rest.test_values import (
-    TEST_CONTEXT_NAME,
-    TEST_INDEX,
-    TEST_OPERATION_ID,
-    TEST_SOURCE_NAME,
-)
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
