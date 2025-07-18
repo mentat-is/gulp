@@ -33,6 +33,8 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - **Scalable**: Gulp is designed with scalability in mind. As your data and team grow, you can simply add more cores to increase parallel ingestion and query capabilities, and more OpenSearch and PostgreSQL hosts. This makes Gulp a flexible solution that can adapt to your evolving needs!
 - **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
 
+[here is a detailed datasheet](./DATASHEET.md)
+
 ## architecture
 
 - [GULP architecture](./docs/architecture.md)
