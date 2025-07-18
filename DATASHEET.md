@@ -18,7 +18,7 @@ Gulp is a powerful, scalable, and Python-based incident response and analysis pl
 Gulp's plugin-based architecture allows for flexible data ingestion from a multitude of sources.
 
 * **Supported Formats:** Gulp can process a wide array of data formats through its ingestion plugins, including but not limited to JSON, CSV, Windows EVTX, PCAP, and various log formats.
-* **Extensibility:** New data sources can be easily integrated by developing custom ingestion plugins. The plugin framework handles the underlying data processing, allowing developers to focus on parsing logic.
+* **Extensibility:** New data sources can be easily integrated by developing custom plugins. The plugin framework handles the underlying data processing, allowing developers to focus on parsing logic.
 
 ```mermaid
 flowchart LR
