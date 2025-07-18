@@ -246,7 +246,7 @@ class GulpConfig:
         Returns the default refresh interval for the index template (i.e. usually in seconds, 5s, 30s, ...).
         """
         n = self._config.get("index_template_default_refresh_interval", None)
-        if n:
+        if not n:
             n = "5s"
             MutyLogger.get_instance().debug(
                 "using default refresh interval for index template"
