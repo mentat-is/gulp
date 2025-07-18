@@ -195,6 +195,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         req_id: str = None,
         ctx_id: str = None,
         color: str = None,
+        glyph_id: str = None,
     ) -> tuple[GulpContext, bool]:
         """
         Add a context to the operation, or return the context if already added.
@@ -207,6 +208,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             req_id (str, optional): The request id. Defaults to None.
             src_id (str, optional): The id of the context. If not provided, a new id will be generated.
             color (str, optional): The color of the context. Defaults to "purple".
+            glyph_id (str, optional): The glyph id for the context. Defaults to None ("box").
 
         Returns:
             tuple(GulpContext, bool): The context added (or already existing) and a flag indicating if the context was added
@@ -234,7 +236,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 "operation_id": self.id,
                 "name": name,
                 "color": color or "white",
-                "glyph_id": "box",
+                "glyph_id": glyph_id or "box",
             }
             # pylint: disable=protected-access
             ctx = await GulpContext._create_internal(

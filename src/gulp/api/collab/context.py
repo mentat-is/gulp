@@ -96,6 +96,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
         color: str = None,
         plugin: str = None,
         mapping_parameters: GulpMappingParameters = None,
+        glyph_id: str = None,
     ) -> tuple[GulpSource, bool]:
         """
         Add a source to the context.
@@ -110,6 +111,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             color (str, optional): The color of the source. Defaults to "purple".
             plugin (str, optional): The plugin to use for the source. Defaults to None.
             mapping_parameters (GulpMappingParameters, optional): The mapping parameters for the source. Defaults to None (ignored if plugin is None).
+            glyph_id (str, optional): The glyph id for the source. Defaults to None ("file").
         Returns:
             tuple(GulpSource, bool): The source added (or already existing) and a flag indicating if the source was added
         """
@@ -140,7 +142,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 "context_id": self.id,
                 "name": name,
                 "color": color or "purple",
-                "glyph_id": "file",
+                "glyph_id": glyph_id or "file",  # default glyph is 'file'
             }
             if plugin and mapping_parameters:
                 object_data["plugin"] = plugin

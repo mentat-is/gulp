@@ -577,6 +577,10 @@ async def context_create_handler(
             example="white",
         ),
     ] = None,
+    glyph_id: Annotated[
+        str,
+        Depends(APIDependencies.param_glyph_id_optional),
+    ] = None,
     fail_if_exists: Annotated[
         Optional[bool],
         Query(
@@ -596,7 +600,7 @@ async def context_create_handler(
             user_id = s.user_id
 
             ctx, created = await op.add_context(
-                sess, user_id, context_name, ws_id=ws_id, req_id=req_id, color=color
+                sess, user_id, context_name, ws_id=ws_id, req_id=req_id, color=color, glyph_id=glyph_id
             )
             if not created and fail_if_exists:
                 raise ObjectAlreadyExists(
@@ -731,6 +735,10 @@ async def source_create_handler(
             example="purple",
         ),
     ] = None,
+    glyph_id: Annotated[
+        str,
+        Depends(APIDependencies.param_glyph_id_optional),
+    ] = None,
     fail_if_exists: Annotated[
         Optional[bool],
         Query(
@@ -752,7 +760,7 @@ async def source_create_handler(
             # get context (must exist) and add source
             ctx: GulpContext = await GulpContext.get_by_id(sess, context_id)
             src, created = await ctx.add_source(
-                sess, user_id, source_name, ws_id=ws_id, req_id=req_id, color=color
+                sess, user_id, source_name, ws_id=ws_id, req_id=req_id, color=color, glyph_id=glyph_id
             )
             if not created and fail_if_exists:
                 raise ObjectAlreadyExists(
