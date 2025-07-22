@@ -9,7 +9,7 @@ import os
 import sys
 
 # add the project root directory to Python path
-from gulp.api.rest.test_values import TEST_HOST, TEST_REQ_ID, TEST_WS_ID
+from gulp_client.test_values import TEST_HOST, TEST_REQ_ID, TEST_WS_ID
 
 
 def _parse_args():

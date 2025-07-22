@@ -7,10 +7,10 @@ import muty.file
 import websockets
 from muty.log import MutyLogger
 
-from gulp.api.rest.client.common import GulpAPICommon
-from gulp.api.rest.client.db import GulpAPIDb
-from gulp.api.rest.client.user import GulpAPIUser
-from gulp.api.rest.test_values import (
+from gulp_client.common import GulpAPICommon
+from gulp_client.db import GulpAPIDb
+from gulp_client.user import GulpAPIUser
+from gulp_client.test_values import (
     TEST_HOST,
     TEST_INDEX,
     TEST_OPERATION_ID,

@@ -19,7 +19,7 @@ import muty.file
 import websockets
 from muty.log import MutyLogger
 
-from gulp.api.rest.test_values import (
+from gulp_client.test_values import (
     TEST_CONTEXT_NAME,
     TEST_OPERATION_ID,
     TEST_REQ_ID,
