@@ -16,10 +16,10 @@ async client interfaces.
 
 """
 
-import orjson
 from typing import Any, Optional
 
 import muty.string
+import orjson
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
@@ -149,6 +149,7 @@ class GulpQueryParameters(BaseModel):
                     "preview_mode": False,
                     "search_after": None,
                     "loop": True,
+                    "highlight_results": True,
                     "note_parameters": autogenerate_model_example_by_class(
                         GulpQueryNoteParameters
                     ),
@@ -234,6 +235,14 @@ if set, keep querying until all documents are returned (default=True, ignores `s
 if set, the query is **synchronous** and returns the preview chunk of documents, without streaming data on the websocket nor counting data in the stats.
 """,
     )
+    highlight_results: Optional[bool] = Field(
+        True,
+        description="""
+if set, highlights are included in the results (default=True).
+- this is valid only for local queries to Gulp (including sigma queries), it is ignored for `external` queries.
+- may need adjustment to OpenSearch configuration if causing heap exhaustion errors.
+""",
+    )
 
     def parse(self) -> dict:
         """
@@ -300,6 +309,13 @@ if set, the query is **synchronous** and returns the preview chunk of documents,
         else:
             n["search_after"] = None
 
+        # wether to highlight results for the query (warning: may take a lot of memory)
+        if self.highlight_results:
+            n["highlight"] = {
+                "fields": {
+                    "*": {}
+                }
+            }
         # MutyLogger.get_instance().debug("query options: %s" % (orjson.dumps(n, option=orjson.OPT_INDENT_2).decode()))
         return n
 

@@ -29,13 +29,13 @@ import muty.time
 import muty.uploadfile
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Body,
     Depends,
     File,
     Query,
     Request,
     UploadFile,
-    BackgroundTasks,
 )
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from muty.jsend import JSendException, JSendResponse
@@ -43,6 +43,7 @@ from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BeforeValidator
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
@@ -242,7 +243,9 @@ async def _process_batch_results(
         if ex:
             # we have an error
             err = muty.log.exception_to_string(ex, with_full_traceback=True)
-            errors.append(err)
+            if err not in errors:
+                # just keep one error per kind
+                errors.append(err)
 
         # send a query_done on the ws for this query immediately
         p = GulpQueryDonePacket(
@@ -491,7 +494,11 @@ async def _worker_coro(kwds: dict) -> None:
             query_matched_total += batch_matched
             total_doc_matches += batch_matches
             all_query_names.extend(batch_names)
-            all_errors.extend(batch_errors)
+
+            for err in batch_errors:
+                # only add error if its not already there
+                if err not in all_errors:
+                    all_errors.append(err)
 
         # log summary of query group results
         MutyLogger.get_instance().debug(

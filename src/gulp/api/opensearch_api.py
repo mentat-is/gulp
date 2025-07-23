@@ -1816,7 +1816,6 @@ class GulpOpenSearch:
             q (dict): The DSL query to execute.
             el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
             raise_on_error (bool, optional): Whether to raise an exception if no more hits are found. Defaults to True.
-
         Returns:
             tuple:
             - total_hits (int): The total number of hits found.
@@ -1827,19 +1826,13 @@ class GulpOpenSearch:
             ObjectNotFound: If no more hits are found.
         """
         body = q
-
-        # we also want the matched fields
-        q["highlight"] = {
-            "fields": {
-                "*": {}
-            }
-        }
-
         body["track_total_hits"] = True
+
+        # build raw query body (query + parsed_options)
         for k, v in parsed_options.items():
             if v:
                 body[k] = v
-        # MutyLogger.get_instance().debug("index=%s, query_raw body=%s, parsed_options=%s" % (index, orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(), orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode()))
+        MutyLogger.get_instance().debug("index=%s, query_raw body=%s, parsed_options=%s" % (index, orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(), orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode()))
 
         headers = {
             "content-type": "application/json",
@@ -1889,7 +1882,7 @@ class GulpOpenSearch:
             {
                 **hit["_source"],
                 "_id": hit["_id"],
-                **({"highlight": hit["highlight"]} if "highlight" in hit else {}),
+                **({"highlight": hit["highlight"]} if  "highlight" in hit else {}),
             }
             for hit in hits
         ]
