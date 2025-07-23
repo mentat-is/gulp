@@ -740,7 +740,7 @@ class GulpOpenSearch:
                 "mapping": {
                     "type": "keyword",
                     "fields": {
-                        "text": { # added multified in order to better support matching in partial queries (by enabling text field and using standard normalizer) 
+                        "text": { # added multified in order to better support matching in partial queries (by enabling text field and using standard normalizer)
                             "type": "text"
                             }
                         }
@@ -768,8 +768,7 @@ class GulpOpenSearch:
             # support for original event both as keyword and text
             # keyword is case sensitive, text is not
             mappings["properties"]["event"]["properties"]["original"] = {
-                "type": "text",
-                "analyzer": "standard",
+                "type": "wildcard",
                 "fields": {"keyword": {"type": "keyword", "ignore_above": ignore_above}},
             }
 
@@ -1835,7 +1834,7 @@ class GulpOpenSearch:
                 "*": {}
             }
         }
-  
+
         body["track_total_hits"] = True
         for k, v in parsed_options.items():
             if v:
@@ -2020,7 +2019,7 @@ class GulpOpenSearch:
                     # auto setup for next iteration
                     parsed_options["search_after"] = search_after
 
-                processed += len(docs)                
+                processed += len(docs)
                 if processed >= total_hits or not q_options.loop or (q_options.total_limit and processed >= q_options.total_limit):
                     # this is the last chunk
                     last = True
@@ -2123,7 +2122,7 @@ class GulpOpenSearch:
         self,
         sess: AsyncSession,
         index: str,
-        q: dict,        
+        q: dict,
         req_id: str,
         q_options: "GulpQueryParameters" = None,
         file_path: str = None,
@@ -2131,7 +2130,7 @@ class GulpOpenSearch:
     ) -> str:
         """
         Executes a raw DSL query on OpenSearch and writes the results to a JSON file in the temp directory.
-        
+
         Args:
             sess (AsyncSession): SQLAlchemy session (to check if request has been canceled).
             index (str): Name of the index (or datastream) to query.
@@ -2146,7 +2145,7 @@ class GulpOpenSearch:
         Raises:
             ValueError: If `sess` is None and `q_options.note_parameters.create_notes` is True.
             ObjectNotFound: If no results are found and `processed` is 0.
-            Exception: If an error occurs during the query or file writing.        
+            Exception: If an error occurs during the query or file writing.
         """
         from gulp.api.opensearch.query import GulpQueryParameters
 
@@ -2161,7 +2160,7 @@ class GulpOpenSearch:
         if not q_options:
             # use defaults
             q_options = GulpQueryParameters()
-        
+
         if el:
             # force use_elasticsearch_api if el is provided
             MutyLogger.get_instance().debug(
@@ -2197,7 +2196,7 @@ class GulpOpenSearch:
                         d = json.dumps(d, indent="\t")
 
                         await f.write(f"\t{d},\n".encode())
-                    
+
                     if q_options.loop:
                         # auto setup for next iteration
                         parsed_options["search_after"] = search_after
@@ -2229,7 +2228,7 @@ class GulpOpenSearch:
                     if processed == 0:
                         # no results
                         raise ex
-                    
+
                     # indicates the last result
                     last = True
                 except Exception as ex:
@@ -2248,7 +2247,7 @@ class GulpOpenSearch:
                     await f.truncate()
 
                     # write json end
-                    await f.write("\t]\n}\n".encode())                
+                    await f.write("\t]\n}\n".encode())
                     break
 
         MutyLogger.get_instance().info(
