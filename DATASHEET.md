@@ -25,20 +25,20 @@ flowchart LR
     subgraph Ingestion Sources
         direction LR
         A[Log Files]
-        B[Network Captures]
         C[SIEM/External Systems]
     end
 
     subgraph Gulp
         direction LR
         D(Ingestion Plugins)
+        X(External Plugins)
         E(Processing Engine)
         F[(OpenSearch)]
     end
 
     A --> D
-    B --> D
-    C --> D
+    C <--> X --> E
+    C --> E
     D --> E
     E --> F
 ```
@@ -95,7 +95,7 @@ Gulp is designed for seamless integration into existing security ecosystems.
 
 * **External Plugins:** Allows Gulp to query and ingest data from external data sources (i.e. SIEMS, other security tools)
 * **Bridges**: Allows Gulp to be fed with data by a `bridge`, a custom application useful if i.e. the external data source do not exposes a proper API.
-  
+
     A bridge leverages the following in Gulp:
 
     * **REST API:** The primary method for integration, the Gulp API called by bridges to ingest data.
@@ -111,7 +111,7 @@ graph TD
     A<--> E[Bridge API]
     E<-->F[UI]
     A <-- REST API / WebSocket --> B(Gulp)
-    Gulp -- External Plugins <--> C[SIEM API]   
+    Gulp -- External Plugins <--> C[SIEM API]
 ```
 
 ## 4. Testing and Development
