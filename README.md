@@ -82,18 +82,14 @@ the following environment variables may be set to override configuration options
 - `BIND_TO_ADDR`, `BIND_TO_PORT` : if set, gulp will listen to this interface and port (either, the default `0.0.0.0`, `8080` is used).
   - for the override to work, both `BIND_TO_ADDR` and `BIND_TO_PORT` must be specified, either the value of one alone is ignored.
 
-- `PATH_CONFIG`: if set, will be used as path for the configuration file (either, `~/.config/gulp/gulp_cfg.json` will be used)
+- `PATH_WORKING_DIR`: this is the **working directory** for gulp, which contains:
+  - `gulp_cfg.json`: the configuration
+  - `plugins`: extra plugins (have precedence over `$INSTALLDIR/plugins`)
+  - `mapping_files`: extra mapping files (have precedence over `$INSTALLDIR/mapping_files`)
+  - `certs`: SSL certificates for HTTPS
+  - `ingest_local` directory to store big files for quick ingestion (`ingest_local` API)
+  - `tmp_upload` folder to cache partial uploads during ingestion
 
-- `PATH_PLUGINS_EXTRA`: if set, an extra directory where to search plugins into.
-  - also have an `extension` subdirectory for `extension` plugins
-  - plugins are loaded by default from `$INSTALLDIR/plugins`
-  - if a plugin exists in both directories, `$PATH_PLUGINS_EXTRA`have precedence (i.e. to load newer version)
-
-- `PATH_MAPPING_FILES_EXTRA`: if set, an extra directory where to search mapping files into.
-  - mapping files are loaded by default from `$INSTALLDIR/mapping_files`
-  - if a mapping file exists in both directories, `$PATH_MAPPING_FILES_EXTRA` has precedence (i.e. to allow newer mapping versions)
-
-- `PATH_CERTS`: if set, overrides `path_certs` in the configuration to specify a path to load SSL certificates from (for HTTPS).
 - `OPENSEARCH_URL`: if set, overrides `opensearch_url` in the configuration to.
 - `POSTGRES_URL`: if set, overrides `postgres_url` in the configuration.
 - `GULP_INTEGRATION_TEST`: **TEST ONLY**, this must be set to 1 during integration testing (i.e. client api) to disable debug features which may interfere.
@@ -106,22 +102,22 @@ to use HTTPS, the following certificates must be available:
 
 - opensearch
   - `opensearch_verify_certs: false` may be used to skip server verification
-  - `$PATH_CERTS/opensearch-ca.pem`: path to the CA certificate for the Opensearch server
-  - `$PATH_CERTS/opensearch.pem`: client certificate to connect to Opensearch server
-  - `$PATH_CERTS/opensearch.key`: certificate key
+  - `$PATH_WORKING_DIR/certs/opensearch-ca.pem`: path to the CA certificate for the Opensearch server
+  - `$PATH_WORKING_DIR/certs/opensearch.pem`: client certificate to connect to Opensearch server
+  - `$PATH_WORKING_DIR/certs/opensearch.key`: certificate key
 
 - postgresql
   - `postgres_ssl: true` mut be set in the configuration
   - `postgres_verify_certs: false` may be used to skip server verification
-  - `$PATH_CERTS/postgres-ca.pem`: path to the CA certificate for the PostgreSQL server
-  - `$PATH_CERTS/postgres.pem` client certificate to connect to PostgreSQL server
-  - `$PATH_CERTS/postgres.key`: certificate key
+  - `$PATH_WORKING_DIR/certs/postgres-ca.pem`: path to the CA certificate for the PostgreSQL server
+  - `$PATH_WORKING_DIR/certs/postgres.pem` client certificate to connect to PostgreSQL server
+  - `$PATH_WORKING_DIR/certs/postgres.key`: certificate key
 
 - gulp server
   - to connect gulp clients, use `https_enforce` to prevent HTTP connections, `https_enforce_client_certs` to enforce client certificates signed by `gulp-ca.pem`CA
-  - `$PATH_CERTS/gulp-ca.pem`
-  - `$PATH_CERTS/gulp.pem`
-  - `$PATH_CERTS/gulp.key`
+  - `$PATH_WORKING_DIR/certs/gulp-ca.pem`
+  - `$PATH_WORKING_DIR/certs/gulp.pem`
+  - `$PATH_WORKING_DIR/certs/gulp.key`
 
 ## commandline examples
 

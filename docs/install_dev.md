@@ -119,9 +119,7 @@ BIND_TO_ADDR=0.0.0.0 BIND_TO_PORT=8080 gulp
 
 ### 7. optional: installing extra plugins
 
-plugins are just files, so it is enough to copy/symlink  plugins in `GULP_INSTALL_DIR/src/gulp/plugins` and mapping files in `GULP_INSTALL_DIR/src/gulp/mapping_files`
-
-> or you may use `PATH_PLUGINS_EXTRA` and `PATH_MAPPING_FILES_EXTRA` to define extra search directories.
+plugins are just files, so it is enough to copy/symlink extra plugins in `$GULP_WORKING_DIR/plugins` and `$GULP_WORKING_DIR/mapping_files`
 
 ## install using the setup script
 

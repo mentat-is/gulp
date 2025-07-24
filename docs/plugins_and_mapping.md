@@ -58,9 +58,9 @@ plugins directory tree is as follows:
 
 ### load order
 
-if an `extra` plugin directory is defined (either via environment `PATH_PLUGINS_EXTRA` or `path_plugins_extra` in the configuration file), plugins are first searched there before the main plugins directory `$GULPDIR/src/gulp/plugins`.
+a plugin is first attempted to load from `$GULP_WORKING_DIR/plugins` to allow overriding (i.e. with new/bugfixed versions).
 
-> this allows to override specific plugins with i.e. new versions or just to add further plugins to the default set.
+if not found there, the plugin is attempted to load from the main `$INSTALLDIR/plugins` directory (which, by convention, **should not be writable**).
 
 ## plugin types
 
@@ -116,7 +116,7 @@ then, different methods may be implemented:
 
 - `ingest_file`: implemented in `ingestion` plugins, this is the entrypoint to ingest a file.
   - look in [win_evtx](../src/gulp/plugins/win_evtx.py) for a complete example.
-  
+
 - `ingest_raw`: may be implemented in `ingestion` plugins to allow ingestion of `raw` data, which the plugin turns into proper `GulpDocuments`
   - this is currently used only by the [raw](../src/gulp/plugins/raw.py) plugin.
 
@@ -315,7 +315,7 @@ sequenceDiagram
         Base->>Base: Buffer records
         Base->>Base: _ingest_chunk_and_or_send_to_ws()
         Base-->>Engine: Stream to websocket
-        Base-->>Engine: Ingest to OpenSearch        
+        Base-->>Engine: Ingest to OpenSearch
     end
 
     Plugin->>Base: _source_done()
@@ -402,7 +402,6 @@ so, basically, as every other plugin they must implement `_record_to_gulp_docume
 
 - some plugins may want to bypass the engine and call lower's `_record_to_gulp_document` by itself: so, they must use `load_plugin` instead of `setup_stacked_pugin` in their initialization: for an example of this, look at the [mbox](../src/gulp/plugins/mbox.py) which sits on top of the [eml](../src/gulp/plugins/eml.py) plugin.
 
-
 # mapping 101
 
 `ingestion` and `external` plugins both support mapping files through [GulpPluginParameters](../src/gulp/structs.py), to customize mapping for both ingested documents and/or documents returned from an `external` query.
@@ -435,7 +434,9 @@ this is done via [GulpPluginParameter.mapping_id](../src/gulp/structs.py), which
 
 mapping files load order follows the same rules as [plugins](#loading-plugins):
 
-if an `extra` mapping directory is defined (either via environment `PATH_MAPPING_FILES_EXTRA` or `path_maping_files_extra` in the configuration file), mapping files are first searched there before the main mapping files directory `$GULPDIR/src/gulp/mapping_files`.
+a mapping file is first attempted to load from `$GULP_WORKING_DIR/mapping_files` to allow overriding (i.e. with new/bugfixed versions).
+
+if not found there, the plugin is attempted to load from the main `$INSTALLDIR/mapping_files` directory (which, by convention, **should not be writable**).
 
 ## advanced mapping
 
@@ -546,7 +547,7 @@ Here's a commented example mapping file, further details in the [model definitio
       "default_context": "my_default_ctx",
       // if the document, in the end of processing, does not have "gulp.source_id" set, a default source is created with this name
       "default_source": "my_default_src",
-      
+
       // "fields" represents the fields to map
       //
       // each field option is processed in the following order:

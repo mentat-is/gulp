@@ -19,19 +19,15 @@ start gulp first
 
 ~~~bash
 # run gulp on localhost:8080
-# setting extra paths may be omitted if paid plugins are not needed. also, they are automatically set in the devcontainer to ../gulp-paid-plugins/...
-export PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files
-export PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins
-
 # setting GULP_INTEGRATION_TEST is mandatory when running tests (disables debug features if forgotten activated)
 # we also ensure to start in the most clean way (recreate collab db, create test operation, delete all existing data)
-GULP_INTEGRATION_TEST=1 gulp --reset-collab --create test_operation 
+GULP_INTEGRATION_TEST=1 gulp --reset-collab --create test_operation
 ~~~
 
 ## running the test suite
 
 > **TODO: some tests are currently broken!**
- 
+
 the test suite tests all the gulp rest API and plugins, including ingestion and query (checking the results too)
 
 ~~~bash

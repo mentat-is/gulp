@@ -42,14 +42,14 @@ you have to just provide your own [gulp_cfg.json](../gulp_cfg_template.json) fil
 
 ~~~bash
 # supplying local GULP_IMAGE is optional, either the latest is pulled from our registry, starts gulp, gulp-web (and adminer and elasticvue for debugging)
-GULP_IMAGE=gulp-core:latest BIND_TO_PORT=8080 PATH_PLUGINS_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/plugins PATH_MAPPING_FILES_EXTRA=/home/valerino/repos/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files GULP_CONFIG_PATH=/home/valerino/repos/gulp/gulp_cfg.json docker compose --profile gulp --profile dev up
+GULP_IMAGE=gulp-core:latest BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
 
 # to add extra arguments, provide them with EXTRA_ARGS, i.e. to tweak log-level
 EXTRA_ARGS="--log-level warning" GULP_IMAGE=... BIND_TO_PORT=... (same as above)
 
 # to just run gulp container (without the compose, overriding CMD in Dockerfile
 # this is just an example, in this case you have to setup volumes as well for the configuration and extra paths....
-docker run --rm -e GULP_CONFIG_PATH=/bla/bla.json -e BIND_TO_PORT=8080 gulp-core gulp --log-level warning
+docker run --rm -e GULP_WORKING_DIR=/home/valerino/.config/gulp -e BIND_TO_PORT=8080 gulp-core gulp --log-level warning
 ~~~
 
 > multiple profiles may be specified using on the `docker compose` command line:
