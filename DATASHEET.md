@@ -38,7 +38,6 @@ flowchart LR
 
     A --> D
     C <--> X --> E
-    C --> E
     D --> E
     E --> F
 ```
