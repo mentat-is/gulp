@@ -69,34 +69,6 @@ class GulpConfig:
         """
         return self._config.get(key, default)
 
-    def path_config(self) -> str:
-        """
-        get the configuration file path (default: ~/.config/gulp/gulp_cfg.json)
-
-        returns:
-            str: the configuration file path
-        """
-        if self._config_file_path:
-            # shortcut ...
-            return self._config_file_path
-
-        p = os.getenv("PATH_CONFIG")
-        if p:
-            # provided
-            return p
-
-        # ensure directory exists
-        home_path = os.path.expanduser("~")
-        gulp_config_dir = muty.file.safe_path_join(
-            home_path, ".config/gulp", allow_relative=True
-        )
-        if not os.path.exists(gulp_config_dir):
-            os.makedirs(gulp_config_dir, exist_ok=True)
-
-        # return path
-        p = muty.file.safe_path_join(gulp_config_dir, "gulp_cfg.json")
-        return p
-
     def is_integration_test(self) -> bool:
         """
         Returns whether the integration test mode is enabled.
@@ -267,7 +239,7 @@ class GulpConfig:
         n = self._config.get("ingestion_local_path", None)
         if not n:
             # use default
-            p = self.config_dir()
+            p = self.path_config_dir()
             n = os.path.abspath(os.path.join(p, "ingest_local"))
 
         if not os.path.exists(n):
@@ -305,27 +277,6 @@ class GulpConfig:
         """
         n = self._config.get("opensearch_request_timeout", 60)
         return n
-
-    def config_dir(self) -> str:
-        """
-        get the configuration directory (it also ensures it exists)
-
-        returns:
-            str: the configuration directory
-        """
-        p = os.path.dirname(self.path_config())
-        return p
-
-    def upload_tmp_dir(self) -> str:
-        """
-        get the upload temporary directory (it also ensures it exists)
-
-        returns:
-            str: the upload temporary directory
-        """
-        upload_dir = muty.file.safe_path_join(self.config_dir(), "upload_tmp")
-        os.makedirs(upload_dir, exist_ok=True)
-        return upload_dir
 
     def token_ttl(self) -> int:
         """
@@ -648,6 +599,75 @@ class GulpConfig:
         n = self._config.get("opensearch_verify_certs", False)
         return n
 
+    def path_extras(self) -> str:
+        """
+        Returns the path to the extras directory (default: ~/.config/gulp/extras).
+
+        this is used to load custom plugins, mapping files, certs, etc.
+
+        can be overridden with PATH_EXTRAS environment variable.
+        """
+        p = os.getenv("PATH_EXTRAS", None)
+        if not p:
+            # try configuration
+            p = self._config.get("path_extras", None)
+
+        if not p:
+            MutyLogger.get_instance().warning("'path_extras' is not set !")
+            return None
+
+        return os.path.expanduser(p)
+
+    def path_config(self) -> str:
+        """
+        get the configuration file path (default: ~/.config/gulp/gulp_cfg.json)
+
+        returns:
+            str: the configuration file path
+        """
+        if self._config_file_path:
+            # shortcut ...
+            return self._config_file_path
+
+        p = os.getenv("PATH_CONFIG")
+        if p:
+            # provided
+            return p
+
+        # ensure directory exists
+        home_path = os.path.expanduser("~")
+        gulp_config_dir = muty.file.safe_path_join(
+            home_path, ".config/gulp", allow_relative=True
+        )
+        if not os.path.exists(gulp_config_dir):
+            os.makedirs(gulp_config_dir, exist_ok=True)
+
+        # return path
+        p = muty.file.safe_path_join(gulp_config_dir, "gulp_cfg.json")
+        return p
+
+    def path_config_dir(self) -> str:
+        """
+        get the configuration directory (it also ensures it exists)
+
+        returns:
+            str: the configuration directory
+        """
+        p = os.path.dirname(self.path_config())
+        return p
+
+    def path_upload_tmp_dir(self) -> str:
+        """
+        get the upload temporary directory (it also ensures it exists)
+
+        returns:
+            str: the upload temporary directory
+        """
+        upload_dir = muty.file.safe_path_join(self.path_config_dir(), "upload_tmp")
+        os.makedirs(upload_dir, exist_ok=True)
+        return upload_dir
+
+
     def path_plugins_default(self) -> str:
         """
         Returns the default plugins path.
@@ -658,14 +678,9 @@ class GulpConfig:
         """
         Returns the extra plugins path.
         """
-        # try env
-        p = os.getenv("PATH_PLUGINS_EXTRA", None)
-        if not p:
-            # try configuration
-            p = self._config.get("path_plugins_extra", None)
-
+        p = self.path_extras()
         if p:
-            p = os.path.expanduser(p)
+            return os.path.join(p, "plugins")
         return p
 
     def path_mapping_files_default(self) -> str:
@@ -678,14 +693,22 @@ class GulpConfig:
         """
         Returns the extra path of the mapping files.
         """
-        # try env
-        p = os.getenv("PATH_MAPPING_FILES_EXTRA", None)
-        if not p:
-            # try configuration
-            p = self._config.get("path_mapping_files_extra", None)
-
+        p = self.path_extras()
         if p:
-            p = os.path.expanduser(p)
+            return os.path.join(p, "mapping_files")
+        return p
+
+    def path_certs(self) -> str:
+        """
+        Returns the directory where the certificates are stored.
+
+        - gulp-ca.pem, gulp.pem, gulp.key: the gulp server certificates
+        - os-ca.pem, os.pem, os.key: the gulp's opensearch client certificates
+        - postgres-ca.pem, postgres.pem, postgres.key: the gulp's postgres client certificates
+        """
+        p = self.path_extras()
+        if p:
+            return os.path.join(p, "certs")
         return p
 
     def parallel_queries_max(self) -> int:
@@ -711,27 +734,6 @@ class GulpConfig:
                 n = 100
             # MutyLogger.get_instance().debug("using default number of documents for preview mode=%d" % (n))
         return n
-
-    def path_certs(self) -> str:
-        """
-        Returns the directory where the certificates are stored.
-
-        - gulp-ca.pem, gulp.pem, gulp.key: the gulp server certificates
-        - os-ca.pem, os.pem, os.key: the gulp's opensearch client certificates
-        - postgres-ca.pem, postgres.pem, postgres.key: the gulp's postgres client certificates
-        """
-        # try env
-        p = os.getenv("PATH_CERTS", None)
-        if not p:
-            # try configuration
-            p = self._config.get("path_certs", None)
-            if not p:
-                MutyLogger.get_instance().debug('"path_certs" is not set !')
-                return None
-
-        pp = os.path.expanduser(p)
-        # MutyLogger.get_instance().debug("certs directory: %s" % (pp))
-        return pp
 
     def query_history_max_size(self) -> int:
         """

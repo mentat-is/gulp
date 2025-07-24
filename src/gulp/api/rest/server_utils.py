@@ -11,7 +11,6 @@ common functionality needed across different endpoints and request handlers.
 """
 
 import inspect
-import orjson
 import os
 import re
 import ssl
@@ -22,6 +21,7 @@ import aiofiles
 import aiosmtplib
 import muty.crypto
 import muty.file
+import orjson
 from fastapi import Request
 from muty.log import MutyLogger
 from requests_toolbelt.multipart import decoder
@@ -46,7 +46,8 @@ class ServerUtils:
         caller_frame = inspect.currentframe().f_back
         caller_name = caller_frame.f_code.co_name
         MutyLogger.get_instance().debug(
-            "---> %s() params: %s" % (caller_name, orjson.dumps(params, option=orjson.OPT_INDENT_2).decode())
+            "---> %s() params: %s"
+            % (caller_name, orjson.dumps(params, option=orjson.OPT_INDENT_2).decode())
         )
 
     @staticmethod
@@ -124,8 +125,9 @@ class ServerUtils:
             payload = content.decode("utf-8")
             payload_dict = orjson.loads(payload)
             MutyLogger.get_instance().debug(
-                "parsed payload: %s" % orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2).decode()
-            )            
+                "parsed payload: %s"
+                % orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2).decode()
+            )
             return payload_dict
         except Exception:
             MutyLogger.get_instance().error(f"invalid payload: {content}")
@@ -145,14 +147,14 @@ class ServerUtils:
 
         # get Content-Type header
         ct: str = None
-        for h,v in r.headers.items():
+        for h, v in r.headers.items():
             hh = h.lower()
             if hh == "content-type":
                 ct = v
                 break
         if not ct:
             raise ValueError("Content-Type header is missing in the request")
-        
+
         # decode multipart, for each part, check the Content-Type header
         data = decoder.MultipartDecoder(await r.body(), ct)
         json_part: decoder.BodyPart = None
@@ -166,17 +168,18 @@ class ServerUtils:
                 if h == "content-type":
                     ct = v
                     break
-                
+
             if ct == "application/json":
                 json_part = part
             elif ct == "application/octet-stream" or ct == "application/zip":
                 data_part = part
         if not json_part or not data_part:
             raise ValueError(
-                "Multipart data must contain both application/json and application/octet-stream parts!")
-    
+                "Multipart data must contain both application/json and application/octet-stream parts!"
+            )
+
         return json_part, data_part
-    
+
     @staticmethod
     async def handle_multipart_chunked_upload(
         r: Request, operation_id: str, context_name: str
@@ -242,7 +245,7 @@ class ServerUtils:
                     done=True, continue_offset=None, error="file size is 0"
                 ),
             )
-        
+
         # decode multipart data
         json_part, file_part = await ServerUtils._get_parts(r)
 
@@ -254,7 +257,7 @@ class ServerUtils:
         filename = _extract_filename(
             file_part.headers[b"Content-Disposition"].decode("utf-8")
         )
-        cache_dir = GulpConfig.get_instance().upload_tmp_dir()
+        cache_dir = GulpConfig.get_instance().path_upload_tmp_dir()
 
         # build a unique filename
         unique_filename = "%s-%s" % (
@@ -315,15 +318,17 @@ class ServerUtils:
         )
         MutyLogger.get_instance().debug(
             "file_path=%s,\npayload=%s,\nresult=%s"
-            % (cache_file_path, orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2).decode(), result)
+            % (
+                cache_file_path,
+                orjson.dumps(payload_dict, option=orjson.OPT_INDENT_2).decode(),
+                result,
+            )
         )
 
         return (cache_file_path, payload_dict, result)
 
     @staticmethod
-    async def handle_multipart_body(
-        r: Request
-    ) -> Tuple[dict, bytes]:
+    async def handle_multipart_body(r: Request) -> Tuple[dict, bytes]:
         """
         Handles a multipart request with JSON and data parts.
 

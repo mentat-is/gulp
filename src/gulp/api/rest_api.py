@@ -14,7 +14,6 @@ import asyncio
 import os
 import ssl
 import sys
-import orjson
 from typing import Any, Coroutine
 
 import asyncio_atexit
@@ -22,6 +21,7 @@ import muty.file
 import muty.os
 import muty.string
 import muty.version
+import orjson
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -133,8 +133,10 @@ class GulpRestServer:
                 try:
                     p = await GulpPluginBase.load(f, extension=True)
                 except Exception as ex:
-                    # plugin failed to load             
-                    MutyLogger.get_instance().error("failed to load (extension) plugin file: %s" % (f))     
+                    # plugin failed to load
+                    MutyLogger.get_instance().error(
+                        "failed to load (extension) plugin file: %s" % (f)
+                    )
                     MutyLogger.get_instance().exception(ex)
                     continue
                 self._extension_plugins.append(p)
@@ -569,7 +571,7 @@ class GulpRestServer:
         """
         deletes the ".first_run_done" file in the config directory.
         """
-        config_directory = GulpConfig.get_instance().config_dir()
+        config_directory = GulpConfig.get_instance().path_config_dir()
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             muty.file.delete_file_or_dir(check_first_run_file)
@@ -583,7 +585,7 @@ class GulpRestServer:
             bool: True if this is the first run, False otherwise.
         """
         # check if this is the first run
-        config_directory = GulpConfig.get_instance().config_dir()
+        config_directory = GulpConfig.get_instance().path_config_dir()
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             MutyLogger.get_instance().debug(

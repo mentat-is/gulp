@@ -37,7 +37,8 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import GulpWsSharedQueue
 from gulp.config import GulpConfig
-
+import zmq
+from zmq.asyncio import Context
 
 class GulpProcess:
     """
@@ -66,6 +67,8 @@ class GulpProcess:
 
     def __init__(self):
         self._initialized: bool = True
+        self._main_process: bool = True
+        self._zmq_context
         self.mp_manager: SyncManager = None
 
         # allow main/worker processes to spawn threads
