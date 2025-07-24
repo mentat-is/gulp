@@ -42,6 +42,22 @@ flowchart LR
     E --> F
 ```
 
+### Data Enrichment
+
+Gulp uses "Enrichment Plugins" to augment already existing data by querying external services (i.e. whois)
+
+```mermaid
+flowchart LR
+    A(OpenSearch)
+    B(Gulp)
+    C(Enrichment Plugin)
+    D(External Service)
+    B <--> C
+    C <--> D
+    C <--> A
+
+```
+
 ### OpenSearch/ECS Compatibility
 
 Gulp leverages OpenSearch as its data store and utilizes the Elastic Common Schema (ECS) for data normalization.
