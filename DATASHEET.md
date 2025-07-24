@@ -36,7 +36,7 @@ flowchart LR
         F[(OpenSearch)]
     end
 
-    A --> D
+    A <--> D
     C <--> X --> E
     D --> E
     E --> F
