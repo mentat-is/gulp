@@ -33,8 +33,6 @@
   "ingestion_retry_max": 3,
   // how many seconds between ingestion retries on error (default=1)
   "ingestion_retry_delay": 1,
-  // if defined, this is a local path to be used for ingestion (default=GULPDIR/ingest_local)
-  "ingestion_local_path": null,
   // client certificate password (not supported, ignored)
   "opensearch_client_cert_password": null,
   // this is the default, set to true only if your opensearch cluster has multiple nodes
@@ -51,14 +49,8 @@
   "parallel_processes_max": 0,
   // respawn a process after this number of tasks: set to -1 to never respawn processes, every other value < 100 will be set to 100 (default=100)
   "parallel_processes_respawn_after_tasks": 100,
-  // certificates directory (may be overridden by CERTS_DIRECTORY environment variable)
-  "path_certs": "~/repos/gulp/certs",
-  // extra path to load custom plugins, mapping files, certs from. leave null to use the default "GULPDIR/extras". can be overridden with PATH_EXTRAS environment variable
-  "path_extras": "~/repos/gulp/extras",
-  // extra path to load mapping files from. leave null to use the default "GULPDIR/mapping_files". can be overridden with PATH_MAPPING_FILES_EXTRA environment variable
-  "path_mapping_files_extra": null,
-  // extra path to load plugins from. leave null to use the default "GULPDIR/plugins". can be overridden with PATH_PLUGINS_EXTRA environment variable
-  "path_plugins_extra": null,
+  // gulp working directory (may be overridden by PATH_WORKING_DIR environment variable): this is the directory to store configuration, custom plugins, custom mapping files, etc. Defaults to ~/.config/gulp
+  "path_working_dir": null,
   // enable cache for plugins (faster loading)
   "plugin_cache_enabled": true,
   // how many documents to return in preview mode (default=100)

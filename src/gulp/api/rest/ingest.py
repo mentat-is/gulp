@@ -21,13 +21,13 @@ and preview mode for testing without persistence.
 
 """
 
-import orjson
 import os
 from copy import deepcopy
 from typing import Annotated, Any, Optional
 
 import muty.file
 import muty.pydantic
+import orjson
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
@@ -678,9 +678,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
     ServerUtils.dump_params(params)
 
     # compute local path
-    path = muty.file.safe_path_join(
-        GulpConfig.get_instance().ingestion_local_path(), path
-    )
+    path = muty.file.safe_path_join(GulpConfig.get_instance().path_ingest_local(), path)
     MutyLogger.get_instance().info("ingesting local file: %s" % (path))
 
     try:
@@ -1265,9 +1263,7 @@ async def ingest_zip_local_handler(
     ServerUtils.dump_params(params)
 
     # compute local path
-    path = muty.file.safe_path_join(
-        GulpConfig.get_instance().ingestion_local_path(), path
-    )
+    path = muty.file.safe_path_join(GulpConfig.get_instance().path_ingest_local(), path)
     MutyLogger.get_instance().info("ingesting local ZIP file: %s" % (path))
 
     try:
@@ -1391,7 +1387,7 @@ async def ingest_local_list_handler(
                 sess, token, permission=GulpUserPermission.INGEST
             )
 
-        local_dir = GulpConfig.get_instance().ingestion_local_path()
+        local_dir = GulpConfig.get_instance().path_ingest_local()
         MutyLogger.get_instance().info(
             "listing local ingestion directory: %s" % (local_dir)
         )

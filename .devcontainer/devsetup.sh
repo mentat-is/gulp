@@ -4,6 +4,9 @@
 echo "[.] Setting up docker permissions"
 sudo chmod 666 /var/run/docker.sock
 
+# set permission for pip cache
+sudo mkdir -p /home/vscode/.cache/pip && sudo chown -R vscode:vscode /home/vscode/.cache
+
 # install development packages
 echo "[.] Installing gulp"
 pip3 install --timeout=1000 -e .

@@ -25,6 +25,12 @@ class GulpConfig:
 
     def __init__(self):
         self._config_file_path: str = None
+        self._tmp_upload_dir: str = None
+        self._ingest_local_dir = None
+        self._working_dir: str = None
+        self._path_certs: str = None
+        self._path_mapping_files_extra: str = None
+        self._path_plugins_extra: str = None
         self._config: dict = None
 
         # read configuration on init
@@ -229,23 +235,6 @@ class GulpConfig:
         )
         return n
 
-    def ingestion_local_path(self) -> str:
-        """
-        if this is not set, the default path will be used: ~/.config/gulp/ingest_local
-
-        Returns:
-            str: the local path for ingestion
-        """
-        n = self._config.get("ingestion_local_path", None)
-        if not n:
-            # use default
-            p = self.path_config_dir()
-            n = os.path.abspath(os.path.join(p, "ingest_local"))
-
-        if not os.path.exists(n):
-            # create if not exist
-            os.makedirs(n, exist_ok=True)
-        return n
 
     def ingestion_retry_max(self) -> int:
         """
@@ -544,8 +533,8 @@ class GulpConfig:
         Returns whether to use SSL for postgres.
         if this is set, the certificates used to connect to postgres will be:
 
-        - $PATH_CERTS/postgres-ca.pem
-        - $PATH_CERTS/postgres.pem, $PATH_CERTS/postgres.key (client cert used if found)
+        - $PATH_WORKING_DIR/certs/postgres-ca.pem
+        - $PATH_WORKING_DIR/certs/postgres.pem, $PATH_CERTS/postgres.key (client cert used if found)
         """
         n = self._config.get("postgres_ssl", False)
         return n
@@ -599,24 +588,42 @@ class GulpConfig:
         n = self._config.get("opensearch_verify_certs", False)
         return n
 
-    def path_extras(self) -> str:
+    def path_working_dir(self) -> str:
         """
-        Returns the path to the extras directory (default: ~/.config/gulp/extras).
+        Returns the path to the gulp working directory
 
-        this is used to load custom plugins, mapping files, certs, etc.
+        this is used to hold the configuration, temporary directory, custom plugins, mapping files, certs, etc.
 
-        can be overridden with PATH_EXTRAS environment variable.
+        can be overridden with PATH_WORKING_DIR environment variable.
+
+        default: ~/.config/gulp
         """
-        p = os.getenv("PATH_EXTRAS", None)
+        if self._working_dir:
+            # shortcut ...
+            return self._working_dir
+        
+        p = os.getenv("PATH_WORKING_DIR", None)
         if not p:
             # try configuration
-            p = self._config.get("path_extras", None)
+            p = self._config.get("path_working_dir", None)
+            if not p:
+                print("****** PID=%d, PATH_WORKING_DIR not set, using default working directory ~/.config/gulp !" % (os.getpid()))
+                # ensure the work directory exists
+                home_path = os.path.expanduser("~")
+                p = muty.file.safe_path_join(
+                    home_path, ".config/gulp", allow_relative=True
+                )
+                os.makedirs(p, exist_ok=True)
 
-        if not p:
-            MutyLogger.get_instance().warning("'path_extras' is not set !")
-            return None
+        self._working_dir = p
 
-        return os.path.expanduser(p)
+        # ensure certs, mapping_files, plugins, upload_tmp, ingest_local exists
+        os.makedirs(self.path_certs(), exist_ok=True)
+        os.makedirs(self.path_mapping_files_extra(), exist_ok=True)
+        os.makedirs(self.path_plugins_extra(), exist_ok=True)
+        os.makedirs(self.path_tmp_upload(), exist_ok=True)
+        os.makedirs(self.path_ingest_local(), exist_ok=True)
+        return p
 
     def path_config(self) -> str:
         """
@@ -629,43 +636,41 @@ class GulpConfig:
             # shortcut ...
             return self._config_file_path
 
-        p = os.getenv("PATH_CONFIG")
-        if p:
-            # provided
-            return p
-
-        # ensure directory exists
-        home_path = os.path.expanduser("~")
-        gulp_config_dir = muty.file.safe_path_join(
-            home_path, ".config/gulp", allow_relative=True
-        )
-        if not os.path.exists(gulp_config_dir):
-            os.makedirs(gulp_config_dir, exist_ok=True)
-
-        # return path
-        p = muty.file.safe_path_join(gulp_config_dir, "gulp_cfg.json")
+        p = self.path_working_dir()
+        p = muty.file.safe_path_join(p, "gulp_cfg.json")
+        self._config_file_path = p
         return p
 
-    def path_config_dir(self) -> str:
+    def path_ingest_local(self) -> str:
         """
-        get the configuration directory (it also ensures it exists)
+        if this is not set, the default path will be used: ~/.config/gulp/ingest_local
 
-        returns:
-            str: the configuration directory
+        Returns:
+            str: the local path for ingestion
         """
-        p = os.path.dirname(self.path_config())
+        if self._ingest_local_dir:
+            # shortcut ...
+            return self._ingest_local_dir
+
+        p = self.path_working_dir()
+        p = os.path.abspath(os.path.join(p, "ingest_local"))
+        self._ingest_local_dir = p
         return p
 
-    def path_upload_tmp_dir(self) -> str:
+    def path_tmp_upload(self) -> str:
         """
         get the upload temporary directory (it also ensures it exists)
 
         returns:
             str: the upload temporary directory
         """
-        upload_dir = muty.file.safe_path_join(self.path_config_dir(), "upload_tmp")
-        os.makedirs(upload_dir, exist_ok=True)
-        return upload_dir
+        if self._tmp_upload_dir:
+            # shortcut ...
+            return self._tmp_upload_dir
+
+        p = self.path_working_dir()
+        p = muty.file.safe_path_join(p, "tmp_upload")
+        return p
 
 
     def path_plugins_default(self) -> str:
@@ -678,9 +683,13 @@ class GulpConfig:
         """
         Returns the extra plugins path.
         """
-        p = self.path_extras()
-        if p:
-            return os.path.join(p, "plugins")
+        if self._path_plugins_extra:
+            # shortcut ...
+            return self._path_plugins_extra
+
+        p = self.path_working_dir()
+        p = os.path.join(p, "plugins")
+        self._path_plugins_extra = p
         return p
 
     def path_mapping_files_default(self) -> str:
@@ -693,9 +702,13 @@ class GulpConfig:
         """
         Returns the extra path of the mapping files.
         """
-        p = self.path_extras()
-        if p:
-            return os.path.join(p, "mapping_files")
+        if self._path_mapping_files_extra:
+            # shortcut ...
+            return self._path_mapping_files_extra
+
+        p = self.path_working_dir()
+        p = os.path.join(p, "mapping_files")
+        self._path_mapping_files_extra = p
         return p
 
     def path_certs(self) -> str:
@@ -706,9 +719,13 @@ class GulpConfig:
         - os-ca.pem, os.pem, os.key: the gulp's opensearch client certificates
         - postgres-ca.pem, postgres.pem, postgres.key: the gulp's postgres client certificates
         """
-        p = self.path_extras()
-        if p:
-            return os.path.join(p, "certs")
+        if self._path_certs:
+            # shortcut ...
+            return self._path_certs
+
+        p = self.path_working_dir()
+        p = os.path.join(p, "certs")
+        self._path_certs = p
         return p
 
     def parallel_queries_max(self) -> int:

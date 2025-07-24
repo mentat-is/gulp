@@ -44,17 +44,21 @@
   "privileged": true,
   "mounts": [
     "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind,consistency=cached",
+
+
     "source=${localWorkspaceFolder}/../muty-python,target=${containerWorkspaceFolder}/muty-python,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulp-paid-plugins,target=${containerWorkspaceFolder}/gulp-paid-plugins,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../slurp,target=${containerWorkspaceFolder}/slurp,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulp-sdk-python,target=${containerWorkspaceFolder}/gulp-sdk-python,type=bind,consistency=cached",
+
     "source=${localEnv:HOME}/.config/gulp,target=/home/vscode/.config/gulp,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/../gulp-paid-plugins/src/gulp-paid-plugins/plugins,target=/home/vscode/.config/gulp/plugins,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files,target=/home/vscode/.config/gulp/mapping_files,type=bind,consistency=cached",
+
     "source=${localEnv:HOME}/.config/fish,target=/home/vscode/.config/fish,type=bind,consistency=cached"
   ],
   "remoteEnv": {
-    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin",
-    "PATH_PLUGINS_EXTRA": "${containerWorkspaceFolder}/gulp-paid-plugins/src/gulp-paid-plugins/plugins",
-    "PATH_MAPPING_FILES_EXTRA": "${containerWorkspaceFolder}/gulp-paid-plugins/src/gulp-paid-plugins/mapping_files"
+    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"
   },
   "postCreateCommand": "chmod +x .devcontainer/devsetup.sh && .devcontainer/devsetup.sh"
 }

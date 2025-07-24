@@ -4,6 +4,8 @@ services:
     volumes:
       - ..:/gulp:cached
       - /var/run/docker.sock:/var/run/docker.sock
+      # use a named volume for pip cache to persist it across container rebuilds
+      - pip-cache:/home/vscode/.cache/pip
     command: sleep infinity
     ports:
       # gulp
@@ -13,6 +15,9 @@ services:
     group_add:
       - docker
 
-    # Use the default network driver and join the main gulp network
     network_mode: "host"
     init: true
+
+volumes:
+  pip-cache:
+    driver: local

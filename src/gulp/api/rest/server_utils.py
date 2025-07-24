@@ -257,7 +257,7 @@ class ServerUtils:
         filename = _extract_filename(
             file_part.headers[b"Content-Disposition"].decode("utf-8")
         )
-        cache_dir = GulpConfig.get_instance().path_upload_tmp_dir()
+        cache_dir = GulpConfig.get_instance().path_tmp_upload()
 
         # build a unique filename
         unique_filename = "%s-%s" % (

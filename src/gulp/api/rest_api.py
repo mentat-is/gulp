@@ -571,7 +571,7 @@ class GulpRestServer:
         """
         deletes the ".first_run_done" file in the config directory.
         """
-        config_directory = GulpConfig.get_instance().path_config_dir()
+        config_directory = GulpConfig.get_instance().path_working_dir()
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             muty.file.delete_file_or_dir(check_first_run_file)
@@ -585,7 +585,7 @@ class GulpRestServer:
             bool: True if this is the first run, False otherwise.
         """
         # check if this is the first run
-        config_directory = GulpConfig.get_instance().path_config_dir()
+        config_directory = GulpConfig.get_instance().path_working_dir()
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             MutyLogger.get_instance().debug(
