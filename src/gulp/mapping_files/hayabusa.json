@@ -1,0 +1,62 @@
+{
+    "metadata": {
+        "plugin": [
+            "csv.py"
+        ]
+    },
+    "mappings": {
+        "standard": {
+            "description": "hayabusa standard output format (https://github.com/Yamato-Security/hayabusa/wiki/Timeline-Output)",
+            "default_source": "hayabusa",
+            "default_context": "standard",
+            "hint": "%Timestamp%, %Computer%, %Channel%, %EventID%, %Level%, %RecordID%, %RuleTitle%, %Details%, %ExtraFieldInfo%",
+            "fields": { 
+                "Timestamp":{
+                    "ecs": [
+                        "@timestamp"
+                    ]
+                },
+                "Computer": {
+                    "ecs": [
+                        "host.name"
+                    ]
+                },
+                "Channel": {
+                    "ecs": [
+                        "winlog.channel"
+                    ]
+                },
+                "EventID": {
+                    "ecs": [
+                        "event.code"
+                    ]
+                },
+                "Level": {
+                    "ecs": [
+                        "log.level"
+                    ]
+                },
+                "RecordID": {
+                    "ecs": [
+                        "winlog.record_id"
+                    ]
+                },
+                "RuleTitle": {
+                    "ecs": [
+                        "rule.name"
+                    ]
+                },
+                "Details": {
+                    "ecs": [
+                        "gulp.hayabusa.details"
+                    ]
+                },
+                "ExtraFieldInfo": {
+                    "ecs": [
+                        "gulp.hayabusa.extra_field_info"
+                    ]
+                }
+            }            
+        }
+    }
+}
