@@ -78,6 +78,7 @@ class GulpProcess:
         self.shared_ws_list: list[str] = None
         self._log_level: int = None
         self._logger_file_path: str = None
+        self._log_to_syslog: bool = False
         self._main_process: bool = True
 
     def __new__(cls) -> "GulpProcess":
@@ -125,7 +126,7 @@ class GulpProcess:
         return
 
     @staticmethod
-    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None):  # type: ignore
+    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None, log_to_syslog: bool=False):  # type: ignore
         """
         initializes a worker process
 
@@ -137,7 +138,8 @@ class GulpProcess:
             q (Queue): the shared websocket queue created by the main process
             shared_ws_list (list[str]): the shared websocket list
             log_level (int, optional): the log level. Defaults to None.
-            logger_file_path (str, optional): the logger file path to log to file. Defaults to None.
+            logger_file_path (str, optional): the logger file path to log to file. Defaults to None, cannot be used with log_to_syslog.
+            log_to_syslog (bool, optional): whether to log to syslog. Defaults to False, cannot be used with logger_file_path.
         """
         # initialize paths immediately, before any unpickling happens
         plugins_path = GulpConfig.get_instance().path_plugins_default()
@@ -168,6 +170,7 @@ class GulpProcess:
                     logger_file_path=logger_file_path,
                     q=q,
                     shared_ws_list=shared_ws_list,
+                    log_to_syslog=log_to_syslog,
                 )
             )
         except Exception as ex:
@@ -311,6 +314,7 @@ class GulpProcess:
         logger_file_path: str = None,
         q: Queue = None,
         shared_ws_list: list[str] = None,
+        log_to_syslog: bool = False,
     ) -> None:
         """
         initializes main or worker gulp process
@@ -318,28 +322,33 @@ class GulpProcess:
         Args:
             lock (Lock, optional): if set, will be acquired (and then released) during getting configuration instance in worker processes
             log_level (int, optional): the log level for the logger. Defaults to None.
-            logger_file_path (str, optional): the log file path for the logger. Defaults to None.
+            logger_file_path (str, optional): the log file path for the logger. Defaults to None, cannot be used with log_to_syslog.
             q: (Queue, optional): the shared websocket queue created by the main process(we are called in a worker process).
                 Defaults to None (we are called in the main process)
             shared_ws_list (list[str], optional): the shared websocket list created by the main process (we are called in a worker process).
+            log_to_syslog (bool, optional): whether to log to syslog. Defaults to False, cannot be used with logger_file_path.
         """
 
         # only in a worker process we're passed the queue and shared_ws_list by the process pool initializer
         self._main_process = q is None and shared_ws_list is None
         if self._main_process:
             if self._log_level:
+                # keep the same as before
                 log_level = self._log_level
                 logger_file_path = self._logger_file_path
+                log_to_syslog = self._log_to_syslog
                 MutyLogger.get_instance().warning("reinitializing MAIN process...")
             else:
                 MutyLogger.get_instance().info("initializing MAIN process...")
                 self._log_level = log_level
                 self._logger_file_path = logger_file_path
+                self._log_to_syslog = log_to_syslog
         else:
             # we must initialize mutylogger here
             MutyLogger.get_instance(
                 "gulp-worker-%d" % (os.getpid()),
                 logger_file_path=logger_file_path,
+                log_to_syslog=log_to_syslog,
                 level=log_level,
             )
             MutyLogger.get_instance().info(

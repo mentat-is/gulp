@@ -92,10 +92,10 @@ services:
       - GULP_BIND_TO_PORT=${GULP_BIND_TO_PORT:-8080}
       - GULP_BIND_TO_ADDR=${GULP_BIND_TO_ADDR:-0.0.0.0}
     volumes:
-      - ${GULP_WORKING_DIR}:/home/gulp/.config/gulp # gulp_cfg.json and extra plugins goes here
-      - ${GULP_WORKING_DIR}/.local:/home/gulp/.local # to persist user data
-      - ${GULP_WORKING_DIR}/.pip_cache:/home/gulp/.cache/pip # to persist pip cache
-      - ${GULP_WORKING_DIR}/.site_packages:/home/gulp/.local/lib/python${PYTHON_VERSION}/site-packages # to persist installed pip packages
+      - ${GULP_WORKING_DIR:-~/.config/gulp}:/home/gulp/.config/gulp # gulp_cfg.json and extra plugins goes here
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/.local:/home/gulp/.local # to persist user data
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/.pip_cache:/home/gulp/.cache/pip # to persist pip cache
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/.site_packages:/home/gulp/.local/lib/python${PYTHON_VERSION}/site-packages # to persist installed pip packages
     depends_on:
       - postgres
       - os01

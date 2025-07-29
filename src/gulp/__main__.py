@@ -51,7 +51,13 @@ def main():
         "--log-to-file",
         nargs=1,
         metavar=("file path"),
-        help="also outputs log to this (rotating) file, default=stdout only.",
+        help="also outputs log to this (rotating) file, default=stdout only. Cannot be used with --log-to-syslog.",
+    )
+    parser.add_argument(
+        "--log-to-syslog",
+        help="also outputs log to syslog, default=stdout only. Cannot be used with --log-to-file.",
+        action="store_true",
+        default=False,
     )
     parser.add_argument(
         "--log-level",
@@ -89,7 +95,10 @@ def main():
     # reconfigure logger
     lv = logging.getLevelNamesMapping()[args.log_level[0].upper()]
     logger_file_path = args.log_to_file[0] if args.log_to_file else None
-    MutyLogger.get_instance("gulp", logger_file_path=logger_file_path, level=lv)
+    log_to_syslog = args.log_to_syslog
+    MutyLogger.get_instance(
+        "gulp", logger_file_path=logger_file_path, level=lv, log_to_syslog=log_to_syslog
+    )
 
     if __RUN_TESTS__:
         # test stuff

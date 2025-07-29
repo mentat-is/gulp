@@ -53,6 +53,7 @@ class GulpRestServer:
         self._initialized: bool = True
         self._app: FastAPI = None
         self._logger_file_path: str = None
+        self._log_to_syslog: bool = False
         self._log_level: int = None
         self._reset_collab: bool = False
         self._create_operation: str = None
@@ -119,14 +120,20 @@ class GulpRestServer:
         p = GulpConfig.get_instance().path_plugins_default()
         path_extension = os.path.join(p, "extension")
         files: list[str] = await muty.file.list_directory_async(path_extension, "*.py*")
-        MutyLogger.get_instance().debug("found %d extensions in default path: %s" % (len(files), path_extension))
+        MutyLogger.get_instance().debug(
+            "found %d extensions in default path: %s" % (len(files), path_extension)
+        )
 
         # extras, if any
         p = GulpConfig.get_instance().path_plugins_extra()
         if p:
             path_extension = os.path.join(p, "extension")
-            ff: list[str] = await muty.file.list_directory_async(path_extension, "*.py*")
-            MutyLogger.get_instance().debug("found %d extensions in extra path: %s" % (len(ff), path_extension))
+            ff: list[str] = await muty.file.list_directory_async(
+                path_extension, "*.py*"
+            )
+            MutyLogger.get_instance().debug(
+                "found %d extensions in extra path: %s" % (len(ff), path_extension)
+            )
             files.extend(ff)
 
         count: int = 0
@@ -299,17 +306,20 @@ class GulpRestServer:
         level: int = None,
         reset_collab: bool = False,
         create_operation: str = None,
+        log_to_syslog=False,
     ):
         """
         starts the server.
 
         Args:
-            logger_file_path (str, optional): path to the logger file.
+            logger_file_path (str, optional): path to the logger file for logging to file, cannot be used with log_to_syslog.
             level (int, optional): the log level.
             reset_collab (bool, optional): if True, reset the collab database
             create_operation (str, optional): the operation to be re/created (--create)
+            log_to_syslog (bool, optional): if True, log to syslog as well. Cannot be used with logger_file_path.
         """
         self._logger_file_path = logger_file_path
+        self._log_to_syslog = log_to_syslog
         self._log_level = level
         self._reset_collab = reset_collab
         self._create_operation = create_operation
@@ -398,10 +408,10 @@ class GulpRestServer:
                 self._app,
                 host=address,
                 port=port,
-                ssl_keyfile=ssl_keyfile, # gulp server cert key
-                ssl_keyfile_password=cert_password, # key password
-                ssl_certfile=ssl_certfile, # gulp server cert
-                ssl_ca_certs=gulp_ca_certs, # gulp CA
+                ssl_keyfile=ssl_keyfile,  # gulp server cert key
+                ssl_keyfile_password=cert_password,  # key password
+                ssl_certfile=ssl_certfile,  # gulp server cert
+                ssl_ca_certs=gulp_ca_certs,  # gulp CA
                 ssl_cert_reqs=ssl_cert_verify_mode,
             )
         else:
@@ -533,7 +543,7 @@ class GulpRestServer:
 
         # init the main process
         await main_process.init_gulp_process(
-            log_level=self._log_level, logger_file_path=self._logger_file_path
+            log_level=self._log_level, logger_file_path=self._logger_file_path, log_to_syslog=self._log_to_syslog
         )
 
         if __debug__:
