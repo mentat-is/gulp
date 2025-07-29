@@ -1,10 +1,11 @@
 [build-system]
-requires = ["setuptools>=61", "setuptools_scm"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "gulp"
-dynamic = ["version", "dependencies"]
+version = "1.0.0"
+dynamic= ["dependencies"]
 authors = [{ name = "Mentat", email = "info@mentat.is" }]
 description = "gULP - (generic) Unified Log Processor."
 readme = "README.md"
@@ -19,9 +20,8 @@ where = ["src"]
 [tool.setuptools]
 include-package-data = true
 
-[tool.setuptools_scm]
-version_scheme = "guess-next-dev"
-local_scheme = "node-and-date"
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"

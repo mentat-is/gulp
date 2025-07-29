@@ -95,7 +95,12 @@ class GulpConfig:
         Dumps the configuration dictionary to the logger.
         """
         MutyLogger.get_instance().info(
-            "configuration read:\n%s" % (json5.dumps(self._config, indent=2))
+            "working_dir=%s, configuration read from %s:\n%s"
+            % (
+                self._working_dir,
+                self._config_file_path,
+                json5.dumps(self._config, indent=2),
+            )
         )
 
     def _read_config(self) -> None:
@@ -122,29 +127,14 @@ class GulpConfig:
             )
 
         # read
-        print(
-            "******  PID=%d, reading configuration file: %s ******"
-            % (os.getpid(), config_file_path)
-        )
-
         with open(config_file_path, "rb") as f:
             js = f.read()
             self._config = json5.loads(js)
 
-        # create plugins/ui directory if not exists
-        try:
-            # may file on containerized ...
-            plugins_path = self.path_plugins_default()
-            ui_plugins_path = muty.file.safe_path_join(plugins_path, "ui")
-            os.makedirs(plugins_path, exist_ok=True)
-        except:
-            pass
-
-        extra_path = self.path_plugins_extra()
-        if extra_path:
-            # ensure extra plugins path exists
-            ui_plugins_path = muty.file.safe_path_join(extra_path, "ui")
-            os.makedirs(ui_plugins_path, exist_ok=True)
+        print(
+            "******  PID=%d, reading configuration file DONE: %s ******"
+            % (os.getpid(), config_file_path)
+        )
 
     def set_config(self, config: dict):
         """
@@ -180,8 +170,8 @@ class GulpConfig:
             tuple[str,int]: the bind address and port
         """
         # check env
-        addr = os.getenv("BIND_TO_ADDR")
-        port = os.getenv("BIND_TO_PORT")
+        addr = os.getenv("GULP_BIND_TO_ADDR")
+        port = os.getenv("GULP_BIND_TO_PORT")
         if addr and port:
             MutyLogger.get_instance().debug("bind_to (from env): %s:%s" % (addr, port))
             return (addr, int(port))
@@ -234,7 +224,6 @@ class GulpConfig:
             "index_template_default_refresh_interval: %s" % (n)
         )
         return n
-
 
     def ingestion_retry_max(self) -> int:
         """
@@ -518,12 +507,12 @@ class GulpConfig:
         raises:
             Exception: If the postgres_url is not set in the configuration.
         """
-        n = os.getenv("POSTGRES_URL", None)
+        n = os.getenv("GULP_POSTGRES_URL", None)
         if not n:
             n = self._config.get("postgres_url", None)
             if not n:
                 raise Exception(
-                    "postgres_url not set (tried configuration and POSTGRES_URL environment_variable)."
+                    "postgres_url not set (tried configuration and GULP_POSTGRES_URL environment_variable)."
                 )
 
         return n
@@ -533,8 +522,8 @@ class GulpConfig:
         Returns whether to use SSL for postgres.
         if this is set, the certificates used to connect to postgres will be:
 
-        - $PATH_WORKING_DIR/certs/postgres-ca.pem
-        - $PATH_WORKING_DIR/certs/postgres.pem, $PATH_CERTS/postgres.key (client cert used if found)
+        - $GULP_WORKING_DIR/certs/postgres-ca.pem
+        - $GULP_WORKING_DIR/certs/postgres.pem, $PATH_CERTS/postgres.key (client cert used if found)
         """
         n = self._config.get("postgres_ssl", False)
         return n
@@ -568,12 +557,12 @@ class GulpConfig:
         raises:
             Exception: If the opensearch_url is not set in the configuration.
         """
-        n = os.getenv("OPENSEARCH_URL", None)
+        n = os.getenv("GULP_OPENSEARCH_URL", None)
         if not n:
             n = self._config.get("opensearch_url", None)
             if not n:
                 raise Exception(
-                    "opensearch_url not set (tried configuration and OPENSEARCH_URL environment_variable)."
+                    "opensearch_url not set (tried configuration and GULP_OPENSEARCH_URL environment_variable)."
                 )
 
         return n
@@ -594,35 +583,49 @@ class GulpConfig:
 
         this is used to hold the configuration, temporary directory, custom plugins, mapping files, certs, etc.
 
-        can be overridden with PATH_WORKING_DIR environment variable.
+        can be overridden with GULP_WORKING_DIR environment variable.
 
         default: ~/.config/gulp
         """
         if self._working_dir:
             # shortcut ...
             return self._working_dir
-        
-        p = os.getenv("PATH_WORKING_DIR", None)
+
+        p = os.getenv("GULP_WORKING_DIR", None)
         if not p:
-            # try configuration
-            p = self._config.get("path_working_dir", None)
-            if not p:
-                print("****** PID=%d, PATH_WORKING_DIR not set, using default working directory ~/.config/gulp !" % (os.getpid()))
-                # ensure the work directory exists
-                home_path = os.path.expanduser("~")
-                p = muty.file.safe_path_join(
-                    home_path, ".config/gulp", allow_relative=True
-                )
-                os.makedirs(p, exist_ok=True)
+            # env var not set, create default or ensure it already exists
+            home_path = os.path.expanduser("~")
+            p = muty.file.safe_path_join(home_path, ".config/gulp", allow_relative=True)
+            print(
+                "****** PID=%d, GULP_WORKING_DIR not set, using default working directory in $HOME: %s"
+                % (os.getpid(), p)
+            )
 
         self._working_dir = p
 
-        # ensure certs, mapping_files, plugins, upload_tmp, ingest_local exists
+        # ensure all directories exists
+        os.makedirs(p, exist_ok=True)
         os.makedirs(self.path_certs(), exist_ok=True)
         os.makedirs(self.path_mapping_files_extra(), exist_ok=True)
         os.makedirs(self.path_plugins_extra(), exist_ok=True)
+        os.makedirs(os.path.join(self.path_plugins_extra(), "extension"), exist_ok=True)
+        os.makedirs(os.path.join(self.path_plugins_extra(), "ui"), exist_ok=True)
+
         os.makedirs(self.path_tmp_upload(), exist_ok=True)
         os.makedirs(self.path_ingest_local(), exist_ok=True)
+        # print paths
+        print(
+            "****** PID=%d, working_dir=%s, certs=%s, mapping_files_extra=%s, plugins_extra=%s, tmp_upload=%s, ingest_local=%s"
+            % (
+                os.getpid(),
+                self._working_dir,
+                self.path_certs(),
+                self.path_mapping_files_extra(),
+                self.path_plugins_extra(),
+                self.path_tmp_upload(),
+                self.path_ingest_local(),
+            )
+        )
         return p
 
     def path_config(self) -> str:
@@ -671,7 +674,6 @@ class GulpConfig:
         p = self.path_working_dir()
         p = muty.file.safe_path_join(p, "tmp_upload")
         return p
-
 
     def path_plugins_default(self) -> str:
         """

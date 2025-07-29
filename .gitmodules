@@ -1,0 +1,3 @@
+[submodule "muty-python"]
+	path = muty-python
+	url = https://github.com/mentat-is/muty-python

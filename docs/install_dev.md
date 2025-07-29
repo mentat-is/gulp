@@ -29,12 +29,12 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
 
   ~~~bash
   mkdir ./repos && cd ./repos
-  git clone https://github.com/mentat-is/muty-python.git
   git clone --recurse-submodules https://github.com/mentat-is/gulp.git
   # clone other repos, i.e. the devteam may want to clone also the paid-plugins repo...
   git clone https://github.com/mentat-is/gulp-paid-plugins
-  # i.e. if you want to develop a gulp client or slurp
+  # i.e. this is needed to develop gulp clients or just run the tests
   git clone https://github.com/mentat-is/gulp-sdk-python
+  # to develop slurp
   git clone https://github.com/mentat-is/slurp
   ~~~
 
@@ -67,7 +67,6 @@ sudo pacman -S rust python=3.12.7-1 python-virtualenv docker docker-compose dock
 
 ~~~bash
 mkdir ./repos && cd ./repos
-git clone https://github.com/mentat-is/muty-python.git
 git clone --recurse-submodules https://github.com/mentat-is/gulp.git
 ~~~
 
@@ -98,9 +97,9 @@ install all packages as editable
 
 ~~~bash
 # install all packages as editable (-e)
-pip3 install -e . && pip3 install -e ../muty-python
+pip3 install -e . && pip3 install -e ./muty-python
 
-# i.e. if you need the api client
+# i.e. if you need the api client (tests, develop bridges, ...)
 pip3 install -e ../gulp-sdk-python
 ~~~
 
@@ -114,7 +113,7 @@ pip3 install -e ../gulp-sdk-python
 docker compose --profile dev up -d
 
 # run gulp first time (will create collab database "gulp" on postgresql and the default index/operation "test_operation" on opensearch)
-BIND_TO_ADDR=0.0.0.0 BIND_TO_PORT=8080 gulp
+GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 gulp
 ~~~
 
 ### 7. optional: installing extra plugins
@@ -122,6 +121,8 @@ BIND_TO_ADDR=0.0.0.0 BIND_TO_PORT=8080 gulp
 plugins are just files, so it is enough to copy/symlink extra plugins in `$GULP_WORKING_DIR/plugins` and `$GULP_WORKING_DIR/mapping_files`
 
 ## install using the setup script
+
+> **THIS IS CURRENTLY BROKEN AND NOT SUPPORTED**
 
 installation of a development environment can be done using the [setup.sh](https://github.com/mentat-is/gulp/blob/develop/setup.sh) script.
 

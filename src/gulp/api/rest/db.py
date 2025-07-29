@@ -54,7 +54,7 @@ async def _delete_operations(
     """
     MutyLogger.get_instance().warning(
         "deleting ALL operations on collab (except operation_id=%s)" % (operation_id))
-    
+
     async with GulpCollab.get_instance().session() as sess:
         # enumerate all operations
         ops = await GulpOperation.get_by_filter(
@@ -208,7 +208,7 @@ async def gulp_reset_handler(
             force_recreate_db=True,
         )
         if restart_processes:
-            # restart the process pool
+            # restart the process pool by calling init in the main process (we are in the main process here)
             await GulpProcess.get_instance().init_gulp_process()
 
         return JSONResponse(JSendResponse.success(req_id=req_id))

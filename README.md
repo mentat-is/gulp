@@ -79,45 +79,52 @@ gulp can be of course [integrated with other applications](./docs/integration.md
 
 the following environment variables may be set to override configuration options.
 
-- `BIND_TO_ADDR`, `BIND_TO_PORT` : if set, gulp will listen to this interface and port (either, the default `0.0.0.0`, `8080` is used).
-  - for the override to work, both `BIND_TO_ADDR` and `BIND_TO_PORT` must be specified, either the value of one alone is ignored.
+- `GULP_BIND_TO_ADDR`, `GULP_BIND_TO_PORT` : if set, gulp will listen to this interface and port (either, the default `0.0.0.0`, `8080` is used).
+  - for the override to work, both `GULP_BIND_TO_ADDR` and `GULP_BIND_TO_PORT` must be specified, either the value of one alone is ignored.
 
-- `PATH_WORKING_DIR`: this is the **working directory** for gulp, which contains:
-  - `gulp_cfg.json`: the configuration
-  - `plugins`: extra plugins (have precedence over `$INSTALLDIR/plugins`)
-  - `mapping_files`: extra mapping files (have precedence over `$INSTALLDIR/mapping_files`)
-  - `certs`: SSL certificates for HTTPS
+- `GULP_WORKING_DIR`: this is the **working directory** for gulp (defaults to `~/.config/gulp`), which contains:
+  - `gulp_cfg.json`: the configuration, initialized with [template](./gulp_cfg_template.json) if not present
+  - `plugins`: optional extra plugins (have precedence over `$INSTALLDIR/plugins`)
+  - `mapping_files`: optional extra mapping files (have precedence over `$INSTALLDIR/mapping_files`)
+  - `certs`: optional [SSL](#ssl) certificates for HTTPS
   - `ingest_local` directory to store big files for quick ingestion (`ingest_local` API)
   - `tmp_upload` folder to cache partial uploads during ingestion
 
-- `OPENSEARCH_URL`: if set, overrides `opensearch_url` in the configuration to.
-- `POSTGRES_URL`: if set, overrides `postgres_url` in the configuration.
+- `GULP_OPENSEARCH_URL`: if set, overrides `opensearch_url` in the configuration to.
+- `GULP_POSTGRES_URL`: if set, overrides `postgres_url` in the configuration.
 - `GULP_INTEGRATION_TEST`: **TEST ONLY**, this must be set to 1 during integration testing (i.e. client api) to disable debug features which may interfere.
 
 ### SSL
 
-to use HTTPS, the following certificates must be available:
+to use HTTPS, the following configuration options and certificates may be provided:
 
 > client certificates for `opensearch` and `postgresql` are used if found, `opensearch` key password is not supported.
 
 - opensearch
-  - `opensearch_verify_certs: false` may be used to skip server verification
-  - `$PATH_WORKING_DIR/certs/opensearch-ca.pem`: path to the CA certificate for the Opensearch server
-  - `$PATH_WORKING_DIR/certs/opensearch.pem`: client certificate to connect to Opensearch server
-  - `$PATH_WORKING_DIR/certs/opensearch.key`: certificate key
+  - Gulp configuration
+    - `opensearch_verify_certs`: set to `false` to skip server verification
+  - environment variables
+    - `$GULP_WORKING_DIR/certs/opensearch-ca.pem`: CA certificate for Gulp to connect to the Opensearch server
+    - `$GULP_WORKING_DIR/certs/opensearch.pem`: client certificate for Gulp to connect to the Opensearch server
+    - `$GULP_WORKING_DIR/certs/opensearch.key`: (passwordless) client certificate key
 
 - postgresql
-  - `postgres_ssl: true` mut be set in the configuration
-  - `postgres_verify_certs: false` may be used to skip server verification
-  - `$PATH_WORKING_DIR/certs/postgres-ca.pem`: path to the CA certificate for the PostgreSQL server
-  - `$PATH_WORKING_DIR/certs/postgres.pem` client certificate to connect to PostgreSQL server
-  - `$PATH_WORKING_DIR/certs/postgres.key`: certificate key
+  - Gulp configuration
+    - `postgres_ssl`: use SSL for postgres connection, set to `false` to not use.
+    - `postgres_verify_certs`: set to `false` to skip server verification
+  - environment variables
+    - `$GULP_WORKING_DIR/certs/postgres-ca.pem`: CA certificate for Gulp to connect to the PostgreSQL server
+    - `$GULP_WORKING_DIR/certs/postgres.pem`: client certificate for Gulp to connect to PostgreSQL server
+    - `$GULP_WORKING_DIR/certs/postgres.key`: client certificate key
 
-- gulp server
-  - to connect gulp clients, use `https_enforce` to prevent HTTP connections, `https_enforce_client_certs` to enforce client certificates signed by `gulp-ca.pem`CA
-  - `$PATH_WORKING_DIR/certs/gulp-ca.pem`
-  - `$PATH_WORKING_DIR/certs/gulp.pem`
-  - `$PATH_WORKING_DIR/certs/gulp.key`
+- Gulp
+  - Gulp configuration
+    - `https_enforce`: set to `true` to enforce connection to Gulp only through HTTPS
+    - `https_enforce_client_certs`: set to `true` to enforce check of client certificates signed by `gulp-ca.pem` CA
+  - environment variables
+    - `$GULP_WORKING_DIR/certs/gulp-ca.pem`: Gulp CA
+    - `$GULP_WORKING_DIR/certs/gulp.pem`: Gulp server certificate
+    - `$GULP_WORKING_DIR/certs/gulp.key`: Gulp server certificate key
 
 ## commandline examples
 

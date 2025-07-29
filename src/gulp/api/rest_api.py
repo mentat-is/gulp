@@ -119,12 +119,15 @@ class GulpRestServer:
         p = GulpConfig.get_instance().path_plugins_default()
         path_extension = os.path.join(p, "extension")
         files: list[str] = await muty.file.list_directory_async(path_extension, "*.py*")
+        MutyLogger.get_instance().debug("found %d extensions in default path: %s" % (len(files), path_extension))
 
         # extras, if any
         p = GulpConfig.get_instance().path_plugins_extra()
         if p:
             path_extension = os.path.join(p, "extension")
-            files.extend(await muty.file.list_directory_async(path_extension, "*.py*"))
+            ff: list[str] = await muty.file.list_directory_async(path_extension, "*.py*")
+            MutyLogger.get_instance().debug("found %d extensions in extra path: %s" % (len(ff), path_extension))
+            files.extend(ff)
 
         count: int = 0
         for f in files:
@@ -378,6 +381,7 @@ class GulpRestServer:
                     "HTTPS client certificates ARE ENFORCED."
                 )
 
+            # gulp server certificate
             ssl_keyfile = muty.file.safe_path_join(path_certs, "gulp.key")
             ssl_certfile = muty.file.safe_path_join(path_certs, "gulp.pem")
             MutyLogger.get_instance().info(
@@ -394,10 +398,10 @@ class GulpRestServer:
                 self._app,
                 host=address,
                 port=port,
-                ssl_keyfile=ssl_keyfile,
-                ssl_keyfile_password=cert_password,
-                ssl_certfile=ssl_certfile,
-                ssl_ca_certs=gulp_ca_certs,
+                ssl_keyfile=ssl_keyfile, # gulp server cert key
+                ssl_keyfile_password=cert_password, # key password
+                ssl_certfile=ssl_certfile, # gulp server cert
+                ssl_ca_certs=gulp_ca_certs, # gulp CA
                 ssl_cert_reqs=ssl_cert_verify_mode,
             )
         else:

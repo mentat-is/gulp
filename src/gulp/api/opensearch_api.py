@@ -1832,7 +1832,7 @@ class GulpOpenSearch:
         for k, v in parsed_options.items():
             if v:
                 body[k] = v
-        MutyLogger.get_instance().debug("index=%s, query_raw body=%s, parsed_options=%s" % (index, orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(), orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode()))
+        # MutyLogger.get_instance().debug("index=%s, query_raw body=%s, parsed_options=%s" % (index, orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(), orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode()))
 
         headers = {
             "content-type": "application/json",

@@ -23,29 +23,28 @@ docker run mentatis/gulp-core:latest
   ~~~bash
   mkdir ./build && cd ./build
   git clone --recurse-submodules https://github.com/mentat-is/gulp.git
-  cd ./gulp
-  git clone https://github.com/mentat-is/muty-python.git
   ~~~
 
 2. build `gulp-core` image
 
   ~~~bash
   # to rebuild, add --no-cache flag ...
-  docker buildx build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --build-arg _MUTY_VERSION=$(cd muty-python && git describe --tags --always) --rm -t gulp-core .
+  export $(grep -v '^#' .env | xargs)
+  docker buildx build --progress=plain --build-arg _PYTHON_VERSION=$PYTHON_VERSION --build-arg _VERSION=$(git describe --tags --always) --build-arg _MUTY_VERSION=$(cd muty-python && git describe --tags --always && cd ..) --rm -t gulp-core .
   ~~~
 
 ## run with docker-compose
 
 you can run all the gulp stack on the `local machine` using the provided [docker-compose.yml](../docker-compose.yml).
 
-you have to just provide your own [gulp_cfg.json](../gulp_cfg_template.json) file to the container, and you're ready to go!
+you have to just provide your `GULP_WORKING_DIR` to the image, with a valid [gulp_cfg.json](../gulp_cfg_template.json) inside, and you're ready to go!
 
 ~~~bash
 # supplying local GULP_IMAGE is optional, either the latest is pulled from our registry, starts gulp, gulp-web (and adminer and elasticvue for debugging)
-GULP_IMAGE=gulp-core:latest BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
+GULP_IMAGE=gulp-core:latest GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
 
 # to add extra arguments, provide them with EXTRA_ARGS, i.e. to tweak log-level
-EXTRA_ARGS="--log-level warning" GULP_IMAGE=... BIND_TO_PORT=... (same as above)
+EXTRA_ARGS="--log-level warning" GULP_IMAGE=... GULP_BIND_TO_PORT=... (same as above)
 
 # to just run gulp container (without the compose, overriding CMD in Dockerfile
 # this is just an example, in this case you have to setup volumes as well for the configuration and extra paths....

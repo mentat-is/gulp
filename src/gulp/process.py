@@ -22,8 +22,8 @@ workloads across multiple processes while maintaining consistent state managemen
 """
 
 import asyncio
-import signal
 import os
+import signal
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Lock, Manager, Queue, Value
@@ -37,6 +37,7 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import GulpWsSharedQueue
 from gulp.config import GulpConfig
+
 
 class GulpProcess:
     """
@@ -162,6 +163,7 @@ class GulpProcess:
         try:
             loop.run_until_complete(
                 p.init_gulp_process(
+                    lock=lock,
                     log_level=log_level,
                     logger_file_path=logger_file_path,
                     q=q,
@@ -304,6 +306,7 @@ class GulpProcess:
 
     async def init_gulp_process(
         self,
+        lock: Lock = None,  # type: ignore
         log_level: int = None,
         logger_file_path: str = None,
         q: Queue = None,
@@ -313,10 +316,12 @@ class GulpProcess:
         initializes main or worker gulp process
 
         Args:
+            lock (Lock, optional): if set, will be acquired (and then released) during getting configuration instance in worker processes
             log_level (int, optional): the log level for the logger. Defaults to None.
             logger_file_path (str, optional): the log file path for the logger. Defaults to None.
             q: (Queue, optional): the shared websocket queue created by the main process(we are called in a worker process).
                 Defaults to None (we are called in the main process)
+            shared_ws_list (list[str], optional): the shared websocket list created by the main process (we are called in a worker process).
         """
 
         # only in a worker process we're passed the queue and shared_ws_list by the process pool initializer
@@ -341,8 +346,12 @@ class GulpProcess:
                 "initializing worker process, q=%s ..." % (q)
             )
 
-        # read configuration
+        # read configuration (needs lock in worker processes)
+        if lock:
+            lock.acquire()
         GulpConfig.get_instance()
+        if lock:
+            lock.release()
 
         # initializes coroutine and thread pools for the main or worker process
         await self.close_coro_pool()

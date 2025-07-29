@@ -85,25 +85,22 @@ services:
     profiles: [ "gulp" ]
     image: ${GULP_IMAGE:-mentatis/gulp-core:latest}
     container_name: gulp
+    user: gulp
     environment:
-      - POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      - OPENSEARCH_URL=http://${OPENSEARCH_USER}:${OPENSEARCH_PASSWORD}@os01:9200
-      - PATH_PLUGINS_EXTRA=/app/plugins_extra
-      - PATH_MAPPING_FILES_EXTRA=/app/plugins_extra/mappings
-      - GULP_CONFIG_PATH=/root/.config/gulp/gulp_cfg.json
-      - PATH_CERTS=/app/certs
-      - BIND_TO_PORT=${BIND_TO_PORT:-8080}
+      - GULP_POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - GULP_OPENSEARCH_URL=http://${OPENSEARCH_USER}:${OPENSEARCH_PASSWORD}@os01:9200
+      - GULP_BIND_TO_PORT=${GULP_BIND_TO_PORT:-8080}
+      - GULP_BIND_TO_ADDR=${GULP_BIND_TO_ADDR:-0.0.0.0}
     volumes:
-      - ${GULP_CONFIG_PATH:-./gulp_cfg_template.json}:/root/.config/gulp/gulp_cfg.json
-      - ${PATH_PLUGINS_EXTRA:-/app/plugins_extra}:/app/plugins_extra
-      - ${PATH_MAPPING_FILES_EXTRA:-/app/plugins_extra/mappings}:/app/plugins_extra/mappings
-      - ${PATH_CERTS:-./certs}:/app/certs
-      - ./gulpconfig:/root/.config/gulp
+      - ${GULP_WORKING_DIR}:/home/gulp/.config/gulp # gulp_cfg.json and extra plugins goes here
+      - ${GULP_WORKING_DIR}/.local:/home/gulp/.local # to persist user data
+      - ${GULP_WORKING_DIR}/.pip_cache:/home/gulp/.cache/pip # to persist pip cache
+      - ${GULP_WORKING_DIR}/.site_packages:/home/gulp/.local/lib/python${PYTHON_VERSION}/site-packages # to persist installed pip packages
     depends_on:
       - postgres
       - os01
     ports:
-      - ${BIND_TO_PORT:-8080}:${BIND_TO_PORT:-8080}
+      - ${GULP_BIND_TO_PORT:-8080}:${GULP_BIND_TO_PORT:-8080}
 
     # sleeping for 30 seconds to wait for both gulp/opensearch to be ready
     # (seems depends is not enough)
