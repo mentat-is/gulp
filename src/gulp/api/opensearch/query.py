@@ -311,11 +311,7 @@ if set, highlights are included in the results (default=True).
 
         # wether to highlight results for the query (warning: may take a lot of memory)
         if self.highlight_results:
-            n["highlight"] = {
-                "fields": {
-                    "*": {}
-                }
-            }
+            n["highlight"] = {"fields": {"*": {}}}
         # MutyLogger.get_instance().debug("query options: %s" % (orjson.dumps(n, option=orjson.OPT_INDENT_2).decode()))
         return n
 
@@ -403,7 +399,7 @@ class GulpQueryHelpers:
 
         MutyLogger.get_instance().debug(
             "GulpQueryHelpers.query_raw: index=%s, q=%s"
-            % (index, orjson.dumps(q, option=orjson.OPT_INDENT_2).decode())
+            % (index, muty.string.make_shorter(str(q), max_len=260))
         )
 
         from gulp.api.opensearch_api import GulpOpenSearch

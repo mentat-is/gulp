@@ -446,6 +446,7 @@ async def _worker_coro(kwds: dict) -> None:
 
         # build batches of batch_size
         processed: int = 0
+        canceled: bool = False
         for i in range(0, num_queries, batch_size):
             current_batch = i // batch_size + 1
             batch = queries[i : i + batch_size]
@@ -489,6 +490,13 @@ async def _worker_coro(kwds: dict) -> None:
                     % (processed, num_queries, total_doc_matches)
                 )
 
+                # check if request is canceled
+                async with GulpCollab.get_instance().session() as sess:
+                    canceled = await GulpRequestStats.is_canceled(sess, req_id)
+                    if canceled:
+                        MutyLogger.get_instance().warning("request canceled!")
+                        break
+
             # accumulate results for later processing if needed
             all_results.extend(batch_results)
             query_matched_total += batch_matched
@@ -512,6 +520,7 @@ async def _worker_coro(kwds: dict) -> None:
             current=num_queries,
             msg="queries done!",
             done=True,
+            canceled=canceled,
             total_matches=total_doc_matches,
         )
         wsq = GulpWsSharedQueue.get_instance()
