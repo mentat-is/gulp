@@ -5,7 +5,7 @@
         ]
     },
     "mappings": {
-        "plaso_l2tcsv": {
+        "default": {
             "description": "plaso psort csv format (https://plaso.readthedocs.io/en/latest/sources/user/Output-and-formatting.html#dynamic-runtime-fields)",
             "default_source": "plaso",
             "default_context": "plaso",
