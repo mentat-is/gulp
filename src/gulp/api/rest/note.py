@@ -334,7 +334,7 @@ async def note_get_by_id_handler(
         }
     },
     summary="list notes, optionally using a filter.",
-    description="",
+    description="**NOTE**: using paging through `flt.limit` and `flt.offset` is highly advised to avoid having a large response.",
 )
 async def note_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],

@@ -448,6 +448,7 @@ class GulpRestServer:
         called when lifespan handler returns from yield, to cleanup the MAIN process
         """
         MutyLogger.get_instance().debug("MAIN process cleanup initiated!")
+
         # close shared ws and process pool
         try:
             await GulpConnectedSockets.get_instance().cancel_all()

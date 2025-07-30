@@ -350,7 +350,7 @@ async def _process_query_batch(
         tuple[list[tuple[int, Exception, str]], int, int, list[str], list[str]]:
             batch results, matched queries count, total document matches, query names that matched, errors
     """
-    batch_tasks = []
+    tuples_arr: list[dict] = []
 
     # create a task for each query in the batch
     for gq in batch:
@@ -372,30 +372,31 @@ async def _process_query_batch(
                 q_opt.note_parameters.note_tags.append(t)
 
         # add task
-        d = dict(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            index=index,
-            q=gq.q,
-            q_options=q_opt,
-            plugin=plugin,
-            plugin_params=plugin_params,
-            flt=flt,
-            sigma_yml=gq.sigma_yml,
+        d: tuple = (
+            user_id,
+            req_id,
+            ws_id,
+            operation_id,
+            index,
+            gq.q,
+            q_opt,
+            plugin,
+            plugin_params,
+            flt,
+            gq.sigma_yml,
         )
-
-        batch_tasks.append(
-            GulpProcess.get_instance().process_pool.apply(_query_internal, kwds=d)
-        )
+        tuples_arr.append(d)
 
     # run the queries and wait to complete
     MutyLogger.get_instance().debug(
         "waiting for queries batch %d/%d, size of batch=%d"
-        % (current_batch, num_batches, len(batch_tasks))
+        % (current_batch, num_batches, len(tuples_arr))
     )
-    batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+    batch_results: list[tuple[int, Exception, str]] = []
+    pool = GulpProcess.get_instance().process_pool
+    async for res in pool.starmap(_query_internal, tuples_arr):
+        # res is a tuple (hits, exception, query_name)
+        batch_results.append(res)
 
     # process batch results and send query_done packets
     query_matched, total_matches, names, errors = await _process_batch_results(
@@ -441,12 +442,12 @@ async def _worker_coro(kwds: dict) -> None:
         MutyLogger.get_instance().info(
             "will spawn %d queries in batches of %d !" % (num_queries, batch_size)
         )
-        print("will spawn %d queries in batches of %d !" % (num_queries, batch_size))
         num_batches = (num_queries // batch_size) + 1
 
         # build batches of batch_size
         processed: int = 0
         canceled: bool = False
+        shutdown: bool = False
         for i in range(0, num_queries, batch_size):
             current_batch = i // batch_size + 1
             batch = queries[i : i + batch_size]
@@ -497,6 +498,11 @@ async def _worker_coro(kwds: dict) -> None:
                         MutyLogger.get_instance().warning("request canceled!")
                         break
 
+                # check shutdown initiated
+                if GulpRestServer.get_instance().is_shutdown():
+                    shutdown = True
+                    break
+
             # accumulate results for later processing if needed
             all_results.extend(batch_results)
             query_matched_total += batch_matched
@@ -513,8 +519,11 @@ async def _worker_coro(kwds: dict) -> None:
             "FINISHED query group=%s matched %d/%d queries, total hits=%d"
             % (q_options.group, query_matched_total, num_queries, total_doc_matches)
         )
+        if shutdown:
+            # we're done
+            return
 
-        # send progress packet to the websocket (this may be a lenghty operation)
+        # send progress packet (done) to the websocket
         p = GulpProgressPacket(
             total=num_queries,
             current=num_queries,

@@ -1271,7 +1271,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
             # commit
             await sess.commit()
-            MutyLogger.get_instance().debug("---> updated: %s" % (updated_dict))
+            MutyLogger.get_instance().debug("---> updated: %s" % (muty.string.make_shorter(str(updated_dict), max_len=260)))
         except Exception as e:
             await sess.rollback()
             raise e
@@ -1667,10 +1667,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 data.append(o.to_dict(exclude_none=True, nested=recursive))
 
             MutyLogger.get_instance().debug(
-                "User %s get_by_filter_result: %s"
+                "user %s get_by_filter_result: %s"
                 % (
                     s.user.id,
-                    orjson.dumps(data, option=orjson.OPT_INDENT_2).decode(),
+                    muty.string.make_shorter(str(data), max_len=260)
                 )
             )
 
