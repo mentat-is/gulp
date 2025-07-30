@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
+from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import WSDATA_PROGRESS, GulpProgressPacket, GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -229,6 +230,10 @@ async def sigmas_to_queries(
     )  # mapping_key -> rule_content -> base_queries
 
     for idx, rule_content in enumerate(rule_contents):
+        if GulpRestServer.get_instance().is_shutdown():
+            # server is shutting down, exit immediately
+            return []
+
         if count % 100 == 0 and req_id:
             # check if the request is cancelled
             canceled = await GulpRequestStats.is_canceled(sess, req_id)
