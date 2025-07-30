@@ -14,12 +14,13 @@ using the Gulp framework.
 """
 
 import asyncio
-import orjson
 import os
 from typing import TYPE_CHECKING
 
+import aiofiles.os
 import muty.file
 import muty.string
+import orjson
 import yaml
 from muty.log import MutyLogger
 from sigma.backends.opensearch import OpensearchLuceneBackend
@@ -27,7 +28,6 @@ from sigma.collection import SigmaCollection
 from sigma.conversion.base import Backend
 from sigma.rule import SigmaRule
 from sqlalchemy.ext.asyncio import AsyncSession
-import aiofiles.os
 
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpRequestStats
@@ -253,7 +253,9 @@ async def sigmas_to_queries(
                     data=p.model_dump(exclude_none=True),
                 )
 
-            print("processed %d sigma rules, total=%d, used=%d" % (count, total, used))
+            MutyLogger.get_instance().info(
+                "processed %d sigma rules, total=%d, used=%d" % (count, total, used)
+            )
 
         count += 1
 
@@ -360,7 +362,7 @@ async def sigmas_to_queries(
                     generated_q += 1
 
     # log the number of queries generated
-    print(
+    MutyLogger.get_instance().info(
         "******* converted sigma rules (total=%d, used=%d) to %d GulpQuery objects *******"
         % (total, used, len(queries))
     )
@@ -391,13 +393,13 @@ async def sigmas_to_queries(
         )
 
     # DEBUG PRINTS
-    dbg_count: int = 0
-    for q in queries:
-        # dump each query
-        MutyLogger.get_instance().debug(
-            "query[%d]: %s" % (dbg_count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2).decode())
-        )
-        dbg_count += 1
+    # dbg_count: int = 0
+    # for q in queries:
+    #     # dump each query
+    #     MutyLogger.get_instance().debug(
+    #         "query[%d]: %s" % (dbg_count, orjson.dumps(q.q, option=orjson.OPT_INDENT_2).decode())
+    #     )
+    #     dbg_count += 1
 
     return queries
 
@@ -578,10 +580,11 @@ def to_gulp_query_struct(
                 q=qq,
             )
             converted_sigmas.append(converted)
-    MutyLogger.get_instance().debug(
-        "converted %d sigma rules to GulpQuery",
-        len(converted_sigmas),
-    )
+
+            MutyLogger.get_instance().debug(
+                "converted sigma rule: name=%s, id=%s, q=%s"
+                % (rule_name, rule_id, muty.string.make_shorter(str(qq), 260))
+            )
     return converted_sigmas
 
 
@@ -812,9 +815,9 @@ async def sigma_convert_default(
 
     # transform the sigma rule using ECS field mappings
     mapped_sigma = map_sigma_fields_to_ecs(sigma, mappings[mapping_id])
-    MutyLogger.get_instance().debug(
-        "sigma_convert_default, mapped sigma rule:\n%s", mapped_sigma
-    )
+    # MutyLogger.get_instance().debug(
+    #     "sigma_convert_default, mapped sigma rule:\n%s", mapped_sigma
+    # )
 
     # convert the transformed sigma rule to gulp queries
     backend = kwargs.get("backend", OpensearchLuceneBackend())

@@ -227,6 +227,9 @@ class GulpProgressPacket(BaseModel):
     msg: Optional[str] = Field(
         None, description="An optional message to display with the progress."
     )
+    canceled: Optional[bool] = Field(
+        False, description="If the request has been canceled."
+    )
 
 
 class GulpIngestSourceDonePacket(BaseModel):
