@@ -512,7 +512,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 # create a new session to handle the deletion
                 async with sess.begin_nested():
                     await sess.delete(u.session)
-                    await sess.refresh(u)
+                    await sess.flush()
                     # MutyLogger.get_instance().debug("user after session deletion: %s" % (u))
 
             # get expiration time
@@ -579,7 +579,6 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 % (u.id, new_session.id, new_session.time_expire, u.is_admin())
             )
             await sess.commit()
-            await sess.refresh(new_session)
             return new_session
         except Exception as e:
             await sess.rollback()
