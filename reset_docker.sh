@@ -6,6 +6,11 @@ docker volume rm --force gulp_opensearch_data
 docker volume rm --force gulp_postgres_data
 
 echo "[.] reset first run"
-rm ~/.config/gulp/.first_run_done
 
-#docker compose up -d
+_WORKING_DIR="${GULP_WORKING_DIR:-$HOME/.config/gulp}"
+if [ ! -d "$_WORKING_DIR" ]; then
+  echo "[!] GULP_WORKING_DIR does not exist: $_WORKING_DIR"
+  exit 1
+fi
+rm $_WORKING_DIR/.first_run_done
+echo "[.] done"

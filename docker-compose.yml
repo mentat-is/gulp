@@ -120,17 +120,19 @@ services:
       - 3000:3000
 
   ftpserver:
-    image: delfer/alpine-ftp-server
+    image: delfer/alpine-ftp-server:latest
     profiles: [ "gulp", "dev" ]
     container_name: ftpserver
     depends_on:
-      - gulp
+      - os01
     restart: unless-stopped
     ports:
       - 21:21
       - 21000-21010:21000-21010
     environment:
-      - USERS=gulp|gulp|/home/gulp/.config/gulp|1000
+      - USERS=${SFTPD_USER}|${SFTPD_PASSWORD}|/home/gulp/.config/gulp|1000
+      # - TLS_CERT=/home/gulp/.config/gulp/certs/sftpd.pem # server cert + CA
+      # - TLS_KEY=/home/gulp/.config/gulp/certs/sftpd.key # passwordless key
     volumes:
       - ${GULP_WORKING_DIR:-~/.config/gulp}:/home/gulp/.config/gulp # gulp_cfg.json and extra plugins goes here
 

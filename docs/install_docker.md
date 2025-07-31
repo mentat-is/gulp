@@ -35,29 +35,28 @@ docker run mentatis/gulp-core:latest
 
 ## run with docker-compose
 
-you can run all the gulp stack on the `local machine` using the provided [docker-compose.yml](../docker-compose.yml).
+you can run all the gulp stack on the `local machine` using the provided [docker-compose.yml](../docker-compose.yml), **even though this should be considered a **play-only** setup, not suitable for production**
 
 you have to just provide your `GULP_WORKING_DIR` to the image, with a valid [gulp_cfg.json](../gulp_cfg_template.json) inside, and you're ready to go!
 
 ~~~bash
-# supplying local GULP_IMAGE is optional, either the latest is pulled from our registry, starts gulp, gulp-web (and adminer and elasticvue for debugging)
-GULP_IMAGE=gulp-core:latest GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
+# supplying local GULP_IMAGE is optional, either the latest is pulled from our registry, starts gulp, sftpd, adminer, elasticvue
+GULP_IMAGE=gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
 
-# to add extra arguments, provide them with EXTRA_ARGS, i.e. to tweak log-level
-EXTRA_ARGS="--log-level warning" GULP_IMAGE=... GULP_BIND_TO_PORT=... (same as above)
+# OR, to add extra arguments, provide them with EXTRA_ARGS, i.e. to tweak log-level
+EXTRA_ARGS="--log-level warning" GULP_IMAGE=gulp-core GULP_BIND_TO_PORT=8080 docker compose --profile gulp --profile dev up
 
-# to just run gulp container (without the compose, overriding CMD in Dockerfile
-# this is just an example, in this case you have to setup volumes as well for the configuration and extra paths....
-docker run --rm -e GULP_WORKING_DIR=/home/valerino/.config/gulp -e BIND_TO_PORT=8080 gulp-core gulp --log-level warning
+# OR, to just run gulp service oneshot, overriding args
+GULP_IMAGE=gulp-core docker compose run --rm gulp gulp --log-level warning
 ~~~
 
-> multiple profiles may be specified using on the `docker compose` command line:
->
-> - `--profile gui`: run gulp-web client
-> - `--profile gulp`: run gulp server
-> - `--profile dev`: also run adminer and elasticvue, for debugging
-> - `--profile os-dashboards`: also run opensearch dahsboards
-> - *no profile specified: just run `opensearch` and `postgresql`*
+multiple profiles (one or more) may be specified using on the `docker compose` command line:
+
+- `--profile gui`: run gulp-web client ui
+- `--profile gulp`: run opensearch, postgresql, sftpd, gulp
+- `--profile dev`: run opensearch, postgresql, sftpd , adminer, elasticvue
+- `--profile os-dashboards`: run opensearch, opensearch-dahsboards
+- *no profile specified: just `opensearch` and `postgresql` are run*
 
 of course, you may provide your own compose file to suit your particular configuration (multiple OpenSearch nodes, ...).
 
