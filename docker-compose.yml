@@ -119,6 +119,21 @@ services:
     ports:
       - 3000:3000
 
+  ftpserver:
+    image: delfer/alpine-ftp-server
+    profiles: [ "gulp", "dev" ]
+    container_name: ftpserver
+    depends_on:
+      - gulp
+    restart: unless-stopped
+    ports:
+      - 21:21
+      - 21000-21010:21000-21010
+    environment:
+      - USERS=gulp|gulp|/home/gulp/.config/gulp|1000
+    volumes:
+      - ${GULP_WORKING_DIR:-~/.config/gulp}:/home/gulp/.config/gulp # gulp_cfg.json and extra plugins goes here
+
 volumes:
   postgres_data:
   opensearch_data:
