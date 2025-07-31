@@ -9,6 +9,7 @@ import art
 from muty.log import MutyLogger
 
 from gulp.api.rest_api import GulpRestServer
+from gulp.config import GulpConfig
 
 # just for quick testing from the command line
 __RUN_TESTS__ = os.getenv("INTERNAL_TEST", "0") == "1"
@@ -49,9 +50,9 @@ def main():
     )
     parser.add_argument(
         "--log-to-file",
-        nargs=1,
-        metavar=("file path"),
-        help="also outputs log to this (rotating) file, default=stdout only. Cannot be used with --log-to-syslog.",
+        action="store_true",
+        default=False,
+        help="also outputs log to $GULP_WORKING_DIR/logs/gulp.log (rotating every 4mb), default=stdout only. Cannot be used with --log-to-syslog.",
     )
     parser.add_argument(
         "--log-to-syslog",
@@ -93,8 +94,9 @@ def main():
     print(". command line args (parsed):\n%s" % (args))
 
     # reconfigure logger
+    logs_path = GulpConfig.get_instance().path_logs()
     lv = logging.getLevelNamesMapping()[args.log_level[0].upper()]
-    logger_file_path = args.log_to_file[0] if args.log_to_file else None
+    logger_file_path = os.path.join(logs_path, "gulp.log") if args.log_to_file else None
     log_to_syslog = args.log_to_syslog
     MutyLogger.get_instance(
         "gulp", logger_file_path=logger_file_path, level=lv, log_to_syslog=log_to_syslog

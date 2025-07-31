@@ -27,6 +27,7 @@ class GulpConfig:
         self._config_file_path: str = None
         self._tmp_upload_dir: str = None
         self._ingest_local_dir = None
+        self._logs_dir: str = None
         self._working_dir: str = None
         self._path_certs: str = None
         self._path_mapping_files_extra: str = None
@@ -581,7 +582,7 @@ class GulpConfig:
         """
         Returns the path to the gulp working directory
 
-        this is used to hold the configuration, temporary directory, custom plugins, mapping files, certs, etc.
+        this is used to hold the configuration, temporary directory, custom plugins, mapping files, certs, logs, etc.
 
         can be overridden with GULP_WORKING_DIR environment variable.
 
@@ -610,12 +611,12 @@ class GulpConfig:
         os.makedirs(self.path_plugins_extra(), exist_ok=True)
         os.makedirs(os.path.join(self.path_plugins_extra(), "extension"), exist_ok=True)
         os.makedirs(os.path.join(self.path_plugins_extra(), "ui"), exist_ok=True)
-
+        os.makedirs(self.path_logs(), exist_ok=True)
         os.makedirs(self.path_tmp_upload(), exist_ok=True)
         os.makedirs(self.path_ingest_local(), exist_ok=True)
         # print paths
         print(
-            "****** PID=%d, working_dir=%s, certs=%s, mapping_files_extra=%s, plugins_extra=%s, tmp_upload=%s, ingest_local=%s"
+            "****** PID=%d, working_dir=%s, certs=%s, mapping_files_extra=%s, plugins_extra=%s, tmp_upload=%s, ingest_local=%s, logs=%s ******"
             % (
                 os.getpid(),
                 self._working_dir,
@@ -624,6 +625,7 @@ class GulpConfig:
                 self.path_plugins_extra(),
                 self.path_tmp_upload(),
                 self.path_ingest_local(),
+                self.path_logs(),
             )
         )
         return p
@@ -646,7 +648,7 @@ class GulpConfig:
 
     def path_ingest_local(self) -> str:
         """
-        if this is not set, the default path will be used: ~/.config/gulp/ingest_local
+        get the local ingestion path, default: ~/.config/gulp/ingest_local
 
         Returns:
             str: the local path for ingestion
@@ -660,9 +662,25 @@ class GulpConfig:
         self._ingest_local_dir = p
         return p
 
+    def path_logs(self) -> str:
+        """
+        get the logs path, default: ~/.config/gulp/logs
+
+        Returns:
+            str: the local path for ingestion
+        """
+        if self._logs_dir:
+            # shortcut ...
+            return self._logs_dir
+
+        p = self.path_working_dir()
+        p = os.path.abspath(os.path.join(p, "logs"))
+        self._logs_dir = p
+        return p
+
     def path_tmp_upload(self) -> str:
         """
-        get the upload temporary directory (it also ensures it exists)
+        get the upload temporary directory, default: ~/.config/gulp/tmp_upload
 
         returns:
             str: the upload temporary directory
@@ -677,7 +695,7 @@ class GulpConfig:
 
     def path_plugins_default(self) -> str:
         """
-        Returns the default plugins path.
+        Returns the built-in (default) plugins path.
         """
         return str(impresources.files("gulp.plugins"))
 
@@ -696,7 +714,7 @@ class GulpConfig:
 
     def path_mapping_files_default(self) -> str:
         """
-        Returns the default path of the mapping files.
+        Returns the built-in (default) path of the mapping files.
         """
         return str(impresources.files("gulp.mapping_files"))
 
@@ -715,11 +733,7 @@ class GulpConfig:
 
     def path_certs(self) -> str:
         """
-        Returns the directory where the certificates are stored.
-
-        - gulp-ca.pem, gulp.pem, gulp.key: the gulp server certificates
-        - os-ca.pem, os.pem, os.key: the gulp's opensearch client certificates
-        - postgres-ca.pem, postgres.pem, postgres.key: the gulp's postgres client certificates
+        Returns path to the certificates directory, default: ~/.config/gulp/certs
         """
         if self._path_certs:
             # shortcut ...
