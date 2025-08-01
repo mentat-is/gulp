@@ -126,7 +126,7 @@ class GulpProcess:
         return
 
     @staticmethod
-    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None, log_to_syslog: bool=False):  # type: ignore
+    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str,str] = None):  # type: ignore
         """
         initializes a worker process
 
@@ -139,7 +139,9 @@ class GulpProcess:
             shared_ws_list (list[str]): the shared websocket list
             log_level (int, optional): the log level. Defaults to None.
             logger_file_path (str, optional): the logger file path to log to file. Defaults to None, cannot be used with log_to_syslog.
-            log_to_syslog (bool, optional): whether to log to syslog. Defaults to False, cannot be used with logger_file_path.
+            log_to_syslog (tuple[str,str], optional): the syslog address and facility to log to syslog. Defaults to (None, None).
+                if (None, None) is passed, it defaults to ("/var/log" or "/var/run/syslog" depending what is available, "LOG_USER").
+                cannot be used with logger_file_path.
         """
         # initialize paths immediately, before any unpickling happens
         plugins_path = GulpConfig.get_instance().path_plugins_default()
@@ -295,6 +297,7 @@ class GulpProcess:
                 self.shared_ws_list,
                 MutyLogger.log_level,
                 MutyLogger.logger_file_path,
+                self._log_to_syslog
             ),
         )
         # wait for all processes are spawned

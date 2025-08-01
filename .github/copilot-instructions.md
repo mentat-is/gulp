@@ -4,5 +4,3 @@
 4. functions, methods, properties, classes and every other structure must be commented
 5. all methods, functions, variables, structures must have type hints, mentioning if they're optional
 6. generated functions and methods should have a brief description, Args, Returns, Throws (if needed). Note that, in contradiction with 2., Args, Returns and Throws in function/method definition must stay with the first capital letter.
-7. when asked to modify existing code, always provide the full function/method/s and not only the changes.
-8. 
