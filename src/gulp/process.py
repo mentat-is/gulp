@@ -314,7 +314,7 @@ class GulpProcess:
         logger_file_path: str = None,
         q: Queue = None,
         shared_ws_list: list[str] = None,
-        log_to_syslog: bool = False,
+        log_to_syslog: tuple[str,str] = None
     ) -> None:
         """
         initializes main or worker gulp process
@@ -326,7 +326,9 @@ class GulpProcess:
             q: (Queue, optional): the shared websocket queue created by the main process(we are called in a worker process).
                 Defaults to None (we are called in the main process)
             shared_ws_list (list[str], optional): the shared websocket list created by the main process (we are called in a worker process).
-            log_to_syslog (bool, optional): whether to log to syslog. Defaults to False, cannot be used with logger_file_path.
+            log_to_syslog (bool, optional): whether to log to syslog. Defaults to (None, None).
+                if (None, None) is passed, it defaults to ("/var/log" or "/var/run/syslog" depending what is available, "LOG_USER").
+                cannot be used with logger_file_path.
         """
 
         # only in a worker process we're passed the queue and shared_ws_list by the process pool initializer

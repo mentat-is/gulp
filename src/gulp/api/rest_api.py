@@ -53,7 +53,7 @@ class GulpRestServer:
         self._initialized: bool = True
         self._app: FastAPI = None
         self._logger_file_path: str = None
-        self._log_to_syslog: bool = False
+        self._log_to_syslog: tuple[str,str] = None
         self._log_level: int = None
         self._reset_collab: bool = False
         self._create_operation: str = None
@@ -306,7 +306,7 @@ class GulpRestServer:
         level: int = None,
         reset_collab: bool = False,
         create_operation: str = None,
-        log_to_syslog=False,
+        log_to_syslog: tuple[str,str] = None
     ):
         """
         starts the server.
@@ -316,7 +316,9 @@ class GulpRestServer:
             level (int, optional): the log level.
             reset_collab (bool, optional): if True, reset the collab database
             create_operation (str, optional): the operation to be re/created (--create)
-            log_to_syslog (bool, optional): if True, log to syslog as well. Cannot be used with logger_file_path.
+            log_to_syslog (tuple, optional): if set, logs to syslog at the specified address, facility.
+                if (None, None) is passed, it defaults to ("/var/log" or "/var/run/syslog" depending what is available, "LOG_USER").
+                cannot be used with logger_file_path.
         """
         self._logger_file_path = logger_file_path
         self._log_to_syslog = log_to_syslog

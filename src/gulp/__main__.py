@@ -52,13 +52,14 @@ def main():
         "--log-to-file",
         action="store_true",
         default=False,
-        help="also outputs log to $GULP_WORKING_DIR/logs/gulp.log (rotating every 4mb), default=stdout only. Cannot be used with --log-to-syslog.",
+        help="also outputs log (in addition to stdout) to $GULP_WORKING_DIR/logs/gulp.log (rotating every 4mb). Cannot be used with --log-to-syslog.",
     )
     parser.add_argument(
         "--log-to-syslog",
-        help="also outputs log to syslog, default=stdout only. Cannot be used with --log-to-file.",
-        action="store_true",
-        default=False,
+        help="also outputs log (in addition to stdout) to syslog, default address=(either /var/log or /var/run/syslog, depending on what is available), default facility=1 (LOG_LOCAL_0). Cannot be used with --log-to-file.",
+        nargs="*",
+        metavar=("address", "facility"),
+        default=None,
     )
     parser.add_argument(
         "--log-level",
@@ -94,14 +95,35 @@ def main():
     print(". command line args (parsed):\n%s" % (args))
 
     # reconfigure logger
-    logs_path = GulpConfig.get_instance().path_logs()
-    lv = logging.getLevelNamesMapping()[args.log_level[0].upper()]
-    logger_file_path = os.path.join(logs_path, "gulp.log") if args.log_to_file else None
-    log_to_syslog = args.log_to_syslog
+    logs_path: str = GulpConfig.get_instance().path_logs()
+    lv: str = logging.getLevelNamesMapping()[args.log_level[0].upper()]
+    logger_file_path: str = (
+        os.path.join(logs_path, "gulp.log") if args.log_to_file else None
+    )
+
+    # post-process log_to_syslog to always be a tuple of two elements (possibly None)
+    log_to_syslog: tuple[str, str]
+    if args.log_to_syslog and len(args.log_to_syslog) > 2:
+        print(
+            "ERROR: log_to_syslog can only have 0, 1 or 2 arguments, got %d"
+            % len(args.log_to_syslog)
+        )
+        return 1
+
+    if args.log_to_syslog is None:
+        # no syslog logging
+        log_to_syslog = None
+    elif len(args.log_to_syslog) == 0:
+        # no args means default syslog settings
+        log_to_syslog = (None, None)
+    elif len(args.log_to_syslog) == 1:
+        log_to_syslog = (args.log_to_syslog[0], None)
+    else:
+        log_to_syslog = (args.log_to_syslog[0], args.log_to_syslog[1])
+    print(". log_to_syslog:", log_to_syslog)
     MutyLogger.get_instance(
         "gulp", logger_file_path=logger_file_path, level=lv, log_to_syslog=log_to_syslog
     )
-
     if __RUN_TESTS__:
         # test stuff
         asyncio.run(async_test())
@@ -124,6 +146,7 @@ def main():
                 level=lv,
                 reset_collab=args.reset_collab,
                 create_operation=create_operation,
+                log_to_syslog=log_to_syslog,
             )
     except Exception as ex:
         # print exception and exit
