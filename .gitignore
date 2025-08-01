@@ -24,6 +24,7 @@ src/gulp/libgulp
 *.so
 
 # misc
+copilot-instructions.md
 chatmodes
 export.csv
 export.json
