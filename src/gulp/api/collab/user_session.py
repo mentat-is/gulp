@@ -18,6 +18,7 @@ authentication and authorization services throughout the application.
 from typing import TYPE_CHECKING, Optional, override
 
 from muty.log import MutyLogger
+import muty.time
 from sqlalchemy import BIGINT, ForeignKey
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -91,6 +92,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         """
         try:
             from gulp.api.collab.user import GulpUser
+
             # await GulpUserSession.acquire_advisory_lock(sess, "admin")
 
             # the "admin" user always exists
@@ -111,6 +113,35 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         finally:
             pass
             # await GulpUserSession.release_advisory_lock(sess, "admin")
+
+    async def update_expiration_time(self, sess: AsyncSession, is_admin: bool) -> None:
+        """
+        Update the expiration time of the session.
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            is_admin (bool): Whether the user is an admin.
+        """
+        # get expiration time
+        if GulpConfig.get_instance().debug_no_token_expiration():
+            time_expire = 0
+        else:
+            # setup session expiration
+            if is_admin:
+                time_expire = (
+                    muty.time.now_msec()
+                    + GulpConfig.get_instance().token_admin_ttl() * 1000
+                )
+            else:
+                time_expire = (
+                    muty.time.now_msec() + GulpConfig.get_instance().token_ttl() * 1000
+                )
+        MutyLogger.get_instance().debug(
+            "session expiration time updated, previous= %s, new=%s"
+            % (self.time_expire, time_expire)
+        )
+        self.time_expire = time_expire
+        await sess.commit()
 
     @staticmethod
     async def check_token(
@@ -157,6 +188,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
             permission = [permission]
 
         if GulpConfig.get_instance().debug_allow_any_token_as_admin():
+            # session expiration time is not taken into account in this case
             return await GulpUserSession._get_admin_session(sess)
 
         try:
@@ -169,12 +201,14 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
 
         if user_session.user.is_admin():
             # admin user can access any object and always have permission
+            await user_session.update_expiration_time(sess, is_admin=True)
             return user_session
 
         if not obj:
             # check if the user have the required permission (owner always have permission)
             if user_session.user.has_permission(permission):
                 # access granted
+                await user_session.update_expiration_time(sess, is_admin=False)
                 return user_session
 
             if throw_on_no_permission:
@@ -194,6 +228,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
                 user_session.user.id
             ):
                 # access granted
+                await user_session.update_expiration_time(sess, is_admin=False)
                 return user_session
 
         if throw_on_no_permission:

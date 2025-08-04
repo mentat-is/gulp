@@ -101,6 +101,33 @@ async def test_user():
 
 
 @pytest.mark.asyncio
+async def test_session_expiration():
+    admin_token = await GulpAPIUser.login("admin", "admin")
+    assert admin_token
+
+    # get session expiration time *prev*
+    users = await GulpAPIUser.user_list(admin_token)
+    prev_expiration_time: int = 0
+    current_expiration_time: int = 0
+    for u in users:
+        if u["id"] != "admin":
+            continue
+        prev_expiration_time = u["session"]["time_expire"]
+        break
+
+    # get again, performing another operation causes session expiration time to be updated
+    users = await GulpAPIUser.user_list(admin_token)
+    for u in users:
+        if u["id"] != "admin":
+            continue
+        current_expiration_time = u["session"]["time_expire"]
+        break
+
+    assert current_expiration_time > prev_expiration_time
+    MutyLogger.get_instance().info(test_user.__name__ + " passed")
+
+
+@pytest.mark.asyncio
 async def test_user_vs_operations():
     # login admin, guest
     admin_token = await GulpAPIUser.login("admin", "admin")
