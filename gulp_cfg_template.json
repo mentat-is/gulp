@@ -5,7 +5,7 @@
   "concurrency_max_tasks": 16,
   // only for debugging, abort ingestion of the current file on first error when indexing a document (default=true)
   "debug_abort_on_opensearch_ingestion_error": true,
-  // allow any token (even non existent) to be used as admin (default=false)
+  // allow any token (even non existent) to be used as admin, also ignores token expiration time (default=false)
   "debug_allow_any_token_as_admin": false,
   // enable insecure passwords for user during development
   "debug_allow_insecure_passwords": false,
@@ -13,7 +13,7 @@
   "debug_collab": false,
   // if set, will ignore missing websocket connections (default=true)
   "debug_ignore_missing_ws": true,
-  // prevent token expiration for debugging purposes
+  // prevent token expiration for debugging purposes, ignored if debug_allow_any_token_as_admin is set to true (default=false)
   "debug_no_token_expiration": false,
   // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
   "documents_chunk_size": 1000,

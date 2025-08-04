@@ -82,7 +82,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
     @staticmethod
     async def _get_admin_session(sess: AsyncSession) -> "GulpUserSession":
         """
-        Get an admin session, for debugging purposes only
+        Get an admin session (which never expires), for debugging purposes only
 
         Args:
             sess (AsyncSession): The database session to use.
@@ -123,19 +123,8 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
             is_admin (bool): Whether the user is an admin.
         """
         # get expiration time
-        if GulpConfig.get_instance().debug_no_token_expiration():
-            time_expire = 0
-        else:
-            # setup session expiration
-            if is_admin:
-                time_expire = (
-                    muty.time.now_msec()
-                    + GulpConfig.get_instance().token_admin_ttl() * 1000
-                )
-            else:
-                time_expire = (
-                    muty.time.now_msec() + GulpConfig.get_instance().token_ttl() * 1000
-                )
+        time_expire = GulpConfig.get_instance().token_expiration_time(is_admin=is_admin)
+
         MutyLogger.get_instance().debug(
             "session expiration time updated, previous= %s, new=%s"
             % (self.time_expire, time_expire)

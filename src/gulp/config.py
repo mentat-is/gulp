@@ -257,7 +257,33 @@ class GulpConfig:
         n = self._config.get("opensearch_request_timeout", 60)
         return n
 
-    def token_ttl(self) -> int:
+    def token_expiration_time(self, is_admin: bool) -> int:
+        """
+        Returns the expiration time for the token, for admin or not
+
+        Args:
+            is_admin (bool): Whether to return the admin token expiration time or normal user token expiration time.
+
+        Returns:
+            int: The expiration time in milliseconds from the unix epoch.
+        """
+        # get expiration time
+        if GulpConfig.get_instance().debug_no_token_expiration():
+            time_expire = 0
+        else:
+            # setup session expiration
+            if is_admin:
+                time_expire = (
+                    muty.time.now_msec()
+                    + GulpConfig.get_instance()._token_admin_ttl() * 1000
+                )
+            else:
+                time_expire = (
+                    muty.time.now_msec() + GulpConfig.get_instance()._token_ttl() * 1000
+                )
+        return time_expire
+
+    def _token_ttl(self) -> int:
         """
         Returns the number of seconds a non-admin token is valid for.
         """
@@ -270,7 +296,7 @@ class GulpConfig:
             )
         return n
 
-    def token_admin_ttl(self) -> int:
+    def _token_admin_ttl(self) -> int:
         """
         Returns the number of seconds an admin token is valid for.
         """

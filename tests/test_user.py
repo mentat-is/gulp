@@ -101,7 +101,7 @@ async def test_user():
 
 
 @pytest.mark.asyncio
-async def test_session_expiration():
+async def test_session_expiration_update():
     admin_token = await GulpAPIUser.login("admin", "admin")
     assert admin_token
 

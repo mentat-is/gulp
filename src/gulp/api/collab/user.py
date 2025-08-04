@@ -516,20 +516,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                     # MutyLogger.get_instance().debug("user after session deletion: %s" % (u))
 
             # get expiration time
-            if GulpConfig.get_instance().debug_no_token_expiration():
-                time_expire = 0
-            else:
-                # setup session expiration
-                if u.is_admin():
-                    time_expire = (
-                        muty.time.now_msec()
-                        + GulpConfig.get_instance().token_admin_ttl() * 1000
-                    )
-                else:
-                    time_expire = (
-                        muty.time.now_msec()
-                        + GulpConfig.get_instance().token_ttl() * 1000
-                    )
+            time_expire = GulpConfig.get_instance().token_expiration_time(u.is_admin())
 
             # create new session
             p = GulpUserLoginLogoutPacket(user_id=u.id, login=True, ip=user_ip)
