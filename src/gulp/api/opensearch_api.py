@@ -734,16 +734,16 @@ class GulpOpenSearch:
         )
         dtt.append(
             {
-            "unmapped_fields": {
-                "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
-                "match_mapping_type": "*",
-                "mapping": {
-                    "type": "keyword",
-                    "fields": {
-                        "text": { # added multified in order to better support matching in partial queries (by enabling text field and using standard normalizer)
-                            "type": "text"
+                "unmapped_fields": {
+                    "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
+                    "match_mapping_type": "*",
+                    "mapping": {
+                        "type": "keyword",
+                        "fields": {
+                            "text": {  # added multified in order to better support matching in partial queries (by enabling text field and using standard normalizer)
+                                "type": "text"
                             }
-                        }
+                        },
                     },
                 }
             }
@@ -768,8 +768,10 @@ class GulpOpenSearch:
             # support for original event both as keyword and text
             # keyword is case sensitive, text is not
             mappings["properties"]["event"]["properties"]["original"] = {
-                "type": "wildcard",
-                "fields": {"keyword": {"type": "keyword", "ignore_above": ignore_above}},
+                "type": "text",
+                "fields": {
+                    "keyword": {"type": "keyword", "ignore_above": ignore_above}
+                },
             }
 
             settings["index"]["mapping"]["total_fields"] = {
@@ -1747,7 +1749,9 @@ class GulpOpenSearch:
             )
             # raise ObjectNotFound()
             return []
-        MutyLogger.get_instance().debug(orjson.dumps(res, option=orjson.OPT_INDENT_2).decode())
+        MutyLogger.get_instance().debug(
+            orjson.dumps(res, option=orjson.OPT_INDENT_2).decode()
+        )
 
         d = {"total": hits, "aggregations": res["aggregations"]}
         # MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2).decode())
@@ -1832,7 +1836,14 @@ class GulpOpenSearch:
         for k, v in parsed_options.items():
             if v:
                 body[k] = v
-        # MutyLogger.get_instance().debug("index=%s, query_raw body=%s, parsed_options=%s" % (index, orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(), orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode()))
+        # MutyLogger.get_instance().debug(
+        #     "index=%s, query_raw body=%s, parsed_options=%s"
+        #     % (
+        #         index,
+        #         orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(),
+        #         orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode(),
+        #     )
+        # )
 
         headers = {
             "content-type": "application/json",
@@ -1854,7 +1865,7 @@ class GulpOpenSearch:
                     size=parsed_options["size"],
                     search_after=parsed_options["search_after"],
                     source=parsed_options["_source"],
-                    highlight=q.get("highlight", None),
+                    highlight=parsed_options.get("highlight", None),
                     timeout=timeout if timeout else None,
                 )
             else:
@@ -1882,7 +1893,7 @@ class GulpOpenSearch:
             {
                 **hit["_source"],
                 "_id": hit["_id"],
-                **({"highlight": hit["highlight"]} if  "highlight" in hit else {}),
+                **({"highlight": hit["highlight"]} if "highlight" in hit else {}),
             }
             for hit in hits
         ]
@@ -2013,7 +2024,11 @@ class GulpOpenSearch:
                     parsed_options["search_after"] = search_after
 
                 processed += len(docs)
-                if processed >= total_hits or not q_options.loop or (q_options.total_limit and processed >= q_options.total_limit):
+                if (
+                    processed >= total_hits
+                    or not q_options.loop
+                    or (q_options.total_limit and processed >= q_options.total_limit)
+                ):
                     # this is the last chunk
                     last = True
 
@@ -2169,9 +2184,9 @@ class GulpOpenSearch:
 
         MutyLogger.get_instance().info("streaming responses to file %s ..." % (path))
 
-        async with aiofiles.open(path, 'wb') as f:
+        async with aiofiles.open(path, "wb") as f:
             # write json start
-            await f.write("{\n\t\"docs\": [\n".encode())
+            await f.write('{\n\t"docs": [\n'.encode())
 
             # loop
             while True:
@@ -2195,7 +2210,13 @@ class GulpOpenSearch:
                         parsed_options["search_after"] = search_after
 
                     processed += len(docs)
-                    if processed >= total_hits or not q_options.loop or (q_options.total_limit and processed >= q_options.total_limit):
+                    if (
+                        processed >= total_hits
+                        or not q_options.loop
+                        or (
+                            q_options.total_limit and processed >= q_options.total_limit
+                        )
+                    ):
                         # this is the last chunk
                         last = True
 
