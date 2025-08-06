@@ -139,6 +139,8 @@ COLLABTYPE_SOURCE = "source"
 COLLABTYPE_USER_GROUP = "user_group"
 COLLABTYPE_SOURCE_FIELDS = "source_fields"
 COLLABTYPE_QUERY_HISTORY = "query_history"
+COLLABTYPE_TASK = "task"
+
 
 T = TypeVar("T", bound="GulpCollabBase")
 
@@ -698,7 +700,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
     @classmethod
     def build_base_object_dict(
-        cls, object_data: dict, owner_id: str, obj_id: str = None, private: bool = True
+        cls, object_data: dict, owner_id: str, obj_id: str = None, private: bool = True,
+        **kwargs
     ) -> dict:
         """
         build a dictionary to create a new base object
@@ -725,6 +728,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # remove None values
         obj: dict = {k: v for k, v in object_data.items() if v is not None}
+
+        # add kwargs if any
+        for k, v in kwargs.items():
+            if v is not None:
+                obj[k] = v
 
         obj["type"] = cls.__gulp_collab_type__
         obj["id"] = obj_id
@@ -771,6 +779,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         req_id: str = None,
         private: bool = True,
         commit: bool = True,
+        **kwargs
     ) -> T:
         """
         Asynchronously creates and stores an instance of the class, also updating the websocket if required.
@@ -790,6 +799,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             req_id (str, optional): Request ID associated with the instance. Defaults to None.
             private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to True.
             commit (bool): Whether to commit the session after creating the object. Defaults to True.
+            **kwargs: Additional keyword arguments.
         Returns:
             T: The created instance of the class.
         Raises:
@@ -800,16 +810,17 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # build object dictionary with necessary attributes
         d = cls.build_base_object_dict(
-            object_data, owner_id=owner_id, obj_id=obj_id, private=private
+            object_data, owner_id=owner_id, obj_id=obj_id, private=private,
+            **kwargs
         )
 
         # create object with eager loading
-        # MutyLogger.get_instance().debug(f"creating instance of {cls.__name__}, base object dict: {d}")
         stmt = (
             select(cls)
             .options(*cls._build_eager_loading_options())
             .from_statement(insert(cls).values(**d).returning(cls))
         )
+        # MutyLogger.get_instance().debug(f"creating instance of {cls.__name__}, base object dict: {d}, statement: {stmt}")
 
         try:
             res = await sess.execute(stmt)
@@ -1271,7 +1282,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
             # commit
             await sess.commit()
-            MutyLogger.get_instance().debug("---> updated: %s" % (muty.string.make_shorter(str(updated_dict), max_len=260)))
+            MutyLogger.get_instance().debug(
+                "---> updated: %s"
+                % (muty.string.make_shorter(str(updated_dict), max_len=260))
+            )
         except Exception as e:
             await sess.rollback()
             raise e
@@ -1450,6 +1464,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             u: GulpUser = await GulpUser.get_by_id(sess, user_id)
             is_admin = u.is_admin()
             group_ids = [g.id for g in u.groups] if u.groups else []
+        else:
+            # no user_id provided, assume admin
+            is_admin = True
 
         # build and run query (ensure eager loading)
         if is_admin:
@@ -1465,9 +1482,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # MutyLogger.get_instance().debug("pre to_select_query: user=%s, admin=%r, groups=%s, flt=%s" % (u.to_dict(), is_admin, group_ids, flt))
         q = flt.to_select_query(cls)
         q = q.options(*cls._build_eager_loading_options(recursive=recursive))
-        MutyLogger.get_instance().debug(
-            "get_by_filter, flt=%s, user_id=%s, query:\n%s" % (flt, user_id, q)
-        )
+        # MutyLogger.get_instance().debug(
+        #     "get_by_filter, flt=%s, user_id=%s, query:\n%s" % (flt, user_id, q)
+        # )
         res = await sess.execute(q)
         objects = res.scalars().all()
         if not objects:
@@ -1668,10 +1685,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
             MutyLogger.get_instance().debug(
                 "user %s get_by_filter_result: %s"
-                % (
-                    s.user.id,
-                    muty.string.make_shorter(str(data), max_len=260)
-                )
+                % (s.user.id, muty.string.make_shorter(str(data), max_len=260))
             )
 
             return data
@@ -1839,6 +1853,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 ws_id=ws_id,
                 req_id=req_id,
                 private=private,
+                **kwargs
             )
             return n.to_dict(exclude_none=True)
 

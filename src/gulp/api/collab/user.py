@@ -504,22 +504,20 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                     )
 
             if u.session:
-                # session already exist, invalidate
+                # session already exist, update expiration time
                 MutyLogger.get_instance().warning(
-                    "user %s was already logged in, resetting..." % (user_id)
+                    "user %s was already logged in, resetting and renewing token..."
+                    % (user_id)
                 )
 
-                # create a new session to handle the deletion
-                async with sess.begin_nested():
-                    await sess.delete(u.session)
-                    await sess.flush()
-                    # MutyLogger.get_instance().debug("user after session deletion: %s" % (u))
-
-            # get expiration time
-            time_expire = GulpConfig.get_instance().token_expiration_time(u.is_admin())
+                await u.session.update_expiration_time(
+                    sess, is_admin=u.is_admin(), update_id=True
+                )
+                return u.session
 
             # create new session
             p = GulpUserLoginLogoutPacket(user_id=u.id, login=True, ip=user_ip)
+            time_expire = GulpConfig.get_instance().token_expiration_time(u.is_admin())
             object_data = {
                 "user_id": u.id,
                 "time_expire": time_expire,

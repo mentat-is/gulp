@@ -2655,7 +2655,7 @@ class GulpPluginBase(ABC):
 
         if not isinstance(err, str):
             # exception to string
-            e = muty.log.exception_to_string(err)  # , with_full_traceback=True)
+            e = muty.log.exception_to_string(err, with_full_traceback=True)
         else:
             e = err
 
@@ -2682,7 +2682,7 @@ class GulpPluginBase(ABC):
         """
         add mapping parameters to source, to keep track of which mappings has been used for this source
         """
-        if self._plugin_params.mapping_parameters:
+        if self._plugin_params.mapping_parameters and not self._preview_mode:
             from gulp.api.opensearch.sigma import get_sigma_mappings
             sm = await get_sigma_mappings(self._plugin_params.mapping_parameters)
             self._plugin_params.mapping_parameters.sigma_mappings = sm

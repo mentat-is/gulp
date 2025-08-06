@@ -21,6 +21,7 @@ and preview mode for testing without persistence.
 
 """
 
+import asyncio
 import os
 from copy import deepcopy
 from typing import Annotated, Any, Optional
@@ -36,6 +37,7 @@ from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.collab.context import GulpContext
+from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpRequestStats
@@ -234,6 +236,7 @@ async def _ingest_file_internal(
     payload: GulpIngestPayload,
     preview_mode: bool = False,
     delete_after: bool = False,
+    **kwargs: Any,
 ) -> tuple[GulpRequestStatus, list[dict]]:
     """
     runs in a worker process to ingest a single file
@@ -325,6 +328,38 @@ async def _ingest_file_internal(
                 await mod.unload()
 
         return status, preview_chunk
+
+
+async def run_ingest_file_task(t: GulpTask):
+    """
+    runs the ingest file task in a task into a worker process
+
+    :param t: the GulpTask to run
+    """
+    params: dict = t.params
+    params["payload"] = GulpIngestPayload.model_validate(params["payload"])
+    # MutyLogger.get_instance().debug("run_ingest_file_task, params=%s" % (params))
+    await GulpProcess.get_instance().process_pool.apply(
+        _ingest_file_internal, kwds=params
+    )
+
+
+async def run_ingest_raw_task(t: GulpTask):
+    """
+    runs the ingest raw task in a task into a worker process
+
+    :param t: the GulpTask to run
+    """
+    params: dict = t.params
+    params["chunk"] = params.pop("raw_data", None)
+    params["flt"] = GulpIngestionFilter.model_validate(params["flt"])
+    params["plugin_params"] = GulpPluginParameters.model_validate(
+        params["plugin_params"]
+    )
+    # MutyLogger.get_instance().debug("run_ingest_raw_task, params=%s" % (params))
+    await GulpProcess.get_instance().process_pool.apply(
+        _ingest_raw_internal, kwds=params
+    )
 
 
 @router.post(
@@ -572,15 +607,26 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 )
             )
 
-        # spawn a task which runs the ingestion in a worker process
-        MutyLogger.get_instance().debug("spawning ingestion task ...")
-
-        async def worker_coro(kwds: dict):
-            await GulpProcess.get_instance().process_pool.apply(
-                _ingest_file_internal, kwds=kwds
-            )
-
-        await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
+        # enqueue task on collab
+        kwds["payload"] = GulpIngestPayload.model_dump(
+            kwds["payload"], exclude_none=True
+        )
+        object_data = {
+            "ws_id": ws_id,
+            "operation_id": operation_id,
+            "req_id": req_id,
+            "task_type": "ingest",
+            "params": kwds,
+        }
+        MutyLogger.get_instance().debug(
+            "queueing ingestion task, object_data=%s" % (object_data)
+        )
+        await GulpTask.create(
+            token,
+            ws_id=None,
+            req_id=req_id,
+            object_data=object_data,
+        )
 
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -606,7 +652,6 @@ this is basically a local version of the `ingest_file` function, which does not 
 
 the following are the differences from the default `ingest_file` function:
 
-- needs the `ingestion_local_directory` to be set in the configuration, default=`~/.config/gulp/ingest_local`: `path` is relative to this directory.
 - `plugin_params` and `flt` are passed as json in the payload, and are optional.
 """,
 )
@@ -618,7 +663,7 @@ async def ingest_file_local_handler(
     path: Annotated[
         str,
         Query(
-            description="the path of the file to be ingested, must be relative to the directory defined as `ingestion_local_directory` in the configuration.",
+            description="the path of the file to be ingested, must be relative to `$WORKING_DIR/ingest_local` directory.",
             example="/samples/win_evtx/Security_short_selected.evtx",
         ),
     ],
@@ -755,15 +800,26 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 )
             )
 
-        # spawn a task which runs the ingestion in a worker process
-        MutyLogger.get_instance().debug("spawning ingestion task ...")
-
-        async def worker_coro(kwds: dict):
-            await GulpProcess.get_instance().process_pool.apply(
-                _ingest_file_internal, kwds=kwds
-            )
-
-        await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
+        # enqueue task on collab
+        kwds["payload"] = GulpIngestPayload.model_dump(
+            kwds["payload"], exclude_none=True
+        )
+        object_data = {
+            "ws_id": ws_id,
+            "operation_id": operation_id,
+            "req_id": req_id,
+            "task_type": "ingest",
+            "params": kwds,
+        }
+        MutyLogger.get_instance().debug(
+            "queueing ingestion task (local), object_data=%s" % (object_data)
+        )
+        await GulpTask.create(
+            token,
+            ws_id=None,
+            req_id=req_id,
+            object_data=object_data,
+        )
 
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -924,36 +980,43 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
 
         # get body
         payload, chunk = await ServerUtils.handle_multipart_body(r)
-        flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
-            payload.get("flt", GulpIngestionFilter())
-        )
-        plugin_params: GulpPluginParameters = GulpPluginParameters.model_validate(
-            payload.get("plugin_params", GulpPluginParameters())
-        )
+        # flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
+        #     payload.get("flt", GulpIngestionFilter())
+        # )
+        # plugin_params: GulpPluginParameters = GulpPluginParameters.model_validate(
+        #     payload.get("plugin_params", GulpPluginParameters())
+        # )
 
-        # run ingestion in a coroutine in one of the workers
-        MutyLogger.get_instance().debug("spawning RAW ingestion task ...")
         kwds = dict(
             req_id=req_id,
             ws_id=ws_id,
             user_id=user_id,
             operation_id=operation_id,
             index=index,
-            chunk=chunk,
-            flt=flt,
+            flt=payload.get("flt") or {},
             plugin=plugin,
-            plugin_params=plugin_params,
+            plugin_params=payload.get("plugin_params") or {},
             last=last,
         )
-        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2).decode())
 
-        # spawn a task which runs the ingestion in a worker process's task
-        async def worker_coro(kwds: dict):
-            await GulpProcess.get_instance().process_pool.apply(
-                _ingest_raw_internal, kwds=kwds
-            )
-
-        await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
+        # enqueue task on collab
+        object_data = {
+            "ws_id": ws_id,
+            "operation_id": operation_id,
+            "req_id": req_id,
+            "task_type": "ingest_raw",
+            "params": kwds,
+        }
+        MutyLogger.get_instance().debug(
+            "queueing ingestion task (raw), object_data=%s" % (object_data)
+        )
+        await GulpTask.create(
+            token,
+            ws_id=None,
+            req_id=req_id,
+            object_data=object_data,
+            raw_data=chunk,
+        )
 
         # and return pending
         return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1183,13 +1246,27 @@ async def ingest_zip_handler(
                     payload=f,
                 )
 
-                # for each source, spawn a task which runs the ingestion in a worker process's task
-                async def worker_coro(kwds: dict):
-                    await GulpProcess.get_instance().process_pool.apply(
-                        _ingest_file_internal, kwds=kwds
-                    )
+                # enqueue task on collab
+                kwds["payload"] = GulpIngestPayload.model_dump(
+                    kwds["payload"], exclude_none=True
+                )
 
-                await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
+                object_data = {
+                    "ws_id": ws_id,
+                    "operation_id": operation_id,
+                    "req_id": req_id,
+                    "task_type": "ingest",
+                    "params": kwds,
+                }
+                MutyLogger.get_instance().debug(
+                    "queueing ingestion (from zip) task, object_data=%s" % (object_data)
+                )
+                await GulpTask.create(
+                    token,
+                    ws_id=None,
+                    req_id=req_id,
+                    object_data=object_data,
+                )
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1215,7 +1292,6 @@ this is basically a local version of the `ingest_zipo` function, which does not 
 
 the following are the differences from the default `ingest_file` function:
 
-- needs the `ingestion_local_directory` to be set in the configuration, default=`~/.config/gulp/ingest_local`: `path` is relative to this directory.
 - `flt` is optionally passed as json in the payload
 """,
 )
@@ -1227,7 +1303,7 @@ async def ingest_zip_local_handler(
     path: Annotated[
         str,
         Query(
-            description="the path of the ZIP file to be ingested, must be relative to the directory defined as `ingestion_local_directory` in the configuration.",
+            description="the path of the ZIP file to be ingested, must be relative to `$WORKING_DIR/ingest_local` directory.",
             example="/test.zip",
         ),
     ],
@@ -1327,14 +1403,28 @@ async def ingest_zip_local_handler(
                     delete_after=True,
                 )
 
-                # for each source, spawn a task which runs the ingestion in a worker process's task
-                async def worker_coro(kwds: dict):
-                    await GulpProcess.get_instance().process_pool.apply(
-                        _ingest_file_internal, kwds=kwds
-                    )
+                # enqueue task on collab
+                kwds["payload"] = GulpIngestPayload.model_dump(
+                    kwds["payload"], exclude_none=True
+                )
 
-                await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
-
+                object_data = {
+                    "ws_id": ws_id,
+                    "operation_id": operation_id,
+                    "req_id": req_id,
+                    "task_type": "ingest",
+                    "params": kwds,
+                }
+                MutyLogger.get_instance().debug(
+                    "queueing ingestion (from local zip) task, object_data=%s"
+                    % (object_data)
+                )
+                await GulpTask.create(
+                    token,
+                    ws_id=None,
+                    req_id=req_id,
+                    object_data=object_data,
+                )
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
 

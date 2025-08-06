@@ -32,7 +32,9 @@ from muty.log import MutyLogger
 from opensearchpy import RequestError
 from starlette.middleware.sessions import SessionMiddleware
 
+from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import GulpConnectedSockets, GulpWsSharedQueue
@@ -53,11 +55,12 @@ class GulpRestServer:
         self._initialized: bool = True
         self._app: FastAPI = None
         self._logger_file_path: str = None
-        self._log_to_syslog: tuple[str,str] = None
+        self._log_to_syslog: tuple[str, str] = None
         self._log_level: int = None
         self._reset_collab: bool = False
         self._create_operation: str = None
         self._lifespan_task: asyncio.Task = None
+        self._poll_tasks_task: asyncio.Task = None
         self._shutdown: bool = False
         self._restart_signal: asyncio.Event = asyncio.Event()
         self._extension_plugins: list[GulpPluginBase] = []
@@ -306,7 +309,7 @@ class GulpRestServer:
         level: int = None,
         reset_collab: bool = False,
         create_operation: str = None,
-        log_to_syslog: tuple[str,str] = None
+        log_to_syslog: tuple[str, str] = None,
     ):
         """
         starts the server.
@@ -421,6 +424,53 @@ class GulpRestServer:
             MutyLogger.get_instance().warning("HTTP!")
             uvicorn.run(self._app, host=address, port=port)
 
+    async def _poll_tasks(self):
+        """
+        poll tasks queue on collab database and dispatch them to the process pool for processing.
+        """
+        limit: int = GulpConfig.get_instance().concurrency_max_tasks()
+        offset: int = 0
+        MutyLogger.get_instance().info(
+            "STARTING poll task, max task concurrency=%d ..." % (limit)
+        )
+
+        async with GulpCollab.get_instance().session() as sess:
+            while not GulpRestServer.get_instance().is_shutdown():
+                await asyncio.sleep(5)
+                objs: list[GulpTask] = await GulpTask.get_by_filter(
+                    sess,
+                    flt=GulpCollabFilter(limit=limit, offset=offset),
+                    throw_if_not_found=False,
+                )
+                if not objs:
+                    # reset offset
+                    offset = 0
+                    # MutyLogger.get_instance().debug("no tasks to process, waiting ...")
+                    continue
+
+                MutyLogger.get_instance().debug(
+                    "found %d tasks to process" % (len(objs))
+                )
+
+                for obj in objs:
+                    # process task
+                    if obj.task_type == "ingest":
+                        # spawn background task to process the ingest task
+                        from gulp.api.rest.ingest import run_ingest_file_task
+
+                        await self.spawn_bg_task(run_ingest_file_task(obj))
+
+                    elif obj.task_type == "ingest_raw":
+                        # spawn background task to process the ingest raw task
+                        from gulp.api.rest.ingest import run_ingest_raw_task
+                        obj.params["raw_data"] = obj.raw_data
+                        await self.spawn_bg_task(run_ingest_raw_task(obj))
+
+                    # delete task
+                    await obj.delete(sess)
+
+        MutyLogger.get_instance().info("EXITING poll task...")
+
     async def handle_bg_future(self, future: asyncio.Future) -> None:
         """
         waits for a future running in background to complete, logs any exceptions
@@ -456,6 +506,21 @@ class GulpRestServer:
             await GulpConnectedSockets.get_instance().cancel_all()
             wsq = GulpWsSharedQueue.get_instance()
             await wsq.close()
+
+            # cancel dequeue task
+            if self._poll_tasks_task:
+                try:
+                    self._poll_tasks_task.cancel()
+                    await asyncio.wait_for(self._poll_tasks_task, timeout=5.0)
+                    MutyLogger.get_instance().debug(
+                        "poll_tasks task cancelled successfully"
+                    )
+                except asyncio.TimeoutError:
+                    MutyLogger.get_instance.warning(
+                        "poll_tasks task cancellation timed out"
+                    )
+                except Exception as e:
+                    pass
 
             # close clients in the main process
             await GulpCollab.get_instance().shutdown()
@@ -546,12 +611,17 @@ class GulpRestServer:
 
         # init the main process
         await main_process.init_gulp_process(
-            log_level=self._log_level, logger_file_path=self._logger_file_path, log_to_syslog=self._log_to_syslog
+            log_level=self._log_level,
+            logger_file_path=self._logger_file_path,
+            log_to_syslog=self._log_to_syslog,
         )
 
         if __debug__:
             # to test some snippet with gulp freshly initialized
             await self._test()
+
+        # start the dequeue task for long running tasks
+        self._poll_tasks_task = asyncio.create_task(self._poll_tasks())
 
         # wait for termination
         try:
