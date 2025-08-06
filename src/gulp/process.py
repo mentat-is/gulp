@@ -126,7 +126,7 @@ class GulpProcess:
         return
 
     @staticmethod
-    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str,str] = None):  # type: ignore
+    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str, str] = None):  # type: ignore
         """
         initializes a worker process
 
@@ -297,7 +297,7 @@ class GulpProcess:
                 self.shared_ws_list,
                 MutyLogger.log_level,
                 MutyLogger.logger_file_path,
-                self._log_to_syslog
+                self._log_to_syslog,
             ),
         )
         # wait for all processes are spawned
@@ -317,7 +317,7 @@ class GulpProcess:
         logger_file_path: str = None,
         q: Queue = None,
         shared_ws_list: list[str] = None,
-        log_to_syslog: tuple[str,str] = None
+        log_to_syslog: tuple[str, str] = None,
     ) -> None:
         """
         initializes main or worker gulp process
@@ -370,7 +370,7 @@ class GulpProcess:
         # initializes coroutine and thread pools for the main or worker process
         await self.close_coro_pool()
         await self.close_thread_pool()
-        self.coro_pool = AioCoroPool(GulpConfig.get_instance().concurrency_max_tasks())
+        self.coro_pool = AioCoroPool()
         self.thread_pool = ThreadPoolExecutor()
 
         # initialize collab and opensearch clients for the main or worker process

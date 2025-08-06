@@ -451,7 +451,7 @@ class GulpConfig:
 
         default: 16
 
-        @return the maximum number of tasks per process
+        @return the maximum number of tasks executing concurrently in a process
         """
         n = self._config.get("concurrency_max_tasks", 0)
         if not n:
