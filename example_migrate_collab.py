@@ -85,6 +85,68 @@ async def migrate_note_table(db_url: str) -> None:
     await engine.dispose()
 
 
+async def create_task_table(db_url: str) -> None:
+    """
+    this is an example using a full script exported from adminer to create the 'task' table in the database.
+    """
+    print("connecting to the database...")
+    # create an async engine to connect to the database
+    engine = create_async_engine(db_url, echo=False)
+
+    # create a session factory
+    async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+    # start a session and a transaction
+    async with async_session() as session:
+        async with session.begin():
+            print("creating 'task' table ...\n")
+
+            try:
+                await session.execute(
+                    text(
+                        """
+                    DROP TABLE IF EXISTS "task";
+                    CREATE TABLE "public"."task" (
+                        "ws_id" character varying NOT NULL,
+                        "operation_id" character varying NOT NULL,
+                        "req_id" character varying NOT NULL,
+                        "task_type" character varying NOT NULL,
+                        "params" jsonb NOT NULL,
+                        "raw_data" bytea,
+                        "id" character varying NOT NULL,
+                        "type" character varying NOT NULL,
+                        "owner_user_id" character varying NOT NULL,
+                        "granted_user_ids" character varying[],
+                        "granted_user_group_ids" character varying[],
+                        "time_created" bigint,
+                        "time_updated" bigint,
+                        "glyph_id" character varying,
+                        "name" character varying,
+                        "description" character varying,
+                        CONSTRAINT "task_pkey" PRIMARY KEY ("id")
+                    )
+                    WITH (oids = false);
+
+
+                    ALTER TABLE ONLY "public"."task" ADD CONSTRAINT "task_glyph_id_fkey" FOREIGN KEY (glyph_id) REFERENCES glyph(id) ON DELETE SET NULL NOT DEFERRABLE;
+                    ALTER TABLE ONLY "public"."task" ADD CONSTRAINT "task_operation_id_fkey" FOREIGN KEY (operation_id) REFERENCES operation(id) ON DELETE CASCADE NOT DEFERRABLE;
+                    ALTER TABLE ONLY "public"."task" ADD CONSTRAINT "task_owner_user_id_fkey" FOREIGN KEY (owner_user_id) REFERENCES "user"(id) ON DELETE CASCADE NOT DEFERRABLE;                                           
+                """
+                    )
+                )
+                print("'task' table created!\n")
+                print("\nmigration completed successfully!")
+
+            except Exception as e:
+                # if an error occurs, the transaction will be rolled back automatically
+                print(f"\nan error occurred during migration: {e}")
+                print("transaction has been rolled back. no changes were made.")
+                raise
+
+    # dispose of the engine
+    await engine.dispose()
+
+
 async def main() -> None:
     """
     main function to parse arguments and run the migration.
