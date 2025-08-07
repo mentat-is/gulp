@@ -330,31 +330,31 @@ async def _ingest_file_internal(
         return status, preview_chunk
 
 
-async def run_ingest_file_task(t: GulpTask):
+async def run_ingest_file_task(t: dict):
     """
     runs the ingest file task in a task into a worker process
 
-    :param t: the GulpTask to run
+    :param t: a GulpTask dict to run
     """
-    params: dict = t.params
-    params["payload"] = GulpIngestPayload.model_validate(params["payload"])
+    params: dict = t.get("params", {})
+    params["payload"] = GulpIngestPayload.model_validate(params.get("payload"))
     # MutyLogger.get_instance().debug("run_ingest_file_task, params=%s" % (params))
     await GulpProcess.get_instance().process_pool.apply(
         _ingest_file_internal, kwds=params
     )
 
 
-async def run_ingest_raw_task(t: GulpTask):
+async def run_ingest_raw_task(t: dict):
     """
     runs the ingest raw task in a task into a worker process
 
-    :param t: the GulpTask to run
+    :param t: a GulpTask dict to run
     """
-    params: dict = t.params
+    params: dict = t.get("params", {})
     params["chunk"] = params.pop("raw_data", None)
-    params["flt"] = GulpIngestionFilter.model_validate(params["flt"])
+    params["flt"] = GulpIngestionFilter.model_validate(params.get("flt"))
     params["plugin_params"] = GulpPluginParameters.model_validate(
-        params["plugin_params"]
+        params.get("plugin_params")
     )
     # MutyLogger.get_instance().debug("run_ingest_raw_task, params=%s" % (params))
     await GulpProcess.get_instance().process_pool.apply(

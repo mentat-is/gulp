@@ -434,40 +434,49 @@ class GulpRestServer:
             "STARTING poll task, max task concurrency=%d ..." % (limit)
         )
 
-        async with GulpCollab.get_instance().session() as sess:
-            while not GulpRestServer.get_instance().is_shutdown():
-                await asyncio.sleep(5)
+        # until the server exits
+        while not GulpRestServer.get_instance().is_shutdown():
+            async with GulpCollab.get_instance().session() as sess:
+                # get a batch of tasks
                 objs: list[GulpTask] = await GulpTask.get_by_filter(
                     sess,
                     flt=GulpCollabFilter(limit=limit, offset=offset),
                     throw_if_not_found=False,
                 )
                 if not objs:
-                    # reset offset
+                    # reset offset and sleep
                     offset = 0
                     # MutyLogger.get_instance().debug("no tasks to process, waiting ...")
+                    await asyncio.sleep(5)
                     continue
 
                 MutyLogger.get_instance().debug(
                     "found %d tasks to process" % (len(objs))
                 )
 
+                # process found tasks in this batch
                 for obj in objs:
                     # process task
                     if obj.task_type == "ingest":
                         # spawn background task to process the ingest task
                         from gulp.api.rest.ingest import run_ingest_file_task
 
-                        await self.spawn_bg_task(run_ingest_file_task(obj))
+                        d = obj.to_dict()
+                        await self.spawn_bg_task(run_ingest_file_task(d))
 
                     elif obj.task_type == "ingest_raw":
                         # spawn background task to process the ingest raw task
                         from gulp.api.rest.ingest import run_ingest_raw_task
+
                         obj.params["raw_data"] = obj.raw_data
-                        await self.spawn_bg_task(run_ingest_raw_task(obj))
+                        d = obj.to_dict()
+                        await self.spawn_bg_task(run_ingest_raw_task(d))
 
                     # delete task
                     await obj.delete(sess)
+
+                # next batch
+                offset += len(objs)
 
         MutyLogger.get_instance().info("EXITING poll task...")
 

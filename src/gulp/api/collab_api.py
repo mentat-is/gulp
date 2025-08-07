@@ -312,11 +312,16 @@ class GulpCollab:
             await sess.execute(
                 text(
                     """
-                CREATE OR REPLACE FUNCTION delete_expired_stats_rows() RETURNS void AS $$
-                BEGIN
-                    DELETE FROM request_stats WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
-                END;
-                $$ LANGUAGE plpgsql;
+                    CREATE OR REPLACE FUNCTION delete_expired_stats_rows() RETURNS void AS $$
+                    BEGIN
+                        WITH deleted AS (
+                            DELETE FROM request_stats
+                            WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0
+                            RETURNING id
+                        )
+                        DELETE FROM task WHERE req_id IN (SELECT id FROM deleted);
+                    END;
+                    $$ LANGUAGE plpgsql;
             """
                 )
             )
@@ -505,7 +510,9 @@ class GulpCollab:
             )
             for group in groups:
                 MutyLogger.get_instance().debug(
-                    orjson.dumps(group.to_dict(nested=True), option=orjson.OPT_INDENT_2).decode()
+                    orjson.dumps(
+                        group.to_dict(nested=True), option=orjson.OPT_INDENT_2
+                    ).decode()
                 )
 
             # dump admin user

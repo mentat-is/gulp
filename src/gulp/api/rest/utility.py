@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
+from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import (
     GulpCollabFilter,
@@ -101,7 +102,7 @@ async def request_get_by_id_handler(
     },
     summary="cancel a request.",
     description="""
-set a running request `status` to `CANCELED`.
+set a running request `status` to `CANCELED` and delete any pending tasks associated with it.
 
 - `token` needs `admin` permission or to be the owner of the request.
 """,
@@ -124,6 +125,15 @@ async def request_cancel_handler(
                 sess, token, obj=stats, enforce_owner=True
             )
             await stats.cancel(sess)
+
+            # also delete tasks if any
+            d: int = await GulpTask.delete_by_filter(
+                sess,
+                GulpCollabFilter(req_id=[req_id_to_cancel]),
+                throw_if_not_found=False
+            )
+            MutyLogger.get_instance().debug("also deleted %d pending tasks for request %s" %  (d, req_id_to_cancel))
+
         return JSendResponse.success(req_id=req_id, data={"id": req_id_to_cancel})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

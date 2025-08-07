@@ -700,8 +700,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
     @classmethod
     def build_base_object_dict(
-        cls, object_data: dict, owner_id: str, obj_id: str = None, private: bool = True,
-        **kwargs
+        cls,
+        object_data: dict,
+        owner_id: str,
+        obj_id: str = None,
+        private: bool = True,
+        **kwargs,
     ) -> dict:
         """
         build a dictionary to create a new base object
@@ -779,7 +783,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         req_id: str = None,
         private: bool = True,
         commit: bool = True,
-        **kwargs
+        **kwargs,
     ) -> T:
         """
         Asynchronously creates and stores an instance of the class, also updating the websocket if required.
@@ -810,8 +814,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # build object dictionary with necessary attributes
         d = cls.build_base_object_dict(
-            object_data, owner_id=owner_id, obj_id=obj_id, private=private,
-            **kwargs
+            object_data, owner_id=owner_id, obj_id=obj_id, private=private, **kwargs
         )
 
         # create object with eager loading
@@ -1489,9 +1492,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         objects = res.scalars().all()
         if not objects:
             if throw_if_not_found:
-                raise ObjectNotFound(
-                    f"No {cls.__name__} found with filter {flt}", cls.__name__, str(flt)
-                )
+                raise ObjectNotFound(f"No {cls.__name__} found with filter {str(flt)}")
             return []
 
         # MutyLogger.get_instance().debug("user_id=%s, POST-filtered objects: %s" % (user_id, objects))
@@ -1853,7 +1854,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 ws_id=ws_id,
                 req_id=req_id,
                 private=private,
-                **kwargs
+                **kwargs,
             )
             return n.to_dict(exclude_none=True)
 

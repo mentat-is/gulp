@@ -30,7 +30,6 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
         doc="id of the operation this source is associated with",
     )
     req_id: Mapped[str] = mapped_column(
-        String,
         doc="id of the request this entry is associated with",
     )
     task_type: Mapped[str] = mapped_column(
