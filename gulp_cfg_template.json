@@ -43,8 +43,6 @@
   "opensearch_url": "http://admin:Gulp1234!@localhost:9200",
   // set to false to skip server certificate verification
   "opensearch_verify_certs": false,
-  // maximum parallel queries (default=8)
-  "parallel_queries_max": 8,
   // maximum number of processes to be used for the pool (default=0=number of CPU cores)
   "parallel_processes_max": 0,
   // respawn a process after this number of tasks: set to -1 to never respawn processes, every other value < 100 will be set to 100 (default=100)

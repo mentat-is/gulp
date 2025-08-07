@@ -428,7 +428,7 @@ async def _worker_coro(kwds: dict) -> None:
     flt: GulpQueryFilter = kwds["flt"]
     plugin: str = kwds.get("plugin")
     plugin_params: GulpPluginParameters = kwds.get("plugin_params")
-    batch_size: int = GulpConfig.get_instance().parallel_queries_max()
+    batch_size: int = GulpConfig.get_instance().concurrency_max_tasks()
 
     # track overall stats
     all_results: list[tuple[int, Exception, str]] = []

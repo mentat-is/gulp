@@ -141,7 +141,7 @@ remove the container with `docker container rm some_container_id` and retry.
   either, this may mean that Opensearch is not keeping up with the query rate from gulp: this may be solved in the following way, similar to ingestion issues:
 
   - scale up opensearch nodes **OR**
-  - decrease `parallel_queries_max`in the configuration (set to # of cores by default if not set), also reducing `parallel_processes_max` **AND/OR** `concurrent_max_tasks` as for ingestion may help
+  - also reducing `parallel_processes_max` **AND/OR** `concurrency_max_tasks` as for ingestion may help
 
 ## postgreSQL
 
