@@ -98,9 +98,9 @@ remove the container with `docker container rm some_container_id` and retry.
 #### ingestion
 
 - error `elastic_transport.ConnectionTimeout: Connection timed out` usually means your opensearch istance is not keeping up with ingestion:
-  - increase `ingestion_request_timeout` (**almost always this is the easiest solution**) OR
-  - scale up OpenSearch nodes OR
-  - reduce parallelism with `parallel_processes_max` OR
+  - increase `ingestion_request_timeout` (**almost always this is the easiest solution**) **OR**
+  - scale up OpenSearch nodes **OR**
+  - reduce parallelism with `parallel_processes_max` **AND/OR** `concurrency_max_tasks` **OR**
   - tune `documents_chunk_size` configuration parameter (i.e. default is 1000, try with 2000 to reduce parallel chunks)
     - keep in mind, though, that a too big `documents_chunk_size` may cause client websocket disconnections (`PayloadTooBig`)
 
@@ -141,7 +141,7 @@ remove the container with `docker container rm some_container_id` and retry.
   either, this may mean that Opensearch is not keeping up with the query rate from gulp: this may be solved in the following way, similar to ingestion issues:
 
   - scale up opensearch nodes **OR**
-  - decrease `parallel_queries_max`in the configuration (set to # of cores by default if not set).
+  - decrease `parallel_queries_max`in the configuration (set to # of cores by default if not set), also reducing `parallel_processes_max` **AND/OR** `concurrent_max_tasks` as for ingestion may help
 
 ## postgreSQL
 
