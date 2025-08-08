@@ -96,8 +96,8 @@ the following environment variables may be set to override configuration options
 - [opensearch on http://localhost:9200](http://localhost:9200)
   - **user/pwd: `admin/Gulp1234!`**
 
-- [elasticvue on http://localhost:8082](http://localhost:8082) to visualize OpensSearch indexes
-- [opensearch dashboards on http://localhost:5001](http://localhost:5601) for a more comprehensive OpenSearch management
+- [elasticvue on http://localhost:8082](http://localhost:8082) to visualize OpensSearch indexes.
+- [opensearch dashboards on http://localhost:5001](http://localhost:5601) for a more comprehensive OpenSearch management.
 
 - [vsftpd on port 21(ftp) or 21000 (sftp)](ftp://localhost:21) to manage files in `$GULP_WORKING_DIR`
   - **user/pwd: `gulp/Gulp1234!`**
