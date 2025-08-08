@@ -90,7 +90,7 @@ the following environment variables may be set to override configuration options
 - postgreSQL on **localhost:5432**
   - **user/pwd: `postgres/Gulp1234!`**
 
-- [adminer on http://localhost:8001](http://localhost:8081) to manage postgreSQL
+- [adminer on http://localhost:8001](http://localhost:8081) to manage postgreSQL.
   - **server/user/pwd: `postgres/postgres/Gulp1234!`**
 
 - [opensearch on http://localhost:9200](http://localhost:9200)
