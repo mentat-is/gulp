@@ -162,7 +162,7 @@ deletes data related to `ALL` existing operations, both on collaboration databas
 gulp --reset-collab --create my_operation
 ~~~
 
-acts only on `my_operation`: creates/recreates operation, deletes all related data both on collaboration database and OpenSearch
+acts only on `my_operation`: creates/recreates operation, deletes all related data both on collaboration database and OpenSearch.
 
 ~~~bash
 gulp --create my_operation
