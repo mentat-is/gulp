@@ -62,6 +62,7 @@ class GulpRestServer:
         self._lifespan_task: asyncio.Task = None
         self._poll_tasks_task: asyncio.Task = None
         self._shutdown: bool = False
+        self._running_tasks: int = 0
         self._restart_signal: asyncio.Event = asyncio.Event()
         self._extension_plugins: list[GulpPluginBase] = []
 
@@ -91,6 +92,15 @@ class GulpRestServer:
         if self._lifespan_task:
             self._lifespan_task.cancel()
         self._restart_signal.set()
+
+    def running_tasks(self) -> int:
+        """
+        Returns the number of currently running tasks.
+
+        Returns:
+            int: Number of running tasks.
+        """
+        return self._running_tasks
 
     def version_string(self) -> str:
         """
@@ -437,16 +447,21 @@ class GulpRestServer:
         # until the server exits
         while not GulpRestServer.get_instance().is_shutdown():
             async with GulpCollab.get_instance().session() as sess:
-                # get a batch of tasks
+                # get a batch of tasks, use advisory lock to prevent concurrent dequeueing
+                await GulpTask.acquire_advisory_lock(sess, "dequeue")
                 objs: list[GulpTask] = await GulpTask.get_by_filter(
                     sess,
                     flt=GulpCollabFilter(limit=limit, offset=offset),
                     throw_if_not_found=False,
                 )
+                if objs:
+                    # delete all tasks in this batch first to prevent reprocessing
+                    for obj in objs:
+                        await obj.delete(sess)
+                        await sess.commit()
+                await GulpTask.release_advisory_lock(sess, "dequeue")
                 if not objs:
-                    # reset offset and sleep
-                    offset = 0
-                    # MutyLogger.get_instance().debug("no tasks to process, waiting ...")
+                    # no tasks to process, wait before next poll
                     await asyncio.sleep(5)
                     continue
 
@@ -472,12 +487,6 @@ class GulpRestServer:
                         d = obj.to_dict()
                         await self.spawn_bg_task(run_ingest_raw_task(d))
 
-                    # delete task
-                    await obj.delete(sess)
-
-                # next batch
-                offset += len(objs)
-
         MutyLogger.get_instance().info("EXITING poll task...")
 
     async def handle_bg_future(self, future: asyncio.Future) -> None:
@@ -491,6 +500,7 @@ class GulpRestServer:
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
         finally:
+            self._running_tasks -= 1
             MutyLogger.get_instance().debug("future completed!")
 
     async def spawn_bg_task(self, coro: Coroutine) -> None:
@@ -502,6 +512,7 @@ class GulpRestServer:
             kwds (dict, optional): the keyword arguments to pass to the coroutine
         """
         f = await GulpProcess.get_instance().coro_pool.spawn(coro)
+        self._running_tasks += 1
         _ = asyncio.create_task(self.handle_bg_future(f))
 
     async def _cleanup(self):

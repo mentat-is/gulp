@@ -1063,6 +1063,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         ws_queue_datatype: str = None,
         ws_data: dict = None,
         req_id: str = None,
+        raise_on_error: bool = True,
     ) -> None:
         """
         deletes the object, also updating the websocket if required.
@@ -1074,6 +1075,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_queue_datatype (str, optional): The type of the websocket queue data. Defaults to WSDATA_COLLAB_DELETE.
             ws_data (dict, optional): data to send to the websocket: if not set, a GulpDeleteCollabPacket with object id will be sent.
             req_id (str, optional): The ID of the request. Defaults to None.
+            raise_on_error (bool): Whether to raise an exception on error. Defaults to True.
         Returns:
             None
         """
@@ -1089,7 +1091,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             await sess.commit()
         except Exception as e:
             await sess.rollback()
-            raise e
+            if raise_on_error:
+                raise e
 
         if not ws_id:
             # done
@@ -1349,7 +1352,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     @classmethod
     async def acquire_advisory_lock(cls, sess: AsyncSession, obj_id: str) -> None:
         """
-        Acquire an advisory lock, with retry logic.
+        Acquire an advisory lock
 
         Args:
             sess (AsyncSession): The database session to use.
