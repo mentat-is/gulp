@@ -53,7 +53,7 @@ gulp can be of course [integrated with other applications](./docs/integration.md
 ## installation
 
 - [docker](<./docs/install_docker.md>)
-- [install from sources/dev setup](./docs/instal_dev.md)
+- [install from sources/dev setup](./docs/install_dev.md)
 - [installing extra plugins](./docs/install_dev.md#7-optional-installing-extra-plugins)
 
 ### clients
