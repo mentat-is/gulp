@@ -8,6 +8,8 @@
 
 ## pull latest image directly from docker hub
 
+> **WARNING**: this **may** be outdated, rebuild it following the docs below or use the [dev install](./install_dev.md) instead.
+
 ```bash
 docker run mentatis/gulp-core:latest
 ```
