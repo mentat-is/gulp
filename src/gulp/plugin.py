@@ -345,10 +345,18 @@ class GulpPluginCache:
 
 class GulpInternalEventsManager:
     """
-    Singleton class to manage internal events broadcasted from core to plugins
+    Singleton class to manage internal events
+    
+    internal events are broadcasted by the engine to registered plugins.
+
+    a plugin registers to receive internal events by calling GulpInternalEventsManager.register(plugin, types) where `types` is a list of event types the plugin is interested in.
+
+    when an event is broadcasted (by core itself or by a plugin, calling GulpInternalEventsManager.broadcast_event), core calls the `internal_event_callback` method of each registered plugin that is interested in the event type.
     """
 
     _instance: "GulpInternalEventsManager" = None
+
+    # these events are broadcasted by core itself to registered plugins
     EVENT_LOGIN: str = WSDATA_USER_LOGIN  # data={ "user_id": str, "ip": str }
     EVENT_LOGOUT: str = WSDATA_USER_LOGOUT  # data={ "user_id": str, "ip": str }
     EVENT_INGEST: str = "ingestion"
@@ -391,7 +399,7 @@ class GulpInternalEventsManager:
 
         Args:
             plugin (GulpPluginBase): The plugin to register.
-            types (list[str], optional): The list of event types the plugin is interested in. If not set, the plugin will receive all events.
+            types (list[str], optional): a list of events the plugin is interested in
         """
         name: str = plugin.bare_filename
         if name not in self._plugins.keys():
@@ -402,10 +410,10 @@ class GulpInternalEventsManager:
                 "plugin_instance": plugin,  # the plugin instance
                 "types": types if types else [],
             }
-        else:
-            MutyLogger.get_instance().warning(
-                "plugin %s already registered to receive internal events" % (name)
-            )
+        # else:
+        #     MutyLogger.get_instance().warning(
+        #         "plugin %s already registered to receive internal events" % (name)
+        #     )
 
     def deregister(self, plugin: str) -> None:
         """
@@ -426,18 +434,18 @@ class GulpInternalEventsManager:
 
     async def broadcast_event(self, t: str, data: dict) -> None:
         """
-        Broadcast an event to all registered plugin event queues.
+        Broadcast an event to all plugins registered to receive it.
 
         Args:
-            t: str: The type of the event.
-            data: dict: The data to send with the event.
+            t: str: the event (must be previously registered with GulpInternalEventsManager.register)
+            data: dict: The data to send with the event (event-specific)
         Returns:
             None
         """
         ev: GulpInternalEvent = GulpInternalEvent(
             type=t, timestamp_msec=muty.time.now_msec(), data=data
         )
-        for plugin, entry in self._plugins.items():
+        for _, entry in self._plugins.items():
             p: GulpPluginBase = entry["plugin_instance"]
             if t in entry["types"]:
                 try:

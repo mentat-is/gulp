@@ -26,6 +26,7 @@ src/gulp/libgulp
 # misc
 copilot-instructions.md
 chatmodes
+prompts
 export.csv
 export.json
 gulp_cfg.json

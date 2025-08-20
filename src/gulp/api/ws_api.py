@@ -48,14 +48,14 @@ WSDATA_NEW_CONTEXT = "new_context"
 WSDATA_GENERIC = "generic"
 
 # the following data types sent on the websocket are to be used to track status
-WSDATA_STATS_UPDATE = "stats_update" # this is sent each time a GulpRequestStats is updated on the collab db (at start of the operation, and in the end, usually)
-WSDATA_INGEST_SOURCE_DONE = "ingest_source_done" # this is sent in the end of an ingestion operation, one per source
+WSDATA_STATS_UPDATE = "stats_update"  # this is sent each time a GulpRequestStats is updated on the collab db (at start of the operation, and in the end, usually)
+WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # this is sent in the end of an ingestion operation, one per source
 WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
 WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
-WSDATA_PROGRESS = "progress" # this is sent to indicate query progrress during, indicates current/total queries being performed and optionally a progress message
-WSDATA_ENRICH_DONE = "enrich_done" # this is sent in the end of an enrichment operation
-WSDATA_TAG_DONE = "tag_done" # this is sent in the end of a tag operation
-WSDATA_QUERY_GROUP_MATCH = "query_group_match" # this is sent to indicate a query group match, i.e. a query group that matched some queries
+WSDATA_PROGRESS = "progress"  # this is sent to indicate query progrress during, indicates current/total queries being performed and optionally a progress message
+WSDATA_ENRICH_DONE = "enrich_done"  # this is sent in the end of an enrichment operation
+WSDATA_TAG_DONE = "tag_done"  # this is sent in the end of a tag operation
+WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # this is sent to indicate a query group match, i.e. a query group that matched some queries
 
 # special token used to monitor also logins
 WSTOKEN_MONITOR = "monitor"
@@ -554,7 +554,7 @@ class GulpWsData(BaseModel):
     type: str = Field(..., description="The type of data carried by the websocket.")
     ws_id: Optional[str] = Field(
         None,
-        description="The target WebSocket ID, may be None only if `internal` is set.",
+        description="The target WebSocket ID, may be None only if `internal` is set or if the message must be broadcast to all connected websockets.",
     )
     user_id: Optional[str] = Field(None, description="The user who issued the request.")
     req_id: Optional[str] = Field(None, description="The request ID.")
@@ -1168,7 +1168,7 @@ class GulpConnectedSockets:
         )
 
     async def _route_message(
-        self, data: GulpWsData, client_ws: GulpConnectedSocket
+        self, data: GulpWsData, target_ws: GulpConnectedSocket
     ) -> bool:
         """
         determines if a message should be routed to the target websocket
@@ -1176,54 +1176,38 @@ class GulpConnectedSockets:
 
         Args:
             data (GulpWsData): the data to route
-            client_ws (GulpConnectedSocket): the target websocket
+            target_ws (GulpConnectedSocket): the target websocket
 
         Returns:
             bool: True if message was routed, False otherwise
         """
 
-        async def _route(data: GulpWsData, client_ws: GulpConnectedSocket):
-            """put message in the target websocket queue"""
-            message = data.model_dump(
-                exclude_none=True, exclude_defaults=True, by_alias=True
-            )
-
-            await client_ws.put_message(message)
-
         # skip if not a default socket
-        if client_ws.socket_type != GulpWsType.WS_DEFAULT:
+        if target_ws.socket_type != GulpWsType.WS_DEFAULT:
             return False
 
         # check type filter
-        if client_ws.types and data.type not in client_ws.types:
+        if target_ws.types and data.type not in target_ws.types:
             return False
 
         # check operation filter
-        if client_ws.operation_ids and data.operation_id not in client_ws.operation_ids:
+        if target_ws.operation_ids and data.operation_id not in target_ws.operation_ids:
             return False
 
         # handle private messages
         if data.private and data.type != WSDATA_USER_LOGIN:
-            if client_ws.ws_id != data.ws_id:
+            if target_ws.ws_id != data.ws_id:
                 return False
 
-        # check message distribution rules
-        broadcast_types = {
-            WSDATA_COLLAB_UPDATE,
-            WSDATA_COLLAB_DELETE,
-            WSDATA_NEW_CONTEXT,
-            WSDATA_NEW_SOURCE,
-            WSDATA_INGEST_SOURCE_DONE,
-            WSDATA_REBASE_DONE,
-            WSDATA_USER_LOGIN,
-            WSDATA_USER_LOGOUT,
-        }
-
-        if data.type not in broadcast_types and client_ws.ws_id != data.ws_id:
+        # check message distribution rules (broadcast only the specified types or if ws_id matches)
+        if data.type not in GulpWsSharedQueue.get_instance().broadcast_types and (data.ws_id and target_ws.ws_id != data.ws_id):
             return False
 
         # all checks passed, send the message
-        await _route(data, client_ws)
+        message = data.model_dump(
+            exclude_none=True, exclude_defaults=True, by_alias=True
+        )
+        await target_ws.put_message(message)
         return True
 
     async def _process_internal_message(self, data: GulpWsData) -> None:
@@ -1303,7 +1287,21 @@ class GulpWsSharedQueue:
     SUB_BATCH_SIZE = 20
 
     def __init__(self):
-        pass
+        # these are the fixed broadcast types that are always sent to all connected websockets
+        self.broadcast_types: list[str] = {
+            WSDATA_COLLAB_UPDATE,
+            WSDATA_COLLAB_DELETE,
+            WSDATA_NEW_CONTEXT,
+            WSDATA_NEW_SOURCE,
+            WSDATA_INGEST_SOURCE_DONE,
+            WSDATA_REBASE_DONE,
+            WSDATA_USER_LOGIN,
+            WSDATA_USER_LOGOUT,
+        }
+        self._initialized: bool = True
+        self._shared_q: Queue = None
+        self._fill_task: asyncio.Task = None
+        self._last_queue_warning: int = 0  # just for metrics...
 
     def __new__(cls):
         """
@@ -1311,7 +1309,6 @@ class GulpWsSharedQueue:
         """
         if not cls._instance:
             cls._instance = super().__new__(cls)
-            cls._instance._initialize()
         return cls._instance
 
     @classmethod
@@ -1326,11 +1323,25 @@ class GulpWsSharedQueue:
             cls._instance = cls()
         return cls._instance
 
-    def _initialize(self):
-        self._initialized: bool = True
-        self._shared_q: Queue = None
-        self._fill_task: asyncio.Task = None
-        self._last_queue_warning: int = 0  # just for metrics...
+    def add_broadcast_type(self, t: str) -> None:
+        """
+        Adds a new type to the broadcast types list: this type will be broadcast according to the rules defined in GulpConnectedSockets.
+
+        Args:
+            type (str): The type to add.
+        """
+        if t not in self._broadcast_types:
+            self._broadcast_types.append(t)
+
+    def remove_broadcast_type(self, t: str) -> None:
+        """
+        Removes a type from the broadcast types list.
+
+        Args:
+            type (str): The type to remove.
+        """
+        if t in self._broadcast_types:
+            self._broadcast_types.remove(t)
 
     def set_queue(self, q: Queue) -> None:
         """
@@ -1654,8 +1665,8 @@ class GulpWsSharedQueue:
     async def put(
         self,
         type: str,
-        ws_id: str,
         user_id: str,
+        ws_id: str=None,
         operation_id: str = None,
         req_id: str = None,
         data: Any = None,
@@ -1669,8 +1680,8 @@ class GulpWsSharedQueue:
 
         args:
             type (str): the type of data being queued
-            ws_id (str): the websocket id that will receive the message
             user_id (str): the user id associated with this message
+            ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
             operation_id (Optional[str]): the operation id if applicable
             req_id (Optional[str]): the request id if applicable
             data (Optional[Any]): the payload data
@@ -1684,7 +1695,7 @@ class GulpWsSharedQueue:
         # verify websocket is alive for document chunks - this allows interrupting
         # lengthy processes if the websocket is no longer connected
         if type == WSDATA_DOCUMENTS_CHUNK:
-            if not GulpConnectedSocket.is_alive(ws_id):
+            if not ws_id or not GulpConnectedSocket.is_alive(ws_id):
                 raise WebSocketDisconnect("websocket '%s' is not connected!" % (ws_id))
 
         # create the message

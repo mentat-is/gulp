@@ -118,10 +118,13 @@ class GulpRestServer:
         """
         unload extension plugins
         """
-        MutyLogger.get_instance().debug("unloading extension plugins ...")
-        for p in self._extension_plugins:
-            await p.unload()
-        self._extension_plugins = []
+        if self._extension_plugins:
+            MutyLogger.get_instance().debug(
+                "unloading %d extension plugins ..." % (len(self._extension_plugins))
+            )
+            for p in self._extension_plugins:
+                await p.unload()
+            self._extension_plugins = []
 
     async def _load_extension_plugins(self) -> None:
         """
