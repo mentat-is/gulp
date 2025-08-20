@@ -17,6 +17,10 @@ gulp[gULP
   main
   API server]
 
+bridges[external 
+ingestion
+  bridge apps]
+
 collab[(PostgreSQL
   collaboration DB)]
 
@@ -50,12 +54,15 @@ gulp <-->|users,
   stats
   | collab
 
+bridges<-->|ingest| gulp
 gulp <-->|extend api| extension_plugin
 gulp -->|ingest| plugin
 plugin-.ingest.->opensearch
 gulp<--query-->opensearch
 gulp<-->|query|external_plugin<-->|query|external_source
 external_plugin-->|ingest|opensearch
+bridges<-->|fetch| external_source
+
 ```
 
 All components are based on the [muty utility library](https://github.com/mentat-is/muty-python)
