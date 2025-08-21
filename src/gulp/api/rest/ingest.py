@@ -529,7 +529,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
     try:
         # handle multipart request manually
         file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
-            r=r, operation_id=operation_id, context_name=context_name
+            r=r, operation_id=operation_id, context_name=context_name, prefix=req_id
         )
         if not result.done:
             # must continue upload with a new chunk
@@ -1188,7 +1188,7 @@ async def ingest_zip_handler(
             # handle multipart request manually
             file_path, payload, result = (
                 await ServerUtils.handle_multipart_chunked_upload(
-                    r=r, operation_id=operation_id, context_name=context_name
+                    r=r, operation_id=operation_id, context_name=context_name, prefix=req_id    
                 )
             )
             if not result.done:

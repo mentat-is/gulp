@@ -182,7 +182,7 @@ class ServerUtils:
 
     @staticmethod
     async def handle_multipart_chunked_upload(
-        r: Request, operation_id: str, context_name: str
+        r: Request, operation_id: str, context_name: str, prefix: str = None
     ) -> Tuple[str, dict, GulpUploadResponse]:
         """
         Handles a chunked upload request with multipart content, with resume support.
@@ -200,7 +200,7 @@ class ServerUtils:
             r (Request): The FastAPI request object.
             operation_id (str): The operation ID.
             context_name (str): The context name.
-            req_id (str): The request ID, to allow resuming a previously interrupted upload.
+            prefix (str, optional): An optional prefix for the filename. Defaults to None.
 
         Returns:
             Tuple[str, dict, GulpUploadResponse]: A tuple containing:
@@ -264,6 +264,9 @@ class ServerUtils:
             GulpContext.make_context_id_key(operation_id, context_name),
             filename,
         )
+        if prefix:
+            unique_filename = "%s-%s" % (prefix, unique_filename)
+            
         cache_file_path = muty.file.safe_path_join(cache_dir, unique_filename)
 
         # Check if file is already complete
