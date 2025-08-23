@@ -1167,6 +1167,25 @@ class GulpConnectedSockets:
             f"all active websockets cancelled, count={len(sockets_to_cancel)}"
         )
 
+    def num_connected_sockets(self, default_sockets_only: bool = True) -> int:
+        """
+        returns the number of currently connected sockets
+
+        Args:
+            default_sockets_only (bool): if True, counts only WS_DEFAULT sockets (always fixed 1 per client)
+
+        Returns:
+            int: the number of connected sockets
+        """
+        if default_sockets_only:
+            return sum(
+                1
+                for s in self._sockets.values()
+                if s.socket_type == GulpWsType.WS_DEFAULT
+            )
+
+        return len(self._sockets)
+
     async def _route_message(
         self, data: GulpWsData, target_ws: GulpConnectedSocket
     ) -> bool:
@@ -1182,7 +1201,7 @@ class GulpConnectedSockets:
             bool: True if message was routed, False otherwise
         """
 
-        # skip if not a default socket
+        # route only to WS_DEFAULT sockets: these are the sockets used by the UI for receiving most of the data (collab objects and chunks), corresponding to the ws_id in most of the API calls
         if target_ws.socket_type != GulpWsType.WS_DEFAULT:
             return False
 
@@ -1200,7 +1219,9 @@ class GulpConnectedSockets:
                 return False
 
         # check message distribution rules (broadcast only the specified types or if ws_id matches)
-        if data.type not in GulpWsSharedQueue.get_instance().broadcast_types and (data.ws_id and target_ws.ws_id != data.ws_id):
+        if data.type not in GulpWsSharedQueue.get_instance().broadcast_types and (
+            data.ws_id and target_ws.ws_id != data.ws_id
+        ):
             return False
 
         # all checks passed, send the message
@@ -1666,7 +1687,7 @@ class GulpWsSharedQueue:
         self,
         type: str,
         user_id: str,
-        ws_id: str=None,
+        ws_id: str = None,
         operation_id: str = None,
         req_id: str = None,
         data: Any = None,
