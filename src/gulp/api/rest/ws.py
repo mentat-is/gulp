@@ -606,7 +606,7 @@ class GulpAPIWebsocket:
         1. client sends a json request with GulpWsAuthParameters
         2. server accepts the connection and checks the token and ws_id
         3. on error, server sends a GulpWsErrorPacket and closes the connection. on success, it sends a GulpWsAcknowledgedPacket and starts the main loop.
-        4. client streams GulpWsClientData which is routed to all other clients connected to /ws_client_data
+        4. client streams GulpWsClientData which is routed to other clients connected to /ws_client_data
 
         Args:
             websocket (WebSocket): The websocket object.
@@ -669,16 +669,28 @@ class GulpAPIWebsocket:
                     type=WSDATA_CLIENT_DATA,
                     ws_id=ws.ws_id,
                     user_id=user_id,
+                    operation_id=client_ui_data.operation_id,
                     data=client_ui_data.model_dump(exclude_none=True),
                 )
 
-                # route to all connected client_data websockets
+                # route to connected client_data websockets
                 s = GulpConnectedSockets.get_instance()
+
                 # pylint: disable=protected-access
                 for _, cws in s._sockets.items():
                     if (
                         ws.ws_id == cws.ws_id
                         or cws.socket_type != GulpWsType.WS_CLIENT_DATA
+                        # filter by operation_id if set
+                        or (
+                            client_ui_data.operation_id
+                            and client_ui_data.operation_id not in cws.operation_ids
+                        )
+                        # filter by user_id if set
+                        or (
+                            client_ui_data.target_user_ids
+                            and user_id not in client_ui_data.target_user_ids
+                        )
                     ):
                         # skip this ws
                         continue

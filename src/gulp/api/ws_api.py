@@ -386,9 +386,17 @@ class GulpClientDataPacket(BaseModel):
             "examples": [
                 {
                     "data": {"something": "12345"},
+                    "operation_id": "test_operation",
+                    "target_user_ids": ["admin", "user"],
                 }
             ]
         }
+    )
+    operation_id: Optional[str] = Field(
+        description="the operation ID this data belongs to: if not set, the data is broadcast to all connected websockets.",
+    )
+    target_user_ids: Optional[list[str]] = Field(
+        None, description="optional list of user IDs to send this data to only: if not set, data is broadcast to all connected websockets."
     )
     data: dict = Field(..., description="arbitrary data")
 
