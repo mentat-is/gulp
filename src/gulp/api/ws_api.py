@@ -317,6 +317,28 @@ class GulpCollabCreateUpdatePacket(BaseModel):
     )
 
 
+class GulpCollabGenericNotifyPacket(BaseModel):
+    """
+    Represents a generic notify
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "data": {"value1": "vvv", "value2": 12345},
+                    "type": "my_custom_type",
+                }
+            ]
+        },
+    )
+    type: str = Field(
+        description="An arbitrary application specific notify type.",
+    )
+    data: dict = Field(None, description="Some optional arbitrary data.")
+
+
 class GulpWsError(StrEnum):
     """
     Used for "error_code" in GulpWsErrorPacket
@@ -396,7 +418,8 @@ class GulpClientDataPacket(BaseModel):
         description="the operation ID this data belongs to: if not set, the data is broadcast to all connected websockets.",
     )
     target_user_ids: Optional[list[str]] = Field(
-        None, description="optional list of user IDs to send this data to only: if not set, data is broadcast to all connected websockets."
+        None,
+        description="optional list of user IDs to send this data to only: if not set, data is broadcast to all connected websockets.",
     )
     data: dict = Field(..., description="arbitrary data")
 
@@ -1198,8 +1221,14 @@ class GulpConnectedSockets:
         self, data: GulpWsData, target_ws: GulpConnectedSocket
     ) -> bool:
         """
-        determines if a message should be routed to the target websocket
-        and sends it if appropriate
+        determines if a message should be routed to the target websocket and sends it if appropriate
+
+        the message is routed if:
+        - the target_ws is of type WS_DEFAULT
+        - the target_ws types is None or includes data.type
+        - the target_ws operation_ids is None or includes data.operation_id
+        - if data.private is True, message is routed if the target_ws.ws_id matches data.ws_id
+        - if data.type is not in the broadcast_types, message is routed if either data.ws_id is None (broadcast to all) or matches target_ws.ws_id
 
         Args:
             data (GulpWsData): the data to route
@@ -1239,15 +1268,13 @@ class GulpConnectedSockets:
         await target_ws.put_message(message)
         return True
 
-    async def _process_internal_message(self, data: GulpWsData) -> None:
+    async def _route_internal_message(self, data: GulpWsData) -> None:
         """
-        processes internal messages that do not require routing
+        route message NOT to connected clients BUT to the plugins which registered for it
 
         Args:
             data (GulpWsData): The internal message to process.
         """
-        # handle internal messages here
-        # for now, just log it
         # self._logger.debug(f"processing internal message: {data}")
         from gulp.plugin import GulpInternalEventsManager
 
@@ -1266,8 +1293,8 @@ class GulpConnectedSockets:
             skip_list (list[str], optional): The list of websocket IDs to skip. Defaults to None.
         """
         if data.internal:
-            # this is an internal message, skip routing and process directly
-            await self._process_internal_message(data)
+            # this is an internal message, route to plugins
+            await self._route_internal_message(data)
             return
 
         # create copy to avoid modification during iteration
@@ -1318,6 +1345,7 @@ class GulpWsSharedQueue:
     def __init__(self):
         # these are the fixed broadcast types that are always sent to all connected websockets
         self.broadcast_types: list[str] = {
+            WSDATA_GENERIC,
             WSDATA_COLLAB_UPDATE,
             WSDATA_COLLAB_DELETE,
             WSDATA_NEW_CONTEXT,
@@ -1740,8 +1768,6 @@ class GulpWsSharedQueue:
         )
 
         # attempt to add with exponential backoff
-        logger = MutyLogger.get_instance()
-
         for retry in range(self.MAX_RETRIES):
             try:
                 self._shared_q.put(wsd, block=True, timeout=self.QUEUE_TIMEOUT)
@@ -1754,7 +1780,7 @@ class GulpWsSharedQueue:
                 )
 
                 # log the attempt with more consistent formatting
-                logger.warning(
+                MutyLogger.get_instance().warning(
                     f"queue full for ws {ws_id}, attempt {retry+1}/{self.MAX_RETRIES}, "
                     f"backoff for {backoff_time:.2f}s"
                 )
@@ -1765,8 +1791,43 @@ class GulpWsSharedQueue:
 
         # all retries failed
         queue_size = self._shared_q.qsize() if self._shared_q else "unknown"
-        logger.error(
+        MutyLogger.get_instance().error(
             f"failed to add {type} message to queue for ws {ws_id} after "
             f"{self.MAX_RETRIES} attempts (queue size: {queue_size})"
         )
         raise WsQueueFullException(f"queue full for ws {ws_id}")
+
+    async def put_generic_notify(
+        self,
+        t: str,
+        user_id: str,
+        d: dict = None,
+        operation_id: str = None,
+        ws_id: str = None,
+        req_id: str = None,
+    ) -> None:
+        """
+        a shortcut method to send generic notify messages to the queue, to be routed among connected sockets
+
+        args:
+            t (str): the custom notify type
+            user_id (str): the user id associated with this message
+            d (dict, optional): the payload data. Defaults to None.
+            operation_id (Optional[str]): the operation id if applicable
+            ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
+            req_id (str, optional): the request id if applicable
+        """
+
+        if d is None:
+            d = {}
+
+        p: GulpCollabGenericNotifyPacket = GulpCollabGenericNotifyPacket(type=t, data=d)
+        d = p.model_dump(exclude_none=True, exclude_defaults=True)
+        await self.put(
+            type=WSDATA_GENERIC,
+            user_id=user_id,
+            ws_id=ws_id,
+            operation_id=operation_id,
+            req_id=req_id,
+            data=d,
+        )
