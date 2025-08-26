@@ -1,18 +1,29 @@
+import asyncio
 import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
 
-from gulp_client.common import _ensure_reset, _ensure_test_operation
+from gulp_client.common import _ensure_test_operation
 from gulp_client.db import GulpAPIDb
 from gulp_client.operation import GulpAPIOperation
 from gulp_client.query import GulpAPIQuery
 from gulp_client.user import GulpAPIUser
-from gulp_client.test_values import TEST_OPERATION_ID
+from gulp_client.test_values import (
+    TEST_OPERATION_ID,
+    TEST_CONTEXT_ID,
+    TEST_SOURCE_ID,
+    TEST_WS_ID,
+    TEST_REQ_ID,
+)
+from gulp_client.note import GulpAPINote
+from gulp_client.operation import GulpAPIOperation
+from gulp.api.collab.structs import GulpCollabFilter
+from gulp_client.object_acl import GulpAPIObjectACL
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
-    await _ensure_reset()
+    await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -27,6 +38,10 @@ async def test_user():
     # test user creation
     test_user_id = "test_user"
     test_user_password = "Test123!"
+    try:
+        await GulpAPIUser.user_delete(admin_token, test_user_id)
+    except Exception:
+        pass
     user = await GulpAPIUser.user_create(
         admin_token, test_user_id, test_user_password, ["read"], "test@example.com"
     )
@@ -97,6 +112,14 @@ async def test_user():
     )
     assert updated["email"] == "mynewemail@email.com"
 
+    # set back to normal
+    updated = await GulpAPIUser.user_update(
+        guest_token,
+        "guest",
+        password="guest",
+    )
+    assert updated["email"] == "mynewemail@email.com"
+
     MutyLogger.get_instance().info(test_user.__name__ + " passed")
 
 
@@ -129,6 +152,11 @@ async def test_session_expiration_update():
 
 @pytest.mark.asyncio
 async def test_user_vs_operations():
+    # ingest some data
+    from tests.ingest.test_ingest import test_win_evtx
+
+    await test_win_evtx()
+
     # login admin, guest
     admin_token = await GulpAPIUser.login("admin", "admin")
     assert admin_token
@@ -136,14 +164,13 @@ async def test_user_vs_operations():
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
 
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
-
-    await test_win_evtx()
-
     # test admin user creation
     test_user_id = "test_admin"
     test_user_password = "Test123!"
+    try:
+        await GulpAPIUser.user_delete(admin_token, test_user_id)
+    except Exception:
+        pass
     test_admin = await GulpAPIUser.user_create(
         admin_token,
         test_user_id,
@@ -157,6 +184,10 @@ async def test_user_vs_operations():
     # test guest user creation
     test_user_id = "test_user"
     test_user_password = "Test123!"
+    try:
+        await GulpAPIUser.user_delete(admin_token, test_user_id)
+    except Exception:
+        pass
     test_user = await GulpAPIUser.user_create(
         admin_token, test_user_id, test_user_password, ["read"], "testuser@example.com"
     )
@@ -176,6 +207,29 @@ async def test_user_vs_operations():
     operations = await GulpAPIQuery.query_operations(test_admin_token)
     assert operations and len(operations) == 1
 
+    # test_user should not see any operations
+    operations = await GulpAPIQuery.query_operations(test_user_token)
+    assert not operations
+
+    # grant user access to the test operation
+    await GulpAPIObjectACL.object_add_granted_user(
+        admin_token,
+        obj_id=TEST_OPERATION_ID,
+        obj_type="operation",
+        user_id="test_user",
+    )
+
+    # test_user should not see any operations
+    operations = await GulpAPIQuery.query_operations(test_user_token)
+    assert operations and len(operations) == 1
+
+    # remove and retest
+    await GulpAPIObjectACL.object_remove_granted_user(
+        admin_token,
+        obj_id=TEST_OPERATION_ID,
+        obj_type="operation",
+        user_id="test_user",
+    )
     operations = await GulpAPIQuery.query_operations(test_user_token)
     assert not operations
 

@@ -35,7 +35,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import REGEX_CHECK_USERNAME, APIDependencies
-from gulp.structs import GulpAPIMethod
+from gulp.structs import GulpAPIMethod, ObjectAlreadyExists, ObjectNotFound
 
 
 class GulpLoginMethod(BaseModel):
@@ -222,7 +222,12 @@ async def login_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             s = await GulpUser.login(
-                sess, user_id=user_id, password=password, ws_id=ws_id, req_id=req_id, user_ip=ip
+                sess,
+                user_id=user_id,
+                password=password,
+                ws_id=ws_id,
+                req_id=req_id,
+                user_ip=ip,
             )
             return JSONResponse(
                 JSendResponse.success(
@@ -350,6 +355,14 @@ the new user id.
         async with GulpCollab.get_instance().session() as sess:
             # only admin can create users
             await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+            # check if the user already exists
+            u: Optional[GulpUser] = await GulpUser.get_by_id(
+                sess, user_id, throw_if_not_found=False
+            )
+            if u:
+                raise ObjectAlreadyExists("user %s already exists." % user_id)
+
             user: GulpUser = await GulpUser.create(
                 sess,
                 user_id,
@@ -603,7 +616,7 @@ async def user_list_handler(
 - `token` needs `admin` permission to get users other than the token user.
 """,
 )
-async def user_get_by_id(
+async def user_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -616,3 +629,4 @@ async def user_get_by_id(
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+

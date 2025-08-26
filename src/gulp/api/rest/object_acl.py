@@ -3,9 +3,8 @@ objects ACLs
 
 implements "least privilege" principle on all the gulp objects:
 
-- all objects are private by default (only owner or admin can access)
 - owner/admin can add/remove users or groups to the object's grants
-- collab objects (notes, highlights, links, stories, stored queries) are public by default
+- collab objects (notes, highlights, links, stories, stored queries, ...) are public by default and can optionally be set(or created directly) private so only owner/admin can access them.
 - all other objects must be added explicit grants (users or groups) to be accessed: i.e. an operation must be granted to a user or group before being "seen".
 """
 
@@ -389,7 +388,7 @@ async def object_make_private_handler(
     description="""
 a public object is accessible by anyone.
 
-- by default, objects are accessible only by the owner or by administrators (`private` objects)
+- a public object has no granted users and groups: `granted_user_ids` and `granted_user_group_ids` are empty lists.
 - `token` needs to be the owner of `obj_id` or have `admin` permission.
 """,
 )

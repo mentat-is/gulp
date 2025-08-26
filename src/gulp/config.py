@@ -516,15 +516,16 @@ class GulpConfig:
         Returns whether to disable password validation when creating users.
         """
         n = False
-        if self.is_integration_test():
-            return False
+        # if self.is_integration_test():
+        #     return False
 
         if __debug__:
             n = self._config.get("debug_allow_insecure_passwords", False)
 
-        MutyLogger.get_instance().warning(
-            "!!!WARNING!!! debug_allow_insecure_passwords is set to True !"
-        )
+        if n:
+            MutyLogger.get_instance().warning(
+                "!!!WARNING!!! debug_allow_insecure_passwords is set to True !"
+            )
         return n
 
     def postgres_url(self) -> str:

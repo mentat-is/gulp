@@ -367,10 +367,13 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             q = q.filter(self._case_insensitive_or_ilike(obj_type.text, self.texts))
 
         if self.model_extra:
-            # handle granted_user_ids and granted_group_ids as special case first
+            # handle granted_user_ids and granted_group_ids as special case first:
+            #
+            # if an object has no granted_user_ids or granted_user_group_ids, it is considered public and accessible to all users
+            # either, the object is accessible to the user if at least one of the granted_user_ids matches the user_id
             granted_user_ids = self.model_extra.pop("granted_user_ids", None)
             granted_group_ids = self.model_extra.pop("granted_user_group_ids", None)
-
+            # print("************************************************ filter: granted_user_ids=%s, granted_group_ids=%s" % (granted_user_ids, granted_group_ids))
             if granted_user_ids or granted_group_ids:
                 # match only objects with the defined granted_user_ids or granted_group_ids
                 conditions = []
