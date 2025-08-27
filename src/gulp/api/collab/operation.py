@@ -247,14 +247,16 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 ws_queue_datatype=WSDATA_NEW_CONTEXT if ws_id else None,
                 ws_id=ws_id,
                 req_id=req_id,
+                private=False,
                 commit=False,
             )
 
             # add same grants to the context as the operation
-            for u in self.granted_user_ids:
-                await ctx.add_user_grant(sess, u, commit=False)
-            for g in self.granted_user_group_ids:
-                await ctx.add_group_grant(sess, g, commit=False)
+            # TODO: at the moment, keep contexts public (ACL checks are only done operation-wide)
+            # for u in self.granted_user_ids:
+            #     await ctx.add_user_grant(sess, u, commit=False)
+            # for g in self.granted_user_group_ids:
+            #     await ctx.add_group_grant(sess, g, commit=False)
 
             # finally commit the session
             await sess.commit()

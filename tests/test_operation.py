@@ -6,7 +6,12 @@ import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 
-from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabFilter
+from gulp.api.collab.structs import (
+    COLLABTYPE_CONTEXT,
+    COLLABTYPE_OPERATION,
+    COLLABTYPE_SOURCE,
+    GulpCollabFilter,
+)
 from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 from gulp_client.common import GulpAPICommon, _ensure_test_operation
 from gulp_client.db import GulpAPIDb
@@ -91,8 +96,8 @@ async def test_operation_api():
     indexes = await GulpAPIDb.opensearch_list_index(admin_token)
     assert not indexes
 
-    # reset whole admin and collab
-    await GulpAPIDb.reset_all_as_admin()
+    # # reset whole admin and collab
+    # await GulpAPIDb.reset_all_as_admin()
 
     # login users
     editor_token = await GulpAPIUser.login("editor", "editor")
@@ -107,8 +112,18 @@ async def test_operation_api():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
+    # ensure clean state: remove ingest from administrators group, delete test operation, delete new operation if exists
+    new_operation_id = "new_operation"
+    try:
+        await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
+        await GulpAPIUserGroup.usergroup_remove_user(
+            admin_token, "ingest", ADMINISTRATORS_GROUP_ID
+        )
+        await GulpAPIOperation.operation_delete(admin_token, new_operation_id)
+    except Exception:
+        pass
+
     # recreate test operation
-    await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
     await GulpAPIOperation.operation_create(
         admin_token, TEST_OPERATION_ID, set_default_grants=True
     )
@@ -154,7 +169,6 @@ async def test_operation_api():
     )
 
     # create new operation with just owner's grants
-    new_operation_id = "new_operation"
     new_operation = await GulpAPIOperation.operation_create(
         admin_token, "new_operation"
     )
@@ -190,7 +204,7 @@ async def test_operation_api():
         user_id="ingest",
     )
 
-    # guest can still see the test operation
+    # guest can see just the test operation
     operations = await GulpAPIOperation.operation_list(
         guest_token, GulpCollabFilter(names=[TEST_OPERATION_ID])
     )
@@ -202,7 +216,7 @@ async def test_operation_api():
         assert o["id"] in [TEST_OPERATION_ID, new_operation_id]
     assert operations and len(operations) == 2
 
-    # now no more
+    # remove ingest's direct access
     await GulpAPIObjectACL.object_remove_granted_user(
         token=ingest_token,
         obj_id=new_operation_id,
@@ -225,7 +239,6 @@ async def test_operation_api():
     )
 
     # now ingest can see the new operation again
-
     operations = await GulpAPIOperation.operation_list(ingest_token)
     assert operations and len(operations) == 2
 
@@ -245,6 +258,59 @@ async def test_operation_api():
         if n.endswith(".csv"):
             source_id = s["id"]
             break
+
+    # guest can no more see context (from public, we turn the context to a grant-only object assigning it to "ingest" user only (and admin, implied))
+    await GulpAPIObjectACL.object_add_granted_user(
+        admin_token, context_id, COLLABTYPE_CONTEXT, "ingest"
+    )
+    contexts = await GulpAPIOperation.context_list(guest_token, TEST_OPERATION_ID)
+    assert not contexts
+
+    # same for sources
+    await GulpAPIObjectACL.object_add_granted_user(
+        admin_token, source_id, COLLABTYPE_SOURCE, "ingest"
+    )
+    sources = await GulpAPIOperation.source_list(
+        guest_token, TEST_OPERATION_ID, context_id=context_id
+    )
+    assert not sources
+
+    # ingest was explicitly granted access to context so he can see it
+    contexts = await GulpAPIOperation.context_list(ingest_token, TEST_OPERATION_ID)
+    assert contexts and len(contexts) == 1
+
+    # now guest can see context and source again (excplicitly added as well)
+    await GulpAPIObjectACL.object_add_granted_user(
+        admin_token, context_id, COLLABTYPE_CONTEXT, "guest"
+    )
+    await GulpAPIObjectACL.object_add_granted_user(
+        admin_token, source_id, COLLABTYPE_SOURCE, "guest"
+    )
+
+    contexts = await GulpAPIOperation.context_list(guest_token, TEST_OPERATION_ID)
+    assert contexts and len(contexts) == 1
+    sources = await GulpAPIOperation.source_list(
+        guest_token, TEST_OPERATION_ID, context_id=context_id
+    )
+    assert sources and len(sources) == 1
+
+    # update source color/desc
+    source = await GulpAPIOperation.source_get_by_id(guest_token, source_id)
+    assert source.get("color") == "purple"
+    source = await GulpAPIOperation.source_update(
+        ingest_token, source_id, color="red", description="new description"
+    )
+    assert source.get("color") == "red"
+    assert source.get("description") == "new description"
+
+    # same for context
+    context = await GulpAPIOperation.context_get_by_id(guest_token, context_id)
+    assert context.get("color") == "white"
+    context = await GulpAPIOperation.context_update(
+        ingest_token, context_id, color="red", description="new description"
+    )
+    assert context.get("color") == "red"
+    assert context.get("description") == "new description"
 
     # delete source with data
     d = await GulpAPIOperation.source_delete(

@@ -149,6 +149,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
 
                 # ensure sigma mappings are stored in the mapping parameters if set, to avoid having to reload them from file
                 from gulp.api.opensearch.sigma import get_sigma_mappings
+
                 sigma_mappings = await get_sigma_mappings(mapping_parameters)
                 if sigma_mappings:
                     mapping_parameters.sigma_mappings = sigma_mappings
@@ -167,9 +168,9 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 ws_id=ws_id,
                 req_id=req_id,
                 commit=False,
+                private=False,
             )
 
-            # add same grants to the source as the context
             MutyLogger.get_instance().debug(
                 "context %s granted_user_ids=%s, granted_group_ids=%s"
                 % (
@@ -178,10 +179,12 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                     self.granted_user_group_ids,
                 )
             )
-            for u in self.granted_user_ids:
-                await src.add_user_grant(sess, u, commit=False)
-            for g in self.granted_user_group_ids:
-                await src.add_group_grant(sess, g, commit=False)
+            # TODO: at the moment, keep sources public (ACL checks are only done operation-wide)
+            # add same grants to the source as the context
+            # for u in self.granted_user_ids:
+            #     await src.add_user_grant(sess, u, commit=False)
+            # for g in self.granted_user_group_ids:
+            #     await src.add_group_grant(sess, g, commit=False)
 
             # finally commit the session
             await sess.commit()

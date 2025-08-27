@@ -1492,7 +1492,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         q = flt.to_select_query(cls)
         q = q.options(*cls._build_eager_loading_options(recursive=recursive))
         # MutyLogger.get_instance().debug(
-        #     "get_by_filter, flt=%s, user_id=%s, query:\n%s" % (flt, user_id, q)
+        #     "get_by_filter, user_id=%s, is_admin=%r, flt=%s, query:\n%s"
+        #     % (user_id, is_admin, flt, q)
         # )
         res = await sess.execute(q)
         objects = res.scalars().all()
@@ -1675,7 +1676,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # token needs at least read permission
             s = await GulpUserSession.check_token(sess, token, permission=permission)
             user_id = s.user_id
-            MutyLogger.get_instance().debug("get_by_filter, user_id=%s" % (user_id))
+            #MutyLogger.get_instance().debug("get_by_filter_wrapper, user_id=%s" % (user_id))
 
             objs = await cls.get_by_filter(
                 sess,
@@ -1691,7 +1692,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 data.append(o.to_dict(exclude_none=True, nested=recursive))
 
             MutyLogger.get_instance().debug(
-                "user %s get_by_filter_result: %s"
+                "get_by_filter_wrapper, user_id: %s, result: %s"
                 % (s.user.id, muty.string.make_shorter(str(data), max_len=260))
             )
 

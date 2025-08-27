@@ -37,4 +37,5 @@ build
 *log*.txt
 output.txt
 start_splunk.sh
+supported_formats.md
 

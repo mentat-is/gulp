@@ -611,6 +611,91 @@ async def context_create_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+@router.patch(
+    "/context_update",
+    tags=["operation"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpContext.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="updates an existing context.",
+    description="""
+- `token` needs `edit` permission.
+""",
+)
+async def context_update_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    context_id: Annotated[str, Depends(APIDependencies.param_context_id)],    
+    color: Annotated[
+        Optional[str],
+        Query(
+            description="new color for the context",
+            example="white",
+        ),
+    ] = None,
+    description: Annotated[
+        Optional[str],
+        Depends(APIDependencies.param_description_optional),
+    ] = None,
+    glyph_id: Annotated[
+        Optional[str],
+        Depends(APIDependencies.param_glyph_id_optional),
+    ] = None,
+    ws_id: Annotated[
+        Optional[str],
+        Depends(APIDependencies.param_ws_id),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        if not any([color, glyph_id, description]):
+            raise ValueError(
+                "At least one of color, description or glyph_id must be provided."
+            )
+
+        async with GulpCollab.get_instance().session() as sess:
+            # get context
+            ctx: GulpContext = await GulpContext.get_by_id(sess, context_id)
+
+            # check acl
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, obj=context_id, permission=GulpUserPermission.EDIT
+            )
+            user_id = s.user_id
+
+            # build update dict
+            d = {}
+            if description:
+                d["description"] = description
+            if glyph_id:
+                d["glyph_id"] = glyph_id
+            if color:
+                d["color"] = color
+
+            # update
+            dd: dict = await ctx.update(
+                sess,
+                d,
+                ws_id=ws_id,
+                req_id=req_id,
+                user_id=user_id,
+            )
+            return JSendResponse.success(req_id=req_id, data=dd)
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
 
 @router.get(
     "/source_list",
@@ -771,6 +856,87 @@ async def source_create_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+@router.patch(
+    "/source_update",
+    tags=["operation"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpSource.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="updates an existing source.",
+    description="""
+- `token` needs `edit` permission.
+""",
+)
+async def source_update_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    source_id: Annotated[str, Depends(APIDependencies.param_source_id)],    
+    color: Annotated[
+        Optional[str],
+        Query(
+            description="new color for the source. Defaults to `purple`.",
+            example="purple",
+        ),
+    ] = None,
+    description: Annotated[
+        Optional[str],
+        Depends(APIDependencies.param_description_optional),
+    ] = None,
+    glyph_id: Annotated[
+        Optional[str],
+        Depends(APIDependencies.param_glyph_id_optional),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        if not any([color, glyph_id, description]):
+            raise ValueError(
+                "At least one of color, description or glyph_id must be provided."
+            )
+
+        async with GulpCollab.get_instance().session() as sess:
+            # get source
+            src: GulpSource = await GulpSource.get_by_id(sess, source_id)
+
+            # check acl
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, obj=src, permission=GulpUserPermission.EDIT
+            )
+            user_id = s.user_id
+
+            # build update dict
+            d = {}
+            if description:
+                d["description"] = description
+            if glyph_id:
+                d["glyph_id"] = glyph_id
+            if color:
+                d["color"] = color
+
+            # update
+            dd: dict = await src.update(
+                sess,
+                d,
+                ws_id=None,  # do not propagate on the websocket
+                req_id=req_id,
+                user_id=user_id,
+            )
+            return JSendResponse.success(req_id=req_id, data=dd)
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
 
 @router.delete(
     "/source_delete",
