@@ -539,7 +539,7 @@ class GulpPluginBase(ABC):
         self.bare_filename = os.path.splitext(self.filename)[0]
 
         # to have faster access to the plugin name
-        self.name = self.display_name()
+        self.name = self.internal_name()
 
         # tell if the plugin has been pickled by the multiprocessing module (internal)
         self._pickled: bool = pickled
@@ -690,6 +690,14 @@ class GulpPluginBase(ABC):
         """
         the supported plugin types.
         """
+
+    def internal_name(self) -> str:
+        """
+        Returns the internal plugin name (the bare filename without extension, i.e. win_evtx for win_evtx.py, to be used as `plugin` throughout the whole gulp API).
+
+        may be overridden to return a different internal name.
+        """
+        return self.bare_filename
 
     def is_running_in_main_process(self) -> bool:
         """
