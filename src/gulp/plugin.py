@@ -346,7 +346,7 @@ class GulpPluginCache:
 class GulpInternalEventsManager:
     """
     Singleton class to manage internal events
-    
+
     internal events are broadcasted by the engine to registered plugins.
 
     a plugin registers to receive internal events by calling GulpInternalEventsManager.register(plugin, types) where `types` is a list of event types the plugin is interested in.
@@ -656,8 +656,8 @@ class GulpPluginBase(ABC):
         # )
         self._license_stub = kwargs.get("license_stub")
         self._license_func = kwargs.get("license_func")
-        # print(
-        #     "INIT_LICENSE_STUB, %s, license_stub=%s, license_func=%s"
+        # MutyLogger.get_instance().debug(
+        #     "---> protected plugin __init__, INIT_LICENSE_STUB, %s, license_stub=%s, license_func=%s"
         #     % (self, self._license_stub, self._license_func)
         # )
 
@@ -1123,9 +1123,8 @@ class GulpPluginBase(ABC):
         stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-        last: bool=False,
-        **kwargs
-
+        last: bool = False,
+        **kwargs,
     ) -> GulpRequestStatus:
         """
         ingest a chunk of arbitrary data
@@ -1165,10 +1164,11 @@ class GulpPluginBase(ABC):
         self._ingest_index = index
         self._raw_ingestion = True
         self._stats = stats
-        self._last_raw_chunk= last
+        self._last_raw_chunk = last
 
         MutyLogger.get_instance().debug(
-            f"ingesting raw,  num documents={len(chunk)}, plugin {self.name}, last={last}, user_id={user_id}, operation_id={operation_id}, index={index}, ws_id={ws_id}, req_id={req_id}")
+            f"ingesting raw,  num documents={len(chunk)}, plugin {self.name}, last={last}, user_id={user_id}, operation_id={operation_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
+        )
 
         # initialize
         await self._initialize(plugin_params=plugin_params)
@@ -1197,7 +1197,7 @@ class GulpPluginBase(ABC):
 
         # call the plugin function
         docs = await self._enrich_documents_chunk(docs, **kwargs)
-        self._tot_enriched += len(docs)        
+        self._tot_enriched += len(docs)
         MutyLogger.get_instance().debug(f"enriched ({self.name}) {len(docs)} documents")
 
         if docs:
@@ -2692,6 +2692,7 @@ class GulpPluginBase(ABC):
         """
         if self._plugin_params.mapping_parameters and not self._preview_mode:
             from gulp.api.opensearch.sigma import get_sigma_mappings
+
             sm = await get_sigma_mappings(self._plugin_params.mapping_parameters)
             self._plugin_params.mapping_parameters.sigma_mappings = sm
 
