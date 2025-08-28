@@ -38,4 +38,5 @@ build
 output.txt
 start_splunk.sh
 supported_formats.md
+build_paid.sh
 

@@ -208,29 +208,35 @@ class ServerUtils:
                 - the parsed JSON payload, if any
                 - the upload response object to be returned to the client.
         """
-
         def _extract_filename(content_disposition: str) -> str:
             """extract filename from Content-Disposition header."""
             if not content_disposition:
                 raise ValueError("Empty Content-Disposition header")
 
-            # normalize to lowercase and remove extra whitespace
-            content_disposition = content_disposition.lower().strip()
+            # split parameters and build a dict of param_name -> value
+            parts = [p.strip() for p in content_disposition.split(";")]
+            params = {}
+            for p in parts[1:]:
+                if "=" in p:
+                    k, v = p.split("=", 1)
+                    params[k.strip().lower()] = v.strip()
 
-            # find filename parameter
-            filename_match = re.search(r"filename\s*=\s*([^;\s]+)", content_disposition)
-            if not filename_match:
-                raise ValueError('No "filename" found in Content-Disposition header')
+            # plain filename parameter (may be quoted and contain spaces)
+            if "filename" in params:
+                filename = params["filename"].strip()
+                # remove surrounding quotes if any
+                if (filename.startswith('"') and filename.endswith('"')) or (
+                    filename.startswith("'") and filename.endswith("'")
+                ):
+                    filename = filename[1:-1]
+                filename = filename.strip()
+                if filename:
+                    MutyLogger.get_instance().debug(
+                        "extracted filename from Content-Disposition: %s" % (filename)
+                    )
+                    return filename
 
-            # Extract and clean filename
-            filename = filename_match.group(1)
-            filename = filename.strip("\"'")  # remove quotes
-            filename = filename.strip()  # remove any remaining whitespace
-
-            if not filename:
-                raise ValueError("Empty filename in Content-Disposition header")
-
-            return filename
+            raise ValueError('No "filename" found in Content-Disposition header')
 
         MutyLogger.get_instance().debug("headers=%s" % (r.headers))
 
@@ -266,14 +272,15 @@ class ServerUtils:
         )
         if prefix:
             unique_filename = "%s-%s" % (prefix, unique_filename)
-            
+
         cache_file_path = muty.file.safe_path_join(cache_dir, unique_filename)
 
         # Check if file is already complete
         current_size = await muty.file.get_size(cache_file_path)
         MutyLogger.get_instance().debug(
-            "cache_file_path=%s, continue_offset=%d, current_size=%d, total_file_size=%d, filename=%s, cache_file_path=%s, payload_dict=%s"
+            "extracted_filename=%s, cache_file_path=%s, continue_offset=%d, current_size=%d, total_file_size=%d, filename=%s, cache_file_path=%s, payload_dict=%s"
             % (
+                filename,
                 cache_file_path,
                 continue_offset,
                 current_size,
@@ -309,7 +316,7 @@ class ServerUtils:
                     # delete uploaded file
                     muty.file.delete_file_or_dir(cache_file_path)
                     raise ValueError(
-                        f"file is complete but file hash/file size mismatch: current_file_size={current_written_size}, expected={
+                        f"file {cache_file_path} is complete but file hash/file size mismatch: current_file_size={current_written_size}, expected={
                             total_file_size}, current_sha1={current_hash}, expected={payload_dict['file_sha1']}"
                     )
 

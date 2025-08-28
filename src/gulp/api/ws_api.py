@@ -60,6 +60,8 @@ WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # this is sent to indicate a que
 # special token used to monitor also logins
 WSTOKEN_MONITOR = "monitor"
 
+SHARED_MEMORY_KEY_ACTIVE_SOCKETS = "active_sockets"
+
 
 class WsQueueFullException(Exception):
     """Exception raised when queue is full after retries"""
@@ -794,7 +796,12 @@ class GulpConnectedSocket:
         if GulpConfig.get_instance().debug_ignore_missing_ws():
             return True
 
-        return ws_id in GulpProcess.get_instance().shared_ws_list
+        active_sockets: list[str] = GulpProcess.get_instance().shared_memory_get(
+            SHARED_MEMORY_KEY_ACTIVE_SOCKETS
+        )
+        if not active_sockets:
+            return False
+        return ws_id in active_sockets
 
     async def _cleanup_tasks(self, tasks: list[asyncio.Task]) -> None:
         """
@@ -820,11 +827,10 @@ class GulpConnectedSocket:
         # remove from global ws list
         from gulp.process import GulpProcess
 
-        try:
-            GulpProcess.get_instance().shared_ws_list.remove(self.ws_id)
-            logger.debug(f"removed ws_id={self.ws_id} from shared_ws_list")
-        except ValueError:
-            logger.debug(f"ws_id={self.ws_id} not found in shared_ws_list")
+        logger.debug(f"removing ws_id={self.ws_id} from active sockets shared list ...")
+        GulpProcess.get_instance().shared_memory_remove_from_list(
+            SHARED_MEMORY_KEY_ACTIVE_SOCKETS, self.ws_id
+        )
 
     async def _receive_loop(self) -> None:
         """
@@ -1114,8 +1120,9 @@ class GulpConnectedSockets:
         # add to global shared list
         from gulp.process import GulpProcess
 
-        GulpProcess.get_instance().shared_ws_list.append(ws_id)
-
+        GulpProcess.get_instance().shared_memory_add_to_list(
+            SHARED_MEMORY_KEY_ACTIVE_SOCKETS, ws_id
+        )
         self._logger.debug(
             f"---> added connected ws: {ws}, id_str={socket_id}, ws_id={ws_id}, len={len(self._sockets)}"
         )
@@ -1149,8 +1156,13 @@ class GulpConnectedSockets:
         from gulp.process import GulpProcess
 
         ws_id = connected_socket.ws_id
-        while ws_id in GulpProcess.get_instance().shared_ws_list:
-            GulpProcess.get_instance().shared_ws_list.remove(ws_id)
+        ws_list: list[str] = GulpProcess.get_instance().shared_memory_get(
+            SHARED_MEMORY_KEY_ACTIVE_SOCKETS
+        )
+        while ws_id in ws_list:
+            GulpProcess.get_instance().shared_memory_remove_from_list(
+                SHARED_MEMORY_KEY_ACTIVE_SOCKETS, ws_id
+            )
 
         # remove from internal maps
         del self._sockets[socket_id]
@@ -1413,7 +1425,7 @@ class GulpWsSharedQueue:
             raise RuntimeError("set_queue() must be called in a worker process")
 
         MutyLogger.get_instance().debug(
-            "setting shared ws queue in worker process: q=%s" % (q)
+            "setting shared ws queue in worker process: q=%s(%s)" % (q, type(q))
         )
         self._shared_q = q
 

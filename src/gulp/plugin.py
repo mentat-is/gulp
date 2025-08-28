@@ -640,9 +640,7 @@ class GulpPluginBase(ABC):
 
     def _init_license_stub(self, **kwargs) -> None:
         """
-        to be called in __init__ to set the license stub and function pointers
-
-        NOTE: this is only needed to check license during i.e. rest API calls exported by the plugin: license check **ALWAYS** happen anyway every time the plugin is called (so, this is not needed for i.e. pure ingestion/query plugins)
+        this is mandatory to be called in __init__ by **extension plugins** to allow using _check_license() and _remove_seat() from inside the plugin, i.e. in rest API handlers.
 
         Args:
             kwargs: **kwargs is passed by the stub and must contain
@@ -661,14 +659,13 @@ class GulpPluginBase(ABC):
         #     % (self, self._license_stub, self._license_func)
         # )
 
-    def _check_license(self) -> None:
+    def _check_license(self, **kwargs) -> None:
         """
-        check the license for the plugin, if the plugin is licensed.
-        this is called by the plugin when it needs to check the license out of its __init__ method.
+        check license, if the plugin is licensed
 
-        Raises:
-            Exception: if the license is not valid or expired
+        NOTE: more info in the license stub code
         """
+
         # print(
         #     "********************************** CHECK LICENSE *************************************************"
         # )
@@ -677,7 +674,17 @@ class GulpPluginBase(ABC):
         #     % (self, self._license_stub, self._license_func)
         # )
         if self._license_func and self._license_stub:
-            self._license_func(self._license_stub)
+            self._license_func(self._license_stub, **kwargs)
+
+    def _remove_seat(self) -> None:
+        """
+        removes a license seat, if the plugin is licensed.
+
+        NOTE: more info in the license stub code
+        """
+
+        if self._license_func and self._license_stub:
+            self._license_stub.remove_seat()
 
     @abstractmethod
     def display_name(self) -> str:
@@ -2974,6 +2981,9 @@ class GulpPluginBase(ABC):
         """
 
         # clear stuff
+        MutyLogger.get_instance().debug(
+            "unload() called for plugin: %s" % (self.bare_filename)
+        )
         self._sess = None
         self._stats = None
         self._mappings.clear()
@@ -2993,7 +3003,6 @@ class GulpPluginBase(ABC):
             # do not unload if cache is enabled
             return
 
-        MutyLogger.get_instance().debug("unloading plugin: %s" % (self.bare_filename))
         GulpPluginCache.get_instance().remove(self.bare_filename)
 
         # # finally delete the module

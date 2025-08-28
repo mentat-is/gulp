@@ -27,8 +27,7 @@ import signal
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Lock, Manager, Queue, Value
-from multiprocessing.managers import SyncManager
-
+from multiprocessing.managers import SyncManager, DictProxy
 from aiomultiprocess import Pool as AioProcessPool
 from asyncio_pool import AioPool as AioCoroPool
 from muty.log import MutyLogger
@@ -74,12 +73,13 @@ class GulpProcess:
         self.coro_pool: AioCoroPool = None
         # allow the main process to spawn worker processes
         self.process_pool: AioProcessPool = None
-        # active websocket ids
-        self.shared_ws_list: list[str] = None
         self._log_level: int = None
         self._logger_file_path: str = None
         self._log_to_syslog: bool = False
         self._main_process: bool = True
+
+        # shared memory between main and worker process
+        self.shared_memory: DictProxy = None
 
     def __new__(cls) -> "GulpProcess":
         """
@@ -126,7 +126,7 @@ class GulpProcess:
         return
 
     @staticmethod
-    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_ws_list: list[str], log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str, str] = None):  # type: ignore
+    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_memory: DictProxy, log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str, str] = None):  # type: ignore
         """
         initializes a worker process
 
@@ -136,7 +136,7 @@ class GulpProcess:
             spawned_processes (Value): shared counter for the number of spawned processes (for ordered initialization)
             lock (Lock): shared lock for spawned_processes (for ordered initialization)
             q (Queue): the shared websocket queue created by the main process
-            shared_ws_list (list[str]): the shared websocket list
+            shared_memory (dict, optional): a dictionary to be used as shared memory between main and worker processes.
             log_level (int, optional): the log level. Defaults to None.
             logger_file_path (str, optional): the logger file path to log to file. Defaults to None, cannot be used with log_to_syslog.
             log_to_syslog (tuple[str,str], optional): the syslog address and facility to log to syslog. Defaults to (None, None).
@@ -171,7 +171,7 @@ class GulpProcess:
                     log_level=log_level,
                     logger_file_path=logger_file_path,
                     q=q,
-                    shared_ws_list=shared_ws_list,
+                    shared_memory=shared_memory,
                     log_to_syslog=log_to_syslog,
                 )
             )
@@ -182,14 +182,15 @@ class GulpProcess:
         spawned_processes.value += 1
         lock.release()
         MutyLogger.get_instance().warning(
-            "workerprocess initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d, ws_queue=%s, shared_ws_list=%s"
+            "_worker_initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d, ws_queue=%s, shared_memory(%s)=%s"
             % (
                 sys.path,
                 MutyLogger.get_instance().level,
                 logger_file_path,
                 spawned_processes.value,
                 q,
-                shared_ws_list,
+                type(shared_memory),
+                shared_memory,
             )
         )
 
@@ -250,10 +251,13 @@ class GulpProcess:
                 self.process_pool = None
                 MutyLogger.get_instance().debug("mp pool closed!")
 
-    async def recreate_process_pool_and_shared_queue(self):
+    async def main_process_init(self):
         """
-        creates (or recreates if already running) the worker processes pool
-        and the shared websocket queue, waiting for them to terminate first.
+        creates (or recreates if already running) the worker process pool, together with
+
+        - shared memory dictionary between main and worker processes
+        - multiprocessing manager and structs
+        - shared websocket queue
 
         each worker starts in _worker_initializer, which further calls init_gulp_process to initialize the worker process.
 
@@ -280,7 +284,8 @@ class GulpProcess:
         # re/create the shared websocket queue (closes it first if already running)
         wsq = GulpWsSharedQueue.get_instance()
         q = await wsq.init_queue(self.mp_manager)
-        self.shared_ws_list = self.mp_manager.list()
+        self.shared_memory = self.mp_manager.dict()
+        self.shared_memory["shmem_initialized"]=True
 
         # start workers, pass the shared queue to each
         self.process_pool = AioProcessPool(
@@ -294,7 +299,7 @@ class GulpProcess:
                 spawned_processes,
                 lock,
                 q,
-                self.shared_ws_list,
+                self.shared_memory,
                 MutyLogger.log_level,
                 MutyLogger.logger_file_path,
                 self._log_to_syslog,
@@ -316,7 +321,7 @@ class GulpProcess:
         log_level: int = None,
         logger_file_path: str = None,
         q: Queue = None,
-        shared_ws_list: list[str] = None,
+        shared_memory: dict = None,
         log_to_syslog: tuple[str, str] = None,
     ) -> None:
         """
@@ -328,14 +333,14 @@ class GulpProcess:
             logger_file_path (str, optional): the log file path for the logger. Defaults to None, cannot be used with log_to_syslog.
             q: (Queue, optional): the shared websocket queue created by the main process(we are called in a worker process).
                 Defaults to None (we are called in the main process)
-            shared_ws_list (list[str], optional): the shared websocket list created by the main process (we are called in a worker process).
+            shared_memory (dict, optional): a dictionary to be used as shared memory between main and worker processes (set to None the in main process when called in the main process on startup, will be created by this function)
             log_to_syslog (bool, optional): whether to log to syslog. Defaults to (None, None).
                 if (None, None) is passed, it defaults to ("/var/log" or "/var/run/syslog" depending what is available, "LOG_USER").
                 cannot be used with logger_file_path.
         """
 
-        # only in a worker process we're passed the queue and shared_ws_list by the process pool initializer
-        self._main_process = q is None and shared_ws_list is None
+        # only in a worker process we're passed the queue and shared_memory by the process pool initializer
+        self._main_process = q is None and shared_memory is None
         if self._main_process:
             if self._log_level:
                 # keep the same as before
@@ -381,10 +386,11 @@ class GulpProcess:
         if self._main_process:
 
             # creates the process pool and shared queue
+            await self.main_process_init()
             MutyLogger.get_instance().warning(
-                "MAIN process initialized, sys.path=%s" % (sys.path)
+                "MAIN process initialized, shared_memory(%s)=%s, sys.path=%s"
+                % (self.shared_memory, type(self.shared_memory), sys.path)
             )
-            await self.recreate_process_pool_and_shared_queue()
 
             # load extension plugins
             from gulp.api.rest_api import GulpRestServer
@@ -393,14 +399,134 @@ class GulpProcess:
             await GulpRestServer.get_instance()._unload_extension_plugins()
             await GulpRestServer.get_instance()._load_extension_plugins()
         else:
-            # worker process, set the queue
-            MutyLogger.get_instance().info("WORKER process initialized!")
+            # worker process, set the queue and shared memory
+            MutyLogger.get_instance().info(
+                "WORKER process initialized, shared_memory(%s)=%s"
+                % (type(shared_memory), self.shared_memory)
+            )
             GulpWsSharedQueue.get_instance().set_queue(q)
-            # and shared list too
-            self.shared_ws_list = shared_ws_list
+            self.shared_memory = shared_memory
 
             # register sigterm handler for the worker process
             signal.signal(signal.SIGTERM, GulpProcess.sigterm_handler)
+
+    def shared_memory_get(self, key: str):
+        """
+        gets data from the shared memory dictionary
+
+        Args:
+            key (str): the key to get
+
+        Returns:
+            any: the value associated with the key, or None if not found
+        """
+        if key in self.shared_memory:
+            return self.shared_memory[key]
+        return None
+
+    def shared_memory_set(self, key: str, value) -> None:
+        """
+        sets data in the shared memory dictionary
+
+        Args:
+            key (str): the key to set
+            value (any): the value to set
+        """
+        self.shared_memory[key] = value
+
+    def shared_memory_delete(self, key: str) -> None:
+        """
+        deletes data from the shared memory dictionary
+
+        Args:
+            key (str): the key to delete
+        """
+        if key in self.shared_memory:
+            del self.shared_memory[key]
+
+    def shared_memory_clear(self) -> None:
+        """
+        clears the shared memory dictionary
+        """
+        self.shared_memory.clear()
+
+    def shared_memory_add_to_list(self, key: str, value) -> None:
+        """
+        adds a value to a list in the shared memory dictionary
+
+        Args:
+            key (str): the key of the list
+            value (any): the value to add to the list
+        """
+        current_list = self.shared_memory.get(key, [])
+        if value not in current_list:
+            current_list.append(value)
+
+            # need to reassign the whole list to trigger the proxy update
+            self.shared_memory[key] = current_list
+        
+    def shared_memory_remove_from_list(self, key: str, value) -> None:
+        """
+        removes a value from a list in the shared memory dictionary
+
+        Args:
+            key (str): the key of the list
+            value (any): the value to remove from the list
+        """
+        if key in self.shared_memory and value in self.shared_memory[key]:
+            current_list = self.shared_memory[key]
+            current_list.remove(value)
+            
+            # need to reassign the whole list to trigger the proxy update
+            self.shared_memory[key] = current_list            
+            
+    def shared_memory_get_from_dict(self, key: str, subkey: str):
+        """
+        gets a value from a dictionary in the shared memory dictionary
+
+        Args:
+            key (str): the key of the dictionary
+            subkey (str): the subkey to get
+
+        Returns:
+            any: the value associated with the subkey, or None if not found
+        """
+        if key in self.shared_memory and subkey in self.shared_memory[key]:            
+            return self.shared_memory[key][subkey]
+        return None
+
+    def shared_memory_set_in_dict(self, key: str, subkey: str, value) -> None:
+        """
+        sets a value to a dictionary in the shared memory dictionary
+
+        Args:
+            key (str): the key of the dictionary
+            subkey (str): the subkey to add
+            value (any): the value to set for the subkey
+        """
+        if key not in self.shared_memory:
+            self.shared_memory[key] = {}
+
+        nested_dict = self.shared_memory[key]
+        nested_dict[subkey] = value
+
+        # need to reassign the whole dict to trigger the proxy update
+        self.shared_memory[key] = nested_dict
+
+    def shared_memory_remove_from_dict(self, key: str, subkey: str) -> None:
+        """
+        removes a subkey from a dictionary in the shared memory dictionary
+
+        Args:
+            key (str): the key of the dictionary
+            subkey (str): the subkey to remove
+        """
+        if key in self.shared_memory and subkey in self.shared_memory[key]:
+            nested_dict = self.shared_memory[key]
+            del nested_dict[subkey]
+
+            # need to reassign the whole dict to trigger the proxy update
+            self.shared_memory[key] = nested_dict
 
     @staticmethod
     async def _worker_cleanup():

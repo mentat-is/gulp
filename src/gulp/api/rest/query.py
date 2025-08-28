@@ -429,6 +429,9 @@ async def _worker_coro(kwds: dict) -> None:
     plugin: str = kwds.get("plugin")
     plugin_params: GulpPluginParameters = kwds.get("plugin_params")
     batch_size: int = GulpConfig.get_instance().concurrency_max_tasks()
+    callback: callable = kwds.get("callback")
+    callback_args: Any = kwds.get("callback_args")
+    callback_async: bool = kwds.get("callback_async", False)
 
     # track overall stats
     all_results: list[tuple[int, Exception, str]] = []
@@ -568,6 +571,15 @@ async def _worker_coro(kwds: dict) -> None:
                 q_group=q_options.group,
             )
 
+        if callback:
+            MutyLogger.get_instance().debug(
+                "calling callback %s, args=%s, async=%s" % (callback, callback_args, callback_async))
+            # call the callback
+            if callback_async:
+                await callback(*callback_args) if callback_args else await callback()
+            else:
+                callback(*callback_args) if callback_args else callback()
+
         # cleanup
         all_results.clear()
         all_errors.clear()
@@ -649,6 +661,9 @@ async def _spawn_query_group_workers(
     plugin_params: GulpPluginParameters = None,
     flt: GulpQueryFilter = None,
     create_stats: bool = True,
+    callback: callable = None,
+    callback_args: Any = None,
+    callback_async: bool = False,
 ) -> None:
     """
     spawns worker tasks for each query and wait them all
@@ -665,6 +680,9 @@ async def _spawn_query_group_workers(
         plugin=plugin,
         plugin_params=plugin_params,
         flt=flt,
+        callback=callback,
+        callback_args=callback_args,
+        callback_async=callback_async,
     )
 
     if create_stats:

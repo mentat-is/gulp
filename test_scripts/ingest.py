@@ -16,6 +16,7 @@ from multiprocessing import Pool
 
 import muty.crypto
 import muty.file
+import muty.string
 import websockets
 from muty.log import MutyLogger
 
@@ -42,7 +43,9 @@ def _parse_args():
         help="user password",
         default="ingest",
     )
-    parser.add_argument("--path", help="File or directory path.", metavar="FILEPATH", required=True)
+    parser.add_argument(
+        "--path", help="File or directory path.", metavar="FILEPATH", required=True
+    )
     parser.add_argument("--host", default="http://localhost:8080", help="Gulp host")
     parser.add_argument(
         "--operation_id",
@@ -61,6 +64,12 @@ def _parse_args():
     )
     parser.add_argument("--ws_id", default=TEST_WS_ID, help="Websocket id")
     parser.add_argument("--req_id", default=TEST_REQ_ID, help="Request id")
+    parser.add_argument(
+        "--multi-req", action="store_true", help="Use multiple request ids"
+    )
+    parser.add_argument(
+        "--sleep", action="store_true", help="Random sleep (1-3 sec) between requests"
+    )
     parser.add_argument(
         "--flt",
         default=None,
@@ -126,9 +135,14 @@ def _create_ingest_curl_command(file_path: str, file_total: int, args):
     is_zip = file_path and file_path.lower().endswith(".zip")
     preview_mode = args.preview_mode
     base_url = f"{args.host}"
-    command = ["curl", "-v", "-X", "POST"]
+    command = ["curl", "-v", "POST"]
     payload = _create_payload(file_path, args, is_zip)
     temp_file_path = None
+    multi_request = args.multi_req
+    if multi_request:
+        req_id = f"{args.req_id}_{muty.string.generate_unique()}"
+    else:
+        req_id = args.req_id
 
     full_file_size = os.path.getsize(file_path)
     continue_offset = int(args.continue_offset)
@@ -149,12 +163,12 @@ def _create_ingest_curl_command(file_path: str, file_total: int, args):
 
     if is_zip:
         url = f"{base_url}/ingest_zip"
-        params = f"operation_id={args.operation_id}&context_name={args.context_name}&ws_id={args.ws_id}&req_id={args.req_id}"
+        params = f"operation_id={args.operation_id}&context_name={args.context_name}&ws_id={args.ws_id}&req_id={req_id}"
         file_type = "application/zip"
     else:
         url = f"{base_url}/ingest_file"
         params = f"operation_id={args.operation_id}&context_name={args.context_name}&plugin={
-            args.plugin}&ws_id={args.ws_id}&req_id={args.req_id}&file_total={file_total}&preview_mode={preview_mode}"
+            args.plugin}&ws_id={args.ws_id}&req_id={req_id}&file_total={file_total}&preview_mode={preview_mode}"
 
         file_type = "application/octet-stream"
 
@@ -179,9 +193,16 @@ def _create_ingest_curl_command(file_path: str, file_total: int, args):
 def _run_curl(file_path: str, file_total: int, args):
     MutyLogger.get_instance("test_ingest_worker-%d" % (os.getpid())).debug("_run_curl")
 
-    command, tmp_file_path = _create_ingest_curl_command(
-        file_path, file_total, args
-    )
+    command, tmp_file_path = _create_ingest_curl_command(file_path, file_total, args)
+    if args.sleep:
+        import random
+        import time
+
+        sleep_time = random.randint(1, 3)
+        MutyLogger.get_instance().info(
+            f"sleeping {sleep_time} seconds before ingesting {file_path}"
+        )
+        time.sleep(sleep_time)
 
     # copy file to a temporary location and truncate to args.continue_offset
     # print curl command line
@@ -309,9 +330,7 @@ def main():
         )
 
         # run requests
-        l = pool.starmap(
-            _run_curl, [(file, len(files), args) for file in files]
-        )
+        l = pool.starmap(_run_curl, [(file, len(files), args) for file in files])
 
         # wait for all processes to finish
         pool.close()
