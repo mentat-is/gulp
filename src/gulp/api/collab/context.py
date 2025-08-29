@@ -51,7 +51,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
     )
 
     color: Mapped[Optional[str]] = mapped_column(
-        String, default="white", doc="The color of the context."
+        String, doc="The color of the context."
     )
 
     @staticmethod
@@ -108,7 +108,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             ws_id (str, optional): The websocket id to stream NEW_SOURCE to. Defaults to None.
             req_id (str, optional): The request id. Defaults to None.
             src_id (str, optional): The id of the source. If not provided, a new id will be generated.
-            color (str, optional): The color of the source. Defaults to "purple".
+            color (str, optional): The color of the source
             plugin (str, optional): The plugin to use for the source. Defaults to None.
             mapping_parameters (GulpMappingParameters, optional): The mapping parameters for the source. Defaults to None (ignored if plugin is None).
             glyph_id (str, optional): The glyph id for the source. Defaults to None ("file").
@@ -141,7 +141,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 "operation_id": self.operation_id,
                 "context_id": self.id,
                 "name": name,
-                "color": color or "purple",
+                "color": color,
                 "glyph_id": glyph_id or "file",  # default glyph is 'file'
             }
             if plugin and mapping_parameters:

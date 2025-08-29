@@ -207,7 +207,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             ws_id (str, optional): The websocket id to stream NEW_CONTEXT to. Defaults to None.
             req_id (str, optional): The request id. Defaults to None.
             src_id (str, optional): The id of the context. If not provided, a new id will be generated.
-            color (str, optional): The color of the context. Defaults to "purple".
+            color (str, optional): The color of the context
             glyph_id (str, optional): The glyph id for the context. Defaults to None ("box").
 
         Returns:
@@ -235,7 +235,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             object_data = {
                 "operation_id": self.id,
                 "name": name,
-                "color": color or "white",
+                "color": color,
                 "glyph_id": glyph_id or "box",
             }
             # pylint: disable=protected-access

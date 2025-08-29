@@ -573,8 +573,8 @@ async def context_create_handler(
     color: Annotated[
         str,
         Query(
-            description="the color of the context. Defaults to `white`.",
-            example="white",
+            description="the color of the context.",
+            example="#fafafa",
         ),
     ] = None,
     glyph_id: Annotated[
@@ -600,7 +600,13 @@ async def context_create_handler(
             user_id = s.user_id
 
             ctx, created = await op.add_context(
-                sess, user_id, context_name, ws_id=ws_id, req_id=req_id, color=color, glyph_id=glyph_id
+                sess,
+                user_id,
+                context_name,
+                ws_id=ws_id,
+                req_id=req_id,
+                color=color,
+                glyph_id=glyph_id,
             )
             if not created and fail_if_exists:
                 raise ObjectAlreadyExists(
@@ -610,6 +616,7 @@ async def context_create_handler(
             return JSendResponse.success(req_id=req_id, data={"id": ctx.id})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.patch(
     "/context_update",
@@ -637,12 +644,12 @@ async def context_create_handler(
 )
 async def context_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    context_id: Annotated[str, Depends(APIDependencies.param_context_id)],    
+    context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
     color: Annotated[
         Optional[str],
         Query(
             description="new color for the context",
-            example="white",
+            example="#fafafa",
         ),
     ] = None,
     description: Annotated[
@@ -696,6 +703,7 @@ async def context_update_handler(
             return JSendResponse.success(req_id=req_id, data=dd)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.get(
     "/source_list",
@@ -816,8 +824,8 @@ async def source_create_handler(
     color: Annotated[
         str,
         Query(
-            description="the color of the source. Defaults to `purple`.",
-            example="purple",
+            description="the color of the source.",
+            example="#313373"
         ),
     ] = None,
     glyph_id: Annotated[
@@ -845,7 +853,13 @@ async def source_create_handler(
             # get context (must exist) and add source
             ctx: GulpContext = await GulpContext.get_by_id(sess, context_id)
             src, created = await ctx.add_source(
-                sess, user_id, source_name, ws_id=ws_id, req_id=req_id, color=color, glyph_id=glyph_id
+                sess,
+                user_id,
+                source_name,
+                ws_id=ws_id,
+                req_id=req_id,
+                color=color,
+                glyph_id=glyph_id,
             )
             if not created and fail_if_exists:
                 raise ObjectAlreadyExists(
@@ -855,6 +869,7 @@ async def source_create_handler(
             return JSendResponse.success(req_id=req_id, data={"id": src.id})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.patch(
     "/source_update",
@@ -882,12 +897,12 @@ async def source_create_handler(
 )
 async def source_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    source_id: Annotated[str, Depends(APIDependencies.param_source_id)],    
+    source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
     color: Annotated[
         Optional[str],
         Query(
-            description="new color for the source. Defaults to `purple`.",
-            example="purple",
+            description="new color for the source.",
+            example="#313373"
         ),
     ] = None,
     description: Annotated[
@@ -937,6 +952,7 @@ async def source_update_handler(
             return JSendResponse.success(req_id=req_id, data=dd)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.delete(
     "/source_delete",

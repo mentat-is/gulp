@@ -37,7 +37,7 @@ class GulpSource(GulpCollabBase, type=COLLABTYPE_SOURCE):
         primary_key=True,
     )
     color: Mapped[Optional[str]] = mapped_column(
-        String, default="purple", doc="The color of the context."
+        String, doc="The color of the context."
     )
     plugin: Mapped[Optional[str]] = mapped_column(
         String,
