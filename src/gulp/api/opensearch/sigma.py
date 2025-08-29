@@ -243,11 +243,11 @@ async def sigmas_to_queries(
             if ws_id:
                 # send progress packet to the websocket (this may be a lenghty operation)
                 p = GulpProgressPacket(
-                    total=total,
+                    total=total,  # this is the number of sigma yml files/rules
                     current=count,
                     used=used,
-                    generated_q=generated_q,
-                    msg="converting sigma rules...",
+                    generated_q=generated_q,  # this is the number of generated queries
+                    msg="sigma_conversion_progress",
                 )
                 wsq = GulpWsSharedQueue.get_instance()
                 await wsq.put(
@@ -375,12 +375,12 @@ async def sigmas_to_queries(
     if ws_id and req_id:
         # send progress packet to the websocket (this may be a lenghty operation)
         p = GulpProgressPacket(
-            total=total,
+            total=total,  # this is the number of sigma yml files/rules
             current=total,
             used=used,
-            generated_q=generated_q,
+            generated_q=generated_q,  # this is the number of generated queries
             done=True,
-            msg="sigma rules conversion done!",
+            msg="sigma_conversion_done",
         )
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(

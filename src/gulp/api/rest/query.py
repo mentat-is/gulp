@@ -17,6 +17,7 @@ and asynchronous processing with results streamed to websockets.
 # pylint: disable=too-many-lines
 
 import asyncio
+import random
 import re
 from copy import deepcopy
 from typing import Annotated, Any, Optional
@@ -220,6 +221,12 @@ async def _process_batch_results(
     query_names: list[str] = []
     errors: list[str] = []
 
+    # backoff configuration when encountering errors in the batch
+    _BACKOFF_BASE = 0.5  # seconds for first error
+    _BACKOFF_MAX = 10.0  # cap backoff
+    _BACKOFF_JITTER = 0.25  # fraction of jitter to add
+    _error_count = 0
+
     # process each result in the batch
     for r in batch_results:
         # res is a tuple (hits, exception, query_name)
@@ -246,6 +253,22 @@ async def _process_batch_results(
             if err not in errors:
                 # just keep one error per kind
                 errors.append(err)
+            if not "Broken pipe" in err:
+                # backoff only on broken pipe errors, these are likely client disconnects
+                _error_count = 0
+                continue
+
+            _error_count += 1
+            backoff = _BACKOFF_BASE * (2 ** (_error_count - 1))
+            if backoff > _BACKOFF_MAX:
+                backoff = _BACKOFF_MAX
+            # add some jitter
+            backoff += random.uniform(0, backoff * _BACKOFF_JITTER)
+            MutyLogger.get_instance().warning(
+                "error in query %s, backing off %.2fs (error #%d): %s"
+                % (q_name, backoff, _error_count, err)
+            )
+            await asyncio.sleep(backoff)
 
         # send a query_done on the ws for this query immediately
         p = GulpQueryDonePacket(
@@ -351,7 +374,9 @@ async def _process_query_batch(
             batch results, matched queries count, total document matches, query names that matched, errors
     """
     tuples_arr: list[dict] = []
-
+    # print("************************************************************")
+    # print(batch)
+    # print("************************************************************")
     # create a task for each query in the batch
     for gq in batch:
         q_opt = deepcopy(q_options)
@@ -445,7 +470,10 @@ async def _worker_coro(kwds: dict) -> None:
         MutyLogger.get_instance().info(
             "will spawn %d queries in batches of %d !" % (num_queries, batch_size)
         )
-        num_batches = (num_queries // batch_size) + 1
+        # compute number of batches using ceiling division
+        if batch_size <= 0:
+            batch_size = max(1, num_queries)
+        num_batches = (num_queries + batch_size - 1) // batch_size
 
         # build batches of batch_size
         processed: int = 0
@@ -472,13 +500,14 @@ async def _worker_coro(kwds: dict) -> None:
                     num_batches=num_batches,
                 )
             )
-            processed += batch_size
-            if processed % 100:
-                # send progress packet to the websocket (this may be a lenghty operation)
+            # increment by the actual number of processed queries
+            processed += len(batch)
+            if processed > 0 and (processed % 100 == 0):
+                # send progress packet to the websocket every 100 queries
                 p = GulpProgressPacket(
-                    total=num_queries,
-                    current=processed,
-                    msg="processing queries...",
+                    total=num_queries,  # total number of queries
+                    current=processed,  # number of processed queries so far
+                    msg="query_batch_progress",
                     total_matches=total_doc_matches,
                 )
                 wsq = GulpWsSharedQueue.get_instance()
@@ -530,7 +559,7 @@ async def _worker_coro(kwds: dict) -> None:
         p = GulpProgressPacket(
             total=num_queries,
             current=num_queries,
-            msg="queries done!",
+            msg="query_batch_done",
             done=True,
             canceled=canceled,
             total_matches=total_doc_matches,
@@ -573,7 +602,9 @@ async def _worker_coro(kwds: dict) -> None:
 
         if callback:
             MutyLogger.get_instance().debug(
-                "calling callback %s, args=%s, async=%s" % (callback, callback_args, callback_async))
+                "calling callback %s, args=%s, async=%s"
+                % (callback, callback_args, callback_async)
+            )
             # call the callback
             if callback_async:
                 await callback(*callback_args) if callback_args else await callback()
@@ -748,6 +779,22 @@ query Gulp with a raw OpenSearch DSL query.
 - `q` must be one or more queries with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
 - if more than one query is provided, `q_options.group` must be set.
 - if `q_options.preview_mode` is set, this API only accepts a single query in the `q` array and the data is returned directly without using the websocket.
+
+## tracking query progresses
+
+during a query, WSDATA_PROGRESS packets are sent to the `ws_id` websocket.
+
+when converting sigma rules, `msg` is set to `sigma_conversion_progress` and `sigma_conversion_done`:
+
+- `total` is the total number of sigma rules to convert
+- `current` is the number of sigma rules converted so far
+- `generated_q` is the number of successfully converted queries
+
+when running queries, `msg` is set to `query_batch_progress` and `query_batch_done`:
+
+- `total` is the total number of queries to run
+- `current` is the number of queries run so far
+- `total_matches` is the total number of document matches so far
 """,
 )
 async def query_raw_handler(
@@ -1173,6 +1220,10 @@ if not provided, `all sources in the operation` are used (not advised).
 ### pre-filtering sigma rules
 
 sigma rules may be filtered using `levels`, `products`, `categories`, `services` and `tags` parameters.
+
+### tracking query progresses
+
+look at `query_raw` API for details about progress packets sent to the `ws_id` websocket.
 
 """,
 )
