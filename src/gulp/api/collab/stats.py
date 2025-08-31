@@ -73,6 +73,7 @@ class RequestStatsType(StrEnum):
     REQUEST_TYPE_INGESTION = "ingest"
     REQUEST_TYPE_QUERY = "query"
     REQUEST_TYPE_ENRICHMENT = "enrich"
+    REQUEST_TYPE_REBASE = "rebase"
     REQUEST_TYPE_GENERIC = "generic"
 
 
@@ -597,6 +598,63 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 await sess.commit()
 
     @staticmethod
+    async def finalize(
+        sess: AsyncSession,
+        req_id: str,
+        ws_id: str,
+        user_id: str,
+        errors: list[str] = None,
+        hits: int = 0,
+    ) -> dict:
+        """
+        sets the final status of a (generic) stats: 
+        
+        - if errors is not empty/None, the status is set to failed, otherwise to done.
+        - if the stats was already canceled, it is not modified.
+
+        Args:
+            sess(AsyncSession): collab database session
+            req_id(str): the request id
+            ws_id(str): the websocket id
+            user_id(str): the user id
+            errors(list[str], optional): the list of errors (default: None)
+
+        Returns:
+            dict: the updated stats as a dictionary or None if stats not found
+        """
+        status: str = GulpRequestStatus.DONE
+        try:
+            await GulpRequestStats.acquire_advisory_lock(sess, req_id)
+            stats: GulpRequestStats = await GulpRequestStats.get_by_id(
+                sess, req_id, throw_if_not_found=False
+            )
+            if not stats:
+                return None
+            
+            dd: dict = {}
+            if stats.status != GulpRequestStatus.CANCELED.value:
+                # mark as completed
+                if errors:
+                    status = GulpRequestStatus.FAILED
+                else:
+                    status = GulpRequestStatus.DONE
+                object_data = {
+                    "status": status,
+                    "error": errors or [],
+                    "total_hits": hits,
+                }
+                dd = await stats.update(sess, object_data, user_id=user_id, ws_id=ws_id)
+            else:
+                # already canceled, just return current state
+                dd = stats.to_dict(exclude_none=True)
+
+        except Exception as e:
+            await sess.rollback()
+            raise e
+
+        return dd
+
+    @staticmethod
     async def finalize_query_stats(
         sess: AsyncSession,
         req_id: str,
@@ -626,32 +684,14 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             q_group(str, optional): the query group (default: None)
 
         Returns:
-            dict: the updated stats as a dictionary
+            dict: the updated stats as a dictionary (empty if stats not found)
         """
-        status: str = GulpRequestStatus.DONE
-        try:
-            await GulpRequestStats.acquire_advisory_lock(sess, req_id)
-            stats: GulpRequestStats = await GulpRequestStats.get_by_id(
-                sess, req_id, throw_if_not_found=False
-            )
-            dd: dict = {}
-            if stats and stats.status != GulpRequestStatus.CANCELED.value:
-                # mark as completed
-                if errors:
-                    status = GulpRequestStatus.FAILED
-                else:
-                    status = GulpRequestStatus.DONE
-                object_data = {
-                    "status": status,
-                    "error": errors or [],
-                    "total_hits": hits,
-                }
-                dd = await stats.update(sess, object_data, user_id=user_id, ws_id=ws_id)
-
-        except Exception as e:
-            await sess.rollback()
-            raise e
-
+        dd: dict = await GulpRequestStats.finalize(
+            sess, req_id, ws_id, user_id, errors=errors, hits=hits
+        )
+        if not dd:
+            return {}
+        
         # inform the websocket
         MutyLogger.get_instance().debug(
             f"sending query done packet, datatype={ws_queue_datatype}, errors={errors}"

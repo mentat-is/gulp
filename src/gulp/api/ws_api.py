@@ -40,7 +40,6 @@ WSDATA_USER_LOGIN = "user_login"
 WSDATA_USER_LOGOUT = "user_logout"
 WSDATA_DOCUMENTS_CHUNK = "docs_chunk"
 WSDATA_COLLAB_DELETE = "collab_delete"
-WSDATA_REBASE_DONE = "rebase_done"
 WSDATA_CLIENT_DATA = "client_data"
 WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
 WSDATA_NEW_SOURCE = "new_source"
@@ -56,6 +55,9 @@ WSDATA_PROGRESS = "progress"  # this is sent to indicate query progrress during,
 WSDATA_ENRICH_DONE = "enrich_done"  # this is sent in the end of an enrichment operation
 WSDATA_TAG_DONE = "tag_done"  # this is sent in the end of a tag operation
 WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # this is sent to indicate a query group match, i.e. a query group that matched some queries
+
+# progress types
+PROGRESS_REBASE = "rebase"
 
 # special token used to monitor also logins
 WSTOKEN_MONITOR = "monitor"
@@ -216,7 +218,7 @@ class GulpProgressPacket(BaseModel):
                 {
                     "current": 50,
                     "total": 100,
-                    "msg": "Progressing ....",
+                    "msg": "some_msg",
                 }
             ]
         },
@@ -228,6 +230,9 @@ class GulpProgressPacket(BaseModel):
     total: Optional[int] = Field(0, description="The total to be reached.")
     msg: Optional[str] = Field(
         None, description="An optional message to display with the progress."
+    )
+    data: Optional[dict] = Field(
+        None, description="Optional extra data to send with the progress."
     )
     canceled: Optional[bool] = Field(
         False, description="If the request has been canceled."
@@ -349,34 +354,6 @@ class GulpWsError(StrEnum):
     OBJECT_NOT_FOUND = "Not Found"
     MISSING_PERMISSION = "Forbidden"
     ERROR_GENERIC = "Error"
-
-
-class GulpRebaseDonePacket(BaseModel):
-    """
-    Represents a rebase done event on the websocket.
-    """
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "src_index": "test_operation",
-                    "dest_index": "destination_index",
-                    "status": GulpRequestStatus.DONE,
-                    "result": "error message or successful rebase result",
-                }
-            ]
-        }
-    )
-    operation_id: str = Field(..., description="The operation ID.")
-    src_index: str = Field(..., description="The source index.")
-    dest_index: str = Field(..., description="The destination index.")
-    status: "GulpRequestStatus" = Field(
-        ..., description="The status of the rebase operation (done/failed)."
-    )
-    result: Optional[str | dict] = Field(
-        None, description="the error message, or successful rebase result."
-    )
 
 
 class GulpWsErrorPacket(BaseModel):
@@ -1363,7 +1340,6 @@ class GulpWsSharedQueue:
             WSDATA_NEW_CONTEXT,
             WSDATA_NEW_SOURCE,
             WSDATA_INGEST_SOURCE_DONE,
-            WSDATA_REBASE_DONE,
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,
         }

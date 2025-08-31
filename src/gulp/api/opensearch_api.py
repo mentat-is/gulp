@@ -35,13 +35,11 @@ from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch, NotFoundError
 from sqlalchemy.ext.asyncio import AsyncSession
-from json_stream import streamable_list, streamable_dict
 from gulp.api.collab.fields import GulpSourceFields
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
-from gulp.api.collab.structs import GulpCollabFilter, GulpRequestStatus
-from gulp.api.collab.user import GulpUser
+from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import (
     GulpDocumentFilterResult,
@@ -49,9 +47,12 @@ from gulp.api.opensearch.filters import (
     GulpQueryFilter,
 )
 from gulp.api.ws_api import (
+    PROGRESS_REBASE,
     WSDATA_DOCUMENTS_CHUNK,
+    WSDATA_PROGRESS,
     WSDATA_SOURCE_FIELDS_CHUNK,
     GulpDocumentsChunkPacket,
+    GulpProgressPacket,
     GulpSourceFieldsChunkPacket,
     GulpWsSharedQueue,
 )
@@ -1273,40 +1274,118 @@ class GulpOpenSearch:
 
         return skipped, failed, ingested, success_after_retry
 
-    async def rebase(
+    async def opensearch_cancel_task(self, task_id: str) -> bool:
+        """
+        Cancels an OpenSearch task.
+
+        Args:
+            task_id (str): The ID of the task to cancel.
+
+        Returns:
+            bool: True if the task was successfully cancelled, False otherwise.
+
+        Raises:
+            Exception: If the response format is unexpected.
+        """
+        headers = {"accept": "application/json"}
+        res = await self._opensearch.tasks.cancel(task_id=task_id, headers=headers)
+
+        # check if the provided task id has been canceled
+        canceled = None
+        if not isinstance(res, dict) or "nodes" not in res:
+            raise Exception("unexpected response format")
+
+        for node_name, node_info in res["nodes"].items():
+            tasks = node_info.get("tasks", {})
+            if task_id in tasks:
+                task_obj = tasks[task_id]
+                if task_obj.get("cancelled", False):
+                    MutyLogger.get_instance().info(
+                        f"task_id {task_id} was cancelled on node {node_name}"
+                    )
+                    canceled = True
+                else:
+                    MutyLogger.get_instance().warning(
+                        f"task_id {task_id} present but not cancelled on node {node_name}"
+                    )
+                    canceled = False
+        # If canceled is still None, task_id not found in any node
+        if canceled is None:
+            MutyLogger.get_instance().info(
+                f"task_id {task_id} not found in any node; may have already completed or never existed."
+            )
+            canceled = True
+
+        return canceled
+
+    async def opensearch_rebase_by_query(
         self,
+        sess: AsyncSession,
         index: str,
-        dest_index: str,
         offset_msec: int,
+        req_id: str,
+        ws_id: str = None,
+        user_id: str = None,
         flt: GulpQueryFilter = None,
-        rebase_script: str = None,
+        script: str = None,
     ) -> dict:
         """
-        Rebase documents from one OpenSearch index to another with a timestamp offset.
+        Rebases documents in-place on the same index using update_by_query, shifting timestamps in batches of 1000 documents.
         Args:
-            index (str): The source index name.
-            dest_index (str): The destination index name.
-            offset_msec (int): The offset in milliseconds from unix epoch to adjust the '@timestamp' field.
-            flt (GulpQueryFilter, optional): if set, it will be used to rebase only a subset of the documents. Defaults to None.
-            rebase_script (str, optional): a [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html) to customize rebasing. Defaults to None (use the default script).
-                the rebase script takes a single parameter `nsec_offset` which is the offset in nanoseconds to apply to the '@timestamp' field.
+            sess (AsyncSession): the database session (used to check for cancellation)
+            index (str): The index/datastream name.
+            offset_msec (int): The offset in milliseconds to apply to timestamps.
+            req_id (str): id of the request
+            ws_id (str, optional): used to send progress update
+            user_id (str, optional): used to send progress update
+            flt (GulpQueryFilter, optional): Filter for documents to update. Defaults to None.
+            script (str, optional): A [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html) to customize the update. Defaults to None (use the default script which just updates @timestamp and gulp.timestamp).
         Returns:
-            dict: The response from the OpenSearch reindex operation.
-
+                dict: {"total_matches": int, "updated": int, "errors": list}
+        Throws:
+                Exception: If the update_by_query fails.
         """
-        MutyLogger.get_instance().debug(
-            "rebase index %s to %s with offset=%d, flt=%s ..."
-            % (index, dest_index, offset_msec, flt)
-        )
-        if not flt:
-            flt = GulpQueryFilter()
 
-        q = flt.to_opensearch_dsl()
+        async def _send_progress_update(
+            req_id: str,
+            ws_id: str,
+            user_id: str,
+            total_hits: int,
+            current_updated: int,
+            current_errors: list[str],
+            done: bool = False,
+        ):
+            """
+            send progress update during rebase
+            """
+            if not ws_id:
+                return
 
-        if rebase_script:
-            convert_script = rebase_script
-        else:
-            convert_script = """
+            # last progress update
+            p = GulpProgressPacket(
+                done=done,
+                msg=PROGRESS_REBASE,
+                data={
+                    "total_hits": total_hits,
+                    "updated": current_updated,
+                    "errors": current_errors,
+                },
+            )
+            wsq = GulpWsSharedQueue.get_instance()
+            await wsq.put(
+                type=WSDATA_PROGRESS,
+                ws_id=ws_id,
+                user_id=user_id,
+                req_id=req_id,
+                data=p.model_dump(exclude_none=True),
+            )
+
+        # convert offset to nanoseconds
+        offset_nsec = offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS
+
+        if not script:
+            # default painless script to update gulp.timestamp and @timestamp
+            script = """
                 if (ctx._source['@timestamp'] != null && ctx._source['@timestamp'] != '0') {
                     ZonedDateTime ts = ZonedDateTime.parse(ctx._source['@timestamp']);
                     DateTimeFormatter fmt = DateTimeFormatter.ofPattern('yyyy-MM-dd\\'T\\'HH:mm:ss.nnnnnnnnnX');
@@ -1315,27 +1394,110 @@ class GulpOpenSearch:
                     ctx._source['gulp.timestamp'] += params.offset_nsec;
                 }
             """
-        body: dict = {
-            "source": {"index": index, "query": q["query"]},
-            "dest": {"index": dest_index, "op_type": "create"},
-            "script": {
-                "lang": "painless",
-                "source": convert_script,
-                "params": {
-                    "offset_nsec": offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS,
-                },
-            },
-        }
-        params: dict = {"refresh": "true", "wait_for_completion": "true", "timeout": 0}
-        headers = {
-            "accept": "application/json",
-            "content-type": "application/x-ndjson",
-        }
 
-        MutyLogger.get_instance().debug("rebase body=%s" % (body))
-        res = await self._opensearch.reindex(body=body, params=params, headers=headers)
-        MutyLogger.get_instance().debug("rebase result=%s" % (res))
-        return res
+        # build base query
+        if flt:
+            base_query = flt.to_opensearch_dsl()["query"]
+        else:
+            base_query = {"match_all": {}}
+
+        params = {
+            "conflicts": "proceed",
+            "refresh": "true",
+            "wait_for_completion": "true",
+        }
+        headers = {"accept": "application/json", "content-type": "application/json"}
+
+        # process in batches of 1000 documents using search_after
+        batch_size: int = 1000
+        total_hits: int = 0
+        updated: int = 0
+        errors: list[str] = []
+        search_after: list[dict] = None
+        chunk_count: int = 0
+        timeout = GulpConfig.get_instance().opensearch_request_timeout()
+        params: dict = {}
+        if timeout > 0:
+            params["timeout"] = timeout
+
+        while True:
+            # search for up to batch_size docs matching the filter
+            search_body = {
+                "track_total_hits": True,
+                "size": batch_size,
+                "query": base_query,
+                "sort": ["_doc"],
+            }
+            if search_after:
+                search_body["search_after"] = search_after
+
+            res = await self._opensearch.search(
+                index=index, body=search_body, headers=headers
+            )
+            hits = res["hits"]["hits"]
+            if not hits:
+                # done
+                break
+
+            total_hits = res["hits"]["total"]["value"]
+            doc_ids = [hit["_id"] for hit in hits]
+
+            # update_by_query for these IDs
+            MutyLogger.get_instance().debug("rebase chunk %d, offset_nsec=%d, updating %d docs ..." % 
+                (chunk_count, offset_nsec, len(doc_ids)))
+                                            
+            update_query = {
+                "script": {
+                    "source": script,
+                    "lang": "painless",
+                    "params": {"offset_nsec": offset_nsec},
+                },
+                "query": {"ids": {"values": doc_ids}},
+            }
+            try:
+                update_res = await self._opensearch.update_by_query(
+                    index=index, body=update_query, params=params, headers=headers
+                )
+                updated += update_res.get("updated", 0)
+                if "failures" in update_res and update_res["failures"]:
+                    errors.extend(update_res["failures"])
+            except Exception as e:
+                errors.append(str(e))
+
+            if chunk_count == 10:
+                # every 10 chunk, check for request cancelation
+                chunk_count = 0
+                canceled = await GulpRequestStats.is_canceled(sess, req_id)
+                if canceled:
+                    MutyLogger.get_instance().warning(
+                        "rebase request %s canceled!" % (req_id)
+                    )
+                    break
+
+                # and also send a progress update
+                await _send_progress_update(
+                    req_id, ws_id, user_id, total_hits, updated, errors
+                )
+
+            # next chunk
+            chunk_count += 1
+
+            # prepare for next batch
+            search_after = hits[-1]["sort"] if "sort" in hits[-1] else None
+            if not search_after:
+                break
+
+        MutyLogger.get_instance().debug(
+            "rebase completed: index=%s, flt=%s, total_hits=%d, updated=%d, errors=%s"
+            % (index, flt, total_hits, updated, errors)
+        )
+
+        # last progress update
+        await _send_progress_update(
+            req_id, ws_id, user_id, total_hits, updated, errors, done=True
+        )
+        return {"total_hits": total_hits, "updated": updated, "errors": errors}
+
 
     async def index_refresh(self, index: str) -> None:
         """
@@ -2035,7 +2197,7 @@ class GulpOpenSearch:
                 # MutyLogger.get_instance().debug("retrieved chunk of %d documents, total=%d" % (len(docs), total_hits))
 
                 check_canceled_count += 1
-                if check_canceled_count >= 10:
+                if check_canceled_count == 10:
                     # every 10 chunk, check for request cancelation
                     check_canceled_count = 0
                     canceled = await GulpRequestStats.is_canceled(sess, req_id)
@@ -2223,7 +2385,7 @@ class GulpOpenSearch:
                     # MutyLogger.get_instance().debug("retrieved chunk of %d documents, total=%d" % (len(docs), total_hits))
 
                     check_canceled_count += 1
-                    if check_canceled_count >= 10:
+                    if check_canceled_count == 10:
                         # every 10 chunk, check for request cancelation
                         check_canceled_count = 0
                         canceled = await GulpRequestStats.is_canceled(sess, req_id)

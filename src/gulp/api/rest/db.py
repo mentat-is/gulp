@@ -13,19 +13,18 @@ The endpoints are organized into several main operations:
 Most operations require admin-level permissions, as they can potentially delete or modify significant amounts of data.
 """
 
-import orjson
+import asyncio
 from typing import Annotated
 
-import muty.log
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.stats import GulpRequestStats, RequestStatsType
 from gulp.api.collab.structs import (
     GulpCollabFilter,
-    GulpRequestStatus,
     GulpUserPermission,
 )
 from gulp.api.collab.user_session import GulpUserSession
@@ -35,16 +34,13 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpRebaseDonePacket, GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.process import GulpProcess
 
 router: APIRouter = APIRouter()
 
 
-async def _delete_operations(
-    user_id: str, operation_id: str = None
-) -> None:
+async def _delete_operations(user_id: str, operation_id: str = None) -> None:
     """
     Deletes (all) operations in the collaboration database
 
@@ -53,7 +49,8 @@ async def _delete_operations(
         operation_id (str, optional): If specified, only the operation with this ID will be deleted.
     """
     MutyLogger.get_instance().warning(
-        "deleting ALL operations on collab (except operation_id=%s)" % (operation_id))
+        "deleting ALL operations on collab (except operation_id=%s)" % (operation_id)
+    )
 
     async with GulpCollab.get_instance().session() as sess:
         # enumerate all operations
@@ -74,9 +71,7 @@ async def _delete_operations(
                 )
                 continue
 
-            MutyLogger.get_instance().info(
-                "deleting data for operation %s" % (op.id)
-            )
+            MutyLogger.get_instance().info("deleting data for operation %s" % (op.id))
             # delete the whole datastream
             await GulpOpenSearch.get_instance().datastream_delete(op.index)
 
@@ -216,131 +211,79 @@ async def gulp_reset_handler(
         raise JSendException(req_id=req_id) from ex
 
 
-async def _rebase_internal(
-    user_id: str,
+async def _rebase_by_query_internal(
     req_id: str,
     ws_id: str,
-    operation_id: str,
+    user_id: str,
     index: str,
-    dest_index: str,
     offset_msec: int,
     flt: GulpQueryFilter,
-    rebase_script: str,
+    script: str,
 ):
     """
-    runs in a worker process to rebase the index.
+    runs in a worker process to rebase the index using update_by_query.
     """
+    errors: list[str] = []
+    updated: int = 0
     try:
-        # get existing index datastream
-        template = await GulpOpenSearch.get_instance().index_template_get(index)
-
-        # create the destination datastream, applying the same template
-        await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(
-            dest_index, template
-        )
-
         # rebase
-        res = await GulpOpenSearch.get_instance().rebase(
-            index,
-            dest_index=dest_index,
-            offset_msec=offset_msec,
-            flt=flt,
-            rebase_script=rebase_script,
-        )
-
-        # the operation object must now point to the new index
         async with GulpCollab.get_instance().session() as sess:
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            d = {
-                "index": dest_index,
-            }
-            await op.update(
-                sess,
-                d,
-                ws_id=None,  # do not propagate on the websocket
-                req_id=req_id,
-                user_id=user_id,
+            res = await GulpOpenSearch.get_instance().opensearch_rebase_by_query(
+                sess, index, offset_msec, req_id, ws_id, user_id, flt, script
             )
-
+            errors = res.get("errors", [])
+            updated = res.get("updated", 0)
     except Exception as ex:
-        # signal failure on the websocket
         MutyLogger.get_instance().exception(ex)
-        wsq = GulpWsSharedQueue.get_instance()
-        await wsq.put(
-            type=WSDATA_REBASE_DONE,
+        errors.append(str(ex))
+        return
+    finally:
+        # finalize the stats
+        await GulpRequestStats.finalize(
+            sess,
+            req_id=req_id,
             ws_id=ws_id,
             user_id=user_id,
-            operation_id=operation_id,
-            req_id=req_id,
-            data=GulpRebaseDonePacket(
-                operation_id=operation_id,
-                src_index=index,
-                dest_index=dest_index,
-                status=GulpRequestStatus.FAILED,
-                result=muty.log.exception_to_string(ex),
-            ),
+            hits=updated,
+            errors=errors,
         )
-        return
-
-    # done
-    MutyLogger.get_instance().debug(
-        "rebase done, result=%s" % (orjson.dumps(res, option=orjson.OPT_INDENT_2).decode())
-    )
-    # signal the websocket
-    wsq = GulpWsSharedQueue.get_instance()
-    await wsq.put(
-        type=WSDATA_REBASE_DONE,
-        ws_id=ws_id,
-        user_id=user_id,
-        req_id=req_id,
-        operation_id=operation_id,
-        data=GulpRebaseDonePacket(
-            operation_id=operation_id,
-            src_index=index,
-            dest_index=dest_index,
-            status=GulpRequestStatus.DONE,
-            result=res,
-        ),
-    )
 
 
 @router.post(
-    "/opensearch_rebase_index",
-    response_model=JSendResponse,
+    "/opensearch_rebase_by_query",
     tags=["db"],
+    response_model=JSendResponse,
     response_model_exclude_none=True,
     responses={
         200: {
             "content": {
                 "application/json": {
                     "example": {
-                        "status": "pending",
-                        "timestamp_msec": 1704380570434,
-                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {"total_matches": 1234, "updated": 1234, "errors": []},
                     }
                 }
             }
         }
     },
-    summary="rebases operation's index to a different time.",
+    summary="rebases documents in-place on the same index using update_by_query.",
     description="""
-rebases `operation_id.index` and creates a new `dest_index` with rebased `@timestamp` + `offset`, then set the operation's index to `dest_index` on success.
+rebases documents in-place on the same index using update_by_query, shifting timestamps.
 
 - `token` needs `ingest` permission.
 - `flt` may be used to filter the documents to rebase.
-- rebase happens in the background: when it is done, a `WSDATA_REBASE_DONE` event is sent to the `ws_id` websocket.
+- rebase happens in the background: progress updates are sent to the `ws_id` websocket.
+
+### checking progress
+
+- during rebase, GulpProgressPacket with `msg=ws_api.PROGRESS_REBASE` are sent on the websocket with data set to total_matches, updated, errors.
 """,
 )
-async def opensearch_rebase_index_handler(
+async def opensearch_rebase_by_query_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    dest_index: Annotated[
-        str,
-        Query(
-            description="name of the destination index, will be reset or created if not exists.",
-            example="new_index",
-        ),
-    ],
     offset_msec: Annotated[
         int,
         Query(
@@ -351,37 +294,42 @@ async def opensearch_rebase_index_handler(
 """,
         ),
     ],
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    flt: Annotated[str, Depends(APIDependencies.param_query_flt_optional)] = None,
-    rebase_script: Annotated[
+    script: Annotated[
         str,
         Body(
             description="""
-optional custom rebase script to run on the documents.
+optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html) rebase script to run on the documents.
 
-- must be a [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html).
-- the script receives as input a single parameter `offset_nsec`, the offset in `nanoseconds from the unix epoch` to be applied to the fields during the rebase operation.
-- the example script is the one applied by default (rebases `@timestamp` and `gulp.timestamp`).
-""",
-            examples=[
-                """if (ctx._source['@timestamp'] != 0) {
-    def ts = ZonedDateTime.parse(ctx._source['@timestamp']);
-    def new_ts = ts.plusNanos(params.offset_nsec);
-    ctx._source['@timestamp'] = new_ts.toString();
-    ctx._source["gulp.timestamp"] += params.offset_nsec;
-}"""
-            ],
+- the default script rebases `@timestamp` and `gulp.timestamp` and is implemented in `gulp/api/opensearch_api::rebase_by_query`.
+"""
         ),
     ] = None,
+    flt: Annotated[str, Depends(APIDependencies.param_query_flt_optional)] = None,
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSendResponse:
+) -> JSONResponse:
+    """
+    rebases documents in-place on the same index using update_by_query, shifting timestamps.
+
+    Args:
+        token (str): API token with ingest permission
+        operation_id (str): operation to rebase
+        offset_msec (int): offset in milliseconds to apply
+        script (str, optional): optional painless script to run on the documents
+        flt (GulpQueryFilter, optional): filter for documents to update
+        ws_id (str, optional): websocket id to send progress updates to
+        req_id (str, optional): request id
+    Returns:
+        JSONResponse: JSend-style response with total_matches, updated, errors
+    Throws:
+        JSendException: on error
+    """
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
     ServerUtils.dump_params(params)
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # check permission and get user id and index
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             s = await GulpUserSession.check_token(
                 sess, token, obj=op, permission=GulpUserPermission.INGEST
@@ -389,33 +337,38 @@ optional custom rebase script to run on the documents.
             user_id = s.user_id
             index = op.index
 
-        if index == dest_index:
-            raise JSendException(req_id=req_id) from Exception(
-                "index and dest_index must be different! (index=%s, dest_index=%s)"
-                % (index, dest_index)
+        async def _worker_coro():
+            # create a stats, just to allow request canceling
+            async with GulpCollab.get_instance().session() as sess:
+                await GulpRequestStats.create(
+                    token=None,
+                    ws_id=ws_id,
+                    req_id=req_id,
+                    object_data=None,  # uses default
+                    operation_id=operation_id,
+                    stats_type=RequestStatsType.REQUEST_TYPE_REBASE,
+                    sess=sess,
+                    user_id=user_id,
+                )
+
+            # offload to a worker process withouyt waiting for it
+            asyncio.create_task(
+                GulpProcess.get_instance().process_pool.apply(
+                    _rebase_by_query_internal,
+                    kwds=dict(
+                        req_id=req_id,
+                        ws_id=ws_id,
+                        user_id=user_id,
+                        index=index,
+                        offset_msec=offset_msec,
+                        flt=flt,
+                        script=script,
+                    ),
+                )
             )
 
-        # spawn a task which runs the rebase in a worker process
-        kwds = dict(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            index=index,
-            dest_index=dest_index,
-            offset_msec=offset_msec,
-            flt=flt,
-            rebase_script=rebase_script,
-        )
-
-        async def worker_coro(kwds: dict):
-            await GulpProcess.get_instance().process_pool.apply(
-                _rebase_internal, kwds=kwds
-            )
-
-        await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
-
-        # and return pending
+        # spawn a background worker to perform the rebase and return pending
+        await GulpRestServer.get_instance().spawn_bg_task(_worker_coro())
         return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

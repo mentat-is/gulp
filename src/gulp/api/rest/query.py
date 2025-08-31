@@ -483,7 +483,7 @@ async def _worker_coro(kwds: dict) -> None:
             current_batch = i // batch_size + 1
             batch = queries[i : i + batch_size]
 
-            # process this batch
+            # process this batch using workers
             batch_results, batch_matched, batch_matches, batch_names, batch_errors = (
                 await _process_query_batch(
                     batch=batch,
