@@ -16,8 +16,9 @@ Most operations require specific permissions, particularly admin privileges for 
 operations beyond self-management.
 """
 
-from typing import Annotated, Optional
-
+from typing import Annotated, Any, Optional
+import orjson
+from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
@@ -438,6 +439,42 @@ async def user_delete_handler(
         raise JSendException(req_id=req_id) from ex
 
 
+async def _get_session_and_user(
+    sess: AsyncSession, token: str, user_id: Optional[str]
+) -> tuple[str, GulpUserSession, GulpUser]:
+    """
+    helper to get the session, user session and user object, checking permissions.
+
+    If `user_id` is None, the user_id from the token is used.
+
+    Returns:
+    - user_id
+    - GulpUserSession
+    - GulpUser
+
+    Raises:
+    - MissingPermission: if the token does not have permission to access the user.
+    - ObjectNotFound: if the user does not exist.
+    - Exception: for other errors.
+
+    """
+    s: GulpUserSession = await GulpUserSession.check_token(sess, token)
+    if not user_id:
+        MutyLogger.get_instance().debug(
+            "user_id not specified, using token user_id %s" % (s.user_id)
+        )
+        user_id = s.user_id
+
+    # get the user
+    u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+    if s.user_id != u.id and not s.user.is_admin():
+        raise MissingPermission(
+            "only admin can access other users data (user_id=%s, requested user id=%s)."
+            % (s.user_id, user_id)
+        )
+    return user_id, s, u
+
+
 @router.patch(
     "/user_update",
     tags=["user"],
@@ -460,6 +497,7 @@ async def user_delete_handler(
     summary="updates an existing user on the platform.",
     description="""
 - `token` needs **admin** permission if `user_id` is different from the token `user_id`, or if `permission` is set.
+- if `user_id` is not set, the token user is used instead (and if so, the token must be `admin` to operate on other users).
 - `password`, `permission`, `email`, `glyph_id`, `user_data` are optional depending on what needs to be updated, and can be set independently (**but at least one must be set**).
     """,
 )
@@ -468,7 +506,12 @@ async def user_update_handler(
         str,
         Depends(APIDependencies.param_token),
     ],
-    user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
+    user_id: Annotated[
+        Optional[str],
+        Query(
+            description="an user to update: if not set, the token user is used instead."
+        ),
+    ] = None,
     password: Annotated[
         str,
         Depends(APIDependencies.param_password_optional),
@@ -512,12 +555,7 @@ async def user_update_handler(
             )
 
         async with GulpCollab.get_instance().session() as sess:
-            s: GulpUserSession = await GulpUserSession.check_token(sess, token)
-
-            # get the user to be updated
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
-            if s.user_id != u.id and not s.user.is_admin():
-                raise MissingPermission("only admin can update other users.")
+            user_id, s, u = await _get_session_and_user(sess, token, user_id)
 
             d = {}
             if password:
@@ -614,19 +652,248 @@ async def user_list_handler(
     summary="get a single user.",
     description="""
 - `token` needs `admin` permission to get users other than the token user.
+- if `user_id` is not set, the token user is used instead (and if so, the token must be `admin` to operate on other users).
 """,
 )
 async def user_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
+    user_id: Annotated[
+        Optional[str],
+        Query(
+            description="an user to get: if not set, the token user is used instead."
+        ),
+    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        d = await GulpUser.get_by_id_wrapper(
-            token, user_id, recursive=True, enforce_owner=True
-        )
-        return JSendResponse.success(req_id=req_id, data=d)
+        async with GulpCollab.get_instance().session() as sess:
+            user_id, _, u = await _get_session_and_user(sess, token, user_id)
+            return JSendResponse.success(
+                req_id=req_id, data=u.to_dict(exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
+@router.patch(
+    "/user_set_data",
+    tags=["user_data"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1732908917521,
+                        "req_id": "test_req",
+                        "data": {
+                            "requested_key": "new_value",
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="store data private to the user.",
+    description="""
+`user_data` is useful to store user-related data (i.e. saved sessions, ...).
+
+- `token` needs **admin** permission if `user_id` is different from the token `user_id`, or if `permission` is set.
+- if `user_id` is not set, the token user is used instead (and if so, the token must be `admin` to operate on other users).
+- this is basically a shortcut for `user_update` tailored to just update a specific `key` in the `user_data` field.
+    """,
+)
+async def user_set_data_handler(
+    token: Annotated[
+        str,
+        Depends(APIDependencies.param_token),
+    ],
+    key: Annotated[
+        str, Query(description="key in `user_data` to be set.", example="my_key")
+    ],
+    value: Annotated[
+        Any, Body(description="value to be set for the given `key`.", example="my_data")
+    ],
+    user_id: Annotated[
+        Optional[str],
+        Query(
+            description="an user to set data for: if not set, the token user is used instead."
+        ),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            user_id, s, u = await _get_session_and_user(sess, token, user_id)
+
+            # get data
+            user_data: dict = u.user_data if u.user_data else {}
+            MutyLogger.get_instance().debug(
+                "existing user data=%s"
+                % (orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode())
+            )
+
+            # update
+            user_data[key] = value
+            MutyLogger.get_instance().debug(
+                "new user data=%s"
+                % (orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode())
+            )
+            d = {"user_data": user_data}
+            await u.update(sess, d, user_session=s)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.get(
+    "/user_get_data",
+    tags=["user_data"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1732908917521,
+                        "req_id": "test_req",
+                        "data": {
+                            "requested_key": "my_data",
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="get user's private data.",
+    description="""
+- `token` needs **admin** permission if `user_id` is different from the token `user_id`, or if `permission` is set.
+- if `user_id` is not set, the token user is used instead (and if so, the token must be `admin` to operate on other users).
+    """,
+)
+async def user_get_data_handler(
+    token: Annotated[
+        str,
+        Depends(APIDependencies.param_token),
+    ],
+    key: Annotated[
+        Optional[str],
+        Query(
+            description="key in `user_data` to get: if not set, all `user_data` is retrieved.",
+            example="my_key",
+        ),
+    ] = None,
+    user_id: Annotated[
+        Optional[str],
+        Query(
+            description="an user to get data for: if not set, the token user is used instead."
+        ),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            user_id, _, u = await _get_session_and_user(sess, token, user_id)
+
+            # get data
+            user_data: dict = u.user_data if u.user_data else {}
+            MutyLogger.get_instance().debug(
+                "existing user data=%s"
+                % (orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode())
+            )
+            if key:
+                # get only the requested key
+                if key not in user_data:
+                    raise ObjectNotFound(
+                        "key %s not found in user_data for user %s" % (key, u.id)
+                    )
+                return JSONResponse(
+                    JSendResponse.success(req_id=req_id, data={key: user_data[key]})
+                )
+
+            # all
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=user_data))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.delete(
+    "/user_delete_data",
+    tags=["user_data"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1732908917521,
+                        "req_id": "test_req",
+                        "data": "deleted_key",
+                    }
+                }
+            }
+        }
+    },
+    summary="delete user's private data.",
+    description="""
+- `token` needs **admin** permission if `user_id` is different from the token `user_id`, or if `permission` is set.
+- if `user_id` is not set, the token user is used instead (and if so, the token must be `admin` to operate on other users). 
+    """,
+)
+async def user_delete_data_handler(
+    token: Annotated[
+        str,
+        Depends(APIDependencies.param_token),
+    ],
+    key: Annotated[
+        Optional[str],
+        Query(
+            description="key in `user_data` to be deleted: if not set, the whole `user_data` is cleared.",
+            example="my_key",
+        ),
+    ] = None,
+    user_id: Annotated[
+        Optional[str],
+        Query(
+            description="an user to delete data for: if not set, the token user is used instead."
+        ),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            user_id, s, u = await _get_session_and_user(sess, token, user_id)
+
+            # get data
+            user_data: dict = u.user_data if u.user_data else {}
+            MutyLogger.get_instance().debug(
+                "existing user data=%s"
+                % (orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode())
+            )
+            if key:
+                # delete only the requested key
+                if key not in user_data:
+                    raise ObjectNotFound(
+                        "key %s not found in user_data for user %s" % (key, u.id)
+                    )
+                del user_data[key]
+                d = {"user_data": user_data}
+                await u.update(sess, d, user_session=s)
+                return JSONResponse(JSendResponse.success(req_id=req_id, data=key))
+
+            # delete all
+            user_data = {}
+            await u.update(sess, {"user_data": user_data}, user_session=s)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=user_data))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex

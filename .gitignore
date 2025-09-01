@@ -39,4 +39,5 @@ output.txt
 start_splunk.sh
 supported_formats.md
 build_paid.sh
-
+prompts.txt
+tests/query/sigma/windows
