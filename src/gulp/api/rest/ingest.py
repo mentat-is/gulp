@@ -11,17 +11,15 @@ Each handler implements a different ingestion strategy:
 - Raw ingestion processes pre-structured document chunks
 - ZIP ingestion extracts and processes multiple files based on metadata
 
-The module also includes internal helper functions:
+The module also includes functions to be run in worker processes:
 - `_ingest_file_internal`: Worker process function for file ingestion
 - `_ingest_raw_internal`: Worker process function for raw data ingestion
-- `_process_metadata_json`: Extracts file information from ZIP metadata
 
 All handlers support resumable uploads, progress tracking via websocket,
 and preview mode for testing without persistence.
 
 """
 
-import asyncio
 import os
 from copy import deepcopy
 from typing import Annotated, Any, Optional
@@ -49,7 +47,6 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies, GulpUploadResponse
-from gulp.api.rest_api import GulpRestServer
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
@@ -362,6 +359,95 @@ async def run_ingest_raw_task(t: dict):
     )
 
 
+async def _handle_preview_or_enqueue_ingest_task(
+    user_id: str,
+    req_id: str,
+    ws_id: str,
+    operation_id: str,
+    ctx_id: str,
+    src_id: str,
+    index: str,
+    plugin: str,
+    file_path: str,
+    file_total: int,
+    payload: GulpIngestPayload,
+    preview_mode: bool,
+    delete_after: bool = True,
+) -> JSONResponse:
+    """
+    Handles preview mode or enqueues an ingestion task, returning the appropriate JSONResponse
+
+    Args:
+        user_id (str): ID of the user making the request
+        req_id (str): Request ID for tracking
+        ws_id (str): WebSocket ID for streaming updates
+        operation_id (str): ID of the operation
+        ctx_id (str): Context ID
+        src_id (str): Source ID
+        index (str): Index where data will be ingested
+        plugin (str): Plugin to use for ingestion
+        file_path (str): Path to the file being ingested
+        file_total (int): Total number of files in a multi-file upload
+        payload (GulpIngestPayload): Payload containing ingestion parameters
+        preview_mode (bool): If True, runs in preview mode (immediate result, no task created)
+        delete_after (bool, optional): If True, deletes the file after ingestion. Defaults to True.
+
+    Returns:
+        JSONResponse: the response to return to the client (either preview data or pending status)
+
+    Throws:
+        JSendException: if preview fails
+    """
+    kwds = dict(
+        user_id=user_id,
+        req_id=req_id,
+        ws_id=ws_id,
+        operation_id=operation_id,
+        context_id=ctx_id,
+        source_id=src_id,
+        index=index,
+        plugin=plugin,
+        file_path=file_path,
+        file_total=file_total,
+        payload=payload,
+        preview_mode=preview_mode,
+        delete_after=delete_after,
+    )
+
+    # handle preview mode: run ingestion synchronously and return preview chunk
+    if preview_mode:
+        status, preview_chunk = await _ingest_file_internal(**kwds)
+        if status == GulpRequestStatus.DONE:
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data=preview_chunk)
+            )
+
+        # error in preview
+        return JSONResponse(JSendResponse.error(req_id=req_id))
+
+    # enqueue ingestion task on collab
+    kwds["payload"] = payload.model_dump(exclude_none=True)
+    object_data: dict[str, Any] = {
+        "ws_id": ws_id,
+        "operation_id": operation_id,
+        "req_id": req_id,
+        "task_type": "ingest",
+        "params": kwds,
+    }
+    MutyLogger.get_instance().debug(
+        "queueing ingestion task, object_data=%s" % (object_data)
+    )
+    await GulpTask.create(
+        token=None,
+        user_id=user_id,  # permission already checked
+        ws_id=None,
+        req_id=req_id,
+        object_data=object_data,
+    )
+    # return pending response
+    return JSONResponse(JSendResponse.pending(req_id=req_id))
+
+
 @router.post(
     "/ingest_file",
     tags=["ingest"],
@@ -527,22 +613,6 @@ if set, this function is **synchronous** and returns the preview chunk of docume
     file_path: str = None
 
     try:
-        # handle multipart request manually
-        file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
-            r=r, operation_id=operation_id, context_name=context_name, prefix=req_id
-        )
-        if not result.done:
-            # must continue upload with a new chunk
-            d = JSendResponse.error(
-                req_id=req_id, data=result.model_dump(exclude_none=True)
-            )
-            return JSONResponse(d, status_code=206)
-
-        # ensure payload is valid
-        payload = GulpIngestPayload.model_validate(payload)
-
-        ctx_id: str = None
-        src_id: str = None
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
@@ -551,6 +621,29 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             )
             index = operation.index
             user_id = s.user_id
+
+            # handle multipart request manually
+            file_path, payload, result = (
+                await ServerUtils.handle_multipart_chunked_upload(
+                    r=r,
+                    operation_id=operation_id,
+                    context_name=context_name,
+                    prefix=req_id,
+                )
+            )
+            if not result.done:
+                # upload not done yet, must continue upload with a new chunk
+                d = JSendResponse.error(
+                    req_id=req_id, data=result.model_dump(exclude_none=True)
+                )
+                return JSONResponse(d, status_code=206)
+
+            # ensure payload is valid
+            payload = GulpIngestPayload.model_validate(payload)
+
+            # proceed with the ingestion
+            ctx_id: str = None
+            src_id: str = None
 
             if preview_mode:
                 MutyLogger.get_instance().warning(
@@ -561,6 +654,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             else:
                 ctx: GulpContext
                 src: GulpSource
+
                 # create (and associate) context and source on the collab db, if they do not exist
                 ctx, _ = await operation.add_context(
                     sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
@@ -576,61 +670,156 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 ctx_id = ctx.id
                 src_id = src.id
 
-        kwds = dict(
+        # we have all we need, proceed with ingestion outside the session
+        return await _handle_preview_or_enqueue_ingest_task(
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
             operation_id=operation_id,
-            context_id=ctx_id,
-            source_id=src_id,
+            ctx_id=ctx_id,
+            src_id=src_id,
             index=index,
             plugin=plugin,
             file_path=file_path,
             file_total=file_total,
             payload=payload,
             preview_mode=preview_mode,
-            delete_after=True,
         )
-        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2).decode())
-        if preview_mode:
-            # preview, return sync
-            status, preview_chunk = await _ingest_file_internal(**kwds)
-            if status == GulpRequestStatus.DONE:
-                return JSONResponse(
-                    JSendResponse.success(req_id=req_id, data=preview_chunk)
-                )
 
-            # error in preview
-            return JSONResponse(
-                JSendResponse.error(
-                    req_id=req_id,
-                )
+    except Exception as ex:
+        # cleanup
+        if file_path:
+            await muty.file.delete_file_or_dir_async(file_path)
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.post(
+    "/ingest_file_to_source",
+    tags=["ingest"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        100: _EXAMPLE_INCOMPLETE_UPLOAD,
+        200: _EXAMPLE_DONE_UPLOAD,
+    },
+    summary="ingest file to an existing source",
+    description="""
+refer to `ingest_file` documentation for further information.
+""",
+)
+async def ingest_file_to_source_handler(
+    r: Request,
+    token: Annotated[
+        str,
+        Depends(APIDependencies.param_token),
+    ],
+    source_id: Annotated[
+        str,
+        Depends(APIDependencies.param_source_id),
+    ],
+    ws_id: Annotated[
+        str,
+        Depends(APIDependencies.param_ws_id),
+    ],
+    plugin: Annotated[
+        Optional[str],
+        Query(
+            description="the plugin to use, if not specified the plugin associated to the source will be used."
+        ),
+    ] = None,
+    file_total: Annotated[
+        int,
+        Query(
+            description="set to the total number of files if this call is part of a multi-file upload (same `req_id` for multiple files), default=1.",
+            example=1,
+        ),
+    ] = 1,
+    preview_mode: Annotated[
+        bool,
+        Query(
+            description="""
+if set, this function is **synchronous** and returns the preview chunk of documents generated by the plugin, without streaming data on the websocket, without saving data to the index nor counting data in the stats.
+""",
+        ),
+    ] = False,
+    req_id: Annotated[
+        str,
+        Depends(APIDependencies.ensure_req_id),
+    ] = None,
+) -> JSONResponse:
+    params = locals()
+    params.pop("r")
+    ServerUtils.dump_params(params)
+    file_path: str = None
+
+    ctx_id: str = None
+    operation_id: str = None
+    src_id: str = source_id
+    context_name: str = None
+    user_id: str = None
+    index: str = None
+
+    try:
+        # get source, context, operation info first, since we assume source already exist (if not, we fail.... just use normal ingest_file api)
+        async with GulpCollab.get_instance().session() as sess:
+            src: GulpSource = await GulpSource.get_by_id(sess, source_id)
+            operation_id = src.operation_id
+            operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+
+            # check token permission
+            s = await GulpUserSession.check_token(
+                sess, token, obj=operation, permission=GulpUserPermission.INGEST
             )
 
-        # enqueue task on collab
-        kwds["payload"] = GulpIngestPayload.model_dump(
-            kwds["payload"], exclude_none=True
+            # ok, fill the other info we need
+            ctx_id = src.context_id
+            ctx: GulpContext = await GulpContext.get_by_id(sess, ctx_id)
+            context_name = ctx.name
+            index = operation.index
+            user_id = s.user_id
+            plugin = plugin or src.plugin
+
+        # handle multipart request manually
+        file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
+            r=r, operation_id=operation_id, context_name=context_name, prefix=req_id
         )
-        object_data = {
-            "ws_id": ws_id,
-            "operation_id": operation_id,
-            "req_id": req_id,
-            "task_type": "ingest",
-            "params": kwds,
-        }
+        if not result.done:
+            # upload not done yet, must continue upload with a new chunk
+            d = JSendResponse.error(
+                req_id=req_id, data=result.model_dump(exclude_none=True)
+            )
+            return JSONResponse(d, status_code=206)
+
+        # ensure payload is valid
+        payload = GulpIngestPayload.model_validate(payload)
+
+        # get plugin parameters either from payload or from the existing source
+        plugin_params = payload.plugin_params or GulpPluginParameters(
+            src.mapping_parameters
+        )
         MutyLogger.get_instance().debug(
-            "queueing ingestion task, object_data=%s" % (object_data)
+            f"ingesting to existing source {src.id}: context_name={context_name}, operation_id={operation_id}, index={index}, user_id={user_id}, plugin={plugin}, plugin_params={plugin_params}"
         )
-        await GulpTask.create(
-            token,
-            ws_id=None,
+
+        if preview_mode:
+            MutyLogger.get_instance().warning("PREVIEW MODE.")
+            ctx_id = "preview"
+            src_id = "preview"
+
+        return await _handle_preview_or_enqueue_ingest_task(
+            user_id=user_id,
             req_id=req_id,
-            object_data=object_data,
+            ws_id=ws_id,
+            operation_id=operation_id,
+            ctx_id=ctx_id,
+            src_id=src_id,
+            index=index,
+            plugin=plugin,
+            file_path=file_path,
+            file_total=file_total,
+            payload=payload,
+            preview_mode=preview_mode,
         )
-
-        # and return pending
-        return JSONResponse(JSendResponse.pending(req_id=req_id))
-
     except Exception as ex:
         # cleanup
         if file_path:
@@ -768,14 +957,13 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             original_file_path=path,
             file_sha1=None,
         )
-
-        kwds = dict(
+        return await _handle_preview_or_enqueue_ingest_task(
             user_id=user_id,
             req_id=req_id,
             ws_id=ws_id,
             operation_id=operation_id,
-            context_id=ctx_id,
-            source_id=src_id,
+            ctx_id=ctx_id,
+            src_id=src_id,
             index=index,
             plugin=plugin,
             file_path=path,
@@ -784,46 +972,148 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             preview_mode=preview_mode,
             delete_after=delete_after,
         )
-        # print(orjson.dumps(kwds, option=orjson.OPT_INDENT_2).decode())
-        if preview_mode:
-            # preview, return sync
-            status, preview_chunk = await _ingest_file_internal(**kwds)
-            if status == GulpRequestStatus.DONE:
-                return JSONResponse(
-                    JSendResponse.success(req_id=req_id, data=preview_chunk)
-                )
 
-            # error in preview
-            return JSONResponse(
-                JSendResponse.error(
-                    req_id=req_id,
-                )
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.post(
+    "/ingest_file_local_to_source",
+    tags=["ingest"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: _EXAMPLE_DONE_UPLOAD,
+    },
+    summary="local version of `ingest_file_to_source`.",
+    description="""
+refer to `ingest_file_to_local` documentation for further information.
+""",
+)
+async def ingest_file_local_to_source_handler(
+    token: Annotated[
+        str,
+        Depends(APIDependencies.param_token),
+    ],
+    path: Annotated[
+        str,
+        Query(
+            description="the path of the file to be ingested, must be relative to `$WORKING_DIR/ingest_local` directory.",
+            example="/samples/win_evtx/Security_short_selected.evtx",
+        ),
+    ],
+    source_id: Annotated[
+        str,
+        Depends(APIDependencies.param_source_id),
+    ],
+    ws_id: Annotated[
+        str,
+        Depends(APIDependencies.param_ws_id),
+    ],
+    plugin: Annotated[
+        Optional[str],
+        Query(
+            description="the plugin to use, if not specified the plugin associated to the source will be used."
+        ),
+    ] = None,
+    plugin_params: Annotated[
+        Optional[GulpPluginParameters],
+        Body(
+            description="the plugin parameters, if not specified the plugin parameters associated to the source will be used."
+        ),
+    ] = None,
+    flt: Annotated[
+        GulpIngestionFilter,
+        Depends(APIDependencies.param_ingestion_flt_optional),
+    ] = None,
+    file_total: Annotated[
+        Optional[int],
+        Query(
+            description="set to the total number of files if this call is part of a multi-file upload (same `req_id` for multiple files), default=1.",
+            example=1,
+        ),
+    ] = 1,
+    delete_after: Annotated[
+        Optional[bool],
+        Query(
+            description="if set, the file will be deleted after processing.",
+        ),
+    ] = False,
+    preview_mode: Annotated[
+        Optional[bool],
+        Query(
+            description="""
+if set, this function is **synchronous** and returns the preview chunk of documents generated by the plugin, without streaming data on the websocket, without saving data to the index nor counting data in the stats.
+""",
+        ),
+    ] = False,
+    req_id: Annotated[
+        str,
+        Depends(APIDependencies.ensure_req_id),
+    ] = None,
+) -> JSONResponse:
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True)
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    # compute local path
+    path = muty.file.safe_path_join(GulpConfig.get_instance().path_ingest_local(), path)
+    MutyLogger.get_instance().info("ingesting local file: %s" % (path))
+
+    ctx_id: str = None
+    operation_id: str = None
+    src_id: str = source_id
+    user_id: str = None
+    index: str = None
+
+    try:
+        # get source, context, operation info first, since we assume source already exist (if not, we fail.... just use normal ingest_file api)
+        async with GulpCollab.get_instance().session() as sess:
+            src: GulpSource = await GulpSource.get_by_id(sess, source_id)
+            operation_id = src.operation_id
+            operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+
+            # check token permission
+            s = await GulpUserSession.check_token(
+                sess, token, obj=operation, permission=GulpUserPermission.INGEST
             )
 
-        # enqueue task on collab
-        kwds["payload"] = GulpIngestPayload.model_dump(
-            kwds["payload"], exclude_none=True
-        )
-        object_data = {
-            "ws_id": ws_id,
-            "operation_id": operation_id,
-            "req_id": req_id,
-            "task_type": "ingest",
-            "params": kwds,
-        }
-        MutyLogger.get_instance().debug(
-            "queueing ingestion task (local), object_data=%s" % (object_data)
-        )
-        await GulpTask.create(
-            token,
-            ws_id=None,
-            req_id=req_id,
-            object_data=object_data,
-        )
+            # ok, fill the other info we need
+            ctx_id = src.context_id
+            index = operation.index
+            user_id = s.user_id
+            plugin = plugin or src.plugin
+            plugin_params = plugin_params or GulpPluginParameters(
+                src.mapping_parameters
+            )
 
-        # and return pending
-        return JSONResponse(JSendResponse.pending(req_id=req_id))
+            if preview_mode:
+                MutyLogger.get_instance().warning("PREVIEW MODE.")
+                ctx_id = "preview"
+                src_id = "preview"
 
+            payload = GulpIngestPayload(
+                flt=flt,
+                plugin_params=plugin_params,
+                original_file_path=path,
+                file_sha1=None,
+            )
+            return await _handle_preview_or_enqueue_ingest_task(
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                ctx_id=ctx_id,
+                src_id=src_id,
+                index=index,
+                plugin=plugin,
+                file_path=path,
+                file_total=file_total,
+                payload=payload,
+                preview_mode=preview_mode,
+                delete_after=delete_after,
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -908,11 +1198,15 @@ async def _ingest_raw_internal(
         200: _EXAMPLE_DONE_UPLOAD,
     },
     description="""
-ingests a chunk of raw data, i.e. coming from a gulp SIEM agent or ingestion tool.
+ingests a chunk of raw data, i.e. coming from a gulp SIEM agent, bridge or generic ingestion tool.
 
 - the request expects a multipart request with a JSON payload (content type `application/json`) and a bytes `chunk` (content type `application/octet-stream`) with a chunk of the file.
 
 - **this function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support multipart**.
+
+### data
+
+the data is expected to contain everything for gulp to (re)generate a GulpDocument successfully.
 
 ### payload
 
@@ -978,7 +1272,7 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
             index = operation.index
             user_id = s.user_id
 
-        # get body
+        # get body (contains chunk, and optionally flt and plugin_params)
         payload, chunk = await ServerUtils.handle_multipart_body(r)
         # flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
         #     payload.get("flt", GulpIngestionFilter())
@@ -1188,7 +1482,10 @@ async def ingest_zip_handler(
             # handle multipart request manually
             file_path, payload, result = (
                 await ServerUtils.handle_multipart_chunked_upload(
-                    r=r, operation_id=operation_id, context_name=context_name, prefix=req_id    
+                    r=r,
+                    operation_id=operation_id,
+                    context_name=context_name,
+                    prefix=req_id,
                 )
             )
             if not result.done:

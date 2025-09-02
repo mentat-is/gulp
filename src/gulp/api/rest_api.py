@@ -238,17 +238,16 @@ class GulpRestServer:
 
         try:
             body = await r.json()
+            body = orjson.dumps(body, option=orjson.OPT_INDENT_2).decode()
         except:
             try:
-                # take the first 1k bytes of the body
                 body = await r.body()
-                body = str(body[:1024]) + "... (truncated)"
+                body = body.decode(errors="replace")
             except:
-                body = None
+                body = ""
 
-        if body and isinstance(body, bytes):
-            body = body.decode("utf-8")
-
+        # take the first 1k bytes of the body
+        body = muty.string.make_shorter(str(body), max_len=1024)
         js = JSendResponse.error(
             req_id=req_id,
             ex=ex,
@@ -447,7 +446,7 @@ class GulpRestServer:
             "STARTING poll task, max task concurrency=%d ..." % (limit)
         )
 
-        # until the server exits
+        # loop until the server exits
         while not GulpRestServer.get_instance().is_shutdown():
             async with GulpCollab.get_instance().session() as sess:
                 # get a batch of tasks, use advisory lock to prevent concurrent dequeueing
@@ -457,16 +456,15 @@ class GulpRestServer:
                     flt=GulpCollabFilter(limit=limit, offset=offset),
                     throw_if_not_found=False,
                 )
-                if objs:
-                    # delete all tasks in this batch first to prevent reprocessing
-                    for obj in objs:
-                        await obj.delete(sess)
-                        await sess.commit()
-                await GulpTask.release_advisory_lock(sess, "dequeue")
                 if not objs:
                     # no tasks to process, wait before next poll
                     await asyncio.sleep(5)
                     continue
+
+                # delete all tasks in this batch first to prevent reprocessing
+                for obj in objs:
+                    await obj.delete(sess)
+                    await sess.commit()
 
                 MutyLogger.get_instance().debug(
                     "found %d tasks to process" % (len(objs))
@@ -480,6 +478,7 @@ class GulpRestServer:
                         from gulp.api.rest.ingest import run_ingest_file_task
 
                         d = obj.to_dict()
+                        # print("*************** spawning ingest task for: %s" % (d))
                         await self.spawn_bg_task(run_ingest_file_task(d))
 
                     elif obj.task_type == "ingest_raw":

@@ -1676,7 +1676,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # token needs at least read permission
             s = await GulpUserSession.check_token(sess, token, permission=permission)
             user_id = s.user_id
-            #MutyLogger.get_instance().debug("get_by_filter_wrapper, user_id=%s" % (user_id))
+            # MutyLogger.get_instance().debug("get_by_filter_wrapper, user_id=%s" % (user_id))
 
             objs = await cls.get_by_filter(
                 sess,
@@ -1810,20 +1810,22 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         obj_id: str = None,
         private: bool = True,
         operation_id: str = None,
+        user_id: str = None,
         **kwargs,
     ) -> dict:
         """
-        helper to create a new object, handling session
+        helper to create a new object, handling veryfication of token and permission
 
         Args:
-            token (str): The user token.
+            token (str): The user token, may be None if user_id is provided (assumes permissions are already checked).
             ws_id (str): The websocket ID: pass None to not notify the websocket.
             req_id (str): The request ID.
             object_data (dict): The data to create the object with.
             permission (list[GulpUserPermission], optional): The permission required to create the object. Defaults to GulpUserPermission.EDIT.
             obj_id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
             private (bool, optional): If True, the object will be private. Defaults to False.
-            operation_id (str, optional): The ID of the operation associated with the object to be created: if set, it will be checked for permission. Defaults to None.
+            operation_id (str, optional): The ID of the operation associated with the object to be created: if set, it will be checked for permission. Defaults to None, ignored if user_id is provided.
+            user_id (str, optional): The ID of the user creating the object, assuming it has been already verified. Defaults to None, must be provided if token is None.
             **kwargs: Any other additional keyword arguments to set as attributes on the instance, if any
         Returns:
             dict: The created object as a dictionary.
@@ -1838,26 +1840,38 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             permission = [GulpUserPermission.EDIT]
 
         async with GulpCollab.get_instance().session() as sess:
-            # check permission for creation
-            if operation_id:
-                # check permission on the operation
-                from gulp.api.collab.operation import GulpOperation
-
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                s = await GulpUserSession.check_token(
-                    sess, token, permission=permission, obj=op
-                )
+            if token is None:
+                # we already checked permission, but we need the id
+                if not user_id:
+                    raise MissingPermissionError(
+                        "token is required if owner_id is not provided"
+                    )
             else:
-                # just check token permission
-                s = await GulpUserSession.check_token(
-                    sess, token, permission=permission
-                )
+                # check permission for creation
+                if operation_id:
+                    # check permission on the operation
+                    from gulp.api.collab.operation import GulpOperation
+
+                    op: GulpOperation = await GulpOperation.get_by_id(
+                        sess, operation_id
+                    )
+                    s = await GulpUserSession.check_token(
+                        sess, token, permission=permission, obj=op
+                    )
+                else:
+                    # just check token permission
+                    s = await GulpUserSession.check_token(
+                        sess, token, permission=permission
+                    )
+
+                # get from session
+                user_id = s.user_id
 
             n: GulpCollabBase = await cls._create_internal(
                 sess,
                 object_data,
                 obj_id=obj_id,
-                owner_id=s.user_id,
+                owner_id=user_id,
                 ws_id=ws_id,
                 req_id=req_id,
                 private=private,

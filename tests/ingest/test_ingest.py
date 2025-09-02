@@ -709,3 +709,114 @@ async def test_mysql_general():
     ]
     await _test_ingest_generic(files, "mysql_general", 4056)
     MutyLogger.get_instance().info(test_mysql_general.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_ingest_to_source(file_path: str = None, skip_checks: bool = False):
+    # ingest first evtx first
+    await test_win_evtx(file_path=file_path, skip_checks=skip_checks)
+    source_id: str = "64e7c3a4013ae243aa13151b5449aac884e36081"
+
+    # then another file
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
+    file_path = os.path.join(samples_dir, "Application.evtx")
+    await GulpAPIIngest.ingest_file_to_source(
+        token=ingest_token,
+        file_path=os.path.join(samples_dir, file_path),
+        source_id=source_id,
+        req_id="new_req",
+    )
+
+    await _test_ingest_ws_loop(
+        check_ingested=6419, check_processed=6419, skip_checks=skip_checks
+    )
+
+    # now check operation total
+    op = await GulpAPIOperation.operation_get_by_id(ingest_token, TEST_OPERATION_ID)
+    assert op["doc_count"] == 6426
+    MutyLogger.get_instance().info(test_ingest_to_source.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_ingest_file_local():
+    # get working directory
+    wrk_dir = os.getenv("GULP_WORKING_DIR", None)
+    if not wrk_dir:
+        home_path = os.path.expanduser("~")
+        wrk_dir = os.path.join(home_path, ".config/gulp")
+    ingest_local_dir = os.path.join(wrk_dir, "ingest_local")
+
+    # get sample file path
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
+
+    # copy to ingest_local
+    src_path = os.path.join(samples_dir, "Security_short_selected.evtx")
+    dest_path = os.path.join(ingest_local_dir, "Security_short_selected.evtx")
+    await muty.file.copy_file_async(src_path, dest_path)
+    MutyLogger.get_instance().info(f"copied {src_path} to {dest_path}")
+
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    # ingest the file
+    await GulpAPIIngest.ingest_file_local(
+        token=ingest_token,
+        file_path=dest_path,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+        plugin="win_evtx",
+    )
+
+    await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+    MutyLogger.get_instance().info(test_ingest_file_local.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_ingest_file_local_to_source():
+    # ingest first file
+    await test_ingest_file_local()
+
+    # get working directory
+    source_id: str = "64e7c3a4013ae243aa13151b5449aac884e36081"
+    wrk_dir = os.getenv("GULP_WORKING_DIR", None)
+    if not wrk_dir:
+        home_path = os.path.expanduser("~")
+        wrk_dir = os.path.join(home_path, ".config/gulp")
+    else:
+        MutyLogger.get_instance().info(f"using GULP_WORKING_DIR={wrk_dir}")
+    ingest_local_dir = os.path.join(wrk_dir, "ingest_local")
+
+    # get sample file path
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
+
+    # copy to ingest_local
+    src_path = os.path.join(samples_dir, "Application.evtx")
+    dest_path = os.path.join(ingest_local_dir, "Application.evtx")
+    await muty.file.copy_file_async(src_path, dest_path)
+    MutyLogger.get_instance().info(f"second file copied: {src_path} to {dest_path}")
+
+    # ingest the file
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    await GulpAPIIngest.ingest_file_local_to_source(
+        token=ingest_token,
+        file_path=dest_path,
+        source_id=source_id,
+        req_id="new_req_2",
+    )
+
+    await _test_ingest_ws_loop(check_ingested=6419, check_processed=6419)
+
+    # now check operation total
+    op = await GulpAPIOperation.operation_get_by_id(ingest_token, TEST_OPERATION_ID)
+    assert op["doc_count"] == 6426
+
+    MutyLogger.get_instance().info(
+        test_ingest_file_local_to_source.__name__ + " succeeded!"
+    )

@@ -23,7 +23,11 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import GulpMappingParameters, GulpPluginParameters
+from gulp.structs import (
+    GulpMappingParameters,
+    GulpPluginCustomParameter,
+    GulpPluginParameters,
+)
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 
 
@@ -39,7 +43,19 @@ class Plugin(GulpPluginBase):
         return """raw GulpDocuments ingestion plugin.
         
 - documents are expected to have `gulp.context_id` and `gulp.source_id` fields set to existing GulpContext and GulpSource: if they do not exist, they will be created with `name` set to the given id.
+- if `source_id` custom parameter is set, it will override the `gulp.source_id` field in the document.
 """
+
+    @override
+    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
+        return [
+            GulpPluginCustomParameter(
+                name="override_source_id",
+                type="str",
+                desc="overrides source id with the given value",
+                default_value=None,
+            ),
+        ]
 
     @override
     async def _record_to_gulp_document(
@@ -51,10 +67,18 @@ class Plugin(GulpPluginBase):
             "gulp.context_id", record["gulp.context_id"], d, **kwargs
         )
         d.update(m)
-        m = await self._process_key(
-            "gulp.source_id", d["gulp.source_id"], d, **kwargs
-        )
-        d.update(m)
+
+        # check if we have to override source_id
+        source_id: str = self._plugin_params.custom_parameters.get("override_source_id")
+        if source_id:
+            # override
+            d["gulp.source_id"] = source_id
+        else:
+            # either overridden or from record
+            m = await self._process_key(
+                "gulp.source_id", d["gulp.source_id"], d, **kwargs
+            )
+            d.update(m)
         # create GulpDocument as is
         return GulpDocument(
             self,
@@ -77,8 +101,8 @@ class Plugin(GulpPluginBase):
         stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-        last: bool=False,
-        **kwargs
+        last: bool = False,
+        **kwargs,
     ) -> GulpRequestStatus:
 
         js: list[dict] = []
