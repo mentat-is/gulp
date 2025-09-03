@@ -113,27 +113,26 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-
-        if not plugin_params:
-            plugin_params = GulpPluginParameters()
-        plugin_params.mapping_parameters.mapping_file = "chrome_webdata.json"
+        plugin_params = self._ensure_plugin_params(
+            plugin_params, mapping_file="chrome_webdata.json"
+        )
 
         await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         # set as stacked
         try:

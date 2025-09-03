@@ -379,6 +379,60 @@ async def test_ws_raw():
 
 
 @pytest.mark.asyncio
+@pytest.mark.run(order=7)
+async def test_ingest_preview():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
+    file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
+
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    # ingest the file
+    d: dict = await GulpAPIIngest.ingest_file(
+        token=ingest_token,
+        file_path=file_path,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+        plugin="win_evtx",
+        preview_mode=True,
+    )
+    assert len(d) == 7
+    MutyLogger.get_instance().info(test_ingest_preview.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_ingest_offset():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
+    file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
+
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    # ingest the file
+    one_day_msec = 1000 * 60 * 60 * 24
+    await GulpAPIIngest.ingest_file(
+        token=ingest_token,
+        file_path=file_path,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+        plugin="win_evtx",
+        plugin_params=GulpPluginParameters(timestamp_offset_msec=one_day_msec),
+    )
+    await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+
+    # get doc by id
+    # source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
+    target_id = "50edff98db7773ef04378ec20a47f622"
+    doc = await GulpAPIQuery.query_single_id(ingest_token, TEST_OPERATION_ID, target_id)
+    assert doc["_id"] == target_id
+    assert doc["@timestamp"] == "2016-06-30T15:24:34.346000+00:00"
+    assert doc["gulp.timestamp"] == 1467300274345999872  # 1467213874345999872 + 1 day
+    MutyLogger.get_instance().info(test_ingest_offset.__name__ + " passed")
+
+
+@pytest.mark.asyncio
 async def test_win_evtx(file_path: str = None, skip_checks: bool = False):
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../../samples/win_evtx")

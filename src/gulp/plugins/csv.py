@@ -142,8 +142,6 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        if not plugin_params:
-            plugin_params = GulpPluginParameters()
         try:
             await super().ingest_file(
                 sess=sess,

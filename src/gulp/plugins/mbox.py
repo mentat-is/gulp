@@ -79,7 +79,6 @@ class Plugin(GulpPluginBase):
          **kwargs
    ) -> GulpRequestStatus:
         try:
-
             await super().ingest_file(
                 sess=sess,
                 stats=stats,

@@ -102,22 +102,6 @@ class Plugin(GulpPluginBase):
                 required=True,
             ),
             GulpPluginCustomParameter(
-                name="offset_msec",
-                type="int",
-                desc="""
-                    offset in milliseconds to be added to documents timestamp.
-
-                    - to subtract, use a negative offset.
-                    """,
-                default_value=0,
-            ),
-            GulpPluginCustomParameter(
-                name="timestamp_field",
-                type="str",
-                desc="the main timestamp field in the documents.",
-                default_value="@timestamp",
-            ),
-            GulpPluginCustomParameter(
                 name="is_elasticsearch",
                 type="bool",
                 desc="if True, connect to elasticsearch, otherwise connect to opensearch.",
@@ -139,12 +123,6 @@ class Plugin(GulpPluginBase):
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
-        offset_msec: int = self._plugin_params.custom_parameters.get("offset_msec", 0)
-
-        # convert timestamp to nanoseconds
-        timestamp: str = str(d["@timestamp"])
-        timestamp, ns, _ = GulpDocument.ensure_timestamp(timestamp, offset_msec)
-
         # MutyLogger.get_instance().debug(
         #     "operation_id=%s, doc=\n%s"
         #     % (
@@ -158,12 +136,11 @@ class Plugin(GulpPluginBase):
             self,
             operation_id=self._operation_id,
             event_original=str(doc),
-            timestamp=timestamp,
-            gulp_timestamp=ns,
             event_sequence=record_idx,
             **d,
         )
         import json
+
         # MutyLogger.get_instance().debug(d)
         return d
 
@@ -269,7 +246,7 @@ class Plugin(GulpPluginBase):
 
         except PreviewDone:
             # preview done before finishing current chunk processing
-            pr: list[dict]=self.preview_chunk()
+            pr: list[dict] = self.preview_chunk()
             return len(pr), pr
 
         except Exception as ex:

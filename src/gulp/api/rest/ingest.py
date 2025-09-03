@@ -238,6 +238,23 @@ async def _ingest_file_internal(
     """
     runs in a worker process to ingest a single file
 
+    Args:
+        user_id (str): the user id
+        req_id (str): the request id
+        ws_id (str): the websocket id to stream stats and data to
+        operation_id (str): the operation id
+        context_id (str): the context id
+        source_id (str): the source id
+        index (str): the index to ingest data to
+        plugin (str): the plugin to use for ingestion
+        file_path (str): the path of the file to ingest
+        file_total (int): total number of files in a multi-file upload
+        payload (GulpIngestPayload): the ingestion payload
+        preview_mode (bool, optional): if True, runs in preview mode. Defaults to False.
+        delete_after (bool, optional): if True, deletes the file after ingestion. Defaults to False.
+        **kwargs: additional arguments
+    Returns:
+        tuple[GulpRequestStatus, list[dict]]: the status and, in preview mode, the preview chunk (a list of GulpDocument dictionaries)
     """
     # MutyLogger.get_instance().debug("---> _ingest_file_internal")
     preview_chunk: list[dict] = []
@@ -318,7 +335,7 @@ async def _ingest_file_internal(
 
             # done
             if mod:
-                if not preview_mode:
+                if not preview_mode and status != GulpRequestStatus.FAILED:
                     # broadcast ingest internal event
                     await mod.broadcast_ingest_internal_event()
 
@@ -335,7 +352,9 @@ async def run_ingest_file_task(t: dict):
     """
     params: dict = t.get("params", {})
     params["payload"] = GulpIngestPayload.model_validate(params.get("payload"))
-    # MutyLogger.get_instance().debug("run_ingest_file_task, params=%s" % (params))
+    # MutyLogger.get_instance().debug(
+    #     "run_ingest_file_task, t=%s, params=%s" % (t, params)
+    # )
     await GulpProcess.get_instance().process_pool.apply(
         _ingest_file_internal, kwds=params
     )
@@ -353,7 +372,7 @@ async def run_ingest_raw_task(t: dict):
     params["plugin_params"] = GulpPluginParameters.model_validate(
         params.get("plugin_params")
     )
-    # MutyLogger.get_instance().debug("run_ingest_raw_task, params=%s" % (params))
+    # MutyLogger.get_instance().debug("run_ingest_raw_task, t=%s, params=%s" % (t, params))
     await GulpProcess.get_instance().process_pool.apply(
         _ingest_raw_internal, kwds=params
     )
@@ -1540,14 +1559,10 @@ async def ingest_zip_handler(
                     plugin=f.model_extra.get("plugin"),
                     file_path=f.model_extra.get("local_file_path"),
                     file_total=file_total,
-                    payload=f,
+                    payload=f.model_dump(exclude_none=True),
                 )
 
                 # enqueue task on collab
-                kwds["payload"] = GulpIngestPayload.model_dump(
-                    kwds["payload"], exclude_none=True
-                )
-
                 object_data = {
                     "ws_id": ws_id,
                     "operation_id": operation_id,
@@ -1585,7 +1600,7 @@ async def ingest_zip_handler(
     },
     summary="ingest a `local` zip containing multiple sources, possibly using multiple plugins.",
     description="""
-this is basically a local version of the `ingest_zipo` function, which does not require a multipart request and can be used from the `FastAPI /docs` page.
+this is basically a local version of the `ingest_zip` function, which does not require a multipart request and can be used from the `FastAPI /docs` page.
 
 the following are the differences from the default `ingest_file` function:
 
@@ -1695,16 +1710,12 @@ async def ingest_zip_local_handler(
                     plugin=f.model_extra.get("plugin"),
                     file_path=f.model_extra.get("local_file_path"),
                     file_total=file_total,
-                    payload=f,
+                    payload=f.model_dump(exclude_none=True),
                     # they are temporary files, always delete
                     delete_after=True,
                 )
 
                 # enqueue task on collab
-                kwds["payload"] = GulpIngestPayload.model_dump(
-                    kwds["payload"], exclude_none=True
-                )
-
                 object_data = {
                     "ws_id": ws_id,
                     "operation_id": operation_id,

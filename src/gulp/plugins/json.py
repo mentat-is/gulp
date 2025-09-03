@@ -85,7 +85,7 @@ class Plugin(GulpPluginBase):
 
         # map
         final: dict = {}
-        #print("processing record %d:\n%s" % (record_idx, orjson.dumps(d, option=orjson.OPT_INDENT_2).decode()))
+        # print("processing record %d:\n%s" % (record_idx, orjson.dumps(d, option=orjson.OPT_INDENT_2).decode()))
         for k, v in d.items():
             mapped = await self._process_key(k, v, final, **kwargs)
             final.update(mapped)
@@ -275,9 +275,6 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
         try:
-            if not plugin_params:
-                plugin_params = GulpPluginParameters()
-
             await super().ingest_file(
                 sess=sess,
                 stats=stats,

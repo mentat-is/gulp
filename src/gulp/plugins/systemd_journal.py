@@ -113,12 +113,10 @@ class Plugin(GulpPluginBase):
          **kwargs
    ) -> GulpRequestStatus:
         try:
-            # initialize plugin
-            if not plugin_params or plugin_params.mapping_parameters.is_empty():
-                plugin_params = GulpPluginParameters(
-                    mapping_parameters=GulpMappingParameters(mapping_file="systemd_journal.json"),
-                )
-
+            plugin_params = self._ensure_plugin_params(
+                plugin_params,
+                mapping_file="systemd_journal.json",
+            )
 
             await super().ingest_file(
                 sess=sess,

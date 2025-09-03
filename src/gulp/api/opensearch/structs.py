@@ -30,6 +30,8 @@ from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
 import json
 
+from gulp.structs import GulpPluginParameters
+
 T = TypeVar("T", bound=GulpBaseDocumentFilter)
 
 
@@ -154,22 +156,30 @@ class GulpDocument(GulpBasicDocument):
     )
 
     @staticmethod
-    def ensure_timestamp(timestamp: str, offset_msec: int = 0) -> tuple[str, int, bool]:
+    def ensure_timestamp(
+        timestamp: str, plugin_params: GulpPluginParameters = None
+    ) -> tuple[str, int, bool]:
         """
-        returns a string guaranteed to be in iso8601 time format
+        ensure we have a proper iso8601 timestamp and return the timestamp in nanoseconds from unix epoch.
 
         Args:
-            timestamp (str): The time string to parse (in iso8601 format or a string in a format supported by muty.time.ensure_iso8601).
-            offset_msec (int, optional): An offset in milliseconds to apply to the timestamp. Defaults to 0.
+            timestamp (str): The time string to parse, must be in one of the following formats:
+                - (already in) iso8601 format
+                - numeric or numeric string representing seconds/milliseconds/nanoseconds from unix epoch
+                - any string format supported by python dateutil.parser
+
+            plugin_params (GulpPluginParameters, optional): The plugin parameters, used to get i.e. the timestamp offset if defined. Defaults to None.
         Returns:
             tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid.
         """
+
         epoch_start: str = "1970-01-01T00:00:00Z"
-        # MutyLogger.get_instance().debug(f"ensure_timestamp: {timestamp}")
+        # MutyLogger.get_instance().debug(f"ensure_timestamp: {timestamp}, plugin_params={plugin_params}")
         if not timestamp:
             # invalid timestamp
             return epoch_start, 0, True
 
+        ns: int = 0
         try:
             if timestamp.isdigit():
                 # timestamp is in seconds/milliseconds/nanoseconds from unix epoch
@@ -180,11 +190,14 @@ class GulpDocument(GulpBasicDocument):
             # Timestamp is epoch or before, that's usually a sign of an invalid timestamp
             if ns <= 0:
                 raise ValueError("timestamp is before unix epoch")
-            
-            if offset_msec:
+
+            if plugin_params and plugin_params.timestamp_offset_msec:
                 # apply offset in milliseconds to the timestamp
-                ns += offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS
-                timestamp = ns
+                ns += (
+                    plugin_params.timestamp_offset_msec
+                    * muty.time.MILLISECONDS_TO_NANOSECONDS
+                )
+                timestamp = str(ns)
 
             # enforce iso8601 timestamp
             ts_string = muty.time.ensure_iso8601(timestamp)
@@ -284,6 +297,22 @@ class GulpDocument(GulpBasicDocument):
         ts_nanos: int = 0
         invalid: bool = False
         gulp_ts: int = 0
+
+        if not timestamp:
+            # if not passed directly (handled by the plugin),
+            # this may have been set into **kwargs as "@timestamp" by the mapping engine (turned back to "timestamp" by GulpDocumentFieldAliasHelper)
+            timestamp: str = data.get("timestamp", 0)
+
+        ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
+            str(timestamp), plugin_params=plugin_instance._plugin_params
+        )
+        data["timestamp"] = ts
+        data["gulp_timestamp"] = ts_nanos
+        if invalid or ts_nanos == 0:
+            # flag invalid timestamp
+            data["invalid_timestamp"] = True
+
+        """        
         if timestamp and not ensure_extra_doc_timestamp:
             # if passed directly, we will use the timestamp from arguments (the plugin handled it)
             data["timestamp"] = timestamp
@@ -307,7 +336,10 @@ class GulpDocument(GulpBasicDocument):
                 # this is the default case, either timestamp has been passed through args when generating extra documents (and ensure_extra_doc_timestamp is true)
                 # print(orjson.dumps(data, option=orjson.OPT_INDENT_2).decode())
                 timestamp: str = data.get("timestamp", 0)
-            ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(str(timestamp))
+
+            ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
+                str(timestamp), plugin_params=plugin_instance._plugin_params
+            )
 
             data["timestamp"] = ts
             data["gulp_timestamp"] = ts_nanos
@@ -315,7 +347,7 @@ class GulpDocument(GulpBasicDocument):
         if invalid or ts_nanos == 0:
             # flag invalid timestamp
             data["invalid_timestamp"] = True
-
+        """
         # add gulp_event_code (event code as a number)
         data["gulp_event_code"] = (
             int(data["event_code"])

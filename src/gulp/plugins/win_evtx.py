@@ -33,6 +33,7 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
+
 class Plugin(GulpPluginBase):
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
@@ -206,12 +207,7 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
         try:
-            if not plugin_params or plugin_params.mapping_parameters.is_empty():
-                plugin_params = GulpPluginParameters(
-                    mapping_parameters=GulpMappingParameters(
-                        mapping_file="windows.json"
-                    ),
-                )
+            plugin_params = self._ensure_plugin_params(plugin_params, mapping_file="windows.json")
             await super().ingest_file(
                 sess=sess,
                 stats=stats,

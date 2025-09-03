@@ -100,10 +100,6 @@ class Plugin(GulpPluginBase):
          **kwargs
    ) -> GulpRequestStatus:
         try:
-            # if not plugin_params or plugin_params.is_empty():
-            #     plugin_params = GulpPluginParameters(
-            #         mapping_file="iis_access.json"
-            #     )
             await super().ingest_file(
                 sess=sess,
                 stats=stats,

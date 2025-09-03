@@ -35,7 +35,12 @@ from gulp.api.collab.stats import (
     SourceCanceledError,
 )
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.mapping.models import GulpMapping, GulpMappingField, GulpMappingFile
+from gulp.api.mapping.models import (
+    GulpMapping,
+    GulpMappingField,
+    GulpMappingFile,
+    GulpSigmaMapping,
+)
 from gulp.api.opensearch.filters import (
     QUERY_DEFAULT_FIELDS,
     GulpDocumentFilterResult,
@@ -780,7 +785,7 @@ class GulpPluginBase(ABC):
 
     def preview_chunk(self) -> list[dict]:
         """
-        returns the accumulated preview chunk
+        returns the accumulated preview chunk as a list of GulpDocument dictionaries.
         """
         return self._preview_chunk
 
@@ -1604,6 +1609,7 @@ class GulpPluginBase(ABC):
                 self,
                 **new_doc_data,
                 __ignore_default_event_code__=True,
+                # also the timestamp must be re-evaluated
                 __ensure_timestamp__=True,
             )
             # MutyLogger.get_instance().debug(
@@ -2001,13 +2007,14 @@ class GulpPluginBase(ABC):
             # this field represents a timestamp to be handled
             # NOTE: a field mapped as "@timestamp" is handled automatically by the engine when creating a new document, and it DOES NOT need "is_timestamp" set if it's a generic timestamp
             if timestamp_type == "chrome":
-                # timestamp chrome, turn to nanoseconds from epoch
+                # timestamp chrome, turn to nanoseconds from epoch. do not apply offset here, yet
                 source_value = muty.time.chrome_epoch_to_nanos_from_unix_epoch(
                     int(source_value)
                 )
+
                 force_type = "int"
             elif timestamp_type == "generic":
-                # this is a generic timestamp, turn it into a string and nanoseconds
+                # this is a generic timestamp, turn it into a string and nanoseconds. no offset applied here, yet
                 _, ns, _ = GulpDocument.ensure_timestamp(str(source_value))
                 source_value = ns
                 force_type = "int"
@@ -2256,7 +2263,7 @@ class GulpPluginBase(ABC):
 
     async def _parse_custom_parameters(self) -> None:
         """
-        parse custom plugin parameters against defined ones and set default values if needed
+        parse the defined GulpPluginCustomParameters and store the key/value pairs in self._plugin_params.custom_parameters.
 
         Raises:
             ValueError: if a required parameter is missing
@@ -2283,6 +2290,41 @@ class GulpPluginBase(ABC):
             MutyLogger.get_instance().debug(
                 f"---> found plugin custom parameter: {param_name}={param_value}"
             )
+
+    def _ensure_plugin_params(
+        self,
+        plugin_params: GulpPluginParameters = None,
+        mapping_file: str = None,
+        mappings: dict[str, GulpMapping] = None,
+        mapping_id: str = None,
+        additional_mapping_files: list[tuple[str, str]] = None,
+        additional_mappings: dict[str, GulpMapping] = None,
+    ) -> GulpPluginParameters:
+        """
+        ensure plugin_params is not None and optionally set mapping parameters if not already set.
+
+        Args:
+            plugin_params (GulpPluginParameters, optional): the plugin parameters. If None, a default one will be created.
+            mapping_file (str, optional): the mapping file to use if plugin_params.mapping_parameters is empty.
+            mappings (dict[str, GulpMapping], optional): the mappings to use if plugin_params.mapping_parameters is empty.
+            mapping_id (str, optional): the mapping id to use if plugin_params.mapping_parameters is empty.
+            additional_mapping_files (list[tuple[str,str]], optional): additional mapping files to use if plugin_params.mapping_parameters is empty.
+            additional_mappings (dict[str, GulpMapping], optional): additional mappings to use if plugin_params.mapping_parameters is empty.
+        Returns:
+            GulpPluginParameters: the ensured plugin parameters.
+        """
+        if not plugin_params:
+            plugin_params = GulpPluginParameters()
+
+        if plugin_params.mapping_parameters.is_empty():
+            plugin_params.mapping_parameters = GulpMappingParameters(
+                mapping_file=mapping_file,
+                mapping_id=mapping_id,
+                mappings=mappings,
+                additional_mapping_files=additional_mapping_files,
+                additional_mappings=additional_mappings,
+            )
+        return plugin_params
 
     @staticmethod
     async def mapping_parameters_to_mapping(

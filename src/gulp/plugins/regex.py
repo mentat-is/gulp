@@ -131,9 +131,14 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
         try:
-            if not plugin_params:
-                plugin_params = GulpPluginParameters()
-
+            plugin_params = self._ensure_plugin_params(
+                plugin_params,
+                mappings={
+                    "default": GulpMapping(
+                        fields={"@timestamp": GulpMappingField(ecs="@timestamp")}
+                    )
+                },
+            )
             await super().ingest_file(
                 sess=sess,
                 stats=stats,
@@ -150,17 +155,6 @@ class Plugin(GulpPluginBase):
                 flt=flt,
                 **kwargs,
             )
-            if not plugin_params.mapping_parameters.mappings:
-                plugin_params.mapping_parameters.mappings = {}
-
-            mappings = plugin_params.mapping_parameters.mappings.get("default")
-            if not mappings:
-                mappings = {
-                    "default": GulpMapping(
-                        fields={"timestamp": GulpMappingField(ecs="@timestamp")}
-                    )
-                }
-                plugin_params.mapping_parameters.mappings = mappings
 
         except Exception as ex:
             await self._source_failed(ex)
@@ -168,7 +162,7 @@ class Plugin(GulpPluginBase):
             return GulpRequestStatus.FAILED
 
         encoding = self._plugin_params.custom_parameters.get("encoding")
-        date_format =self._plugin_params.custom_parameters.get("date_format")
+        date_format = self._plugin_params.custom_parameters.get("date_format")
         flags = self._plugin_params.custom_parameters.get("flags")
         regex = self._plugin_params.custom_parameters.get("regex")
         regex = re.compile(regex, flags)

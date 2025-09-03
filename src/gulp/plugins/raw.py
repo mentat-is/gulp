@@ -108,19 +108,15 @@ class Plugin(GulpPluginBase):
         js: list[dict] = []
         try:
             # initialize plugin
-            if not plugin_params or plugin_params.mapping_parameters.is_empty():
-                # using default mapping parameters
-                mp: GulpMappingParameters = GulpMappingParameters(
-                    mappings={
-                        "raw_doc": GulpMapping(
-                            fields={
-                                "gulp.context_id": GulpMappingField(is_context=True),
-                                "gulp.source_id": GulpMappingField(is_source=True),
-                            }
-                        ),
+            plugin_params=self._ensure_plugin_params(plugin_params, mappings={
+                "raw_doc": GulpMapping(
+                    fields={
+                        "gulp.context_id": GulpMappingField(is_context=True),
+                        "gulp.source_id": GulpMappingField(is_source=True),
                     }
-                )
-                plugin_params = GulpPluginParameters(mapping_parameters=mp)
+                ),
+            })
+
             await super().ingest_raw(
                 sess=sess,
                 user_id=user_id,

@@ -169,7 +169,6 @@ class Plugin(GulpPluginBase):
             event_original=record.build().hex(),
             event_sequence=record_idx,
             timestamp=timestamp,
-            gulp_timestamp=ns,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )

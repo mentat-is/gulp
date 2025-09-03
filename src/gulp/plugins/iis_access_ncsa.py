@@ -123,14 +123,7 @@ class Plugin(GulpPluginBase):
         **kwargs
  ) -> GulpRequestStatus:
 
-        date_format = self._plugin_params.custom_parameters.get(
-            "date_format", "%d/%b/%Y:%H:%M:%S %z")
-        # log_format = log_format.lower()
         try:
-            # if not plugin_params or plugin_params.is_empty():
-            #     plugin_params = GulpPluginParameters(
-            #         mapping_file="iis_access.json"
-            #     )
             await super().ingest_file(
                 sess=sess,
                 stats=stats,
@@ -152,6 +145,8 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
             return GulpRequestStatus.FAILED
 
+        date_format = self._plugin_params.custom_parameters.get(
+            "date_format", "%d/%b/%Y:%H:%M:%S %z")
         doc_idx = 0
         try:
             async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:

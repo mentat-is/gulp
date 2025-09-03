@@ -131,12 +131,9 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
         try:
-            if not plugin_params or plugin_params.mapping_parameters.is_empty():
-                plugin_params = GulpPluginParameters(
-                    mapping_parameters=GulpMappingParameters(
-                        mapping_file="apache_error_clf.json"
-                    ),
-                )
+            plugin_params = self._ensure_plugin_params(
+                plugin_params, mapping_file="apache_error_clf.json"
+            )
 
             await super().ingest_file(
                 sess=sess,

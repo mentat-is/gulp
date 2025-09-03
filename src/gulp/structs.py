@@ -105,6 +105,7 @@ class GulpMappingParameters(BaseModel):
 mapping file name in the mapping files directory (main or extra) to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).
 
 - `mappings` is ignored if this is set.
+- `additional_mapping_files` and `additional_mappings` can be used to load further mappings from other files or directly from a dictionary.
 """,
     )
     mapping_id: Optional[str] = Field(
@@ -114,9 +115,9 @@ mapping file name in the mapping files directory (main or extra) to read `GulpMa
     mappings: Optional[dict[str, GulpMapping]] = Field(
         None,
         description="""
-used for ingestion only: a dictionary of one or more { mapping_id: GulpMapping } to use directly.
+    a dictionary of one or more { mapping_id: GulpMapping } to use directly.
 
-- `mapping_file` is ignored if this is set.
+    - `mapping_file`, `additional_mapping_files`, `additional_mappings` are ignored if this is set.
 """,
     )
     additional_mapping_files: Optional[list[tuple[str, str]]] = Field(
@@ -139,7 +140,7 @@ each tuple is defined as (other_mapping_file, mapping_id): each `mapping_id` fro
     sigma_mappings: Optional[dict[str, GulpSigmaMapping]] = Field(
         None,
         description="""
-internal use only with sigma queries: if set, rules to map `logsource` for sigma rules when using the mapping previously stored for each GulpSource.
+internal use, only for sigma queries: if set, rules to map `logsource` in sigma rules when using the mapping previously stored for each GulpSource.
          
 each key corresponds to `logsource.service` in the sigma rule: basically, we want to use the sigma rule only if a (mapped) "logsource.service" is defined in the sigma rule (or no `logsource` is defined at all in the sigma rule).""",
     )
@@ -165,7 +166,7 @@ each key corresponds to `logsource.service` in the sigma rule: basically, we wan
 
 class GulpPluginParameters(BaseModel):
     """
-    parameters for a plugin, to be passed to ingest and query API.
+    parameters for a plugin, to be passed to ingest and query_external API.
 
     additional custom parameters defined in GulpPlugin.custom_parameters may be added to the "model_extra" field, they will be passed to the plugin as is.
     """
@@ -197,18 +198,37 @@ class GulpPluginParameters(BaseModel):
 
         by default, this is set as configuration 'documents_chunk_size' and can be overridden here i.e. when OpenSearch or websocket complains about too big chunks.""",
     )
-
+    timestamp_offset_msec: Optional[int] = Field(
+        0,
+        description="if set, this is used to offset document `@timestamp` (and `gulp.timestamp`) by the given number of milliseconds (positive or negative).",
+    )
     custom_parameters: Optional[dict] = Field(
         {},
-        description="additional custom parameters for the plugin.",
+        description="additional plugin-specific custom parameters.",
     )
+
+    def is_empty(self) -> bool:
+        """
+        check if **ALL** plugin parameters are empty.
+
+        Returns:
+            bool: True if all parameters are None/empty, False otherwise
+        """
+        if (
+            self.mapping_parameters.is_empty()
+            and not self.custom_parameters
+            and not self.override_chunk_size
+            and not self.timestamp_offset_msec
+        ):
+            return True
+        return False
 
 
 class GulpPluginCustomParameter(GulpAPIParameter):
     """
-    this is used by the UI through `plugin_list` API, which calls each plugin `custom_parameters()` entrypoint to get custom parameters name/type/description/default if defined.
+    this is used **by the UI only** through the `plugin_list` API, which calls each plugin `custom_parameters()` entrypoint to get custom parameters name/type/description/default if defined.
 
-    to pass custom parameters to a plugin, just use the `name` field as the key in the `GulpPluginParameters.custom_parameters` dictionary:
+    to pass custom parameters to a plugin via GulpPluginParameters, just use the `name` field as the key in the `GulpPluginParameters.custom_parameters` dictionary:
 
     ~~~js
     {
