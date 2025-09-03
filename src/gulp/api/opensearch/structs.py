@@ -241,7 +241,6 @@ class GulpDocument(GulpBasicDocument):
             log_file_path (str, optional): The source log file path. Defaults to None.
             **kwargs: the rest of the document as key/value pairs, to generate the `GulpDocument` with. This may also include the following internal flags:
                 - __ignore_default_event_code__ (bool, optional): If True, do not use the default event code from the mapping (for extra documents). Defaults to False.
-                - __ensure_timestamp__ (bool, optional): ensure timestamp is an iso8601 string even if when passed in arguments (for extra documents). Defaults to False.
                 - gulp_timestamp (int, optional): The timestamp in nanoseconds from unix epoch. If not set, it will be calculated from the timestamp argument or the "@timestamp" in kwargs.
 
             Returns:
@@ -254,7 +253,6 @@ class GulpDocument(GulpBasicDocument):
         # and use the one passed in the event_code argument
         # (this happens when extra documents are generated from a single document, read the corresponding code in plugin.py)
         ignore_default_event_code = kwargs.pop("__ignore_default_event_code__", False)
-        ensure_extra_doc_timestamp = kwargs.pop("__ensure_timestamp__", False)
 
         # build initial data dict
         mapping: GulpMapping = plugin_instance.selected_mapping()
@@ -296,11 +294,9 @@ class GulpDocument(GulpBasicDocument):
         data.update(kwargs)
         ts_nanos: int = 0
         invalid: bool = False
-        gulp_ts: int = 0
 
         if not timestamp:
-            # if not passed directly (handled by the plugin),
-            # this may have been set into **kwargs as "@timestamp" by the mapping engine (turned back to "timestamp" by GulpDocumentFieldAliasHelper)
+            # if not explicitly passed by the plugin, this is expected to be in **kwargs as "@timestamp" (turned to "timestamp" by GulpDocumentFieldAliasHelper)
             timestamp: str = data.get("timestamp", 0)
 
         ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
@@ -312,42 +308,6 @@ class GulpDocument(GulpBasicDocument):
             # flag invalid timestamp
             data["invalid_timestamp"] = True
 
-        """        
-        if timestamp and not ensure_extra_doc_timestamp:
-            # if passed directly, we will use the timestamp from arguments (the plugin handled it)
-            data["timestamp"] = timestamp
-            gulp_ts = kwargs.pop("gulp_timestamp", None)
-            if gulp_ts:
-                # we may have a gulp_timestamp set in kwargs, so we use it
-                ts_nanos = gulp_ts
-            else:
-                ts_nanos = muty.time.string_to_nanos_from_unix_epoch(str(timestamp))
-            # if data.get("event_code") == "download_end":
-            #    print("ts_nanos=%d, gulp_ts=%d, timestamp=%s, type_timestamp=%s" % (ts_nanos, gulp_ts, timestamp, type(timestamp)))
-            data["gulp_timestamp"] = ts_nanos
-            if not ts_nanos:
-                # timestamp is 0/invalid
-                invalid = True
-
-        else:
-            # "timestamp" must be set in kwargs, either by mapping or by the plugin
-            # anyway, we ensure timestamp is valid (iso8601 format) and extract the timestamp in nanoseconds from unix epoch
-            if not ensure_extra_doc_timestamp:
-                # this is the default case, either timestamp has been passed through args when generating extra documents (and ensure_extra_doc_timestamp is true)
-                # print(orjson.dumps(data, option=orjson.OPT_INDENT_2).decode())
-                timestamp: str = data.get("timestamp", 0)
-
-            ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
-                str(timestamp), plugin_params=plugin_instance._plugin_params
-            )
-
-            data["timestamp"] = ts
-            data["gulp_timestamp"] = ts_nanos
-
-        if invalid or ts_nanos == 0:
-            # flag invalid timestamp
-            data["invalid_timestamp"] = True
-        """
         # add gulp_event_code (event code as a number)
         data["gulp_event_code"] = (
             int(data["event_code"])

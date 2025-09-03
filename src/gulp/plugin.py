@@ -1609,8 +1609,6 @@ class GulpPluginBase(ABC):
                 self,
                 **new_doc_data,
                 __ignore_default_event_code__=True,
-                # also the timestamp must be re-evaluated
-                __ensure_timestamp__=True,
             )
             # MutyLogger.get_instance().debug(
             #     "creating new doc with base=\n%s\ndata=\n%s\nnew_doc=%s"
