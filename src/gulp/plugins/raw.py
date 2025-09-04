@@ -111,8 +111,9 @@ class Plugin(GulpPluginBase):
             plugin_params=self._ensure_plugin_params(plugin_params, mappings={
                 "raw_doc": GulpMapping(
                     fields={
-                        "gulp.context_id": GulpMappingField(is_context=True),
-                        "gulp.source_id": GulpMappingField(is_source=True),
+                        # as default, treats these fields as GulpContext and GulpSource ids (creates them if not existing)
+                        "gulp.context_id": GulpMappingField(is_gulp_type="context_id"),
+                        "gulp.source_id": GulpMappingField(is_gulp_type="source_id",),
                     }
                 ),
             })

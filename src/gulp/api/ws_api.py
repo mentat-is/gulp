@@ -1434,7 +1434,7 @@ class GulpWsSharedQueue:
             await self.close()
 
         MutyLogger.get_instance().debug("re/initializing shared ws queue ...")
-        self._shared_q = mgr.Queue()
+        self._shared_q = mgr.Queue(self.MAX_QUEUE_SIZE)
         self._fill_task = asyncio.create_task(self._fill_ws_queues_from_shared_queue())
 
         return self._shared_q
@@ -1548,8 +1548,9 @@ class GulpWsSharedQueue:
                     await asyncio.sleep(0.01)
                     last_yield_time = time.monotonic()
 
-                shared_queue_size = self._shared_q.qsize()
+                #shared_queue_size = self._shared_q.qsize()
 
+                """
                 # apply backpressure strategy based on queue load
                 if shared_queue_size > self.MAX_QUEUE_SIZE * 0.6:
                     sleep_time = self._apply_backpressure_strategy(shared_queue_size)
@@ -1570,6 +1571,7 @@ class GulpWsSharedQueue:
                     # normal load - use standard batch size calculation
                     current_batch_size = self._calculate_batch_size(shared_queue_size)
 
+                """
                 # collect batch of messages
                 await self._collect_message_batch(messages, current_batch_size)
 
@@ -1579,9 +1581,10 @@ class GulpWsSharedQueue:
                     messages.clear()
 
                 # Adaptive sleep based on queue size
-                sleep_time = (
-                    0.05 if shared_queue_size > self.MAX_QUEUE_SIZE * 0.5 else 0.1
-                )
+                sleep_time = self.PROCESSING_YIELD_INTERVAL
+                # sleep_time = (
+                #     0.05 if shared_queue_size > self.MAX_QUEUE_SIZE * 0.5 else 0.1
+                # )
                 await asyncio.sleep(sleep_time)
 
         except asyncio.CancelledError:
@@ -1627,11 +1630,11 @@ class GulpWsSharedQueue:
             messages (list): List to store collected messages
             batch_size (int): Target batch size
         """
-        batch_start = time.monotonic()
+        #batch_start = time.monotonic()
 
         while (
             len(messages) < batch_size
-            and (time.monotonic() - batch_start) < self.BATCH_TIMEOUT
+            #and (time.monotonic() - batch_start) < self.BATCH_TIMEOUT
         ):
             try:
                 entry = self._shared_q.get_nowait()
@@ -1775,7 +1778,7 @@ class GulpWsSharedQueue:
                 return
             except queue.Full:
                 # exponential backoff with jitter
-                backoff_time = min(0.1 * (2**retry), 1.0) * (
+                backoff_time = min(self.PROCESSING_YIELD_INTERVAL * (2**retry), 1.0) * (
                     0.8 + 0.4 * random.random()
                 )
 

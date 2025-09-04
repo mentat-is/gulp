@@ -963,13 +963,14 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug("returning %d ingested, %d skipped, success_after_retry=%r" % (l, skipped, success_after_retry))
         return l, skipped
 
-    async def _context_id_from_doc_value(self, k: str, v: str) -> str:
+    async def _context_id_from_doc_value(self, k: str, v: str, force_v_as_context_id: bool=False) -> str:
         """
         get "gulp.context_id" from cache or create new GulpContext based on the key and value
 
         Args:
             k (str): name of the field (i.e. "gulp.context_id")
-            v (str): field's value
+            v (str): field's value      
+            force_v_as_context_id (bool): if True, forces the use of `v` as the context ID when creating a new context. Defaults to False.    
         Returns:
             str: gulp.context_id
 
@@ -995,6 +996,7 @@ class GulpPluginBase(ABC):
             v,
             self._ws_id,
             self._req_id,
+            ctx_id=v if force_v_as_context_id else None,
         )
 
         # update cache
@@ -1005,7 +1007,7 @@ class GulpPluginBase(ABC):
         )
         return context.id
 
-    async def _source_id_from_doc_value(self, context_id: str, k: str, v: str) -> str:
+    async def _source_id_from_doc_value(self, context_id: str, k: str, v: str, force_v_as_source_id: bool=False) -> str:
         """
         get "gulp.source_id" from cache or create new GulpSource based on the key and value
 
@@ -1013,6 +1015,7 @@ class GulpPluginBase(ABC):
             context_id (str): parent context id
             k (str): name of the field (i.e. "gulp.source_id")
             v (str): field's value
+            force_v_as_source_id (bool): if True, forces the use of `v` as the source ID when creating a new source. Defaults to False.
         Returns:
             str: gulp.source_id or None if context_id is None
 
@@ -1044,6 +1047,7 @@ class GulpPluginBase(ABC):
             v,
             ws_id=self._ws_id,
             req_id=self._req_id,
+            src_id=v if force_v_as_source_id else None,
             plugin=plugin,
             mapping_parameters=mapping_parameters,
         )
@@ -1879,7 +1883,7 @@ class GulpPluginBase(ABC):
     ) -> str:
         """
         check if the context id has been already set in the document during parsing.
-        if not, it will try to find it by walking the mapping fields and calling _process_key on the key set as context (is_context)
+        if not, it will try to find it by walking the mapping fields and calling _process_key on the key set as context (is_gulp_type=context_id or context_name).
 
         Args:
             doc (dict): The document to check.
@@ -1891,9 +1895,10 @@ class GulpPluginBase(ABC):
         context_key: str = "gulp.context_id"
         ctx_id: str = doc.get(context_key, None)
         if not ctx_id:
+            # not set yet, try to find it in the document
             for k, v in mapping.fields.items():
-                # walk mapping and get the field set as 'is_context', as we need the context_id
-                if v.is_context:
+                # walk mapping and get the field set as context, as we need the context_id
+                if v.is_gulp_type and v.is_gulp_type in ["context_name", "context_id"]:
                     d: dict = await self._process_key(
                         k, doc.get(k, None), doc, **kwargs
                     )
@@ -2023,63 +2028,76 @@ class GulpPluginBase(ABC):
                 )
                 pass
 
-        if fields_mapping.is_context:
-            # this is a context field, get or create a new context
-            if self._preview_mode:
-                ctx_id = "preview"
-            else:
-                ctx_id: str = await self._context_id_from_doc_value(
-                    source_key, source_value
+        gulp_type: str = fields_mapping.is_gulp_type
+        if gulp_type:
+            if gulp_type in ["context_name", "context_id"]:
+                # this is a gulp context field                
+                if self._preview_mode:
+                    ctx_id = "preview"                            
+                elif gulp_type == "context_name":
+                    # get or create the context
+                    ctx_id: str = await self._context_id_from_doc_value(
+                        source_key, source_value
+                    )
+                else:
+                    # directly use the value as context_id, and ensure it exists
+                    ctx_id: str = await self._context_id_from_doc_value(
+                        source_key, source_value, force_v_as_context_id=True
+                    )
+
+                # also map the value if there's ecs set
+                m, _ = self._try_map_ecs(
+                    fields_mapping,
+                    d,
+                    source_key,
+                    source_value,
+                    skip_unmapped=True,
+                    force_type=force_type,
                 )
+                m["gulp.context_id"] = ctx_id
+                return m
+            elif gulp_type in ["source_id", "source_name"]:
+                # this is a gulp source field
+                if self._preview_mode:
+                    ctx_id = "preview"
+                    src_id = "preview"
 
-            # also map the value if there's ecs set
-            m, _ = self._try_map_ecs(
-                fields_mapping,
-                d,
-                source_key,
-                source_value,
-                skip_unmapped=True,
-                force_type=force_type,
-            )
-            m["gulp.context_id"] = ctx_id
-            return m
-
-        if fields_mapping.is_source:
-            # this is a context field, get or create a new context
-            if self._preview_mode:
-                ctx_id = "preview"
-            else:
+                # find the context
                 ctx_id: str = await self._check_doc_for_ctx_id(doc, mapping, **kwargs)
-            if not ctx_id:
-                # no context_id, cannot process source
-                MutyLogger.get_instance().error(
-                    f"cannot set source {source_key} without context"
-                )
-                return {}
+                if not ctx_id:
+                    # no context_id, cannot process source
+                    MutyLogger.get_instance().error(
+                        f"cannot set source {source_key} without context"
+                    )
+                    return {}
 
-            # this is a context field, get or create a new context
-            if self._preview_mode:
-                src_id = "preview"
-            else:
-                # get/create the source
-                src_id: str = await self._source_id_from_doc_value(
-                    ctx_id, source_key, source_value
-                )
-            if not src_id:
-                # cannot proceed without source_id
-                return {}
+                elif gulp_type == "source_name":
+                    # get/create the source
+                    src_id: str = await self._source_id_from_doc_value(
+                        ctx_id, source_key, source_value
+                    )
+                else:
+                    # directly use the value as source_id
+                    src_id: str = await self._source_id_from_doc_value(
+                        ctx_id, source_key, source_value, force_v_as_source_id=True
+                    )
 
-            # also map the value if there's ecs set
-            m, _ = self._try_map_ecs(
-                fields_mapping,
-                d,
-                source_key,
-                source_value,
-                skip_unmapped=True,
-                force_type=force_type,
-            )
-            m["gulp.source_id"] = src_id
-            m["gulp.context_id"] = ctx_id
+                if not src_id:
+                    # cannot proceed without source_id
+                    return {}
+
+                # also map the value if there's ecs set
+                m, _ = self._try_map_ecs(
+                    fields_mapping,
+                    d,
+                    source_key,
+                    source_value,
+                    skip_unmapped=True,
+                    force_type=force_type,
+                )
+                m["gulp.source_id"] = src_id
+                m["gulp.context_id"] = ctx_id
+                return m
             return m
 
         if fields_mapping.extra_doc_with_event_code:
@@ -2322,6 +2340,23 @@ class GulpPluginBase(ABC):
                 additional_mapping_files=additional_mapping_files,
                 additional_mappings=additional_mappings,
             )
+        else:
+            # apply overrides
+            if mapping_file:
+                plugin_params.mapping_parameters.mapping_file = mapping_file
+            if mapping_id:
+                plugin_params.mapping_parameters.mapping_id = mapping_id
+            if mappings:
+                plugin_params.mapping_parameters.mappings = mappings
+            if additional_mapping_files:
+                plugin_params.mapping_parameters.additional_mapping_files = (
+                    additional_mapping_files
+                )
+            if additional_mappings:
+                plugin_params.mapping_parameters.additional_mappings = (
+                    additional_mappings
+                )
+
         return plugin_params
 
     @staticmethod

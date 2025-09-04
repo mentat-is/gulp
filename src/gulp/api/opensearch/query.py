@@ -398,8 +398,8 @@ class GulpQueryHelpers:
             q = flt.merge_to_opensearch_dsl(q)
 
         MutyLogger.get_instance().debug(
-            "GulpQueryHelpers.query_raw: index=%s, q=%s"
-            % (index, muty.string.make_shorter(str(q), max_len=260))
+            "GulpQueryHelpers.query_raw: q_name=%s, index=%s, q=%s"
+            % (q_options.name, index, muty.string.make_shorter(str(q), max_len=260))
         )
 
         from gulp.api.opensearch_api import GulpOpenSearch

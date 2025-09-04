@@ -512,7 +512,7 @@ async def test_splunk(use_full_set: bool = False, ingest_only: bool = False):
 
 ### context and source
 
-when performing ingestion via external plugins (or using the `ingest_raw` or `ws_ingest_raw` API with a custom raw plugin different than the [default](../src/gulp/plugins/raw.py)), it is particularly important to use the [GulpMappingParameters.is_context](../src/gulp/api/mapping/models.py) and [GulpMappingParameters.is_source](../src/gulp/api/mapping/models.py) parameters to indicate which fields in the records represents a `context` and/or a `source`.
+when performing ingestion via external plugins (or using the `ingest_raw` or `ws_ingest_raw` API with a custom raw plugin different than the [default](../src/gulp/plugins/raw.py)), it is particularly important to use the [GulpMappingParameters.is_gulp_type](../src/gulp/api/mapping/models.py) parameter to indicate which fields in the records represents a `context` and/or a `source` (and if they represent names or ids on the `collab database`).
 
 > Gulp needs to group data in a `GulpOperation` in one or more `GulpContext`(i.e. the hosts involved), each one having one or more `GulpSource`: each source corresponds to a `timeline` horizontal band in the UI.
 
@@ -556,22 +556,22 @@ Here's a commented example mapping file, further details in the [model definitio
       // 2. if `force_type` is set, the value is forced to this type
       // 3. if `multiplier` is set, the value is multiplied by this value.
       // 4. if `is_timestamp` is set, the value is converted to nanoseconds from the unix epoch according to type ("generic", "chrome")
-      // 5. if `is_context` is set, processing stops here and the value is treated as a GulpContext `name` and a new context is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.context_id` (`ecs` field is mapped as well if set)
-      // 6. if `is_source` is set, processing stops here and the value is treated as a GulpSource `name` and a new source is created (if not existent) with this name, setting its `id` in the resulting document as `gulp.source_id` (`ecs` field is mapped as well if set)
-      // 7. finally, the value is mapped to ECS fields as defined in `ecs`.
+      // 5. if `is_gulp_type` is set, processing stops here and the value is treated as a gulp context or source (read the specific docs below)
+      // 6. finally, the value is mapped to ECS fields as defined in `ecs`.
       //
       // if 'extra_doc_with_event_code' is set on a field, step 7 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of the field.
       //
       // NOTE: source fields not listed here will be stored with `gulp.unmapped.` prefix.
       "fields": {
-        // the field name
-        "name": {
+        // the field name (source field) in the original document
+        "field": {
           // this may be a string or a []: this allows mapping a single field to one or more target document fields.
+          // in this example, whenever in the source document "field" is found, its mapped to "gulp.html.form.field.name" in the resulting document.
           "ecs": "gulp.html.form.field.name"
         },
         "value": {
           "ecs": "gulp.html.form.field.value",
-          // if "force_type" is set, value is converted to "int", "str" or "float" PRIOR to being ingested
+          // if "force_type" is set, "value"'s value is converted to "int", "str" or "float" PRIOR to being ingested
           "force_type": "int"
         },
         "id":{
@@ -586,20 +586,12 @@ Here's a commented example mapping file, further details in the [model definitio
             ]
         },
         "my_context": {
-          // if this is set, it can be used to generate a GulpContext on the fly based on the value of "my_context" field, setting the `gulp.context_id` of the GulpDocument being generated.
-          // this may also have an `ecs` mapping set: in such case, the field is also  mapped as normally to the given name.
+          // if "gulp_type" is set, it can be used to handle GulpContext and GulpSource in the generated document as described in api/mapping/models.py::GulpMappingField
           //
-          // note that this overrides any context passed with the `ingest_file` API, if set.
-          "is_context": true
-        },
-        "my_source": {
-          // if this is set, it can be used to generate a GulpSource on the fly based on the value of "my_source" field, setting the `gulp.source_id` of the GulpDocument being generated.
-          // this may also have an `ecs` mapping set: in such case, the field is also  mapped as normally to the given name.
+          // this may also have an `ecs` mapping set: in such case, the field is also mapped as normally to the given name.
           //
-          // note that this overrides any context passed with the `ingest_file` API, if set.
-          "is_source": true,
-          // this indicates the corresponding source field (each GulpSource is tied to a GulpContext): it is automatically set to `gulp.context_id` if not specified.
-          "context_field": "my_context"
+          // note that this overrides any context/source originating from the `ingest_file` API, if set.
+          "is_gulp_type": "context_name"
         },
         "date_created": {
           // since in gulp every document needs at least a "@timestamp", either it is mapped here to a field or it is the responsibility of the plugin to set it.

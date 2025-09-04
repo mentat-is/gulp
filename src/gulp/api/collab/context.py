@@ -107,7 +107,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             name (str): The name of the source (may be file name, path, etc...)
             ws_id (str, optional): The websocket id to stream NEW_SOURCE to. Defaults to None.
             req_id (str, optional): The request id. Defaults to None.
-            src_id (str, optional): The id of the source. If not provided, a new id will be generated.
+            src_id (str, optional): The id of the source. If not provided, a new id will be generated from name.
             color (str, optional): The color of the source
             plugin (str, optional): The plugin to use for the source. Defaults to None.
             mapping_parameters (GulpMappingParameters, optional): The mapping parameters for the source. Defaults to None (ignored if plugin is None).

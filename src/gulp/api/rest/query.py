@@ -254,10 +254,11 @@ async def _process_batch_results(
                 # just keep one error per kind
                 errors.append(err)
             if not "Broken pipe" in err:
-                # backoff only on broken pipe errors, these are likely client disconnects
+                # backoff only on broken pipe errors, these are likely due to overload
                 _error_count = 0
                 continue
-
+            
+            # broken pipe, backoff
             _error_count += 1
             backoff = _BACKOFF_BASE * (2 ** (_error_count - 1))
             if backoff > _BACKOFF_MAX:
@@ -270,7 +271,7 @@ async def _process_batch_results(
             )
             await asyncio.sleep(backoff)
 
-        # send a query_done on the ws for this query immediately
+        # send a query_done on the ws for this query, with the status
         p = GulpQueryDonePacket(
             status=GulpRequestStatus.DONE if not ex else GulpRequestStatus.FAILED,
             errors=[err] if err else None,

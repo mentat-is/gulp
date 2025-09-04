@@ -206,7 +206,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             name (str): The name of the context.
             ws_id (str, optional): The websocket id to stream NEW_CONTEXT to. Defaults to None.
             req_id (str, optional): The request id. Defaults to None.
-            src_id (str, optional): The id of the context. If not provided, a new id will be generated.
+            ctx_id (str, optional): The id of the context. If not provided, a new id will be generated from name.            
             color (str, optional): The color of the context
             glyph_id (str, optional): The glyph id for the context. Defaults to None ("box").
 

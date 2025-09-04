@@ -56,20 +56,16 @@ if set, the corresponding value is a JSON object (or string) and will be flatten
 note that value mapped as "@timestamp" with a mapping are automatically supported for "generic" timestamps, and do not need this field set: they do need it instead (set to "chrome") if the value mapped as "@timestamp" is from chrome.
 """,
     )
-    is_context: Optional[bool] = Field(
-        False,
+    is_gulp_type: Optional[
+        Literal["context_id", "context_name", "source_id", "source_name"]
+    ] = Field(
+        None,
         description="""
-if set, the corresponding value is the 'name' of a GulpContext, which is created (if not existent) and its `id` set as `gulp.context_id` in the resulting document."
-
-this also overrides 'context' passed during ingestion, if any.
-""",
-    )
-    is_source: Optional[bool] = Field(
-        False,
-        description="""
-if set, the corresponding value is the 'name' of a GulpSource, which is created (if not existent) and its `id` set as `gulp.source_id` in the resulting document.
-
-this also overrides 'source' passed during ingestion, if any.
+if set, the corresponding value is a either a GulpContext.id, GulpContext.name, GulpSource.id or GulpSource.name, and will be treated accordingly:
+    - context_id: the value is the id of an existing GulpContext, and it will be set as-is as `gulp.context_id` in the resulting document.
+    - context_name: the value is the name of a GulpContext, which is created (if not existent) or retrieved (if existent) and its `id` set as `gulp.context_id` in the resulting document.
+    - source_id: the value is the id of an existing GulpSource, and it will be set as-is as `gulp.source_id` in the resulting document.
+    - source_name: the value is the name of a GulpSource, which is created (if not existent) or retrieved (if existent) and its `id` set as `gulp.source_id` in the resulting document.
 """,
     )
     extra_doc_with_event_code: Optional[str] = Field(
@@ -109,7 +105,7 @@ class GulpMapping(BaseModel):
                     "fields": {"field1": {"ecs": ["test.mapped"]}},
                     "description": "test description.",
                     "agent_type": "win_evtx",
-                    "event_code": "1234"
+                    "event_code": "1234",
                 }
             ]
         },
@@ -228,12 +224,12 @@ class GulpMappingFile(BaseModel):
         min_length=1,
     )
     sigma_mappings: Optional[dict[str, GulpSigmaMapping]] = Field(
-        None,        
+        None,
         description="""
 internal use only with sigma queries: if set, rules to map `logsource` for sigma rules when using this mapping file.
          
 each key corresponds to `logsource.service` in the sigma rule: basically, we want to use the sigma rule only if a (mapped) "logsource.service" is defined in the sigma rule (or no `logsource` is defined at all in the sigma rule).
-        """
+        """,
     )
     metadata: Optional[GulpMappingFileMetadata] = Field(
         ...,

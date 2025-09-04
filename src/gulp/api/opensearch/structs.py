@@ -78,12 +78,12 @@ class GulpBasicDocument(BaseModel):
     )
     context_id: Optional[str] = Field(
         None,
-        description='"gulp.context_id": the context (i.e. an host name) the document is associated with (this may be overridden by setting "is_context" in the mapping).',
+        description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
         alias="gulp.context_id",
     )
     source_id: Optional[str] = Field(
         None,
-        description='"gulp.source_id": the source the document is associated with (this may be overridden by setting "is_source" in the mapping)',
+        description='"gulp.source_id": the source the document is associated with.',
         alias="gulp.source_id",
     )
 

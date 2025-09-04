@@ -84,10 +84,10 @@ class GulpConfig:
         if not n:
             n = "0"
 
-        if int(n) > 0:
-            MutyLogger.get_instance().warning(
-                "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug features disabled!"
-            )
+        # if int(n) > 0:
+        #     MutyLogger.get_instance().warning(
+        #         "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug features disabled!"
+        #     )
 
         return int(n) > 0
 
