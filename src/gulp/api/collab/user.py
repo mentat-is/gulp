@@ -413,29 +413,28 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 )
 
         # checks ok, update user
+        delete_session = False
         if "password" in d:
             d["pwd_hash"] = muty.crypto.hash_sha256(d["password"])
             del d["password"]
+            delete_session = True
         if "permission" in d:
             # ensure that all users have read permission
             if GulpUserPermission.READ not in d["permission"]:
                 d["permission"].append(GulpUserPermission.READ)
-
+            delete_session = True
+        
         # update
         await super().update(sess, d)
 
-        # if the default administrators group exists, and the user is administrator, add
-        # the user to the default administrators group
-        if self.is_admin():
-            self.add_to_default_administrators_group(sess)
-
-        if user_session:
+        if user_session and delete_session:
             # invalidate session for the user
             MutyLogger.get_instance().warning(
-                "updated user, invalidating session for user_id=%s" % (self.id)
+                "updated user password or permission, invalidating session for user_id=%s" % (self.id)
             )
 
             await sess.delete(user_session)
+
         await sess.flush()
 
     def is_admin(self) -> bool:
