@@ -203,40 +203,43 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         except ObjectNotFound as ex:
             raise MissingPermission('token "%s" not logged in' % (token)) from ex
 
-        if user_session.user.is_admin():
-            # admin user can access any object and always have permission
-            await user_session.update_expiration_time(sess, is_admin=True)
-            return user_session
-
-        if not obj:
-            # check if the user have the required permission (owner always have permission)
-            if user_session.user.has_permission(permission):
-                # access granted
-                await user_session.update_expiration_time(sess, is_admin=False)
+        is_admin: bool=False
+        try:    
+            if user_session.user.is_admin():
+                # admin user can access any object and always have permission
+                is_admin = True
                 return user_session
+
+            if not obj:
+                # check if the user have the required permission (owner always have permission)
+                if user_session.user.has_permission(permission):
+                    # access granted
+                    return user_session
+
+                if throw_on_no_permission:
+                    raise MissingPermission(
+                        f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation."
+                    )
+                return None
+
+            # check if the user has access
+            if user_session.user.check_object_access(
+                obj,
+                throw_on_no_permission=throw_on_no_permission,
+                enforce_owner=enforce_owner,
+            ):
+                # check if the user have the required permission (owner always have permission)
+                if user_session.user.has_permission(permission) or obj.is_owner(
+                    user_session.user.id
+                ):
+                    # access granted
+                    return user_session
 
             if throw_on_no_permission:
                 raise MissingPermission(
-                    f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation."
+                    f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation, obj={obj.id if obj else None}, obj_owner={obj.owner_user_id if obj else None}."
                 )
             return None
-
-        # check if the user has access
-        if user_session.user.check_object_access(
-            obj,
-            throw_on_no_permission=throw_on_no_permission,
-            enforce_owner=enforce_owner,
-        ):
-            # check if the user have the required permission (owner always have permission)
-            if user_session.user.has_permission(permission) or obj.is_owner(
-                user_session.user.id
-            ):
-                # access granted
-                await user_session.update_expiration_time(sess, is_admin=False)
-                return user_session
-
-        if throw_on_no_permission:
-            raise MissingPermission(
-                f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation, obj={obj.id if obj else None}, obj_owner={obj.owner_user_id if obj else None}."
-            )
-        return None
+        finally:
+            # finally, update user session's expiration time
+            await user_session.update_expiration_time(sess, is_admin=is_admin)

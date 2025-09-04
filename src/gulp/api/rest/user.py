@@ -631,6 +631,47 @@ async def user_list_handler(
 
 
 @router.get(
+    "/user_session_keepalive",
+    tags=["user"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": 123456789, # new expiration time in milliseconds
+                    }
+                }
+            }
+        }
+    },
+    summary="refreshes user's session expiration time.",
+    description="""
+- can be used by the client to keep the session alive.
+    """,
+)
+async def user_session_keepalive_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # check acl
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess,
+                token,
+            )
+            return JSendResponse.success(req_id=req_id, data=s.time_expire)
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.get(
     "/user_get_by_id",
     tags=["user"],
     response_model=JSendResponse,
