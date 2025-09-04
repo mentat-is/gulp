@@ -85,7 +85,9 @@ class InternalWsIngestPacket(BaseModel):
 
 class WsIngestRawWorker:
     """
-    a gulp worker to handle websocket raw ingestion
+    a gulp worker task to handle websocket raw ingestion, running in a worker process
+
+    1 ws -> 1 task in a worker process
     """
 
     def __init__(self, ws: GulpConnectedSocket):
@@ -96,7 +98,7 @@ class WsIngestRawWorker:
     @staticmethod
     async def _process_loop(input_queue: Queue):
         """
-        loop for the ingest worker, processes packets from the queue
+        loop for the ingest worker, processes packets from the queue for this websocket
 
         Args:
             input_queue (Queue): the input queue
@@ -109,11 +111,16 @@ class WsIngestRawWorker:
             stats: GulpRequestStats = None
             prev_ws_id: str = None
             prev_user_id: str = None
+
             while True:
                 packet: InternalWsIngestPacket = input_queue.get()
                 if not packet:
                     # this is the last packet, close the stats and break the loop
                     if stats:
+                        MutyLogger.get_instance().debug(
+                            "ws ingest _process_loop received termination packet, closing stats %s"
+                            % (stats.id)
+                        )
                         time_updated = muty.time.now_msec()
                         msecs_to_expiration = (
                             GulpConfig.get_instance().stats_ttl() * 1000
@@ -184,11 +191,12 @@ class WsIngestRawWorker:
                     if mod:
                         await mod.unload()
 
-            MutyLogger.get_instance().debug("ws ingest _process_loop done")
+        MutyLogger.get_instance().debug("ws ingest _process_loop done")
 
     async def start(self) -> None:
         """
         starts the worker, which will run in a task in a separate process
+        1 ws -> 1 task in a worker process
         """
 
         async def worker_coro():
@@ -204,7 +212,9 @@ class WsIngestRawWorker:
         """
         stops the worker
         """
-        MutyLogger.get_instance().debug("stopping ws ingest worker pool ...")
+        MutyLogger.get_instance().debug(
+            "stopping ws ingest worker (will put an empty message in the queue) ! ..."
+        )
         self._input_queue.put(None)
 
     def put(self, packet: InternalWsIngestPacket):

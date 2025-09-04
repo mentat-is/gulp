@@ -736,6 +736,10 @@ class GulpConnectedSocket:
             await asyncio.shield(self._cleanup_tasks(tasks))
 
         self._cleaned_up = True
+        MutyLogger.get_instance().debug(
+            "---> GulpConnectedSocket.cleanup() DONE, ws=%s, ws_id=%s"
+            % (self.ws, self.ws_id)
+        )
 
     async def _flush_queue(self) -> None:
         """
@@ -1136,9 +1140,17 @@ class GulpConnectedSockets:
         ws_list: list[str] = GulpProcess.get_instance().shared_memory_get(
             SHARED_MEMORY_KEY_ACTIVE_SOCKETS
         )
-        while ws_id in ws_list:
-            GulpProcess.get_instance().shared_memory_remove_from_list(
-                SHARED_MEMORY_KEY_ACTIVE_SOCKETS, ws_id
+        while True:
+            if ws_id in ws_list:
+                GulpProcess.get_instance().shared_memory_remove_from_list(
+                    SHARED_MEMORY_KEY_ACTIVE_SOCKETS, ws_id
+                )
+            else:
+                break
+
+            # next
+            ws_list = GulpProcess.get_instance().shared_memory_get(
+                SHARED_MEMORY_KEY_ACTIVE_SOCKETS
             )
 
         # remove from internal maps

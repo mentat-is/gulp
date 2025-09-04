@@ -487,6 +487,7 @@ class GulpRestServer:
 
                         obj.params["raw_data"] = obj.raw_data
                         d = obj.to_dict()
+                        # print("*************** spawning ingest RAW task for: %s" % (d))
                         await self.spawn_bg_task(run_ingest_raw_task(d))
 
         MutyLogger.get_instance().info("EXITING poll task...")

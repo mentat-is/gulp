@@ -160,6 +160,7 @@ each key corresponds to `logsource.service` in the sigma rule: basically, we wan
             or self.additional_mappings is not None
         ):
             return False
+        
         MutyLogger.get_instance().warning("mapping parameters are empty")
         return True
 
