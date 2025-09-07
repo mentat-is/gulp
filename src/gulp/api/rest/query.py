@@ -75,6 +75,7 @@ from gulp.api.ws_api import (
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
     GulpWsSharedQueue,
+    WsQueueFullException,
 )
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -157,6 +158,8 @@ async def _query_internal(
 
         async with GulpCollab.get_instance().session() as sess:
             # MutyLogger.get_instance().debug("mod=%s, running query %s " % (mod, gq))
+            # wait based on the size of query
+            asyncio.sleep(min(0.1 + len(repr(q)) / 10000.0, 2.0))
             if not mod:
                 # local query, gq.q is a dict
                 _, hits, q_name = await GulpQueryHelpers.query_raw(
@@ -184,7 +187,7 @@ async def _query_internal(
                     q_options=q_options,
                 )
 
-                # broadcast ingest internal event
+                # for external queries, we also perform ingest, so broadcast ingest internal event
                 await mod.broadcast_ingest_internal_event()
 
     except Exception as ex:
@@ -257,7 +260,7 @@ async def _process_batch_results(
                 # backoff only on broken pipe errors, these are likely due to overload
                 _error_count = 0
                 continue
-            
+
             # broken pipe, backoff
             _error_count += 1
             backoff = _BACKOFF_BASE * (2 ** (_error_count - 1))
@@ -279,13 +282,16 @@ async def _process_batch_results(
             name=q_name,
         )
         wsq = GulpWsSharedQueue.get_instance()
-        await wsq.put(
-            type=WSDATA_QUERY_DONE,
-            ws_id=ws_id,
-            user_id=user_id,
-            req_id=req_id,
-            data=p.model_dump(exclude_none=True),
-        )
+        try:
+            await wsq.put(
+                type=WSDATA_QUERY_DONE,
+                ws_id=ws_id,
+                user_id=user_id,
+                req_id=req_id,
+                data=p.model_dump(exclude_none=True),
+            )
+        except WsQueueFullException as ex:
+            MutyLogger.get_instance().exception(ex)
 
     return query_matched, total_doc_matches, query_names, errors
 
@@ -681,6 +687,68 @@ async def _preview_query(
     return total, docs
 
 
+async def run_query_task(
+    user_id: str,
+    req_id: str,
+    ws_id: str,
+    operation_id: str,
+    index: str,
+    q: Any,
+    q_options: GulpQueryParameters = None,
+    plugin: str = None,
+    plugin_params: GulpPluginParameters = None,
+    flt: GulpQueryFilter = None,
+    sigma_files_path: str = None,
+    external: bool = False,
+    sigma: bool = False,
+) -> None:
+    # async def _worker_coro_internal(kwds: dict) -> None:
+    #     # extract parameters from kwds
+    #     user_id: str = kwds["user_id"]
+    #     req_id: str = kwds["req_id"]
+    #     ws_id: str = kwds["ws_id"]
+    #     operation_id: str = kwds["operation_id"]
+    #     index: str = kwds["index"]
+    #     queries: list[GulpQuery] = kwds["queries"]
+    #     sigma_files_path: str = kwds.get("sigma_files_path")
+    #     q_options: GulpQueryParameters = kwds["q_options"]
+    #     plugin: str = kwds.get("plugin")
+    #     plugin_params: GulpPluginParameters = kwds.get("plugin_params")
+    #     flt: GulpQueryFilter = kwds["flt"]
+
+    #     batch_size: int = GulpConfig.get_instance().concurrency_max_tasks()
+
+    #     # we have to ba
+
+    # create a stats (or get, if there is already one for the request id), just to allow request canceling
+    async with GulpCollab.get_instance().session() as sess:
+        await GulpRequestStats.create_or_get(
+            sess=sess,
+            req_id=req_id,
+            user_id=user_id,
+            ws_id=ws_id,
+            operation_id=operation_id,
+            object_data=None,  # uses default
+            stats_type=RequestStatsType.REQUEST_TYPE_QUERY,
+        )
+
+    kwds = dict(
+        user_id=user_id,
+        req_id=req_id,
+        ws_id=ws_id,
+        operation_id=operation_id,
+        index=index,
+        queries=queries,
+        q_options=q_options,
+        plugin=plugin,
+        plugin_params=plugin_params,
+        flt=flt,
+    )
+
+    # run _worker_coro in background, it will spawn a worker for each query and wait them
+    await GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
+
+
 async def _spawn_query_group_workers(
     user_id: str,
     req_id: str,
@@ -720,15 +788,14 @@ async def _spawn_query_group_workers(
     if create_stats:
         # create a stats, just to allow request canceling
         async with GulpCollab.get_instance().session() as sess:
-            await GulpRequestStats.create(
-                token=None,
-                ws_id=ws_id,
-                req_id=req_id,
-                object_data=None,  # uses default
-                operation_id=operation_id,
-                stats_type=RequestStatsType.REQUEST_TYPE_QUERY,
+            await GulpRequestStats.create_or_get(
                 sess=sess,
+                req_id=req_id,
                 user_id=user_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                object_data=None,  # uses default
+                stats_type=RequestStatsType.REQUEST_TYPE_QUERY,
             )
 
     # run _worker_coro in background, it will spawn a worker for each query and wait them

@@ -28,6 +28,7 @@ from typing import Optional, Union, override
 import muty.time
 from muty.log import MutyLogger
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String, Boolean
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
@@ -157,7 +158,35 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         default=RequestStatsType.REQUEST_TYPE_INGESTION,
         doc="The type of request stats (ingestion, query, enrichment, generic).",
     )
+    data: Mapped[Optional[dict]] = mapped_column(
+        MutableList.as_mutable(JSONB),
+        default_factory=dict,
+        doc="Additional data associated with the stats.",
+    )
     __table_args__ = (Index("idx_stats_operation", "operation_id"),)
+
+    @override
+    @classmethod
+    async def create(
+        cls,
+        token: str,
+        ws_id: str,
+        req_id: str,
+        object_data: dict,
+        permission: list[GulpUserPermission] = None,
+        obj_id: str = None,
+        private: bool = True,
+        operation_id: str = None,
+        user_id: str = None,
+        sess: AsyncSession = None,
+        **kwargs,
+    ) -> dict:
+        """
+        disabled, use create_or_get instead
+        """
+        raise TypeError(
+            "use GulpRequestStats.create_or_get() instead of create()"
+        )
 
     @override
     def to_dict(
@@ -199,50 +228,42 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             return deleted
 
     @classmethod
-    @override
-    async def create(
+    async def create_or_get(
         cls,
-        token: str,
-        ws_id: str,
+        sess: AsyncSession,
         req_id: str,
+        user_id: str,
+        ws_id: str,
+        operation_id: str,
         object_data: dict,
-        permission: list[GulpUserPermission] = None,
-        obj_id: str = None,
-        private: bool = True,
-        operation_id: str = None,
         stats_type: RequestStatsType = RequestStatsType.REQUEST_TYPE_INGESTION,
-        **kwargs,
+        data: dict = None,
     ) -> T:
         """
         Create new (or get an existing) GulpRequestStats object on the collab database.
 
-        NOTE: session is committed after the operation
+        NOTE: session is committed inside this method.
 
         Args:
-            token (str): The token of the user creating the stats, ignored
+            sess (AsyncSession): The database session to use.
+            req_id (str): The request ID: if a stats with this ID already exists, its expire time and status are updated and returned instead of creating a new one.
+            user_id (str): The user ID creating the stats.
+            operation_id (str): The operation associated with the stats
             ws_id (str): The websocket ID.
-            req_id (str): The request ID.
             object_data (dict): The data to create the stats with, pass None to use the below default:
                 - source_total (int, optional): The total number of sources to be processed by the request to which this stats belong. Defaults to 1.
                 - never_expire (bool, optional): Whether the stats should never expire, ignoring the configuration. Defaults to False.
-            permission (list[GulpUserPermission], optional): ignored
-            obj_id (str, optional): ignored, req_id is used
-            private (bool, optional): ignored
-            operation_id (str): The operation associated with the stats
             stats_type (RequestStatsType, optional): The type of request stats. Defaults to RequestStatsType.REQUEST_TYPE_INGESTION.
-            **kwargs: Additional keyword arguments.
-                - sess: AsyncSession (mandatory)
-                - user_id: str (mandatory)
+            data (dict, optional): Additional data to associate with the stats. Defaults to None.
+
         Returns:
-            T: The created stats.
+            T: The created (or retrieved) stats.
         """
         if not object_data:
             object_data = {}
 
         source_total: int = object_data.get("source_total", 1)
         never_expire: bool = object_data.get("never_expire", False)
-        sess: AsyncSession = kwargs["sess"]
-        user_id: str = kwargs["user_id"]
 
         MutyLogger.get_instance().debug(
             "---> create/get stats: id=%s, operation_id=%s, source_total=%d, sess=%s, user_id=%s, stats_type=%s",
@@ -272,9 +293,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 sess, obj_id=req_id, throw_if_not_found=False
             )
             if s:
-                # update existing stats
-                if s.status != GulpRequestStatus.CANCELED.value:
-                    s.status = GulpRequestStatus.ONGOING.value
+                # update existing stats as ongoing, and update time_expire if needed
+                s.status = GulpRequestStatus.ONGOING.value
                 s.time_updated = time_updated
                 s.time_finished = 0
                 if time_expire > 0:
@@ -294,7 +314,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     operation_id=s.operation_id,
                     req_id=req_id,
                     data=p.model_dump(exclude_none=True, exclude_defaults=True),
-                    private=private,
+                    private=True,
                 )
                 return s
 
@@ -607,8 +627,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         hits: int = 0,
     ) -> dict:
         """
-        sets the final status of a (generic) stats: 
-        
+        sets the final status of a (generic) stats:
+
         - if errors is not empty/None, the status is set to failed, otherwise to done.
         - if the stats was already canceled, it is not modified.
 
@@ -630,7 +650,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             )
             if not stats:
                 return None
-            
+
             dd: dict = {}
             if stats.status != GulpRequestStatus.CANCELED.value:
                 # mark as completed
@@ -691,7 +711,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         )
         if not dd:
             return {}
-        
+
         # inform the websocket
         MutyLogger.get_instance().debug(
             f"sending query done packet, datatype={ws_queue_datatype}, errors={errors}"
@@ -708,6 +728,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         await wsq.put(
             type=ws_queue_datatype,
             ws_id=ws_id,
+            operation_id=dd.get("operation_id"),
             user_id=user_id,
             req_id=req_id,
             data=p.model_dump(exclude_none=True),

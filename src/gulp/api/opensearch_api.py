@@ -49,10 +49,8 @@ from gulp.api.opensearch.filters import (
 from gulp.api.ws_api import (
     PROGRESS_REBASE,
     WSDATA_DOCUMENTS_CHUNK,
-    WSDATA_PROGRESS,
     WSDATA_SOURCE_FIELDS_CHUNK,
     GulpDocumentsChunkPacket,
-    GulpProgressPacket,
     GulpSourceFieldsChunkPacket,
     GulpWsSharedQueue,
 )
@@ -474,6 +472,7 @@ class GulpOpenSearch:
                     await wsq.put(
                         type=WSDATA_SOURCE_FIELDS_CHUNK,
                         ws_id=ws_id,
+                        operation_id=operation_id,
                         user_id=user_id,
                         req_id=req_id,
                         data=p.model_dump(exclude_none=True),
@@ -1361,8 +1360,11 @@ class GulpOpenSearch:
             if not ws_id:
                 return
 
-            # last progress update
-            p = GulpProgressPacket(
+            await GulpWsSharedQueue.get_instance().put_progress(
+                req_id=req_id,
+                ws_id=ws_id,
+                user_id=user_id,
+                operation_id=index,
                 done=done,
                 msg=PROGRESS_REBASE,
                 data={
@@ -1371,15 +1373,7 @@ class GulpOpenSearch:
                     "errors": current_errors,
                 },
             )
-            wsq = GulpWsSharedQueue.get_instance()
-            await wsq.put(
-                type=WSDATA_PROGRESS,
-                ws_id=ws_id,
-                user_id=user_id,
-                req_id=req_id,
-                data=p.model_dump(exclude_none=True),
-            )
-
+            
         # convert offset to nanoseconds
         offset_nsec = offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS
 
@@ -2254,6 +2248,7 @@ class GulpOpenSearch:
                     type=WSDATA_DOCUMENTS_CHUNK,
                     ws_id=ws_id,
                     user_id=user_id,
+                    operation_id=index,
                     req_id=req_id,
                     data=chunk.model_dump(exclude_none=True),
                 )

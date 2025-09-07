@@ -96,6 +96,7 @@ async def _tag_documents_internal(
                 type=WSDATA_ENRICH_DONE,
                 ws_id=ws_id,
                 user_id=user_id,
+                operation_id=index,
                 req_id=req_id,
                 data=p.model_dump(exclude_none=True),
             )
@@ -287,15 +288,14 @@ async def enrich_documents_handler(
             index = op.index
 
             # create a stats, just to allow request canceling
-            await GulpRequestStats.create(
-                token=None,
-                ws_id=ws_id,
-                req_id=req_id,
-                object_data=None, # uses default
-                operation_id=operation_id,
-                stats_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
+            await GulpRequestStats.create_or_get(
                 sess=sess,
+                req_id=req_id,
                 user_id=user_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                object_data=None, # uses default
+                stats_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
             )
 
         # spawn a task which runs the enrichment in a worker process
@@ -463,15 +463,14 @@ async def tag_documents_handler(
             index = op.index
 
             # create a stats, just to allow request canceling
-            await GulpRequestStats.create(
-                token=None,
-                ws_id=ws_id,
-                req_id=req_id,
-                object_data=None,  # uses default
-                operation_id=operation_id,
-                stats_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
+            await GulpRequestStats.create_or_get(
                 sess=sess,
+                req_id=req_id,
                 user_id=user_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                object_data=None,  # uses default
+                stats_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
             )
 
         # spawn a task which runs the enrichment in a worker process

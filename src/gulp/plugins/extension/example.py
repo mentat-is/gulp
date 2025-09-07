@@ -107,16 +107,15 @@ class Plugin(GulpPluginBase):
         # create an example stats
         async with GulpCollab.get_instance().session() as sess:
             try:
-                await GulpRequestStats.create(
-                    token=None,
-                    ws_id=ws_id,
+                await GulpRequestStats.create_or_get(
+                    sess=sess,
                     req_id=req_id,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                    operation_id=operation_id,
                     object_data={
                         "source_total": 33,
                     },
-                    operation_id=operation_id,
-                    sess=sess,
-                    user_id=user_id,
                 )
 
             except Exception as ex:

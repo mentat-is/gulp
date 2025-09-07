@@ -269,16 +269,15 @@ async def _ingest_file_internal(
             )
         else:
             # create stats
-            stats = await GulpRequestStats.create(
-                token=None,
-                ws_id=ws_id,
+            await GulpRequestStats.create_or_get(
+                sess=sess,
                 req_id=req_id,
+                user_id=user_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
                 object_data={
                     "source_total": file_total,
                 },
-                operation_id=operation_id,
-                sess=sess,
-                user_id=user_id,
             )
         try:
             # run plugin
@@ -446,23 +445,15 @@ async def _handle_preview_or_enqueue_ingest_task(
 
     # enqueue ingestion task on collab
     kwds["payload"] = payload.model_dump(exclude_none=True)
-    object_data: dict[str, Any] = {
-        "ws_id": ws_id,
-        "operation_id": operation_id,
-        "req_id": req_id,
-        "task_type": "ingest",
-        "params": kwds,
-    }
-    MutyLogger.get_instance().debug(
-        "queueing ingestion task, object_data=%s" % (object_data)
-    )
-    await GulpTask.create(
-        token=None,
-        user_id=user_id,  # permission already checked
-        ws_id=None,
+    await GulpTask.enqueue(
+        task_type="ingest",
+        operation_id=operation_id,
+        user_id=user_id,
+        ws_id=ws_id,
         req_id=req_id,
-        object_data=object_data,
+        params=kwds,
     )
+
     # return pending response
     return JSONResponse(JSendResponse.pending(req_id=req_id))
 
@@ -1118,21 +1109,22 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 original_file_path=path,
                 file_sha1=None,
             )
-            return await _handle_preview_or_enqueue_ingest_task(
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                operation_id=operation_id,
-                ctx_id=ctx_id,
-                src_id=src_id,
-                index=index,
-                plugin=plugin,
-                file_path=path,
-                file_total=file_total,
-                payload=payload,
-                preview_mode=preview_mode,
-                delete_after=delete_after,
-            )
+
+        return await _handle_preview_or_enqueue_ingest_task(
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            operation_id=operation_id,
+            ctx_id=ctx_id,
+            src_id=src_id,
+            index=index,
+            plugin=plugin,
+            file_path=path,
+            file_total=file_total,
+            payload=payload,
+            preview_mode=preview_mode,
+            delete_after=delete_after,
+        )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1164,14 +1156,14 @@ async def _ingest_raw_internal(
             object_data = {
                 "never_expire": True,
             }
-        stats: GulpRequestStats = await GulpRequestStats.create(
-            token=None,
-            ws_id=ws_id,
-            req_id=req_id,
-            object_data=object_data,
-            operation_id=operation_id,
+
+        stats: GulpRequestStats = await GulpRequestStats.create_or_get(
             sess=sess,
+            req_id=req_id,
             user_id=user_id,
+            ws_id=ws_id,
+            operation_id=operation_id,
+            object_data=object_data,
         )
 
         mod: GulpPluginBase = None
@@ -1311,23 +1303,13 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
             plugin_params=payload.get("plugin_params") or {},
             last=last,
         )
-
-        # enqueue task on collab
-        object_data = {
-            "ws_id": ws_id,
-            "operation_id": operation_id,
-            "req_id": req_id,
-            "task_type": "ingest_raw",
-            "params": kwds,
-        }
-        MutyLogger.get_instance().debug(
-            "queueing ingestion task (raw), object_data=%s" % (object_data)
-        )
-        await GulpTask.create(
-            token,
-            ws_id=None,
+        await GulpTask.enqueue(
+            task_type="ingest_raw",
+            operation_id=operation_id,
+            user_id=user_id,
+            ws_id=ws_id,
             req_id=req_id,
-            object_data=object_data,
+            params=kwds,
             raw_data=chunk,
         )
 
@@ -1537,8 +1519,8 @@ async def ingest_zip_handler(
                 sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
             )
 
-            # add each source
             for f in files:
+                # add each source
                 src: GulpSource
                 src, _ = await ctx.add_source(
                     sess,
@@ -1548,6 +1530,7 @@ async def ingest_zip_handler(
                     req_id=req_id,
                 )
 
+                # and enqueue task on collab
                 kwds = dict(
                     user_id=user_id,
                     req_id=req_id,
@@ -1561,23 +1544,14 @@ async def ingest_zip_handler(
                     file_total=file_total,
                     payload=f.model_dump(exclude_none=True),
                 )
-
-                # enqueue task on collab
-                object_data = {
-                    "ws_id": ws_id,
-                    "operation_id": operation_id,
-                    "req_id": req_id,
-                    "task_type": "ingest",
-                    "params": kwds,
-                }
-                MutyLogger.get_instance().debug(
-                    "queueing ingestion (from zip) task, object_data=%s" % (object_data)
-                )
-                await GulpTask.create(
-                    token,
-                    ws_id=None,
+                await GulpTask.enqueue(
+                    task_type="ingest",
+                    operation_id=operation_id,
+                    user_id=user_id,
+                    ws_id=ws_id,
                     req_id=req_id,
-                    object_data=object_data,
+                    params=kwds,
+                    sess=sess,
                 )
 
             # and return pending
@@ -1688,8 +1662,8 @@ async def ingest_zip_local_handler(
                 sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
             )
 
-            # add each source
             for f in files:
+                # add each source
                 src: GulpSource
                 src, _ = await ctx.add_source(
                     sess,
@@ -1715,23 +1689,15 @@ async def ingest_zip_local_handler(
                     delete_after=True,
                 )
 
-                # enqueue task on collab
-                object_data = {
-                    "ws_id": ws_id,
-                    "operation_id": operation_id,
-                    "req_id": req_id,
-                    "task_type": "ingest",
-                    "params": kwds,
-                }
-                MutyLogger.get_instance().debug(
-                    "queueing ingestion (from local zip) task, object_data=%s"
-                    % (object_data)
-                )
-                await GulpTask.create(
-                    token,
-                    ws_id=None,
+                # and enqueue task on collab
+                await GulpTask.enqueue(
+                    task_type="ingest",
+                    operation_id=operation_id,
+                    user_id=user_id,
+                    ws_id=ws_id,
                     req_id=req_id,
-                    object_data=object_data,
+                    params=kwds,
+                    sess=sess,
                 )
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))

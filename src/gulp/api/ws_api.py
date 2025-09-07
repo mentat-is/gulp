@@ -1548,7 +1548,7 @@ class GulpWsSharedQueue:
                     await asyncio.sleep(0.01)
                     last_yield_time = time.monotonic()
 
-                #shared_queue_size = self._shared_q.qsize()
+                # shared_queue_size = self._shared_q.qsize()
 
                 """
                 # apply backpressure strategy based on queue load
@@ -1630,11 +1630,12 @@ class GulpWsSharedQueue:
             messages (list): List to store collected messages
             batch_size (int): Target batch size
         """
-        #batch_start = time.monotonic()
+        # batch_start = time.monotonic()
 
         while (
-            len(messages) < batch_size
-            #and (time.monotonic() - batch_start) < self.BATCH_TIMEOUT
+            len(messages)
+            < batch_size
+            # and (time.monotonic() - batch_start) < self.BATCH_TIMEOUT
         ):
             try:
                 entry = self._shared_q.get_nowait()
@@ -1777,19 +1778,17 @@ class GulpWsSharedQueue:
                 # MutyLogger.get_instance().debug(f"added {type} message to queue for ws {ws_id}")
                 return
             except queue.Full:
-                # exponential backoff with jitter
-                backoff_time = min(self.PROCESSING_YIELD_INTERVAL * (2**retry), 1.0) * (
-                    0.8 + 0.4 * random.random()
-                )
+                # exponential backoff
+                backoff_time: int = retry
 
-                # log the attempt with more consistent formatting
+                # log the attempt
+                queue_size = self._shared_q.qsize() if self._shared_q else "unknown"
                 MutyLogger.get_instance().warning(
-                    f"queue full for ws {ws_id}, attempt {retry+1}/{self.MAX_RETRIES}, "
-                    f"backoff for {backoff_time:.2f}s"
+                    f"queue full (size={queue_size}) for ws {ws_id}, attempt {retry+1}/{self.MAX_RETRIES}, "
+                    f"backoff for {backoff_time}s"
                 )
 
                 # wait before retrying
-                # TODO: maybe this should be the reason to turn this async ? hopefully we do not hit this often....
                 await asyncio.sleep(backoff_time)
 
         # all retries failed
@@ -1833,4 +1832,47 @@ class GulpWsSharedQueue:
             operation_id=operation_id,
             req_id=req_id,
             data=d,
+        )
+
+    async def put_progress(
+        self,
+        msg: str,
+        user_id: str,
+        total: int = 0,
+        current: int = 0,
+        d: dict = None,
+        done: bool = False,
+        operation_id: str = None,
+        ws_id: str = None,
+        req_id: str = None,
+    ) -> None:
+        """
+        a shortcut method to send progress messages to the queue
+
+        args:
+            msg (str): the progress message
+            user_id (str): the user id associated with this message
+            total (int, optional): the total number of items to process
+            current (int, optional): the current number of processed items
+            d (dict, optional): the progress payload data if any. Defaults to None.
+            done (bool, optional): whether the operation is done. Defaults to False.
+            operation_id (Optional[str]): the operation id if applicable
+            ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
+            req_id (str, optional): the request id if applicable
+        """
+        p = GulpProgressPacket(
+            total=total,
+            current=current,
+            done=done,
+            msg=msg,
+            data=d or {},
+        )
+        wsq = GulpWsSharedQueue.get_instance()
+        await wsq.put(
+            type=WSDATA_PROGRESS,
+            ws_id=ws_id,
+            user_id=user_id,
+            req_id=req_id,
+            operation_id=operation_id,
+            data=p.model_dump(exclude_none=True),
         )

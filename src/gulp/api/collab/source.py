@@ -51,11 +51,11 @@ class GulpSource(GulpCollabBase, type=COLLABTYPE_SOURCE):
     )
 
     @classmethod
-    async def get_by_ids(
+    async def get_by_ids_ordered(
         cls, sess: AsyncSession, source_ids: list[str]
     ) -> list["GulpSource"]:
         """
-        get sources by a list of ids in a single database query
+        get sources by a list of ids, in the same order as requested source_ids.
 
         Args:
             sess (AsyncSession): the database session

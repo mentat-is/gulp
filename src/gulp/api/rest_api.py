@@ -474,7 +474,7 @@ class GulpRestServer:
                 for obj in objs:
                     # process task
                     if obj.task_type == "ingest":
-                        # spawn background task to process the ingest task
+                        # spawn background task, will run ingestion in a task in a worker process
                         from gulp.api.rest.ingest import run_ingest_file_task
 
                         d = obj.to_dict()
@@ -482,13 +482,20 @@ class GulpRestServer:
                         await self.spawn_bg_task(run_ingest_file_task(d))
 
                     elif obj.task_type == "ingest_raw":
-                        # spawn background task to process the ingest raw task
+                        # spawn background task, will run ingestion in a task in a worker process
                         from gulp.api.rest.ingest import run_ingest_raw_task
 
                         obj.params["raw_data"] = obj.raw_data
                         d = obj.to_dict()
                         # print("*************** spawning ingest RAW task for: %s" % (d))
                         await self.spawn_bg_task(run_ingest_raw_task(d))
+                    elif obj.task_type == "query":
+                        # spawn background task, will run query in a task in a worker process
+                        from gulp.api.rest.query import run_query_task
+
+                        d = obj.to_dict()
+                        # print("*************** spawning query task for: %s" % (d))
+                        await self.spawn_bg_task(run_query_task(d))
 
         MutyLogger.get_instance().info("EXITING poll task...")
 

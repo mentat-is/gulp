@@ -806,7 +806,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             req_id (str, optional): Request ID associated with the instance. Defaults to None.
             private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to True.
             commit (bool): Whether to commit the session after creating the object. Defaults to True.
-            **kwargs: Additional keyword arguments.
+            **kwargs: Additional keyword arguments, will be added to object_data.
         Returns:
             T: The created instance of the class.
         Raises:
@@ -1811,6 +1811,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         private: bool = True,
         operation_id: str = None,
         user_id: str = None,
+        sess: AsyncSession = None,
         **kwargs,
     ) -> dict:
         """
@@ -1826,20 +1827,33 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             private (bool, optional): If True, the object will be private. Defaults to False.
             operation_id (str, optional): The ID of the operation associated with the object to be created: if set, it will be checked for permission. Defaults to None, ignored if user_id is provided.
             user_id (str, optional): The ID of the user creating the object, assuming it has been already verified. Defaults to None, must be provided if token is None.
-            **kwargs: Any other additional keyword arguments to set as attributes on the instance, if any
+            sess (AsyncSession, optional): The database session to use: if not provided, a new session will be created. Defaults to None.
+            **kwargs: Any other additional keyword arguments, will be passed to the internal create function and added to object_data if not already present.
         Returns:
             dict: The created object as a dictionary.
 
         Raises:
             MissingPermissionError: If the user does not have permission to create the object.
         """
-        from gulp.api.collab.user_session import GulpUserSession
-        from gulp.api.collab_api import GulpCollab
 
-        if not permission:
-            permission = [GulpUserPermission.EDIT]
+        async def _generate_object(
+            token: str,
+            ws_id: str,
+            req_id: str,
+            object_data: dict,
+            permission: list[GulpUserPermission] = None,
+            obj_id: str = None,
+            private: bool = True,
+            operation_id: str = None,
+            user_id: str = None,
+            **kwargs,
+        ) -> dict:
 
-        async with GulpCollab.get_instance().session() as sess:
+            from gulp.api.collab.user_session import GulpUserSession
+
+            if not permission:
+                permission = [GulpUserPermission.EDIT]
+
             if token is None:
                 # we already checked permission, but we need the id
                 if not user_id:
@@ -1878,6 +1892,37 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 **kwargs,
             )
             return n.to_dict(exclude_none=True)
+
+        if sess:
+            # use provided session
+            return await _generate_object(
+                ws_id=ws_id,
+                req_id=req_id,
+                object_data=object_data,
+                token=token,
+                permission=permission,
+                obj_id=obj_id,
+                private=private,
+                operation_id=operation_id,
+                user_id=user_id,
+                **kwargs,
+            )
+
+        # no session provided, create one
+        from gulp.api.collab_api import GulpCollab
+        async with GulpCollab.get_instance().session() as sess:
+            return await _generate_object(
+                ws_id=ws_id,
+                req_id=req_id,
+                object_data=object_data,
+                token=token,
+                permission=permission,
+                obj_id=obj_id,
+                private=private,
+                operation_id=operation_id,
+                user_id=user_id,
+                **kwargs,
+            )
 
 
 class GulpCollabObject(GulpCollabBase, type=COLLABTYPE_GENERIC, abstract=True):
@@ -1944,7 +1989,7 @@ class GulpCollabObject(GulpCollabBase, type=COLLABTYPE_GENERIC, abstract=True):
     @override
     def __init__(self, *args, **kwargs):
         if self.type == GulpCollabObject:
-            raise NotImplementedError(
+            raise TypeError(
                 "GulpCollabObject is an abstract class and cannot be instantiated directly."
             )
         super().__init__(*args, **kwargs)

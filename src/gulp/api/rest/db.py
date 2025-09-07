@@ -340,15 +340,14 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
         async def _worker_coro():
             # create a stats, just to allow request canceling
             async with GulpCollab.get_instance().session() as sess:
-                await GulpRequestStats.create(
-                    token=None,
-                    ws_id=ws_id,
-                    req_id=req_id,
-                    object_data=None,  # uses default
-                    operation_id=operation_id,
-                    stats_type=RequestStatsType.REQUEST_TYPE_REBASE,
+                await GulpRequestStats.create_or_get(
                     sess=sess,
+                    req_id=req_id,
                     user_id=user_id,
+                    ws_id=ws_id,
+                    operation_id=operation_id,
+                    object_data=None,  # uses default
+                    stats_type=RequestStatsType.REQUEST_TYPE_REBASE,
                 )
 
             # offload to a worker process withouyt waiting for it

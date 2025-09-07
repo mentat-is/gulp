@@ -141,16 +141,15 @@ class WsIngestRawWorker:
                 prev_user_id = packet.user_id
                 if not stats:
                     # create a stats that never expire
-                    stats: GulpRequestStats = await GulpRequestStats.create(
-                        token=None,
-                        ws_id=packet.dict_data.ws_id,
+                    stats: GulpRequestStats = await GulpRequestStats.create_or_get(
+                        sess=sess,
                         req_id=packet.dict_data.req_id,
+                        user_id=packet.user_id,
+                        ws_id=packet.dict_data.ws_id,
+                        operation_id=packet.dict_data.operation_id,
                         object_data={
                             "never_expire": True,
                         },
-                        operation_id=packet.dict_data.operation_id,
-                        sess=sess,
-                        user_id=packet.user_id,
                     )
 
                 try:
@@ -573,7 +572,7 @@ class GulpAPIWebsocket:
                             )
                             wsq = GulpWsSharedQueue.get_instance()
                             await wsq.put(
-                                type=WSDATA_ERROR,
+                                type=WSDATA_ERROR,                                
                                 ws_id=ingest_packet.ws_id,
                                 user_id=user_id,
                                 data=p.model_dump(exclude_none=True),

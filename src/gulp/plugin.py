@@ -941,6 +941,7 @@ class GulpPluginBase(ABC):
             await wsq.put(
                 type=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
+                operation_id=self._operation_id,
                 user_id=self._user_id,
                 req_id=self._req_id,
                 data=data,
@@ -1250,6 +1251,7 @@ class GulpPluginBase(ABC):
                 type=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
+                operation_id=self._operation_id,
                 req_id=self._req_id,
                 data=chunk.model_dump(exclude_none=True),
             )
@@ -1266,6 +1268,7 @@ class GulpPluginBase(ABC):
                 type=WSDATA_ENRICH_DONE,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
+                operation_id=self._operation_id,                
                 req_id=self._req_id,
                 data=p.model_dump(exclude_none=True),
             )
@@ -2364,8 +2367,7 @@ class GulpPluginBase(ABC):
         mapping_parameters: GulpMappingParameters = None,
     ) -> tuple[dict[str, GulpMapping], str]:
         """
-        convert plugin parameters to mapping: handle mappings and mapping files.
-        this is used by the engine to load the plugin and set the mapping.
+        get each defined mapping, handling loading from file if needed, and merging additional mappings if specified.
 
         Args:
             mapping_parameters (GulpMappingParameters, optional): the mapping parameters. if not set, the default (empty) mapping will be used.

@@ -68,6 +68,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         d["time_expire"] = 0
         return d
 
+    @override
     @classmethod
     async def create(
         cls,
@@ -77,7 +78,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         """
         uninmplemented, use GulpUser.login() to create a session.
         """
-        raise NotImplementedError("use GulpUser.login() to create a session.")
+        raise TypeError("use GulpUser.login() to create a session.")
 
     @staticmethod
     async def _get_admin_session(sess: AsyncSession) -> "GulpUserSession":

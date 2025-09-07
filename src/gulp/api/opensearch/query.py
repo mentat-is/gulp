@@ -66,6 +66,7 @@ class GulpQuery(BaseModel):
                     "id": "test",
                     "q": {"query": {"match_all": {}}},
                     "tags": ["test"],
+                    "groups": ["test"],
                 }
             ]
         }
@@ -81,6 +82,9 @@ class GulpQuery(BaseModel):
         None, description="the id of the sigma rule, if this is a sigma query."
     )
     tags: Optional[list[str]] = Field([], description="query tags.")
+    groups: Optional[list[str]] = Field(
+        [], description="the groups this query belongs to."
+    )
 
 
 class GulpQueryNoteParameters(BaseModel):
