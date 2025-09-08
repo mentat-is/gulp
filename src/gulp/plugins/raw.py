@@ -11,6 +11,7 @@ it would slow down a lot and generate really tons of data on postgres!
 import orjson
 from typing import override
 from muty.log import MutyLogger
+from muty.dict import flatten
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -85,7 +86,7 @@ class Plugin(GulpPluginBase):
             operation_id=self._operation_id,
             event_original=None,  # taken from the record
             event_sequence=None,  # taken from the record
-            **d,
+            **flatten(d),
         )
 
     @override
