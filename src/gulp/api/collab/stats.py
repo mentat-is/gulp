@@ -120,39 +120,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         default=0,
         doc="The timestamp when the stats were completed, in milliseconds from the unix epoch.",
     )
-    errors: Mapped[Optional[list[str]]] = mapped_column(
-        MutableList.as_mutable(ARRAY(String)),
-        default_factory=list,
-        doc="The errors that occurred during processing.",
-    )
-    source_processed: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The number of sources processed."
-    )
-    source_total: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The total number of sources to be processed."
-    )
-    source_failed: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The number of sources that failed."
-    )
-    records_failed: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The number of records that failed."
-    )
-    records_skipped: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The number of records that were skipped."
-    )
-    records_processed: Mapped[Optional[int]] = mapped_column(
-        Integer, default=0, doc="The number of records that were processed."
-    )
-    records_ingested: Mapped[Optional[int]] = mapped_column(
-        Integer,
-        default=0,
-        doc="The number of records that were ingested (may be more than records_processed: a single record may originate more than one record to be ingested).",
-    )
-    total_hits: Mapped[Optional[int]] = mapped_column(
-        Integer,
-        default=0,
-        doc="The total number of hits for the query (used for search requests).",
-    )
     req_type: Mapped[Optional[str]] = mapped_column(
         String,
         default=RequestStatsType.REQUEST_TYPE_INGESTION,
@@ -169,16 +136,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     @classmethod
     async def create(
         cls,
-        token: str,
-        ws_id: str,
-        req_id: str,
-        object_data: dict,
-        permission: list[GulpUserPermission] = None,
-        obj_id: str = None,
-        private: bool = True,
-        operation_id: str = None,
-        user_id: str = None,
-        sess: AsyncSession = None,
+        *args,
         **kwargs,
     ) -> dict:
         """
@@ -235,8 +193,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         user_id: str,
         ws_id: str,
         operation_id: str,
-        object_data: dict,
         stats_type: RequestStatsType = RequestStatsType.REQUEST_TYPE_INGESTION,
+        never_expire: bool = False,
         data: dict = None,
     ) -> T:
         """
@@ -249,10 +207,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             req_id (str): The request ID: if a stats with this ID already exists, its expire time and status are updated and returned instead of creating a new one.
             user_id (str): The user ID creating the stats.
             operation_id (str): The operation associated with the stats
-            ws_id (str): The websocket ID.
-            object_data (dict): The data to create the stats with, pass None to use the below default:
-                - source_total (int, optional): The total number of sources to be processed by the request to which this stats belong. Defaults to 1.
-                - never_expire (bool, optional): Whether the stats should never expire, ignoring the configuration. Defaults to False.
+            ws_id (str): The websocket ID to notify the creation of the stats.
             stats_type (RequestStatsType, optional): The type of request stats. Defaults to RequestStatsType.REQUEST_TYPE_INGESTION.
             data (dict, optional): Additional data to associate with the stats. Defaults to None.
 
@@ -262,14 +217,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         if not object_data:
             object_data = {}
 
-        source_total: int = object_data.get("source_total", 1)
-        never_expire: bool = object_data.get("never_expire", False)
-
         MutyLogger.get_instance().debug(
-            "---> create/get stats: id=%s, operation_id=%s, source_total=%d, sess=%s, user_id=%s, stats_type=%s",
+            "---> create/get stats: id=%s, operation_id=%s, sess=%s, user_id=%s, stats_type=%s",
             req_id,
             operation_id,
-            source_total,
             sess,
             user_id,
             stats_type,
@@ -279,6 +230,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         time_expire: int = 0
         time_updated = muty.time.now_msec()
         if not never_expire:
+            # set expiration time based on config
             msecs_to_expiration = GulpConfig.get_instance().stats_ttl() * 1000
 
             if msecs_to_expiration > 0:
@@ -322,7 +274,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             object_data = {
                 "time_expire": time_expire,
                 "operation_id": operation_id,
-                "source_total": source_total,
                 "req_type": stats_type.value,
             }
             return await super()._create_internal(
@@ -616,6 +567,19 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             if not should_update:
                 # if we didn't update, we still need to release the lock
                 await sess.commit()
+
+    @staticmethod
+    async def set_done(
+        sess: AsyncSession,
+        req_id: str,
+        status: GulpRequestStatus = GulpRequestStatus.DONE,
+        ws_id: str = None,
+        data: dict = None,
+    ) -> dict:
+        return await GulpRequestStats.finalize(
+            sess, req_id, ws_id, user_id, errors=errors, hits=hits
+        )
+
 
     @staticmethod
     async def finalize(

@@ -140,7 +140,7 @@ COLLABTYPE_USER_GROUP = "user_group"
 COLLABTYPE_SOURCE_FIELDS = "source_fields"
 COLLABTYPE_QUERY_HISTORY = "query_history"
 COLLABTYPE_TASK = "task"
-
+COLLABTYPE_QUERY_GROUP_MATCH = "query_group_match"
 
 T = TypeVar("T", bound="GulpCollabBase")
 

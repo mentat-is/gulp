@@ -147,9 +147,7 @@ class WsIngestRawWorker:
                         user_id=packet.user_id,
                         ws_id=packet.dict_data.ws_id,
                         operation_id=packet.dict_data.operation_id,
-                        object_data={
-                            "never_expire": True,
-                        },
+                        never_expire=True,
                     )
 
                 try:

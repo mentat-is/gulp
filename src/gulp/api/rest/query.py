@@ -687,51 +687,9 @@ async def _preview_query(
     return total, docs
 
 
-async def run_query_task(
-    user_id: str,
-    req_id: str,
-    ws_id: str,
-    operation_id: str,
-    index: str,
-    q: Any,
-    q_options: GulpQueryParameters = None,
-    plugin: str = None,
-    plugin_params: GulpPluginParameters = None,
-    flt: GulpQueryFilter = None,
-    sigma_files_path: str = None,
-    external: bool = False,
-    sigma: bool = False,
-) -> None:
-    # async def _worker_coro_internal(kwds: dict) -> None:
-    #     # extract parameters from kwds
-    #     user_id: str = kwds["user_id"]
-    #     req_id: str = kwds["req_id"]
-    #     ws_id: str = kwds["ws_id"]
-    #     operation_id: str = kwds["operation_id"]
-    #     index: str = kwds["index"]
-    #     queries: list[GulpQuery] = kwds["queries"]
-    #     sigma_files_path: str = kwds.get("sigma_files_path")
-    #     q_options: GulpQueryParameters = kwds["q_options"]
-    #     plugin: str = kwds.get("plugin")
-    #     plugin_params: GulpPluginParameters = kwds.get("plugin_params")
-    #     flt: GulpQueryFilter = kwds["flt"]
-
-    #     batch_size: int = GulpConfig.get_instance().concurrency_max_tasks()
-
-    #     # we have to ba
-
-    # create a stats (or get, if there is already one for the request id), just to allow request canceling
-    async with GulpCollab.get_instance().session() as sess:
-        await GulpRequestStats.create_or_get(
-            sess=sess,
-            req_id=req_id,
-            user_id=user_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            object_data=None,  # uses default
-            stats_type=RequestStatsType.REQUEST_TYPE_QUERY,
-        )
-
+async def run_query_task(t: dict) -> None:
+    params: dict = t.get("params", {})
+    req_id: str = params.get("req_id")
     kwds = dict(
         user_id=user_id,
         req_id=req_id,

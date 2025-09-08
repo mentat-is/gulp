@@ -477,7 +477,7 @@ class GulpRestServer:
                         # spawn background task, will run ingestion in a task in a worker process
                         from gulp.api.rest.ingest import run_ingest_file_task
 
-                        d = obj.to_dict()
+                        d = obj.to_dict(exclude_none=True)
                         # print("*************** spawning ingest task for: %s" % (d))
                         await self.spawn_bg_task(run_ingest_file_task(d))
 
@@ -486,14 +486,14 @@ class GulpRestServer:
                         from gulp.api.rest.ingest import run_ingest_raw_task
 
                         obj.params["raw_data"] = obj.raw_data
-                        d = obj.to_dict()
+                        d = obj.to_dict(exclude_none=True)
                         # print("*************** spawning ingest RAW task for: %s" % (d))
                         await self.spawn_bg_task(run_ingest_raw_task(d))
                     elif obj.task_type == "query":
                         # spawn background task, will run query in a task in a worker process
                         from gulp.api.rest.query import run_query_task
 
-                        d = obj.to_dict()
+                        d = obj.to_dict(exclude_none=True)
                         # print("*************** spawning query task for: %s" % (d))
                         await self.spawn_bg_task(run_query_task(d))
 

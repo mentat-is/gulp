@@ -964,14 +964,16 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug("returning %d ingested, %d skipped, success_after_retry=%r" % (l, skipped, success_after_retry))
         return l, skipped
 
-    async def _context_id_from_doc_value(self, k: str, v: str, force_v_as_context_id: bool=False) -> str:
+    async def _context_id_from_doc_value(
+        self, k: str, v: str, force_v_as_context_id: bool = False
+    ) -> str:
         """
         get "gulp.context_id" from cache or create new GulpContext based on the key and value
 
         Args:
             k (str): name of the field (i.e. "gulp.context_id")
-            v (str): field's value      
-            force_v_as_context_id (bool): if True, forces the use of `v` as the context ID when creating a new context. Defaults to False.    
+            v (str): field's value
+            force_v_as_context_id (bool): if True, forces the use of `v` as the context ID when creating a new context. Defaults to False.
         Returns:
             str: gulp.context_id
 
@@ -1008,7 +1010,9 @@ class GulpPluginBase(ABC):
         )
         return context.id
 
-    async def _source_id_from_doc_value(self, context_id: str, k: str, v: str, force_v_as_source_id: bool=False) -> str:
+    async def _source_id_from_doc_value(
+        self, context_id: str, k: str, v: str, force_v_as_source_id: bool = False
+    ) -> str:
         """
         get "gulp.source_id" from cache or create new GulpSource based on the key and value
 
@@ -1268,7 +1272,7 @@ class GulpPluginBase(ABC):
                 type=WSDATA_ENRICH_DONE,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
-                operation_id=self._operation_id,                
+                operation_id=self._operation_id,
                 req_id=self._req_id,
                 data=p.model_dump(exclude_none=True),
             )
@@ -2034,9 +2038,9 @@ class GulpPluginBase(ABC):
         gulp_type: str = fields_mapping.is_gulp_type
         if gulp_type:
             if gulp_type in ["context_name", "context_id"]:
-                # this is a gulp context field                
+                # this is a gulp context field
                 if self._preview_mode:
-                    ctx_id = "preview"                            
+                    ctx_id = "preview"
                 elif gulp_type == "context_name":
                     # get or create the context
                     ctx_id: str = await self._context_id_from_doc_value(
@@ -2149,10 +2153,12 @@ class GulpPluginBase(ABC):
                 )
             )
             d = {
-                "records_skipped": skipped,
-                "records_ingested": ingested,
-                "records_processed": self._records_processed_per_chunk,
-                "records_failed": self._records_failed_per_chunk,
+                "data": {
+                    "records_skipped": skipped,
+                    "records_ingested": ingested,
+                    "records_processed": self._records_processed_per_chunk,
+                    "records_failed": self._records_failed_per_chunk,
+                }
             }
             await self._stats.update(
                 self._sess, d=d, ws_id=self._ws_id, user_id=self._user_id
@@ -2860,15 +2866,18 @@ class GulpPluginBase(ABC):
 
         if self._stats:
             d = {
-                "source_failed": (
-                    1 if (self._is_source_failed and not self._raw_ingestion) else 0
-                ),
-                "source_processed": 1 if not self._raw_ingestion else 0,
-                "records_ingested": ingested,
-                "records_skipped": skipped,
-                "records_failed": self._records_failed_per_chunk,
-                "records_processed": self._records_processed_per_chunk,
-                "error": self._source_error,
+                "data": {
+                    "source_failed": (
+                        1 if (self._is_source_failed and not self._raw_ingestion) else 0
+                    ),
+                    "source_processed": 1 if not self._raw_ingestion else 0,
+                    "records_ingested": ingested,
+                    "records_skipped": skipped,
+                    "records_failed": self._records_failed_per_chunk,
+                    "records_processed": self._records_processed_per_chunk,
+                    "error": self._source_error,
+                }
+ 
             }
             if self._raw_ingestion and not self._req_canceled:
                 # force status update, keep status as ongoing until the last raw chunk is processed

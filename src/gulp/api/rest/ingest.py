@@ -229,7 +229,6 @@ async def _ingest_file_internal(
     index: str,
     plugin: str,
     file_path: str,
-    file_total: int,
     payload: GulpIngestPayload,
     preview_mode: bool = False,
     delete_after: bool = False,
@@ -275,9 +274,6 @@ async def _ingest_file_internal(
                 user_id=user_id,
                 ws_id=ws_id,
                 operation_id=operation_id,
-                object_data={
-                    "source_total": file_total,
-                },
             )
         try:
             # run plugin
@@ -350,6 +346,10 @@ async def run_ingest_file_task(t: dict):
     :param t: a GulpTask dict to run
     """
     params: dict = t.get("params", {})
+    params["req_id"] = t.get("req_id")
+    params["ws_id"] = t.get("ws_id")
+    params["user_id"] = t.get("user_id")
+    params["operation_id"] = t.get("operation_id")
     params["payload"] = GulpIngestPayload.model_validate(params.get("payload"))
     # MutyLogger.get_instance().debug(
     #     "run_ingest_file_task, t=%s, params=%s" % (t, params)
@@ -366,6 +366,10 @@ async def run_ingest_raw_task(t: dict):
     :param t: a GulpTask dict to run
     """
     params: dict = t.get("params", {})
+    params["req_id"] = t.get("req_id")
+    params["ws_id"] = t.get("ws_id")
+    params["user_id"] = t.get("user_id")
+    params["operation_id"] = t.get("operation_id")
     params["chunk"] = params.pop("raw_data", None)
     params["flt"] = GulpIngestionFilter.model_validate(params.get("flt"))
     params["plugin_params"] = GulpPluginParameters.model_validate(
@@ -387,7 +391,6 @@ async def _handle_preview_or_enqueue_ingest_task(
     index: str,
     plugin: str,
     file_path: str,
-    file_total: int,
     payload: GulpIngestPayload,
     preview_mode: bool,
     delete_after: bool = True,
@@ -405,7 +408,6 @@ async def _handle_preview_or_enqueue_ingest_task(
         index (str): Index where data will be ingested
         plugin (str): Plugin to use for ingestion
         file_path (str): Path to the file being ingested
-        file_total (int): Total number of files in a multi-file upload
         payload (GulpIngestPayload): Payload containing ingestion parameters
         preview_mode (bool): If True, runs in preview mode (immediate result, no task created)
         delete_after (bool, optional): If True, deletes the file after ingestion. Defaults to True.
@@ -417,16 +419,11 @@ async def _handle_preview_or_enqueue_ingest_task(
         JSendException: if preview fails
     """
     kwds = dict(
-        user_id=user_id,
-        req_id=req_id,
-        ws_id=ws_id,
-        operation_id=operation_id,
         context_id=ctx_id,
         source_id=src_id,
         index=index,
         plugin=plugin,
         file_path=file_path,
-        file_total=file_total,
         payload=payload,
         preview_mode=preview_mode,
         delete_after=delete_after,
@@ -477,7 +474,7 @@ the request expects a multipart request with a JSON payload (content type `appli
 The following is an example CURL for the request:
 
 ```bash
-curl -v -X POST http://localhost:8080/ingest_file?operation_id=test_operation&context_name=test_context&plugin=win_evtx&ws_id=test_ws&req_id=test_req&file_total=1&token=6ed2eee7-cfbe-4f06-904a-414ed6e5a926 -H content-type: multipart/form-data -H token: 6ed2eee7-cfbe-4f06-904a-414ed6e5a926 -H size: 69632 -H continue_offset: 0 -F payload={"flt": {}, "plugin_params": {}, "original_file_path": "/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx"}; type=application/json -F f=@/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx;type=application/octet-stream
+curl -v -X POST http://localhost:8080/ingest_file?operation_id=test_operation&context_name=test_context&plugin=win_evtx&ws_id=test_ws&req_id=test_req&token=6ed2eee7-cfbe-4f06-904a-414ed6e5a926 -H content-type: multipart/form-data -H token: 6ed2eee7-cfbe-4f06-904a-414ed6e5a926 -H size: 69632 -H continue_offset: 0 -F payload={"flt": {}, "plugin_params": {}, "original_file_path": "/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx"}; type=application/json -F f=@/home/valerino/repos/gulp/samples/win_evtx/Security_short_selected.evtx;type=application/octet-stream
 ```
 
 the request have the following headers:
@@ -597,13 +594,6 @@ async def ingest_file_handler(
         str,
         Depends(APIDependencies.param_ws_id),
     ],
-    file_total: Annotated[
-        int,
-        Query(
-            description="set to the total number of files if this call is part of a multi-file upload (same `req_id` for multiple files), default=1.",
-            example=1,
-        ),
-    ] = 1,
     preview_mode: Annotated[
         bool,
         Query(
@@ -691,7 +681,6 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             index=index,
             plugin=plugin,
             file_path=file_path,
-            file_total=file_total,
             payload=payload,
             preview_mode=preview_mode,
         )
@@ -737,13 +726,6 @@ async def ingest_file_to_source_handler(
             description="the plugin to use, if not specified the plugin associated to the source will be used."
         ),
     ] = None,
-    file_total: Annotated[
-        int,
-        Query(
-            description="set to the total number of files if this call is part of a multi-file upload (same `req_id` for multiple files), default=1.",
-            example=1,
-        ),
-    ] = 1,
     preview_mode: Annotated[
         bool,
         Query(
@@ -826,7 +808,6 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             index=index,
             plugin=plugin,
             file_path=file_path,
-            file_total=file_total,
             payload=payload,
             preview_mode=preview_mode,
         )
@@ -890,13 +871,6 @@ async def ingest_file_local_handler(
         GulpIngestionFilter,
         Depends(APIDependencies.param_ingestion_flt_optional),
     ] = None,
-    file_total: Annotated[
-        Optional[int],
-        Query(
-            description="set to the total number of files if this call is part of a multi-file upload (same `req_id` for multiple files), default=1.",
-            example=1,
-        ),
-    ] = 1,
     delete_after: Annotated[
         Optional[bool],
         Query(
@@ -977,7 +951,6 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             index=index,
             plugin=plugin,
             file_path=path,
-            file_total=file_total,
             payload=payload,
             preview_mode=preview_mode,
             delete_after=delete_after,
@@ -1036,13 +1009,6 @@ async def ingest_file_local_to_source_handler(
         GulpIngestionFilter,
         Depends(APIDependencies.param_ingestion_flt_optional),
     ] = None,
-    file_total: Annotated[
-        Optional[int],
-        Query(
-            description="set to the total number of files if this call is part of a multi-file upload (same `req_id` for multiple files), default=1.",
-            example=1,
-        ),
-    ] = 1,
     delete_after: Annotated[
         Optional[bool],
         Query(
@@ -1120,7 +1086,6 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             index=index,
             plugin=plugin,
             file_path=path,
-            file_total=file_total,
             payload=payload,
             preview_mode=preview_mode,
             delete_after=delete_after,
@@ -1150,20 +1115,17 @@ async def _ingest_raw_internal(
     async with GulpCollab.get_instance().session() as sess:
         if last:
             # on last chunk, we will let the stats expire
-            object_data = None
+            never_expire = False
         else:
             # create a stats that never expire
-            object_data = {
-                "never_expire": True,
-            }
-
+            never_expire = True
         stats: GulpRequestStats = await GulpRequestStats.create_or_get(
             sess=sess,
             req_id=req_id,
             user_id=user_id,
             ws_id=ws_id,
             operation_id=operation_id,
-            object_data=object_data,
+            never_expire=never_expire,
         )
 
         mod: GulpPluginBase = None
@@ -1293,10 +1255,6 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
         # )
 
         kwds = dict(
-            req_id=req_id,
-            ws_id=ws_id,
-            user_id=user_id,
-            operation_id=operation_id,
             index=index,
             flt=payload.get("flt") or {},
             plugin=plugin,
@@ -1506,11 +1464,10 @@ async def ingest_zip_handler(
             files: list[GulpIngestPayload] = await _process_metadata_json(
                 unzipped, payload
             )
-            file_total = len(files)
 
             # ingest each file in a worker
             MutyLogger.get_instance().debug(
-                "spawning %d ingestion tasks ..." % (file_total)
+                "spawning %d ingestion tasks ..." % (len(files))
             )
 
             # create (and associate) context on the collab db, if it does not exists
@@ -1532,16 +1489,11 @@ async def ingest_zip_handler(
 
                 # and enqueue task on collab
                 kwds = dict(
-                    user_id=user_id,
-                    req_id=req_id,
-                    ws_id=ws_id,
-                    operation_id=operation_id,
                     context_id=ctx.id,
                     source_id=src.id,
                     index=index,
                     plugin=f.model_extra.get("plugin"),
                     file_path=f.model_extra.get("local_file_path"),
-                    file_total=file_total,
                     payload=f.model_dump(exclude_none=True),
                 )
                 await GulpTask.enqueue(
@@ -1649,11 +1601,10 @@ async def ingest_zip_local_handler(
             files: list[GulpIngestPayload] = await _process_metadata_json(
                 unzipped, payload
             )
-            file_total = len(files)
 
             # ingest each file in a worker
             MutyLogger.get_instance().debug(
-                "spawning %d ingestion tasks ..." % (file_total)
+                "spawning %d ingestion tasks ..." % (len(files))
             )
 
             # create (and associate) context on the collab db, if it does not exists
@@ -1674,16 +1625,11 @@ async def ingest_zip_local_handler(
                 )
 
                 kwds = dict(
-                    user_id=user_id,
-                    req_id=req_id,
-                    ws_id=ws_id,
-                    operation_id=operation_id,
                     context_id=ctx.id,
                     source_id=src.id,
                     index=index,
                     plugin=f.model_extra.get("plugin"),
                     file_path=f.model_extra.get("local_file_path"),
-                    file_total=file_total,
                     payload=f.model_dump(exclude_none=True),
                     # they are temporary files, always delete
                     delete_after=True,

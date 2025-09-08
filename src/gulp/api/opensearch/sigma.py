@@ -566,7 +566,7 @@ def _to_gulp_query(
 
 
 async def _convert_internal(
-    r: SigmaRule, yml: str | bytes, mapping_parameters: GulpMappingParameters = None
+    r: SigmaRule, yml: str | bytes, mapping_parameters: GulpMappingParameters = None, return_dicts: bool=True
 ) -> list[dict]:
     """
     internal function to convert a sigma rule to one or more GulpQuery dicts, applying
@@ -576,9 +576,9 @@ async def _convert_internal(
         r (SigmaRule): the sigma rule
         yml (str|bytes): the sigma rule YAML
         mapping_parameters (GulpMappingParameters, optional): the mapping parameters to use for conversion.
-
+        return_dicts (bool, optional): whether to return a list of dicts instead of GulpQuery objects. Defaults to True.
     Returns:
-        list[dict]: one or more GulpQuery in dict format
+        list[dict|GulpQuery]: one or more GulpQuery/dict
     """
     # get mappings
     mappings, mapping_id = await GulpPluginBase.mapping_parameters_to_mapping(
@@ -590,7 +590,7 @@ async def _convert_internal(
     # MutyLogger.get_instance().debug(
     #     "sigma_convert_default, mapped sigma rule:\n%s", mapped_sigma
     # )
-    list_queries: list[dict] = _to_gulp_query(mapped_yml, return_dicts=True)
+    list_queries: list[dict] = _to_gulp_query(mapped_yml, return_dicts=return_dicts)
     if not mapping_parameters or not mapping_parameters.sigma_mappings:
         # no sigma mappings, just return the queries
         MutyLogger.get_instance().warning(
@@ -657,7 +657,8 @@ async def sigma_yml_to_queries(
     products: list[str] = None,
     categories: list[str] = None,
     services: list[str] = None,
-) -> list[dict]:
+    return_dicts: bool = True,
+) -> list[dict|GulpQuery]:
     if not mapping_parameters_cache:
         raise ValueError("sigma_yml_to_queries: source mapping cache is empty")
 
@@ -675,7 +676,7 @@ async def sigma_yml_to_queries(
         return []
 
     # for every rule, check the sources to which it must be applied
-    conversion_cache: dict[str, dict] = {}
+    conversion_cache: dict[str, list[dict]] = {}
     for src_id in mapping_parameters_cache:
         # check if this rule is to be used for this source (based on sigma mappings, if any)
         mapping_parameters = mapping_parameters_cache[src_id]
@@ -698,26 +699,27 @@ async def sigma_yml_to_queries(
             converted = conversion_cache[r.id]
         else:
             # convert and add to cache
-            converted = await _convert_internal(r, yml, mapping_parameters)
+            converted = await _convert_internal(r, yml, mapping_parameters, return_dicts=return_dicts)
             converted[r.id] = converted
 
-        # add source_id constraint to the base query (GulpQuery.q)
-        base_query: dict = converted["q"]
-        targeted_q: dict = {
-            "query": {
-                "bool": {
-                    "must": [
-                        base_query["query"],
-                        {
-                            "query_string": {
-                                "query": "gulp.source_id: %s" % src_id,
-                            }
-                        },
-                    ]
+        for c in converted:
+            # add source_id constraint to the base query (GulpQuery.q)
+            base_query: dict = c["q"] if return_dicts else c.q
+            targeted_q: dict = {
+                "query": {
+                    "bool": {
+                        "must": [
+                            base_query["query"],
+                            {
+                                "query_string": {
+                                    "query": "gulp.source_id: %s" % src_id,
+                                }
+                            },
+                        ]
+                    }
                 }
             }
-        }
-        queries.append(targeted_q)
+            queries.append(targeted_q)
 
     # done
     return queries
