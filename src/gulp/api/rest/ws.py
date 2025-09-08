@@ -178,7 +178,9 @@ class WsIngestRawWorker:
                     MutyLogger.get_instance().exception(ex)
                     # just append error
                     d = {
-                        "error": ex,
+                        "data": {
+                            "error": ex,
+                        }
                     }
                     await stats.update(
                         sess, d, ws_id=packet.dict_data.ws_id, user_id=packet.user_id
@@ -570,7 +572,7 @@ class GulpAPIWebsocket:
                             )
                             wsq = GulpWsSharedQueue.get_instance()
                             await wsq.put(
-                                type=WSDATA_ERROR,                                
+                                type=WSDATA_ERROR,
                                 ws_id=ingest_packet.ws_id,
                                 user_id=user_id,
                                 data=p.model_dump(exclude_none=True),

@@ -1246,7 +1246,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     async def update(
         self,
         sess: AsyncSession,
-        d: dict,
+        d: dict = None,
         ws_id: str = None,
         user_id: str = None,
         ws_queue_datatype: str = None,
@@ -1260,7 +1260,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         Args:
             sess (AsyncSession): The database session to use: the session will be committed and refreshed after the update.
-            d (dict): A dictionary containing the fields to update and their new values
+            d (dict, optional): A dictionary containing just the fields to update and their new values. May be omitted if the instance is already updated and just needs to be committed. Defaults to None.
             ws_id (str, optional): The ID of the websocket connection to send update to the websocket. Defaults to None (no update will be sent)
             user_id (str, optional): The ID of the user making the request. Defaults to None, ignored if ws_id is not provided.
             ws_queue_datatype (str, optional): The type of the websocket queue data, ignored if ws_id is not provided. Defaults to WSDATA_COLLAB_UPDATE.
@@ -1281,11 +1281,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                         # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
                         setattr(self, k, v)
 
-                # update time
-                if not d.get("time_updated", None):
-                    # set the time updated
-                    d["time_updated"] = muty.time.now_msec()
-
+            # ensure time_updated is set
+            self.time_updated = muty.time.now_msec()
+            
             private = self.is_private()
             updated_dict = self.to_dict(nested=True, exclude_none=True)
 
@@ -1356,6 +1354,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     async def acquire_advisory_lock(cls, sess: AsyncSession, obj_id: str) -> None:
         """
         Acquire an advisory lock
+
+        NOTE: to release the lock, the transaction must be committed or rolled back
 
         Args:
             sess (AsyncSession): The database session to use.
@@ -1910,6 +1910,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # no session provided, create one
         from gulp.api.collab_api import GulpCollab
+
         async with GulpCollab.get_instance().session() as sess:
             return await _generate_object(
                 ws_id=ws_id,

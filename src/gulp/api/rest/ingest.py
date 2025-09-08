@@ -301,9 +301,11 @@ async def _ingest_file_internal(
                 raise ex
             else:
                 d = {
-                    "source_failed": 1,
                     "status": status,
-                    "error": ex,
+                    "data": {
+                        "source_failed": 1,
+                        "error": ex,
+                    }
                 }
                 await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
         finally:
@@ -1151,9 +1153,11 @@ async def _ingest_raw_internal(
             # set failed
             status = GulpRequestStatus.FAILED
             d = {
-                "source_failed": 1,
                 "status": status,
-                "error": ex,
+                "data": {
+                    "source_failed": 1,
+                    "error": ex,
+                }
             }
             await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
         finally:

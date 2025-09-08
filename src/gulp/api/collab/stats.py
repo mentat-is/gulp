@@ -97,7 +97,7 @@ class PreviewDone(Exception):
 
 class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     """
-    Represents the statistics for an ingestion operation.
+    Represents the statistics for an operation.
     """
 
     operation_id: Mapped[str] = mapped_column(
@@ -142,9 +142,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         """
         disabled, use create_or_get instead
         """
-        raise TypeError(
-            "use GulpRequestStats.create_or_get() instead of create()"
-        )
+        raise TypeError("use GulpRequestStats.create_or_get() instead of create()")
 
     @override
     def to_dict(
@@ -195,7 +193,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         operation_id: str,
         stats_type: RequestStatsType = RequestStatsType.REQUEST_TYPE_INGESTION,
         never_expire: bool = False,
-        data: dict = None,
     ) -> T:
         """
         Create new (or get an existing) GulpRequestStats object on the collab database.
@@ -275,6 +272,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 "time_expire": time_expire,
                 "operation_id": operation_id,
                 "req_type": stats_type.value,
+                "data": {},
             }
             return await super()._create_internal(
                 sess,
@@ -289,105 +287,78 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             await sess.rollback()
             raise e
 
-    async def cancel(
-        self,
-        sess: AsyncSession,
-    ):
-        """
-        Cancel the stats.
-
-        Args:
-            sess (AsyncSession): The database session to use.
-        """
-        # expires in 5 minutes, allow any loop to finish
-        time_expire = muty.time.now_msec() + 60 * 1000 * 5
-
-        # cancel
-        d: dict = {
-            "status": GulpRequestStatus.CANCELED,
-            "time_expire": time_expire,
-            "time_finished": muty.time.now_msec(),
-        }
-
-        await super().update(sess, d=d)
-
-    @classmethod
-    async def update_by_id(
-        cls,
-        token,
-        obj_id: str,
-        ws_id: str,
-        req_id: str,
-        d: dict = None,
-        permission: list[GulpUserPermission] = None,
-        **kwargs,
-    ) -> dict:
-        """
-        same as base class update_by_id, but without checking token
-
-        Args:
-            token (str): The token of the user updating the stats (ignored)
-            obj_id (str): The ID of the object to update.
-            ws_id (str): The websocket ID.
-            req_id (str): The request ID.
-            d (dict, optional): The data to update the object with. Defaults to None.
-            permission (list[GulpUserPermission], optional): The permissions of the user (ignored).
-            **kwargs: Additional keyword arguments.
-                - sess: AsyncSession (mandatory)
-                - user_id: str (mandatory)
-
-        Returns:
-            dict: The updated object as a dictionary.
-        """
-
-        # get insance
-        sess: AsyncSession = kwargs["sess"]
-        user_id: str = kwargs["user_id"]
+    async def update_query_stats(self, sess: AsyncSession, user_id: str, hits: int, errors: list[str]=None, ws_id: str=None) -> dict:
         try:
-            await GulpRequestStats.acquire_advisory_lock(sess, obj_id)
-            s: GulpRequestStats = await cls.get_by_id(sess, obj_id)
-            dd = await s.update(sess, d=d, ws_id=ws_id, user_id=user_id)
-            return dd
-        except Exception as e:
-            await sess.rollback()
-            raise e
+            # acquire lock and get the latest data
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            await sess.refresh(self)
+
+            # update stats
+            data: dict = self.data or {}
+            data["records_ingested"] = data.get("records_ingested",0) + ingested
+            data["records_skipped"] = data.get("records_skipped",0) + skipped
+            data["records_processed"] = data.get("records_processed",0) + processed
+            data["records_failed"] = data.get("records_failed",0) + failed
+            if errors:
+                if "error" not in data or not data["error"]:
+                    data["error"] = []
+                for e in errors:
+                    e_str = str(e)
+                    if e_str not in data["error"]:
+                        data["error"].append(e_str)
+            self.data = data  # mark as modified
+            updated_dict: dict = await self.update(
+                sess,
+                ws_id=ws_id,
+                user_id=user_id,
+                ws_queue_datatype=WSDATA_STATS_UPDATE,
+            )
+            return updated_dict
+        finally:
+            # commit the transaction to release the lock
+            await sess.commit()
+
+    async def update_ingestion_stats(self, sess: AsyncSession, user_id: str, ingested: int=0, skipped: int=0,
+                                     processed: int=0, failed: int=0, errors: list[str]=None, ws_id: str=None) -> dict:
+        try:
+            # acquire lock and get the latest data
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            await sess.refresh(self)
+
+            # update stats
+            data: dict = self.data or {}
+            data["records_ingested"] = data.get("records_ingested",0) + ingested
+            data["records_skipped"] = data.get("records_skipped",0) + skipped
+            data["records_processed"] = data.get("records_processed",0) + processed
+            data["records_failed"] = data.get("records_failed",0) + failed
+            if errors:
+                if "error" not in data or not data["error"]:
+                    data["error"] = []
+                for e in errors:
+                    e_str = str(e)
+                    if e_str not in data["error"]:
+                        data["error"].append(e_str)
+            self.data = data  # mark as modified
+            updated_dict: dict = await self.update(
+                sess,
+                ws_id=ws_id,
+                user_id=user_id,
+                ws_queue_datatype=WSDATA_STATS_UPDATE,
+            )
+            return updated_dict
+        finally:
+            # commit the transaction to release the lock
+            await sess.commit()
 
     @override
-    async def update(
+    async def update_running_stats(
         self,
         sess: AsyncSession,
+        user_id: str,
         d: dict,
         ws_id: str = None,
-        user_id: str = None,
-        ws_queue_datatype: str = WSDATA_STATS_UPDATE,  # provide default
-        ws_data: dict = None,  # keep for super().update
-        req_id: str = None,  # keep for super().update,
     ) -> dict:
         """
-        update the stats with improved locking strategy to prevent deadlocks.
-
-        Args:
-            sess (AsyncSession): the database session to use.
-            d (dict): the dictionary of values to update:
-                source_processed (int, optional): the number of sources processed. defaults to 0.
-                source_failed (int, optional): the number of sources that failed. defaults to 0.
-                records_failed (int, optional): the number of records that failed. defaults to 0.
-                records_skipped (int, optional): the number of records that were skipped. defaults to 0.
-                records_processed (int, optional): the number of records that were processed. defaults to 0.
-                records_ingested (int, optional): the number of records that were ingested. defaults to 0.
-                error (str | Exception | list[str], optional): the error message or exception that occurred. defaults to none.
-                status (GulpRequestStatus, optional): force a specific status. defaults to none.
-            ws_id (str, optional): the websocket id. defaults to none.
-            user_id (str, optional): the user id updating the stats. defaults to none.
-            ws_queue_datatype (str, optional): the websocket queue data type for notification. defaults to WSDATA_STATS_UPDATE.
-            ws_data (dict, optional): additional data for the websocket message. defaults to none.
-            req_id (str, optional): the request id for the websocket message. defaults to none.
-
-        Returns:
-            dict: the updated stats as a dictionary.
-
-        Raises:
-            OperationalError: if locking fails after retries.
         """
         log = MutyLogger.get_instance()
         should_update: bool = True
@@ -409,7 +380,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     self.id,
                     self.status,
                 )
-                # return current state: we will need to commit the transaction in finally block, to release the lock
+                # return current state: we still need to commit the transaction in finally block, to release the lock
                 should_update = False
                 return self.to_dict()
 
@@ -419,12 +390,13 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 # update time_expire if provided
                 self.time_expire = time_expire
 
-            self.source_processed += d.get("source_processed", 0)
-            self.source_failed += d.get("source_failed", 0)
-            self.records_failed += d.get("records_failed", 0)
-            self.records_skipped += d.get("records_skipped", 0)
-            self.records_processed += d.get("records_processed", 0)
-            self.records_ingested += d.get("records_ingested", 0)
+            data: dict = d.get("data", {})
+            self.source_processed += data.get("source_processed", 0)
+            self.source_failed += data.get("source_failed", 0)
+            self.records_failed += data.get("records_failed", 0)
+            self.records_skipped += data.get("records_skipped", 0)
+            self.records_processed += data.get("records_processed", 0)
+            self.records_ingested += data.get("records_ingested", 0)
             self.total_hits = d.get("total_hits", 0)
 
             # process errors
@@ -568,18 +540,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 # if we didn't update, we still need to release the lock
                 await sess.commit()
 
-    @staticmethod
-    async def set_done(
-        sess: AsyncSession,
-        req_id: str,
-        status: GulpRequestStatus = GulpRequestStatus.DONE,
-        ws_id: str = None,
-        data: dict = None,
-    ) -> dict:
-        return await GulpRequestStats.finalize(
-            sess, req_id, ws_id, user_id, errors=errors, hits=hits
-        )
-
 
     @staticmethod
     async def finalize(
@@ -624,8 +584,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     status = GulpRequestStatus.DONE
                 object_data = {
                     "status": status,
-                    "error": errors or [],
-                    "total_hits": hits,
+                    "data": {
+                        "error": errors or [],
+                        "total_hits": hits,
+                    },
                 }
                 dd = await stats.update(sess, object_data, user_id=user_id, ws_id=ws_id)
             else:
@@ -717,3 +679,67 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             MutyLogger.get_instance().warning(f"request {req_id} is canceled!")
             return True
         return False
+
+    @classmethod
+    async def update_by_id(
+        cls,
+        token,
+        obj_id: str,
+        ws_id: str,
+        req_id: str,
+        d: dict = None,
+        permission: list[GulpUserPermission] = None,
+        **kwargs,
+    ) -> dict:
+        """
+        same as base class update_by_id, but without checking token
+
+        Args:
+            token (str): The token of the user updating the stats (ignored)
+            obj_id (str): The ID of the object to update.
+            ws_id (str): The websocket ID.
+            req_id (str): The request ID.
+            d (dict, optional): The data to update the object with. Defaults to None.
+            permission (list[GulpUserPermission], optional): The permissions of the user (ignored).
+            **kwargs: Additional keyword arguments.
+                - sess: AsyncSession (mandatory)
+                - user_id: str (mandatory)
+
+        Returns:
+            dict: The updated object as a dictionary.
+        """
+
+        # get insance
+        sess: AsyncSession = kwargs["sess"]
+        user_id: str = kwargs["user_id"]
+        try:
+            await GulpRequestStats.acquire_advisory_lock(sess, obj_id)
+            s: GulpRequestStats = await cls.get_by_id(sess, obj_id)
+            dd = await s.update(sess, d=d, ws_id=ws_id, user_id=user_id)
+            return dd
+        except Exception as e:
+            await sess.rollback()
+            raise e
+
+    async def cancel(
+        self,
+        sess: AsyncSession,
+    ):
+        """
+        Cancel the stats.
+
+        Args:
+            sess (AsyncSession): The database session to use.
+        """
+        # expires in 5 minutes, allow any loop to finish
+        time_expire = muty.time.now_msec() + 60 * 1000 * 5
+
+        # cancel
+        d: dict = {
+            "status": GulpRequestStatus.CANCELED,
+            "time_expire": time_expire,
+            "time_finished": muty.time.now_msec(),
+        }
+
+        await super().update(sess, d=d)
+
