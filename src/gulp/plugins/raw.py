@@ -80,13 +80,14 @@ class Plugin(GulpPluginBase):
                 "gulp.source_id", d["gulp.source_id"], d, **kwargs
             )
             d.update(m)
+
         # create GulpDocument as is
         return GulpDocument(
             self,
             operation_id=self._operation_id,
             event_original=None,  # taken from the record
             event_sequence=None,  # taken from the record
-            **flatten(d),
+            **d,
         )
 
     @override
