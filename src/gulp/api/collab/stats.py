@@ -201,7 +201,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
         Args:
             sess (AsyncSession): The database session to use.
-            req_id (str): The request ID: if a stats with this ID already exists, its expire time and status are updated and returned instead of creating a new one.
+            req_id (str): The request ID (=id of the stats): if a stats with this ID already exists, its expire time and status are updated and returned instead of creating a new one.
             user_id (str): The user ID creating the stats.
             operation_id (str): The operation associated with the stats
             ws_id (str): The websocket ID to notify the creation of the stats.
@@ -215,7 +215,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             object_data = {}
 
         MutyLogger.get_instance().debug(
-            "---> create/get stats: id=%s, operation_id=%s, sess=%s, user_id=%s, stats_type=%s",
+            "---> create/get stats: req_id=%s, operation_id=%s, sess=%s, user_id=%s, stats_type=%s",
             req_id,
             operation_id,
             sess,
@@ -274,20 +274,27 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 "req_type": stats_type.value,
                 "data": {},
             }
-            return await super()._create_internal(
+            return await super().create_internal(
                 sess,
                 object_data=object_data,
                 obj_id=req_id,
                 ws_id=ws_id,
                 owner_id=user_id,
-                ws_queue_datatype=WSDATA_STATS_UPDATE,
+                ws_data_type=WSDATA_STATS_UPDATE,
                 req_id=req_id,
             )
         except Exception as e:
             await sess.rollback()
             raise e
 
-    async def update_query_stats(self, sess: AsyncSession, user_id: str, hits: int, errors: list[str]=None, ws_id: str=None) -> dict:
+    async def update_query_stats(
+        self,
+        sess: AsyncSession,
+        user_id: str,
+        hits: int,
+        errors: list[str] = None,
+        ws_id: str = None,
+    ) -> dict:
         try:
             # acquire lock and get the latest data
             await self.__class__.acquire_advisory_lock(sess, self.id)
@@ -295,10 +302,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
             # update stats
             data: dict = self.data or {}
-            data["records_ingested"] = data.get("records_ingested",0) + ingested
-            data["records_skipped"] = data.get("records_skipped",0) + skipped
-            data["records_processed"] = data.get("records_processed",0) + processed
-            data["records_failed"] = data.get("records_failed",0) + failed
+            data["records_ingested"] = data.get("records_ingested", 0) + ingested
+            data["records_skipped"] = data.get("records_skipped", 0) + skipped
+            data["records_processed"] = data.get("records_processed", 0) + processed
+            data["records_failed"] = data.get("records_failed", 0) + failed
             if errors:
                 if "error" not in data or not data["error"]:
                     data["error"] = []
@@ -311,15 +318,23 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 sess,
                 ws_id=ws_id,
                 user_id=user_id,
-                ws_queue_datatype=WSDATA_STATS_UPDATE,
+                ws_data_type=WSDATA_STATS_UPDATE,
             )
             return updated_dict
         finally:
             # commit the transaction to release the lock
             await sess.commit()
 
-    async def update_ingestion_stats(self, sess: AsyncSession, user_id: str, ingested: int=0, skipped: int=0,
-                                     processed: int=0, failed: int=0, errors: list[str]=None, ws_id: str=None) -> dict:
+    async def update_enrichment_stats(
+        self,
+        sess: AsyncSession,
+        user_id: str,
+        total_hits: int,
+        enriched: int,
+        ws_id: str = None,
+        status: GulpRequestStatus = None,
+        send_progress: bool = True,
+    ) -> dict:
         try:
             # acquire lock and get the latest data
             await self.__class__.acquire_advisory_lock(sess, self.id)
@@ -327,10 +342,47 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
             # update stats
             data: dict = self.data or {}
-            data["records_ingested"] = data.get("records_ingested",0) + ingested
-            data["records_skipped"] = data.get("records_skipped",0) + skipped
-            data["records_processed"] = data.get("records_processed",0) + processed
-            data["records_failed"] = data.get("records_failed",0) + failed
+            data["current_enriched"] = data.get("enriched", 0) + enriched
+            data["total_hits"] = total_hits
+            if status:
+                self.status = status.value
+            self.data = data  # mark as modified for the ORM
+            updated_dict: dict = await self.update(
+                sess,
+                ws_id=ws_id,
+                user_id=user_id,
+                ws_data_type=WSDATA_STATS_UPDATE,
+            )
+            return updated_dict
+        finally:
+            # commit the transaction to release the lock
+            await sess.commit()
+
+    async def update_ingestion_stats(
+        self,
+        sess: AsyncSession,
+        user_id: str,
+        ingested: int = 0,
+        skipped: int = 0,
+        processed: int = 0,
+        failed: int = 0,
+        errors: list[str] = None,
+        status: GulpRequestStatus = None,
+        ws_id: str = None,
+    ) -> dict:
+        try:
+            # acquire lock and get the latest data
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            await sess.refresh(self)
+
+            # update stats
+            data: dict = self.data or {}
+            data["records_ingested"] = data.get("records_ingested", 0) + ingested
+            data["records_skipped"] = data.get("records_skipped", 0) + skipped
+            data["records_processed"] = data.get("records_processed", 0) + processed
+            data["records_failed"] = data.get("records_failed", 0) + failed
+            if status:
+                self.status = status.value
             if errors:
                 if "error" not in data or not data["error"]:
                     data["error"] = []
@@ -343,7 +395,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 sess,
                 ws_id=ws_id,
                 user_id=user_id,
-                ws_queue_datatype=WSDATA_STATS_UPDATE,
+                ws_data_type=WSDATA_STATS_UPDATE,
             )
             return updated_dict
         finally:
@@ -358,8 +410,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         d: dict,
         ws_id: str = None,
     ) -> dict:
-        """
-        """
+        """ """
         log = MutyLogger.get_instance()
         should_update: bool = True
 
@@ -427,8 +478,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
             # log update details
             log.debug(
-                "---> update stats (pre): %s, ws_queue_datatype=%s, ws_id=%s"
-                % (self, ws_queue_datatype, ws_id)
+                "---> update stats (pre): %s, ws_data_type=%s, ws_id=%s"
+                % (self, ws_data_type, ws_id)
             )
             if error:
                 log.error("---> update stats error: id=%s, error=%s", self.id, error)
@@ -506,7 +557,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             if is_completed:
                 self.time_finished = muty.time.now_msec()
                 log.info(
-                    'request "%s" **COMPLETED** with status=%s, total time: %d seconds, ws_queue_datatype=%s, ws_id=%s',
+                    'request "%s" **COMPLETED** with status=%s, total time: %d seconds, ws_data_type=%s, ws_id=%s',
                     self.id,
                     self.status,
                     (
@@ -514,7 +565,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                         if self.time_created
                         else -1
                     ),
-                    ws_queue_datatype,
+                    ws_data_type,
                     ws_id,
                 )
 
@@ -526,7 +577,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 d=None,
                 ws_id=ws_id,
                 user_id=user_id,
-                ws_queue_datatype=ws_queue_datatype,
+                ws_data_type=ws_data_type,
                 ws_data=ws_data,  # pass through ws_data
                 req_id=req_id or self.id,  # pass through req_id or use self.id
             )
@@ -539,7 +590,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             if not should_update:
                 # if we didn't update, we still need to release the lock
                 await sess.commit()
-
 
     @staticmethod
     async def finalize(
@@ -608,7 +658,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         user_id: str,
         q_name: str = None,
         hits: int = 0,
-        ws_queue_datatype: str = WSDATA_QUERY_DONE,
+        ws_data_type: str = WSDATA_QUERY_DONE,
         errors: list[str] = None,
         num_queries: int = 0,
         q_group: str = None,
@@ -623,7 +673,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             user_id(str): the user id
             q_name(str, optional): the query name (default: None)
             hits(int, optiona): the number of hits (default: 0)
-            ws_queue_datatype(str, optional): the websocket queue data type (default: WSDATA_QUERY_DONE)
+            ws_data_type(str, optional): the websocket queue data type (default: WSDATA_QUERY_DONE)
             errors(list[str], optional): the list of errors (default: None)
             send_query_done(bool, optional): whether to send the query done packet to the websocket (default: True)
             num_queries(int, optional): the number of queries performed (default: 0)
@@ -640,7 +690,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
         # inform the websocket
         MutyLogger.get_instance().debug(
-            f"sending query done packet, datatype={ws_queue_datatype}, errors={errors}"
+            f"sending query done packet, datatype={ws_data_type}, errors={errors}"
         )
         p = GulpQueryDonePacket(
             status=dd.get("status", GulpRequestStatus.DONE.value),
@@ -652,7 +702,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         )
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
-            type=ws_queue_datatype,
+            type=ws_data_type,
             ws_id=ws_id,
             operation_id=dd.get("operation_id"),
             user_id=user_id,
@@ -742,4 +792,3 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         }
 
         await super().update(sess, d=d)
-

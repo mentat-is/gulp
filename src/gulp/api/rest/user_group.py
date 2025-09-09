@@ -61,9 +61,7 @@ async def _add_remove_user(
     )
 
     # get user group
-    group: GulpUserGroup = await GulpUserGroup.get_by_id(
-        sess, group_id
-    )
+    group: GulpUserGroup = await GulpUserGroup.get_by_id(sess, group_id)
 
     # add/remove user
     if add:
@@ -196,11 +194,9 @@ async def user_group_update_handler(
         d["description"] = description
         d["glyph_id"] = glyph_id
         d = await GulpUserGroup.update_by_id(
-            token,
             group_id,
-            ws_id=None,  # do not propagate on the websocket
-            req_id=req_id,
-            d=d,
+            token,
+            d,
             permission=[GulpUserPermission.ADMIN],
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))

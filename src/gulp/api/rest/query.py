@@ -602,7 +602,7 @@ async def _worker_coro(kwds: dict) -> None:
                 user_id=user_id,
                 hits=total_doc_matches,
                 errors=all_errors,
-                ws_queue_datatype=WSDATA_QUERY_GROUP_DONE,
+                ws_data_type=WSDATA_QUERY_GROUP_DONE,
                 num_queries=num_queries,
                 q_group=q_options.group,
             )

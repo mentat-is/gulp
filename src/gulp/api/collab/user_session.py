@@ -104,7 +104,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
 
             # create a new permanent admin session
             object_data = {"user_id": admin_user.id, "time_expire": 0}
-            admin_session: GulpUserSession = await GulpUserSession._create_internal(
+            admin_session: GulpUserSession = await GulpUserSession.create_internal(
                 sess,
                 object_data=object_data,
                 owner_id=admin_user.id,
@@ -204,8 +204,8 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         except ObjectNotFound as ex:
             raise MissingPermission('token "%s" not logged in' % (token)) from ex
 
-        is_admin: bool=False
-        try:    
+        is_admin: bool = False
+        try:
             if user_session.user.is_admin():
                 # admin user can access any object and always have permission
                 is_admin = True

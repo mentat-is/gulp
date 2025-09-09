@@ -173,7 +173,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
 
         try:
             async with GulpCollab.get_instance().session() as sess:
-                op = await GulpOperation._create_internal(
+                op = await GulpOperation.create_internal(
                     sess, d, obj_id=operation_id, owner_id=user_id
                 )
 
@@ -206,7 +206,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             name (str): The name of the context.
             ws_id (str, optional): The websocket id to stream NEW_CONTEXT to. Defaults to None.
             req_id (str, optional): The request id. Defaults to None.
-            ctx_id (str, optional): The id of the context. If not provided, a new id will be generated from name.            
+            ctx_id (str, optional): The id of the context. If not provided, a new id will be generated from name.
             color (str, optional): The color of the context
             glyph_id (str, optional): The glyph id for the context. Defaults to None ("box").
 
@@ -239,12 +239,12 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 "glyph_id": glyph_id or "box",
             }
             # pylint: disable=protected-access
-            ctx = await GulpContext._create_internal(
+            ctx = await GulpContext.create_internal(
                 sess,
                 object_data,
                 obj_id=ctx_id,
                 owner_id=user_id,
-                ws_queue_datatype=WSDATA_NEW_CONTEXT if ws_id else None,
+                ws_data_type=WSDATA_NEW_CONTEXT if ws_id else None,
                 ws_id=ws_id,
                 req_id=req_id,
                 private=False,

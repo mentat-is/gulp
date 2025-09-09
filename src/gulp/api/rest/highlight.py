@@ -160,11 +160,10 @@ async def highlight_update_handler(
         d["glyph_id"] = glyph_id
         d["color"] = color
         d = await GulpHighlight.update_by_id(
-            token,
             obj_id,
+            token,
+            d,
             ws_id=ws_id,
-            req_id=req_id,
-            d=d,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:

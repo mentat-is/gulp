@@ -159,12 +159,12 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 )
 
             # pylint: disable=protected-access
-            src = await GulpSource._create_internal(
+            src = await GulpSource.create_internal(
                 sess,
                 object_data,
                 obj_id=src_id,
                 owner_id=user_id,
-                ws_queue_datatype=WSDATA_NEW_SOURCE if ws_id else None,
+                ws_data_type=WSDATA_NEW_SOURCE if ws_id else None,
                 ws_id=ws_id,
                 req_id=req_id,
                 commit=False,

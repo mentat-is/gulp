@@ -134,7 +134,7 @@ class GulpSourceFields(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELDS):
                 "source_id": source_id,
                 "fields": fields,
             }
-            return await super()._create_internal(
+            return await super().create_internal(
                 sess,
                 object_data=object_data,
                 obj_id=obj_id,

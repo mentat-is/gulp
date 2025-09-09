@@ -33,7 +33,7 @@ from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import PreviewDone
+from gulp.api.collab.stats import GulpRequestStats, PreviewDone
 from gulp.api.mapping.models import GulpMappingField
 from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
 from gulp.api.opensearch.structs import GulpDocument
@@ -148,6 +148,7 @@ class Plugin(GulpPluginBase):
     async def query_external(
         self,
         sess: AsyncSession,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -160,6 +161,7 @@ class Plugin(GulpPluginBase):
     ) -> tuple[int, int, str] | tuple[int, list[dict]]:
         await super().query_external(
             sess,
+            stats,
             user_id,
             req_id,
             ws_id,

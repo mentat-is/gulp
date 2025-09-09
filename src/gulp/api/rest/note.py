@@ -226,7 +226,7 @@ async def note_update_handler(
             )
             d["edits"] = n.edits or []
             d["edits"].append(p.model_dump(exclude_none=True))
-            dd: dict = await n.update(sess, d=d, ws_id=ws_id, user_id=s.user_id, req_id=req_id)
+            dd: dict = await n.update(sess, d=d, ws_id=ws_id, user_id=s.user_id)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

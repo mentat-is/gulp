@@ -1069,6 +1069,7 @@ class GulpPluginBase(ABC):
     async def query_external(
         self,
         sess: AsyncSession,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -1086,6 +1087,7 @@ class GulpPluginBase(ABC):
 
         Args:
             sess (AsyncSession): The database session.
+            stats (GulpRequestStats): the request stats, to be updated by the plugin during query/ingestion
             user_id (str): the user performing the query
             req_id (str): the request id
             ws_id (str): the websocket id
@@ -1113,6 +1115,7 @@ class GulpPluginBase(ABC):
             % (q, index, operation_id, q_options, plugin_params, kwargs)
         )
         self._sess = sess
+        self._stats = stats
         self._ws_id = ws_id
         self._req_id = req_id
         self._user_id = user_id
@@ -1120,7 +1123,6 @@ class GulpPluginBase(ABC):
         self._enrich_during_ingestion = False
         self._operation_id = operation_id
 
-        # setup internal state to be able to call process_record as during ingestion
         self._stats = None
 
         if index:
@@ -1143,13 +1145,13 @@ class GulpPluginBase(ABC):
     async def ingest_raw(
         self,
         sess: AsyncSession,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
         index: str,
         operation_id: str,
         chunk: bytes,
-        stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
         last: bool = False,
@@ -1166,13 +1168,14 @@ class GulpPluginBase(ABC):
 
         Args:
             sess (AsyncSession): The database session.
+            stats (GulpRequestStats): The ingestion stats, to be updated by the plugin during ingestion.
             user_id (str): The user performing the ingestion (id on collab database)
             req_id (str): The request ID.
             ws_id (str): The websocket ID to stream on
             index (str): The name of the target opensearch/elasticsearch index or datastream.
             operation_id (str): id of the operation on collab database.
             chunk: bytes: a raw bytes buffer containing the raw data to be converted to GulpDocuments.
-            stats (GulpRequestStats, optional): The ingestion stats.
+            stats (GulpRequestStats): The ingestion stats.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
             last: bool, whether this is the last chunk to ingest, defaults to False
@@ -1214,7 +1217,7 @@ class GulpPluginBase(ABC):
 
         Args:
             docs (list[dict]): the GulpDocuments as dictionaries, to be enriched
-            kwargs: additional keyword arguments, the following are guaranteed to be set:
+            kwargs: additional keyword arguments, the following are guaranteed to be set by opensearch_api.search_dsl():
                 - total_hits : total hits for the query
                 - chunk_num: the chunk number, 0 based
                 - last: whether this is the last chunk
@@ -1259,6 +1262,8 @@ class GulpPluginBase(ABC):
                 req_id=self._req_id,
                 data=chunk.model_dump(exclude_none=True),
             )
+            
+            # update stats
 
         if last:
             # also send a GulpQueryDonePacket
@@ -1280,6 +1285,7 @@ class GulpPluginBase(ABC):
     async def enrich_documents(
         self,
         sess: AsyncSession,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -1298,6 +1304,7 @@ class GulpPluginBase(ABC):
 
         Args:
             sess (AsyncSession): The database session.
+            stats (GulpRequestStats): the request stats, to be updated by the plugin during query/ingestion
             user_id (str): The user performing the ingestion (id on collab database)
             req_id (str): The request ID.
             ws_id (str): The websocket ID to stream on
@@ -1311,7 +1318,11 @@ class GulpPluginBase(ABC):
         Returns:
             int: the total number of enriched documents
 
-        NOTE: implementers must implement _enrich_documents_chunk, call self._initialize() and then super().enrich_documents
+        NOTE: implementers of enrich_documents must:
+        
+        1. implement _enrich_documents_chunk
+        2. in enrich_documents, call self._initialize() and then super().enrich_documents
+
         """
         if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(
             GulpPluginBase._enrich_documents_chunk
@@ -1323,8 +1334,10 @@ class GulpPluginBase(ABC):
         # await self._initialize(plugin_params=plugin_params)
 
         self._user_id = user_id
+        self._stats = stats
         self._req_id = req_id
         self._ws_id = ws_id
+        self._sess = sess
         self._operation_id = operation_id
         self._enrich_index = index
 
@@ -1383,7 +1396,10 @@ class GulpPluginBase(ABC):
         Returns:
             dict: the enriched document
 
-        NOTE: implementers must implement _enrich_documents_chunk, call self._initialize() and then super().enrich_single_document
+        NOTE: implementers of enrich_single_document must:
+        
+        1. implement _enrich_documents_chunk
+        2. in enrich_documents, call self._initialize() and then super().enrich_single_document
         """
         if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(
             GulpPluginBase._enrich_documents_chunk
@@ -1487,8 +1503,8 @@ class GulpPluginBase(ABC):
     async def load_plugin_direct(
         self,
         plugin: str,
-        sess: AsyncSession = None,
-        stats: GulpRequestStats = None,
+        sess: AsyncSession,
+        stats: GulpRequestStats,
         user_id: str = None,
         req_id: str = None,
         ws_id: str = None,
@@ -1500,14 +1516,15 @@ class GulpPluginBase(ABC):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         cache_mode: GulpPluginCacheMode = GulpPluginCacheMode.DEFAULT,
+        preview_mode: bool = False,
     ) -> "GulpPluginBase":
         """
         loads and initializes a plugin to use its methods directly from another plugin, bypassing the engine.
 
         Args:
             plugin (str): the plugin to load.
-            sess (AsyncSession, optional): The database session. Defaults to None.
-            stats (GulpRequestStats, optional): The ingestion stats. Defaults to None.
+            sess (AsyncSession, optional): The database session.
+            stats (GulpRequestStats, optional): The ingestion stats.
             user_id (str, optional): The user performing the ingestion (id on collab database). Defaults to None.
             req_id (str, optional): The request ID. Defaults to None.
             ws_id (str, optional): The websocket ID to stream on. Defaults to None.
@@ -1519,6 +1536,7 @@ class GulpPluginBase(ABC):
             original_file_path (str, optional): the original file path. Defaults to None.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
             cache_mode (GulpPluginCacheMode, optional): the cache mode for the plugin. Defaults to GulpPluginCacheMode.DEFAULT.
+            preview_mode (bool, optional): whether to set the plugin in preview mode. Defaults to False.
         Returns:
             GulpPluginBase: the loaded plugin.
         """
@@ -1540,6 +1558,7 @@ class GulpPluginBase(ABC):
         lower._file_path = file_path
         lower._original_file_path = original_file_path
         lower._source_id = source_id
+        lower._preview_mode = preview_mode
         await lower._initialize(plugin_params)
         return lower
 
@@ -2801,7 +2820,7 @@ class GulpPluginBase(ABC):
                 ),
             }
             await GulpSource.update_by_id(
-                None, self._source_id, d=d, ws_id=None, req_id=None
+                self._source_id, None, d
             )
 
     async def _source_done(self, flt: GulpIngestionFilter = None, **kwargs) -> None:
@@ -2877,7 +2896,6 @@ class GulpPluginBase(ABC):
                     "records_processed": self._records_processed_per_chunk,
                     "error": self._source_error,
                 }
- 
             }
             if self._raw_ingestion and not self._req_canceled:
                 # force status update, keep status as ongoing until the last raw chunk is processed

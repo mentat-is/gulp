@@ -111,6 +111,7 @@ class Plugin(GulpPluginBase):
                 file_path=file_path,
                 original_file_path=original_file_path,
                 plugin_params=plugin_params,
+                preview_mode=self._preview_mode,
             )
 
         except Exception as ex:

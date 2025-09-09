@@ -33,7 +33,12 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import WSDATA_ENRICH_DONE, WSDATA_TAG_DONE, GulpQueryDonePacket, GulpWsSharedQueue
+from gulp.api.ws_api import (
+    WSDATA_ENRICH_DONE,
+    WSDATA_TAG_DONE,
+    GulpQueryDonePacket,
+    GulpWsSharedQueue,
+)
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
@@ -159,7 +164,7 @@ async def _tag_documents_internal(
                 ws_id=ws_id,
                 user_id=user_id,
                 hits=total,
-                ws_queue_datatype=WSDATA_TAG_DONE,
+                ws_data_type=WSDATA_TAG_DONE,
                 errors=errors,
             )
 
@@ -294,7 +299,7 @@ async def enrich_documents_handler(
                 user_id=user_id,
                 ws_id=ws_id,
                 operation_id=operation_id,
-                object_data=None, # uses default
+                object_data=None,  # uses default
                 stats_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
             )
 
@@ -498,6 +503,7 @@ async def tag_documents_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.post(
     "/tag_single_id",
     response_model=JSendResponse,
@@ -569,4 +575,3 @@ async def tag_single_id_handler(
 
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-

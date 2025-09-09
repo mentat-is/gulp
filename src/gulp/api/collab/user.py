@@ -315,8 +315,11 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
     @classmethod
     @override
-    # pylint: disable=arguments-differ
-    async def create(
+    async def create(cls, *args, **kwargs) -> T:
+        raise TypeError("use 'create_user' method to create a user")
+
+    @classmethod
+    async def create_user(
         cls,
         sess: AsyncSession,
         user_id: str,
@@ -355,7 +358,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         }
 
         # set user_id to username (user owns itself)
-        u: GulpUser = await super()._create_internal(
+        u: GulpUser = await super().create_internal(
             sess, obj_id=user_id, object_data=object_data, owner_id=user_id
         )
 
@@ -372,8 +375,15 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         return u
 
     @override
-    # pylint: disable=arguments-differ
-    async def update(
+    async def update(self, *args, **kwargs) -> dict:
+        raise TypeError("use 'update_user' method to update a user")
+
+    @classmethod
+    @override
+    async def update_by_id(self, *args, **kwargs) -> dict:
+        raise NotImplementedError("use 'update_user' method to update a user")
+
+    async def update_user(
         self,
         sess: AsyncSession,
         d: dict,
@@ -423,14 +433,15 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             if GulpUserPermission.READ not in d["permission"]:
                 d["permission"].append(GulpUserPermission.READ)
             delete_session = True
-        
+
         # update
         await super().update(sess, d)
 
         if user_session and delete_session:
             # invalidate session for the user
             MutyLogger.get_instance().warning(
-                "updated user password or permission, invalidating session for user_id=%s" % (self.id)
+                "updated user password or permission, invalidating session for user_id=%s"
+                % (self.id)
             )
 
             await sess.delete(user_session)
@@ -533,13 +544,13 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 token_id = None
 
             # pylint: disable=protected-access
-            new_session: GulpUserSession = await GulpUserSession._create_internal(
+            new_session: GulpUserSession = await GulpUserSession.create_internal(
                 sess,
                 object_data,
                 obj_id=token_id,
                 ws_id=ws_id,
                 owner_id=u.id,
-                ws_queue_datatype=WSDATA_USER_LOGIN,
+                ws_data_type=WSDATA_USER_LOGIN,
                 ws_data=p.model_dump(),
                 req_id=req_id,
             )
@@ -598,7 +609,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 user_id=s.user_id,
                 ws_id=ws_id,
                 req_id=req_id,
-                ws_queue_datatype=WSDATA_USER_LOGOUT,
+                ws_data_type=WSDATA_USER_LOGOUT,
                 ws_data=p.model_dump(),
             )
 

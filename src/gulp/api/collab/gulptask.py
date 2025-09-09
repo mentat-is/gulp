@@ -114,7 +114,7 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
             }
             obj_id: str = muty.crypto.hash_xxh128(str(object_data))
             task_dict = GulpTask.build_base_object_dict(
-                object_data=object_data, owner_id=user_id, private=False, obj_id=obj_id
+                object_data=object_data, user_id=user_id, obj_id=obj_id
             )
             batch.append(task_dict)
             i += 1

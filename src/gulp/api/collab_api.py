@@ -451,7 +451,7 @@ class GulpCollab:
             from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 
             # create admin user, which is the root of everything else
-            admin_user: GulpUser = await GulpUser.create(
+            admin_user: GulpUser = await GulpUser.create_user(
                 sess,
                 "admin",
                 "admin",
@@ -462,39 +462,40 @@ class GulpCollab:
             # admin_session = await GulpUser.login(sess, "admin", "admin", None, None)
 
             # create other users
-            _ = await GulpUser.create(
+            _ = await GulpUser.create_user(
                 sess,
                 user_id="guest",
                 password="guest",
             )
-            _ = await GulpUser.create(
+            _ = await GulpUser.create_user(
                 sess,
                 user_id="editor",
                 password="editor",
                 permission=PERMISSION_MASK_EDIT,
             )
-            _ = await GulpUser.create(
+            _ = await GulpUser.create_user(
                 sess,
                 user_id="ingest",
                 password="ingest",
                 permission=PERMISSION_MASK_INGEST,
             )
-            _ = await GulpUser.create(
+            _ = await GulpUser.create_user(
                 sess,
                 user_id="power",
                 password="power",
                 permission=PERMISSION_MASK_DELETE,
             )
 
-            # pylint: disable=protected-access
             await sess.refresh(admin_user)
-            group: GulpUserGroup = await GulpUserGroup._create_internal(
-                sess,
-                obj_id=ADMINISTRATORS_GROUP_ID,
+            group: GulpUserGroup = await GulpUserGroup.create(
+                token=None,
                 object_data={
                     "name": ADMINISTRATORS_GROUP_ID,
                     "permission": [GulpUserPermission.ADMIN],
                 },
+                ws_id=None,
+                sess=sess,
+                obj_id=ADMINISTRATORS_GROUP_ID,
                 owner_id=admin_user.id,
                 private=False,
             )
@@ -572,9 +573,10 @@ class GulpCollab:
                     "img": icon_b,
                 }
 
+                # glyphs are NOT private
                 d = GulpGlyph.build_base_object_dict(
                     object_data,
-                    owner_id=user_id,
+                    user_id=user_id,
                     obj_id=id.lower(),
                     private=False,
                 )

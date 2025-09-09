@@ -152,11 +152,9 @@ async def glyph_update_handler(
             data = _read_img_file(img)
             d["img"] = data
         d = await GulpGlyph.update_by_id(
-            token,
             obj_id,
-            ws_id=None,  # do not propagate on the websocket
-            req_id=req_id,
-            d=d,
+            token,
+            d
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:

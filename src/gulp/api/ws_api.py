@@ -306,18 +306,18 @@ class GulpCollabCreateUpdatePacket(BaseModel):
         },
     )
     data: list | dict = Field(..., description="The created or updated data.")
+    type: str = Field(
+        ...,
+        description="Type of the event (i.e. one of the COLLABTYPE strings).",
+    )
     bulk: Optional[bool] = Field(
         default=False,
         description="If the event is a bulk event (data is a list instead of dict).",
     )
-    type: Optional[str] = Field(
-        None,
-        description="Type of the event (i.e. one of the COLLABTYPE strings).",
-    )
     bulk_size: Optional[int] = Field(None, description="The size of the bulk event.")
     last: Optional[bool] = Field(
         True,
-        description="indicates the last chunk.",
+        description="indicates the last chunk in a bulk packet.",
     )
     created: Optional[bool] = Field(
         default=False, description="If the event is a create event."

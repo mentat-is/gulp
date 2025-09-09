@@ -705,17 +705,16 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     def build_base_object_dict(
         cls,
         object_data: dict,
-        owner_id: str,
+        user_id: str,
         obj_id: str = None,
         private: bool = True,
-        **kwargs,
     ) -> dict:
         """
         build a dictionary to create a new base object
 
         Args:
             object_data (dict): The data to create the object with.
-            owner_id (str): The ID of the user creating the object
+            user_id (str): The ID of the user creating the object
             obj_id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
             private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to False.
 
@@ -736,16 +735,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # remove None values
         obj: dict = {k: v for k, v in object_data.items() if v is not None}
 
-        # add kwargs if any
-        for k, v in kwargs.items():
-            if v is not None:
-                obj[k] = v
-
         obj["type"] = cls.__gulp_collab_type__
         obj["id"] = obj_id
         obj["time_created"] = time_created
         obj["time_updated"] = time_created
-        obj["owner_user_id"] = owner_id
+        obj["owner_user_id"] = user_id
 
         # set user and group grants
         granted_user_ids = object_data.get("granted_user_ids", [])
@@ -755,7 +749,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if granted_user_ids:
             user_grants = granted_user_ids
         elif private:
-            user_grants = [owner_id]  # private object, owner only
+            user_grants = [user_id]  # private object, owner only
         else:
             user_grants = []  # public object
 
@@ -774,19 +768,18 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         return obj
 
     @classmethod
-    async def _create_internal(
+    async def create_internal(
         cls,
         sess: AsyncSession,
         object_data: dict,
+        user_id: str = None,
+        operation_id: str = None,
         obj_id: str = None,
         ws_id: str = None,
-        owner_id: str = None,
-        ws_queue_datatype: str = None,
-        ws_data: dict = None,
         req_id: str = None,
+        ws_data_type: str = None,
+        ws_data: dict = None,
         private: bool = True,
-        commit: bool = True,
-        **kwargs,
     ) -> T:
         """
         Asynchronously creates and stores an instance of the class, also updating the websocket if required.
@@ -797,27 +790,28 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Args:
             sess (AsyncSession): The database session to use.
             object_data (dict): The data to create the object with.
-            obj_id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
+            user_id (str, optional): The user to be set as the owner of the object. Defaults to None("admin" user will be set).
             operation_id (str, optional): The ID of the operation associated with the instance. Defaults to None.
-            ws_id (str, optional): WebSocket ID associated with the instance. Defaults to None.
-            owner_id (str, optional): The user to be set as the owner of the object. Defaults to None("admin" user will be set).
-            ws_queue_datatype (str, optional): The type of the websocket queue data. Defaults to WSDATA_COLLAB_UPDATE.
+            obj_id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
+            ws_id (str, optional): The websocket id to send notification to. Defaults to None (no websocket notification).
+            req_id (str, optional): Ignored if ws_id is None, the request ID to include in the websocket notification. Defaults to None.
+            ws_data_type (str, optional): The type of the websocket queue data. Defaults to WSDATA_COLLAB_UPDATE.
             ws_data (dict, optional): data to send to the websocket. Defaults to the created object.
-            req_id (str, optional): Request ID associated with the instance. Defaults to None.
             private (bool, optional): If True, the object is private (streamed only to ws_id websocket). Defaults to True.
-            commit (bool): Whether to commit the session after creating the object. Defaults to True.
-            **kwargs: Additional keyword arguments, will be added to object_data.
         Returns:
             T: The created instance of the class.
         Raises:
             Exception: If there is an error during the creation or storage process.
         """
         object_data = object_data or {}
-        owner_id = owner_id or "admin"
+        user_id = user_id or "admin"
 
         # build object dictionary with necessary attributes
         d = cls.build_base_object_dict(
-            object_data, owner_id=owner_id, obj_id=obj_id, private=private, **kwargs
+            object_data,
+            user_id=user_id,
+            obj_id=obj_id,
+            private=private,
         )
 
         # create object with eager loading
@@ -835,8 +829,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             raise ex
 
         # MutyLogger.get_instance().debug(f"created instance: {instance.to_dict(nested=True, exclude_none=True)}")
-        if commit:
-            await sess.commit()
         if not ws_id:
             # no websocket, return the instance
             return instance
@@ -846,10 +838,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             GulpWsSharedQueue,
         )
 
-        if not ws_queue_datatype:
+        if not ws_data_type:
             from gulp.api.ws_api import WSDATA_COLLAB_UPDATE
 
-            ws_queue_datatype = WSDATA_COLLAB_UPDATE
+            ws_data_type = WSDATA_COLLAB_UPDATE
 
         # use provided data or serialize the instance
         if ws_data:
@@ -860,15 +852,84 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         p = GulpCollabCreateUpdatePacket(data=data, created=True)
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
-            ws_queue_datatype,
+            ws_data_type,
             ws_id=ws_id,
-            user_id=owner_id,
-            operation_id=object_data.get("operation_id", None) if object_data else None,
+            user_id=user_id,
+            operation_id=operation_id,
             req_id=req_id,
             data=p.model_dump(exclude_none=True, exclude_defaults=True),
             private=private,
         )
         return instance
+
+    @classmethod
+    async def create(
+        cls,
+        token: str,
+        object_data: dict,
+        operation_id: str = None,
+        permission: list[GulpUserPermission] = None,
+        ws_id: str = None,
+        req_id: str = None,
+        obj_id: str = None,
+        private: bool = True,
+    ) -> dict:
+        """
+        helper to create a new object, handling veryfication of token and permission
+
+        NOTE: for internal object creation (not requiring token check), use `create_internal`
+
+        Args:
+            token (str): The user token, may be None if user_id is provided (internal request, assumes permissions are already checked).
+            object_data (dict): The data to create the object with.
+            operation_id (str, optional): The ID of the operation associated with the object to be created: if set, it will be checked for permission. Defaults to None, ignored if user_id is provided.
+            permission (list[GulpUserPermission], optional): The list of permissions required to create the object. Defaults to [GulpUserPermission.EDIT].
+            ws_id (str, optional): The websocket ID: pass None to not notify the websocket.
+            req_id (str, optional): The request ID, may be None for internal requests, ignored if ws_id is None.
+            obj_id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
+            private (bool, optional): If True, the object will be private (can be seen only by the creator=owner or admin). Defaults to True.
+        Returns:
+            dict: The created object as a dictionary.
+
+        Raises:
+            MissingPermission: If the user does not have permission to create the object.
+        """
+
+        from gulp.api.collab.user_session import GulpUserSession
+        from gulp.api.collab import GulpCollab
+
+        async with GulpCollab.get_instance().session() as sess:
+            if not permission:
+                permission = [GulpUserPermission.EDIT]
+
+            # check permission for creation
+            if operation_id:
+                # check permission on the operation
+                from gulp.api.collab.operation import GulpOperation
+
+                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+                s = await GulpUserSession.check_token(
+                    sess, token, permission=permission, obj=op
+                )
+            else:
+                # just check token permission
+                s = await GulpUserSession.check_token(
+                    sess, token, permission=permission
+                )
+
+            # get from session
+            user_id = s.user_id
+            n: GulpCollabBase = await cls.create_internal(
+                sess,
+                object_data,
+                operation_id=operation_id,
+                obj_id=obj_id,
+                user_id=user_id,
+                ws_id=ws_id,
+                req_id=req_id,
+                private=private,
+            )
+            return n.to_dict(exclude_none=True)
 
     async def add_default_grants(self, sess: AsyncSession):
         """
@@ -1063,7 +1124,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         sess: AsyncSession,
         ws_id: str = None,
         user_id: str = None,
-        ws_queue_datatype: str = None,
+        ws_data_type: str = None,
         ws_data: dict = None,
         req_id: str = None,
         raise_on_error: bool = True,
@@ -1075,7 +1136,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The database session to use.
             ws_id (str, optional): The ID of the websocket connection. Defaults to None.
             user_id (str, optional): The ID of the user making the request. Defaults to None.
-            ws_queue_datatype (str, optional): The type of the websocket queue data. Defaults to WSDATA_COLLAB_DELETE.
+            ws_data_type (str, optional): The type of the websocket queue data. Defaults to WSDATA_COLLAB_DELETE.
             ws_data (dict, optional): data to send to the websocket: if not set, a GulpDeleteCollabPacket with object id will be sent.
             req_id (str, optional): The ID of the request. Defaults to None.
             raise_on_error (bool): Whether to raise an exception on error. Defaults to True.
@@ -1107,10 +1168,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             GulpWsSharedQueue,
         )
 
-        if not ws_queue_datatype:
+        if not ws_data_type:
             from gulp.api.ws_api import WSDATA_COLLAB_DELETE
 
-            ws_queue_datatype = WSDATA_COLLAB_DELETE
+            ws_data_type = WSDATA_COLLAB_DELETE
 
         if ws_data:
             data = ws_data
@@ -1120,7 +1181,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
-            type=ws_queue_datatype,
+            type=ws_data_type,
             ws_id=ws_id,
             user_id=user_id,
             operation_id=operation_id,
@@ -1243,15 +1304,70 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 return cls
         raise ValueError(f"no class found for collab type={collab_type}")
 
+    @classmethod
+    async def update_by_id(
+        cls,
+        obj_id: str,
+        token: str,
+        d: dict,
+        permission: list[GulpUserPermission] = None,
+        ws_id: str = None,
+        ws_data: dict = None,
+        ws_data_type: str = None,
+    ) -> dict:
+        """
+        helper to update an object by ID, handling session
+
+        Args:
+            obj_id (str): The ID of the object to update.
+            token (str): The user token, pass None for internal calls skipping token check and websocket update.
+            d (dict, optional): The data to update the object with. Defaults to None.
+            permission (list[GulpUserPermission], optional): explicit permission the token must have to update the object. Defaults to [GulpUserPermission.EDIT].
+            ws_id (str, optional): The ID of the websocket connection to send update to the websocket. Defaults to None (no update will be sent). Ignored if token is None (internal request).
+            ws_data (dict, optional): this is the data sent to the websocket after the object has been updated on database. Defaults to the (serialized) updated object itself. Ignored if ws_id is not provided (used only for websocket notification) or if token is None (internal request).
+            ws_data_type (str, optional): this is the type of ws_data sent on the websocket. Defaults to WSDATA_COLLAB_UPDATE. Ignored if ws_id is not provided (used only for websocket notification) or if token is None (internal request).
+
+        Returns:
+            dict: The updated object as a dictionary.
+
+        Raises:
+            MissingPermission: If the user does not have permission to update the object.
+        """
+        from gulp.api.collab.user_session import GulpUserSession
+        from gulp.api.collab_api import GulpCollab
+
+        if not permission:
+            permission = [GulpUserPermission.EDIT]
+
+        async with GulpCollab.get_instance().session() as sess:
+            n: GulpCollabBase = await cls.get_by_id(sess, obj_id)
+            if token:
+                # token needs at least edit permission (or be the owner)
+                s = await GulpUserSession.check_token(
+                    sess, token, permission=permission, obj=n
+                )
+                user_id: str = s.user_id
+
+                await n.update(
+                    sess,
+                    d=d,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    ws_data=ws_data,
+                    ws_data_type=ws_data_type,
+                )
+
+            # if no token is provided, we assume this is an internal request, no permission check and no websocket update
+            return n.to_dict(exclude_none=True)
+
     async def update(
         self,
         sess: AsyncSession,
         d: dict = None,
         ws_id: str = None,
         user_id: str = None,
-        ws_queue_datatype: str = None,
         ws_data: dict = None,
-        req_id: str = None,
+        ws_data_type: str = None,
     ) -> dict:
         """
         updates the object, also updating the websocket if required.
@@ -1262,10 +1378,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The database session to use: the session will be committed and refreshed after the update.
             d (dict, optional): A dictionary containing just the fields to update and their new values. May be omitted if the instance is already updated and just needs to be committed. Defaults to None.
             ws_id (str, optional): The ID of the websocket connection to send update to the websocket. Defaults to None (no update will be sent)
-            user_id (str, optional): The ID of the user making the request. Defaults to None, ignored if ws_id is not provided.
-            ws_queue_datatype (str, optional): The type of the websocket queue data, ignored if ws_id is not provided. Defaults to WSDATA_COLLAB_UPDATE.
-            ws_data (dict, optional): data to send to the websocket. Defaults to the updated object, ignored if ws_id is not provided
-            req_id (str, optional): The ID of the request, ignored if ws_id is not provided. Defaults to None.
+            user_id (str, optional): The ID of the user making the request. Defaults to None, ignored if ws_id is not provided (used only for websocket notification).
+            ws_data (dict, optional): this is the data sent to the websocket after the object has been updated on database. Defaults to the (serialized) updated object itself. Ignored if ws_id is not provided (used only for websocket notification).
+            ws_data_type (str, optional): this is the type of ws_data sent on the websocket. Defaults to WSDATA_COLLAB_UPDATE. Ignored if ws_id is not provided (used only for websocket notification).
 
         Returns:
             dict: The updated object as a dictionary.
@@ -1283,7 +1398,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
             # ensure time_updated is set
             self.time_updated = muty.time.now_msec()
-            
+
             private = self.is_private()
             updated_dict = self.to_dict(nested=True, exclude_none=True)
 
@@ -1307,48 +1422,32 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             GulpWsSharedQueue,
         )
 
-        if not ws_queue_datatype:
+        if not ws_data_type:
+            # default to collab update
             from gulp.api.ws_api import WSDATA_COLLAB_UPDATE
 
-            ws_queue_datatype = WSDATA_COLLAB_UPDATE
+            ws_data_type = WSDATA_COLLAB_UPDATE
 
         # notify the websocket of the collab object update
         if ws_data:
+            # use provided dict
             data = ws_data
         else:
+            # use the object itself
             data = updated_dict
 
         p = GulpCollabCreateUpdatePacket(data=data)
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
-            type=ws_queue_datatype,
+            type=ws_data_type,
             ws_id=ws_id,
             user_id=user_id,
             operation_id=data.get("operation_id", None),
-            req_id=req_id,
+            req_id=self.id,
             data=p.model_dump(exclude_none=True, exclude_defaults=True),
             private=private,
         )
         return updated_dict
-
-    @classmethod
-    async def release_advisory_lock(cls, sess: AsyncSession, obj_id: str) -> None:
-        """
-        release an advisory lock
-
-        Args:
-            session (AsyncSession): The database session to use.
-            obj_id (str): The ID of the object to unlock.
-        """
-        lock_id = muty.crypto.hash_xxh64_int("%s-%s" % (cls.__name__, obj_id))
-        try:
-            await sess.execute(
-                text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id}
-            )
-            # MutyLogger.get_instance().debug(f"released advisory lock for {cls.__name__} {obj_id}: {lock_id}")
-        except OperationalError as e:
-            MutyLogger.get_instance().error(f"failed to release advisory lock: {e}")
-            raise
 
     @classmethod
     async def acquire_advisory_lock(cls, sess: AsyncSession, obj_id: str) -> None:
@@ -1628,7 +1727,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             dict: The object as a dictionary
 
         Raises:
-            MissingPermissionError: If the user does not have permission to read the object.
+            MissingPermission: If the user does not have permission to read the object.
             ObjectNotFound: If the object is not found.
         """
         from gulp.api.collab.user_session import GulpUserSession
@@ -1718,7 +1817,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             permission (list[GulpUserPermission], optional): The permission required to delete the object. Defaults to GulpUserPermission.DELETE.
 
         Raises:
-            MissingPermissionError: If the user does not have permission to delete the object.
+            MissingPermission: If the user does not have permission to delete the object.
             ObjectNotFoundError: If the object is not found.
         """
         from gulp.api.collab.user_session import GulpUserSession
@@ -1741,189 +1840,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
             # delete
             await n.delete(sess, ws_id=ws_id, user_id=user_id, req_id=req_id)
-
-    @classmethod
-    async def update_by_id(
-        cls,
-        token: str,
-        obj_id: str,
-        ws_id: str,
-        req_id: str,
-        d: dict = None,
-        permission: list[GulpUserPermission] = None,
-        **kwargs,
-    ) -> dict:
-        """
-        helper to update an object by ID, handling session
-
-        Args:
-            token (str): The user token, pass None for internal calls skipping token check.
-            obj_id (str): The ID of the object to update.
-            ws_id (str): The websocket ID.
-            req_id (str): The request ID.
-            d (dict, optional): The data to update the object with. Defaults to None.
-            permission (list[GulpUserPermission], optional): The permission required to update the object. Defaults to GulpUserPermission.EDIT.
-
-        Returns:
-            dict: The updated object as a dictionary.
-
-        Raises:
-            MissingPermissionError: If the user does not have permission to update the object.
-        """
-        from gulp.api.collab.user_session import GulpUserSession
-        from gulp.api.collab_api import GulpCollab
-
-        if not permission:
-            permission = [GulpUserPermission.EDIT]
-        async with GulpCollab.get_instance().session() as sess:
-
-            n: GulpCollabBase = await cls.get_by_id(sess, obj_id)
-
-            if token is not None:
-                # token needs at least edit permission (or be the owner)
-                s = await GulpUserSession.check_token(
-                    sess, token, permission=permission, obj=n
-                )
-                user_id = s.user_id
-            else:
-                # internal call, no token check
-                user_id = None
-                ws_id = None
-
-            await n.update(
-                sess,
-                d=d,
-                ws_id=ws_id,
-                user_id=user_id,
-                req_id=req_id,
-            )
-            return n.to_dict(exclude_none=True)
-
-    @classmethod
-    async def create(
-        cls,
-        token: str,
-        ws_id: str,
-        req_id: str,
-        object_data: dict,
-        permission: list[GulpUserPermission] = None,
-        obj_id: str = None,
-        private: bool = True,
-        operation_id: str = None,
-        user_id: str = None,
-        sess: AsyncSession = None,
-        **kwargs,
-    ) -> dict:
-        """
-        helper to create a new object, handling veryfication of token and permission
-
-        Args:
-            token (str): The user token, may be None if user_id is provided (assumes permissions are already checked).
-            ws_id (str): The websocket ID: pass None to not notify the websocket.
-            req_id (str): The request ID.
-            object_data (dict): The data to create the object with.
-            permission (list[GulpUserPermission], optional): The permission required to create the object. Defaults to GulpUserPermission.EDIT.
-            obj_id (str, optional): The ID of the object to create. Defaults to None (generate a unique ID).
-            private (bool, optional): If True, the object will be private. Defaults to False.
-            operation_id (str, optional): The ID of the operation associated with the object to be created: if set, it will be checked for permission. Defaults to None, ignored if user_id is provided.
-            user_id (str, optional): The ID of the user creating the object, assuming it has been already verified. Defaults to None, must be provided if token is None.
-            sess (AsyncSession, optional): The database session to use: if not provided, a new session will be created. Defaults to None.
-            **kwargs: Any other additional keyword arguments, will be passed to the internal create function and added to object_data if not already present.
-        Returns:
-            dict: The created object as a dictionary.
-
-        Raises:
-            MissingPermissionError: If the user does not have permission to create the object.
-        """
-
-        async def _generate_object(
-            token: str,
-            ws_id: str,
-            req_id: str,
-            object_data: dict,
-            permission: list[GulpUserPermission] = None,
-            obj_id: str = None,
-            private: bool = True,
-            operation_id: str = None,
-            user_id: str = None,
-            **kwargs,
-        ) -> dict:
-
-            from gulp.api.collab.user_session import GulpUserSession
-
-            if not permission:
-                permission = [GulpUserPermission.EDIT]
-
-            if token is None:
-                # we already checked permission, but we need the id
-                if not user_id:
-                    raise MissingPermissionError(
-                        "token is required if owner_id is not provided"
-                    )
-            else:
-                # check permission for creation
-                if operation_id:
-                    # check permission on the operation
-                    from gulp.api.collab.operation import GulpOperation
-
-                    op: GulpOperation = await GulpOperation.get_by_id(
-                        sess, operation_id
-                    )
-                    s = await GulpUserSession.check_token(
-                        sess, token, permission=permission, obj=op
-                    )
-                else:
-                    # just check token permission
-                    s = await GulpUserSession.check_token(
-                        sess, token, permission=permission
-                    )
-
-                # get from session
-                user_id = s.user_id
-
-            n: GulpCollabBase = await cls._create_internal(
-                sess,
-                object_data,
-                obj_id=obj_id,
-                owner_id=user_id,
-                ws_id=ws_id,
-                req_id=req_id,
-                private=private,
-                **kwargs,
-            )
-            return n.to_dict(exclude_none=True)
-
-        if sess:
-            # use provided session
-            return await _generate_object(
-                ws_id=ws_id,
-                req_id=req_id,
-                object_data=object_data,
-                token=token,
-                permission=permission,
-                obj_id=obj_id,
-                private=private,
-                operation_id=operation_id,
-                user_id=user_id,
-                **kwargs,
-            )
-
-        # no session provided, create one
-        from gulp.api.collab_api import GulpCollab
-
-        async with GulpCollab.get_instance().session() as sess:
-            return await _generate_object(
-                ws_id=ws_id,
-                req_id=req_id,
-                object_data=object_data,
-                token=token,
-                permission=permission,
-                obj_id=obj_id,
-                private=private,
-                operation_id=operation_id,
-                user_id=user_id,
-                **kwargs,
-            )
 
 
 class GulpCollabObject(GulpCollabBase, type=COLLABTYPE_GENERIC, abstract=True):
