@@ -359,7 +359,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
         # set user_id to username (user owns itself)
         u: GulpUser = await super().create_internal(
-            sess, obj_id=user_id, object_data=object_data, owner_id=user_id
+            sess, obj_id=user_id, object_data=object_data, user_id=user_id
         )
 
         # if the default administrators group exists, and the user is administrator, add
@@ -549,7 +549,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 object_data,
                 obj_id=token_id,
                 ws_id=ws_id,
-                owner_id=u.id,
+                user_id=u.id,
                 ws_data_type=WSDATA_USER_LOGIN,
                 ws_data=p.model_dump(),
                 req_id=req_id,

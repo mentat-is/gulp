@@ -151,11 +151,7 @@ async def glyph_update_handler(
         if img and isinstance(img, UploadFile):
             data = _read_img_file(img)
             d["img"] = data
-        d = await GulpGlyph.update_by_id(
-            obj_id,
-            token,
-            d
-        )
+        d = await GulpGlyph.update_by_id(obj_id, token, d)
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -192,11 +188,9 @@ async def glyph_delete_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        await GulpGlyph.delete_by_id(
+        await GulpGlyph.delete_by_id_wrapper(
             token,
             obj_id,
-            ws_id=None,  # do not propagate on the websocket
-            req_id=req_id,
         )
         return JSendResponse.success(req_id=req_id, data={"id": obj_id})
     except Exception as ex:

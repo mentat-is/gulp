@@ -239,11 +239,9 @@ async def user_group_delete_handler(
         if group_id.lower() == ADMINISTRATORS_GROUP_ID:
             raise ValueError("cannot delete the administrators group.")
 
-        await GulpUserGroup.delete_by_id(
+        await GulpUserGroup.delete_by_id_wrapper(
             token,
             group_id,
-            ws_id=None,  # do not propagate on the websocket
-            req_id=req_id,
             permission=[GulpUserPermission.ADMIN],
         )
         return JSendResponse.success(req_id=req_id, data={"id": group_id})

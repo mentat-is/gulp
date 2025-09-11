@@ -73,7 +73,9 @@ async def highlight_create_handler(
         ),
     ],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[str, Depends(APIDependencies.param_description_optional)] = None,
+    description: Annotated[
+        str, Depends(APIDependencies.param_description_optional)
+    ] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
@@ -140,7 +142,9 @@ async def highlight_update_handler(
         ),
     ] = None,
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[str, Depends(APIDependencies.param_description_optional)] = None,
+    description: Annotated[
+        str, Depends(APIDependencies.param_description_optional)
+    ] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
@@ -202,7 +206,7 @@ async def highlight_delete_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        await GulpHighlight.delete_by_id(
+        await GulpHighlight.delete_by_id_wrapper(
             token,
             obj_id,
             ws_id=ws_id,

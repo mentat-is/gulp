@@ -254,12 +254,12 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
                 # notify the websocket
                 data = s.to_dict(exclude_none=True)
-                p = GulpCollabCreateUpdatePacket(data=data, created=True)
+                p = GulpCollabCreateUpdatePacket(obj=data, created=True)
                 wsq = GulpWsSharedQueue.get_instance()
                 await wsq.put(
                     WSDATA_STATS_UPDATE,
                     ws_id=ws_id,
-                    user_id=s.owner_user_id,
+                    user_id=s.user_id,
                     operation_id=s.operation_id,
                     req_id=req_id,
                     data=p.model_dump(exclude_none=True, exclude_defaults=True),

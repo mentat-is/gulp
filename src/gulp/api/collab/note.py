@@ -1,7 +1,7 @@
 """
 This module defines the GulpNote class, which represents a note in the gulp collaboration system.
 
-The GulpNote class inherits from GulpCollabObject and implements note-specific functionality.
+The GulpNote class inherits from GulpCollabBase and implements note-specific functionality.
 It includes methods for creating and updating notes, particularly in bulk operations.
 
 Classes:
@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter, GulpCollabObject
+from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter, GulpCollabBase
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import (
     WSDATA_COLLAB_UPDATE,
@@ -63,7 +63,7 @@ class GulpNoteEdit(BaseModel):
     text: str = Field(..., description="The note text.")
 
 
-class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
+class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
     """
     a note in the gulp collaboration system
     """
@@ -278,7 +278,7 @@ class GulpNote(GulpCollabObject, type=COLLABTYPE_NOTE):
             # operation is always the same
             operation_id = notes[0].get("operation_id")
             data: GulpCollabCreateUpdatePacket = GulpCollabCreateUpdatePacket(
-                data=notes,
+                obj=notes,
                 bulk=True,
                 type=COLLABTYPE_NOTE,
                 created=True,

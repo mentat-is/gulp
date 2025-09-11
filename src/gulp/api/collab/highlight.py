@@ -17,14 +17,13 @@ from sqlalchemy import ARRAY, BIGINT, ForeignKey
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import COLLABTYPE_HIGHLIGHT, GulpCollabObject
+from gulp.api.collab.structs import COLLABTYPE_HIGHLIGHT, GulpCollabBase
 
 
-class GulpHighlight(GulpCollabObject, type=COLLABTYPE_HIGHLIGHT):
+class GulpHighlight(GulpCollabBase, type=COLLABTYPE_HIGHLIGHT):
     """
     an highlight in the gulp collaboration system
     """
-
     time_range: Mapped[tuple[int, int]] = mapped_column(
         MutableList.as_mutable(ARRAY(BIGINT)),
         doc="The time range of the highlight, in nanoseconds from unix epoch.",

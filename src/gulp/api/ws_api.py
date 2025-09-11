@@ -35,11 +35,13 @@ class GulpWsType(StrEnum):
 # data types for the websocket
 WSDATA_ERROR = "ws_error"
 WSDATA_CONNECTED = "ws_connected"
+WSDATA_COLLAB_CREATE = "collab_create"
 WSDATA_COLLAB_UPDATE = "collab_update"
+WSDATA_COLLAB_DELETE = "collab_delete"
+
 WSDATA_USER_LOGIN = "user_login"
 WSDATA_USER_LOGOUT = "user_logout"
 WSDATA_DOCUMENTS_CHUNK = "docs_chunk"
-WSDATA_COLLAB_DELETE = "collab_delete"
 WSDATA_CLIENT_DATA = "client_data"
 WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
 WSDATA_NEW_SOURCE = "new_source"
@@ -63,6 +65,116 @@ PROGRESS_REBASE = "rebase"
 WSTOKEN_MONITOR = "monitor"
 
 SHARED_MEMORY_KEY_ACTIVE_SOCKETS = "active_sockets"
+
+
+class GulpWsData(BaseModel):
+    """
+    data carried by the websocket ui<->gulp
+    """
+
+    model_config = ConfigDict(
+        # solves the issue of not being able to populate fields using field name instead of alias
+        populate_by_name=True,
+    )
+    timestamp: int = Field(
+        ..., description="The timestamp of the data.", alias="@timestamp"
+    )
+    type: str = Field(
+        ...,
+        description="The type of data carried by the websocket, see WSDATA_* constants.",
+    )
+    data: Optional[Any] = Field(None, description="The data carried by the websocket.")
+    internal: Optional[bool] = Field(
+        False,
+        description="set to broadcast internal events to plugins registered through `GulpPluginBase.register_internal_events_callback()`.",
+    )
+    ws_id: Optional[str] = Field(
+        None,
+        description="The target WebSocket ID, ignored if `internal` is set. if None, the message is broadcasted to all connected websockets.",
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="The user who issued the request, ignored if `internal` is set.",
+    )
+    req_id: Optional[str] = Field(
+        None, description="The request ID, ignored if `internal` is set."
+    )
+    operation_id: Optional[str] = Field(
+        None,
+        description="The operation this data belongs to, ignored if `internal` is set.",
+        alias="gulp.operation_id",
+    )
+    private: Optional[bool] = Field(
+        False,
+        description="If the data is private, only the websocket `ws_id` receives it. Ignored if `internal` is set.",
+    )
+
+
+class GulpCollabCreatePacket(BaseModel):
+    """
+    Represents a create event (WsData.type = WSDATA_COLLAB_CREATE).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "data": {
+                        "id": "the id",
+                        "name": "the name",
+                        "type": "note",
+                        "something": "else",
+                    },
+                    "bulk": True,
+                    "type": "note",
+                }
+            ]
+        },
+    )
+    obj: list[dict] | dict = Field(
+        ..., description="The created object (or bulk of objects of the same `type`)."
+    )
+    bulk: Optional[bool] = Field(
+        False,
+        description="indicates if `obj` is a bulk of objects (list) or a single object (dict).",
+    )
+    last: Optional[bool] = Field(
+        True,
+        description="for bulk operations, indicates if this is the last chunk of a bulk operation.",
+    )
+
+
+class GulpCollabUpdatePacket(BaseModel):
+    """
+    Represents an update event (WsData.type = WSDATA_COLLAB_UPDATE).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "data": {
+                        "id": "the id",
+                        "name": "the name",
+                        "type": "note",
+                        "something": "else",
+                    }
+                }
+            ]
+        },
+    )
+    obj: dict = Field(..., description="The updated object.")
+
+
+class GulpCollabDeletePacket(BaseModel):
+    """
+    Represents a delete collab event (WsData.type = WSDATA_COLLAB_DELETE).
+    """
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"id": "the id"}]})
+    id: str = Field(..., description="The deleted collab object ID.")
 
 
 class WsQueueFullException(Exception):
@@ -146,15 +258,6 @@ class GulpSourceFieldsChunkPacket(BaseModel):
         False,
         description="if this is the last chunk.",
     )
-
-
-class GulpCollabDeletePacket(BaseModel):
-    """
-    Represents a delete collab event.
-    """
-
-    model_config = ConfigDict(json_schema_extra={"examples": [{"id": "the id"}]})
-    id: str = Field(..., description="The collab object ID.")
 
 
 class GulpQueryGroupMatchPacket(BaseModel):
@@ -279,49 +382,6 @@ class GulpIngestSourceDonePacket(BaseModel):
     )
     req_id: str = Field(..., description="The request ID.")
     status: GulpRequestStatus = Field(..., description="The request status.")
-
-
-class GulpCollabCreateUpdatePacket(BaseModel):
-    """
-    Represents a create or update event.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        json_schema_extra={
-            "examples": [
-                {
-                    "data": {
-                        "id": "the id",
-                        "name": "the name",
-                        "type": "note",
-                        "something": "else",
-                    },
-                    "bulk": True,
-                    "bulk_size": 100,
-                    "type": "note",
-                    "created": True,
-                }
-            ]
-        },
-    )
-    data: list | dict = Field(..., description="The created or updated data.")
-    type: str = Field(
-        ...,
-        description="Type of the event (i.e. one of the COLLABTYPE strings).",
-    )
-    bulk: Optional[bool] = Field(
-        default=False,
-        description="If the event is a bulk event (data is a list instead of dict).",
-    )
-    bulk_size: Optional[int] = Field(None, description="The size of the bulk event.")
-    last: Optional[bool] = Field(
-        True,
-        description="indicates the last chunk in a bulk packet.",
-    )
-    created: Optional[bool] = Field(
-        default=False, description="If the event is a create event."
-    )
 
 
 class GulpCollabGenericNotifyPacket(BaseModel):

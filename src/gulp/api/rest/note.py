@@ -207,7 +207,9 @@ async def note_update_handler(
                 d["doc"] = None
                 d["time_pin"] = time_pin
             if doc:
-                d["doc"] = doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
+                d["doc"] = doc.model_dump(
+                    by_alias=True, exclude_none=True, exclude_defaults=True
+                )
                 d["time_pin"] = 0
 
             # update
@@ -221,9 +223,7 @@ async def note_update_handler(
             d["time_updated"] = time_updated
 
             # add an edit
-            p = GulpNoteEdit(
-                user_id=s.user_id, text=text, timestamp=time_updated
-            )
+            p = GulpNoteEdit(user_id=s.user_id, text=text, timestamp=time_updated)
             d["edits"] = n.edits or []
             d["edits"].append(p.model_dump(exclude_none=True))
             dd: dict = await n.update(sess, d=d, ws_id=ws_id, user_id=s.user_id)
@@ -264,7 +264,7 @@ async def note_delete_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        await GulpNote.delete_by_id(
+        await GulpNote.delete_by_id_wrapper(
             token,
             obj_id,
             ws_id=ws_id,

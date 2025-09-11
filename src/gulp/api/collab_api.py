@@ -18,9 +18,11 @@ import os
 import pkgutil
 import re
 from importlib import import_module, resources
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import muty.file
 from muty.log import MutyLogger
+import muty.string
 from sqlalchemy import Table, insert, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -447,6 +449,8 @@ class GulpCollab:
         from gulp.api.collab.user_group import GulpUserGroup
 
         async with self._collab_sessionmaker() as sess:
+            sess: AsyncSession
+
             # create user groups
             from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 
@@ -485,18 +489,15 @@ class GulpCollab:
                 password="power",
                 permission=PERMISSION_MASK_DELETE,
             )
-
-            await sess.refresh(admin_user)
-            group: GulpUserGroup = await GulpUserGroup.create(
-                token=None,
+            await sess.commit()
+            group: GulpUserGroup = await GulpUserGroup.create_internal(
+                sess=sess,
                 object_data={
                     "name": ADMINISTRATORS_GROUP_ID,
                     "permission": [GulpUserPermission.ADMIN],
                 },
-                ws_id=None,
-                sess=sess,
                 obj_id=ADMINISTRATORS_GROUP_ID,
-                owner_id=admin_user.id,
+                user_id=admin_user.id,
                 private=False,
             )
 
@@ -523,10 +524,6 @@ class GulpCollab:
                     admin_user.to_dict(nested=True), option=orjson.OPT_INDENT_2
                 ).decode()
             )
-
-    @staticmethod
-    def to_camel_case(name: str) -> str:
-        return re.sub(r"(?:^|[-_])([a-zA-Z0-9])", lambda m: m.group(1).upper(), name)
 
     async def _load_icons(self, sess: AsyncSession, user_id: str) -> None:
         """
@@ -561,12 +558,9 @@ class GulpCollab:
             for f in files:
                 # read file, get bare filename without extension
                 icon_b = await muty.file.read_file_async(f)
-                bare_filename = os.path.basename(f)
+                bare_filename: str = os.path.basename(f)
                 bare_filename = os.path.splitext(bare_filename)[0]
-
-                id = bare_filename
-
-                bare_filename = self.to_camel_case(bare_filename.replace(" ", "_"))
+                bare_filename = muty.string.to_camel_case(bare_filename)
 
                 object_data = {
                     "name": bare_filename,
@@ -577,19 +571,17 @@ class GulpCollab:
                 d = GulpGlyph.build_base_object_dict(
                     object_data,
                     user_id=user_id,
-                    obj_id=id.lower(),
+                    obj_id=bare_filename.lower(),
                     private=False,
                 )
 
                 glyphs.append(d)
-
                 if len(glyphs) == chunk_size:
                     # insert bulk
                     MutyLogger.get_instance().debug(
                         "inserting bulk of %d glyphs ..." % (len(glyphs))
                     )
                     await sess.execute(insert(GulpGlyph).values(glyphs))
-                    await sess.commit()
                     glyphs = []
 
             if glyphs:
@@ -598,7 +590,9 @@ class GulpCollab:
                     "last chunk, inserting bulk of %d glyphs ..." % (len(glyphs))
                 )
                 await sess.execute(insert(GulpGlyph).values(glyphs))
-                await sess.commit()
+
+            # load done
+            await sess.commit()
         except Exception as e:
             MutyLogger.get_instance().error(
                 "error loading icons: %s" % (str(e)), exc_info=True
@@ -618,6 +612,8 @@ class GulpCollab:
         from gulp.api.collab.user import GulpUser
 
         async with self._collab_sessionmaker() as sess:
+            sess: AsyncSession
+            
             # get users
             admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
             guest_user: GulpUser = await GulpUser.get_by_id(

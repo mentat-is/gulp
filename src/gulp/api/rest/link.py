@@ -67,7 +67,9 @@ async def link_create_handler(
     doc_id_from: Annotated[str, Query(description="the source document ID.")],
     doc_ids: Annotated[list[str], Body(description="One or more target document IDs.")],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[str, Depends(APIDependencies.param_description_optional)] = None,
+    description: Annotated[
+        str, Depends(APIDependencies.param_description_optional)
+    ] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
@@ -131,7 +133,9 @@ async def link_update_handler(
         list[str], Body(description="One or more target document IDs.")
     ] = None,
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[str, Depends(APIDependencies.param_description_optional)] = None,
+    description: Annotated[
+        str, Depends(APIDependencies.param_description_optional)
+    ] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
@@ -193,7 +197,7 @@ async def link_delete_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        await GulpLink.delete_by_id(
+        await GulpLink.delete_by_id_wrapper(
             token,
             obj_id,
             ws_id=ws_id,

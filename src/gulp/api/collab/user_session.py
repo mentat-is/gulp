@@ -107,7 +107,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
             admin_session: GulpUserSession = await GulpUserSession.create_internal(
                 sess,
                 object_data=object_data,
-                owner_id=admin_user.id,
+                user_id=admin_user.id,
             )
             # MutyLogger.get_instance().debug("created new admin session: %s" % (admin_session.to_dict()))
             return admin_session
@@ -238,7 +238,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
 
             if throw_on_no_permission:
                 raise MissingPermission(
-                    f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation, obj={obj.id if obj else None}, obj_owner={obj.owner_user_id if obj else None}."
+                    f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation, obj={obj.id if obj else None}, obj_owner={obj.user_id if obj else None}."
                 )
             return None
         finally:

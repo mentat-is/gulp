@@ -421,11 +421,9 @@ async def user_delete_handler(
         if user_id == "admin" or user_id == "guest":
             raise MissingPermission('user "admin" and user "guest" cannot be deleted!')
 
-        await GulpUser.delete_by_id(
+        await GulpUser.delete_by_id_wrapper(
             token,
             user_id,
-            ws_id=None,
-            req_id=req_id,
             permission=[GulpUserPermission.ADMIN],
         )
         return JSONResponse(
@@ -643,7 +641,7 @@ async def user_list_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": 123456789, # new expiration time in milliseconds
+                        "data": 123456789,  # new expiration time in milliseconds
                     }
                 }
             }
