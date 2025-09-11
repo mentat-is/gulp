@@ -12,8 +12,7 @@ from sqlalchemy import ForeignKey, Insert, String, LargeBinary, insert
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.dialects.postgresql import JSONB
-import muty.crypto
-from gulp.api.collab.structs import COLLABTYPE_TASK, GulpCollabBase, GulpUserPermission
+from gulp.api.collab.structs import COLLABTYPE_TASK, GulpCollabBase
 
 
 class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
@@ -70,6 +69,7 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
     @classmethod
     async def enqueue_bulk(
         cls,
+        sess: AsyncSession,
         task_type: str,
         operation_id: str,
         user_id: str,
@@ -77,22 +77,19 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
         req_id: str,
         params_list: list[dict],
         raw_data_list: Optional[list[bytes]] = None,
-        sess: Optional[AsyncSession] = None,
     ) -> None:
         """
-        enqueue multiple new tasks in the database, to be processed later by a worker.
+        enqueue multiple new tasks, of the same type, to be processed later by a worker.
 
         Args:
-            task_type (str): the type of the task, e.g. 'ingest',
-            operation_id (str): the operation id the task is associated with.
-            user_id (str): the user id the task is associated with, must be already verified
-            ws_id (str): the websocket id the task is associated with.
-            req_id (str): the request id the task is associated with.
-            params_list (list[dict]): a list of parameters of the tasks, depending on the task type.
-            raw_data_list (list[bytes], optional): a list of raw data associated with the tasks, if any.
-            sess (AsyncSession, optional): the database session to use: if not provided, a new session will be created. Defaults to None.
-        Raises:
-            any exception raised by the underlying create method.
+            sess (AsyncSession): the database session to use.
+            task_type (str): type of the tasks, e.g. 'ingest',
+            operation_id (str): the operation id the tasks are associated with.
+            user_id (str): the user id the tasks are associated with, must be already verified
+            ws_id (str): the websocket id the tasks are associated with.
+            req_id (str): the request id the tasks are associated with.
+            params_list (list[dict]): a list of parameters for each task
+            raw_data_list (list[bytes], optional): a list of raw data for each tasks, if any (must be in the same order as params_list). Defaults to None.
         """
 
         if raw_data_list:
@@ -102,24 +99,24 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
         batch: list[dict] = []
         i: int = 0
         for p in params_list:
-            # enqueue ingestion task on collab
+            # build each task object
             object_data: dict[str, Any] = {
                 "ws_id": ws_id,
-                "operation_id": operation_id,
                 "req_id": req_id,
                 "task_type": task_type,
                 "params": p,
                 "pid": os.getpid(),
                 "raw_data": raw_data_list[i] if raw_data_list else None,
             }
-            obj_id: str = muty.crypto.hash_xxh128(str(object_data))
             task_dict = GulpTask.build_base_object_dict(
-                object_data=object_data, user_id=user_id, obj_id=obj_id
+                user_id=user_id,
+                operation_id=operation_id,
+                **object_data,
             )
             batch.append(task_dict)
             i += 1
 
-        # add batch
+        # enquueue tasks in bulk
         stmt: Insert = insert(GulpTask).values(batch)
         stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
         stmt = stmt.returning(GulpTask.id)
@@ -133,6 +130,7 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
     @classmethod
     async def enqueue(
         cls,
+        sess: AsyncSession,
         task_type: str,
         operation_id: str,
         user_id: str,
@@ -140,65 +138,57 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
         req_id: str,
         params: dict,
         raw_data: Optional[bytes] = None,
-        signal_task_enqueued: bool = False,
-        sess: Optional[AsyncSession] = None,
     ) -> None:
         """
         enqueue a new task in the database, to be processed later by a worker.
 
         Args:
+            sess (AsyncSession): the database session to use.
             task_type (str): the type of the task, e.g. 'ingest',
             operation_id (str): the operation id the task is associated with.
             user_id (str): the user id the task is associated with, must be already verified
             ws_id (str): the websocket id the task is associated with.
             req_id (str): the request id the task is associated with.
-            params (dict): the parameters of the task, depending on the task type.
+            params (dict): the parameters of the task
             raw_data (bytes, optional): the raw data associated with the task, if any.
-            signal_task_enqueued (bool): if True, the ws_id will be set on the task, so that a notification will be sent to the client when the task is created. Defaults to False.
-            sess (AsyncSession, optional): the database session to use: if not provided, a new session will be created. Defaults to None.
+
         Raises:
             any exception raised by the underlying create method.
         """
 
-        # enqueue ingestion task on collab
         object_data: dict[str, Any] = {
             "ws_id": ws_id,
-            "operation_id": operation_id,
             "req_id": req_id,
             "task_type": task_type,
             "params": params,
             "pid": os.getpid(),
+            "raw_data": raw_data,
         }
+
         MutyLogger.get_instance().debug(
             "queueing task_type=%s, object_data=%s" % (task_type, object_data)
         )
-        await cls.create(
-            token=None,
-            user_id=user_id,  # permission already checked
-            ws_id=ws_id if signal_task_enqueued else None,  # only signal if requested
-            req_id=req_id,
-            object_data=object_data,
-            sess=sess,
-            raw_data=raw_data,
-        )
-
+        try:
+            await cls.create_internal(
+                sess=sess,
+                user_id=user_id,  # permission already checked
+                operation_id=operation_id,
+                skip_notification=True,
+                **object_data,
+            )
+            await sess.commit()
+        except Exception as ex:
+            await sess.rollback()
+            raise ex
+        
     @override
     @classmethod
     async def create(
         cls,
-        token: str,
-        ws_id: str,
-        req_id: str,
-        object_data: dict,
-        permission: list[GulpUserPermission] = None,
-        obj_id: str = None,
-        private: bool = True,
-        operation_id: str = None,
-        user_id: str = None,
-        sess: AsyncSession = None,
+        *args,
         **kwargs,
     ) -> dict:
         """
         disabled, use enqueue method to create tasks.
         """
-        raise TypeError("use enqueue method to create tasks")
+        raise TypeError("use enqueue or enqueue_bulk methods to create tasks")

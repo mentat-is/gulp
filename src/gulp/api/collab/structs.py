@@ -21,14 +21,14 @@ while inheriting common persistence and access control capabilities.
 """
 
 # pylint: disable=too-many-lines
-import orjson
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING, List, Optional, TypeVar, override
+from typing import List, Optional, TypeVar, override
 
 import muty.crypto
 import muty.string
 import muty.time
+from sqlalchemy.ext.asyncio import AsyncSession
 from muty.log import MutyLogger
 from psycopg import OperationalError
 from pydantic import BaseModel, ConfigDict, Field
@@ -64,7 +64,6 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy_mixins.serialize import SerializeMixin
 
-from gulp.api.ws_api import GulpCollabUpdatePacket
 from gulp.structs import GulpSortOrder, ObjectNotFound
 
 
@@ -812,9 +811,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         granted_user_ids: list[str] = None,
         granted_user_group_ids: list[str] = None,
         ws_id: str = None,
-        req_id: str = None,
         ws_data_type: str = None,
         ws_data: dict = None,
+        req_id: str = None,
         **kwargs,
     ) -> T:
         """
@@ -839,14 +838,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             req_id (str, optional): Ignored if ws_id is None, the request ID to include in the websocket notification. Defaults to None.
             ws_data_type (str, optional): value of GulpWsData.type sent on the websocket. Defaults to WSDATA_COLLAB_UPDATE.
             ws_data (dict, optional): value of GulpWsData.data sent on the websocket. Defaults to the created object.
+            skip_notification (bool, optional): If True, the websocket notification is skipped regardless of ws_id: use it when ws_id is i.e. part of the object data and you don't want to send a notification.
+            **kwargs: Additional attributes to include in the object.
         Returns:
             T: The created instance of the class.
         Raises:
             Exception: If there is an error during the creation or storage process.
         """
-        object_data = object_data or {}
-        user_id = user_id
-
         # build object dictionary with necessary attributes
         d: dict = cls.build_base_object_dict(
             user_id=user_id,
@@ -863,7 +861,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             **kwargs,
         )
 
-        # create object with eager loading
+        # create object returning the created instance
+        # with eager loading of relationships
         stmt = (
             select(cls)
             .options(*cls._build_eager_loading_options())
@@ -883,7 +882,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             return instance
 
         from gulp.api.ws_api import (
-            GulpCollabCreateUpdatePacket,
+            GulpCollabCreatePacket,
             GulpWsSharedQueue,
         )
 
@@ -900,7 +899,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # serialize this instance
             data = instance.to_dict(nested=True, exclude_none=True)
 
-        p = GulpCollabCreateUpdatePacket(obj=data, created=True)
+        # notify websocket
+        p = GulpCollabCreatePacket(obj=data)
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
             ws_data_type,
@@ -963,7 +963,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
 
         from gulp.api.collab.user_session import GulpUserSession
-        from gulp.api.collab import GulpCollab
+        from gulp.api.collab_api import GulpCollab
 
         async with GulpCollab.get_instance().session() as sess:
             if not permission:
@@ -984,7 +984,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     sess, token, permission=permission
                 )
 
-            # get from session
+            # create
             user_id = s.user_id
             n: GulpCollabBase = await cls.create_internal(
                 sess,
@@ -1004,7 +1004,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 granted_user_group_ids=granted_user_group_ids,
                 **kwargs,
             )
-            return n.to_dict(exclude_none=True)
+            nn = n.to_dict(exclude_none=True)
+            await sess.commit()
+            return nn
 
     @classmethod
     async def update_by_id(
@@ -1490,7 +1492,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         except Exception as e:
             await sess.rollback()
             raise e
-
 
     def is_owner(self, user_id: str) -> bool:
         """

@@ -33,7 +33,7 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.operation import GulpOperation
@@ -46,7 +46,12 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
-from gulp.api.rest.structs import APIDependencies, GulpUploadResponse
+from gulp.api.rest.structs import (
+    TASK_TYPE_INGEST,
+    TASK_TYPE_INGEST_RAW,
+    APIDependencies,
+    GulpUploadResponse,
+)
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
@@ -248,7 +253,7 @@ async def _ingest_file_internal(
         plugin (str): the plugin to use for ingestion
         file_path (str): the path of the file to ingest
         file_total (int): total number of files in a multi-file upload
-        payload (GulpIngestPayload): the ingestion payload
+        payload (GulpIngestPayload): the ingestion payload (plugin_params, filter, original_file_path, file_sha1)
         preview_mode (bool, optional): if True, runs in preview mode. Defaults to False.
         delete_after (bool, optional): if True, deletes the file after ingestion. Defaults to False.
         **kwargs: additional arguments
@@ -305,7 +310,7 @@ async def _ingest_file_internal(
                     "data": {
                         "source_failed": 1,
                         "error": ex,
-                    }
+                    },
                 }
                 await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
         finally:
@@ -384,6 +389,7 @@ async def run_ingest_raw_task(t: dict):
 
 
 async def _handle_preview_or_enqueue_ingest_task(
+    sess: AsyncSession,
     user_id: str,
     req_id: str,
     ws_id: str,
@@ -401,18 +407,19 @@ async def _handle_preview_or_enqueue_ingest_task(
     Handles preview mode or enqueues an ingestion task, returning the appropriate JSONResponse
 
     Args:
-        user_id (str): ID of the user making the request
-        req_id (str): Request ID for tracking
-        ws_id (str): WebSocket ID for streaming updates
-        operation_id (str): ID of the operation
-        ctx_id (str): Context ID
-        src_id (str): Source ID
-        index (str): Index where data will be ingested
-        plugin (str): Plugin to use for ingestion
-        file_path (str): Path to the file being ingested
-        payload (GulpIngestPayload): Payload containing ingestion parameters
-        preview_mode (bool): If True, runs in preview mode (immediate result, no task created)
-        delete_after (bool, optional): If True, deletes the file after ingestion. Defaults to True.
+        sess (AsyncSession): the database session to use (ignored in preview mode)
+        user_id (str): the user id performing the ingestion
+        req_id (str): the request id originating the ingestion
+        ws_id (str): the websocket id to use throughout the ingestion (i.e. to stream data)
+        operation_id (str): the operation id this ingestion is associated with.
+        ctx_id (str): the context id this ingestion is associated with.
+        src_id (str): the source id this ingestion is associated with.
+        index (str): the OpenSearch index to ingest data to (usually= operation_id)
+        plugin (str): the plugin to use for ingestion.
+        file_path (str): the path of the file to ingest.
+        payload (GulpIngestPayload): the ingestion payload (plugin_params, filter, original_file_path, file_sha1)
+        preview_mode (bool): if True, runs in preview mode (returns directly instead of enqueueing a task)
+        delete_after (bool, optional): if True, deletes the file_path after ingestion. Defaults to True.
 
     Returns:
         JSONResponse: the response to return to the client (either preview data or pending status)
@@ -445,7 +452,8 @@ async def _handle_preview_or_enqueue_ingest_task(
     # enqueue ingestion task on collab
     kwds["payload"] = payload.model_dump(exclude_none=True)
     await GulpTask.enqueue(
-        task_type="ingest",
+        sess,
+        task_type=TASK_TYPE_INGEST,
         operation_id=operation_id,
         user_id=user_id,
         ws_id=ws_id,
@@ -672,20 +680,21 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 ctx_id = ctx.id
                 src_id = src.id
 
-        # we have all we need, proceed with ingestion outside the session
-        return await _handle_preview_or_enqueue_ingest_task(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            ctx_id=ctx_id,
-            src_id=src_id,
-            index=index,
-            plugin=plugin,
-            file_path=file_path,
-            payload=payload,
-            preview_mode=preview_mode,
-        )
+            # we have all we need, proceed with ingestion outside the session
+            return await _handle_preview_or_enqueue_ingest_task(
+                sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                ctx_id=ctx_id,
+                src_id=src_id,
+                index=index,
+                plugin=plugin,
+                file_path=file_path,
+                payload=payload,
+                preview_mode=preview_mode,
+            )
 
     except Exception as ex:
         # cleanup
@@ -773,46 +782,52 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             user_id = s.user_id
             plugin = plugin or src.plugin
 
-        # handle multipart request manually
-        file_path, payload, result = await ServerUtils.handle_multipart_chunked_upload(
-            r=r, operation_id=operation_id, context_name=context_name, prefix=req_id
-        )
-        if not result.done:
-            # upload not done yet, must continue upload with a new chunk
-            d = JSendResponse.error(
-                req_id=req_id, data=result.model_dump(exclude_none=True)
+            # handle multipart request manually
+            file_path, payload, result = (
+                await ServerUtils.handle_multipart_chunked_upload(
+                    r=r,
+                    operation_id=operation_id,
+                    context_name=context_name,
+                    prefix=req_id,
+                )
             )
-            return JSONResponse(d, status_code=206)
+            if not result.done:
+                # upload not done yet, must continue upload with a new chunk
+                d = JSendResponse.error(
+                    req_id=req_id, data=result.model_dump(exclude_none=True)
+                )
+                return JSONResponse(d, status_code=206)
 
-        # ensure payload is valid
-        payload = GulpIngestPayload.model_validate(payload)
+            # ensure payload is valid
+            payload = GulpIngestPayload.model_validate(payload)
 
-        # get plugin parameters either from payload or from the existing source
-        plugin_params = payload.plugin_params or GulpPluginParameters(
-            src.mapping_parameters
-        )
-        MutyLogger.get_instance().debug(
-            f"ingesting to existing source {src.id}: context_name={context_name}, operation_id={operation_id}, index={index}, user_id={user_id}, plugin={plugin}, plugin_params={plugin_params}"
-        )
+            # get plugin parameters either from payload or from the existing source
+            plugin_params = payload.plugin_params or GulpPluginParameters(
+                src.mapping_parameters
+            )
+            MutyLogger.get_instance().debug(
+                f"ingesting to existing source {src.id}: context_name={context_name}, operation_id={operation_id}, index={index}, user_id={user_id}, plugin={plugin}, plugin_params={plugin_params}"
+            )
 
-        if preview_mode:
-            MutyLogger.get_instance().warning("PREVIEW MODE.")
-            ctx_id = "preview"
-            src_id = "preview"
+            if preview_mode:
+                MutyLogger.get_instance().warning("PREVIEW MODE.")
+                ctx_id = "preview"
+                src_id = "preview"
 
-        return await _handle_preview_or_enqueue_ingest_task(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            ctx_id=ctx_id,
-            src_id=src_id,
-            index=index,
-            plugin=plugin,
-            file_path=file_path,
-            payload=payload,
-            preview_mode=preview_mode,
-        )
+            return await _handle_preview_or_enqueue_ingest_task(
+                sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                ctx_id=ctx_id,
+                src_id=src_id,
+                index=index,
+                plugin=plugin,
+                file_path=file_path,
+                payload=payload,
+                preview_mode=preview_mode,
+            )
     except Exception as ex:
         # cleanup
         if file_path:
@@ -902,9 +917,10 @@ if set, this function is **synchronous** and returns the preview chunk of docume
     MutyLogger.get_instance().info("ingesting local file: %s" % (path))
 
     try:
-        ctx_id: str = None
-        src_id: str = None
         async with GulpCollab.get_instance().session() as sess:
+            ctx_id: str = None
+            src_id: str = None
+
             # get operation and check acl
             operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             s = await GulpUserSession.check_token(
@@ -937,26 +953,27 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 ctx_id = ctx.id
                 src_id = src.id
 
-        payload = GulpIngestPayload(
-            flt=flt,
-            plugin_params=plugin_params,
-            original_file_path=path,
-            file_sha1=None,
-        )
-        return await _handle_preview_or_enqueue_ingest_task(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            ctx_id=ctx_id,
-            src_id=src_id,
-            index=index,
-            plugin=plugin,
-            file_path=path,
-            payload=payload,
-            preview_mode=preview_mode,
-            delete_after=delete_after,
-        )
+            payload = GulpIngestPayload(
+                flt=flt,
+                plugin_params=plugin_params,
+                original_file_path=path,
+                file_sha1=None,
+            )
+            return await _handle_preview_or_enqueue_ingest_task(
+                sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                ctx_id=ctx_id,
+                src_id=src_id,
+                index=index,
+                plugin=plugin,
+                file_path=path,
+                payload=payload,
+                preview_mode=preview_mode,
+                delete_after=delete_after,
+            )
 
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -1078,20 +1095,21 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 file_sha1=None,
             )
 
-        return await _handle_preview_or_enqueue_ingest_task(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            ctx_id=ctx_id,
-            src_id=src_id,
-            index=index,
-            plugin=plugin,
-            file_path=path,
-            payload=payload,
-            preview_mode=preview_mode,
-            delete_after=delete_after,
-        )
+            return await _handle_preview_or_enqueue_ingest_task(
+                sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                ctx_id=ctx_id,
+                src_id=src_id,
+                index=index,
+                plugin=plugin,
+                file_path=path,
+                payload=payload,
+                preview_mode=preview_mode,
+                delete_after=delete_after,
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1157,7 +1175,7 @@ async def _ingest_raw_internal(
                 "data": {
                     "source_failed": 1,
                     "error": ex,
-                }
+                },
             }
             await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
         finally:
@@ -1249,34 +1267,36 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
             index = operation.index
             user_id = s.user_id
 
-        # get body (contains chunk, and optionally flt and plugin_params)
-        payload, chunk = await ServerUtils.handle_multipart_body(r)
-        # flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
-        #     payload.get("flt", GulpIngestionFilter())
-        # )
-        # plugin_params: GulpPluginParameters = GulpPluginParameters.model_validate(
-        #     payload.get("plugin_params", GulpPluginParameters())
-        # )
+            # get body (contains chunk, and optionally flt and plugin_params)
+            payload, chunk = await ServerUtils.handle_multipart_body(r)
+            # flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
+            #     payload.get("flt", GulpIngestionFilter())
+            # )
+            # plugin_params: GulpPluginParameters = GulpPluginParameters.model_validate(
+            #     payload.get("plugin_params", GulpPluginParameters())
+            # )
 
-        kwds = dict(
-            index=index,
-            flt=payload.get("flt") or {},
-            plugin=plugin,
-            plugin_params=payload.get("plugin_params") or {},
-            last=last,
-        )
-        await GulpTask.enqueue(
-            task_type="ingest_raw",
-            operation_id=operation_id,
-            user_id=user_id,
-            ws_id=ws_id,
-            req_id=req_id,
-            params=kwds,
-            raw_data=chunk,
-        )
+            kwds = dict(
+                index=index,
+                flt=payload.get("flt") or {},
+                plugin=plugin,
+                plugin_params=payload.get("plugin_params") or {},
+                last=last,
+            )
 
-        # and return pending
-        return JSONResponse(JSendResponse.pending(req_id=req_id))
+            await GulpTask.enqueue(
+                sess,
+                task_type=TASK_TYPE_INGEST_RAW,
+                operation_id=operation_id,
+                user_id=user_id,
+                ws_id=ws_id,
+                req_id=req_id,
+                params=kwds,
+                raw_data=chunk,
+            )
+
+            # and return pending
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1501,13 +1521,13 @@ async def ingest_zip_handler(
                     payload=f.model_dump(exclude_none=True),
                 )
                 await GulpTask.enqueue(
-                    task_type="ingest",
+                    sess,
+                    task_type=TASK_TYPE_INGEST,
                     operation_id=operation_id,
                     user_id=user_id,
                     ws_id=ws_id,
                     req_id=req_id,
                     params=kwds,
-                    sess=sess,
                 )
 
             # and return pending
@@ -1641,14 +1661,15 @@ async def ingest_zip_local_handler(
 
                 # and enqueue task on collab
                 await GulpTask.enqueue(
-                    task_type="ingest",
+                    sess,
+                    task_type=TASK_TYPE_INGEST,
                     operation_id=operation_id,
                     user_id=user_id,
                     ws_id=ws_id,
                     req_id=req_id,
                     params=kwds,
-                    sess=sess,
                 )
+
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
 

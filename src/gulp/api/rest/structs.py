@@ -27,6 +27,10 @@ from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
 
+TASK_TYPE_INGEST: str="ingest"
+TASK_TYPE_INGEST_RAW: str="ingest_raw"
+TASK_TYPE_QUERY: str="query"
+
 # 5-16 characters length, only letters, numbers, underscore, dot, @, dash allowed
 REGEX_CHECK_USERNAME = "^([a-zA-Z0-9_.@-]).{4,16}$"
 
