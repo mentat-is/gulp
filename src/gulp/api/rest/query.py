@@ -1656,29 +1656,6 @@ async def query_operations(
         raise JSendException(req_id=req_id) from ex
 
 
-async def _create_mapping_by_src_internal(
-    index: str,
-    operation_id: str,
-    context_id: str,
-    source_id: str,
-    user_id: str,
-    req_id: str,
-    ws_id: str,
-) -> None:
-    """
-    this runs in a worker process to create the fields mapping for a source.
-    """
-    await GulpOpenSearch.get_instance().datastream_update_mapping_by_src(
-        index=index,
-        operation_id=operation_id,
-        context_id=context_id,
-        source_id=source_id,
-        user_id=user_id,
-        req_id=req_id,
-        ws_id=ws_id,
-    )
-
-
 @router.get(
     "/query_fields_by_source",
     tags=["query"],
@@ -1722,13 +1699,11 @@ async def _create_mapping_by_src_internal(
             }
         }
     },
-    summary="get fields mapping.",
+    summary="get source fields=>type mapping.",
     description="""
-get all `key=type` mappings for the given given `operation_id`, `context_id` and `source_id`.
+get all `key=type` source fields-to-type mappings for the given given `operation_id`, `context_id` and `source_id`.
 
-this API initially `status="pending` on the first call for the tuple [`operation_id`, `context_id`, `source_id`], and `SOURCE_FIELDS_CHUNK` are streamed on the websocket `ws_id`.
-
-on subsequent calls, when an entry has been created on the database, the API returns the fields mapping as a dict.
+- call this API repeatedly to update the fields mapping until no new fields are returned.
 """,
 )
 async def query_fields_by_source_handler(
@@ -1736,11 +1711,11 @@ async def query_fields_by_source_handler(
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
+    # TODO: make it return pending and send the result to websocket ?
     try:
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
@@ -1749,54 +1724,47 @@ async def query_fields_by_source_handler(
             index = op.index
             user_id = s.user_id
 
-            # check if there is at least one document with operation_id, context_id and source_id
-            await GulpOpenSearch.get_instance().search_dsl_sync(
-                index=index,
-                q={
-                    "query": {
-                        "bool": {
-                            "must": [
-                                {"term": {"gulp.operation_id": operation_id}},
-                                {"term": {"gulp.context_id": context_id}},
-                                {"term": {"gulp.source_id": source_id}},
-                            ]
-                        }
+        # check if there is at least one document with operation_id, context_id and source_id
+        await GulpOpenSearch.get_instance().search_dsl_sync(
+            index=index,
+            q={
+                "query": {
+                    "bool": {
+                        "must": [
+                            {"term": {"gulp.operation_id": operation_id}},
+                            {"term": {"gulp.context_id": context_id}},
+                            {"term": {"gulp.source_id": source_id}},
+                        ]
                     }
-                },
-                q_options=GulpQueryParameters(limit=1),
-            )
+                }
+            },
+            q_options=GulpQueryParameters(limit=1),
+        )
 
-            m = await GulpOpenSearch.get_instance().datastream_get_mapping_by_src(
-                sess,
+        m = await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
+            index,
+            user_id,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+        )
+        if m:
+            # return immediately
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=m))
+
+        # spawn a task to run fields mapping in a worker, and return an empty dict
+        # you should call this API repeatedly until no new fields are returned
+        async def _coro():
+            await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
+                index,
+                user_id,
                 operation_id=operation_id,
                 context_id=context_id,
                 source_id=source_id,
-                user_id=user_id,
-            )
-            if m:
-                # return immediately
-                return JSONResponse(JSendResponse.success(req_id=req_id, data=m))
-
-            # spawn a task to run fields mapping in a worker
-            kwds = dict(
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
             )
 
-            async def worker_coro(kwds: dict):
-                await GulpProcess.get_instance().process_pool.apply(
-                    _create_mapping_by_src_internal, kwds=kwds
-                )
-
-            await GulpRestServer.get_instance().spawn_bg_task(worker_coro(kwds))
-
-            # and return pending
-            return JSONResponse(JSendResponse.pending(req_id=req_id))
+        await GulpRestServer.get_instance().spawn_bg_task(_coro())
+        return JSONResponse(JSendResponse.success(req_id=req_id, data={}))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

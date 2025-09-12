@@ -383,28 +383,31 @@ async def enrich_single_id_handler(
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            await GulpUserSession.check_token(
+            s: GulpUserSession = await GulpUserSession.check_token(
                 sess, token, obj=op, permission=GulpUserPermission.EDIT
             )
             index = op.index
+            user_id = s.user_id
 
-            # load plugin
+            # load plugin and enrich document
             mod = await GulpPluginBase.load(plugin)
-
-            # query document
             doc = await mod.enrich_single_document(
                 sess, doc_id, operation_id, index, plugin_params
             )
 
-            # rebuild mapping
-            await GulpOpenSearch.get_instance().datastream_update_mapping_by_src(
-                index=index,
+        async def _coro():
+            # rebuild mapping in a background task
+            await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
+                index,
+                user_id,
                 operation_id=doc["gulp.operation_id"],
                 context_id=doc["gulp.context_id"],
                 source_id=doc["gulp.source_id"],
                 doc_ids=[doc_id],
             )
 
+        # spawn a background task to avoid blocking the response and return success
+        await GulpRestServer.get_instance().spawn_bg_task(_coro())
         return JSONResponse(JSendResponse.success(req_id, data=doc))
 
     except Exception as ex:
@@ -548,29 +551,34 @@ async def tag_single_id_handler(
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            await GulpUserSession.check_token(
+            s: GulpUserSession = await GulpUserSession.check_token(
                 sess, token, obj=op, permission=GulpUserPermission.EDIT
             )
             index = op.index
+            user_id = s.user_id
 
-            # get the document and add tags
-            doc: dict = await GulpQueryHelpers.query_single(index, doc_id)
-            doc.update({"gulp.tags": tags})
+        # get the document and add tags
+        doc: dict = await GulpQueryHelpers.query_single(index, doc_id)
+        doc.update({"gulp.tags": tags})
 
-            # update the document
-            await GulpOpenSearch.get_instance().update_documents(
-                index, [doc], wait_for_refresh=True
-            )
+        # update the document
+        await GulpOpenSearch.get_instance().update_documents(
+            index, [doc], wait_for_refresh=True
+        )
 
-            # rebuild mapping
-            await GulpOpenSearch.get_instance().datastream_update_mapping_by_src(
-                index=index,
+        async def _coro():
+            # rebuild mapping in a background task
+            await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
+                index,
+                user_id,
                 operation_id=doc["gulp.operation_id"],
                 context_id=doc["gulp.context_id"],
                 source_id=doc["gulp.source_id"],
                 doc_ids=[doc_id],
             )
 
+        # spawn a background task to avoid blocking the response and return success
+        await GulpRestServer.get_instance().spawn_bg_task(_coro())
         return JSONResponse(JSendResponse.success(req_id, data=doc))
 
     except Exception as ex:

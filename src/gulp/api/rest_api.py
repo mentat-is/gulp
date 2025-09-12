@@ -598,27 +598,36 @@ class GulpRestServer:
         GulpConfig.get_instance()
 
         first_run: bool = False
+        force_recreate_db: bool = False
+        if self._reset_collab:
+            MutyLogger.get_instance().warning("reset_collab set, forcing recreate!")
+            force_recreate_db = True
 
         if self._check_first_run():
             # first run, force --create and --reset-collab
             self._create_operation = "test_operation"
             self._reset_collab = True
+            force_recreate_db = True
             first_run = True
             MutyLogger.get_instance().warning(
                 "FIRST RUN, (re)creating collab database and operation '%s' ..."
                 % (self._create_operation)
             )
 
+        try:
+            await GulpCollab.get_instance().init(main_process=True)
+        except SchemaMismatch as ex:
+            MutyLogger.get_instance().warning(
+                "collab database schema mismatch, forcing recreate!\n%s" % (ex)
+            )
+            force_recreate_db = True
+            self._reset_collab = True
+
         # check for reset flags
         from gulp.api.rest.db import db_reset
 
         try:
             if self._reset_collab or self._create_operation:
-                # reset collab database
-                if self._reset_collab or first_run:
-                    force_recreate_db: bool = True
-                else:
-                    force_recreate_db: bool = False
                 MutyLogger.get_instance().warning(
                     "reset_collab or create_operation set, first_run=%r, reset_collab=%r, force_recreate_db=%r, create_operation=%s !"
                     % (

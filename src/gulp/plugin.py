@@ -1262,7 +1262,7 @@ class GulpPluginBase(ABC):
                 req_id=self._req_id,
                 data=chunk.model_dump(exclude_none=True),
             )
-            
+
             # update stats
 
         if last:
@@ -1319,7 +1319,7 @@ class GulpPluginBase(ABC):
             int: the total number of enriched documents
 
         NOTE: implementers of enrich_documents must:
-        
+
         1. implement _enrich_documents_chunk
         2. in enrich_documents, call self._initialize() and then super().enrich_documents
 
@@ -1397,7 +1397,7 @@ class GulpPluginBase(ABC):
             dict: the enriched document
 
         NOTE: implementers of enrich_single_document must:
-        
+
         1. implement _enrich_documents_chunk
         2. in enrich_documents, call self._initialize() and then super().enrich_single_document
         """
@@ -2530,7 +2530,7 @@ class GulpPluginBase(ABC):
         """
         if not self._index_type_mapping:
             self._index_type_mapping = (
-                await GulpOpenSearch.get_instance().datastream_get_key_value_mapping(
+                await GulpOpenSearch.get_instance().datastream_get_field_types(
                     self._ingest_index
                 )
             )
@@ -2819,9 +2819,7 @@ class GulpPluginBase(ABC):
                     exclude_none=True
                 ),
             }
-            await GulpSource.update_by_id(
-                self._source_id, None, d
-            )
+            await GulpSource.update_by_id(self._source_id, None, d)
 
     async def _source_done(self, flt: GulpIngestionFilter = None, **kwargs) -> None:
         """

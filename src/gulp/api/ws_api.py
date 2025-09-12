@@ -1406,7 +1406,7 @@ class GulpWsSharedQueue:
     def __init__(self):
         # these are the fixed broadcast types that are always sent to all connected websockets
         self.broadcast_types: list[str] = {
-            WSDATA_GENERIC,
+            WSDATA_COLLAB_CREATE,
             WSDATA_COLLAB_UPDATE,
             WSDATA_COLLAB_DELETE,
             WSDATA_NEW_CONTEXT,
@@ -1414,6 +1414,7 @@ class GulpWsSharedQueue:
             WSDATA_INGEST_SOURCE_DONE,
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,
+            WSDATA_GENERIC,
         }
         self._initialized: bool = True
         self._shared_q: Queue = None

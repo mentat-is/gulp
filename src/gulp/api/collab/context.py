@@ -138,11 +138,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
 
             # create new source and link it to context
             object_data = {
-                "operation_id": self.operation_id,
                 "context_id": self.id,
-                "name": name,
-                "color": color,
-                "glyph_id": glyph_id or "file",  # default glyph is 'file'
             }
             if plugin and mapping_parameters:
                 object_data["plugin"] = plugin
@@ -158,17 +154,18 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                     exclude_none=True
                 )
 
-            # pylint: disable=protected-access
             src = await GulpSource.create_internal(
                 sess,
-                object_data,
-                obj_id=src_id,
-                owner_id=user_id,
-                ws_data_type=WSDATA_NEW_SOURCE if ws_id else None,
-                ws_id=ws_id,
-                req_id=req_id,
-                commit=False,
+                user_id,
+                operation_id=self.operation_id,
+                name=name,
+                glyph_id=glyph_id or "file",
+                color=color,
                 private=False,
+                ws_id=ws_id,
+                ws_data_type=WSDATA_NEW_SOURCE if ws_id else None,
+                req_id=req_id,
+                **object_data,
             )
 
             MutyLogger.get_instance().debug(
@@ -186,8 +183,6 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             # for g in self.granted_user_group_ids:
             #     await src.add_group_grant(sess, g, commit=False)
 
-            # finally commit the session
-            await sess.commit()
             await sess.refresh(self)
             MutyLogger.get_instance().debug(
                 f"source {src.id}, name={name} added to context {self.id}, src={src}"

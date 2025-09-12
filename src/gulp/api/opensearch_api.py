@@ -35,7 +35,7 @@ from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch, NotFoundError
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab.fields import GulpSourceFields
+from gulp.api.collab.source_field_types import GulpSourceFieldTypes
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
@@ -194,11 +194,11 @@ class GulpOpenSearch:
         res = await self._opensearch.info()
         MutyLogger.get_instance().debug("opensearch info: %s" % (res))
 
-    async def datastream_get_key_value_mapping(
+    async def datastream_get_field_types(
         self, index: str, return_raw_result: bool = False
     ) -> dict:
         """
-        Get and parse mappings for the given datastream or index: it will result in a dict (if return_raw_result is not set) like:
+        Collect all fields and their types present in the datastream or index: it will result in a dict (if return_raw_result is not set) like:
         {
             "field1": "type",
             "field2": "type",
@@ -212,14 +212,14 @@ class GulpOpenSearch:
             dict: The mapping dict.
         """
 
-        def _parse_mappings_internal(d: dict, parent_key="", result=None) -> dict:
+        def _parse_field_types_internal(d: dict, parent_key="", result=None) -> dict:
             if result is None:
                 result = {}
             for k, v in d.items():
                 new_key = "%s.%s" % (parent_key, k) if parent_key else k
                 if isinstance(v, dict):
                     if "properties" in v:
-                        _parse_mappings_internal(v["properties"], new_key, result)
+                        _parse_field_types_internal(v["properties"], new_key, result)
                     elif "type" in v:
                         result[new_key] = v["type"]
                 else:
@@ -230,7 +230,7 @@ class GulpOpenSearch:
             res = await self._opensearch.indices.get_mapping(index=index)
         except Exception as e:
             MutyLogger.get_instance().warning(
-                'no mapping for index "%s" found: %s' % (index, e)
+                'no field types mapping for index "%s" found: %s' % (index, e)
             )
             return {}
 
@@ -240,9 +240,9 @@ class GulpOpenSearch:
 
         idx = list(res.keys())[0]
         properties = res[idx]["mappings"]["properties"]
-        return _parse_mappings_internal(properties)
+        return _parse_field_types_internal(properties)
 
-    async def datastream_get_mapping_by_src(
+    async def datastream_get_field_types_by_src(
         self,
         sess: AsyncSession,
         operation_id: str,
@@ -251,7 +251,7 @@ class GulpOpenSearch:
         user_id: str,
     ) -> dict:
         """
-        get source->fields mappings from the collab database
+        get source->fieldtypes from the collab database
 
         Args:
             sess (AsyncSession): The database session.
@@ -269,15 +269,14 @@ class GulpOpenSearch:
             context_ids=[context_id],
             source_ids=[source_id],
         )
-        fields: list[GulpSourceFields] = await GulpSourceFields.get_by_filter(
+        f: list[GulpSourceFieldTypes] = await GulpSourceFieldTypes.get_by_filter(
             sess,
             flt,
             throw_if_not_found=False,
             user_id=user_id,
         )
-        if fields:
-            # cache hit!
-            return fields[0].fields
+        if f:
+            return f[0].field_types
 
         return None
 
@@ -345,8 +344,8 @@ class GulpOpenSearch:
                 and (not context_ids or (context_ids and ctx in context_ids))
                 and (not source_ids or (source_ids and src in source_ids))
             ):
-                await self.datastream_update_mapping_by_src(
-                    index=index, operation_id=op, context_id=ctx, source_id=src
+                await self.datastream_update_source_field_types_by_src(
+                    index, user_id, operation_id=op, context_id=ctx, source_id=src
                 )
 
                 MutyLogger.get_instance().info(
@@ -354,34 +353,28 @@ class GulpOpenSearch:
                     % (index, op, ctx, src)
                 )
 
-    async def datastream_update_mapping_by_src(
+    async def datastream_update_source_field_types_by_src(
         self,
         index: str,
+        user_id: str,
         operation_id: str = None,
         context_id: str = None,
         source_id: str = None,
         doc_ids: list[str] = None,
-        user_id: str = None,
-        ws_id: str = None,
-        req_id: str = None,
         el: AsyncElasticsearch = None,
     ) -> tuple[dict, bool]:
         """
-        create/update source->fields mappings for the given operation/context/source on the collab database
+        create/update GulpSourceFields for the given operation/context/source on the collab database
 
-        - SOURCE_FIELDS_CHUNK are streamed to the websocket ws_id if it is not None.
-
-        WARNING: this call may take long time, so it is better to offload it to a worker coroutine.
+        WARNING: this call may take long time, so it is better to run it in a background task.
 
         Args:
             index (str): The index/datastream name.
+            user_id (str): the requesting user ID.
             operation_id (str): The operation ID, may be None to indicate all operations.
             context_id (str, optional): The context ID, may be None to indicate all contexts.
             source_id (str, optional): The source ID, may be None to indicate all sources.
             doc_ids (list[str], optional): limit to these document IDs. Defaults to None.
-            user_id (str, optional): The user ID. Defaults to None.
-            ws_id (str, optional): The websocket ID to stream SOURCE_FIELDS_CHUNK during the loop. Defaults to None.
-            req_id (str, optional): The request ID. Defaults to None.
             el: AsyncElasticsearch, optional): The Elasticsearch client. Defaults to None (use the default OpenSearch client).
         Returns:
             dict: The mapping dict (same as index_get_mapping with return_raw_result=False), may be empty if no documents are found
@@ -389,7 +382,7 @@ class GulpOpenSearch:
         """
 
         MutyLogger.get_instance().debug(
-            "creating/updating source->fields mapping for source_id=%s, context_id=%s, operation_id=%s, doc_ids=%s ..."
+            "creating/updating source->fieldtypes for source_id=%s, context_id=%s, operation_id=%s, doc_ids=%s ..."
             % (source_id, context_id, operation_id, doc_ids)
         )
 
@@ -422,7 +415,7 @@ class GulpOpenSearch:
                 )
 
         # get mapping
-        mapping = await self.datastream_get_key_value_mapping(index)
+        mapping = await self.datastream_get_field_types(index)
         filtered_mapping = {}
 
         # loop with query_raw until there's data and update filtered_mapping
@@ -452,35 +445,12 @@ class GulpOpenSearch:
                             if k not in chunk:
                                 chunk[k] = mapping[k]
 
-            send: bool = True
-            if ws_id:
-                if not last:
-                    # avoid sending empty chunks except last
-                    if not chunk:
-                        send = False
-
-                if send:
-                    # send this chunk over the ws
-                    p = GulpSourceFieldsChunkPacket(
-                        operation_id=operation_id,
-                        source_id=source_id,
-                        context_id=context_id,
-                        fields=chunk,
-                        last=last,
-                    )
-                    wsq = GulpWsSharedQueue.get_instance()
-                    await wsq.put(
-                        type=WSDATA_SOURCE_FIELDS_CHUNK,
-                        ws_id=ws_id,
-                        operation_id=operation_id,
-                        user_id=user_id,
-                        req_id=req_id,
-                        data=p.model_dump(exclude_none=True),
-                    )
-
             if last:
                 # no more results
                 break
+
+            # allow other tasks to run
+            asyncio.sleep(0)
 
         if not filtered_mapping:
             MutyLogger.get_instance().warning(
@@ -496,12 +466,13 @@ class GulpOpenSearch:
         # sort the keys
         # filtered_mapping = dict(sorted(filtered_mapping.items()))
 
-        # store on database
+        # store on database (create or update)
         MutyLogger.get_instance().debug(
-            "found %d mappings, storing on db ..." % (len(filtered_mapping))
+            "found %d source->fieldtype mappings, storing on db ..."
+            % (len(filtered_mapping))
         )
         async with GulpCollab.get_instance().session() as sess:
-            await GulpSourceFields.create(
+            await GulpSourceFieldTypes.create_source_field_types(
                 sess, user_id, operation_id, context_id, source_id, filtered_mapping
             )
 
@@ -1373,7 +1344,7 @@ class GulpOpenSearch:
                     "errors": current_errors,
                 },
             )
-            
+
         # convert offset to nanoseconds
         offset_nsec = offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS
 
@@ -1437,9 +1408,11 @@ class GulpOpenSearch:
             doc_ids = [hit["_id"] for hit in hits]
 
             # update_by_query for these IDs
-            MutyLogger.get_instance().debug("rebase chunk %d, offset_nsec=%d, updating %d docs ..." % 
-                (chunk_count, offset_nsec, len(doc_ids)))
-                                            
+            MutyLogger.get_instance().debug(
+                "rebase chunk %d, offset_nsec=%d, updating %d docs ..."
+                % (chunk_count, offset_nsec, len(doc_ids))
+            )
+
             update_query = {
                 "script": {
                     "source": script,
@@ -1491,7 +1464,6 @@ class GulpOpenSearch:
             req_id, ws_id, user_id, total_hits, updated, errors, done=True
         )
         return {"total_hits": total_hits, "updated": updated, "errors": errors}
-
 
     async def index_refresh(self, index: str) -> None:
         """

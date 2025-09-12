@@ -170,13 +170,12 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
         )
         try:
             await cls.create_internal(
-                sess=sess,
-                user_id=user_id,  # permission already checked
+                sess,
+                user_id,
                 operation_id=operation_id,
                 skip_notification=True,
                 **object_data,
             )
-            await sess.commit()
         except Exception as ex:
             await sess.rollback()
             raise ex

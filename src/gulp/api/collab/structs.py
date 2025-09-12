@@ -136,7 +136,7 @@ COLLABTYPE_GLYPH = "glyph"
 COLLABTYPE_OPERATION = "operation"
 COLLABTYPE_SOURCE = "source"
 COLLABTYPE_USER_GROUP = "user_group"
-COLLABTYPE_SOURCE_FIELDS = "source_fields"
+COLLABTYPE_SOURCE_FIELD_TYPES = "source_fields"
 COLLABTYPE_QUERY_HISTORY = "query_history"
 COLLABTYPE_TASK = "task"
 COLLABTYPE_QUERY_GROUP_MATCH = "query_group_match"
@@ -877,6 +877,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             raise ex
 
         # MutyLogger.get_instance().debug(f"created instance: {instance.to_dict(nested=True, exclude_none=True)}")
+        await sess.commit()
         if not ws_id:
             # no websocket, return the instance
             return instance
@@ -892,12 +893,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
             ws_data_type = WSDATA_COLLAB_CREATE
 
-        if ws_data:
+        if not ws_data:
+            # serialize this object (default)
+            data = instance.to_dict(nested=True, exclude_none=True)
+        else:
             # use provided data
             data = ws_data
-        else:
-            # serialize this instance
-            data = instance.to_dict(nested=True, exclude_none=True)
 
         # notify websocket
         p = GulpCollabCreatePacket(obj=data)

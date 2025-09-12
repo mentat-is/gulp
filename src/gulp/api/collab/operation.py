@@ -155,26 +155,32 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         # create the operation
         d = {
             "index": index,
-            "name": name,
-            "description": description,
-            "glyph_id": glyph_id or "box",
             "operation_data": {},
         }
+        granted_user_ids: list[str] = None
+        granted_user_group_ids: list[str] = None
         if set_default_grants:
             MutyLogger.get_instance().info(
                 "setting default grants for operation=%s" % (name)
             )
-            d["granted_user_ids"] = ["admin", "guest", "ingest", "power", "editor"]
+            granted_user_ids = ["admin", "guest", "ingest", "power", "editor"]
             if grant_to_users:
-                d["granted_user_ids"].extend(grant_to_users)
-            d["granted_user_group_ids"] = [ADMINISTRATORS_GROUP_ID]
+                granted_user_ids.extend(grant_to_users)
+            granted_user_group_ids = [ADMINISTRATORS_GROUP_ID]
             if grant_to_groups:
-                d["granted_user_group_ids"].extend(grant_to_groups)
+                granted_user_group_ids.extend(grant_to_groups)
 
         try:
             async with GulpCollab.get_instance().session() as sess:
                 op = await GulpOperation.create_internal(
-                    sess, d, obj_id=operation_id, owner_id=user_id
+                    sess,
+                    user_id,
+                    name=name,
+                    description=description,
+                    glyph_id=glyph_id or "box",
+                    granted_user_ids=granted_user_ids,
+                    granted_user_group_ids=granted_user_group_ids,
+                    **d,
                 )
 
                 # done

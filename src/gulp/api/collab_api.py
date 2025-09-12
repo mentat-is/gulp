@@ -94,7 +94,7 @@ class GulpCollab:
         if called on an already initialized instance, the existing engine is disposed (shutdown() is called) and a new one is created.
 
         Args:
-            force_recreate (bool, optional): whether to drop and recreate the database tables. Defaults to False.
+            force_recreate (bool, optional): whether to drop and recreate the database tables. Defaults to False (ignore if not main_process).
             expire_on_commit (bool, optional): whether to expire sessions returned by session() on commit. Defaults to False.
             main_process (bool, optional): whether this is the main process. Defaults to False.
         """
