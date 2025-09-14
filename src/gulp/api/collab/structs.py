@@ -1068,11 +1068,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     async def update(
         self,
         sess: AsyncSession,
-        d: dict = None,
         ws_id: str = None,
         user_id: str = None,
         ws_data: dict = None,
         ws_data_type: str = None,
+        **kwargs,
     ) -> dict:
         """
         updates the object, also updating the websocket if required.
@@ -1081,25 +1081,24 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         Args:
             sess (AsyncSession): The database session to use: the session will be committed and refreshed after the update.
-            d (dict, optional): A dictionary containing the fields to update and their new values (or new values at all). May be omitted if the instance is already updated and just needs to be committed. Defaults to None.
             ws_id (str, optional): The ID of the websocket connection to send update to the websocket. Defaults to None (no update will be sent)
             user_id (str, optional): The ID of the user making the request. Defaults to None, ignored if ws_id is not provided (used only for websocket notification).
             ws_data (dict, optional): this is the data sent in `GulpWsData.data` on the websocket after the object has been updated on database. Defaults to the (serialized) updated object itself. Ignored if ws_id is not provided.
             ws_data_type (str, optional): this is the type in `GulpWsData.type` sent on the websocket. Defaults to WSDATA_COLLAB_UPDATE. Ignored if ws_id is not provided (used only for websocket notification) or if token is None (internal request).
-
+            **kwargs: additional fields to set on the object (existing values will be overwritten, None values will be ignored)
         Returns:
             dict: The updated object as a dictionary.
         """
         try:
             await self.__class__.acquire_advisory_lock(sess, self.id)
-            if d:
-                # update instance from d, ensure d has no 'id' (the id cannot be updated)
-                d.pop("id", None)
-                for k, v in d.items():
-                    # only update if the value is not None and different from the current value
-                    if v is not None and getattr(self, k, None) != v:
-                        # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
-                        setattr(self, k, v)
+            kwargs.pop("id", None)  # id cannot be updated
+
+            # update vaues skipping None
+            for k, v in kwargs.items():
+                # only update if the value is not None and different from the current value
+                if v is not None and getattr(self, k, None) != v:
+                    # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
+                    setattr(self, k, v)
 
             # ensure time_updated is set
             self.time_updated = muty.time.now_msec()
@@ -1334,21 +1333,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # add user grants, admin and guest are guaranteed to exist (cannot be deleted)
         await self.add_user_grant(sess, "admin")
         await self.add_user_grant(sess, "guest")
-
-        try:
-            await self.add_user_grant(sess, "ingest")
-        except ObjectNotFound:
-            pass
-
-        try:
-            await self.add_user_grant(sess, "editor")
-        except ObjectNotFound:
-            pass
-
-        try:
-            await self.add_user_grant(sess, "power")
-        except ObjectNotFound:
-            pass
 
         # add group grants
         from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
@@ -1698,6 +1682,47 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
     @classmethod
     async def get_by_id_wrapper(
+        cls,
+        sess: AsyncSession,
+        token: str,
+        obj_id: str,
+        permission: list[GulpUserPermission] = None,
+        enforce_owner: bool = False,
+    ) -> tuple["GulpUserSession", T]:
+        """
+        helper to check the token has the required permission on the object and return the user session
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            token (str): The user token.
+            obj_id (str): The ID of the object to get.
+            permission (list[GulpUserPermission], optional): The permission required to read the object.
+            enforce_owner (bool, optional): If True, enforce that the token belongs to the owner of the object (or the user is admin). Defaults to False.
+        Returns:
+            tuple[GulpUserSession, T]: The user session and the object.
+        Raises:
+            MissingPermission: If the user does not have permission to read the object.
+            ObjectNotFound: If the object is not found.
+        """
+        n: GulpCollabBase = await cls.get_by_id(sess, obj_id)
+        from gulp.api.collab.user_session import GulpUserSession
+
+        if not permission:
+            permission = [GulpUserPermission.READ]
+
+        # token needs the required permission (or be the owner or admin)
+        await GulpUserSession.check_token(
+            sess, token, permission=permission, obj=n, enforce_owner=enforce_owner
+        )
+
+        # token needs the required permission (or be the owner or admin)
+        s = await GulpUserSession.check_token(
+            sess, token, permission=permission, obj=n, enforce_owner=enforce_owner
+        )
+        return s
+
+    @classmethod
+    async def get_by_id_wrapper_old(
         cls,
         token: str,
         obj_id: str,

@@ -121,6 +121,8 @@ class GulpCollab:
             )
             if force_recreate:
                 await self.create_tables()
+                await self.create_default_users()
+                await self.create_default_glyphs()
 
             # check tables exists
             async with self._collab_sessionmaker() as sess:
@@ -471,24 +473,6 @@ class GulpCollab:
                 user_id="guest",
                 password="guest",
             )
-            _ = await GulpUser.create_user(
-                sess,
-                user_id="editor",
-                password="editor",
-                permission=PERMISSION_MASK_EDIT,
-            )
-            _ = await GulpUser.create_user(
-                sess,
-                user_id="ingest",
-                password="ingest",
-                permission=PERMISSION_MASK_INGEST,
-            )
-            _ = await GulpUser.create_user(
-                sess,
-                user_id="power",
-                password="power",
-                permission=PERMISSION_MASK_DELETE,
-            )
             await sess.commit()
             group: GulpUserGroup = await GulpUserGroup.create_internal(
                 sess=sess,
@@ -613,7 +597,7 @@ class GulpCollab:
 
         async with self._collab_sessionmaker() as sess:
             sess: AsyncSession
-            
+
             # get users
             admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
             guest_user: GulpUser = await GulpUser.get_by_id(

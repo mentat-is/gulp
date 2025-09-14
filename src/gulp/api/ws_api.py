@@ -38,14 +38,14 @@ WSDATA_CONNECTED = "ws_connected"
 WSDATA_COLLAB_CREATE = "collab_create"
 WSDATA_COLLAB_UPDATE = "collab_update"
 WSDATA_COLLAB_DELETE = "collab_delete"
+WSDATA_NEW_SOURCE = "new_source"
+WSDATA_NEW_CONTEXT = "new_context"
 
 WSDATA_USER_LOGIN = "user_login"
 WSDATA_USER_LOGOUT = "user_logout"
 WSDATA_DOCUMENTS_CHUNK = "docs_chunk"
 WSDATA_CLIENT_DATA = "client_data"
 WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
-WSDATA_NEW_SOURCE = "new_source"
-WSDATA_NEW_CONTEXT = "new_context"
 WSDATA_GENERIC = "generic"
 
 # the following data types sent on the websocket are to be used to track status

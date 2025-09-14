@@ -40,17 +40,15 @@ from gulp.process import GulpProcess
 router: APIRouter = APIRouter()
 
 
-async def _delete_operations(operation_id: str = None) -> None:
+async def db_reset() -> None:
     """
-    Deletes (all) operations in the collaboration database
+    resets the collab database (deletes everything, including operations (deleting their data on OpenSearch))
+
+    NOTE: must be called on the main process!
 
     Args:
-        operation_id (str, optional): If specified, only the operation with this ID will be deleted.
     """
-    MutyLogger.get_instance().warning(
-        "deleting ALL operations on collab (except operation_id=%s)" % (operation_id)
-    )
-
+    # delete all operations first
     async with GulpCollab.get_instance().session() as sess:
         # enumerate all operations
         ops = await GulpOperation.get_by_filter(sess, throw_if_not_found=False)
@@ -59,137 +57,17 @@ async def _delete_operations(operation_id: str = None) -> None:
             MutyLogger.get_instance().debug(
                 "found operation: %s, index=%s" % (op.id, op.index)
             )
-
-            # if operation_id is specified, only delete that operation
-            if operation_id and op.id != operation_id:
-                # skip this operation
-                MutyLogger.get_instance().debug(
-                    "skipping deleting operation_id=%s" % (op.id)
-                )
-                continue
-
             MutyLogger.get_instance().info("deleting data for operation %s" % (op.id))
+
             # delete the whole datastream
             await GulpOpenSearch.get_instance().datastream_delete(op.index)
 
             # delete the operation itself
             await op.delete(sess)
 
-
-async def db_reset(
-    operation_id: str = None,
-    force_recreate_db: bool = False,
-) -> None:
-    """
-    resets the collab database
-
-    NOTE: must be called on the main process!
-
-    Args:
-        operation_id (str, optional): if set, a new operation with this id will be created after reset.
-        force_recreate_db (bool, optional): if True, the collab database will be recreated even if it exists. Defaults to False.
-
-    """
-    MutyLogger.get_instance().debug(
-        "db_reset called with params: user_id=%s, operation_id=%s, force_recreate_db=%r"
-        % (user_id, operation_id, force_recreate_db)
-    )
-
-    # check if the database exists
-    url = GulpConfig.get_instance().postgres_url()
-    exists = await GulpCollab.db_exists(url)
-    if exists:
-        MutyLogger.get_instance().warning("collab database exists !")
-        # clear all existing operations
-        await _delete_operations(user_id)
-        
-    user_id = "admin"
-    if not exists or force_recreate_db:
-        MutyLogger.get_instance().warning(
-            "collab database does not exist/must be recreated, creating it (exist=%r, force_recreate_db=%r) ..."
-            % (exists, force_recreate_db)
-        )
-
-
-        # reset
-        await GulpCollab.get_instance().init(main_process=True, force_recreate=True)
-        await GulpCollab.get_instance().create_default_users()
-        await GulpCollab.get_instance().create_default_glyphs()
-
-    # collab database exists, delete all data for all or just for the specific operation
-    if operation_id:
-        MutyLogger.get_instance().debug(
-            "db_reset done, creating operation=%s" % (operation_id)
-        )
-        await GulpOperation.create_wrapper(
-            operation_id,
-            user_id=user_id,
-            set_default_grants=True,
-            fail_if_exists=False,
-        )
-
-
-@router.post(
-    "/gulp_reset",
-    tags=["db"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701266243057,
-                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-                    }
-                }
-            }
-        }
-    },
-    summary="reset gulp.",
-    description="""
-> **WARNING: THE WHOLE COLLAB DATABASE WILL BE DELETED AND RECREATED**
-
-- `token` needs to have `admin` permission.
-- use this only when the database is corrupted (or the structure needs to be updated) and/or you want to start from scratch.
-""",
-)
-async def gulp_reset_handler(
-    token: Annotated[str, Depends(APIDependencies.param_token)],
-    create_default_operation: Annotated[
-        bool,
-        Query(
-            description='if set, a default operation named "test_operation" will be created.',
-        ),
-    ] = True,
-    restart_processes: Annotated[
-        bool,
-        Query(
-            description="if true, the process pool is restarted as well.",
-        ),
-    ] = True,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSONResponse:
-    ServerUtils.dump_params(locals())
-    try:
-        async with GulpCollab.get_instance().session() as sess:
-            s: GulpUserSession = await GulpUserSession.check_token(
-                sess, token, permission=GulpUserPermission.ADMIN
-            )
-
-        # reset
-        await db_reset(
-            operation_id="test_operation" if create_default_operation else None,
-            force_recreate_db=True,
-        )
-        if restart_processes:
-            # restart the process pool by calling init in the main process (we are in the main process here)
-            await GulpProcess.get_instance().init_gulp_process()
-
-        return JSONResponse(JSendResponse.success(req_id=req_id))
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
+    # reset
+    # TODO: try to handle worker processes termination gracefully    
+    await GulpCollab.get_instance().init(main_process=True, force_recreate=True)
 
 
 async def _rebase_by_query_internal(

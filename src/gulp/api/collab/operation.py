@@ -83,21 +83,23 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             )
         return d
 
-    @staticmethod
-    async def create_wrapper(
+    @override
+    @classmethod
+    async def create(clr, *args, **kwargs):
+        raise TypeError("use create_operation instead")
+
+    @classmethod
+    async def create_operation(
+        cls,
         name: str,
         user_id: str,
         index: str = None,
         description: str = None,
         glyph_id: str = None,
         create_index: bool = True,
-        grant_to_users: list[str] = None,
-        grant_to_groups: list[str] = None,
         set_default_grants: bool = False,
         fail_if_exists: bool = True,
         index_template: dict = None,
-        ws_id: str = None,
-        req_id: str = None,
     ) -> dict:
         """
         creates a new operation with the given name and index.
@@ -111,13 +113,9 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             description (str, optional): A description for the operation.
             glyph_id (str, optional): The glyph id for the operation.
             create_index (bool, optional): Whether to create the index for the operation. Defaults to True.
-            grant_to_users (list[str], optional): List of user ids to grant access to the operation. Defaults to None.
-            grant_to_groups (list[str], optional): List of group ids to grant access to the operation. Defaults to None.
-            set_default_grants (bool, optional): Whether to set default grants for default users for the operation. Defaults to False.
+            set_default_grants (bool, optional): Whether to set grants for default users (guest, admin) for the operation. Defaults to False.
             fail_if_exists (bool, optional): Whether to raise an error if the operation already exists. Defaults to True.
             index_template (dict, optional): The index template to use for creating the index. Defaults to None.
-            ws_id (str, optional): The websocket id to stream creation of default context/default source to. Defaults to None.
-            req_id (str, optional): The request id. Defaults to None.
 
         Returns:
             dict: The created operation as a dictionary.
@@ -130,7 +128,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             # use the operation_id as the index
             index = operation_id
 
-        # delete the operation if it already exists
         async with GulpCollab.get_instance().session() as sess:
             op: GulpOperation = await GulpOperation.get_by_id(
                 sess, operation_id, throw_if_not_found=False
@@ -141,37 +138,31 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                     raise ObjectAlreadyExists(
                         f"operation_id={operation_id} already exists."
                     )
-                # delete
+                # delete the operation if exists
                 await op.delete(sess)
 
-        if create_index:
-            # re/create the index
-            from gulp.api.opensearch_api import GulpOpenSearch
+            if create_index:
+                # re/create the index
+                from gulp.api.opensearch_api import GulpOpenSearch
 
-            await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(
-                index, index_template=index_template
-            )
+                await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(
+                    index, index_template=index_template
+                )
 
-        # create the operation
-        d = {
-            "index": index,
-            "operation_data": {},
-        }
-        granted_user_ids: list[str] = None
-        granted_user_group_ids: list[str] = None
-        if set_default_grants:
-            MutyLogger.get_instance().info(
-                "setting default grants for operation=%s" % (name)
-            )
-            granted_user_ids = ["admin", "guest", "ingest", "power", "editor"]
-            if grant_to_users:
-                granted_user_ids.extend(grant_to_users)
-            granted_user_group_ids = [ADMINISTRATORS_GROUP_ID]
-            if grant_to_groups:
-                granted_user_group_ids.extend(grant_to_groups)
-
-        try:
-            async with GulpCollab.get_instance().session() as sess:
+            # create the operation
+            d = {
+                "index": index,
+                "operation_data": {},
+            }
+            granted_user_ids: list[str] = None
+            granted_user_group_ids: list[str] = None
+            if set_default_grants:
+                MutyLogger.get_instance().info(
+                    "setting default grants for operation=%s" % (name)
+                )
+                granted_user_ids = ["admin", "guest"]
+                granted_user_group_ids = [ADMINISTRATORS_GROUP_ID]
+            try:
                 op = await GulpOperation.create_internal(
                     sess,
                     user_id,
@@ -182,15 +173,14 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                     granted_user_group_ids=granted_user_group_ids,
                     **d,
                 )
+            except Exception as exx:
+                if create_index:
+                    # fail, delete the previously created index
+                    await GulpOpenSearch.get_instance().datastream_delete(index)
+                raise exx
 
-                # done
-                return op.to_dict(exclude_none=True)
-
-        except Exception as exx:
-            if create_index:
-                # fail, delete the previously created index
-                await GulpOpenSearch.get_instance().datastream_delete(index)
-            raise exx
+            # done
+            return op.to_dict(exclude_none=True)
 
     async def add_context(
         self,

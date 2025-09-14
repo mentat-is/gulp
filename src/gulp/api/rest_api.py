@@ -597,50 +597,41 @@ class GulpRestServer:
         # load configuration
         GulpConfig.get_instance()
 
-        first_run: bool = False
-        force_recreate_db: bool = False
-        if self._reset_collab:
-            MutyLogger.get_instance().warning("reset_collab set, forcing recreate!")
-            force_recreate_db = True
+        first_run: bool = self._check_first_run()
 
-        if self._check_first_run():
-            # first run, force --create and --reset-collab
-            self._create_operation = "test_operation"
-            self._reset_collab = True
-            force_recreate_db = True
-            first_run = True
-            MutyLogger.get_instance().warning(
-                "FIRST RUN, (re)creating collab database and operation '%s' ..."
-                % (self._create_operation)
-            )
-
+        # check for db integrity
         try:
             await GulpCollab.get_instance().init(main_process=True)
         except SchemaMismatch as ex:
             MutyLogger.get_instance().warning(
                 "collab database schema mismatch, forcing recreate!\n%s" % (ex)
             )
-            force_recreate_db = True
-            self._reset_collab = True
+            # just resetted
+            self._reset_collab=False
 
-        # check for reset flags
-        from gulp.api.rest.db import db_reset
+        if first_run and not self._create_operation:
+            # force creating a default operation on first run
+            self._create_operation = "test_operation"
 
+        if self._reset_collab or self._create_operation:
+            MutyLogger.get_instance().warning(
+                "******** first_run=%r, _reset_collab=%r, _create_operation=%s ********"
+                % (
+                    first_run,
+                    self._reset_collab,
+                    self._create_operation,
+                )
+            )
+
+        # check for reset db and/or create the specified operation
         try:
-            if self._reset_collab or self._create_operation:
-                MutyLogger.get_instance().warning(
-                    "reset_collab or create_operation set, first_run=%r, reset_collab=%r, force_recreate_db=%r, create_operation=%s !"
-                    % (
-                        first_run,
-                        self._reset_collab,
-                        force_recreate_db,
-                        self._create_operation,
-                    )
-                )
-                await db_reset(
-                    operation_id=self._create_operation,
-                    force_recreate_db=force_recreate_db,
-                )
+            if self._reset_collab:
+                from gulp.api.rest.db import db_reset
+                await db_reset()
+
+            if self._create_operation:
+                from gulp.api.collab.operation import GulpOperation
+                await GulpOperation.create_operation(self._create_operation, "admin", set_default_grants=True)
 
         except Exception as ex:
             if first_run:
