@@ -165,7 +165,7 @@ class GulpCollabFilter(BaseModel):
                     "operation_ids": ["op1", "op2"],
                     "context_ids": ["ctx1", "ctx2"],
                     "source_ids": ["src1", "src2"],
-                    "owner_user_ids": ["admin"],
+                    "user_ids": ["admin"],
                     "tags": ["tag1", "tag2"],
                     "names": ["name1", "name2"],
                     "texts": ["text1", "text2"],
@@ -342,7 +342,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             q = q.filter(
                 self._case_insensitive_or_ilike(obj_type.source_id, self.source_ids)
             )
-        if self.user_ids and "owner_user_id" in obj_type.columns:
+        if self.user_ids and "user_id" in obj_type.columns:
             q = q.filter(
                 self._case_insensitive_or_ilike(obj_type.user_id, self.user_ids)
             )
@@ -539,7 +539,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     granted_user_ids: Mapped[Optional[list[str]]] = mapped_column(
         MutableList.as_mutable(ARRAY(String)),
         default=[],
-        doc="The ids of the users who have been granted access to the object. if not set(default), all objects have access.",
+        doc="The ids of the users who have been granted access to the object. if not set(default), all users have access. either, the object is private to the listed user_id/s",
     )
     granted_user_group_ids: Mapped[Optional[list[str]]] = mapped_column(
         MutableList.as_mutable(ARRAY(String)),
@@ -718,7 +718,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         return options
 
     @classmethod
-    def build_base_object_dict(
+    def build_object_dict(
         cls,
         user_id: str,
         name: str = None,
@@ -734,7 +734,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         **kwargs,
     ) -> dict:
         """
-        build a dictionary to create a new base object
+        build a dictionary to create a new object
 
         Args:
             user_id (str): The user to be set as the owner of the object.
@@ -846,7 +846,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             Exception: If there is an error during the creation or storage process.
         """
         # build object dictionary with necessary attributes
-        d: dict = cls.build_base_object_dict(
+        d: dict = cls.build_object_dict(
             user_id=user_id,
             name=name,
             operation_id=operation_id,
@@ -1014,11 +1014,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         cls,
         obj_id: str,
         token: str,
-        d: dict,
         permission: list[GulpUserPermission] = None,
         ws_id: str = None,
         ws_data: dict = None,
         ws_data_type: str = None,
+        **kwargs,
     ) -> dict:
         """
         helper to update an object by ID, handling session
@@ -1026,12 +1026,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Args:
             obj_id (str): The ID of the object to update.
             token (str): The user token, pass None for internal calls skipping token check and websocket update.
-            d (dict): A dictionary containing the fields to update and their new values (or new values at all).
             permission (list[GulpUserPermission], optional): explicit permission the token must have to update the object. Defaults to [GulpUserPermission.EDIT].
             ws_id (str, optional): The ID of the websocket connection to send update to the websocket. Defaults to None (no update will be sent). Ignored if token is None (internal request).
             ws_data (dict, optional): this is the data sent in `GulpWsData.data` on the websocket after the object has been updated on database. Defaults to the (serialized) updated object itself. Ignored if ws_id is not provided.
             ws_data_type (str, optional): this is the type in `GulpWsData.type` sent on the websocket. Defaults to WSDATA_COLLAB_UPDATE. Ignored if ws_id is not provided (used only for websocket notification) or if token is None (internal request).
-
+            **kwargs: additional fields to set on the object (existing values will be overwritten, None values will be ignored)
         Returns:
             dict: The updated object as a dictionary.
 
@@ -1055,11 +1054,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
                 await n.update(
                     sess,
-                    d=d,
                     ws_id=ws_id,
                     user_id=user_id,
                     ws_data=ws_data,
                     ws_data_type=ws_data_type,
+                    **kwargs,
                 )
 
             # if no token is provided, we assume this is an internal request, no permission check and no websocket update
@@ -1274,6 +1273,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         cls,
         token: str,
         obj_id: str,
+        operation_id: str = None,
         permission: list[GulpUserPermission] = None,
         ws_id: str = None,
         req_id: str = None,
@@ -1286,6 +1286,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Args:
             token (str): The user token
             obj_id (str): The ID of the object to delete.
+            operation_id (str, optional): The ID of the operation associated with the object: if set, it will be checked for READ permission. Defaults to None.
             permission (list[GulpUserPermission], optional): The permission required to delete the object. Defaults to GulpUserPermission.DELETE.
             ws_id (str, optional): id of the websocket to send WS_COLLAB_DELETE notification to. Defaults to None (no websocket notification).
             req_id (str, optional): The ID of the request to include in the websocket notification. Defaults to None (ignored if ws_id is None).
@@ -1303,16 +1304,27 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             permission = [GulpUserPermission.DELETE]
 
         async with GulpCollab.get_instance().session() as sess:
-            n: GulpCollabBase = await cls.get_by_id(sess, obj_id)
+            s: GulpUserSession
+            obj: GulpCollabBase = await cls.get_by_id(sess, obj_id)
+            if operation_id:
+                # check operation access
+                from gulp.api.collab.operation import GulpOperation
 
-            # token needs at least the required permission (or be the owner or admin)
-            s = await GulpUserSession.check_token(
-                sess, token, permission=permission, obj=n
-            )
+                s, _ = await GulpOperation.get_by_id_wrapper(
+                    sess, token, operation_id, permission=GulpUserPermission.READ
+                )
+                # and object access
+                await s.check_permissions(sess, permission, obj)
+            else:
+                # just check object access
+                s = await GulpUserSession.check_token(
+                    sess, token, permission=permission, obj=obj
+                )
+
             user_id = s.user_id
 
             # delete
-            await n.delete(
+            await obj.delete(
                 sess,
                 ws_id=ws_id,
                 req_id=req_id,
@@ -1686,16 +1698,18 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         sess: AsyncSession,
         token: str,
         obj_id: str,
+        operation_id: str = None,
         permission: list[GulpUserPermission] = None,
         enforce_owner: bool = False,
     ) -> tuple["GulpUserSession", T]:
         """
-        helper to check the token has the required permission on the object and return the user session
+        helper to get an object by ID, checking the token has the required permission
 
         Args:
             sess (AsyncSession): The database session to use.
             token (str): The user token.
             obj_id (str): The ID of the object to get.
+            operation_id (str, optional): The ID of the operation associated with the object: if set, it will be checked for READ permission. Defaults to None.
             permission (list[GulpUserPermission], optional): The permission required to read the object.
             enforce_owner (bool, optional): If True, enforce that the token belongs to the owner of the object (or the user is admin). Defaults to False.
         Returns:
@@ -1704,62 +1718,29 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             MissingPermission: If the user does not have permission to read the object.
             ObjectNotFound: If the object is not found.
         """
+        if not permission:
+            permission = [GulpUserPermission.READ]
+
+        # get the object first
         n: GulpCollabBase = await cls.get_by_id(sess, obj_id)
         from gulp.api.collab.user_session import GulpUserSession
 
-        if not permission:
-            permission = [GulpUserPermission.READ]
+        if operation_id:
+            # check operation access
+            from gulp.api.collab.operation import GulpOperation
 
-        # token needs the required permission (or be the owner or admin)
-        await GulpUserSession.check_token(
-            sess, token, permission=permission, obj=n, enforce_owner=enforce_owner
-        )
-
-        # token needs the required permission (or be the owner or admin)
-        s = await GulpUserSession.check_token(
-            sess, token, permission=permission, obj=n, enforce_owner=enforce_owner
-        )
-        return s
-
-    @classmethod
-    async def get_by_id_wrapper_old(
-        cls,
-        token: str,
-        obj_id: str,
-        permission: list[GulpUserPermission] = None,
-        recursive: bool = False,
-        enforce_owner: bool = False,
-    ) -> dict:
-        """
-        helper to get an object by ID, handling session and ACL check
-
-        Args:
-            token (str): The user token.
-            obj_id (str): The ID of the object to get.
-            permission (list[GulpUserPermission], optional): The permission required to read the object. Defaults to GulpUserPermission.READ.
-            recursive (bool, optional): If True, nested relationships will be loaded for the returned object. Defaults to False.
-            enforce_owner (bool, optional): If True, enforce that the token belongs to the owner of the object (or the user is admin). Defaults to False.
-        Returns:
-            dict: The object as a dictionary
-
-        Raises:
-            MissingPermission: If the user does not have permission to read the object.
-            ObjectNotFound: If the object is not found.
-        """
-        from gulp.api.collab.user_session import GulpUserSession
-        from gulp.api.collab_api import GulpCollab
-
-        if not permission:
-            permission = [GulpUserPermission.READ]
-
-        async with GulpCollab.get_instance().session() as sess:
-            n: GulpCollabBase = await cls.get_by_id(sess, obj_id)
-
-            # token needs the required permission (or be the owner or admin)
-            await GulpUserSession.check_token(
+            s, _ = await GulpOperation.get_by_id_wrapper(
+                sess, token, operation_id, permission=GulpUserPermission.READ
+            )
+            # and object access
+            await s.check_permissions(sess, permission, n, enforce_owner=enforce_owner)
+            return s, n
+        else:
+            # just check object access
+            s: GulpUserSession = await GulpUserSession.check_token(
                 sess, token, permission=permission, obj=n, enforce_owner=enforce_owner
             )
-            return n.to_dict(exclude_none=True, nested=recursive)
+        return s, n
 
     @staticmethod
     async def _set_flt_granted_users_and_groups(
@@ -1798,7 +1779,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # admin must see all
             flt.granted_user_ids = None
             flt.granted_user_group_ids = None
-            flt.user_ids = None
         else:
             # user can see only objects he has access to
             flt.granted_user_ids = [user_id]
@@ -1889,6 +1869,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         cls,
         token: str,
         flt: GulpCollabFilter,
+        operation_id: str = None,
         permission: list[GulpUserPermission] = None,
         throw_if_not_found: bool = False,
         recursive: bool = False,
@@ -1898,6 +1879,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         Args:
             token (str): The user token.
+            operation_id (str, optional): The ID of the operation: if set, it will be checked for READ permission. Defaults to None.
             flt (GulpCollabFilter): The filter to apply to the query.
             permission (list[GulpUserPermission], optional): The permission required to read the object. Defaults to GulpUserPermission.READ.
             throw_if_not_found (bool, optional): If True, raises an exception if no objects are found. Defaults to False (return empty list).
@@ -1911,8 +1893,27 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if not permission:
             permission = [GulpUserPermission.READ]
         async with GulpCollab.get_instance().session() as sess:
-            # token needs at least read permission
-            s = await GulpUserSession.check_token(sess, token, permission=permission)
+            if operation_id:
+                # check operation access
+                from gulp.api.collab.operation import GulpOperation
+
+                s, _ = await GulpOperation.get_by_id_wrapper(
+                    sess, token, operation_id, GulpUserPermission.READ
+                )
+            else:
+                # just check permission
+                s = await GulpUserSession.check_token(
+                    sess, token, permission=permission
+                )
+
+            flt = flt or GulpCollabFilter()
+            if operation_id:
+                # ensure operation_id is set on the filter
+                if not flt.operation_ids:
+                    flt.operation_ids = []
+                if operation_id not in flt.operation_ids:
+                    flt.operation_ids.append(operation_id)
+
             user_id = s.user_id
             # MutyLogger.get_instance().debug("get_by_filter_wrapper, user_id=%s" % (user_id))
 

@@ -552,7 +552,7 @@ class GulpCollab:
                 }
 
                 # glyphs are NOT private
-                d = GulpGlyph.build_base_object_dict(
+                d = GulpGlyph.build_object_dict(
                     object_data,
                     user_id=user_id,
                     obj_id=bare_filename.lower(),

@@ -30,6 +30,7 @@ from gulp.api.collab.structs import (
     GulpUserPermission,
 )
 from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
+from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.ws_api import WSDATA_NEW_CONTEXT
 from gulp.structs import ObjectAlreadyExists
@@ -87,6 +88,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
     @classmethod
     async def create(clr, *args, **kwargs):
         raise TypeError("use create_operation instead")
+
 
     @classmethod
     async def create_operation(

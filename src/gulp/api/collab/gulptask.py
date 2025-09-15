@@ -108,7 +108,7 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
                 "pid": os.getpid(),
                 "raw_data": raw_data_list[i] if raw_data_list else None,
             }
-            task_dict = GulpTask.build_base_object_dict(
+            task_dict = GulpTask.build_object_dict(
                 user_id=user_id,
                 operation_id=operation_id,
                 **object_data,
@@ -179,7 +179,7 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
         except Exception as ex:
             await sess.rollback()
             raise ex
-        
+
     @override
     @classmethod
     async def create(

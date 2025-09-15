@@ -29,6 +29,7 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
+from gulp.api.collab.operation import GulpOperation
 
 router: APIRouter = APIRouter()
 
@@ -58,7 +59,6 @@ creates a note.
 
 - `token` needs `edit` permission.
 - a note can be pinned at a certain time via the `time_pin` parameter, or associated with one or more documents via the `docs` parameter.
-- default `color` is `yellow`.
 """,
 )
 async def note_create_handler(
@@ -108,27 +108,34 @@ async def note_create_handler(
         if not doc and not time_pin:
             raise ValueError("either doc or time_pin must be set.")
 
-        object_data = GulpNote.build_dict(
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            glyph_id=glyph_id,
-            tags=tags,
-            color=color or "yellow",
-            name=name,
-            doc=doc,
-            time_pin=time_pin,
-            text=text,
-        )
-        d = await GulpNote.create(
-            token,
-            ws_id=ws_id,
-            req_id=req_id,
-            object_data=object_data,
-            private=private,
-            operation_id=operation_id,
-        )
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+        async with GulpCollab.get_instance().session() as sess:
+            # check token on operation
+            s: GulpUserSession
+            s, _ = await GulpOperation.get_by_id_wrapper(
+                sess, token, operation_id, GulpUserPermission.EDIT
+            )
+            user_id: str = s.user_id
+
+            n: GulpNote = await GulpNote.create_internal(
+                sess,
+                user_id,
+                name=name,
+                operation_id=operation_id,
+                glyph_id=glyph_id,
+                tags=tags,
+                color=color,
+                private=private,
+                ws_id=ws_id,
+                req_id=req_id,
+                context_id=context_id,
+                source_id=source_id,
+                doc=doc.model_dump(by_alias=True, exclude_none=True) if doc else None,
+                time_pin=time_pin,
+                text=text,
+            )
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data=n.to_dict(exclude_none=True))
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -160,6 +167,10 @@ async def note_create_handler(
 async def note_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id),
+    ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     doc: Annotated[
         GulpBasicDocument,
@@ -193,40 +204,45 @@ async def note_update_handler(
                 "at least one of doc, time_pin, text, name, tags, glyph_id, color must be set."
             )
         async with GulpCollab.get_instance().session() as sess:
-            n: GulpNote = await GulpNote.get_by_id(sess, obj_id)
-            print("---> existing note: %s" % (n))
-
-            s = await GulpUserSession.check_token(
-                sess, token, permission=GulpUserPermission.EDIT, obj=n
+            # check permissions on both operation and object
+            s: GulpUserSession
+            obj: GulpNote
+            s, obj = await GulpNote.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                operation_id=operation_id,
+                permission=GulpUserPermission.EDIT,
             )
 
-            d = {}
+            # update
+            if name:
+                obj.name = name
+            if tags:
+                obj.tags = tags
+            if glyph_id:
+                obj.glyph_id = glyph_id
+            if color:
+                obj.color = color
 
             # ensure only one in time_pin and docs is set
             if time_pin:
-                d["doc"] = None
-                d["time_pin"] = time_pin
-            if doc:
-                d["doc"] = doc.model_dump(
+                obj.doc = None
+                obj.time_pin = time_pin
+            elif doc:
+                obj.doc = doc.model_dump(
                     by_alias=True, exclude_none=True, exclude_defaults=True
                 )
-                d["time_pin"] = 0
-
-            # update
-            d["name"] = name
-            d["tags"] = tags
-            d["text"] = text
-            d["glyph_id"] = glyph_id
-            d["color"] = color
-            d["last_editor_id"] = s.user_id
-            time_updated = muty.time.now_msec()
-            d["time_updated"] = time_updated
-
             # add an edit
-            p = GulpNoteEdit(user_id=s.user_id, text=text, timestamp=time_updated)
-            d["edits"] = n.edits or []
-            d["edits"].append(p.model_dump(exclude_none=True))
-            dd: dict = await n.update(sess, d=d, ws_id=ws_id, user_id=s.user_id)
+            p = GulpNoteEdit(
+                user_id=s.user_id, text=text, timestamp=muty.time.now_msec()
+            )
+            current_edits = obj.edits or []
+            current_edits.append(p.model_dump(exclude_none=True))
+            obj.edits = current_edits  # trigger ORM update
+            obj.last_editor_id = s.user_id
+
+            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user_id)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -259,6 +275,10 @@ async def note_update_handler(
 async def note_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id),
+    ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -267,6 +287,7 @@ async def note_delete_handler(
         await GulpNote.delete_by_id_wrapper(
             token,
             obj_id,
+            operation_id=operation_id,
             ws_id=ws_id,
             req_id=req_id,
         )
@@ -299,6 +320,10 @@ async def note_delete_handler(
 async def note_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id),
+    ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
@@ -306,6 +331,7 @@ async def note_get_by_id_handler(
         d = await GulpNote.get_by_id_wrapper(
             token,
             obj_id,
+            operation_id=operation_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
@@ -334,10 +360,17 @@ async def note_get_by_id_handler(
         }
     },
     summary="list notes, optionally using a filter.",
-    description="**NOTE**: using paging through `flt.limit` and `flt.offset` is highly advised to avoid having a large response.",
+    description="""    
+- **using paging through `flt.limit` and `flt.offset` is highly advised to avoid having a large response**.
+- `operation_id` is set in `flt.operation_ids` automatically.
+""",
 )
 async def note_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id),
+    ],
     flt: Annotated[
         GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
     ] = None,
@@ -350,6 +383,7 @@ async def note_list_handler(
         d = await GulpNote.get_by_filter_wrapper(
             token,
             flt,
+            operation_id=operation_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:

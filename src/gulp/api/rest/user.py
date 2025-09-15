@@ -577,7 +577,7 @@ async def user_update_handler(
                 else:
                     d["user_data"] = user_data
 
-            await u.update_user(sess, d, user_session=s)
+            await u.update_user(sess, user_session=s, **d)
 
             return JSONResponse(
                 JSendResponse.success(req_id=req_id, data=u.to_dict(exclude_none=True))
@@ -783,7 +783,7 @@ async def user_set_data_handler(
                 % (orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode())
             )
             d = {"user_data": user_data}
-            await u.update_user(sess, d, user_session=s)
+            await u.update_user(sess, user_session=s, **d)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -927,12 +927,12 @@ async def user_delete_data_handler(
                     )
                 del user_data[key]
                 d = {"user_data": user_data}
-                await u.update_user(sess, d, user_session=s)
+                await u.update_user(sess, user_session=s, **d)
                 return JSONResponse(JSendResponse.success(req_id=req_id, data=key))
 
             # delete all
-            user_data = {}
-            await u.update_user(sess, {"user_data": user_data}, user_session=s)
-            return JSONResponse(JSendResponse.success(req_id=req_id, data=user_data))
+            d = {"user_data": {}}
+            await u.update_user(sess, user_session=s, **d)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data={}))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

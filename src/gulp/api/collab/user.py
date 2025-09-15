@@ -386,17 +386,19 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
     async def update_user(
         self,
         sess: AsyncSession,
-        d: dict,
         user_session: "GulpUserSession",
-    ) -> None:
+        **kwargs,
+    ) -> dict:
         """
         updates the user object with the specified data, checking for permission and password changes.
 
         Args:
             sess (AsyncSession): The database session.
-            d (dict): The data to update.
-            user_session (GulpUserSession): The user session object (will be invalidated).
+            user_session (GulpUserSession): The user session used to perform the update (may NOT be self.session if i.e. admin updating another user).
+            **kwargs: The fields to update and their new values (or new values at all).
 
+        Returns:
+            dict: The updated GulpUser as dict
         Raises:
             MissingPermission: If the user does not have the required permission.
         """
@@ -406,7 +408,8 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         # - only admin can change permission
         # - only admin can change password to other users
         # - changing password will invalidate the session
-        if "permission" in d:
+        delete_session: bool = False
+        if "permission" in kwargs:
             if not user_session.user.is_admin():
                 # only admin can change permission
                 raise MissingPermission(
@@ -414,39 +417,33 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                     % (user_session.user_id)
                 )
 
-        if "password" in d:
+            # ensure that all users have read permission
+            if GulpUserPermission.READ not in kwargs["permission"]:
+                kwargs["permission"].append(GulpUserPermission.READ)
+            delete_session = True
+
+        if "password" in kwargs:
             if not user_session.user.is_admin() and user_session.user.id != self.id:
                 # only admin can change password to other users
                 raise MissingPermission(
                     "only admin can change password to other users, user_id=%s, session_user_id=%s"
                     % (self.id, user_session.user_id)
                 )
-
-        # checks ok, update user
-        delete_session = False
-        if "password" in d:
-            d["pwd_hash"] = muty.crypto.hash_sha256(d["password"])
-            del d["password"]
-            delete_session = True
-        if "permission" in d:
-            # ensure that all users have read permission
-            if GulpUserPermission.READ not in d["permission"]:
-                d["permission"].append(GulpUserPermission.READ)
+            kwargs["pwd_hash"] = muty.crypto.hash_sha256(kwargs["password"])
+            del kwargs["password"]
             delete_session = True
 
-        # update
-        await super().update(sess, d)
-
-        if user_session and delete_session:
-            # invalidate session for the user
+        if delete_session and self.session:
+            # invalidate session for the user being updated
             MutyLogger.get_instance().warning(
                 "updated user password or permission, invalidating session for user_id=%s"
                 % (self.id)
             )
+            await sess.delete(self.session)
+            self.session = None
 
-            await sess.delete(user_session)
-
-        await sess.flush()
+        # checks ok, update user
+        return await super().update(sess, **kwargs)
 
     def is_admin(self) -> bool:
         """
@@ -658,11 +655,11 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
         the user has permission to access the object if:
 
-        - no granted users or groups are set (everyone has access)
+        - no granted users or groups are set (public, everyone has access)
         - the user is an admin
         - the user is the owner of the object
         - the user is in the granted groups of the object
-        - the user is in the granted users of the object
+        - the user is in the granted users of the object (i.e. the object is private to an user)
 
         Args:
             obj (GulpCollabBase): The object to check against.
@@ -691,10 +688,12 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         if not obj.granted_user_group_ids and not obj.granted_user_ids:
             # public object (both granted_user_group_ids and granted_user_ids are empty)
             MutyLogger.get_instance().debug(
-                "allowing access to object without granted users or groups, user=%s"
+                "allowing access to public object, user=%s"
                 % (self.id)
             )
             return True
+
+        # the object is private or have granted users/groups, check if the user is in the granted groups or users
 
         # check if the user is in the granted groups
         if obj.granted_user_group_ids:

@@ -23,7 +23,10 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 
 from gulp.api.collab.link import GulpLink
-from gulp.api.collab.structs import GulpCollabFilter
+from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
+from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 
@@ -54,7 +57,6 @@ router: APIRouter = APIRouter()
 creates a link between a source document and one (or more) target documents.
 
 - `token` needs `edit` permission.
-- default `color` is `red`.
 """,
 )
 async def link_create_handler(
@@ -78,25 +80,32 @@ async def link_create_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
-        object_data = GulpLink.build_dict(
-            operation_id=operation_id,
-            glyph_id=glyph_id,
-            tags=tags,
-            color=color or "red",
-            description=description,
-            name=name,
-            doc_id_from=doc_id_from,
-            doc_ids=doc_ids,
-        )
-        d = await GulpLink.create(
-            token,
-            ws_id=ws_id,
-            req_id=req_id,
-            object_data=object_data,
-            private=private,
-            operation_id=operation_id,
-        )
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+        async with GulpCollab.get_instance().session() as sess:
+            # check token on operation
+            s: GulpUserSession
+            s, _ = await GulpOperation.get_by_id_wrapper(
+                sess, token, operation_id, GulpUserPermission.EDIT
+            )
+            user_id: str = s.user_id
+
+            l: GulpLink = await GulpLink.create_internal(
+                sess,
+                user_id,
+                ws_id=ws_id,
+                private=private,
+                req_id=req_id,
+                operation_id=operation_id,
+                glyph_id=glyph_id,
+                tags=tags,
+                color=color,
+                description=description,
+                name=name,
+                doc_id_from=doc_id_from,
+                doc_ids=doc_ids,
+            )
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data=l.to_dict(exclude_none=True))
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -128,6 +137,10 @@ async def link_create_handler(
 async def link_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id),
+    ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     doc_ids: Annotated[
         list[str], Body(description="One or more target document IDs.")
@@ -142,25 +155,41 @@ async def link_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+
     try:
         if not any([doc_ids, name, description, tags, glyph_id, color]):
             raise ValueError(
                 "At least one of doc_ids, name, description, tags, glyph_id, color must be provided."
             )
-        d = {}
-        d["doc_ids"] = doc_ids
-        d["description"] = description
-        d["name"] = name
-        d["tags"] = tags
-        d["glyph_id"] = glyph_id
-        d["color"] = color
-        d = await GulpLink.update_by_id(
-            obj_id,
-            token,
-            d,
-            ws_id=ws_id,
-        )
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+        async with GulpCollab.get_instance().session() as sess:
+            # check permissions on both operation and object
+            s: GulpUserSession
+            obj: GulpLink
+            s, obj = await GulpLink.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                operation_id=operation_id,
+                permission=GulpUserPermission.EDIT,
+            )
+
+            # update
+            if doc_ids:
+                obj.doc_ids = doc_ids
+            if name:
+                obj.name = name
+            if description:
+                obj.description = description
+            if tags:
+                obj.tags = tags
+            if glyph_id:
+                obj.glyph_id = glyph_id
+            if color:
+                obj.color = color
+
+            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user_id)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
+
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -192,6 +221,10 @@ async def link_update_handler(
 async def link_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id),
+    ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -200,6 +233,7 @@ async def link_delete_handler(
         await GulpLink.delete_by_id_wrapper(
             token,
             obj_id,
+            operation_id=operation_id,
             ws_id=ws_id,
             req_id=req_id,
         )
@@ -232,6 +266,10 @@ async def link_delete_handler(
 async def link_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id),
+    ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
@@ -239,6 +277,7 @@ async def link_get_by_id_handler(
         d = await GulpLink.get_by_id_wrapper(
             token,
             obj_id,
+            operation_id=operation_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
@@ -267,10 +306,16 @@ async def link_get_by_id_handler(
         }
     },
     summary="list links, optionally using a filter.",
-    description="",
+    description="""
+- `operation_id` is set in `flt.operation_ids` automatically.
+""",
 )
 async def link_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[
+        str,
+        Depends(APIDependencies.param_operation_id),
+    ],
     flt: Annotated[
         GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
     ] = None,
@@ -283,6 +328,7 @@ async def link_list_handler(
         d = await GulpLink.get_by_filter_wrapper(
             token,
             flt,
+            operation_id=operation_id,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:

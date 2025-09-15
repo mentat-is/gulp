@@ -33,6 +33,7 @@ from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter, GulpColla
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import (
     WSDATA_COLLAB_UPDATE,
+    GulpCollabCreatePacket,
     GulpCollabCreateUpdatePacket,
     GulpWsSharedQueue,
 )
@@ -72,6 +73,8 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         ForeignKey("context.id", ondelete="CASCADE"),
         doc="The context associated with the note.",
     )
+    text: Mapped[str] = mapped_column(String, doc="The text of the note.")
+
     source_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("source.id", ondelete="CASCADE"),
         doc="The log file path (source) associated with the note.",
@@ -88,8 +91,6 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         ForeignKey("user.id", ondelete="SET NULL"),
         doc="The ID of the last user who edited the note.",
     )
-    text: Mapped[Optional[str]] = mapped_column(String, doc="The text of the note.")
-
     edits: Mapped[Optional[list[GulpNoteEdit]]] = mapped_column(
         MutableList.as_mutable(ARRAY(JSONB)),
         doc="The edits made to the note.",
@@ -118,61 +119,6 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         )
         return d
 
-    @override
-    @classmethod
-    # pylint: disable=arguments-renamed,arguments-differ
-    def build_dict(
-        cls,
-        operation_id: str,
-        context_id: str,
-        source_id: str,
-        glyph_id: str = None,
-        tags: list[str] = None,
-        color: str = None,
-        name: str = None,
-        description: str = None,
-        doc: GulpBasicDocument = None,
-        time_pin: int = None,
-        text: str = None,
-    ) -> dict:
-        """
-        builds a note dictionary, taking care of converting the documents to dictionaries
-
-        Args:
-            operation_id (str): the operation id
-            context_id (str): the context id
-            source_id (str): the source id
-            glyph_id (str, optional): the glyph id. Defaults to None.
-            tags (list[str], optional): the tags. Defaults to None.
-            color (str, optional): the color. Defaults to None.
-            name (str, optional): the name. Defaults to None.
-            description (str, optional): the description. Defaults to None.
-            doc (GulpBasicDocument, optional): the document the note is associated with. Defaults to None.
-            time_pin (int, optional): the time pin. Defaults to None.
-            text (str, optional): the text. Defaults to None.
-
-        Returns:
-            the note dictionary
-        """
-        dd: dict = None
-        if doc:
-            # if a document is provided, convert it to a dictionary
-            dd = doc.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True)
-        return super().build_dict(
-            operation_id=operation_id,
-            context_id=context_id,
-            source_id=source_id,
-            glyph_id=glyph_id,
-            tags=tags,
-            color=color,
-            name=name,
-            description=description,
-            doc=dd,
-            time_pin=time_pin,
-            text=text,
-            edits=[],
-        )
-
     @staticmethod
     async def bulk_create_from_documents(
         sess: AsyncSession,
@@ -185,6 +131,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         color: str = None,
         glyph_id: str = None,
         source_q: str = None,
+        last: bool = False,
     ) -> int:
         """
         creates a note for each document in the list, using bulk insert
@@ -194,12 +141,13 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             user_id (str): the user id creating the notes
             ws_id (str): the websocket id
             req_id (str): the request id
-            docs (list[dict]): the list of documents to create notes for
+            docs (list[dict]): the list of GulpDocument dictionaries to create notes for
             name (str): the name of the notes
             tags (list[str], optional): the tags to add to the notes. Defaults to None (set to ["auto"]).
             color (str, optional): the color of the notes. Defaults to None (use default).
             glyph_id (str, optional): the glyph id of the notes. Defaults to None (use default).
             source_q (str, optional): the original query to be set as text, if any. Defaults to None.
+            last (bool, optional): whether this is the last batch of notes to be created. Defaults to False.
         Returns:
             the number of notes created
         """
@@ -209,23 +157,31 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
 
         if "auto" not in tt:
             tt.append("auto")
+        if not docs:
+            MutyLogger.get_instance().warning("no documents provided, no notes created")
+            return 0
 
         # creates a list of notes, one for each document
-        notes = []
+        notes: list[dict] = []
         MutyLogger.get_instance().info("creating a bulk of %d notes ..." % len(docs))
         for doc in docs:
             highlights = doc.pop("highlight", None)
 
-            # associate the document with the note by creating a GulpBasicDocument object
-            associated_doc = GulpBasicDocument(
-                id=doc.get("_id"),
-                timestamp=doc.get("@timestamp"),
-                gulp_timestamp=doc.get("gulp.timestamp"),
-                invalid_timestamp=doc.get("gulp.timestamp_invalid", False),
-                operation_id=doc.get("gulp.operation_id"),
-                context_id=doc.get("gulp.context_id"),
-                source_id=doc.get("gulp.source_id"),
-            )
+            # use basic fields from the document and builds an associated doc for the note
+            associated_doc: dict = {
+                k: v
+                for k, v in doc.items()
+                if k
+                in [
+                    "_id",
+                    "@timestamp",
+                    "gulp.operation_id",
+                    "gulp.context_id",
+                    "gulp.source_id",
+                    "gulp.timestamp",
+                    "gulp.timestamp_invalid",
+                ]
+            }
 
             # build the note text
             text = ""
@@ -242,24 +198,25 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             text += "\n\n### query:\n\n"
             text += f"````text\n{str(source_q)}````"
 
-            # add the note object dictionary
-            object_data = GulpNote.build_dict(
-                operation_id=associated_doc.operation_id,
-                context_id=associated_doc.context_id,
-                source_id=associated_doc.source_id,
+            if doc:
+                # if a document is provided, convert it to a dictionary
+                doc = doc.model_dump(by_alias=True, exclude_none=True)
+
+            object_data: dict = GulpNote.build_object_dict(
+                user_id,
+                name=name,
+                operation_id=associated_doc["gulp.operation_id"],
                 glyph_id=glyph_id,
                 tags=tt,
                 color=color,
-                name=name,
-                text=text,
+                private=False,
+                obj_id=muty.crypto.hash_xxh128(str(associated_doc) + text),
                 doc=associated_doc,
+                text=text,
+                context_id=associated_doc["gulp.context_id"],
+                source_id=associated_doc["gulp.source_id"],
             )
-            # bulk notes are not private (generated by the system)
-            obj_id: str = muty.crypto.hash_xxh128(str(object_data))
-            note_dict = GulpNote.build_base_object_dict(
-                object_data=object_data, user_id=user_id, private=False, obj_id=obj_id
-            )
-            notes.append(note_dict)
+            notes.append(object_data)
 
         # bulk insert (handles duplicates)
         stmt: Insert = insert(GulpNote).values(notes)
@@ -272,43 +229,40 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             "written %d notes on collab db" % len(inserted_ids)
         )
 
-        # in notes to be sent on ws, only keep the ones inserted
-        notes = [note for note in notes if note["id"] in inserted_ids]
-        if notes:
+        # send on ws, only keep the ones inserted (to avoid sending duplicates, but we always send something if "last" is set)
+        inserted_notes: list[dict] = [
+            note for note in notes if note["id"] in inserted_ids
+        ]
+        if inserted_notes or last:
             # operation is always the same
             operation_id = notes[0].get("operation_id")
-            data: GulpCollabCreateUpdatePacket = GulpCollabCreateUpdatePacket(
-                obj=notes,
+            p: GulpCollabCreatePacket = GulpCollabCreatePacket(
+                obj=inserted_notes,
                 bulk=True,
-                type=COLLABTYPE_NOTE,
-                created=True,
-                bulk_size=len(inserted_ids),
+                last=last,
             )
             wsq = GulpWsSharedQueue.get_instance()
             await wsq.put(
                 WSDATA_COLLAB_UPDATE,
+                user_id,
                 ws_id=ws_id,
-                user_id=user_id,
                 operation_id=operation_id,
                 req_id=req_id,
-                data=data,
+                data=p.model_dump(exclude_none=True),
             )
             MutyLogger.get_instance().debug(
-                "sent %d notes on the websocket %s " % (len(notes), ws_id)
+                "sent %d notes on the websocket %s (notes=%d, inserted=%d)"
+                % (len(notes), len(inserted_notes), ws_id)
             )
-        else:
-            MutyLogger.get_instance().warning(
-                "no notes to send on the websocket %s " % (ws_id)
-            )
-        return len(notes)
+        return len(inserted_notes)
 
     @staticmethod
     async def bulk_update_tags(
         sess: AsyncSession,
         tags: list[str],
         new_tags: list[str],
-        operation_id: str,
-        user_id: str,
+        operation_id: str = None,
+        user_id: str = None,
     ) -> None:
         """
         get tags from notes and update them with new tags
@@ -317,10 +271,8 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             sess (AsyncSession): the database session
             tags (list[str]): the tags to match
             new_tags (list[str]): the new tags to add
-            operation_id (str): the operation id
-            user_id (str): the user id making the request
-            user_id_is_admin (bool): whether the user is an admin
-            user_group_ids (list[str], optional): the user groups ids. Defaults to None.
+            operation_id (str, optional): the operation id to restrict to. Defaults to None (all operations).
+            user_id (str, optional): the user id requesting the update. Defaults to None (admin, see all notes).
         """
         MutyLogger.get_instance().debug(
             f"updating notes tags from {tags} to {new_tags} ..."
@@ -333,16 +285,10 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             tags=tags,
             limit=chunk_size,
             offset=offset,
+            operation_ids=[operation_id] if operation_id else None,
         )
 
-        # restrict to operation_id and user_id
-        if operation_id:
-            flt.operation_ids = [operation_id]
-        # if user_id:
-        #   flt.owner_user_ids = [user_id]
-
         updated = 0
-
         while True:
             # get all notes matching "tags"
             notes: list[GulpNote] = await GulpNote.get_by_filter(
@@ -356,9 +302,11 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
 
             # for each note, update tags
             for n in notes:
+                nt = n.tags
                 for t in new_tags:
                     if t not in n.tags:
-                        n.tags.append(t)
+                        nt.append(t)
+                n.tags = nt  # trigger ORM update
 
             await sess.commit()
             rows_updated = len(notes)

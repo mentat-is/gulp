@@ -148,6 +148,80 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         self.time_expire = time_expire
         await sess.commit()
 
+    async def check_permissions(
+        self,
+        sess: AsyncSession,
+        permission: list[GulpUserPermission] | GulpUserPermission = None,
+        obj: Optional[GulpCollabBase] = None,
+        throw_on_no_permission: bool = True,
+        enforce_owner: bool = False,
+    ) -> "GulpUserSession":
+        """
+        Check if the user represented by this session has the required permissions.
+
+        - if user is an admin, the function will always grant access.
+        - if no obj is provided, the function will just check if the user has the required permission/s.
+        - if obj is provided, the function will check the user permissions against the object to access it.
+            - check GulpUser.check_object_access() for details.
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            permission (list[GulpUserPermission]|GulpUserPermission, optional): The permission(s) required to access the object. Defaults to None (just check for READ permission, which every token has: basically it checks if the token exists).
+            obj (Optional[GulpCollabBase], optional): The object to check the permissions against, for access. Defaults to None.
+            throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions (or if he's not logged on). Defaults to True.
+            enforce_owner (bool, optional): If True, the user must be the owner of the object to access it (or administrator
+        Returns:
+            GulpUserSession: The user session object (includes GulpUser object) or None if the user does not have the required permissions and throw_on_no_permission is False.
+        Raises:
+            MissingPermission: If the user does not have the required permissions.
+        """
+        if not permission:
+            # assume read permission is requested if not provided
+            permission = [GulpUserPermission.READ]
+
+        if isinstance(permission, GulpUserPermission):
+            # allow single permission as string
+            permission = [permission]
+
+        is_admin: bool = False
+        try:
+            if self.user.is_admin():
+                # admin user can access any object and always have permission
+                is_admin = True
+                return self
+
+            if not obj:
+                # check if the user have the required permission (owner always have permission)
+                if self.user.has_permission(permission):
+                    # access granted
+                    return self
+
+                if throw_on_no_permission:
+                    raise MissingPermission(
+                        f"user={self.user_id} does not have the required permissions {permission} to perform this operation."
+                    )
+                return None
+
+            # check if the user has access
+            if self.user.check_object_access(
+                obj,
+                throw_on_no_permission=throw_on_no_permission,
+                enforce_owner=enforce_owner,
+            ):
+                # check if the user have the required permission (owner always have permission)
+                if self.user.has_permission(permission) or obj.is_owner(self.user.id):
+                    # access granted
+                    return self
+
+            if throw_on_no_permission:
+                raise MissingPermission(
+                    f"user={self.user_id} does not have the required permissions {permission} to perform this operation, obj={obj.id if obj else None}, obj_owner={obj.user_id if obj else None}."
+                )
+            return None
+        finally:
+            # finally, update user session's expiration time
+            await self.update_expiration_time(sess, is_admin=is_admin)
+
     @staticmethod
     async def check_token(
         sess: AsyncSession,
@@ -158,39 +232,25 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         enforce_owner: bool = False,
     ) -> "GulpUserSession":
         """
-        Check if the user represented by token is logged in and has the required permissions.
-
-        - if both permission and obj are None, the function will return the user session without checking permissions.
-        - if user is an admin, the function will always grant access.
-        - first, if permission is provided, the function will check if the user has the required permission/s.
-        - then, if obj is provided, the function will check the user permissions against the object to access it.
-            - check GulpUser.check_object_access() for details.
+        static method which checks if the provided token is valid and has the required permissions (calls GulpUserSession.check())
 
         Args:
-            sess (AsyncSession, optional): The database session to use. Defaults to None.
-            token (str): The token representing the user's session.
-            permission (list[GulpUserPermission]|GulpUserPermission, optional): The permission(s) required to access the object. Defaults to None (just check for READ permission, which every token has: basically it checks if the token exists).
+            sess (AsyncSession): The database session to use.
+            token (str): The session token to check.
+            permission (list[GulpUserPermission]|GulpUserPermission, optional): The permission(s
+                required to access the object. Defaults to None (just check for READ permission, which every token has: basically it checks if the token exists).
             obj (Optional[GulpCollabBase], optional): The object to check the permissions against, for access. Defaults to None.
             throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions (or if he's not logged on). Defaults to True.
-            enforce_owner (bool, optional): If True, the user must be the owner of the object to access it (or administrator). Defaults to False.
-
+            enforce_owner (bool, optional): If True, the user must be the owner of the object to access it (or administrator
         Returns:
-            GulpUserSession: The user session object (includes GulpUser object).
-
+            GulpUserSession: The user session object (includes GulpUser object) or None if the user does not have the required permissions and throw_on_no_permission is False.
         Raises:
-            MissingPermission: If the user does not have the required permissions.
+            MissingPermission: If the user does not have the required permissions.            
         """
         MutyLogger.get_instance().debug(
             "---> check_token_permission: token=%s, permission=%s, sess=%s ..."
             % (token, permission, sess)
         )
-        if not permission:
-            # assume read permission if not provided
-            permission = [GulpUserPermission.READ]
-
-        if isinstance(permission, GulpUserPermission):
-            # allow single permission as string
-            permission = [permission]
 
         if GulpConfig.get_instance().debug_allow_any_token_as_admin():
             # session expiration time is not taken into account in this case
@@ -204,43 +264,10 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         except ObjectNotFound as ex:
             raise MissingPermission('token "%s" not logged in' % (token)) from ex
 
-        is_admin: bool = False
-        try:
-            if user_session.user.is_admin():
-                # admin user can access any object and always have permission
-                is_admin = True
-                return user_session
-
-            if not obj:
-                # check if the user have the required permission (owner always have permission)
-                if user_session.user.has_permission(permission):
-                    # access granted
-                    return user_session
-
-                if throw_on_no_permission:
-                    raise MissingPermission(
-                        f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation."
-                    )
-                return None
-
-            # check if the user has access
-            if user_session.user.check_object_access(
-                obj,
-                throw_on_no_permission=throw_on_no_permission,
-                enforce_owner=enforce_owner,
-            ):
-                # check if the user have the required permission (owner always have permission)
-                if user_session.user.has_permission(permission) or obj.is_owner(
-                    user_session.user.id
-                ):
-                    # access granted
-                    return user_session
-
-            if throw_on_no_permission:
-                raise MissingPermission(
-                    f"User {user_session.user_id} does not have the required permissions {permission} to perform this operation, obj={obj.id if obj else None}, obj_owner={obj.user_id if obj else None}."
-                )
-            return None
-        finally:
-            # finally, update user session's expiration time
-            await user_session.update_expiration_time(sess, is_admin=is_admin)
+        return await user_session.check_permissions(
+            sess,
+            permission=permission,
+            obj=obj,
+            throw_on_no_permission=throw_on_no_permission,
+            enforce_owner=enforce_owner,
+        )

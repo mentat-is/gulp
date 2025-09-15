@@ -183,36 +183,35 @@ async def operation_update_handler(
                 "At least one of index, description, operation_data or glyph_id must be provided."
             )
         async with GulpCollab.get_instance().session() as sess:
-            s: GulpUserSession = await GulpUserSession.check_token(
-                sess, token, permission=[GulpUserPermission.INGEST]
+            s: GulpUserSession
+            op: GulpOperation
+            s, op = await GulpOperation.get_by_id_wrapper(
+                sess, token, operation_id, permission = GulpUserPermission.INGEST
             )
 
             # get the operation to be updated
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
 
-            # build update dict
-            d = {}
+            # update
             if index:
-                d["index"] = index
+                op.index = index
             if description:
-                d["description"] = description
+                op.description = description
             if glyph_id:
-                d["glyph_id"] = glyph_id
+                op.glyph_id = glyph_id
             if operation_data:
+                op_data: dict = op.operation_data or {}
                 if merge_operation_data:
                     # merge with existing
-                    if op.operation_data:
-                        d["operation_data"] = {**op.operation_data, **operation_data}
-                    else:
-                        d["operation_data"] = operation_data
+                    for k,v in operation_data.items():
+                        op_data[k] = v
                 else:
                     # replace
-                    d["operation_data"] = operation_data
+                    op_data = operation_data
+                op.operation_data = op_data
 
-            # update
             dd: dict = await op.update(
-                sess,
-                d,
+                sess
             )
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
@@ -492,7 +491,7 @@ async def context_get_by_id_handler(
 async def context_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    context_id: Annotated[str, Depends(APIDependencies.param_context_id)],    
+    context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
     delete_data: Annotated[
         Optional[bool],
         Query(
@@ -693,11 +692,7 @@ async def context_update_handler(
 
             # update
             dd: dict = await ctx.update(
-                sess,
-                d,
-                ws_id=ws_id,
-                req_id=req_id,
-                user_id=user_id,
+                sess, ws_id=ws_id, req_id=req_id, user_id=user_id, **d
             )
             return JSendResponse.success(req_id=req_id, data=dd)
     except Exception as ex:
@@ -920,27 +915,19 @@ async def source_update_handler(
             src: GulpSource = await GulpSource.get_by_id(sess, source_id)
 
             # check acl
-            s: GulpUserSession = await GulpUserSession.check_token(
+            _: GulpUserSession = await GulpUserSession.check_token(
                 sess, token, obj=src, permission=GulpUserPermission.EDIT
             )
-            user_id = s.user_id
-
-            # build update dict
-            d = {}
-            if description:
-                d["description"] = description
-            if glyph_id:
-                d["glyph_id"] = glyph_id
-            if color:
-                d["color"] = color
 
             # update
+            if description:
+                src.description = description
+            if glyph_id:
+                src.glyph_id = glyph_id
+            if color:
+                src.color = color
             dd: dict = await src.update(
                 sess,
-                d,
-                ws_id=None,  # do not propagate on the websocket
-                req_id=req_id,
-                user_id=user_id,
             )
             return JSendResponse.success(req_id=req_id, data=dd)
     except Exception as ex:
@@ -1008,7 +995,6 @@ async def source_delete_handler(
             # ok, delete source
             src: GulpSource = await GulpSource.get_by_id(sess, source_id)
             await src.delete(sess, ws_id=ws_id, req_id=req_id, user_id=user_id)
-
 
         return JSendResponse.success(req_id=req_id, data={"id": source_id})
     except Exception as ex:

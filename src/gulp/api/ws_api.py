@@ -127,13 +127,14 @@ class GulpCollabCreatePacket(BaseModel):
                         "something": "else",
                     },
                     "bulk": True,
-                    "type": "note",
+                    "last": False,
                 }
             ]
         },
     )
     obj: list[dict] | dict = Field(
-        ..., description="The created object (or bulk of objects of the same `type`)."
+        ...,
+        description="The created object (or bulk of objects): the object `type` is `obj.type` or `obj[0].type` for bulk objects.",
     )
     bulk: Optional[bool] = Field(
         False,
@@ -165,7 +166,9 @@ class GulpCollabUpdatePacket(BaseModel):
             ]
         },
     )
-    obj: dict = Field(..., description="The updated object.")
+    obj: dict = Field(
+        ..., description="The updated object: the object `type` is `obj.type`."
+    )
 
 
 class GulpCollabDeletePacket(BaseModel):
