@@ -48,10 +48,18 @@ a dict representing the type of each field ingested in this source.
 
     @override
     def to_dict(
-        self, nested=False, hybrid_attributes=False, exclude=None, exclude_none=False
-    ):
+        nested: bool = False,
+        hybrid_attributes: bool = False,
+        exclude: list[str] | None = None,
+        exclude_none: bool = False,
+    ) -> dict:
         # override to have 'gulpesque' keys
-        d = super().to_dict(nested, hybrid_attributes, exclude, exclude_none)
+        d = super().to_dict(
+            nested=nested,
+            hybrid_attributes=hybrid_attributes,
+            exclude=exclude,
+            exclude_none=exclude_none,
+        )
         if "operation_id" in d:
             d["gulp.operation_id"] = d.pop("operation_id")
         if "context_id" in d:

@@ -1,4 +1,3 @@
-
 """
 Module for representing and manipulating glyphs in the Gulp collaboration system.
 
@@ -40,15 +39,18 @@ class GulpGlyph(GulpCollabBase, type=COLLABTYPE_GLYPH):
         return super().__repr__() + f" img={self.img[:10]}[...]"
 
     @override
-    # pylint: disable=W0221
-    def to_dict(self, **kwargs) -> dict:
-        """
-        Convert the object to a dictionary representation.
-        Args:
-            **kwargs: Arbitrary keyword arguments.
-        Returns:
-            dict: A dictionary representation of the object, including base64 encoded "img".
-        """
-        d = super().to_dict(**kwargs)
+    def to_dict(
+        self,
+        nested: bool = False,
+        hybrid_attributes: bool = False,
+        exclude: list[str] | None = None,
+        exclude_none: bool = False,
+    ) -> dict:
+        d = super().to_dict(
+            nested=nested,
+            hybrid_attributes=hybrid_attributes,
+            exclude=exclude,
+            exclude_none=exclude_none,
+        )
         d["img"] = base64.b64encode(self.img).decode()
         return d

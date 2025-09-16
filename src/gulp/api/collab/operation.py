@@ -72,9 +72,19 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         return d
 
     @override
-    # pylint: disable=arguments-differ
-    def to_dict(self, nested=False, **kwargs) -> dict:
-        d = super().to_dict(nested=nested, **kwargs)
+    def to_dict(
+        self,
+        nested: bool = False,
+        hybrid_attributes: bool = False,
+        exclude: list[str] | None = None,
+        exclude_none: bool = False,
+    ) -> dict:
+        d = super().to_dict(
+            nested=nested,
+            hybrid_attributes=hybrid_attributes,
+            exclude=exclude,
+            exclude_none=exclude_none,
+        )
         if nested:
             # add nested contexts
             d["contexts"] = (
@@ -88,7 +98,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
     @classmethod
     async def create(clr, *args, **kwargs):
         raise TypeError("use create_operation instead")
-
 
     @classmethod
     async def create_operation(

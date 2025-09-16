@@ -644,7 +644,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         self,
         nested: bool = False,
         hybrid_attributes: bool = False,
-        exclude: List[str] | None = None,
+        exclude: list[str] | None = None,
         exclude_none: bool = False,
     ) -> dict:
         # same as super.to_dict() but with exclude_none parameter
@@ -1237,7 +1237,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Args:
             sess (AsyncSession): The database session to use.
             flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None (all objects).
-            user_id (str, optional): if set, only return objects that the user has access to.
+            user_id (str, optional): the caller user_id: if set, only return objects that the user has access to.
         Returns:
             int: The number of objects deleted.
         Raises:
@@ -1890,9 +1890,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user_session import GulpUserSession
         from gulp.api.collab_api import GulpCollab
 
-        if not permission:
-            permission = [GulpUserPermission.READ]
         async with GulpCollab.get_instance().session() as sess:
+            if not permission:
+                permission = [GulpUserPermission.READ]
+
             if operation_id:
                 # check operation access
                 from gulp.api.collab.operation import GulpOperation

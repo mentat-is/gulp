@@ -189,9 +189,6 @@ async def operation_update_handler(
                 sess, token, operation_id, permission = GulpUserPermission.INGEST
             )
 
-            # get the operation to be updated
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-
             # update
             if index:
                 op.index = index
