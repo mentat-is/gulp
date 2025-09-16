@@ -2,7 +2,7 @@
 - [install from sources](#install-from-sources)
   - [use the devcontainer](#use-the-devcontainer)
   - [install manually](#install-manually)
-    - [1. install OS dependencies](#1-install-os-dependencies)
+    - [1. install OS dependencies and prerequisites](#1-install-os-dependencies-and-prerequisites)
     - [2. clone repositories](#2-clone-repositories)
     - [3. create and enter virtualenv](#3-create-and-enter-virtualenv)
     - [4. prepare directories and configuration](#4-prepare-directories-and-configuration)
@@ -54,13 +54,27 @@ you may also want to update/edit extensions installed in the container... just d
 
 > use this if you do not want to use the devcontainer ...
 
-### 1. install OS dependencies
+### 1. install OS dependencies and prerequisites
 
 This depends on your OS, on EndeavourOS(arch):
 
 ~~~bash
 # tested with python 3.12, *may* work with 3.13....
-sudo pacman -S rust python=3.12.7-1 python-virtualenv docker docker-compose docker-buildx jq libpqxx git-lfs
+sudo pacman -S rust python=3.12.7-1 python-virtualenv docker docker-compose docker-buildx jq libpqxx git-lfs github-cli
+
+# setup github cli client
+# NOTE: the following is only for the development team to access private repositories
+# go to your github profile -> settings -> developer settings -> Personal access tokens
+# generate new Personal access tokens (classic)
+# select all options and generate it
+
+gh auth login
+# Where do you use GitHub? GitHub.com
+# What is your preferred protocol for Git operations on this host? HTTPS
+# Authenticate Git with your GitHub credentials? Yes
+# How would you like to authenticate GitHub CLI? Paste an authentication token 
+# <TOKEN_HERE>
+# now you can access private repositories as well
 ~~~
 
 ### 2. clone repositories
