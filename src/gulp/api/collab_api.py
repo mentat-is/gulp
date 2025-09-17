@@ -85,7 +85,6 @@ class GulpCollab:
     async def init(
         self,
         force_recreate: bool = False,
-        expire_on_commit: bool = False,
         main_process: bool = False,
     ) -> None:
         """
@@ -117,7 +116,7 @@ class GulpCollab:
 
             self._engine = await self._create_engine()
             self._collab_sessionmaker = async_sessionmaker(
-                bind=self._engine, expire_on_commit=expire_on_commit
+                bind=self._engine, expire_on_commit=False
             )
             if force_recreate:
                 await self.create_tables()
@@ -473,16 +472,13 @@ class GulpCollab:
                 user_id="guest",
                 password="guest",
             )
-            await sess.commit()
             group: GulpUserGroup = await GulpUserGroup.create_internal(
-                sess=sess,
-                object_data={
-                    "name": ADMINISTRATORS_GROUP_ID,
-                    "permission": [GulpUserPermission.ADMIN],
-                },
+                sess,
+                admin_user.id,
+                name=ADMINISTRATORS_GROUP_ID,
                 obj_id=ADMINISTRATORS_GROUP_ID,
-                user_id=admin_user.id,
                 private=False,
+                permission=[GulpUserPermission.ADMIN],
             )
 
             # add admin to administrators group
@@ -546,17 +542,13 @@ class GulpCollab:
                 bare_filename = os.path.splitext(bare_filename)[0]
                 bare_filename = muty.string.to_camel_case(bare_filename)
 
-                object_data = {
-                    "name": bare_filename,
-                    "img": icon_b,
-                }
-
                 # glyphs are NOT private
                 d = GulpGlyph.build_object_dict(
-                    object_data,
-                    user_id=user_id,
+                    user_id,
+                    name=bare_filename,
                     obj_id=bare_filename.lower(),
                     private=False,
+                    img=icon_b,
                 )
 
                 glyphs.append(d)

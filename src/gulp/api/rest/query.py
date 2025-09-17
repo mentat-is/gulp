@@ -1325,13 +1325,6 @@ async def query_sigma_handler(
                 "if more than one query is provided, `q_options.group` must be set."
             )
 
-        if q_options.note_parameters.create_notes is None:
-            # activate notes on match, default
-            # create a new note_parameters object with create_notes=True
-            q_options.note_parameters = q_options.note_parameters.model_copy(
-                update={"create_notes": True}
-            )
-
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)

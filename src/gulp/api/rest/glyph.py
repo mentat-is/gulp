@@ -25,8 +25,11 @@ from muty.jsend import JSendException, JSendResponse
 
 from gulp.api.collab.glyph import GulpGlyph
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
+from gulp.api.collab.user_session import GulpUserSession
+from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router: APIRouter = APIRouter()
 
@@ -89,18 +92,12 @@ async def glyph_create_handler(
     ServerUtils.dump_params(params)
     try:
         data = _read_img_file(img)
-        d = {
-            "name": name,
-            "img": data,
-        }
-
-        d = await GulpGlyph.create(
+        d: dict = await GulpGlyph.create(
             token,
-            ws_id=None,  # do not propagate on the websocket
-            req_id=req_id,
-            object_data=d,
+            name=name,
             permission=[GulpUserPermission.EDIT],
             private=private,
+            img=data,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
@@ -142,18 +139,29 @@ async def glyph_update_handler(
     params = locals()
     params["img"] = img.filename if img else None
     ServerUtils.dump_params(params)
+    sess: AsyncSession = None
     try:
         if not any([name, img]):
             raise ValueError("At least one of name or img must be provided.")
-        d = {}
-        if name:
-            d["name"] = name
-        if img and isinstance(img, UploadFile):
-            data = _read_img_file(img)
-            d["img"] = data
-        d = await GulpGlyph.update_by_id(obj_id, token, d)
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+        async with GulpCollab.get_instance().session as sess:
+            obj: GulpGlyph
+            _, obj = await GulpGlyph.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                permission=GulpUserPermission.EDIT,
+            )
+            if name:
+                obj.name = name
+            if img and isinstance(img, UploadFile):
+                data = _read_img_file(img)
+                obj.img = data
+
+            dd: dict = await obj.update(sess)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -224,13 +232,18 @@ async def glyph_get_by_id_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
-        d = await GulpGlyph.get_by_id_wrapper(
-            token,
-            obj_id,
-        )
-        return JSendResponse.success(req_id=req_id, data=d)
+        async with GulpCollab.get_instance().session() as sess:
+            d = await GulpGlyph.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+            )
+            return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -256,7 +269,9 @@ async def glyph_get_by_id_handler(
         }
     },
     summary="list glyphs, optionally using a filter.",
-    description="",
+    description="""
+- **using paging through `flt.limit` and `flt.offset` is highly advised to avoid having a large response**.
+"""
 )
 async def glyph_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],

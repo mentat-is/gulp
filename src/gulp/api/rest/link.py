@@ -29,6 +29,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router: APIRouter = APIRouter()
 
@@ -79,6 +80,7 @@ async def link_create_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             # check token on operation
@@ -107,6 +109,8 @@ async def link_create_handler(
                 JSendResponse.success(req_id=req_id, data=l.to_dict(exclude_none=True))
             )
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -155,6 +159,7 @@ async def link_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
 
     try:
         if not any([doc_ids, name, description, tags, glyph_id, color]):
@@ -191,6 +196,8 @@ async def link_update_handler(
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
 
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -274,13 +281,17 @@ async def link_get_by_id_handler(
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
-        d = await GulpLink.get_by_id_wrapper(
-            token,
-            obj_id,
-            operation_id=operation_id,
-        )
-        return JSendResponse.success(req_id=req_id, data=d)
+        async with GulpCollab.get_instance().session() as sess:
+            d = await GulpLink.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                operation_id=operation_id,
+            )
+            return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 

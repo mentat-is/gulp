@@ -101,30 +101,29 @@ class GulpQueryNoteParameters(BaseModel):
                     "note_tags": ["test"],
                     "note_color": None,
                     "note_glyph_id": None,
-                    "note_private": False,
                 }
             ]
         }
     )
     create_notes: bool = Field(
-        None,
+        False,
         description="if True, creates a note for every match (default for sigma queries and during external query ingestion, unless explicitly set to False)",
     )
-    note_name: str = Field(
+    name: str = Field(
         None,
         description="the display name of the notes to create on match, defaults None (uses query name)",
     )
-    note_tags: list[str] = Field(
+    tags: list[str] = Field(
         [],
         description='the tags of the notes to create on match, defaults to [] (["auto", sigma rule tags (for sigma queries))',
     )
-    note_color: str = Field(
+    color: str = Field(
         None,
         description="the color of the notes to create on match, defaults to None (use notes default color)",
     )
-    note_glyph_id: str = Field(
+    glyph_id: str = Field(
         None,
-        description="id of the glyph of the notes to create on match, defaults to None (query group glyph if set, otherwise use notes default).",
+        description="id of the glyph of the notes to create on match, defaults to None (use default).",
     )
 
 
@@ -231,7 +230,7 @@ if set, keep querying until all documents are returned (default=True, ignores `s
     )
     note_parameters: Optional[GulpQueryNoteParameters] = Field(
         GulpQueryNoteParameters(),
-        description="controls how notes are created during queries.",
+        description="controls how notes are automatically created during queries (default=no notes)",
     )
     preview_mode: Optional[bool] = Field(
         False,

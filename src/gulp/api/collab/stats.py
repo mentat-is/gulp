@@ -144,32 +144,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         """
         raise TypeError("use GulpRequestStats.create_or_get() instead of create()")
 
-    @override
-    def to_dict(
-        self, nested=False, hybrid_attributes=False, exclude=None, exclude_none=False
-    ):
-        """
-        convert object to dictionary with 'gulpesque' keys.
-
-        Args:
-            nested (bool): whether to include nested objects. Defaults to False.
-            hybrid_attributes (bool): whether to include hybrid attributes. Defaults to False.
-            exclude (list, optional): list of attributes to exclude. Defaults to None.
-            exclude_none (bool): whether to exclude None values. Defaults to False.
-
-        Returns:
-            dict: dictionary representation of the object
-        """
-        # override to have 'gulpesque' keys
-        d = super().to_dict(nested, hybrid_attributes, exclude, exclude_none)
-
-        # convert keys to gulp namespaced format
-        for key in ["operation_id"]:
-            if key in d:
-                d[f"gulp.{key}"] = d.pop(key)
-
-        return d
-
     @staticmethod
     async def delete_pending():
         """

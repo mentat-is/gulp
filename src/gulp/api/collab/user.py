@@ -281,7 +281,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             u: GulpUser = await GulpUser.get_by_id(sess, user_id)
             return await u._get_query_history()
 
-    async def add_to_default_administrators_group(self, sess: AsyncSession) -> bool:
+    async def _add_to_default_administrators_group(self, sess: AsyncSession) -> bool:
         """
         adds the user to the default administrators group.
 
@@ -349,24 +349,23 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             # ensure that all users have read permission
             permission.append(GulpUserPermission.READ)
 
-        object_data = {
-            "pwd_hash": muty.crypto.hash_sha256(password) if password else "-",
-            "permission": permission,
-            "email": email,
-            "glyph_id": glyph_id,
-            "user_data": {},
-        }
-
         # set user_id to username (user owns itself)
-        u: GulpUser = await super().create_internal(
-            sess, obj_id=user_id, object_data=object_data, user_id=user_id
+        u: GulpUser = await GulpUser.create_internal(
+            sess,
+            obj_id=user_id,
+            user_id=user_id,
+            glyph_id=glyph_id,
+            pwd_hash=muty.crypto.hash_sha256(password) if password else "-",
+            permission=permission,
+            email=email,
+            user_data={},
         )
 
         # if the default administrators group exists, and the user is administrator, add
         # the user to the default administrators group
         if u.is_admin():
             try:
-                await u.add_to_default_administrators_group(sess)
+                await u._add_to_default_administrators_group(sess)
             except Exception as e:
                 MutyLogger.get_instance().warning(
                     "failed to add user %s to the default administrators group: %s"
@@ -377,11 +376,6 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
     @override
     async def update(self, *args, **kwargs) -> dict:
         raise TypeError("use 'update_user' method to update a user")
-
-    @classmethod
-    @override
-    async def update_by_id(self, *args, **kwargs) -> dict:
-        raise NotImplementedError("use 'update_user' method to update a user")
 
     async def update_user(
         self,
@@ -688,8 +682,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         if not obj.granted_user_group_ids and not obj.granted_user_ids:
             # public object (both granted_user_group_ids and granted_user_ids are empty)
             MutyLogger.get_instance().debug(
-                "allowing access to public object, user=%s"
-                % (self.id)
+                "allowing access to public object, user=%s" % (self.id)
             )
             return True
 

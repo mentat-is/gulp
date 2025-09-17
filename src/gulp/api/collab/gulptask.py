@@ -13,7 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.dialects.postgresql import JSONB
 from gulp.api.collab.structs import COLLABTYPE_TASK, GulpCollabBase
-
+import muty.string
 
 class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
     """
@@ -100,18 +100,14 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
         i: int = 0
         for p in params_list:
             # build each task object
-            object_data: dict[str, Any] = {
-                "ws_id": ws_id,
-                "req_id": req_id,
-                "task_type": task_type,
-                "params": p,
-                "pid": os.getpid(),
-                "raw_data": raw_data_list[i] if raw_data_list else None,
-            }
             task_dict = GulpTask.build_object_dict(
                 user_id=user_id,
                 operation_id=operation_id,
-                **object_data,
+                ws_id=ws_id,
+                req_id=req_id,
+                task_type=task_type,
+                pid=os.getpid(),
+                raw_data=raw_data_list[i] if raw_data_list else None,
             )
             batch.append(task_dict)
             i += 1
@@ -156,25 +152,20 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
             any exception raised by the underlying create method.
         """
 
-        object_data: dict[str, Any] = {
-            "ws_id": ws_id,
-            "req_id": req_id,
-            "task_type": task_type,
-            "params": params,
-            "pid": os.getpid(),
-            "raw_data": raw_data,
-        }
-
         MutyLogger.get_instance().debug(
-            "queueing task_type=%s, object_data=%s" % (task_type, object_data)
+            "queueing task_type=%s, ws_id=%s, req_id=%s, params=%s" % (task_type, ws_id, req_id, muty.string.make_shorter(str(params), 100))
         )
         try:
-            await cls.create_internal(
+            await GulpTask.create_internal(
                 sess,
                 user_id,
                 operation_id=operation_id,
                 skip_notification=True,
-                **object_data,
+                ws_id=ws_id,
+                req_id=req_id,
+                task_type=task_type,
+                pid=os.getpid(),
+                raw_data=raw_data,
             )
         except Exception as ex:
             await sess.rollback()

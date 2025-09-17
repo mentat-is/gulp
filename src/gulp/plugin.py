@@ -2813,13 +2813,13 @@ class GulpPluginBase(ABC):
             sm = await get_sigma_mappings(self._plugin_params.mapping_parameters)
             self._plugin_params.mapping_parameters.sigma_mappings = sm
 
-            d = {
-                "plugin": self.bare_filename,
-                "mapping_parameters": self._plugin_params.mapping_parameters.model_dump(
-                    exclude_none=True
-                ),
-            }
-            await GulpSource.update_by_id(self._source_id, None, d)
+            n: GulpSource = await GulpSource.get_by_id(self._sess, self._source_id, throw_if_not_found=False)
+            if not n:
+                MutyLogger.get_instance().error(f"cannot find source {self._source_id} to update mapping_parameters")
+                return
+            await n.update(self._sess,
+                           plugin=self.bare_filename,
+                           mapping_parameters=self._plugin_params.mapping_parameters.model_dump(exclude_none=True))
 
     async def _source_done(self, flt: GulpIngestionFilter = None, **kwargs) -> None:
         """

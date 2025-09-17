@@ -30,6 +30,7 @@ from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.collab.operation import GulpOperation
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router: APIRouter = APIRouter()
 
@@ -101,6 +102,7 @@ async def note_create_handler(
     params = locals()
     params["doc"] = str(doc) if doc else "None"
     ServerUtils.dump_params(params)
+    sess: AsyncSession = None
 
     try:
         if doc and time_pin:
@@ -137,6 +139,8 @@ async def note_create_handler(
                 JSendResponse.success(req_id=req_id, data=n.to_dict(exclude_none=True))
             )
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -194,6 +198,7 @@ async def note_update_handler(
     params = locals()
     params["doc"] = str(doc) if doc else "None"
     ServerUtils.dump_params(params)
+    sess: AsyncSession = None
 
     try:
         # we cannot have both docs and time_pin set
@@ -245,6 +250,8 @@ async def note_update_handler(
             dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user_id)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -327,14 +334,20 @@ async def note_get_by_id_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
+
     try:
-        d = await GulpNote.get_by_id_wrapper(
-            token,
-            obj_id,
-            operation_id=operation_id,
-        )
-        return JSendResponse.success(req_id=req_id, data=d)
+        async with GulpCollab.get_instance().session() as sess:
+            d = await GulpNote.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                operation_id=operation_id,
+            )
+            return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 

@@ -311,47 +311,6 @@ async def request_list_handler(
         raise JSendException(req_id=req_id) from ex
 
 
-@router.post(
-    "/server_restart",
-    tags=["utility"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701278479259,
-                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                    }
-                }
-            }
-        }
-    },
-    summary="""restart the server.
-    """,
-    description="""
-> **WARNING**: usage of this API is discouraged, properly restart the container is advised instead.
-
-use i.e. to apply changes to the server configuration or plugins, or if the server gets slow or consumes too much memory.
-
-- token needs `admin` permission.
-""",
-)
-async def restart_handler(
-    token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSONResponse:
-    params = locals()
-    ServerUtils.dump_params(params)
-    async with GulpCollab.get_instance().session() as sess:
-        await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
-
-    GulpRestServer.get_instance().trigger_restart()
-    return JSendResponse.success(req_id=req_id)
-
-
 @router.get(
     "/server_status",
     tags=["utility"],
@@ -655,79 +614,6 @@ async def server_status_handler(
     }
 
     return JSendResponse.success(data=stats, req_id=req_id)
-
-
-@router.post(
-    "/trigger_gc",
-    tags=["utility"],
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701278479259,
-                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {
-                            "before": {
-                                "memory": {
-                                    "rss_mb": 292.34375,
-                                    "vms_mb": 1214.890625,
-                                    "shared_mb": 5.4140625,
-                                },
-                                "gc_stats": {
-                                    "collections": [1, 1, 3],
-                                    "objects_tracked": 346601,
-                                    "garbage": 0,
-                                },
-                            },
-                            "after": {
-                                "memory": {
-                                    "rss_mb": 292.34375,
-                                    "vms_mb": 1214.890625,
-                                    "shared_mb": 5.4140625,
-                                },
-                                "gc_stats": {
-                                    "collections": [1, 0, 0],
-                                    "objects_tracked": 346269,
-                                    "garbage": 0,
-                                },
-                            },
-                            "delta": {
-                                "rss_mb": 0.0,
-                                "vms_mb": 0.0,
-                                "shared_mb": 0.0,
-                                "objects": 332,
-                            },
-                            "collection_time_ms": 170.80650408752263,
-                        },
-                    }
-                }
-            }
-        }
-    },
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    summary="trigger garbage collection.",
-    description="""
-- token needs `admin` permission.
-- triggers garbage collection in the server main process.
-""",
-)
-async def trigger_gc_handler(
-    token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSONResponse:
-    # baseline: 289
-    # round 1: 388
-    params = locals()
-    ServerUtils.dump_params(params)
-    async with GulpCollab.get_instance().session() as sess:
-        await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
-
-    MutyLogger.get_instance().info("triggering garbage collection ...")
-    d = muty.obj.trigger_gc_and_get_stats()
-    return JSendResponse.success(data=d, req_id=req_id)
 
 
 @router.get(

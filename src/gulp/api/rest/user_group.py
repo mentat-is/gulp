@@ -120,19 +120,13 @@ async def user_group_create_handler(
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
-    d = {
-        "name": name,
-        "description": description,
-        "permission": permission,
-        "glyph_id": glyph_id,
-    }
     try:
-        d = await GulpUserGroup.create(
+        d: dict = await GulpUserGroup.create(
             token,
-            ws_id=None,  # do not propagate on the websocket
-            req_id=req_id,
-            object_data=d,
+            name=name,
             permission=[GulpUserPermission.ADMIN],
+            description=description,
+            glyph_id=glyph_id,
             obj_id=muty.string.ensure_no_space_no_special(name.lower()),
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
@@ -189,17 +183,24 @@ async def user_group_update_handler(
             raise ValueError(
                 "At least one of description, glyph_id, or permission must be provided."
             )
-        d = {}
-        d["permission"] = permission
-        d["description"] = description
-        d["glyph_id"] = glyph_id
-        d = await GulpUserGroup.update_by_id(
-            group_id,
-            token,
-            d,
-            permission=[GulpUserPermission.ADMIN],
-        )
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+        async with GulpCollab.get_instance().session() as sess:
+            obj: GulpUserGroup
+            _, obj = await GulpUserGroup.get_by_id_wrapper(
+                sess,
+                token,
+                group_id,
+                permission=[GulpUserPermission.ADMIN],
+            )
+            # update
+            if permission:
+                obj.permission = permission
+            if description:
+                obj.description = description
+            if glyph_id:
+                obj.glyph_id = glyph_id
+
+            dd: dict = await obj.update(sess)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

@@ -799,7 +799,7 @@ class GulpOpenSearch:
 
         Args:
             ds (str): The name of the datastream to delete.
-
+            throw_on_error(bool, optional): raise exception if the datastream do not exist
         Returns:
             None
         """
@@ -2088,7 +2088,7 @@ class GulpOpenSearch:
         NOTE: in the end, all gulp **local** queries and all **elasticsearch/opensearch** based queries for external plugins will be done through this function.
 
         Args:
-            sess (AsyncSession): SQLAlchemy session (to check if request has been canceled and/or create notes on match)
+            sess (AsyncSession): SQLAlchemy session (to check if request has been canceled)
             index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
             q (dict): The DSL query to execute (will be run as "query": q }, so be sure it is stripped of the root "query" key)
             req_id (str), optional: The request ID for the query
@@ -2123,9 +2123,6 @@ class GulpOpenSearch:
         if not q_options:
             # use defaults
             q_options = GulpQueryParameters()
-
-        if q_options.note_parameters.create_notes and not sess:
-            raise ValueError("sess is required if create_notes is set!")
 
         if el:
             # force use_elasticsearch_api if el is provided
@@ -2240,7 +2237,7 @@ class GulpOpenSearch:
                     name=q_options.note_parameters.note_name,
                     tags=q_options.note_parameters.note_tags,
                     color=q_options.note_parameters.note_color,
-                    glyph_id=q_options.note_parameters.note_glyph_id,
+                    glyph_id=q_options.note_parameters.glyph_id,
                     source_q=source_q,
                 )
 

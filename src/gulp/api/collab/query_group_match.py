@@ -176,9 +176,3 @@ class GulpQueryGroupMatch(GulpCollabBase, type=COLLABTYPE_QUERY_GROUP_MATCH):
         """
         raise TypeError("use add_match method to update query group matches")
 
-    @override
-    async def update_by_id(*args, **kwargs) -> None:
-        """
-        disabled, query group matches can only be updated via the update_matches method.
-        """
-        raise TypeError("use update_matches method to update query group matches")
