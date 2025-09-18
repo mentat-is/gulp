@@ -661,17 +661,18 @@ async def _preview_query(
             mod = await GulpPluginBase.load(plugin)
 
             # external query
-            total, docs = await mod.query_external(
-                sess=None,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=None,
-                operation_id=operation_id,
-                q=q,
-                index=None,
-                plugin_params=plugin_params,
-                q_options=q_options,
-            )
+            async with GulpCollab.get_instance().session() as sess:
+                total, docs = await mod.query_external(
+                    sess=sess,
+                    user_id=user_id,
+                    req_id=req_id,
+                    ws_id=None,
+                    operation_id=operation_id,
+                    q=q,
+                    index=None,
+                    plugin_params=plugin_params,
+                    q_options=q_options,
+                )
         else:
             # standard query
             total, docs, _ = await GulpOpenSearch.get_instance().search_dsl_sync(

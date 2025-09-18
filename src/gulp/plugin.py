@@ -1111,8 +1111,8 @@ class GulpPluginBase(ABC):
             ObjectNotFound: if no document is found.
         """
         MutyLogger.get_instance().debug(
-            "GulpPluginBase.query_external: q=%s, index=%s, operation_id=%s, q_options=%s, plugin_params=%s, kwargs=%s"
-            % (q, index, operation_id, q_options, plugin_params, kwargs)
+            "GulpPluginBase.query_external: q=%s, sess=%s, index=%s, operation_id=%s, q_options=%s, plugin_params=%s, kwargs=%s"
+            % (q, sess, index, operation_id, q_options, plugin_params, kwargs)
         )
         self._sess = sess
         self._stats = stats
@@ -2087,26 +2087,28 @@ class GulpPluginBase(ABC):
                 if self._preview_mode:
                     ctx_id = "preview"
                     src_id = "preview"
-
-                # find the context
-                ctx_id: str = await self._check_doc_for_ctx_id(doc, mapping, **kwargs)
-                if not ctx_id:
-                    # no context_id, cannot process source
-                    MutyLogger.get_instance().error(
-                        f"cannot set source {source_key} without context"
-                    )
-                    return {}
-
-                elif gulp_type == "source_name":
-                    # get/create the source
-                    src_id: str = await self._source_id_from_doc_value(
-                        ctx_id, source_key, source_value
-                    )
                 else:
-                    # directly use the value as source_id
-                    src_id: str = await self._source_id_from_doc_value(
-                        ctx_id, source_key, source_value, force_v_as_source_id=True
+                    # find the context
+                    ctx_id: str = await self._check_doc_for_ctx_id(
+                        doc, mapping, **kwargs
                     )
+                    if not ctx_id:
+                        # no context_id, cannot process source
+                        MutyLogger.get_instance().error(
+                            f"cannot set source {source_key} without context"
+                        )
+                        return {}
+
+                    elif gulp_type == "source_name":
+                        # get/create the source
+                        src_id: str = await self._source_id_from_doc_value(
+                            ctx_id, source_key, source_value
+                        )
+                    else:
+                        # directly use the value as source_id
+                        src_id: str = await self._source_id_from_doc_value(
+                            ctx_id, source_key, source_value, force_v_as_source_id=True
+                        )
 
                 if not src_id:
                     # cannot proceed without source_id
@@ -2851,8 +2853,7 @@ class GulpPluginBase(ABC):
             skipped = 0
 
         if not self._stats and (not self._ingestion_enabled or self._preview_mode):
-            # this also happens on query external
-            self._sess = None
+            # do not update ws nor stats
             return
 
         if self._ws_id and not self._raw_ingestion:
@@ -2911,8 +2912,6 @@ class GulpPluginBase(ABC):
                 )
             except RequestCanceledError:
                 MutyLogger.get_instance().warning("request canceled, source_done!")
-            finally:
-                self._sess = None
 
     def register_internal_events_callback(self, types: list[str] = None) -> None:
         """
