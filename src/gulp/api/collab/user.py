@@ -588,30 +588,29 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         Returns:
             None
         """
-        async with sess:
-            MutyLogger.get_instance().info(
-                "logging out token=%s, user=%s" % (s.id, s.user_id)
-            )
-            p = GulpUserLoginLogoutPacket(user_id=s.user_id, login=False)
-            await s.delete(
-                sess=sess,
-                user_id=s.user_id,
-                ws_id=ws_id,
-                req_id=req_id,
-                ws_queue_datatype=WSDATA_USER_LOGOUT,
-                ws_data=p.model_dump(),
-            )
+        MutyLogger.get_instance().info(
+            "logging out token=%s, user=%s" % (s.id, s.user_id)
+        )
+        p = GulpUserLoginLogoutPacket(user_id=s.user_id, login=False)
+        await s.delete(
+            sess=sess,
+            user_id=s.user_id,
+            ws_id=ws_id,
+            req_id=req_id,
+            ws_queue_datatype=WSDATA_USER_LOGOUT,
+            ws_data=p.model_dump(),
+        )
 
-            # also broadcast to registered plugins
-            from gulp.plugin import GulpInternalEventsManager
+        # also broadcast to registered plugins
+        from gulp.plugin import GulpInternalEventsManager
 
-            await GulpInternalEventsManager.get_instance().broadcast_event(
-                GulpInternalEventsManager.EVENT_LOGOUT,
-                {
-                    "user_id": s.user_id,
-                    "ip": user_ip,
-                },
-            )
+        await GulpInternalEventsManager.get_instance().broadcast_event(
+            GulpInternalEventsManager.EVENT_LOGOUT,
+            {
+                "user_id": s.user_id,
+                "ip": user_ip,
+            },
+        )
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:
         """
