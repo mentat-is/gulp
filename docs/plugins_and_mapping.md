@@ -586,7 +586,7 @@ Here's a commented example mapping file, further details in the [model definitio
             ]
         },
         "my_context": {
-          // if "gulp_type" is set, it can be used to handle GulpContext and GulpSource in the generated document as described in api/mapping/models.py::GulpMappingField
+          // if "is_gulp_type" is set, it can be used to handle GulpContext and GulpSource in the generated document as described in api/mapping/models.py::GulpMappingField
           //
           // this may also have an `ecs` mapping set: in such case, the field is also mapped as normally to the given name.
           //
