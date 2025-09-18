@@ -281,38 +281,6 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             u: GulpUser = await GulpUser.get_by_id(sess, user_id)
             return await u._get_query_history()
 
-    async def _add_to_default_administrators_group(self, sess: AsyncSession) -> bool:
-        """
-        adds the user to the default administrators group.
-
-        NOTE: this is expected to be called only when the user is created and is an admin
-
-        Args:
-            sess (AsyncSession): The database session.
-
-        Returns:
-            bool: True if the user was added to the administrators group, False otherwise
-        """
-        from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID, GulpUserGroup
-
-        try:
-            await self.__class__.acquire_advisory_lock(sess, self.id)
-            g: GulpUserGroup = await GulpUserGroup.get_by_id(
-                sess, ADMINISTRATORS_GROUP_ID
-            )
-            MutyLogger.get_instance().debug(
-                "adding user %s to the 'administrators' group" % (self.id)
-            )
-            try:
-                await g.add_user(sess, self.id)
-            except:
-                await sess.rollback()
-                return False
-
-            return True
-        except Exception as e:
-            await sess.rollback()
-
     @classmethod
     @override
     async def create(cls, *args, **kwargs) -> T:
@@ -364,13 +332,14 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         # if the default administrators group exists, and the user is administrator, add
         # the user to the default administrators group
         if u.is_admin():
-            try:
-                await u._add_to_default_administrators_group(sess)
-            except Exception as e:
-                MutyLogger.get_instance().warning(
-                    "failed to add user %s to the default administrators group: %s"
-                    % (u.id, e)
-                )
+            from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID, GulpUserGroup
+            g: GulpUserGroup = await GulpUserGroup.get_by_id(
+                sess, ADMINISTRATORS_GROUP_ID
+            )
+            MutyLogger.get_instance().debug(
+                "adding user %s to the 'administrators' group" % (u.id)
+            )
+            await g.add_user(sess, u.id)
         return u
 
     @override
@@ -381,7 +350,11 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         self,
         sess: AsyncSession,
         user_session: "GulpUserSession",
-        **kwargs,
+        password: str = None,
+        permission: list[GulpUserPermission] = None,
+        glyph_id: str = None,
+        user_data: dict = None,
+        merge_user_data: bool = False,
     ) -> dict:
         """
         updates the user object with the specified data, checking for permission and password changes.
@@ -389,7 +362,6 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         Args:
             sess (AsyncSession): The database session.
             user_session (GulpUserSession): The user session used to perform the update (may NOT be self.session if i.e. admin updating another user).
-            **kwargs: The fields to update and their new values (or new values at all).
 
         Returns:
             dict: The updated GulpUser as dict
@@ -402,42 +374,55 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         # - only admin can change permission
         # - only admin can change password to other users
         # - changing password will invalidate the session
-        delete_session: bool = False
-        if "permission" in kwargs:
+        delete_existing_user_session: bool = False        
+        if permission:
             if not user_session.user.is_admin():
                 # only admin can change permission
                 raise MissingPermission(
                     "only admin can change permission, session_user_id=%s"
                     % (user_session.user_id)
                 )
-
+            
             # ensure that all users have read permission
-            if GulpUserPermission.READ not in kwargs["permission"]:
-                kwargs["permission"].append(GulpUserPermission.READ)
-            delete_session = True
+            if GulpUserPermission.READ not in permission:
+                permission.append(GulpUserPermission.READ)
+            delete_existing_user_session = True
 
-        if "password" in kwargs:
+        pwd_hash: str = None
+        if password:
             if not user_session.user.is_admin() and user_session.user.id != self.id:
                 # only admin can change password to other users
                 raise MissingPermission(
                     "only admin can change password to other users, user_id=%s, session_user_id=%s"
                     % (self.id, user_session.user_id)
                 )
-            kwargs["pwd_hash"] = muty.crypto.hash_sha256(kwargs["password"])
-            del kwargs["password"]
-            delete_session = True
+            pwd_hash = muty.crypto.hash_sha256(password)
+            delete_existing_user_session = True
 
-        if delete_session and self.session:
+        ud: dict = self.user_data if self.user_data else {}
+        if user_data:
+            if merge_user_data:
+                # merge with existing user data
+                MutyLogger.get_instance().debug("existing user data=%s" % (ud))
+                ud.update(user_data)
+                MutyLogger.get_instance().debug(
+                    "provided user_data=%s, updated user data=%s" % (user_data, ud)
+                )
+            else:
+                # replace existing user data
+                ud = user_data
+
+        if delete_existing_user_session and self.session:
             # invalidate session for the user being updated
             MutyLogger.get_instance().warning(
                 "updated user password or permission, invalidating session for user_id=%s"
                 % (self.id)
             )
-            await sess.delete(self.session)
+            await self.session.delete(sess)
             self.session = None
 
         # checks ok, update user
-        return await super().update(sess, **kwargs)
+        return await self.update(sess, permission=permission, pwd_hash=pwd_hash, glyph_id=glyph_id, user_data=ud)
 
     def is_admin(self) -> bool:
         """
@@ -467,8 +452,9 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         """
         return self.session is not None
 
-    @staticmethod
+    @classmethod
     async def login(
+        cls,
         sess: AsyncSession,
         user_id: str,
         password: str,
@@ -480,9 +466,10 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         """
         Asynchronously logs in a user and creates a session (=obtain token).
         Args:
+            sess (AsyncSession): The session to use.
             user (str): The username of the user to log in.
             password (str): The password of the user to log in.
-            ws_id (str): The websocket ID.
+            ws_id (str): The websocket ID to send WSDATA_USER_LOGIN notification.
             req_id (str): The request ID.
             skip_password_check (bool, optional): Whether to skip the password check, internal usage only. Defaults to False.
             user_ip (str, optional): The IP address of the user, for logging purposes. Defaults to None.
@@ -491,87 +478,80 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         """
         from gulp.api.collab.user_session import GulpUserSession
 
-        try:
-            await GulpUser.acquire_advisory_lock(sess, user_id)
+        # ensure atomicity of login
+        await GulpUser.acquire_advisory_lock(sess, user_id)
+        u: GulpUser = await GulpUser.get_by_id(sess, user_id)
 
-            # ensure atomicity of login
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
-
-            if not skip_password_check:
-                # check password
-                if u.pwd_hash != muty.crypto.hash_sha256(password):
-                    raise WrongUsernameOrPassword(
-                        "wrong password for user_id=%s" % (user_id)
-                    )
-
-            if u.session:
-                # session already exist, update expiration time
-                MutyLogger.get_instance().warning(
-                    "user %s was already logged in, resetting and renewing token..."
-                    % (user_id)
+        if not skip_password_check:
+            # check password
+            if u.pwd_hash != muty.crypto.hash_sha256(password):
+                raise WrongUsernameOrPassword(
+                    "wrong password for user_id=%s" % (user_id)
                 )
 
-                await u.session.update_expiration_time(
-                    sess, is_admin=u.is_admin(), update_id=True
-                )
-                return u.session
+        if u.session:
+            # session already exist, update expiration time
+            MutyLogger.get_instance().warning(
+                "user %s was already logged in, resetting and renewing token..."
+                % (user_id)
+            )
 
-            # create new session
-            p = GulpUserLoginLogoutPacket(user_id=u.id, login=True, ip=user_ip)
-            time_expire = GulpConfig.get_instance().token_expiration_time(u.is_admin())
-            object_data = {
+            # this commits the session
+            await u.session.update_expiration_time(
+                sess, is_admin=u.is_admin(), update_id=True
+            )
+            return u.session
+
+        # create new session
+        p = GulpUserLoginLogoutPacket(user_id=u.id, login=True, ip=user_ip)
+        time_expire = GulpConfig.get_instance().token_expiration_time(u.is_admin())
+        if GulpConfig.get_instance().is_integration_test():
+            # for integration tests, this api will return a fixed token based on the user_id
+            # (the user must anyway log in first)
+            token_id: str = "token_" + user_id
+            MutyLogger.get_instance().warning(
+                "using fixed token %s for integration test" % (token_id)
+            )
+        else:
+            # autogenerated
+            token_id: str = None
+
+        # pylint: disable=protected-access
+        new_session: GulpUserSession = await GulpUserSession.create_internal(
+            sess,
+            u.id,
+            obj_id=token_id,
+            ws_id=ws_id,
+            ws_data_type=WSDATA_USER_LOGIN,
+            ws_data=p.model_dump(),
+            req_id=req_id,
+            time_expire=time_expire,
+        )
+
+        # also broadcast to registered plugins
+        from gulp.plugin import GulpInternalEventsManager
+
+        await GulpInternalEventsManager.get_instance().broadcast_event(
+            GulpInternalEventsManager.EVENT_LOGIN,
+            {
                 "user_id": u.id,
-                "time_expire": time_expire,
-            }
-            if GulpConfig.get_instance().is_integration_test():
-                # for integration tests, this api will return a fixed token based on the user_id
-                # (the user must anyway log in first)
-                token_id = "token_" + user_id
-                MutyLogger.get_instance().warning(
-                    "using fixed token %s for integration test" % (token_id)
-                )
-            else:
-                # autogenerated
-                token_id = None
+                "ip": user_ip,
+            },
+        )
 
-            # pylint: disable=protected-access
-            new_session: GulpUserSession = await GulpUserSession.create_internal(
-                sess,
-                object_data,
-                obj_id=token_id,
-                ws_id=ws_id,
-                user_id=u.id,
-                ws_data_type=WSDATA_USER_LOGIN,
-                ws_data=p.model_dump(),
-                req_id=req_id,
-            )
+        # update user with new session and write the new session object itself
+        u.session = new_session
+        u.time_last_login = muty.time.now_msec()
+        MutyLogger.get_instance().info(
+            "user %s logged in, token=%s, expire=%d, admin=%r"
+            % (u.id, new_session.id, new_session.time_expire, u.is_admin())
+        )
+        await sess.commit()
+        return new_session
 
-            # also broadcast to registered plugins
-            from gulp.plugin import GulpInternalEventsManager
-
-            await GulpInternalEventsManager.get_instance().broadcast_event(
-                GulpInternalEventsManager.EVENT_LOGIN,
-                {
-                    "user_id": u.id,
-                    "ip": user_ip,
-                },
-            )
-
-            # update user with new session and write the new session object itself
-            u.session = new_session
-            u.time_last_login = muty.time.now_msec()
-            MutyLogger.get_instance().info(
-                "user %s logged in, token=%s, expire=%d, admin=%r"
-                % (u.id, new_session.id, new_session.time_expire, u.is_admin())
-            )
-            await sess.commit()
-            return new_session
-        except Exception as e:
-            await sess.rollback()
-            raise e
-
-    @staticmethod
+    @classmethod
     async def logout(
+        cls,
         sess: AsyncSession,
         s: "GulpUserSession",
         ws_id: str,
@@ -584,36 +564,34 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         Args:
             sess (AsyncSession): The session to use.
             s: the GulpUserSession to log out
-            ws_id (str): The websocket ID.
+            ws_id (str): The websocket ID to send WSDATA_USER_LOGOUT notification.
             req_id (str): The request ID.
             user_ip (str, optional): The IP address of the user, for logging purposes. Defaults to None.
         Returns:
             None
         """
-        async with sess:
-            MutyLogger.get_instance().info(
-                "logging out token=%s, user=%s" % (s.id, s.user_id)
-            )
-            p = GulpUserLoginLogoutPacket(user_id=s.user_id, login=False)
-            await s.delete(
-                sess=sess,
-                user_id=s.user_id,
-                ws_id=ws_id,
-                req_id=req_id,
-                ws_data_type=WSDATA_USER_LOGOUT,
-                ws_data=p.model_dump(),
-            )
+        MutyLogger.get_instance().info(
+            "logging out token=%s, user=%s" % (s.id, s.user_id)
+        )
+        p = GulpUserLoginLogoutPacket(user_id=s.user_id, login=False)
+        await s.delete(
+            sess=sess,
+            user_id=s.user_id,
+            ws_id=ws_id,
+            req_id=req_id,
+            ws_data_type=WSDATA_USER_LOGOUT,
+            ws_data=p.model_dump(),
+        )
 
-            # also broadcast to registered plugins
-            from gulp.plugin import GulpInternalEventsManager
-
-            await GulpInternalEventsManager.get_instance().broadcast_event(
-                GulpInternalEventsManager.EVENT_LOGOUT,
-                {
-                    "user_id": s.user_id,
-                    "ip": user_ip,
-                },
-            )
+        # also broadcast to registered plugins
+        from gulp.plugin import GulpInternalEventsManager
+        await GulpInternalEventsManager.get_instance().broadcast_event(
+            GulpInternalEventsManager.EVENT_LOGOUT,
+            {
+                "user_id": s.user_id,
+                "ip": user_ip,
+            },
+        )
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:
         """

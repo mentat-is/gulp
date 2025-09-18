@@ -178,6 +178,7 @@ async def user_group_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         if not any([permission, description, glyph_id]):
             raise ValueError(
@@ -202,6 +203,8 @@ async def user_group_update_handler(
             dd: dict = await obj.update(sess)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -280,15 +283,22 @@ async def user_group_get_by_id_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
-        d = await GulpUserGroup.get_by_id_wrapper(
-            token,
-            group_id,
-            recursive=True,
-            permission=[GulpUserPermission.ADMIN],
-        )
-        return JSendResponse.success(req_id=req_id, data=d)
+        async with GulpCollab.get_instance().session() as sess:
+            _, obj = await GulpUserGroup.get_by_id_wrapper(
+                sess,
+                token,
+                group_id,
+                recursive=True,
+                permission=[GulpUserPermission.ADMIN],
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -328,15 +338,22 @@ async def user_group_list_handler(
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
     ServerUtils.dump_params(params)
+    sess: AsyncSession = None
     try:
-        d = await GulpUserGroup.get_by_filter_wrapper(
-            token,
-            flt,
-            recursive=True,
-            permission=[GulpUserPermission.ADMIN],
-        )
-        return JSendResponse.success(req_id=req_id, data=d)
+        async with GulpCollab.get_instance().session() as sess:
+            _, obj = await GulpUserGroup.get_by_filter_wrapper(
+                sess,
+                token,
+                flt,
+                recursive=True,
+                permission=[GulpUserPermission.ADMIN],
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -373,6 +390,7 @@ async def user_group_add_user_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _add_remove_user(sess, token, group_id, user_id, add=True)
@@ -380,6 +398,8 @@ async def user_group_add_user_handler(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -416,6 +436,7 @@ async def user_group_remove_user_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _add_remove_user(sess, token, group_id, user_id, add=False)
@@ -423,4 +444,6 @@ async def user_group_remove_user_handler(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex

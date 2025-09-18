@@ -324,12 +324,15 @@ async def operation_get_by_id_handler(
     sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            d = await GulpOperation.get_by_id_wrapper(
+            obj: GulpOperation
+            _, obj = await GulpOperation.get_by_id_wrapper(
                 sess,
                 token,
                 operation_id,
                 recursive=True,
             )
+            d = obj.to_dict(exclude_none=True)
+
             if get_count:
                 # also get count
                 d["doc_count"] = (
@@ -382,6 +385,7 @@ async def operation_list_handler(
         d = await GulpOperation.get_by_filter_wrapper(
             token,
             flt,
+            operation_id=operation_id,
             recursive=True,
         )
         return JSendResponse.success(req_id=req_id, data=d)
@@ -426,6 +430,7 @@ async def context_list_handler(
         d = await GulpContext.get_by_filter_wrapper(
             token,
             flt,
+            operation_id=operation_id,
             recursive=True,
         )
         return JSendResponse.success(req_id=req_id, data=d)
@@ -457,17 +462,23 @@ async def context_list_handler(
 async def context_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            d = await GulpContext.get_by_id_wrapper(
+            obj: GulpContext
+            _, obj = await GulpContext.get_by_id_wrapper(
+                sess,
                 token,
                 obj_id,
+                operation_id=operation_id,
             )
-            return JSendResponse.success(req_id=req_id, data=d)
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(exclude_none=True)
+            )
     except Exception as ex:
         await sess.rollback()
         raise JSendException(req_id=req_id) from ex
@@ -514,30 +525,25 @@ async def context_delete_handler(
     sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s: GulpUserSession = await GulpUserSession.check_token(
-                sess,
-                token,
-                permission=GulpUserPermission.INGEST,
-                obj=op,
+            # get operation and check acl on it
+            op: GulpOperation
+            s: GulpUserSession
+            s, op = await GulpOperation.get_by_id_wrapper(
+                sess, token, operation_id, permission=GulpUserPermission.INGEST
             )
-            index = op.index
-            user_id = s.user_id
-
             if delete_data:
                 # delete all data
                 MutyLogger.get_instance().info(
                     f"deleting data related to operation_id={
-                        operation_id}, context_id={context_id} on index={index} ..."
+                        operation_id}, context_id={context_id} on index={op.index} ..."
                 )
                 await GulpOpenSearch.get_instance().delete_data_by_context(
-                    index, operation_id, context_id
+                    op.index, operation_id, context_id
                 )
 
             # ok, delete context
             ctx: GulpContext = await GulpContext.get_by_id(sess, context_id)
-            await ctx.delete(sess, ws_id=ws_id, req_id=ws_id, user_id=user_id)
+            await ctx.delete(sess, ws_id=ws_id, req_id=ws_id, user_id=s.user_id)
             return JSendResponse.success(req_id=req_id, data={"id": context_id})
     except Exception as ex:
         if sess:
@@ -597,7 +603,7 @@ async def context_create_handler(
     fail_if_exists: Annotated[
         Optional[bool],
         Query(
-            description="if set, the operation fails if the context already exists. Defaults to `False`."
+            description="if set, fails if the context already exists. Defaults to `False`."
         ),
     ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
@@ -607,15 +613,15 @@ async def context_create_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s: GulpUserSession = await GulpUserSession.check_token(
-                sess, token, permission=GulpUserPermission.INGEST, obj=op
+            op: GulpOperation
+            s: GulpUserSession
+            s, op = await GulpOperation.get_by_id_wrapper(
+                sess, token, operation_id, permission=GulpUserPermission.INGEST
             )
-            user_id = s.user_id
 
             ctx, created = await op.add_context(
                 sess,
-                user_id,
+                s.user_id,
                 context_name,
                 ws_id=ws_id,
                 req_id=req_id,
@@ -629,6 +635,8 @@ async def context_create_handler(
 
             return JSendResponse.success(req_id=req_id, data={"id": ctx.id})
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -659,6 +667,7 @@ async def context_create_handler(
 async def context_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     color: Annotated[
         Optional[str],
         Query(
@@ -681,6 +690,7 @@ async def context_update_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         if not any([color, glyph_id, description]):
             raise ValueError(
@@ -689,29 +699,32 @@ async def context_update_handler(
 
         async with GulpCollab.get_instance().session() as sess:
             # get context
-            ctx: GulpContext = await GulpContext.get_by_id(sess, context_id)
-
-            # check acl
-            s: GulpUserSession = await GulpUserSession.check_token(
-                sess, token, obj=context_id, permission=GulpUserPermission.EDIT
+            obj: GulpContext
+            s: GulpUserSession
+            s, obj = await GulpContext.get_by_id_wrapper(
+                sess,
+                token,
+                context_id,
+                operation_id=operation_id,
+                permission=GulpUserPermission.EDIT,
             )
-            user_id = s.user_id
-
-            # build update dict
-            d = {}
-            if description:
-                d["description"] = description
-            if glyph_id:
-                d["glyph_id"] = glyph_id
-            if color:
-                d["color"] = color
 
             # update
-            dd: dict = await ctx.update(
-                sess, ws_id=ws_id, req_id=req_id, user_id=user_id, **d
+            if description:
+                obj.description = description
+            if glyph_id:
+                obj.glyph_id = glyph_id
+            if color:
+                obj.color = color
+
+            # update
+            dd: dict = await obj.update(
+                sess, ws_id=ws_id, req_id=req_id, user_id=s.user_id
             )
             return JSendResponse.success(req_id=req_id, data=dd)
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -749,7 +762,9 @@ async def source_list_handler(
     ServerUtils.dump_params(locals())
     try:
         flt = GulpCollabFilter(operation_ids=[operation_id], context_ids=[context_id])
-        d = await GulpSource.get_by_filter_wrapper(token, flt)
+        d = await GulpSource.get_by_filter_wrapper(
+            token, flt, operation_id=operation_id
+        )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -779,16 +794,24 @@ async def source_list_handler(
 async def source_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
-        d = await GulpSource.get_by_id_wrapper(
-            token,
-            obj_id,
-        )
-        return JSendResponse.success(req_id=req_id, data=d)
+        async with GulpCollab.get_instance().session() as sess:
+            obj: GulpSource
+            _, obj = await GulpSource.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                operation_id=operation_id
+            )
+        return JSendResponse.success(req_id=req_id, data=obj.to_dict(exclude_none=True))
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -828,7 +851,7 @@ async def source_create_handler(
         ),
     ],
     ws_id: Annotated[
-        Optional[str],
+        str,
         Depends(APIDependencies.param_ws_id),
     ] = None,
     color: Annotated[
@@ -848,20 +871,20 @@ async def source_create_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s: GulpUserSession = await GulpUserSession.check_token(
-                sess, token, obj=op, permission=GulpUserPermission.INGEST
+            s: GulpUserSession
+            s, _ = await GulpOperation.get_by_id_wrapper(
+                sess, token, operation_id, permission=GulpUserPermission.INGEST
             )
-            user_id = s.user_id
 
             # get context (must exist) and add source
             ctx: GulpContext = await GulpContext.get_by_id(sess, context_id)
             src, created = await ctx.add_source(
                 sess,
-                user_id,
+                s.user_id,
                 source_name,
                 ws_id=ws_id,
                 req_id=req_id,
@@ -875,6 +898,8 @@ async def source_create_handler(
 
             return JSendResponse.success(req_id=req_id, data={"id": src.id})
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -905,6 +930,7 @@ async def source_create_handler(
 async def source_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     color: Annotated[
         Optional[str],
         Query(description="new color for the source.", example="#313373"),
@@ -917,6 +943,10 @@ async def source_update_handler(
         Optional[str],
         Depends(APIDependencies.param_glyph_id_optional),
     ] = None,
+    ws_id: Annotated[
+        str,
+        Depends(APIDependencies.param_ws_id),
+    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -928,25 +958,30 @@ async def source_update_handler(
 
         async with GulpCollab.get_instance().session() as sess:
             # get source
-            src: GulpSource = await GulpSource.get_by_id(sess, source_id)
-
-            # check acl
-            _: GulpUserSession = await GulpUserSession.check_token(
-                sess, token, obj=src, permission=GulpUserPermission.EDIT
+            obj: GulpSource
+            s: GulpUserSession
+            s, obj = await GulpSource.get_by_id_wrapper(
+                sess,
+                token,
+                source_id,
+                operation_id=operation_id,
+                permission=GulpUserPermission.EDIT,
             )
 
             # update
             if description:
-                src.description = description
+                obj.description = description
             if glyph_id:
-                src.glyph_id = glyph_id
+                obj.glyph_id = glyph_id
             if color:
-                src.color = color
-            dd: dict = await src.update(
-                sess,
+                obj.color = color
+            dd: dict = await obj.update(
+                sess,ws_id=ws_id, req_id=req_id, user_id=s.user_id
             )
             return JSendResponse.success(req_id=req_id, data=dd)
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -989,29 +1024,31 @@ async def source_delete_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s: GulpUserSession = await GulpUserSession.check_token(
-                sess, token, obj=op, permission=GulpUserPermission.INGEST
+            # get operation and check acl on it
+            op: GulpOperation
+            s: GulpUserSession
+            s, op = await GulpOperation.get_by_id_wrapper(
+                sess, token, operation_id, permission=GulpUserPermission.INGEST
             )
-            index: str = op.index
-            user_id: str = s.user_id
 
             if delete_data:
                 # delete all data
                 MutyLogger.get_instance().info(
                     f"deleting data related to operation_id={operation_id}, context_id={
-                        context_id}, source_id={source_id} on index={index} ..."
+                        context_id}, source_id={source_id} on index={op.index} ..."
                 )
                 await GulpOpenSearch.get_instance().delete_data_by_source(
-                    index, operation_id, context_id, source_id
+                    op.index, operation_id, context_id, source_id
                 )
             # ok, delete source
             src: GulpSource = await GulpSource.get_by_id(sess, source_id)
-            await src.delete(sess, ws_id=ws_id, req_id=req_id, user_id=user_id)
+            await src.delete(sess, ws_id=ws_id, req_id=req_id, user_id=s.user_id)
 
         return JSendResponse.success(req_id=req_id, data={"id": source_id})
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex

@@ -161,10 +161,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 )
 
             # create the operation
-            d = {
-                "index": index,
-                "operation_data": {},
-            }
             granted_user_ids: list[str] = None
             granted_user_group_ids: list[str] = None
             if set_default_grants:
@@ -182,7 +178,8 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                     glyph_id=glyph_id or "box",
                     granted_user_ids=granted_user_ids,
                     granted_user_group_ids=granted_user_group_ids,
-                    **d,
+                    index=index,
+                    operation_data={}
                 )
             except Exception as exx:
                 if create_index:

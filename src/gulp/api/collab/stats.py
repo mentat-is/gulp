@@ -748,21 +748,25 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     async def cancel(
         self,
         sess: AsyncSession,
-    ):
+        expire_now: bool=False,
+        status: GulpRequestStatus = GulpRequestStatus.CANCELED,
+    ) -> dict:
         """
         Cancel the stats.
 
         Args:
             sess (AsyncSession): The database session to use.
+            expire_now (bool, optional): If True, set the expiration time to now. Defaults to False (stats will expire in 5 minutes).
+            status (GulpRequestStatus, optional): The status to set. Defaults to GulpRequestStatus.CANCELED.
         """
-        # expires in 5 minutes, allow any loop to finish
-        time_expire = muty.time.now_msec() + 60 * 1000 * 5
+        # default expires in 5 minutes, allow any loop to finish
+        if expire_now:
+            time_expire: int = muty.time.now_msec()
+        else:
+            time_expire: int = muty.time.now_msec() + 60 * 1000 * 5
 
         # cancel
-        d: dict = {
-            "status": GulpRequestStatus.CANCELED,
-            "time_expire": time_expire,
-            "time_finished": muty.time.now_msec(),
-        }
-
-        await super().update(sess, d=d)
+        self.status = status.value
+        self.time_expire = time_expire
+        self.time_finished = muty.time.now_msec()
+        return await super().update(sess)

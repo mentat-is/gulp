@@ -13,19 +13,17 @@ the Gulp platform through plugin and mapping management.
 
 """
 
-import base64
 import orjson
 import os
-from typing import Annotated
+from typing import Annotated, Literal
 
 import muty.file
-import muty.obj
 import psutil
-from fastapi import APIRouter, Body, Depends, File, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import (
@@ -68,16 +66,23 @@ router: APIRouter = APIRouter()
 async def request_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
-        d = await GulpRequestStats.get_by_id_wrapper(
-            token,
-            obj_id,
-        )
-        return JSendResponse.success(req_id=req_id, data=d)
+        async with GulpCollab.get_instance().session() as sess:
+            obj: GulpRequestStats = await GulpRequestStats.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                operation_id=operation_id,
+            )
+            return JSendResponse.success(req_id=req_id, data=obj.to_dict())
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -102,9 +107,10 @@ async def request_get_by_id_handler(
     },
     summary="cancel a request.",
     description="""
-set a running request `status` to `CANCELED` and delete any pending tasks associated with it.
+cancel a running request by setting its `status` to `canceled` (or `failed` or `done`), so the engine can delete it after the expiration time.
 
 - `token` needs `admin` permission or to be the owner of the request.
+- any scheduled task for the request is deleted as well.
 """,
 )
 async def request_cancel_handler(
@@ -112,30 +118,51 @@ async def request_cancel_handler(
     req_id_to_cancel: Annotated[
         str, Query(description="request id to cancel.", example="test_req")
     ],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    status: Annotated[
+        Literal["canceled", "done", "failed"],
+        Query(
+            description="the status to set the request to. default is `canceled`, other accepted values are `failed` or `done`."
+        ),
+    ] = GulpRequestStatus.CANCELED,
+    expire_now: Annotated[
+        bool,
+        Query(
+            description="if set, the request expiration time is set to now, so the stats are deleted immediately from the collab database (default is delete in 5 minutes)."
+        ),
+    ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            stats: GulpRequestStats = await GulpRequestStats.get_by_id(
-                sess, req_id_to_cancel
+            obj: GulpRequestStats = await GulpRequestStats.get_by_id_wrapper(
+                sess,
+                token,
+                req_id_to_cancel,
+                operation_id=operation_id,
+                enforce_owner=True,
             )
-            _ = await GulpUserSession.check_token(
-                sess, token, obj=stats, enforce_owner=True
-            )
-            await stats.cancel(sess)
+            await obj.cancel(sess, status=status, expire_now=expire_now)
 
-            # also delete tasks if any
+            # also delete related tasks if any
             d: int = await GulpTask.delete_by_filter(
                 sess,
-                GulpCollabFilter(req_id=[req_id_to_cancel]),
-                throw_if_not_found=False
+                GulpCollabFilter(
+                    operation_ids=[operation_id], req_id=[req_id_to_cancel]
+                ),
+                throw_if_not_found=False,
             )
-            MutyLogger.get_instance().debug("also deleted %d pending tasks for request %s" %  (d, req_id_to_cancel))
+            MutyLogger.get_instance().debug(
+                "also deleted %d pending tasks for request %s" % (d, req_id_to_cancel)
+            )
 
         return JSendResponse.success(req_id=req_id, data={"id": req_id_to_cancel})
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -160,9 +187,10 @@ async def request_cancel_handler(
     },
     summary="complete the request.",
     description="""
-set a running request `status` to `DONE` or `FAILED`, so the engine can delete it after the expiration time.
+just a wrapper for `request_cancel` to set the request as completed (either `done` or `failed`).
 
 - `token` needs `admin` permission or to be the owner of the request.
+- any scheduled task for the request is deleted as well.
 """,
 )
 async def request_set_completed_handler(
@@ -170,6 +198,7 @@ async def request_set_completed_handler(
     req_id_to_complete: Annotated[
         str, Query(description="request id to set completed.", example="test_req")
     ],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     failed: Annotated[
         bool, Query(description="if set, the request is marked as failed.")
     ] = False,
@@ -177,82 +206,14 @@ async def request_set_completed_handler(
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
-    try:
-        async with GulpCollab.get_instance().session() as sess:
-            stats: GulpRequestStats = await GulpRequestStats.get_by_id(
-                sess, req_id_to_complete
-            )
-            s = await GulpUserSession.check_token(
-                sess, token, obj=stats, enforce_owner=True
-            )
-
-            # set status to DONE or FAILED, will set the finish time automatically
-            status = GulpRequestStatus.FAILED if failed else GulpRequestStatus.DONE
-            object_data = {
-                "status": status,
-            }
-
-            if not stats.time_expire:
-                # this is a raw request, set the expiration time so the engine can delete it later
-                time_updated = muty.time.now_msec()
-                msecs_to_expiration = GulpConfig.get_instance().stats_ttl() * 1000
-
-                time_expire = time_updated + msecs_to_expiration
-                object_data["time_expire"] = time_expire
-            await stats.update(sess, object_data, user_id=s.user_id)
-
-        return JSendResponse.success(req_id=req_id, data={"id": req_id_to_complete})
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
-
-
-@router.delete(
-    "/request_delete",
-    tags=["stats"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701278479259,
-                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"id": "test_req"},
-                    }
-                }
-            }
-        }
-    },
-    summary="deletes a request.",
-    description="""
-deletes a `request_stats` object.
-
-- `token` needs `admin` permission or to be the owner of the request.
-""",
-)
-async def request_delete_handler(
-    token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id_to_delete: Annotated[
-        str, Query(description="request id to delete.", example="test_req")
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSONResponse:
-    params = locals()
-    ServerUtils.dump_params(params)
-    try:
-        async with GulpCollab.get_instance().session() as sess:
-            stats: GulpRequestStats = await GulpRequestStats.get_by_id(
-                sess, req_id_to_delete
-            )
-            _ = await GulpUserSession.check_token(
-                sess, token, obj=stats, enforce_owner=True
-            )
-            await stats.delete(sess)
-        return JSendResponse.success(req_id=req_id, data={"id": req_id_to_delete})
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
+    return request_cancel_handler(
+        token=token,
+        req_id_to_cancel=req_id_to_complete,
+        operation_id=operation_id,
+        status=GulpRequestStatus.FAILED if failed else GulpRequestStatus.DONE,
+        expire_now=True,
+        req_id=req_id,
+    )
 
 
 @router.get(
@@ -283,9 +244,7 @@ get a list of all requests (identified by their `req_id`) issued by the calling 
 )
 async def request_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    operation_id: Annotated[
-        str, Query(description="optional ID of operation to filter requests by.")
-    ] = None,
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     running_only: Annotated[
         bool, Query(description="if set, only return requests that are still running.")
     ] = False,
@@ -301,11 +260,11 @@ async def request_list_handler(
             # all requests
             flt = GulpCollabFilter()
 
-        if operation_id:
-            # restrict to operation id
-            flt.operation_ids = [operation_id]
-
-        stats: list[dict] = await GulpRequestStats.get_by_filter_wrapper(token, flt)
+        # restrict to operation id
+        flt.operation_ids = [operation_id]
+        stats: list[dict] = await GulpRequestStats.get_by_filter_wrapper(
+            token, flt, operation_id=operation_id
+        )
         return JSendResponse.success(req_id=req_id, data=stats)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -731,154 +690,6 @@ async def plugin_list_handler(
 
 
 @router.get(
-    "/plugin_get",
-    tags=["plugin"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701546711919,
-                        "req_id": "ddfc094f-4a5b-4a23-ad1c-5d1428b57706",
-                        "data": {
-                            "filename": "win_evtx.py",
-                            "path": "/opt/gulp/plugins/win_evtx.py",
-                            "content": "base64 file content here",
-                        },
-                    }
-                }
-            }
-        }
-    },
-    summary="get plugin content (i.e. for editing and reupload).",
-    description="""
-- token needs `edit` permission.
-- file is read from the `PATH_PLUGINS_EXTRA` directory if set, either from the main plugins directory.
-- file content is returned as base64.
-""",
-)
-async def plugin_get_handler(
-    token: Annotated[str, Depends(APIDependencies.param_token)],
-    plugin: Annotated[
-        str,
-        Query(
-            description='filename of the plugin to retrieve content for, i.e. "plugin.py"'
-        ),
-    ],
-    is_extension: Annotated[
-        bool, Query(description="the plugin is an extension plugin")
-    ] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSendResponse:
-    ServerUtils.dump_params(locals())
-
-    try:
-        async with GulpCollab.get_instance().session() as sess:
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
-            file_path = GulpPluginBase.path_from_plugin(
-                plugin, is_extension=is_extension, raise_if_not_found=True
-            )
-
-            # read file content
-            f = await muty.file.read_file_async(file_path)
-            filename = os.path.basename(file_path)
-
-            return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id,
-                    data={
-                        "filename": filename,
-                        "path": file_path,
-                        "content": base64.b64encode(f).decode(),
-                    },
-                )
-            )
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
-
-
-@router.get(
-    "/ui_plugin_get",
-    tags=["plugin"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701546711919,
-                        "req_id": "ddfc094f-4a5b-4a23-ad1c-5d1428b57706",
-                        "data": {
-                            "filename": "win_evtx.py",
-                            "path": "/opt/gulp/plugins/win_evtx.py",
-                            "content": "base64 file content here",
-                        },
-                    }
-                }
-            }
-        }
-    },
-    summary="get UI plugin content (i.e. for editing and reupload).",
-    description="""
-- file is read from the `PATH_PLUGINS_EXTRA` directory if set, either from the main plugins directory.
-- file content is returned as base64.
-""",
-)
-async def ui_plugin_get_handler(
-    plugin: Annotated[
-        str,
-        Query(
-            description='filename of the plugin to retrieve content for, i.e. "plugin.tsx"'
-        ),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSendResponse:
-    ServerUtils.dump_params(locals())
-
-    try:
-        async with GulpCollab.get_instance().session() as sess:
-            extra_path = GulpConfig.get_instance().path_plugins_extra()
-            default_path = GulpConfig.get_instance().path_plugins_default()
-            plugin_path: str = None
-            if extra_path:
-                # build the extra path
-                plugin_path = os.path.join(extra_path, "ui", plugin.lower())
-                if not os.path.exists(plugin_path):
-                    # if not found in extra_path, try default path
-                    plugin_path = None
-            if not plugin_path:
-                # use default path
-                plugin_path = os.path.join(default_path, "ui", plugin.lower())
-                if not os.path.exists(plugin_path):
-                    raise FileNotFoundError(
-                        "%s not found both in extra_path=%s or default_path=%s"
-                        % (plugin, extra_path, default_path)
-                    )
-
-            # read file content
-            f = await muty.file.read_file_async(plugin_path)
-            filename = os.path.basename(plugin_path)
-
-            return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id,
-                    data={
-                        "filename": filename,
-                        "path": plugin_path,
-                        "content": base64.b64encode(f).decode(),
-                    },
-                )
-            )
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
-
-
-@router.get(
     "/ui_plugin_list",
     tags=["plugin"],
     response_model=JSendResponse,
@@ -1082,64 +893,3 @@ async def mapping_file_list_handler(
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-
-
-@router.get(
-    "/mapping_file_get",
-    tags=["mapping"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701266243057,
-                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
-                        "data": {
-                            "filename": "windows.json",
-                            "path": "/opt/gulp/mapping_files/windows.json",
-                            "content": "base64 file content",
-                        },
-                    }
-                }
-            }
-        }
-    },
-    summary="get a mapping file (i.e. for editing and reupload).",
-    description="""
-- token needs `edit` permission.
-- file is read from the `gulp/mapping_files` directory (which can be overridden by `PATH_MAPPING_FILES_EXTRA` environment variable).
-""",
-)
-async def mapping_file_get_handler(
-    token: Annotated[str, Depends(APIDependencies.param_token)],
-    mapping_file: Annotated[
-        str, Query(description='the mapping file to get (i.e. "windows.json")')
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
-) -> JSendResponse:
-    ServerUtils.dump_params(locals())
-
-    try:
-        async with GulpCollab.get_instance().session() as sess:
-            await GulpUserSession.check_token(sess, token, GulpUserPermission.EDIT)
-
-        file_path = GulpConfig.get_instance().build_mapping_file_path(mapping_file)
-
-        # read file content
-        f = await muty.file.read_file_async(file_path)
-        filename = os.path.basename(file_path)
-        return JSONResponse(
-            JSendResponse.success(
-                req_id=req_id,
-                data={
-                    "filename": filename,
-                    "path": file_path,
-                    "content": base64.b64encode(f).decode(),
-                },
-            )
-        )
-    except Exception as ex:
-        raise JSendException(req_id=req_id, status_code=404) from ex

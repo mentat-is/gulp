@@ -338,13 +338,14 @@ async def note_get_by_id_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            d = await GulpNote.get_by_id_wrapper(
+            obj: GulpNote
+            _, obj = await GulpNote.get_by_id_wrapper(
                 sess,
                 token,
                 obj_id,
                 operation_id=operation_id,
             )
-            return JSendResponse.success(req_id=req_id, data=d)
+            return JSendResponse.success(req_id=req_id, data=obj.to_dict(exclude_none=True))
     except Exception as ex:
         if sess:
             await sess.rollback()

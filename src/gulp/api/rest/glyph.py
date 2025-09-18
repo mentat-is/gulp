@@ -235,12 +235,13 @@ async def glyph_get_by_id_handler(
     sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            d = await GulpGlyph.get_by_id_wrapper(
+            obj: GulpGlyph
+            _, obj = await GulpGlyph.get_by_id_wrapper(
                 sess,
                 token,
                 obj_id,
             )
-            return JSendResponse.success(req_id=req_id, data=d)
+            return JSendResponse.success(req_id=req_id, data=obj.to_dict(exclude_none=True))
     except Exception as ex:
         if sess:
             await sess.rollback()

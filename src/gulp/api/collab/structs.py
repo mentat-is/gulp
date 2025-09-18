@@ -646,7 +646,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         nested: bool = False,
         hybrid_attributes: bool = False,
         exclude: list[str] | None = None,
-        exclude_none: bool = False,
+        exclude_none: bool = True,
     ) -> dict:
         # same as super.to_dict() but with exclude_none parameter
         d = super().to_dict(nested, hybrid_attributes, exclude)
@@ -855,7 +855,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             granted_user_group_ids (list[str], optional): List of user group IDs to grant access. Defaults to None (no specific group grants), ignored if private.
             ws_id (str, optional): The websocket id to send notification to. Defaults to None (no websocket notification).
             req_id (str, optional): Ignored if ws_id is None, the request ID to include in the websocket notification. Defaults to None.
-            ws_data_type (str, optional): value of GulpWsData.type sent on the websocket. Defaults to WSDATA_COLLAB_UPDATE.
+            ws_data_type (str, optional): this is the type in `GulpWsData.type` sent on the websocket. Defaults to WSDATA_COLLAB_CREATE. Ignored if ws_id is not provided (used only for websocket notification).
             ws_data (dict, optional): value of GulpWsData.data sent on the websocket. Defaults to the created object.
             skip_notification (bool, optional): If True, the websocket notification is skipped regardless of ws_id: use it when ws_id is i.e. part of the object data and you don't want to send a notification.
             **kwargs: Additional attributes to include in the object.
@@ -952,7 +952,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         **kwargs,
     ) -> dict:
         """
-        helper to create a new object, handling veryfication of token and permission
+        helper to create a new object, handling veryfication of token and permission, notifying the websocket if `ws_id` is provided (WSDATA_COLLAB_CREATE).
 
         NOTE: for internal object creation (not requiring token check), use `create_internal`
 
@@ -970,7 +970,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             granted_user_ids (list[str], optional): List of user IDs to grant access to the object. Defaults to None (no specific user grants), ignored if private.
             granted_user_group_ids (list[str], optional): List of user group IDs to grant access. Defaults to None (no specific group grants), ignored if private.
             ws_id (str, optional): The websocket ID: pass None to not notify the websocket.
-            ws_data_type (str, optional): The type of the websocket queue data. Defaults to WSDATA_COLLAB_UPDATE.
+            ws_data_type (str, optional): this is the type in `GulpWsData.type` sent on the websocket. Defaults to WSDATA_COLLAB_CREATE. Ignored if ws_id is not provided (used only for websocket notification) or if token is None (internal request).
             req_id (str, optional): The request ID, may be None for internal requests, ignored if ws_id is None.
             **kwargs: Additional field=value keypairs to be set on the object
         Returns:
@@ -1041,16 +1041,16 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         **kwargs,
     ) -> dict:
         """
-        updates the object, also updating the websocket if required.
+        updates the object, notifying the websocket if `ws_id` is provided (WSDATA_COLLAB_UPDATE).
 
-        NOTE: session is committed after the operation
+        NOTE: session is committed
 
         Args:
             sess (AsyncSession): The database session to use: the session will be committed and refreshed after the update.
             ws_id (str, optional): The ID of the websocket connection to send update to the websocket. Defaults to None (no update will be sent)
             user_id (str, optional): The ID of the user making the request. Defaults to None, ignored if ws_id is not provided (used only for websocket notification).
             ws_data (dict, optional): this is the data sent in `GulpWsData.data` on the websocket after the object has been updated on database. Defaults to the (serialized) updated object itself. Ignored if ws_id is not provided.
-            ws_data_type (str, optional): this is the type in `GulpWsData.type` sent on the websocket. Defaults to WSDATA_COLLAB_UPDATE. Ignored if ws_id is not provided (used only for websocket notification) or if token is None (internal request).
+            ws_data_type (str, optional): this is the type in `GulpWsData.type` sent on the websocket. Defaults to WSDATA_COLLAB_UPDATE. Ignored if ws_id is not provided (used only for websocket notification).
             **kwargs: additional fields to set on the object (existing values will be overwritten, None values will be ignored)
         Returns:
             dict: The updated object as a dictionary.
@@ -1240,6 +1240,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         req_id: str = None,
         ws_data_type: str = None,
         ws_data: dict = None,
+        enforce_owner: bool = False,
     ) -> None:
         """
         helper to delete an object by ID, handling session and ACL check
@@ -1253,7 +1254,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             req_id (str, optional): The ID of the request to include in the websocket notification. Defaults to None (ignored if ws_id is None).
             ws_data_type (str, optional): value of GulpWsData.type sent to the websocket: if not set, WSDATA_COLLAB_DELETE will be used.
             ws_data (dict, optional): data to send to the websocket: if not set, a GulpDeleteCollabPacket with object id will be sent.
-
+            enforce_owner (bool, optional): If True, only the owner of the object (or admin) can delete it. Defaults to False.
         Raises:
             MissingPermission: If the user does not have permission to delete the object.
             ObjectNotFoundError: If the object is not found.
@@ -1276,11 +1277,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                         sess, token, operation_id, permission=GulpUserPermission.READ
                     )
                     # and object access
-                    await s.check_permissions(sess, permission, obj)
+                    await s.check_permissions(sess, permission, obj, enforce_owner=enforce_owner)
                 else:
                     # just check object access
                     s = await GulpUserSession.check_token(
-                        sess, token, permission=permission, obj=obj
+                        sess, token, permission=permission, obj=obj, enforce_owner=enforce_owner
                     )
 
                 # delete
@@ -1640,7 +1641,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         recursive: bool=False,
     ) -> tuple["GulpUserSession", T]:
         """
-        helper to get an object by ID, checking the token has the required permission
+        helper to get an object by ID and the GulpUserSession, after checking if the token has the required permission
 
         Args:
             sess (AsyncSession): The database session to use.
