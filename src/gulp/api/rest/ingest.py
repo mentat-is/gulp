@@ -631,7 +631,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 sess, token, obj=operation, permission=GulpUserPermission.INGEST
             )
             index = operation.index
-            user_id = s.user_id
+            user_id = s.user.id
 
             # handle multipart request manually
             file_path, payload, result = (
@@ -780,7 +780,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             ctx: GulpContext = await GulpContext.get_by_id(sess, ctx_id)
             context_name = ctx.name
             index = operation.index
-            user_id = s.user_id
+            user_id = s.user.id
             plugin = plugin or src.plugin
 
             # handle multipart request manually
@@ -928,7 +928,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 sess, token, obj=operation, permission=GulpUserPermission.INGEST
             )
             index = operation.index
-            user_id = s.user_id
+            user_id = s.user.id
 
             if preview_mode:
                 MutyLogger.get_instance().warning(
@@ -1078,7 +1078,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
             # ok, fill the other info we need
             ctx_id = src.context_id
             index = operation.index
-            user_id = s.user_id
+            user_id = s.user.id
             plugin = plugin or src.plugin
             plugin_params = plugin_params or GulpPluginParameters(
                 src.mapping_parameters
@@ -1266,7 +1266,7 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
                 sess, token, obj=operation, permission=GulpUserPermission.INGEST
             )
             index = operation.index
-            user_id = s.user_id
+            user_id = s.user.id
 
             # get body (contains chunk, and optionally flt and plugin_params)
             payload, chunk = await ServerUtils.handle_multipart_body(r)
@@ -1461,7 +1461,7 @@ async def ingest_zip_handler(
                 sess, token, obj=operation, permission=GulpUserPermission.INGEST
             )
             index = operation.index
-            user_id = s.user_id
+            user_id = s.user.id
 
             # handle multipart request manually
             file_path, payload, result = (
@@ -1613,7 +1613,7 @@ async def ingest_zip_local_handler(
                 sess, token, obj=operation, permission=GulpUserPermission.INGEST
             )
             index = operation.index
-            user_id = s.user_id
+            user_id = s.user.id
 
             payload = GulpZipIngestPayload(
                 flt=flt,

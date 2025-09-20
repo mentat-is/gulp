@@ -106,7 +106,7 @@ async def user_group_create_handler(
     ],
     permission: Annotated[
         list[GulpUserPermission],
-        Body(description="One or more permissions for the group."),
+        Body(description="Permissions to be assigned to the group being created."),
     ],
     description: Annotated[
         str,
@@ -119,18 +119,30 @@ async def user_group_create_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
 
     try:
-        d: dict = await GulpUserGroup.create(
-            token,
-            name=name,
-            permission=[GulpUserPermission.ADMIN],
-            description=description,
-            glyph_id=glyph_id,
-            obj_id=muty.string.ensure_no_space_no_special(name.lower()),
-        )
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+        async with GulpCollab.get_instance().session() as sess:
+            # just check token permission
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, permission=[GulpUserPermission.ADMIN]
+            )
+            # set user_id to username (user owns itself)
+            obj: GulpUserGroup = await GulpUserGroup.create_internal(
+                sess,
+                name=name,
+                description=description,
+                glyph_id=glyph_id,
+                obj_id=muty.string.ensure_no_space_no_special(name.lower()),
+                permission=permission,
+            )
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data=obj.to_dict())
+            )
+
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 

@@ -34,7 +34,6 @@ from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import (
     WSDATA_COLLAB_UPDATE,
     GulpCollabCreatePacket,
-    GulpCollabCreateUpdatePacket,
     GulpWsSharedQueue,
 )
 

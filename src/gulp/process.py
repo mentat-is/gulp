@@ -42,23 +42,11 @@ class GulpProcess:
     """
     represents the main or one of the worker processes for the Gulp application.
 
-    how a GulpProcess starts depending on it is the main process or a worker:
+    It manages shared resources like thread pools, coroutine pools, process pools,
+    and websocket queues, facilitating efficient communication between processes.
 
-    - each GulpProcess is initialized by calling `init_gulp_process`, which handles both main and worker processes initialization
-
-    - the main GulpProcess is initialized at application startup and is responsible for creating the worker processes pool and the shared websocket queue
-    which is used by workers to fill the websocket with data to be sent to the clients.
-
-    - each worker GulpProcess is initialized when a worker process is spawned and is responsible for initializing the worker process.
-
-    - each GulpProcess, main and worker, have its own executors and clients to communicate with other parts of gulp.
-        specifically, they are implemented as singletons to guarantee only one instance per-process is created.
-            - GulpProcess.get_instance().process_pool: process pool executor (only the main process, to spawn worker)
-            - GulpProcess.get_instance().thread_pool: thread pool executor
-            - GulpProcess.get_instance().coro_pool: coroutine pool executor
-            - GulpCollab.get_instance(): the collab client
-            - GulpOpenSearch.get_instance(): the opensearch client
-            - GulpWsSharedQueue.get_instance(): the shared websocket queue
+    The GulpProcess class is responsible for initializing and managing the lifecycle of
+    the main and worker processes, including graceful startup and shutdown procedures.
     """
 
     _instance: "GulpProcess" = None
@@ -166,7 +154,7 @@ class GulpProcess:
         loop = asyncio.get_event_loop()
         try:
             loop.run_until_complete(
-                p.init_gulp_process(
+                p.finish_initialization(
                     lock=lock,
                     log_level=log_level,
                     logger_file_path=logger_file_path,
@@ -251,71 +239,7 @@ class GulpProcess:
                 self.process_pool = None
                 MutyLogger.get_instance().debug("mp pool closed!")
 
-    async def main_process_init(self):
-        """
-        creates (or recreates if already running) the worker process pool, together with
-
-        - shared memory dictionary between main and worker processes
-        - multiprocessing manager and structs
-        - shared websocket queue
-
-        each worker starts in _worker_initializer, which further calls init_gulp_process to initialize the worker process.
-
-        NOTE: This method is called ONLY by the main process to recreate the process pool
-        """
-        MutyLogger.get_instance().debug(
-            "recreating process pool and shared queue (respawn after %d tasks)..."
-            % (GulpConfig.get_instance().parallel_processes_respawn_after_tasks())
-        )
-        if not self._main_process:
-            raise RuntimeError("only the main process can recreate the process pool")
-
-        if self.process_pool:
-            # close the worker process pool gracefully if it is already running
-            await GulpWsSharedQueue.get_instance().close()
-            await self.close_process_pool()
-
-        # initializes the multiprocessing manager and structs
-        self.mp_manager = Manager()
-        spawned_processes = self.mp_manager.Value(int, 0)
-        num_workers = GulpConfig.get_instance().parallel_processes_max()
-        lock = self.mp_manager.Lock()
-
-        # re/create the shared websocket queue (closes it first if already running)
-        wsq = GulpWsSharedQueue.get_instance()
-        q = await wsq.init_queue(self.mp_manager)
-        self.shared_memory = self.mp_manager.dict()
-        self.shared_memory["shmem_initialized"]=True
-
-        # start workers, pass the shared queue to each
-        self.process_pool = AioProcessPool(
-            exception_handler=GulpProcess._worker_exception_handler,
-            processes=num_workers,
-            childconcurrency=GulpConfig.get_instance().concurrency_max_tasks(),
-            maxtasksperchild=GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
-            initializer=GulpProcess._worker_initializer,
-            queuecount=num_workers // 2,
-            initargs=(
-                spawned_processes,
-                lock,
-                q,
-                self.shared_memory,
-                MutyLogger.log_level,
-                MutyLogger.logger_file_path,
-                self._log_to_syslog,
-            ),
-        )
-        # wait for all processes are spawned
-        MutyLogger.get_instance().debug("waiting for all processes to be spawned ...")
-        while spawned_processes.value < num_workers:
-            # MutyLogger.get_instance().debug('waiting for all processes to be spawned ...')
-            await asyncio.sleep(0.1)
-
-        MutyLogger.get_instance().debug(
-            "all %d processes spawned!" % (spawned_processes.value)
-        )
-
-    async def init_gulp_process(
+    async def finish_initialization(
         self,
         lock: Lock = None,  # type: ignore
         log_level: int = None,
@@ -325,7 +249,7 @@ class GulpProcess:
         log_to_syslog: tuple[str, str] = None,
     ) -> None:
         """
-        initializes main or worker gulp process
+        last initializion steps in main or worker gulp process, called both by main process and also by each worker initializer
 
         Args:
             lock (Lock, optional): if set, will be acquired (and then released) during getting configuration instance in worker processes
@@ -342,17 +266,10 @@ class GulpProcess:
         # only in a worker process we're passed the queue and shared_memory by the process pool initializer
         self._main_process = q is None and shared_memory is None
         if self._main_process:
-            if self._log_level:
-                # keep the same as before
-                log_level = self._log_level
-                logger_file_path = self._logger_file_path
-                log_to_syslog = self._log_to_syslog
-                MutyLogger.get_instance().warning("reinitializing MAIN process...")
-            else:
-                MutyLogger.get_instance().info("initializing MAIN process...")
-                self._log_level = log_level
-                self._logger_file_path = logger_file_path
-                self._log_to_syslog = log_to_syslog
+            MutyLogger.get_instance().info("initializing MAIN process...")
+            self._log_level = log_level
+            self._logger_file_path = logger_file_path
+            self._log_to_syslog = log_to_syslog
         else:
             # we must initialize mutylogger here
             MutyLogger.get_instance(
@@ -362,7 +279,7 @@ class GulpProcess:
                 level=log_level,
             )
             MutyLogger.get_instance().info(
-                "initializing worker process, q=%s ..." % (q)
+                "initializing WORKER process, q=%s ..." % (q)
             )
 
         # read configuration (needs lock in worker processes)
@@ -373,20 +290,62 @@ class GulpProcess:
             lock.release()
 
         # initializes coroutine and thread pools for the main or worker process
-        await self.close_coro_pool()
-        await self.close_thread_pool()
         self.coro_pool = AioCoroPool()
         self.thread_pool = ThreadPoolExecutor()
 
-        # initialize collab and opensearch clients for the main or worker process
-        collab = GulpCollab.get_instance()
-        await collab.init(main_process=self._main_process)
-        GulpOpenSearch.get_instance()
-
         if self._main_process:
-
+            ###############################
+            # main process initialization
+            ###############################
             # creates the process pool and shared queue
-            await self.main_process_init()
+            MutyLogger.get_instance().debug(
+                "creating process pool and shared queue (respawn after %d tasks)..."
+                % (GulpConfig.get_instance().parallel_processes_respawn_after_tasks())
+            )
+
+            # initializes the multiprocessing manager and structs
+            self.mp_manager = Manager()
+            spawned_processes = self.mp_manager.Value(int, 0)
+            num_workers = GulpConfig.get_instance().parallel_processes_max()
+            lock = self.mp_manager.Lock()
+
+            # re/create the shared websocket queue (closes it first if already running)
+            wsq = GulpWsSharedQueue.get_instance()
+            q = await wsq.init_queue(self.mp_manager)
+            self.shared_memory = self.mp_manager.dict()
+            self.shared_memory["shmem_initialized"] = True
+
+            # start workers, pass the shared queue to each
+            # each worker will call finish_initialization as well
+            self.process_pool = AioProcessPool(
+                exception_handler=GulpProcess._worker_exception_handler,
+                processes=num_workers,
+                childconcurrency=GulpConfig.get_instance().concurrency_max_tasks(),
+                maxtasksperchild=GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
+                initializer=GulpProcess._worker_initializer,
+                queuecount=num_workers // 2,
+                initargs=(
+                    spawned_processes,
+                    lock,
+                    q,
+                    self.shared_memory,
+                    MutyLogger.log_level,
+                    MutyLogger.logger_file_path,
+                    self._log_to_syslog,
+                ),
+            )
+            # wait for all workers to be spawned
+            MutyLogger.get_instance().debug(
+                "waiting for all processes to be spawned ..."
+            )
+            while spawned_processes.value < num_workers:
+                # MutyLogger.get_instance().debug('waiting for all processes to be spawned ...')
+                await asyncio.sleep(0.1)
+
+            MutyLogger.get_instance().debug(
+                "all %d processes spawned!" % (spawned_processes.value)
+            )
+
             MutyLogger.get_instance().warning(
                 "MAIN process initialized, shared_memory(%s)=%s, sys.path=%s"
                 % (self.shared_memory, type(self.shared_memory), sys.path)
@@ -395,10 +354,15 @@ class GulpProcess:
             # load extension plugins
             from gulp.api.rest_api import GulpRestServer
 
-            # pylint: disable=protected-access
-            await GulpRestServer.get_instance()._unload_extension_plugins()
             await GulpRestServer.get_instance()._load_extension_plugins()
         else:
+            ###############################
+            # worker process initialization
+            ###############################
+            # in the worker process, initialize opensearch and collab clients (main process already did it)
+            GulpOpenSearch.get_instance()
+            await GulpCollab.get_instance().init()
+
             # worker process, set the queue and shared memory
             MutyLogger.get_instance().info(
                 "WORKER process initialized, shared_memory(%s)=%s"
@@ -464,7 +428,7 @@ class GulpProcess:
 
             # need to reassign the whole list to trigger the proxy update
             self.shared_memory[key] = current_list
-        
+
     def shared_memory_remove_from_list(self, key: str, value) -> None:
         """
         removes a value from a list in the shared memory dictionary
@@ -476,10 +440,10 @@ class GulpProcess:
         if key in self.shared_memory and value in self.shared_memory[key]:
             current_list = self.shared_memory[key]
             current_list.remove(value)
-            
+
             # need to reassign the whole list to trigger the proxy update
-            self.shared_memory[key] = current_list            
-            
+            self.shared_memory[key] = current_list
+
     def shared_memory_get_from_dict(self, key: str, subkey: str):
         """
         gets a value from a dictionary in the shared memory dictionary
@@ -491,7 +455,7 @@ class GulpProcess:
         Returns:
             any: the value associated with the subkey, or None if not found
         """
-        if key in self.shared_memory and subkey in self.shared_memory[key]:            
+        if key in self.shared_memory and subkey in self.shared_memory[key]:
             return self.shared_memory[key][subkey]
         return None
 

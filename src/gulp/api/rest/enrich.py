@@ -289,7 +289,7 @@ async def enrich_documents_handler(
             s = await GulpUserSession.check_token(
                 sess, token, obj=op, permission=GulpUserPermission.EDIT
             )
-            user_id = s.user_id
+            user_id = s.user.id
             index = op.index
 
             # create a stats, just to allow request canceling
@@ -387,7 +387,7 @@ async def enrich_single_id_handler(
                 sess, token, obj=op, permission=GulpUserPermission.EDIT
             )
             index = op.index
-            user_id = s.user_id
+            user_id = s.user.id
 
             # load plugin and enrich document
             mod = await GulpPluginBase.load(plugin)
@@ -467,7 +467,7 @@ async def tag_documents_handler(
             s = await GulpUserSession.check_token(
                 sess, token, obj=op, permission=GulpUserPermission.EDIT
             )
-            user_id = s.user_id
+            user_id = s.user.id
             index = op.index
 
             # create a stats, just to allow request canceling
@@ -555,7 +555,7 @@ async def tag_single_id_handler(
                 sess, token, obj=op, permission=GulpUserPermission.EDIT
             )
             index = op.index
-            user_id = s.user_id
+            user_id = s.user.id
 
         # get the document and add tags
         doc: dict = await GulpQueryHelpers.query_single(index, doc_id)

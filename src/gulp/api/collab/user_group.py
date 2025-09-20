@@ -22,7 +22,7 @@ from muty.log import MutyLogger
 from sqlalchemy import ARRAY, Column, ForeignKey, Table
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableList
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
 from sqlalchemy.types import Enum as SQLEnum
 
 from gulp.api.collab.structs import (
@@ -39,10 +39,13 @@ if TYPE_CHECKING:
 ADMINISTRATORS_GROUP_ID = "administrators"
 
 
-class GulpUserAssociations:
-    # multiple users can be associated with a group
+class GulpUserGroupAssociation:
+    """
+    holds associations between users and groups (multiple users can be associated with a group)
+    """
+
     table = Table(
-        "user_associations",
+        "user_group_association",
         GulpCollabBase.metadata,
         Column("user_id", ForeignKey("user.id", ondelete="CASCADE"), primary_key=True),
         Column(
@@ -60,10 +63,13 @@ class GulpUserGroup(GulpCollabBase, type=COLLABTYPE_USER_GROUP):
 
     users: Mapped[list["GulpUser"]] = relationship(
         "GulpUser",
-        secondary=GulpUserAssociations.table,
+        secondary=GulpUserGroupAssociation.table,
+        back_populates="groups",
         lazy="selectin",
+        default_factory=list,
+        uselist=True,
     )
-    permission: Mapped[Optional[list[GulpUserPermission]]] = mapped_column(
+    permission: Mapped[list[GulpUserPermission]] = mapped_column(
         MutableList.as_mutable(ARRAY(SQLEnum(GulpUserPermission))),
         default_factory=lambda: [GulpUserPermission.READ],
         doc="One or more permissions of the user.",
@@ -97,25 +103,29 @@ class GulpUserGroup(GulpCollabBase, type=COLLABTYPE_USER_GROUP):
         """
         from gulp.api.collab.user import GulpUser
 
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        user = await GulpUser.get_by_id(sess, obj_id=user_id)
-        existing_users = [u.id for u in self.users]
-        if user_id not in existing_users:
-            # add user to the group
-            self.users.append(user)
-            await sess.commit()
-            MutyLogger.get_instance().info(
-                "adding user %s to group %s" % (user_id, self.id)
-            )
-            return
+        try:
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            user = await GulpUser.get_by_id(sess, obj_id=user_id)
+            existing_users = [u.id for u in self.users]
+            if user_id not in existing_users:
+                # add user to the group
+                self.users.append(user)
+                await sess.commit()
+                MutyLogger.get_instance().info(
+                    "adding user %s to group %s" % (user_id, self.id)
+                )
+                return
 
-        MutyLogger.get_instance().info(
-            "user %s already in group %s" % (user_id, self.id)
-        )
-        if raise_if_already_exists:
-            raise ObjectAlreadyExists(
+            MutyLogger.get_instance().info(
                 "user %s already in group %s" % (user_id, self.id)
             )
+            if raise_if_already_exists:
+                raise ObjectAlreadyExists(
+                    "user %s already in group %s" % (user_id, self.id)
+                )
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     async def remove_user(
         self, sess: AsyncSession, user_id: str, raise_if_not_found: bool = True
@@ -130,23 +140,27 @@ class GulpUserGroup(GulpCollabBase, type=COLLABTYPE_USER_GROUP):
         """
         from gulp.api.collab.user import GulpUser
 
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        user = await GulpUser.get_by_id(sess, obj_id=user_id)
-        existing_users = [u.id for u in self.users]
-        if user_id in existing_users:
-            # remove user from the group
-            self.users.remove(user)
-            await sess.commit()
-            MutyLogger.get_instance().info(
-                "removing user %s from group %s" % (user_id, self.id)
-            )
-            return
+        try:
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            user = await GulpUser.get_by_id(sess, obj_id=user_id)
+            existing_users = [u.id for u in self.users]
+            if user_id in existing_users:
+                # remove user from the group
+                self.users.remove(user)
+                await sess.commit()
+                MutyLogger.get_instance().info(
+                    "removing user %s from group %s" % (user_id, self.id)
+                )
+                return
 
-        MutyLogger.get_instance().info(
-            "user %s not in group %s" % (user_id, self.id)
-        )
-        if raise_if_not_found:
-            raise ObjectNotFound("User %s not in group %s" % (user_id, self.id))
+            MutyLogger.get_instance().info(
+                "user %s not in group %s" % (user_id, self.id)
+            )
+            if raise_if_not_found:
+                raise ObjectNotFound("User %s not in group %s" % (user_id, self.id))
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     def is_admin(self) -> bool:
         """

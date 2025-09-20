@@ -276,7 +276,7 @@ class GulpAPIWebsocket:
             s = await GulpUserSession.check_token(
                 sess, params.token, required_permission or GulpUserPermission.READ
             )
-            user_id = s.user_id
+            user_id = s.user.id
 
         return params.ws_id, user_id
 

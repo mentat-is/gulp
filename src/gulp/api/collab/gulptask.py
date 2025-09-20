@@ -24,13 +24,6 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
         String,
         doc="id of the websocket connection this entry is associated with",
     )
-    operation_id: Mapped[str] = mapped_column(
-        ForeignKey(
-            "operation.id",
-            ondelete="CASCADE",
-        ),
-        doc="id of the operation this source is associated with",
-    )
     req_id: Mapped[str] = mapped_column(
         doc="id of the request this entry is associated with",
     )
@@ -54,7 +47,6 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
             {
                 "user_id": "user_id",
                 "ws_id": "websocket_id",
-                "operation_id": "operation_id",
                 "req_id": "request_id",
                 "task_type": "ingest",
                 "pid": 12345,

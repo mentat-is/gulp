@@ -38,10 +38,7 @@ from gulp.api.ws_api import WSDATA_PROGRESS, GulpProgressPacket, GulpWsSharedQue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpMappingParameters
-
-if TYPE_CHECKING:
-    from gulp.api.opensearch.query import GulpQuery
-
+from gulp.api.opensearch.query import GulpQuery
 
 async def _read_sigma_mappings_from_file(
     mapping_file: str,
@@ -492,7 +489,7 @@ def _to_gulp_query(
     tags: list[str] = None,
     q_groups: list[str] = None,
     return_dicts: bool = False,
-) -> list["GulpQuery" | dict]:
+) -> list["GulpQuery"] | list[dict]:
     """
     convert a Sigma rule to one or more GulpQuery objects.
 
@@ -504,7 +501,7 @@ def _to_gulp_query(
         groups (list[str], optional): the "query group"/s to set on the query
         return_dicts (bool, optional): whether to return a list of dicts instead of GulpQuery objects. Defaults to False.
     Returns:
-        list[GulpQuery|dict]: one or more queries in the format specified by backend/pipeline/output
+        list["GulpQuery"] | list[dict]:: one or more queries in the format specified by backend/pipeline/output
     """
     from gulp.api.opensearch.query import GulpQuery
 
@@ -661,7 +658,6 @@ async def sigma_yml_to_queries(
 ) -> list[dict|GulpQuery]:
     if not mapping_parameters_cache:
         raise ValueError("sigma_yml_to_queries: source mapping cache is empty")
-
     queries: list[dict] = []
     r = _use_this(
         yml,

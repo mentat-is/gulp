@@ -116,7 +116,7 @@ async def note_create_handler(
             s, _ = await GulpOperation.get_by_id_wrapper(
                 sess, token, operation_id, GulpUserPermission.EDIT
             )
-            user_id: str = s.user_id
+            user_id: str = s.user.id
 
             n: GulpNote = await GulpNote.create_internal(
                 sess,
@@ -240,14 +240,14 @@ async def note_update_handler(
                 )
             # add an edit
             p = GulpNoteEdit(
-                user_id=s.user_id, text=text, timestamp=muty.time.now_msec()
+                user_id=s.user.id, text=text, timestamp=muty.time.now_msec()
             )
             current_edits = obj.edits or []
             current_edits.append(p.model_dump(exclude_none=True))
             obj.edits = current_edits  # trigger ORM update
-            obj.last_editor_id = s.user_id
+            obj.last_editor_id = s.user.id
 
-            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user_id)
+            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         if sess:
@@ -345,7 +345,9 @@ async def note_get_by_id_handler(
                 obj_id,
                 operation_id=operation_id,
             )
-            return JSendResponse.success(req_id=req_id, data=obj.to_dict(exclude_none=True))
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(exclude_none=True)
+            )
     except Exception as ex:
         if sess:
             await sess.rollback()

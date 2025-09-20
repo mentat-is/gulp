@@ -36,6 +36,7 @@ from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
 from gulp.config import GulpConfig
 from gulp.process import GulpProcess
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router: APIRouter = APIRouter()
 
@@ -48,25 +49,36 @@ async def db_reset() -> None:
 
     Args:
     """
-    # delete all operations first
-    async with GulpCollab.get_instance().session() as sess:
-        # enumerate all operations
-        ops = await GulpOperation.get_by_filter(sess, throw_if_not_found=False)
-        for op in ops:
-            op: GulpOperation
-            MutyLogger.get_instance().debug(
-                "found operation: %s, index=%s" % (op.id, op.index)
-            )
-            MutyLogger.get_instance().info("deleting data for operation %s" % (op.id))
+    sess: AsyncSession = None
+    try:
+        # delete all operations first
+        async with GulpCollab.get_instance().session() as sess:
+            # enumerate all operations
+            ops = await GulpOperation.get_by_filter(sess, throw_if_not_found=False)
+            for op in ops:
+                op: GulpOperation
+                MutyLogger.get_instance().debug(
+                    "found operation: %s, index=%s" % (op.id, op.index)
+                )
+                MutyLogger.get_instance().info(
+                    "deleting data for operation %s" % (op.id)
+                )
 
-            # delete the whole datastream
-            await GulpOpenSearch.get_instance().datastream_delete(op.index)
+                # delete the whole datastream
+                await GulpOpenSearch.get_instance().datastream_delete(op.index)
 
-            # delete the operation itself
-            await op.delete(sess)
+                # delete the operation itself
+                await op.delete(sess)
+    except Exception as ex:
+        MutyLogger.get_instance().exception("cannot delete data on opensearch!")
+        await sess.rollback()
+        # raise
 
     # reset
-    # TODO: try to handle worker processes termination gracefully    
+    # TODO: try to handle worker processes termination gracefully
+    MutyLogger.get_instance().warning(
+        "resetting collab database, all data will be lost!"
+    )
     await GulpCollab.get_instance().init(main_process=True, force_recreate=True)
 
 
@@ -193,7 +205,7 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
             s = await GulpUserSession.check_token(
                 sess, token, obj=op, permission=GulpUserPermission.INGEST
             )
-            user_id = s.user_id
+            user_id = s.user.id
             index = op.index
 
         async def _worker_coro():
@@ -282,7 +294,7 @@ async def opensearch_delete_index_handler(
             s: GulpUserSession = await GulpUserSession.check_token(
                 sess, token, permission=GulpUserPermission.ADMIN
             )
-            user_id: str = s.user_id
+            user_id: str = s.user.id
             op: GulpOperation = None
             if delete_operation:
                 # get operation
@@ -294,7 +306,7 @@ async def opensearch_delete_index_handler(
                 )
                 if op:
                     # delete the operation on collab
-                    await op.delete(sess, ws_id=None, user_id=s.user_id, req_id=req_id)
+                    await op.delete(sess, ws_id=None, user_id=s.user.id, req_id=req_id)
                 else:
                     MutyLogger.get_instance().warning(
                         f"operation with index={index} not found, skipping deletion..."

@@ -94,7 +94,7 @@ async def highlight_create_handler(
             s, _ = await GulpOperation.get_by_id_wrapper(
                 sess, token, operation_id, GulpUserPermission.EDIT
             )
-            user_id: str = s.user_id
+            user_id: str = s.user.id
 
             l: GulpHighlight = await GulpHighlight.create_internal(
                 sess,
@@ -200,7 +200,7 @@ async def highlight_update_handler(
             if time_range:
                 obj.time_range = list(time_range)
 
-            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user_id)
+            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
 
     except Exception as ex:
@@ -298,7 +298,9 @@ async def highlight_get_by_id_handler(
                 obj_id,
                 operation_id=operation_id,
             )
-            return JSendResponse.success(req_id=req_id, data=obj.to_dict(exclude_none=True))
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(exclude_none=True)
+            )
     except Exception as ex:
         if sess:
             await sess.rollback()

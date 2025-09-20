@@ -31,7 +31,7 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from opensearchpy import RequestError
 from starlette.middleware.sessions import SessionMiddleware
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
@@ -450,21 +450,29 @@ class GulpRestServer:
         while not GulpRestServer.get_instance().is_shutdown():
             async with GulpCollab.get_instance().session() as sess:
                 # get a batch of tasks, use advisory lock to prevent concurrent dequeueing
-                await GulpTask.acquire_advisory_lock(sess, "dequeue")
-                objs: list[GulpTask] = await GulpTask.get_by_filter(
-                    sess,
-                    flt=GulpCollabFilter(limit=limit, offset=offset),
-                    throw_if_not_found=False,
-                )
-                if not objs:
-                    # no tasks to process, wait before next poll
+                try:
+                    await GulpTask.acquire_advisory_lock(sess, "dequeue")
+                    objs: list[GulpTask] = await GulpTask.get_by_filter(
+                        sess,
+                        flt=GulpCollabFilter(limit=limit, offset=offset),
+                        throw_if_not_found=False,
+                    )
+                    if not objs:
+                        # no tasks to process, wait before next poll
+                        await asyncio.sleep(5)
+                        continue
+
+                    # delete all tasks in this batch first to prevent reprocessing
+                    for obj in objs:
+                        await obj.delete(sess)
+
+                    # commit to release the lock
+                    await sess.commit()
+                except Exception as e:
+                    await sess.rollback()
+                    MutyLogger.get_instance().exception(e)
                     await asyncio.sleep(5)
                     continue
-
-                # delete all tasks in this batch first to prevent reprocessing
-                for obj in objs:
-                    await obj.delete(sess)
-                    await sess.commit()
 
                 MutyLogger.get_instance().debug(
                     "found %d tasks to process" % (len(objs))
@@ -606,41 +614,51 @@ class GulpRestServer:
             MutyLogger.get_instance().warning(
                 "collab database schema mismatch, forcing recreate!\n%s" % (ex)
             )
-            # just resetted
-            self._reset_collab=False
+            # force reset
+            self._reset_collab = True
 
         if first_run and not self._create_operation:
             # force creating a default operation on first run
             self._create_operation = "test_operation"
 
-        if self._reset_collab or self._create_operation:
-            MutyLogger.get_instance().warning(
-                "******** first_run=%r, _reset_collab=%r, _create_operation=%s ********"
-                % (
-                    first_run,
-                    self._reset_collab,
-                    self._create_operation,
-                )
+        MutyLogger.get_instance().warning(
+            "******** first_run=%r, _reset_collab=%r, _create_operation=%s ********"
+            % (
+                first_run,
+                self._reset_collab,
+                self._create_operation,
             )
+        )
 
-        # check for reset db and/or create the specified operation
+        # initialize the opensearch client
+        GulpOpenSearch.get_instance()
+
+        # initialize collab database and create operation if needed
+        sess: AsyncSession = None
         try:
             if self._reset_collab:
                 from gulp.api.rest.db import db_reset
+
+                # reset the collab database and recreate tables from scratch (also deletes all data in operations)
                 await db_reset()
 
             if self._create_operation:
                 from gulp.api.collab.operation import GulpOperation
-                await GulpOperation.create_operation(self._create_operation, "admin", set_default_grants=True)
 
+                async with GulpCollab.get_instance().session() as sess:
+                    await GulpOperation.create_operation(
+                        sess, self._create_operation, "admin", set_default_grants=True
+                    )
         except Exception as ex:
+            if sess:
+                await sess.rollback()
             if first_run:
                 # allow restart on first run
                 self._reset_first_run()
             raise ex
 
-        # init the main process
-        await main_process.init_gulp_process(
+        # finish initializing main process, will spawn workers as well
+        await main_process.finish_initialization(
             log_level=self._log_level,
             logger_file_path=self._logger_file_path,
             log_to_syslog=self._log_to_syslog,

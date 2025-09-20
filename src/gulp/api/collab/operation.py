@@ -54,6 +54,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         "GulpContext",
         cascade="all, delete-orphan",
         lazy="selectin",
+        default_factory=list,
         uselist=True,
         doc="The context/s associated with the operation.",
     )
@@ -102,6 +103,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
     @classmethod
     async def create_operation(
         cls,
+        sess: AsyncSession,
         name: str,
         user_id: str,
         index: str = None,
@@ -118,6 +120,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         if the operation already exists, it will either raise an error or delete the existing operation before creating a new one,
 
         Args:
+            sess (AsyncSession): The session to use.
             name (str): The name of the operation.
             user_id (str): The id of the user creating the operation.
             index (str, optional): The index to associate with the operation. If not provided, it will be derived from the name.
@@ -139,56 +142,55 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             # use the operation_id as the index
             index = operation_id
 
-        async with GulpCollab.get_instance().session() as sess:
-            op: GulpOperation = await GulpOperation.get_by_id(
-                sess, operation_id, throw_if_not_found=False
+        op: GulpOperation = await GulpOperation.get_by_id(
+            sess, operation_id, throw_if_not_found=False
+        )
+        if op:
+            if fail_if_exists:
+                # fail if the operation already exists
+                raise ObjectAlreadyExists(
+                    f"operation_id={operation_id} already exists."
+                )
+            # delete the operation if exists
+            await op.delete(sess)
+
+        if create_index:
+            # re/create the index
+            from gulp.api.opensearch_api import GulpOpenSearch
+
+            await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(
+                index, index_template=index_template
             )
-            if op:
-                if fail_if_exists:
-                    # fail if the operation already exists
-                    raise ObjectAlreadyExists(
-                        f"operation_id={operation_id} already exists."
-                    )
-                # delete the operation if exists
-                await op.delete(sess)
 
+        # create the operation
+        granted_user_ids: list[str] = None
+        granted_user_group_ids: list[str] = None
+        if set_default_grants:
+            MutyLogger.get_instance().info(
+                "setting default grants for operation=%s" % (name)
+            )
+            granted_user_ids = ["admin", "guest"]
+            granted_user_group_ids = [ADMINISTRATORS_GROUP_ID]
+        try:
+            op = await GulpOperation.create_internal(
+                sess,
+                user_id,
+                name=name,
+                description=description,
+                glyph_id=glyph_id or "box",
+                granted_user_ids=granted_user_ids,
+                granted_user_group_ids=granted_user_group_ids,
+                index=index,
+                operation_data={},
+            )
+        except Exception as exx:
             if create_index:
-                # re/create the index
-                from gulp.api.opensearch_api import GulpOpenSearch
+                # fail, delete the previously created index
+                await GulpOpenSearch.get_instance().datastream_delete(index)
+            raise exx
 
-                await GulpOpenSearch.get_instance().datastream_create_from_raw_dict(
-                    index, index_template=index_template
-                )
-
-            # create the operation
-            granted_user_ids: list[str] = None
-            granted_user_group_ids: list[str] = None
-            if set_default_grants:
-                MutyLogger.get_instance().info(
-                    "setting default grants for operation=%s" % (name)
-                )
-                granted_user_ids = ["admin", "guest"]
-                granted_user_group_ids = [ADMINISTRATORS_GROUP_ID]
-            try:
-                op = await GulpOperation.create_internal(
-                    sess,
-                    user_id,
-                    name=name,
-                    description=description,
-                    glyph_id=glyph_id or "box",
-                    granted_user_ids=granted_user_ids,
-                    granted_user_group_ids=granted_user_group_ids,
-                    index=index,
-                    operation_data={}
-                )
-            except Exception as exx:
-                if create_index:
-                    # fail, delete the previously created index
-                    await GulpOpenSearch.get_instance().datastream_delete(index)
-                raise exx
-
-            # done
-            return op.to_dict(exclude_none=True)
+        # done
+        return op.to_dict(exclude_none=True)
 
     async def add_context(
         self,
@@ -272,8 +274,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             raise e
 
     @override
-    async def add_user_grant(
-        self, sess: AsyncSession, user_id: str) -> None:
+    async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:
         # add grant to the operation
         await super().add_user_grant(sess, user_id)
         if not self.contexts:
@@ -287,9 +288,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                     await src.add_user_grant(sess, user_id)
 
     @override
-    async def remove_user_grant(
-        self, sess: AsyncSession, user_id: str
-    ) -> None:
+    async def remove_user_grant(self, sess: AsyncSession, user_id: str) -> None:
         # remove grant from the operation
         await super().remove_user_grant(sess, user_id)
         if not self.contexts:
@@ -303,9 +302,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                     await src.remove_user_grant(sess, user_id)
 
     @override
-    async def add_group_grant(
-        self, sess: AsyncSession, group_id: str
-    ) -> None:
+    async def add_group_grant(self, sess: AsyncSession, group_id: str) -> None:
         # add grant to the operation
         await super().add_group_grant(sess, group_id)
         if not self.contexts:
@@ -319,9 +316,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                     await src.add_group_grant(sess, group_id, commit=False)
 
     @override
-    async def remove_group_grant(
-        self, sess: AsyncSession, group_id: str
-    ) -> None:
+    async def remove_group_grant(self, sess: AsyncSession, group_id: str) -> None:
         # remove grant from the operation
         await super().remove_group_grant(sess, group_id)
         if not self.contexts:

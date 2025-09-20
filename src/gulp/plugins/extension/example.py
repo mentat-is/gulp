@@ -183,7 +183,7 @@ class Plugin(GulpPluginBase):
 
                 # spawn coroutine in the main process, will run asap
                 coro = self._example_task(
-                    s.user_id, operation_id, context_id, ws_id, req_id
+                    s.user.id, operation_id, context_id, ws_id, req_id
                 )
                 await GulpRestServer.get_instance().spawn_bg_task(coro)
                 return JSendResponse.pending(req_id=req_id)

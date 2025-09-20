@@ -16,6 +16,7 @@ from muty.jsend import JSendException, JSendResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
+from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabBase
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -97,6 +98,8 @@ async def _make_public_or_private(
 
     obj: GulpCollabBase = await obj_class.get_by_id(sess, obj_id)
 
+    # check operation read access
+    s, _ = GulpOperation.get_by_id_wrapper(sess, token, obj)
     # check token on object
     await GulpUserSession.check_token(
         sess,
@@ -150,6 +153,7 @@ async def object_add_granted_user_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _modify_grants(
@@ -159,6 +163,8 @@ async def object_add_granted_user_handler(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -199,6 +205,7 @@ async def object_remove_granted_user_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _modify_grants(
@@ -208,6 +215,8 @@ async def object_remove_granted_user_handler(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
+        if sess:
+            await sess.rollback()                    
         raise JSendException(req_id=req_id) from ex
 
 
@@ -248,6 +257,7 @@ async def object_add_granted_group_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _modify_grants(
@@ -257,6 +267,8 @@ async def object_add_granted_group_handler(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -297,6 +309,7 @@ async def object_remove_granted_group_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _modify_grants(
@@ -306,6 +319,8 @@ async def object_remove_granted_group_handler(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -347,6 +362,7 @@ async def object_make_private_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _make_public_or_private(
@@ -360,6 +376,8 @@ async def object_make_private_handler(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -402,6 +420,7 @@ async def object_make_public_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
+    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj = await _make_public_or_private(
@@ -415,4 +434,6 @@ async def object_make_public_handler(
                 req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
             )
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex

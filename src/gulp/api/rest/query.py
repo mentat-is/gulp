@@ -60,7 +60,10 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.mapping.models import GulpSigmaMapping
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQuery, GulpQueryHelpers, GulpQueryParameters
-from gulp.api.opensearch.sigma import sigmas_to_queries
+from gulp.api.opensearch.sigma import (
+    sigma_yml_list_to_queries,
+    sigma_file_list_to_queries,
+)
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
@@ -858,7 +861,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
             s = await GulpUserSession.check_token(
                 sess, token, permission=permission, obj=op
             )
-            user_id = s.user_id
+            user_id = s.user.id
         if not q_options.name:
             q_options.name = muty.string.generate_unique()
         if q_options.preview_mode:
@@ -987,7 +990,7 @@ async def query_gulp_handler(
             s = await GulpUserSession.check_token(
                 sess, token, permission=permission, obj=op
             )
-            user_id = s.user_id
+            user_id = s.user.id
             index = op.index
 
         # convert gulp query to raw query
@@ -1130,7 +1133,7 @@ async def query_external_handler(
             s = await GulpUserSession.check_token(
                 sess, token, permission=permission, obj=op
             )
-            user_id = s.user_id
+            user_id = s.user.id
             index = op.index
         if not q_options.name:
             q_options.name = muty.string.generate_unique()
@@ -1330,7 +1333,7 @@ async def query_sigma_handler(
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             s = await GulpUserSession.check_token(sess, token, obj=op)
-            user_id = s.user_id
+            user_id = s.user.id
             index = op.index
 
             # convert sigma rule/s using pysigma
@@ -1477,7 +1480,7 @@ async def query_history_get_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             s: GulpUserSession = await GulpUserSession.check_token(sess, token)
-            user_id: str = s.user_id
+            user_id: str = s.user.id
 
         d = await GulpUser.get_query_history(user_id)
         return JSONResponse(JSendResponse.success(req_id, data=d))
@@ -1630,7 +1633,7 @@ async def query_operations(
     try:
         async with GulpCollab.get_instance().session() as sess:
             s: GulpUserSession = await GulpUserSession.check_token(sess, token)
-            user_id = s.user_id
+            user_id = s.user.id
 
         # check token and get its accessible operations
         ops: list[dict] = await GulpOperation.get_by_filter_wrapper(
@@ -1716,7 +1719,7 @@ async def query_fields_by_source_handler(
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             s: GulpUserSession = await GulpUserSession.check_token(sess, token, obj=op)
             index = op.index
-            user_id = s.user_id
+            user_id = s.user.id
 
         # check if there is at least one document with operation_id, context_id and source_id
         await GulpOpenSearch.get_instance().search_dsl_sync(

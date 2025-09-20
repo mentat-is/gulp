@@ -82,7 +82,7 @@ a dict representing the type of each field ingested in this source.
         context_id: str,
         source_id: str,
         field_types: dict,
-    ) -> T:
+    ) -> dict:
         """
         Creates (or updates an existing) a new GulpSourceFieldTypes object.
 
@@ -98,20 +98,11 @@ a dict representing the type of each field ingested in this source.
             field_types (dict): The field->type mappings, i.e.  {"field1": "type", "field2": "type", ...}
 
         Returns:
-            GulpSourceFieldTypes: The created or updated GulpSourceFields object.
+            dict: The created or updated GulpSourceFieldTypes object as a dictionary.
         Raises:
             Exception: If the object cannot be created or updated.
         """
         obj_id = muty.crypto.hash_xxh128(f"{operation_id}{context_id}{source_id}")
-
-        MutyLogger.get_instance().debug(
-            "---> create: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fieldtypes=%d",
-            obj_id,
-            operation_id,
-            context_id,
-            source_id,
-            len(field_types),
-        )
 
         try:
             await GulpSourceFieldTypes.acquire_advisory_lock(sess, obj_id)
@@ -121,7 +112,7 @@ a dict representing the type of each field ingested in this source.
                 sess, obj_id=obj_id, throw_if_not_found=False
             )
             if src_field_types:
-                # update existing
+                # already exists, update it
                 MutyLogger.get_instance().debug(
                     "---> updating source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
                     obj_id,
@@ -131,23 +122,28 @@ a dict representing the type of each field ingested in this source.
                     len(field_types),
                 )
                 src_field_types.field_types = field_types
-                await src_field_types.update(sess)
-                return src_field_types
+                return await src_field_types.update(sess)
+
+            MutyLogger.get_instance().debug(
+                "---> create source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fieldtypes=%d",
+                obj_id,
+                operation_id,
+                context_id,
+                source_id,
+                len(field_types),
+            )
 
             # create new
-            object_data = {
-                "context_id": context_id,
-                "source_id": source_id,
-                "field_types": field_types,
-            }
-            await cls.create_internal(
+            obj: GulpSourceFieldTypes = await cls.create_internal(
                 sess,
                 user_id,
                 operation_id=operation_id,
                 private=False,
-                **object_data,
+                context_id=context_id,
+                source_id=source_id,
+                field_types=field_types,
             )
-            await sess.commit()
+            return obj.to_dict()
         except Exception as e:
             await sess.rollback()
             raise e

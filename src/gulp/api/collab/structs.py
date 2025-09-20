@@ -537,16 +537,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         BIGINT,
         doc="The time the object was last updated, in milliseconds from unix epoch.",
     )
-    granted_user_ids: Mapped[Optional[list[str]]] = mapped_column(
-        MutableList.as_mutable(ARRAY(String)),
-        default=[],
-        doc="The ids of the users who have been granted access to the object. if not set(default), all users have access. either, the object is private to the listed user_id/s",
-    )
-    granted_user_group_ids: Mapped[Optional[list[str]]] = mapped_column(
-        MutableList.as_mutable(ARRAY(String)),
-        doc="The ids of the user groups who have been granted access to the object. if not set(default), all groups have access.",
-        default=[],
-    )
     operation_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey(
             "operation.id",
@@ -567,6 +557,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     )
     color: Mapped[Optional[str]] = mapped_column(
         String, doc="The color associated with the object."
+    )
+    granted_user_ids: Mapped[Optional[list[str]]] = mapped_column(
+        MutableList.as_mutable(ARRAY(String)),
+        doc="The ids of the users who have been granted access to the object. if not set(default), all users have access. either, the object is private to the listed user_id/s",
+    )
+    granted_user_group_ids: Mapped[Optional[list[str]]] = mapped_column(
+        MutableList.as_mutable(ARRAY(String)),
+        doc="The ids of the user groups who have been granted access to the object. if not set(default), all groups have access.",
     )
 
     __mapper_args__ = {
@@ -794,6 +792,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         obj["time_created"] = time_created
         obj["time_updated"] = time_created
         obj["user_id"] = user_id
+        obj["granted_user_ids"] = []
+        obj["granted_user_group_ids"] = []
 
         # set user and group grants
         if private:
@@ -838,7 +838,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         Asynchronously creates and stores an instance of the class, also updating the websocket if required.
 
-        NOTE: the returned object is **eager loaded**
+        NOTE: session is committed, and the returned object is **eager loaded**
 
         Args:
             sess (AsyncSession): The database session to use.
@@ -949,6 +949,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         ws_id: str = None,
         ws_data_type: str = None,
         req_id: str = None,
+        return_nested: bool = False,
         **kwargs,
     ) -> dict:
         """
@@ -972,6 +973,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_id (str, optional): The websocket ID: pass None to not notify the websocket.
             ws_data_type (str, optional): this is the type in `GulpWsData.type` sent on the websocket. Defaults to WSDATA_COLLAB_CREATE. Ignored if ws_id is not provided (used only for websocket notification) or if token is None (internal request).
             req_id (str, optional): The request ID, may be None for internal requests, ignored if ws_id is None.
+            return_nested (bool, optional): If True, pass nested=True when converting to dictionary before returning. Defaults to False.
             **kwargs: Additional field=value keypairs to be set on the object
         Returns:
             dict: The created object as a dictionary.
@@ -1006,7 +1008,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     )
 
                 # create (and commit) the object
-                user_id = s.user_id
+                user_id = s.user.id
                 n: GulpCollabBase = await cls.create_internal(
                     sess,
                     user_id=user_id,
@@ -1025,7 +1027,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     granted_user_group_ids=granted_user_group_ids,
                     **kwargs,
                 )
-                nn = n.to_dict(exclude_none=True)
+                nn = n.to_dict(exclude_none=True, nested=return_nested)
                 return nn
             except Exception as e:
                 await sess.rollback()
@@ -1055,28 +1057,33 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             dict: The updated object as a dictionary.
         """
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        kwargs.pop("id", None)  # id cannot be updated
+        try:
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            kwargs.pop("id", None)  # id cannot be updated
 
-        # update vaues skipping None
-        for k, v in kwargs.items():
-            # only update if the value is not None and different from the current value
-            if v is not None and getattr(self, k, None) != v:
-                # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
-                setattr(self, k, v)
+            # update vaues skipping None
+            for k, v in kwargs.items():
+                # only update if the value is not None and different from the current value
+                if v is not None and getattr(self, k, None) != v:
+                    # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
+                    setattr(self, k, v)
 
-        # ensure time_updated is set
-        self.time_updated = muty.time.now_msec()
+            # ensure time_updated is set
+            self.time_updated = muty.time.now_msec()
 
-        private = self.is_private()
-        updated_dict = self.to_dict(nested=True, exclude_none=True)
+            private = self.is_private()
+            updated_dict = self.to_dict(nested=True, exclude_none=True)
 
-        # commit
-        await sess.commit()
-        MutyLogger.get_instance().debug(
-            "---> updated: %s"
-            % (muty.string.make_shorter(str(updated_dict), max_len=260))
-        )
+            # commit
+            await sess.commit()
+            MutyLogger.get_instance().debug(
+                "---> updated: %s"
+                % (muty.string.make_shorter(str(updated_dict), max_len=260))
+            )
+        except Exception as e:
+            # release lock
+            await sess.rollback()
+            raise e
 
         if not ws_id:
             # no websocket ID provided, return
@@ -1151,8 +1158,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             await sess.delete(self)
             await sess.commit()
         except Exception as e:
+            await sess.rollback()
             if raise_on_error:
                 raise e
+            else:
+                return None
 
         if not ws_id:
             # done
@@ -1206,7 +1216,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             Exception: If there is an error during the query execution or result processing.
         """
         # build filter for the user
-        flt: GulpCollabFilter = await GulpCollabBase._set_flt_granted_users_and_groups(
+        flt: GulpCollabFilter = await GulpCollabBase._set_flt_grants_for_user(
             sess, user_id, flt
         )
         q = flt.to_delete_query(cls)
@@ -1277,11 +1287,17 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                         sess, token, operation_id, permission=GulpUserPermission.READ
                     )
                     # and object access
-                    await s.check_permissions(sess, permission, obj, enforce_owner=enforce_owner)
+                    await s.check_permissions(
+                        sess, permission, obj, enforce_owner=enforce_owner
+                    )
                 else:
                     # just check object access
                     s = await GulpUserSession.check_token(
-                        sess, token, permission=permission, obj=obj, enforce_owner=enforce_owner
+                        sess,
+                        token,
+                        permission=permission,
+                        obj=obj,
+                        enforce_owner=enforce_owner,
                     )
 
                 # delete
@@ -1289,7 +1305,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     sess,
                     ws_id=ws_id,
                     req_id=req_id,
-                    user_id=s.user_id,
+                    user_id=s.user.id,
                     ws_data_type=ws_data_type,
                     ws_data=ws_data,
                 )
@@ -1340,9 +1356,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         MutyLogger.get_instance().debug(
             "adding granted user group %s to object %s" % (group_id, self.id)
         )
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        self.granted_user_group_ids.append(group_id)
-        await sess.commit()
+        try:
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            self.granted_user_group_ids.append(group_id)
+            await sess.commit()
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     async def remove_group_grant(self, sess: AsyncSession, group_id: str) -> None:
         """
@@ -1370,9 +1390,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             "removing granted user group %s from object %s" % (group_id, self.id)
         )
 
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        self.granted_user_group_ids.remove(group_id)
-        await sess.commit()
+        try:
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            self.granted_user_group_ids.remove(group_id)
+            await sess.commit()
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:
         """
@@ -1400,9 +1424,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             "adding granted user %s to object %s" % (user_id, self.id)
         )
 
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        self.granted_user_ids.append(user_id)
-        await sess.commit()
+        try:
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            self.granted_user_ids.append(user_id)
+            await sess.commit()
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     async def remove_user_grant(self, sess: AsyncSession, user_id: str) -> None:
         """
@@ -1431,9 +1459,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         MutyLogger.get_instance().info(
             "removing granted user %s from object %s" % (user_id, self.id)
         )
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        self.granted_user_ids.remove(user_id)
-        await sess.commit()
+        try:
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            self.granted_user_ids.remove(user_id)
+            await sess.commit()
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     def is_owner(self, user_id: str) -> bool:
         """
@@ -1497,13 +1529,17 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
 
         # private object = only owner or admin can see it
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        self.granted_user_ids = [self.user_id]
-        self.granted_user_group_ids = []
-        await sess.commit()
-        MutyLogger.get_instance().info(
-            "object %s is now PRIVATE to user %s" % (self.id, self.user_id)
-        )
+        try:
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            self.granted_user_ids = [self.user_id]
+            self.granted_user_group_ids = []
+            await sess.commit()
+            MutyLogger.get_instance().info(
+                "object %s is now PRIVATE to user %s" % (self.id, self.user_id)
+            )
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     async def make_public(self, sess: AsyncSession) -> None:
         """
@@ -1515,12 +1551,16 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             None
         """
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        # clear all granted users and groups
-        self.granted_user_group_ids = []
-        self.granted_user_ids = []
-        await sess.commit()
-        MutyLogger.get_instance().info("object %s is now PUBLIC" % (self.id))
+        try:
+            await self.__class__.acquire_advisory_lock(sess, self.id)
+            # clear all granted users and groups
+            self.granted_user_group_ids = []
+            self.granted_user_ids = []
+            await sess.commit()
+            MutyLogger.get_instance().info("object %s is now PUBLIC" % (self.id))
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     @staticmethod
     def object_type_to_class(collab_type: str) -> T:
@@ -1635,10 +1675,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         sess: AsyncSession,
         token: str,
         obj_id: str,
-        operation_id: str = None,
         permission: list[GulpUserPermission] | GulpUserPermission = None,
         enforce_owner: bool = False,
-        recursive: bool=False,
+        recursive: bool = False,
     ) -> tuple["GulpUserSession", T]:
         """
         helper to get an object by ID and the GulpUserSession, after checking if the token has the required permission
@@ -1647,7 +1686,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The database session to use.
             token (str): The user token.
             obj_id (str): The ID of the object to get.
-            operation_id (str, optional): The ID of the operation associated with the object: if set, it will be checked for READ permission. Defaults to None.
             permission (list[GulpUserPermission]|GulpUserPermission, optional): The permission required to read the object.
             enforce_owner (bool, optional): If True, enforce that the token belongs to the owner of the object (or the user is admin). Defaults to False.
             recursive (bool, optional): If True, loads nested relationships recursively. Defaults to False.
@@ -1665,16 +1703,16 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # get session
         s: GulpUserSession = await GulpUserSession.get_by_id(
             sess,
-            token,            
+            token,
         )
         # get object
         obj: GulpCollabBase = await cls.get_by_id(sess, obj_id, recursive=recursive)
-
-        if operation_id:
+        if obj.operation_id:
+            # if operation_id:
             # get operation and check read access on it
             from gulp.api.collab.operation import GulpOperation
 
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            op: GulpOperation = await GulpOperation.get_by_id(sess, obj.operation_id)
             await s.check_permissions(sess, permission=GulpUserPermission.READ, obj=op)
 
         # check object access
@@ -1686,7 +1724,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         return s, obj
 
     @staticmethod
-    async def _set_flt_granted_users_and_groups(
+    async def _set_flt_grants_for_user(
         sess: AsyncSession, user_id: str = None, flt: GulpCollabFilter = None
     ) -> GulpCollabFilter:
         """
@@ -1756,7 +1794,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             Exception: If there is an error during the query execution or result processing.
         """
         # build filter for the user
-        flt: GulpCollabFilter = await GulpCollabBase._set_flt_granted_users_and_groups(
+        flt: GulpCollabFilter = await GulpCollabBase._set_flt_grants_for_user(
             sess, user_id, flt
         )
 
@@ -1868,14 +1906,14 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                         sess, token, permission=permission
                     )
 
-                # MutyLogger.get_instance().debug("get_by_filter_wrapper, user_id=%s" % (s.user_id))
+                # MutyLogger.get_instance().debug("get_by_filter_wrapper, user_id=%s" % (s.user.id))
 
                 objs = await cls.get_by_filter(
                     sess,
                     flt,
                     throw_if_not_found=throw_if_not_found,
-                    user_id=s.user_id,
-                    recursive=recursive
+                    user_id=s.user.id,
+                    recursive=recursive,
                 )
                 if not objs:
                     return []

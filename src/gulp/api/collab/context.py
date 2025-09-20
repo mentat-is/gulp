@@ -34,12 +34,6 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
 
     it has always associated an operation, and the tuple composed by the two is unique.
     """
-
-    operation_id: Mapped[str] = mapped_column(
-        ForeignKey("operation.id", ondelete="CASCADE"),
-        doc="The ID of the operation associated with the context.",
-        primary_key=True,
-    )
     # multiple sources can be associated with a context
     sources: Mapped[Optional[list[GulpSource]]] = relationship(
         "GulpSource",
@@ -48,6 +42,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
         lazy="selectin",
         foreign_keys=[GulpSource.context_id],
         doc="The source/s associated with the context.",
+        default_factory=list,
     )
 
     color: Mapped[Optional[str]] = mapped_column(
