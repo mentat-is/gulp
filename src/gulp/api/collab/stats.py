@@ -47,6 +47,7 @@ from gulp.api.ws_api import (
     WSDATA_COLLAB_DELETE,
     WSDATA_QUERY_DONE,
     WSDATA_STATS_UPDATE,
+    WSDATA_STATS_CREATE,
     GulpQueryDonePacket,
     GulpWsSharedQueue,
 )
@@ -109,6 +110,11 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         default=GulpRequestStatus.ONGOING.value,
         doc="The status of the stats (done, ongoing, ...).",
     )
+    req_type: Mapped[str] = mapped_column(
+        String,
+        default=RequestStatsType.REQUEST_TYPE_INGESTION,
+        doc="The type of request stats (ingestion, query, enrichment, generic).",
+    )
     time_expire: Mapped[Optional[int]] = mapped_column(
         BIGINT,
         default=0,
@@ -119,11 +125,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         default=0,
         doc="The timestamp when the stats were completed, in milliseconds from the unix epoch.",
     )
-    req_type: Mapped[Optional[str]] = mapped_column(
-        String,
-        default=RequestStatsType.REQUEST_TYPE_INGESTION,
-        doc="The type of request stats (ingestion, query, enrichment, generic).",
-    )
     data: Mapped[Optional[dict]] = mapped_column(
         MutableList.as_mutable(JSONB),
         default_factory=dict,
@@ -131,31 +132,112 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     )
     __table_args__ = (Index("idx_stats_operation", "operation_id"),)
 
-    # @override
-    # @classmethod
-    # async def create(
-    #     cls,
-    #     *args,
-    #     **kwargs,
-    # ) -> dict:
-    #     """
-    #     disabled, use create_or_get instead
-    #     """
-    #     raise TypeError("use GulpRequestStats.create_or_get() instead of create()")
+    @override
+    @classmethod
+    async def create(
+        cls,
+        *args,
+        **kwargs,
+    ) -> dict:
+        """
+        disabled, use create_or_get instead
+        """
+        raise TypeError("use GulpRequestStats.create_stats() instead of create()")
 
-    # @staticmethod
-    # async def delete_pending():
-    #     """
-    #     delete all ongoing stats that are not completed.
-    #     """
-    #     async with GulpCollab.get_instance().session() as sess:
-    #         flt = GulpCollabFilter(status=["ongoing"])
-    #         deleted = await GulpRequestStats.delete_by_filter(
-    #             sess, flt, throw_if_not_found=False
-    #         )
-    #         MutyLogger.get_instance().info("deleted %d pending stats" % (deleted))
-    #         return deleted
+    @classmethod
+    async def create_stats(cls,
+        sess: AsyncSession,
+        req_id: str,
+        user_id: str,
+        operation_id: str,
+        req_type: RequestStatsType = RequestStatsType.REQUEST_TYPE_INGESTION,
+        ws_id: str = None,
+        never_expire: bool = False,
+        **kwargs
+    ) -> T:
+        """
+        """
+        MutyLogger.get_instance().debug(
+            "---> create_stats: req_id=%s, operation_id=%s, user_id=%s, stats_type=%s",
+            req_id,
+            operation_id,
+            user_id,
+            req_type,
+        )
 
+        # determine expiration time
+        time_expire: int = 0
+        time_updated = muty.time.now_msec()
+        if not never_expire:
+            # set expiration time based on config
+            msecs_to_expiration = GulpConfig.get_instance().stats_ttl() * 1000
+
+            if msecs_to_expiration > 0:
+                time_expire = time_updated + msecs_to_expiration
+            # MutyLogger.get_instance().debug("now=%s, setting stats %s time_expire to %s", time_updated, req_id, time_expire)
+
+        try:
+            await GulpRequestStats.acquire_advisory_lock(sess, req_id)
+            
+            # check if the stats already exists
+            stats: GulpRequestStats = await cls.get_by_id(
+                sess, obj_id=req_id, throw_if_not_found=False
+            )
+            if stats:
+                MutyLogger.get_instance().debug(
+                    "---> create_stats: req_id=%s, already existing, updating...",
+                    req_id,
+                )
+
+                # update existing stats as ongoing, and update time_expire if needed
+                stats.status = GulpRequestStatus.ONGOING.value
+                stats.time_updated = time_updated
+                stats.time_finished = 0
+                if time_expire > 0:
+                    stats.time_expire = time_expire
+                stats.data.update(**kwargs)
+                return await stats.update(sess, ws_id=ws_id, user_id=user_id,ws_data_type=WSDATA_STATS_UPDATE)
+            
+            # create new
+            stats = GulpRequestStats.create_internal(
+                sess,
+                user_id,
+                operation_id=operation_id,
+                private=True, # stats are private
+                obj_id=req_id, # id is the request id
+                ws_id=ws_id,
+                ws_data_type=WSDATA_STATS_CREATE,
+                status = GulpRequestStatus.ONGOING.value,
+                time_expire=time_expire,
+                req_type=req_type.value,
+                time_updated=time_updated,
+                time_finished=0,
+                data=kwargs,
+            )
+            return stats.to_dict()
+        
+        except Exception as e:
+            await sess.rollback()
+            raise e
+        
+    @staticmethod
+    async def delete_pending():
+        """
+        delete all ongoing stats that are not completed.
+        """
+        sess : AsyncSession = None
+        try:
+            async with GulpCollab.get_instance().session() as sess:
+                flt = GulpCollabFilter(status="ongoing")
+                deleted = await GulpRequestStats.delete_by_filter(
+                    sess, flt, throw_if_not_found=False
+                )
+                MutyLogger.get_instance().info("deleted %d pending stats" % (deleted))
+                return deleted
+        except Exception as e:
+            await sess.rollback()
+
+    
     # @classmethod
     # async def create_or_get(
     #     cls,

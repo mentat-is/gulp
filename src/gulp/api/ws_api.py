@@ -49,7 +49,8 @@ WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
 WSDATA_GENERIC = "generic"
 
 # the following data types sent on the websocket are to be used to track status
-WSDATA_STATS_UPDATE = "stats_update"  # this is sent each time a GulpRequestStats is updated on the collab db (at start of the operation, and in the end, usually)
+WSDATA_STATS_CREATE = "stats_create"  # this is sent when a GulpRequestStats is created on the collab db (at start of the operation)
+WSDATA_STATS_UPDATE = "stats_update"  # this is sent each time a GulpRequestStats is updated on the collab db (i.e. periodically during the operation)
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # this is sent in the end of an ingestion operation, one per source
 WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
 WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query

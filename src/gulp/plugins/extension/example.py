@@ -42,12 +42,13 @@ class Plugin(GulpPluginBase):
     def __init__(
         self,
         path: str,
+        module_name: str,
         pickled: bool = False,
         **kwargs,
     ) -> None:
 
         # extensions may support pickling to be able to be re-initialized in worker processes
-        super().__init__(path, pickled, **kwargs)
+        super().__init__(path, module_name, pickled, **kwargs)
         MutyLogger.get_instance().debug(
             "path=%s, pickled=%r, kwargs=%s" % (path, pickled, kwargs)
         )

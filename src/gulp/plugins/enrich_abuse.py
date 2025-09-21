@@ -42,10 +42,11 @@ class Plugin(GulpPluginBase):
     def __init__(
         self,
         path: str,
+        module_name: str,
         pickled: bool = False,
         **kwargs,
     ) -> None:
-        super().__init__(path, pickled=pickled, **kwargs)
+        super().__init__(path, module_name, pickled=pickled, **kwargs)
         self._whois_cache = {}
 
     def type(self) -> list[GulpPluginType]:

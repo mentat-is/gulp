@@ -20,6 +20,7 @@ import muty.file
 import muty.log
 import muty.pydantic
 import muty.time
+import muty.string
 from muty.log import MutyLogger
 from opensearchpy import Field
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -316,18 +317,22 @@ class GulpPluginCache:
 
         Args:
             plugin (PluginBase): The plugin to add to the cache.
-            name (str): The name of the plugin.
+            name (str): The internal name of the plugin.
         """
         if name not in self._cache:
             MutyLogger.get_instance().debug("adding plugin %s to cache" % (name))
             self._cache[name] = plugin
+        else:
+            MutyLogger.get_instance().warning(
+                "plugin %s already in cache, not adding" % (name)
+            )
 
     def get(self, name: str) -> ModuleType:
         """
         Get a plugin from the cache.
 
         Args:
-            name (str): The name of the plugin to get.
+            name (str): The internal name of the plugin to get.
         Returns:
             PluginBase: The plugin if found in the cache, otherwise None.
         """
@@ -341,7 +346,7 @@ class GulpPluginCache:
         Remove a plugin from the cache.
 
         Args:
-            name (str): The name of the plugin to remove from the cache.
+            name (str): The internal name of the plugin to remove from the cache.
         """
         if name in self._cache:
             MutyLogger.get_instance().debug("removing plugin %s from cache" % (name))
@@ -406,7 +411,7 @@ class GulpInternalEventsManager:
             plugin (GulpPluginBase): The plugin to register.
             types (list[str], optional): a list of events the plugin is interested in
         """
-        name: str = plugin.bare_filename
+        name: str = plugin.name
         if name not in self._plugins.keys():
             MutyLogger.get_instance().debug(
                 "registering plugin %s to receive internal events: %s" % (name, types)
@@ -455,7 +460,7 @@ class GulpInternalEventsManager:
             if t in entry["types"]:
                 try:
                     MutyLogger.get_instance().debug(
-                        "broadcasting event %s to plugin %s" % (t, p.bare_filename)
+                        "broadcasting event %s to plugin %s" % (t, p.name)
                     )
                     await p.internal_event_callback(ev)
                 except Exception as e:
@@ -518,6 +523,7 @@ class GulpPluginBase(ABC):
     def __init__(
         self,
         path: str,
+        module_name: str,
         pickled: bool = False,
         **kwargs,
     ) -> None:
@@ -526,6 +532,7 @@ class GulpPluginBase(ABC):
 
         Args:
             path (str): The file path associated with the plugin.
+            module_name (str): The module name in sys.modules
             pickled (bool, optional, INTERNAL): Whether the plugin is pickled. Defaults to False.
                 this should not be changed, as it is used by the pickle module to serialize the object when it is passed to the multiprocessing module.
         Returns:
@@ -537,14 +544,12 @@ class GulpPluginBase(ABC):
 
         # plugin file path
         self.path: str = path
-        # print("*** GulpPluginBase.__init__ (%s, %s) called!!!! ***" % (path, self.display_name()))
+        self.module_name: str = module_name
+        # print("*** GulpPluginBase.__init__ (%s, %s, %s) called!!!! ***" % (path, module_name, self.display_name()))
 
-        # to have faster access to the plugin filename
-        self.filename = os.path.basename(self.path)
-        self.bare_filename = os.path.splitext(self.filename)[0]
-
-        # to have faster access to the plugin name
-        self.name = self.internal_name()
+        # to have faster access to plugin filename and internal name
+        self.filename: str = os.path.basename(self.path)
+        self.name = os.path.splitext(self.filename)[0]
 
         # tell if the plugin has been pickled by the multiprocessing module (internal)
         self._pickled: bool = pickled
@@ -559,7 +564,7 @@ class GulpPluginBase(ABC):
         # SQLAlchemy session
         self._sess: AsyncSession = None
 
-        # ingestion stats
+        # request stats
         self._stats: GulpRequestStats = None
 
         # for ingestion, the mappings to apply
@@ -703,14 +708,6 @@ class GulpPluginBase(ABC):
         the supported plugin types.
         """
 
-    def internal_name(self) -> str:
-        """
-        Returns the internal plugin name (the bare filename without extension, i.e. win_evtx for win_evtx.py, to be used as `plugin` throughout the whole gulp API).
-
-        may be overridden to return a different internal name.
-        """
-        return self.bare_filename
-
     def is_running_in_main_process(self) -> bool:
         """
         Returns True if the plugin is running in the main process.
@@ -754,7 +751,7 @@ class GulpPluginBase(ABC):
 
     def depends_on(self) -> list[str]:
         """
-        Returns a list of plugins this plugin depends on (plugin file name with/withouy py/pyc).
+        Returns a list of plugins this plugin depends on (plugin internal names).
         """
         return []
 
@@ -812,7 +809,7 @@ class GulpPluginBase(ABC):
         broadcast internal ingest metrics event to plugins registered to the GulpInternalEventsManager.EVENT_INGEST event
         """
         d = {
-            "plugin": self.bare_filename,
+            "plugin": self.name,
             "user_id": self._user_id,
             "plugin_params": (
                 self._plugin_params.model_dump(exclude_none=True)
@@ -1044,7 +1041,6 @@ class GulpPluginBase(ABC):
         context: GulpContext = await GulpContext.get_by_id(self._sess, context_id)
 
         # create source
-        plugin = self.bare_filename
         mapping_parameters = self._plugin_params.mapping_parameters
         source, created = await context.add_source(
             self._sess,
@@ -1053,7 +1049,7 @@ class GulpPluginBase(ABC):
             ws_id=self._ws_id,
             req_id=self._req_id,
             src_id=v if force_v_as_source_id else None,
-            plugin=plugin,
+            plugin=self.name,
             mapping_parameters=mapping_parameters,
         )
 
@@ -2815,13 +2811,21 @@ class GulpPluginBase(ABC):
             sm = await get_sigma_mappings(self._plugin_params.mapping_parameters)
             self._plugin_params.mapping_parameters.sigma_mappings = sm
 
-            n: GulpSource = await GulpSource.get_by_id(self._sess, self._source_id, throw_if_not_found=False)
+            n: GulpSource = await GulpSource.get_by_id(
+                self._sess, self._source_id, throw_if_not_found=False
+            )
             if not n:
-                MutyLogger.get_instance().error(f"cannot find source {self._source_id} to update mapping_parameters")
+                MutyLogger.get_instance().error(
+                    f"cannot find source {self._source_id} to update mapping_parameters"
+                )
                 return
-            await n.update(self._sess,
-                           plugin=self.bare_filename,
-                           mapping_parameters=self._plugin_params.mapping_parameters.model_dump(exclude_none=True))
+            await n.update(
+                self._sess,
+                plugin=self.name,
+                mapping_parameters=self._plugin_params.mapping_parameters.model_dump(
+                    exclude_none=True
+                ),
+            )
 
     async def _source_done(self, flt: GulpIngestionFilter = None, **kwargs) -> None:
         """
@@ -2928,7 +2932,7 @@ class GulpPluginBase(ABC):
         """
         Stop listening to internal events.
         """
-        GulpInternalEventsManager.get_instance().deregister(self.bare_filename)
+        GulpInternalEventsManager.get_instance().deregister(self.name)
 
     @staticmethod
     def load_sync(
@@ -2979,7 +2983,7 @@ class GulpPluginBase(ABC):
             plugin (str): The name of the plugin (may also end with .py/.pyc) or the full path
             extension (bool, optional): Whether the plugin is an extension. Defaults to False.
             cache_mode (GulpPluginCacheMode, optional): The cache mode. Defaults to GulpPluginCacheMode.DEFAULT.
-            **kwargs: Additional keyword arguments.
+            **kwargs: Additional keyword arguments ("pickled", only when running in worker process).
         """
         # this is set in __reduce__(), which is called when the plugin is pickled(=loaded in another process)
         # pickled=True: running in worker
@@ -2993,17 +2997,17 @@ class GulpPluginBase(ABC):
         )
 
         # try to get plugin from cache
-        bare_name = os.path.splitext(os.path.basename(path))[0]
+        internal_plugin_name = os.path.splitext(os.path.basename(path))[0]
         force_load_from_disk: bool = False
         if cache_mode == GulpPluginCacheMode.IGNORE:
             # ignore cache
             MutyLogger.get_instance().debug(
-                "ignoring cache for plugin %s" % (bare_name)
+                "ignoring cache for plugin %s" % (internal_plugin_name)
             )
             force_load_from_disk = True
         elif cache_mode == GulpPluginCacheMode.FORCE:
             # force load from disk
-            MutyLogger.get_instance().warning("force cache for plugin %s" % (bare_name))
+            MutyLogger.get_instance().warning("force cache for plugin %s" % (internal_plugin_name))
             force_load_from_disk = False
         else:
             # cache mode DEFAULT
@@ -3015,26 +3019,27 @@ class GulpPluginBase(ABC):
                     # cache disabled
                     MutyLogger.get_instance().warning(
                         "plugin cache is disabled, loading plugin %s from disk"
-                        % (bare_name)
+                        % (internal_plugin_name)
                     )
                     force_load_from_disk = True
 
         if not force_load_from_disk:
             # use cache
-            m: ModuleType = GulpPluginCache.get_instance().get(bare_name)
+            m: ModuleType = GulpPluginCache.get_instance().get(internal_plugin_name)
             if m:
                 # return from cache
                 return m.Plugin(path, pickled=pickled, **kwargs)
 
         # load from file
+        seed: str = muty.string.generate_unique()
         if extension:
-            module_name = f"gulp.plugins.extension.{bare_name}"
+            module_name = f"gulp.plugins.extension.{internal_plugin_name}-{seed}"
         else:
-            module_name = f"gulp.plugins.{bare_name}"
+            module_name = f"gulp.plugins.{internal_plugin_name}-{seed}"
 
-        # load from file
-        m = muty.dynload.load_dynamic_module_from_file(module_name, path)
-        p: GulpPluginBase = m.Plugin(path, pickled=pickled, **kwargs)
+        # load from file (will be added to sys.modules)
+        m: ModuleType = muty.dynload.load_dynamic_module_from_file(module_name, path)
+        p: GulpPluginBase = m.Plugin(path, module_name, pickled=pickled, **kwargs)
         MutyLogger.get_instance().debug(
             f"LOADED plugin m={m}, p={p}, name()={p.name}, pickled={pickled}, depends_on={p.depends_on()}"
         )
@@ -3054,7 +3059,7 @@ class GulpPluginBase(ABC):
                 if not dep_path:
                     await p.unload()
                     raise FileNotFoundError(
-                        f"dependency {dep} not found, plugin={bare_name} cannot load, path={path}"
+                        f"dependency {dep} not found, plugin={internal_plugin_name} cannot load, path={path}"
                     )
 
         # also call post-initialization routine if any
@@ -3064,13 +3069,13 @@ class GulpPluginBase(ABC):
             cache_mode != GulpPluginCacheMode.IGNORE
             and GulpConfig.get_instance().plugin_cache_enabled()
         ):
-            # add to cache
-            GulpPluginCache.get_instance().add(m, bare_name)
+            # add module to the cache so next Plugin() instantiation is faster (no file load)
+            GulpPluginCache.get_instance().add(m, internal_plugin_name)
         return p
 
     async def unload(self) -> None:
         """
-        unload the plugin module, removing it from cache if needed
+        unload the plugin and remove it from sys.modules.
 
         NOTE: the plugin module is **no more valid** after this function returns.
 
@@ -3082,38 +3087,14 @@ class GulpPluginBase(ABC):
         """
 
         # clear stuff
-        MutyLogger.get_instance().debug(
-            "unload() called for plugin: %s" % (self.bare_filename)
-        )
-        self._sess = None
-        self._stats = None
-        self._mappings.clear()
-        self._index_type_mapping.clear()
-        self._upper_record_to_gulp_document_fun = None
-        self._upper_enrich_documents_chunk_fun = None
-        self._upper_instance = None
-        self._docs_buffer.clear()
-        self._extra_docs.clear()
-        self._extra_docs: list[dict]
-        self._plugin_params = None
-        self._operation = None
+        MutyLogger.get_instance().debug("unload() called for plugin: %s" % (self.name))
 
         # empty internal events queue
         self.deregister_internal_events_callback()
-        if GulpConfig.get_instance().plugin_cache_enabled():
-            # do not unload if cache is enabled
-            return
 
-        GulpPluginCache.get_instance().remove(self.bare_filename)
-
-        # # finally delete the module
-        # if self.type() == GulpPluginType.EXTENSION:
-        #     module_name = f"gulp.plugins.extension.{self.bare_filename}"
-        # else:
-        #     module_name = f"gulp.plugins.{self.bare_filename}"
-        # if module_name in sys.modules:
-        #     del sys.modules[module_name]
-
+        # delete the loaded module from sys.modules
+        del sys.modules[self.module_name]
+        
     @staticmethod
     def path_from_plugin(
         plugin: str, is_extension: bool = False, raise_if_not_found: bool = False
@@ -3255,7 +3236,7 @@ class GulpPluginBase(ABC):
                     continue
                 if name is not None:
                     # filter by name
-                    if name.lower() not in p.bare_filename.lower():
+                    if name.lower() not in p.name.lower():
                         continue
 
                 if _exists(l, p.filename):

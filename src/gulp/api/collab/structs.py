@@ -150,9 +150,9 @@ class GulpCollabFilter(BaseModel):
     defines filter to be applied to all objects in the collaboration system.
 
     - use % for wildcard instead of * (SQL LIKE operator).
-    - custom fields are supported via `model_extra` as k: [v,v,v,...] pairs where v are strings to match against the column (case insensitive/OR match).
-        i.e. `{"custom_field": ["val1", "val2"]}` will match all objects where `custom_field` is either "val1" or "val2".
-        if "grant_user_ids" and/or "grant_user_group_ids" are provided, only objects with the defined (or empty, public) grants will be returned.
+    - if "grant_user_ids" and/or "grant_user_group_ids" are provided, only objects with the defined (or empty, public) grants will be returned.
+    - custom fields can be provided as if they were normal fields, i.e. GulpCollabFilter(custom_field=["val1","val2"], another_custom_field="myval") 
+    if a list is provided, it will match if any of the values match (OR). either, a single value can be provided. all matches are case insensitive,
     """
 
     # allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
@@ -316,7 +316,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
 
         Args:
             q (Select|Delete): the query to apply the filter to
-
+            obj_type (T): the class of the object (one derived from GulpCollabBase, i.e. GulpNote)
         Returns:
             Select[Tuple]|Delete[Tuple]: the select or delete query
         """
@@ -399,6 +399,10 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             for k, v in self.model_extra.items():
                 if k in obj_type.columns:
                     col = getattr(obj_type, k)
+                    if type(v) is str:
+                        # single string, convert to list
+                        v = [v]                    
+
                     # check if column type is ARRAY using SQLAlchemy's inspection
                     is_array = isinstance(getattr(col, "type", None), ARRAY)
                     if is_array:

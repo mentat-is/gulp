@@ -273,7 +273,7 @@ class GulpDocument(GulpBasicDocument):
             "agent_type": (
                 mapping.agent_type
                 if mapping and mapping.agent_type
-                else plugin_instance.bare_filename
+                else plugin_instance.name
             ),
             "event_original": event_original,
             # force event code from mapping or default to event_code
