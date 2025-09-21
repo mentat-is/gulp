@@ -16,7 +16,7 @@ Main functionalities:
 """
 
 import orjson
-from typing import List, Optional, override
+from typing import Optional, override
 
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
@@ -32,7 +32,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter, GulpCollabBase
 from gulp.api.opensearch.structs import GulpBasicDocument
 from gulp.api.ws_api import (
-    WSDATA_COLLAB_UPDATE,
+    WSDATA_COLLAB_CREATE,
     GulpCollabCreatePacket,
     GulpWsSharedQueue,
 )
@@ -239,10 +239,12 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 obj=inserted_notes,
                 bulk=True,
                 last=last,
+                bulk_size=len(inserted_notes),
+                total_size=len(notes)
             )
             wsq = GulpWsSharedQueue.get_instance()
             await wsq.put(
-                WSDATA_COLLAB_UPDATE,
+                WSDATA_COLLAB_CREATE,
                 user_id,
                 ws_id=ws_id,
                 operation_id=operation_id,

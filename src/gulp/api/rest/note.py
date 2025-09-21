@@ -113,7 +113,7 @@ async def note_create_handler(
         async with GulpCollab.get_instance().session() as sess:
             # check token on operation
             s: GulpUserSession
-            s, _ = await GulpOperation.get_by_id_wrapper(
+            s, _, _ = await GulpOperation.get_by_id_wrapper(
                 sess, token, operation_id, GulpUserPermission.EDIT
             )
             user_id: str = s.user.id
@@ -171,10 +171,6 @@ async def note_create_handler(
 async def note_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    operation_id: Annotated[
-        str,
-        Depends(APIDependencies.param_operation_id),
-    ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     doc: Annotated[
         GulpBasicDocument,
@@ -212,11 +208,10 @@ async def note_update_handler(
             # check permissions on both operation and object
             s: GulpUserSession
             obj: GulpNote
-            s, obj = await GulpNote.get_by_id_wrapper(
+            s, obj, _ = await GulpNote.get_by_id_wrapper(
                 sess,
                 token,
                 obj_id,
-                operation_id=operation_id,
                 permission=GulpUserPermission.EDIT,
             )
 
@@ -327,10 +322,6 @@ async def note_delete_handler(
 async def note_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    operation_id: Annotated[
-        str,
-        Depends(APIDependencies.param_operation_id),
-    ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
@@ -339,11 +330,10 @@ async def note_get_by_id_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj: GulpNote
-            _, obj = await GulpNote.get_by_id_wrapper(
+            _, obj, _ = await GulpNote.get_by_id_wrapper(
                 sess,
                 token,
                 obj_id,
-                operation_id=operation_id,
             )
             return JSendResponse.success(
                 req_id=req_id, data=obj.to_dict(exclude_none=True)

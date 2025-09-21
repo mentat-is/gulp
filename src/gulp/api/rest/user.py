@@ -532,7 +532,7 @@ async def user_update_handler(
             u: GulpUser
             if user_id:
                 # get the requested user using the given token: it will work if the token is admin or it's the same user
-                s, u = await GulpUser.get_by_id_wrapper(
+                s, u, _ = await GulpUser.get_by_id_wrapper(
                     sess, token, user_id, enforce_owner=True
                 )
             else:
@@ -732,7 +732,7 @@ async def user_get_by_id_handler(
             u: GulpUser
             if user_id:
                 # get the requested user using the given token: it will work if the token is admin or it's the same user
-                s, u = await GulpUser.get_by_id_wrapper(
+                s, u, _ = await GulpUser.get_by_id_wrapper(
                     sess, token, user_id, enforce_owner=True
                 )
             else:
@@ -804,7 +804,7 @@ async def user_set_data_handler(
             u: GulpUser
             if user_id:
                 # get the requested user using the given token: it will work if the token is admin or it's the same user
-                s, u = await GulpUser.get_by_id_wrapper(
+                s, u, _ = await GulpUser.get_by_id_wrapper(
                     sess, token, user_id, enforce_owner=True
                 )
             else:
@@ -888,7 +888,7 @@ async def user_get_data_handler(
             u: GulpUser
             if user_id:
                 # get the requested user using the given token: it will work if the token is admin or it's the same user
-                s, u = await GulpUser.get_by_id_wrapper(
+                s, u, _ = await GulpUser.get_by_id_wrapper(
                     sess, token, user_id, enforce_owner=True
                 )
             else:
@@ -973,7 +973,7 @@ async def user_delete_data_handler(
             u: GulpUser
             if user_id:
                 # get the requested user using the given token: it will work if the token is admin or it's the same user
-                s, u = await GulpUser.get_by_id_wrapper(
+                s, u, _ = await GulpUser.get_by_id_wrapper(
                     sess, token, user_id, enforce_owner=True
                 )
             else:

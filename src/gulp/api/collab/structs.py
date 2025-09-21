@@ -1279,11 +1279,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             try:
                 s: GulpUserSession
                 obj: GulpCollabBase = await cls.get_by_id(sess, obj_id)
-                if operation_id:
+                if obj.operation_id:
                     # check operation access
                     from gulp.api.collab.operation import GulpOperation
 
-                    s, _ = await GulpOperation.get_by_id_wrapper(
+                    s, _, _ = await GulpOperation.get_by_id_wrapper(
                         sess, token, operation_id, permission=GulpUserPermission.READ
                     )
                     # and object access
@@ -1678,7 +1678,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         permission: list[GulpUserPermission] | GulpUserPermission = None,
         enforce_owner: bool = False,
         recursive: bool = False,
-    ) -> tuple["GulpUserSession", T]:
+    ) -> tuple["GulpUserSession", T, "GulpOperation":None]:
         """
         helper to get an object by ID and the GulpUserSession, after checking if the token has the required permission
 
@@ -1690,7 +1690,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             enforce_owner (bool, optional): If True, enforce that the token belongs to the owner of the object (or the user is admin). Defaults to False.
             recursive (bool, optional): If True, loads nested relationships recursively. Defaults to False.
         Returns:
-            tuple[GulpUserSession, T]: The user session and the object.
+            tuple[GulpUserSession, T, GulpOperation]: The user session, the object, and the operation (if any) associated with the object.
         Raises:
             MissingPermission: If the user does not have permission to read the object.
             ObjectNotFound: If the object is not found.
@@ -1706,11 +1706,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             token,
         )
         # get object
+        from gulp.api.collab.operation import GulpOperation
+
         obj: GulpCollabBase = await cls.get_by_id(sess, obj_id, recursive=recursive)
+        op: GulpOperation = None
         if obj.operation_id:
-            # if operation_id:
             # get operation and check read access on it
-            from gulp.api.collab.operation import GulpOperation
 
             op: GulpOperation = await GulpOperation.get_by_id(sess, obj.operation_id)
             await s.check_permissions(sess, permission=GulpUserPermission.READ, obj=op)
@@ -1721,7 +1722,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         )
 
         # done
-        return s, obj
+        return s, obj, op
 
     @staticmethod
     async def _set_flt_grants_for_user(
@@ -1891,7 +1892,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     # check operation access
                     from gulp.api.collab.operation import GulpOperation
 
-                    s, _ = await GulpOperation.get_by_id_wrapper(
+                    s, _, _ = await GulpOperation.get_by_id_wrapper(
                         sess, token, operation_id, permission=GulpUserPermission.READ
                     )
 

@@ -91,7 +91,7 @@ async def highlight_create_handler(
         async with GulpCollab.get_instance().session() as sess:
             # check token on operation
             s: GulpUserSession
-            s, _ = await GulpOperation.get_by_id_wrapper(
+            s, _, _ = await GulpOperation.get_by_id_wrapper(
                 sess, token, operation_id, GulpUserPermission.EDIT
             )
             user_id: str = s.user.id
@@ -147,10 +147,6 @@ async def highlight_create_handler(
 async def highlight_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    operation_id: Annotated[
-        str,
-        Depends(APIDependencies.param_operation_id),
-    ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     time_range: Annotated[
         tuple[int, int],
@@ -178,11 +174,10 @@ async def highlight_update_handler(
             # check permissions on both operation and object
             s: GulpUserSession
             obj: GulpHighlight
-            s, obj = await GulpHighlight.get_by_id_wrapper(
+            s, obj, _ = await GulpHighlight.get_by_id_wrapper(
                 sess,
                 token,
                 obj_id,
-                operation_id=operation_id,
                 permission=GulpUserPermission.EDIT,
             )
 
@@ -236,10 +231,6 @@ async def highlight_update_handler(
 async def highlight_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    operation_id: Annotated[
-        str,
-        Depends(APIDependencies.param_operation_id),
-    ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -248,7 +239,6 @@ async def highlight_delete_handler(
         await GulpHighlight.delete_by_id_wrapper(
             token,
             obj_id,
-            operation_id=operation_id,
             ws_id=ws_id,
             req_id=req_id,
         )
@@ -281,10 +271,6 @@ async def highlight_delete_handler(
 async def highlight_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    operation_id: Annotated[
-        str,
-        Depends(APIDependencies.param_operation_id),
-    ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
@@ -292,11 +278,10 @@ async def highlight_get_by_id_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj: GulpHighlight
-            _, obj = await GulpHighlight.get_by_id_wrapper(
+            _, obj, _ = await GulpHighlight.get_by_id_wrapper(
                 sess,
                 token,
                 obj_id,
-                operation_id=operation_id,
             )
             return JSendResponse.success(
                 req_id=req_id, data=obj.to_dict(exclude_none=True)

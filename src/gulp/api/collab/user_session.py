@@ -164,7 +164,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
 
         Args:
             sess (AsyncSession): The database session to use.
-            permission (list[GulpUserPermission]|GulpUserPermission, optional): The permission(s) required to access the object. Defaults to None (just check for READ permission, which every token has: basically it checks if the token exists).
+            permission (list[GulpUserPermission]|GulpUserPermission, optional): The permission(s) required to access the object. Defaults to None (just check for READ permission, which every token has: basically it just checks if the token exists).
             obj (Optional[GulpCollabBase], optional): The object to check the permissions against, for access. Defaults to None.
             throw_on_no_permission (bool, optional): If True, raises an exception if the user does not have the required permissions (or if he's not logged on). Defaults to True.
             enforce_owner (bool, optional): If True, the user must be the owner of the object to access it (or administrator

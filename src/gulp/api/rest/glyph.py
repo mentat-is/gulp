@@ -145,7 +145,7 @@ async def glyph_update_handler(
             raise ValueError("At least one of name or img must be provided.")
         async with GulpCollab.get_instance().session as sess:
             obj: GulpGlyph
-            _, obj = await GulpGlyph.get_by_id_wrapper(
+            _, obj, _ = await GulpGlyph.get_by_id_wrapper(
                 sess,
                 token,
                 obj_id,
@@ -236,12 +236,14 @@ async def glyph_get_by_id_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj: GulpGlyph
-            _, obj = await GulpGlyph.get_by_id_wrapper(
+            _, obj, _ = await GulpGlyph.get_by_id_wrapper(
                 sess,
                 token,
                 obj_id,
             )
-            return JSendResponse.success(req_id=req_id, data=obj.to_dict(exclude_none=True))
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(exclude_none=True)
+            )
     except Exception as ex:
         if sess:
             await sess.rollback()
@@ -272,7 +274,7 @@ async def glyph_get_by_id_handler(
     summary="list glyphs, optionally using a filter.",
     description="""
 - **using paging through `flt.limit` and `flt.offset` is highly advised to avoid having a large response**.
-"""
+""",
 )
 async def glyph_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],

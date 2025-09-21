@@ -120,7 +120,7 @@ class GulpCollabCreatePacket(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "data": {
+                    "obj": {
                         "id": "the id",
                         "name": "the name",
                         "type": "note",
@@ -143,6 +143,14 @@ class GulpCollabCreatePacket(BaseModel):
     last: Optional[bool] = Field(
         True,
         description="for bulk operations, indicates if this is the last chunk of a bulk operation.",
+    )
+    total_size: Optional[int] = Field(
+        0,
+        description="for bulk operations, indicates the total size of the bulk operation, if known.",
+    )
+    bulk_size: Optional[int] = Field(
+        0,
+        description="for bulk operations, indicates the size of this bulk chunk.",
     )
 
 

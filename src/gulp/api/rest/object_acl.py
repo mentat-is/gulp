@@ -51,12 +51,10 @@ async def _modify_grants(
     Returns:
         GulpCollabBase: the modified object
     """
-    # map object type to class
+    # map object type to class and get object
     obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
-    obj: GulpCollabBase = await obj_class.get_by_id(sess, obj_id)
-
-    # get token session
-    await GulpUserSession.check_token(sess, token, obj=obj, enforce_owner=True)
+    obj: GulpCollabBase
+    _, obj, _ = obj_class.get_by_id_wrapper(sess, token, obj, enforce_owner=True)
 
     if add:
         # add grant
@@ -93,20 +91,10 @@ async def _make_public_or_private(
     Returns:
         GulpCollabBase: the modified object
     """
-    # map object type to class
+    # map object type to class and get object
     obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
-
-    obj: GulpCollabBase = await obj_class.get_by_id(sess, obj_id)
-
-    # check operation read access
-    s, _ = GulpOperation.get_by_id_wrapper(sess, token, obj)
-    # check token on object
-    await GulpUserSession.check_token(
-        sess,
-        token,
-        obj=obj,
-        enforce_owner=True,
-    )
+    obj: GulpCollabBase
+    _, obj, _ = obj_class.get_by_id_wrapper(sess, token, obj, enforce_owner=True)
 
     # set public/private
     if private:
@@ -216,7 +204,7 @@ async def object_remove_granted_user_handler(
             )
     except Exception as ex:
         if sess:
-            await sess.rollback()                    
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 

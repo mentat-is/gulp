@@ -198,7 +198,7 @@ async def user_group_update_handler(
             )
         async with GulpCollab.get_instance().session() as sess:
             obj: GulpUserGroup
-            _, obj = await GulpUserGroup.get_by_id_wrapper(
+            _, obj, _ = await GulpUserGroup.get_by_id_wrapper(
                 sess,
                 token,
                 group_id,
@@ -298,7 +298,7 @@ async def user_group_get_by_id_handler(
     sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            _, obj = await GulpUserGroup.get_by_id_wrapper(
+            _, obj, _ = await GulpUserGroup.get_by_id_wrapper(
                 sess,
                 token,
                 group_id,

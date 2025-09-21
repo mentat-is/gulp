@@ -183,7 +183,7 @@ async def operation_update_handler(
             )
         async with GulpCollab.get_instance().session() as sess:
             op: GulpOperation
-            _, op = await GulpOperation.get_by_id_wrapper(
+            _, op, _ = await GulpOperation.get_by_id_wrapper(
                 sess, token, operation_id, permission=GulpUserPermission.INGEST
             )
 
@@ -256,7 +256,7 @@ async def operation_delete_handler(
             # get operation and check acl
             op: GulpOperation
             s: GulpUserSession
-            s, op = await GulpOperation.get_by_id_wrapper(
+            s, op, _ = await GulpOperation.get_by_id_wrapper(
                 sess, token, operation_id, permission=GulpUserPermission.INGEST
             )
 
@@ -322,7 +322,7 @@ async def operation_get_by_id_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj: GulpOperation
-            _, obj = await GulpOperation.get_by_id_wrapper(
+            _, obj, _ = await GulpOperation.get_by_id_wrapper(
                 sess,
                 token,
                 operation_id,
@@ -458,7 +458,6 @@ async def context_list_handler(
 async def context_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
@@ -466,11 +465,10 @@ async def context_get_by_id_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj: GulpContext
-            _, obj = await GulpContext.get_by_id_wrapper(
+            _, obj, _ = await GulpContext.get_by_id_wrapper(
                 sess,
                 token,
                 obj_id,
-                operation_id=operation_id,
             )
             return JSendResponse.success(
                 req_id=req_id, data=obj.to_dict(exclude_none=True)
@@ -506,7 +504,6 @@ async def context_get_by_id_handler(
 )
 async def context_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
     delete_data: Annotated[
         Optional[bool],
@@ -524,22 +521,21 @@ async def context_delete_handler(
             # get operation and check acl on it
             op: GulpOperation
             s: GulpUserSession
-            s, op = await GulpOperation.get_by_id_wrapper(
-                sess, token, operation_id, permission=GulpUserPermission.INGEST
+            ctx: GulpContext
+            s, ctx, op = await GulpOperation.get_by_id_wrapper(
+                sess, token, context_id, permission=GulpUserPermission.INGEST
             )
             if delete_data:
                 # delete all data
                 MutyLogger.get_instance().info(
                     f"deleting data related to operation_id={
-                        operation_id}, context_id={context_id} on index={op.index} ..."
+                        ctx.operation_id}, context_id={context_id} on index={op.index} ..."
                 )
                 await GulpOpenSearch.get_instance().delete_data_by_context(
-                    op.index, operation_id, context_id
+                    op.index, ctx.operation_id, context_id
                 )
 
             # ok, delete context
-            ctx: GulpContext
-            _, ctx = await GulpContext.get_by_id_wrapper(sess, token, context_id)
             await ctx.delete(sess, ws_id=ws_id, req_id=ws_id, user_id=s.user.id)
             return JSendResponse.success(req_id=req_id, data={"id": context_id})
     except Exception as ex:
@@ -612,7 +608,7 @@ async def context_create_handler(
             # get operation and check acl
             op: GulpOperation
             s: GulpUserSession
-            s, op = await GulpOperation.get_by_id_wrapper(
+            s, op, _ = await GulpOperation.get_by_id_wrapper(
                 sess, token, operation_id, permission=GulpUserPermission.INGEST
             )
 
@@ -664,7 +660,6 @@ async def context_create_handler(
 async def context_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     color: Annotated[
         Optional[str],
         Query(
@@ -695,15 +690,10 @@ async def context_update_handler(
             )
 
         async with GulpCollab.get_instance().session() as sess:
-            # get context
-            obj: GulpContext
             s: GulpUserSession
-            s, obj = await GulpContext.get_by_id_wrapper(
-                sess,
-                token,
-                context_id,
-                operation_id=operation_id,
-                permission=GulpUserPermission.EDIT,
+            obj: GulpContext
+            s, obj, _ = await GulpOperation.get_by_id_wrapper(
+                sess, token, context_id, permission=GulpUserPermission.EDIT
             )
 
             # update
@@ -791,7 +781,6 @@ async def source_list_handler(
 async def source_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
@@ -799,9 +788,7 @@ async def source_get_by_id_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj: GulpSource
-            _, obj = await GulpSource.get_by_id_wrapper(
-                sess, token, obj_id, operation_id=operation_id
-            )
+            _, obj, _ = await GulpSource.get_by_id_wrapper(sess, token, obj_id)
         return JSendResponse.success(req_id=req_id, data=obj.to_dict(exclude_none=True))
     except Exception as ex:
         if sess:
@@ -872,13 +859,14 @@ async def source_create_handler(
             ctx: GulpContext
 
             # get context (must exist) and add source
-            s, ctx = await GulpContext.get_by_id_wrapper(
+            s, ctx, _ = await GulpContext.get_by_id_wrapper(
                 sess,
                 token,
                 context_id,
-                operation_id=operation_id,
                 permission=GulpUserPermission.INGEST,
             )
+            assert ctx.operation_id == operation_id
+
             src, created = await ctx.add_source(
                 sess,
                 s.user.id,
@@ -927,7 +915,6 @@ async def source_create_handler(
 async def source_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     color: Annotated[
         Optional[str],
         Query(description="new color for the source.", example="#313373"),
@@ -957,11 +944,10 @@ async def source_update_handler(
             # get source
             obj: GulpSource
             s: GulpUserSession
-            s, obj = await GulpSource.get_by_id_wrapper(
+            s, obj, _ = await GulpSource.get_by_id_wrapper(
                 sess,
                 token,
                 source_id,
-                operation_id=operation_id,
                 permission=GulpUserPermission.EDIT,
             )
 
@@ -1008,8 +994,6 @@ async def source_update_handler(
 )
 async def source_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
     delete_data: Annotated[
         Optional[bool],
@@ -1027,23 +1011,21 @@ async def source_delete_handler(
             # get operation and check acl on it
             op: GulpOperation
             s: GulpUserSession
-            s, op = await GulpOperation.get_by_id_wrapper(
-                sess, token, operation_id, permission=GulpUserPermission.INGEST
+            src: GulpSource
+            s, src, op = await GulpOperation.get_by_id_wrapper(
+                sess, token, source_id, permission=GulpUserPermission.INGEST
             )
 
             if delete_data:
                 # delete all data
                 MutyLogger.get_instance().info(
-                    f"deleting data related to operation_id={operation_id}, context_id={
-                        context_id}, source_id={source_id} on index={op.index} ..."
+                    f"deleting data related to operation_id={src.operation_id}, context_id={
+                        src.context_id}, source_id={source_id} on index={op.index} ..."
                 )
                 await GulpOpenSearch.get_instance().delete_data_by_source(
-                    op.index, operation_id, context_id, source_id
+                    op.index, src.operation_id, src.context_id, source_id
                 )
             # ok, delete source
-            src: GulpSource = await GulpSource.get_by_id_wrapper(
-                sess, token, source_id, operation_id=operation_id
-            )
             await src.delete(sess, ws_id=ws_id, req_id=req_id, user_id=s.user.id)
 
         return JSendResponse.success(req_id=req_id, data={"id": source_id})
