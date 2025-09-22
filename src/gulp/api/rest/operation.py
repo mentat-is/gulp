@@ -153,8 +153,10 @@ async def operation_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     index: Annotated[
-        str,
-        Depends(APIDependencies.param_index_optional),
+        Optional[str],
+        Query(
+            description="the new index to be set for the operation (must exist on OpenSearch)."
+        ),
     ] = None,
     description: Annotated[
         str,
@@ -823,10 +825,7 @@ async def source_create_handler(
     ] = None,
     color: Annotated[
         str,
-        Query(
-            description="the color of the source.",
-            example="#313373"
-        ),
+        Query(description="the color of the source.", example="#313373"),
     ] = None,
     glyph_id: Annotated[
         str,
@@ -900,10 +899,7 @@ async def source_update_handler(
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
     color: Annotated[
         Optional[str],
-        Query(
-            description="new color for the source.",
-            example="#313373"
-        ),
+        Query(description="new color for the source.", example="#313373"),
     ] = None,
     description: Annotated[
         Optional[str],

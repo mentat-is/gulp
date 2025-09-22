@@ -170,12 +170,13 @@ async def test_operation_api():
 
     # create new operation with just owner's grants
     new_operation = await GulpAPIOperation.operation_create(
-        admin_token, "new_operation"
+        admin_token, "new_operation", glyph_id="antenna", set_default_grants=False
     )
     assert new_operation.get("name") == new_operation_id
     assert new_operation.get("index") == new_operation_id
     assert new_operation.get("id") == new_operation_id
-
+    assert new_operation.get("glyph_id") == "antenna"
+    
     # list operations (ingest can see only one operation)
     operations = await GulpAPIOperation.operation_list(ingest_token)
     assert operations and len(operations) == 1
@@ -296,7 +297,7 @@ async def test_operation_api():
 
     # update source color/desc
     source = await GulpAPIOperation.source_get_by_id(guest_token, source_id)
-    assert source.get("color") == "purple"
+    assert source.get("color") == None
     source = await GulpAPIOperation.source_update(
         ingest_token, source_id, color="red", description="new description"
     )
@@ -305,7 +306,7 @@ async def test_operation_api():
 
     # same for context
     context = await GulpAPIOperation.context_get_by_id(guest_token, context_id)
-    assert context.get("color") == "white"
+    assert context.get("color") == None
     context = await GulpAPIOperation.context_update(
         ingest_token, context_id, color="red", description="new description"
     )
