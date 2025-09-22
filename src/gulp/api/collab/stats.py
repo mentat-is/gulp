@@ -27,6 +27,7 @@ from typing import Optional, Union, override
 
 import muty.time
 from muty.log import MutyLogger
+from pydantic import BaseModel, Field
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String, Boolean
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,7 +95,32 @@ class PreviewDone(Exception):
         super().__init__(message)
         self.processed = processed
 
+class GulpIngestionStats(BaseModel):
+    """
+    Represents the ingestion statistics for an operation.
+    """
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                },
+            ]
+        },
+    )
 
+    source_total: Field(
+
+
+    source_total: int = 0
+    source_processed: int = 0
+    source_failed: int = 0
+    records_ingested: int = 0
+    records_skipped: int = 0
+    records_processed: int = 0
+    records_failed: int = 0
+    errors: list[str] = []
+    total_hits: int = 0
 class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     """
     Represents the statistics for an operation.
