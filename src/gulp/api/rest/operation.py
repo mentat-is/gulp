@@ -152,8 +152,10 @@ async def operation_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     index: Annotated[
-        str,
-        Depends(APIDependencies.param_index_optional),
+        Optional[str],
+        Query(
+            description="the new index to be set for the operation (must exist on OpenSearch)."
+        ),
     ] = None,
     description: Annotated[
         str,
