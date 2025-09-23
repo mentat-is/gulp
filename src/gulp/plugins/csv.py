@@ -178,7 +178,7 @@ class Plugin(GulpPluginBase):
                 async for line_dict in AsyncDictReader(f, dialect=dialect, delimiter=delimiter):
                     # fix dict (remove BOM from keys, if present)
                     fixed_dict = {
-                        muty.string.remove_unicode_bom(k): v
+                        muty.string.remove_unicode_bom(k, unenclose=True): v
                         for k, v in line_dict.items()
                         if v
                     }
