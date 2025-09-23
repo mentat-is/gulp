@@ -188,7 +188,8 @@ class Plugin(GulpPluginBase):
                     else:
                         # default
                         fixed_dict = line_dict
-
+                    # print("*****************")
+                    # print(fixed_dict)
                     # rebuild line
                     line = delimiter.join(fixed_dict.values())
                     # add original line as __line__
