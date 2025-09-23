@@ -178,16 +178,13 @@ class Plugin(GulpPluginBase):
                 async for line_dict in AsyncDictReader(
                     f, dialect=dialect, delimiter=delimiter
                 ):
-                    if doc_idx == 0:
-                        # fix dict on first line (remove unicode BOM from keys, if present)
-                        fixed_dict = {
-                            muty.string.remove_unicode_bom(k, unenclose=True): v
-                            for k, v in line_dict.items()
-                            if v
-                        }
-                    else:
-                        # default
-                        fixed_dict = line_dict
+                    # fix dict on first line (remove unicode BOM from keys, if present)
+                    fixed_dict = {
+                        muty.string.remove_unicode_bom(k, unenclose=True): v
+                        for k, v in line_dict.items()
+                        if v
+                    }
+
                     # print("*****************")
                     # print(fixed_dict)
                     # rebuild line
