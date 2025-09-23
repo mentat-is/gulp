@@ -185,6 +185,9 @@ class Plugin(GulpPluginBase):
                             for k, v in line_dict.items()
                             if v
                         }
+                    else:
+                        # default
+                        fixed_dict = line_dict
 
                     # rebuild line
                     line = delimiter.join(fixed_dict.values())
