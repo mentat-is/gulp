@@ -258,13 +258,11 @@ include documents matching the given `gulp.source_id`/s.
             qs = f"NOT _exists_: {field}"
         return qs
 
-    def to_opensearch_dsl(self, flt: "GulpQueryFilter" = None) -> dict:
+    def to_opensearch_dsl(self) -> dict:
         """
         convert to a query in OpenSearch DSL format using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query
 
-        Args:
-            flt (GulpQueryFilter, optional): used to pre-filter the query, default=None
-        Returns:
+                Returns:
             dict: a ready to be used query object for the search API, like:
             ```json
             {
@@ -342,31 +340,20 @@ include documents matching the given `gulp.source_id`/s.
         # (caused by "default_field" which by default is "*" and the query string is incorrectly parsed when parenthesis are used as we do, maybe this could be fixed in a later opensearch version as it is in elasticsearch)
         query_dict = {
             "query": {
-                "bool": {
-                    "must": [
-                        {
-                            "query_string": {
-                                # all clauses are ANDed, if none return all
-                                "query": " AND ".join(filter(None, _build_clauses()))
-                                or "*",
-                                "analyze_wildcard": True,
-                                "default_field": "_id",
-                            }
-                        }
-                    ]
+                "query_string": {
+                    # all clauses are ANDed, if none return all
+                    "query": " AND ".join(filter(None, _build_clauses())) or "*",
+                    "analyze_wildcard": True,
+                    "default_field": "_id",
                 }
             }
         }
-        bool_dict = query_dict["query"]["bool"]
-        q_string = query_dict["query"]["bool"]["must"][0]["query_string"]
+
+        q_string = query_dict["query"]["query_string"]
         if self.query_string_parameters:
             q_string.update(self.query_string_parameters)
 
-        if flt:
-            # merge with the provided filter using a bool query
-            bool_dict["filter"] = [flt.to_opensearch_dsl()["query"]]
-
-        # MutyLogger.get_instance().debug('flt=%s, resulting query=%s' % (flt, orjson.dumps(query_dict, option=orjson.OPT_INDENT_2).decode()))
+        # MutyLogger.get_instance().debug('resulting query=%s' % (orjson.dumps(query_dict, option=orjson.OPT_INDENT_2).decode()))
         return query_dict
 
     def merge_to_opensearch_dsl(self, dsl: dict) -> dict:

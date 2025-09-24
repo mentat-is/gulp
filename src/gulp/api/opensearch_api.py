@@ -2235,7 +2235,7 @@ class GulpOpenSearch:
                 last = True
             except Exception as ex:
                 # something went wrong
-                MutyLogger.get_instance().exception(ex)
+                # MutyLogger.get_instance().exception(ex)
                 raise ex
 
             if ws_id and not callback and not callback_chunk:

@@ -170,10 +170,23 @@ class GulpSigmaMapping(BaseModel):
     1. filter applicable rules by `logsource.service`
     2. restrict queries to documents matching specific field values
 
-    as an example, if "service_field" is "winlog.channel" and "service_values" is
-    ["Microsoft-Windows-Windows Defender"], then when applying sigma rules, only
-    documents with "winlog.channel" containing "Microsoft-Windows-Windows Defender"
-    will be considered.
+    example:
+
+    if the sigma rule is as follows:
+    
+    logsource:
+        service: windefend
+
+    and the GulpSigmaMapping is as follows:
+
+    "windefend": {
+      "service_field": "winlog.channel",
+        "service_values": [
+            "Microsoft-Windows-Windows Defender"
+        ]
+    }
+
+    then the rule is applied only if the document has `winlog.channel`: "Microsoft-Windows-Windows Defender" and the query is restricted to documents matching this condition.    
     """
 
     model_config = ConfigDict(
@@ -189,12 +202,12 @@ class GulpSigmaMapping(BaseModel):
     )
     service_field: str = Field(
         ...,
-        description="document field to be queried for service name (case-sensitive substring match)",
+        description="document field to match against when applying sigma rule",
         examples=["winlog.channel"],
     )
     service_values: list[str] = Field(
         ...,
-        description="values to match in `service_field` when applying sigma rules (case-sensitive substring match)",
+        description="one or more values for document[service_field] to match against when applying sigma rule (OR match)",
         examples=[["Microsoft-Windows-Windows Defender"]],
     )
 
