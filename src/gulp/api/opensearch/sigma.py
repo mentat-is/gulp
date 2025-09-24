@@ -622,7 +622,10 @@ async def sigmas_to_queries(
             should_part.append(should_dict)
 
         # mapping loop done, build the final query
-        mapping_should_query: dict = {"query": {"bool": {"should": should_part}}}
+        if len(should_part) == 1:
+            mapping_should_query: dict = {"query": should_part[0]}
+        elif len(should_part) > 1:
+            mapping_should_query: dict = {"query": {"bool": {"should": should_part}}}
 
         # build the final GulpQuery
         final_query: GulpQuery = _sigma_rule_to_gulp_query(
