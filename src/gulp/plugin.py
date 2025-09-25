@@ -871,6 +871,9 @@ class GulpPluginBase(ABC):
         skipped: int = 0
         ingested_docs: list[dict] = []
         success_after_retry: bool = False
+        if self._raw_ingestion:
+            # disable refresh for raw ingestion
+            wait_for_refresh = False
 
         # MutyLogger.get_instance().debug(orjson.dumps(data, option=orjson.OPT_INDENT_2).decode())
         # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
@@ -1195,7 +1198,7 @@ class GulpPluginBase(ABC):
         self._last_raw_chunk = last
 
         MutyLogger.get_instance().debug(
-            f"ingesting raw,  num documents={len(chunk)}, plugin {self.name}, last={last}, user_id={user_id}, operation_id={operation_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
+            f"ingesting raw, chunk size={len(chunk)}, plugin {self.name}, last={last}, user_id={user_id}, operation_id={operation_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
         )
 
         # initialize
@@ -2973,6 +2976,13 @@ class GulpPluginBase(ABC):
         # try to get plugin from cache
         bare_name = os.path.splitext(os.path.basename(path))[0]
         force_load_from_disk: bool = False
+        if path.endswith(".pyc" or path.endswith(".pyc")):
+            # compiled file, always load from disk
+            MutyLogger.get_instance().debug(
+                "loading compiled plugin %s from disk" % (bare_name)
+            )
+            cache_mode = GulpPluginCacheMode.IGNORE
+
         if cache_mode == GulpPluginCacheMode.IGNORE:
             # ignore cache
             MutyLogger.get_instance().debug(

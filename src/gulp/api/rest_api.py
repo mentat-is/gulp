@@ -440,6 +440,7 @@ class GulpRestServer:
         """
         poll tasks queue on collab database and dispatch them to the process pool for processing.
         """
+        from gulp.api.rest.ingest import run_ingest_file_task
         limit: int = GulpConfig.get_instance().concurrency_max_tasks()
         offset: int = 0
         MutyLogger.get_instance().info(
@@ -475,20 +476,10 @@ class GulpRestServer:
                     # process task
                     if obj.task_type == "ingest":
                         # spawn background task to process the ingest task
-                        from gulp.api.rest.ingest import run_ingest_file_task
 
                         d = obj.to_dict()
                         # print("*************** spawning ingest task for: %s" % (d))
                         await self.spawn_bg_task(run_ingest_file_task(d))
-
-                    elif obj.task_type == "ingest_raw":
-                        # spawn background task to process the ingest raw task
-                        from gulp.api.rest.ingest import run_ingest_raw_task
-
-                        obj.params["raw_data"] = obj.raw_data
-                        d = obj.to_dict()
-                        # print("*************** spawning ingest RAW task for: %s" % (d))
-                        await self.spawn_bg_task(run_ingest_raw_task(d))
 
         MutyLogger.get_instance().info("EXITING poll task...")
 

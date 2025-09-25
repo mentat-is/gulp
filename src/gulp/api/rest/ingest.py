@@ -11,10 +11,6 @@ Each handler implements a different ingestion strategy:
 - Raw ingestion processes pre-structured document chunks
 - ZIP ingestion extracts and processes multiple files based on metadata
 
-The module also includes functions to be run in worker processes:
-- `_ingest_file_internal`: Worker process function for file ingestion
-- `_ingest_raw_internal`: Worker process function for raw data ingestion
-
 All handlers support resumable uploads, progress tracking via websocket,
 and preview mode for testing without persistence.
 
@@ -33,7 +29,7 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.operation import GulpOperation
@@ -357,24 +353,6 @@ async def run_ingest_file_task(t: dict):
     # )
     await GulpProcess.get_instance().process_pool.apply(
         _ingest_file_internal, kwds=params
-    )
-
-
-async def run_ingest_raw_task(t: dict):
-    """
-    runs the ingest raw task in a task into a worker process
-
-    :param t: a GulpTask dict to run
-    """
-    params: dict = t.get("params", {})
-    params["chunk"] = params.pop("raw_data", None)
-    params["flt"] = GulpIngestionFilter.model_validate(params.get("flt"))
-    params["plugin_params"] = GulpPluginParameters.model_validate(
-        params.get("plugin_params")
-    )
-    # MutyLogger.get_instance().debug("run_ingest_raw_task, t=%s, params=%s" % (t, params))
-    await GulpProcess.get_instance().process_pool.apply(
-        _ingest_raw_internal, kwds=params
     )
 
 
@@ -1137,77 +1115,6 @@ if set, this function is **synchronous** and returns the preview chunk of docume
         raise JSendException(req_id=req_id) from ex
 
 
-async def _ingest_raw_internal(
-    req_id: str,
-    ws_id: str,
-    user_id: str,
-    operation_id: str,
-    index: str,
-    chunk: bytes,
-    flt: GulpIngestionFilter,
-    plugin: str,
-    plugin_params: GulpPluginParameters,
-    last: bool,
-    **kwargs: Any,
-) -> None:
-    """
-    runs in a worker process to ingest a raw chunk of GulpDocuments
-    """
-    # MutyLogger.get_instance().debug("---> ingest_raw_internal")
-
-    async with GulpCollab.get_instance().session() as sess:
-        if last:
-            # on last chunk, we will let the stats expire
-            object_data = None
-        else:
-            # create a stats that never expire
-            object_data = {
-                "never_expire": True,
-            }
-        stats: GulpRequestStats = await GulpRequestStats.create(
-            token=None,
-            ws_id=ws_id,
-            req_id=req_id,
-            object_data=object_data,
-            operation_id=operation_id,
-            sess=sess,
-            user_id=user_id,
-        )
-
-        mod: GulpPluginBase = None
-        try:
-            # run plugin
-            plugin = plugin or "raw"
-            mod = await GulpPluginBase.load(plugin)
-            await mod.ingest_raw(
-                sess,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                chunk=chunk,
-                stats=stats,
-                flt=flt,
-                plugin_params=plugin_params,
-                last=last,
-                **kwargs,
-            )
-        except Exception as ex:
-            # set failed
-            status = GulpRequestStatus.FAILED
-            d = {
-                "source_failed": 1,
-                "status": status,
-                "error": ex,
-            }
-            await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
-        finally:
-            # done
-            if mod:
-                await mod.unload()
-
-
 @router.post(
     "/ingest_raw",
     tags=["ingest"],
@@ -1281,6 +1188,8 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
         MutyLogger.get_instance().debug("using default raw plugin: %s" % (plugin))
 
     ServerUtils.dump_params(params)
+    sess: AsyncSession = None
+    mod: GulpPluginBase = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
@@ -1291,50 +1200,59 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
             index = operation.index
             user_id = s.user_id
 
-        # get body (contains chunk, and optionally flt and plugin_params)
-        payload, chunk = await ServerUtils.handle_multipart_body(r)
-        # flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
-        #     payload.get("flt", GulpIngestionFilter())
-        # )
-        # plugin_params: GulpPluginParameters = GulpPluginParameters.model_validate(
-        #     payload.get("plugin_params", GulpPluginParameters())
-        # )
+            # get body (contains chunk, and optionally flt and plugin_params)
+            payload, chunk = await ServerUtils.handle_multipart_body(r)
+            flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
+                payload.get("flt", GulpIngestionFilter())
+            )
+            plugin_params: GulpPluginParameters = GulpPluginParameters.model_validate(
+                payload.get("plugin_params", GulpPluginParameters())
+            )
 
-        kwds = dict(
-            req_id=req_id,
-            ws_id=ws_id,
-            user_id=user_id,
-            operation_id=operation_id,
-            index=index,
-            flt=payload.get("flt") or {},
-            plugin=plugin,
-            plugin_params=payload.get("plugin_params") or {},
-            last=last,
-        )
+            # create (or update existing) stats
+            if last:
+                # on last chunk, we will let the stats expire
+                object_data = None
+            else:
+                # create a stats that never expire
+                object_data = {
+                    "never_expire": True,
+                }
+            stats: GulpRequestStats = await GulpRequestStats.create(
+                token=None,
+                ws_id=ws_id,
+                req_id=req_id,
+                object_data=object_data,
+                operation_id=operation_id,
+                sess=sess,
+                user_id=user_id,
+            )
 
-        # enqueue task on collab
-        object_data = {
-            "ws_id": ws_id,
-            "operation_id": operation_id,
-            "req_id": req_id,
-            "task_type": "ingest_raw",
-            "params": kwds,
-        }
-        MutyLogger.get_instance().debug(
-            "queueing ingestion task (raw), object_data=%s" % (object_data)
-        )
-        await GulpTask.create(
-            token,
-            ws_id=None,
-            req_id=req_id,
-            object_data=object_data,
-            raw_data=chunk,
-        )
-
-        # and return pending
-        return JSONResponse(JSendResponse.pending(req_id=req_id))
+            # run plugin
+            plugin = plugin or "raw"
+            mod = await GulpPluginBase.load(plugin)
+            await mod.ingest_raw(
+                sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                index=index,
+                operation_id=operation_id,
+                chunk=chunk,
+                stats=stats,
+                flt=flt,
+                plugin_params=plugin_params,
+                last=last,
+            )
+            # done
+            return JSONResponse(JSendResponse.success(req_id=req_id))
     except Exception as ex:
+        if sess:
+            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
+    finally:
+        if mod:
+            await mod.unload()
 
 
 async def _process_metadata_json(
