@@ -69,7 +69,7 @@ class Plugin(GulpPluginBase):
                 name="encoding",
                 type="str",
                 desc="encoding to use",
-                default_value="utf-8"
+                default_value="utf-8",
             ),
             GulpPluginCustomParameter(
                 name="date_format",
@@ -175,20 +175,27 @@ class Plugin(GulpPluginBase):
             async with aiofiles.open(
                 file_path, mode="r", encoding=encoding, newline=""
             ) as f:
-                async for line_dict in AsyncDictReader(f, dialect=dialect, delimiter=delimiter):
-                    # fix dict (remove BOM from keys, if present)
+                async for line_dict in AsyncDictReader(
+                    f, dialect=dialect, delimiter=delimiter
+                ):
+                    # fix dict on first line (remove unicode BOM from keys, if present)
                     fixed_dict = {
-                        muty.string.remove_unicode_bom(k): v
+                        muty.string.remove_unicode_bom(k, unenclose=True): v
                         for k, v in line_dict.items()
                         if v
                     }
+
+                    # print("*****************")
+                    # print(fixed_dict)
                     # rebuild line
                     line = delimiter.join(fixed_dict.values())
                     # add original line as __line__
                     fixed_dict["__line__"] = line[:-1]
 
                     try:
-                        await self.process_record(fixed_dict, doc_idx, flt, date_format=date_format)
+                        await self.process_record(
+                            fixed_dict, doc_idx, flt, date_format=date_format
+                        )
                     except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)

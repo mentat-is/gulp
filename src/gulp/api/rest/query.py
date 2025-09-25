@@ -148,8 +148,8 @@ async def _query_internal(
         query_name: str
     """
     hits: int = 0
-    q_name: str = None
     mod: GulpPluginBase = None
+    q_name: str = q_options.name if q_options else None
 
     # ensure no preview mode is active here
     q_options.preview_mode = False
@@ -194,7 +194,7 @@ async def _query_internal(
                 await mod.broadcast_ingest_internal_event()
 
     except Exception as ex:
-        MutyLogger.get_instance().exception(ex)
+        MutyLogger.get_instance().exception("***q_name=%s***:%s" % (q_name, ex))
         return 0, ex, q_name
 
     finally:
@@ -227,12 +227,6 @@ async def _process_batch_results(
     query_names: list[str] = []
     errors: list[str] = []
 
-    # backoff configuration when encountering errors in the batch
-    _BACKOFF_BASE = 0.5  # seconds for first error
-    _BACKOFF_MAX = 10.0  # cap backoff
-    _BACKOFF_JITTER = 0.25  # fraction of jitter to add
-    _error_count = 0
-
     # process each result in the batch
     for r in batch_results:
         # res is a tuple (hits, exception, query_name)
@@ -255,27 +249,11 @@ async def _process_batch_results(
 
         if ex:
             # we have an error
-            err = muty.log.exception_to_string(ex, with_full_traceback=True)
+            # err = muty.log.exception_to_string(ex)  # , with_full_traceback=True)
+            err = "%s: %s" % (q_name, muty.log.exception_to_string(ex))
             if err not in errors:
                 # just keep one error per kind
                 errors.append(err)
-            if not "Broken pipe" in err:
-                # backoff only on broken pipe errors, these are likely due to overload
-                _error_count = 0
-                continue
-
-            # broken pipe, backoff
-            _error_count += 1
-            backoff = _BACKOFF_BASE * (2 ** (_error_count - 1))
-            if backoff > _BACKOFF_MAX:
-                backoff = _BACKOFF_MAX
-            # add some jitter
-            backoff += random.uniform(0, backoff * _BACKOFF_JITTER)
-            MutyLogger.get_instance().warning(
-                "error in query %s, backing off %.2fs (error #%d): %s"
-                % (q_name, backoff, _error_count, err)
-            )
-            await asyncio.sleep(backoff)
 
         # send a query_done on the ws for this query, with the status
         p = GulpQueryDonePacket(
@@ -1340,6 +1318,7 @@ async def query_sigma_handler(
             queries: list[GulpQuery] = await sigmas_to_queries(
                 sess,
                 user_id,
+                operation_id,
                 sigmas,
                 src_ids=src_ids,
                 levels=levels,

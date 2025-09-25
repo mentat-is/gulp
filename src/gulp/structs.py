@@ -160,9 +160,27 @@ each key corresponds to `logsource.service` in the sigma rule: basically, we wan
             or self.additional_mappings is not None
         ):
             return False
-        
+
         MutyLogger.get_instance().warning("mapping parameters are empty")
         return True
+
+    def _stringify(self) -> tuple:
+        return (
+            str(self.mapping_file)
+            + str(self.mapping_id)
+            + str(self.mappings)
+            + str(self.additional_mapping_files)
+            + str(self.additional_mappings)
+            + str(self.sigma_mappings)
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, GulpMappingParameters):
+            return NotImplemented
+        return self._stringify() == other._stringify()
+
+    def __hash__(self):
+        return hash(self._stringify())
 
 
 class GulpPluginParameters(BaseModel):

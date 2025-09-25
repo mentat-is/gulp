@@ -440,6 +440,7 @@ class GulpRestServer:
         """
         poll tasks queue on collab database and dispatch them to the process pool for processing.
         """
+        from gulp.api.rest.ingest import run_ingest_file_task
         limit: int = GulpConfig.get_instance().concurrency_max_tasks()
         offset: int = 0
         MutyLogger.get_instance().info(
@@ -482,28 +483,11 @@ class GulpRestServer:
                 for obj in objs:
                     # process task
                     if obj.task_type == "ingest":
-                        # spawn background task, will run ingestion in a task in a worker process
-                        from gulp.api.rest.ingest import run_ingest_file_task
+                        # spawn background task to process the ingest task
 
                         d = obj.to_dict(exclude_none=True)
                         # print("*************** spawning ingest task for: %s" % (d))
                         await self.spawn_bg_task(run_ingest_file_task(d))
-
-                    elif obj.task_type == "ingest_raw":
-                        # spawn background task, will run ingestion in a task in a worker process
-                        from gulp.api.rest.ingest import run_ingest_raw_task
-
-                        obj.params["raw_data"] = obj.raw_data
-                        d = obj.to_dict(exclude_none=True)
-                        # print("*************** spawning ingest RAW task for: %s" % (d))
-                        await self.spawn_bg_task(run_ingest_raw_task(d))
-                    elif obj.task_type == "query":
-                        # spawn background task, will run query in a task in a worker process
-                        from gulp.api.rest.query import run_query_task
-
-                        d = obj.to_dict(exclude_none=True)
-                        # print("*************** spawning query task for: %s" % (d))
-                        await self.spawn_bg_task(run_query_task(d))
 
         MutyLogger.get_instance().info("EXITING poll task...")
 

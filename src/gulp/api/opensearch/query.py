@@ -261,10 +261,10 @@ if set, highlights are included in the results (default=True).
         if not self.sort:
             # default sort
             sort = {
-                "@timestamp": GulpSortOrder.ASC,
+                "@timestamp": GulpSortOrder.ASC.value,
                 # read the NOTE below...
-                "_doc": GulpSortOrder.ASC,
-                "event.sequence": GulpSortOrder.ASC,
+                "_doc": GulpSortOrder.ASC.value,
+                "event.sequence": GulpSortOrder.ASC.value,
             }
 
         else:

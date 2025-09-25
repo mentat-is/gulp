@@ -223,7 +223,6 @@ async def test_raw(raw_data: list[dict] = None):
         current_dir = os.path.dirname(os.path.realpath(__file__))
         raw_chunk_path = os.path.join(current_dir, "raw_chunk.json")
         buf = await muty.file.read_file_async(raw_chunk_path)
-        check_size = 3
 
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
@@ -234,13 +233,8 @@ async def test_raw(raw_data: list[dict] = None):
         raw_data=buf,
         operation_id=TEST_OPERATION_ID,
         # if we're passing raw_data (as in the enrich_whois test, this is the onlyu chunk)
-        last=True if raw_data else False,
+        last=False,
     )
-    # wait ws
-    await _test_ingest_ws_loop(
-        check_ingested=check_size
-    )  # , check_on_source_done=True)
-
     if not raw_data:
         # ingest another (generate new random data)
         raw_chunk = json.loads(buf)
@@ -248,7 +242,6 @@ async def test_raw(raw_data: list[dict] = None):
         for r in raw_chunk:
             # randomize event original
             r["event.original"] = muty.string.generate_unique()
-
         buf = json.dumps(raw_chunk).encode("utf-8")
         await GulpAPIIngest.ingest_raw(
             token=ingest_token,
@@ -256,10 +249,11 @@ async def test_raw(raw_data: list[dict] = None):
             last=True,
             operation_id=TEST_OPERATION_ID,
         )
-        await _test_ingest_ws_loop(
-            check_ingested=6
-        )  # plus the 3 above, we're using the same req_id
-
+        check_size = 6  # plus the 3 above, we're using the same req_id
+    
+    await asyncio.sleep(10)
+    op = await GulpAPIOperation.operation_get_by_id(ingest_token, TEST_OPERATION_ID, get_count=True)
+    assert op["doc_count"] == check_size
     MutyLogger.get_instance().info(test_raw.__name__ + " succeeded!")
 
 
