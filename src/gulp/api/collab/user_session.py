@@ -77,7 +77,20 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         """
         uninmplemented, use GulpUser.login() to create a session.
         """
-        raise TypeError("use GulpUser.login() to create a session.")
+        raise NotImplementedError("use GulpUser.login() to create a session.")
+
+    @staticmethod
+    async def get_logged_users(sess: AsyncSession) -> list[dict]:
+        """
+        Get all user sessions (currently logged users).
+
+        Args:
+            sess (AsyncSession): The database session to use.
+        Returns:
+            list[dict]: A list of user sessions as dictionaries.
+        """
+        rows = await GulpUserSession.get_by_filter(sess, throw_if_not_found=True)
+        return [r.to_dict() for r in rows] if rows else []
 
     @staticmethod
     async def _get_admin_session(sess: AsyncSession) -> "GulpUserSession":

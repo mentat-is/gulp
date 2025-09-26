@@ -641,61 +641,24 @@ class GulpPluginBase(ABC):
         self._preview_mode = False
         self._preview_chunk: list[dict] = []
 
-        # these are used to initialize the license stub code
-        self._license_stub: "GulpPluginBase" = None
-        self._license_func: callable = None
-
         # indicates the last chunk in a raw ingestion
         self._last_raw_chunk: bool = False
 
-    def _init_license_stub(self, **kwargs) -> None:
+    def check_license(self, throw_on_invalid: bool = True) -> bool:
         """
-        this is mandatory to be called in __init__ by **extension plugins** to allow using _check_license() and _remove_seat() from inside the plugin, i.e. in rest API handlers.
+        stub method for license checking, overridden by make_paid.py for paid plugins.
+        
+        if the plugin is not protected, this method does nothing and returns True.
 
         Args:
-            kwargs: **kwargs is passed by the stub and must contain
-                - license_stub: pointer to stub "self"
-                - license_func: pointer to stub.check_license
-
-            if any of the needed kwargs is not provided, the plugin runs as not licensed (no checks)
+            throw_on_invalid (bool, optional): whether to throw an exception if the license is not valid. Defaults to True.
+        Returns:
+            bool: True if the license is valid, False otherwise
+        Throws:
+            ValueError: if the license is invalid and throw_on_invalid is True
         """
-        # print(
-        #     "********************************** INIT LICENSE STUB *************************************************"
-        # )
-        self._license_stub = kwargs.get("license_stub")
-        self._license_func = kwargs.get("license_func")
-        # MutyLogger.get_instance().debug(
-        #     "---> protected plugin __init__, INIT_LICENSE_STUB, %s, license_stub=%s, license_func=%s"
-        #     % (self, self._license_stub, self._license_func)
-        # )
-
-    def _check_license(self, **kwargs) -> None:
-        """
-        check license, if the plugin is licensed
-
-        NOTE: more info in the license stub code
-        """
-
-        # print(
-        #     "********************************** CHECK LICENSE *************************************************"
-        # )
-        # print(
-        #     "CHECK_LICENSE, %s, license_stub=%s, license_func=%s"
-        #     % (self, self._license_stub, self._license_func)
-        # )
-        if self._license_func and self._license_stub:
-            self._license_func(self._license_stub, **kwargs)
-
-    def _remove_seat(self) -> None:
-        """
-        removes a license seat, if the plugin is licensed.
-
-        NOTE: more info in the license stub code
-        """
-
-        if self._license_func and self._license_stub:
-            self._license_stub.remove_seat()
-
+        return True
+    
     @abstractmethod
     def display_name(self) -> str:
         """
@@ -3002,12 +2965,12 @@ class GulpPluginBase(ABC):
         # try to get plugin from cache
         internal_plugin_name = os.path.splitext(os.path.basename(path))[0]
         force_load_from_disk: bool = False
-        if path.endswith(".pyc" or path.endswith(".pyc")):
-            # compiled file, always load from disk
-            MutyLogger.get_instance().debug(
-                "loading compiled plugin %s from disk" % (bare_name)
-            )
-            cache_mode = GulpPluginCacheMode.IGNORE
+        # if path.endswith(".pyc" or path.endswith(".pyc")):
+        #     # compiled file, always load from disk
+        #     MutyLogger.get_instance().debug(
+        #         "loading compiled plugin %s from disk" % (bare_name)
+        #     )
+        #     cache_mode = GulpPluginCacheMode.IGNORE
 
         if cache_mode == GulpPluginCacheMode.IGNORE:
             # ignore cache
