@@ -152,21 +152,27 @@ class GulpRestServer:
             )
             files.extend(ff)
 
+        # remove non .py or .pyc files and remove __init__.py
+        files = [f for f in files if (f.endswith(".py") or f.endswith(".pyc"))]
+        files = [f for f in files if "__init__.py" not in f]
+
+        # order files alphabetically, considering only basename
+        files = sorted(files, key=lambda x: os.path.basename(x).lower())
+
         count: int = 0
         for f in files:
-            if "__init__.py" not in f and (f.endswith(".pyc") or f.endswith(".py")):
-                # load
-                try:
-                    p = await GulpPluginBase.load(f, extension=True)
-                except Exception as ex:
-                    # plugin failed to load
-                    MutyLogger.get_instance().error(
-                        "failed to load (extension) plugin file: %s" % (f)
-                    )
-                    MutyLogger.get_instance().exception(ex)
-                    continue
-                self._extension_plugins.append(p)
-                count += 1
+            # load
+            try:
+                p = await GulpPluginBase.load(f, extension=True)
+            except Exception as ex:
+                # plugin failed to load
+                MutyLogger.get_instance().error(
+                    "failed to load (extension) plugin file: %s" % (f)
+                )
+                MutyLogger.get_instance().exception(ex)
+                continue
+            self._extension_plugins.append(p)
+            count += 1
 
         MutyLogger.get_instance().debug("loaded %d extension plugins" % (count))
 
@@ -441,6 +447,7 @@ class GulpRestServer:
         poll tasks queue on collab database and dispatch them to the process pool for processing.
         """
         from gulp.api.rest.ingest import run_ingest_file_task
+
         limit: int = GulpConfig.get_instance().concurrency_max_tasks()
         offset: int = 0
         MutyLogger.get_instance().info(

@@ -80,6 +80,19 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         raise NotImplementedError("use GulpUser.login() to create a session.")
 
     @staticmethod
+    async def get_logged_users(sess: AsyncSession) -> list[dict]:
+        """
+        Get all user sessions (currently logged users).
+
+        Args:
+            sess (AsyncSession): The database session to use.
+        Returns:
+            list[dict]: A list of user sessions as dictionaries.
+        """
+        rows = await GulpUserSession.get_by_filter(sess, throw_if_not_found=True)
+        return [r.to_dict() for r in rows] if rows else []
+
+    @staticmethod
     async def _get_admin_session(sess: AsyncSession) -> "GulpUserSession":
         """
         Get an admin session (which never expires), for debugging purposes only
@@ -203,8 +216,8 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         except ObjectNotFound as ex:
             raise MissingPermission('token "%s" not logged in' % (token)) from ex
 
-        is_admin: bool=False
-        try:    
+        is_admin: bool = False
+        try:
             if user_session.user.is_admin():
                 # admin user can access any object and always have permission
                 is_admin = True
