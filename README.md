@@ -1,9 +1,9 @@
 <div align="center">
 
 <picture>
- <source media="(prefers-color-scheme: dark)" srcset="./image.png">
- <source media="(prefers-color-scheme: light)" srcset="./image.png">
- <img alt="gULP" src="./image.png" width="30%" height="30%">
+ <source media="(prefers-color-scheme: dark)" srcset="./logo.svg">
+ <source media="(prefers-color-scheme: light)" srcset="./logo.svg">
+ <img alt="gULP" src="./logo.svg" width="30%" height="30%">
 </picture>
 
 the generic, universal Log processor for incident response!
