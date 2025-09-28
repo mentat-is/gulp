@@ -87,7 +87,6 @@ class GulpRequestStatus(StrEnum):
     DONE = "done"
     FAILED = "failed"
     CANCELED = "canceled"
-    PENDING = "pending"
 
 
 class GulpUserPermission(StrEnum):
@@ -150,9 +149,10 @@ class GulpCollabFilter(BaseModel):
     defines filter to be applied to all objects in the collaboration system.
 
     - use % for wildcard instead of * (SQL LIKE operator).
-    - if "grant_user_ids" and/or "grant_user_group_ids" are provided, only objects with the defined (or empty, public) grants will be returned.
-    - custom fields can be provided as if they were normal fields, i.e. GulpCollabFilter(custom_field=["val1","val2"], another_custom_field="myval") 
-    if a list is provided, it will match if any of the values match (OR). either, a single value can be provided. all matches are case insensitive,
+    - if "grant_user_ids" and/or "grant_user_group_ids" are provided, only objects with the defined grants will be returned.
+    - custom fields can be provided in addition, i.e. GulpCollabFilter(custom_list_field=["val1","val2"], custom_field="myval").
+      if a list is provided, it will match if any of the values match (OR)
+    - all matches are case insensitive
     """
 
     # allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
@@ -181,10 +181,6 @@ class GulpCollabFilter(BaseModel):
             ]
         },
     )
-
-    # the following fields are not part of the model, but are used to filter the objects internally: they're added to model.extra at runtime
-    # granted_user_ids: Optional[list[str]] = Field(None)
-    # granted_user_group_ids: Optional[list[str]] = Field(None)
 
     ids: Optional[list[str]] = Field(None, description="filter by the given id/s.")
     types: Optional[list[str]] = Field(
@@ -251,7 +247,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
     )
     tags_and: Optional[bool] = Field(
         False,
-        description="if True, all tags must match. Default=False (at least one tag must match).",
+        description="if True and `tags` set, all tags must match. Default=False (any tag matches).",
     )
     sort: Optional[list[tuple[str, GulpSortOrder]]] = Field(
         None,
@@ -363,7 +359,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             q = q.filter(self._case_insensitive_or_ilike(obj_type.text, self.texts))
 
         if self.model_extra:
-            # handle granted_user_ids and granted_group_ids as special case first:
+            # check for granted_user_ids and granted_user_group_ids in model_extra
             #
             # if an object has no granted_user_ids or granted_user_group_ids, it is considered public and accessible to all users
             # either, the object is accessible to the user if at least one of the granted_user_ids matches the user_id
@@ -394,14 +390,13 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 if conditions:
                     q = q.filter(or_(*conditions))
 
-            # process remaining model_extra fields (fields other than the GulpCollabFilter defined ones)
-            # they will be matched against the object columns as case insensitive OR match
+            # process remaining model_extra fields (custom fields other than the GulpCollabFilter defined ones)
             for k, v in self.model_extra.items():
                 if k in obj_type.columns:
                     col = getattr(obj_type, k)
                     if type(v) is str:
                         # single string, convert to list
-                        v = [v]                    
+                        v = [v]
 
                     # check if column type is ARRAY using SQLAlchemy's inspection
                     is_array = isinstance(getattr(col, "type", None), ARRAY)
@@ -472,7 +467,6 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                     else:
                         order_clauses.append(getattr(obj_type, field).desc())
                 else:
-                    # field is not a valid column, log a warning
                     MutyLogger.get_instance().warning(
                         "invalid sort field: %s. skipping this field." % (field)
                     )
@@ -989,11 +983,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user_session import GulpUserSession
         from gulp.api.collab_api import GulpCollab
 
-        async with GulpCollab.get_instance().session() as sess:
-            if not permission:
-                permission = [GulpUserPermission.EDIT]
+        sess: AsyncSession = None
+        try:
+            async with GulpCollab.get_instance().session() as sess:
+                if not permission:
+                    permission = [GulpUserPermission.EDIT]
 
-            try:
                 # check permission for creation
                 if operation_id:
                     # check permission on the operation
@@ -1033,9 +1028,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 )
                 nn = n.to_dict(exclude_none=True, nested=return_nested)
                 return nn
-            except Exception as e:
-                await sess.rollback()
-                raise e
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     async def update(
         self,
@@ -1279,8 +1274,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if not permission:
             permission = [GulpUserPermission.DELETE]
 
-        async with GulpCollab.get_instance().session() as sess:
-            try:
+        sess: AsyncSession = None
+        try:
+            async with GulpCollab.get_instance().session() as sess:
                 s: GulpUserSession
                 obj: GulpCollabBase = await cls.get_by_id(sess, obj_id)
                 if obj.operation_id:
@@ -1313,9 +1309,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     ws_data_type=ws_data_type,
                     ws_data=ws_data,
                 )
-            except Exception as e:
-                await sess.rollback()
-                raise e
+        except Exception as e:
+            await sess.rollback()
+            raise e
 
     async def add_default_grants(self, sess: AsyncSession):
         """
@@ -1886,8 +1882,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user_session import GulpUserSession
         from gulp.api.collab_api import GulpCollab
 
-        async with GulpCollab.get_instance().session() as sess:
-            try:
+        sess: AsyncSession = None
+        try:
+            async with GulpCollab.get_instance().session() as sess:
                 if not permission:
                     permission = [GulpUserPermission.READ]
 
@@ -1913,7 +1910,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
                 # MutyLogger.get_instance().debug("get_by_filter_wrapper, user_id=%s" % (s.user.id))
 
-                objs = await cls.get_by_filter(
+                objs: list[GulpCollabBase] = await cls.get_by_filter(
                     sess,
                     flt,
                     throw_if_not_found=throw_if_not_found,
@@ -1925,7 +1922,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
                 data = []
                 for o in objs:
-                    data.append(o.to_dict(exclude_none=True, nested=recursive))
+                    data.append(o.to_dict(nested=recursive))
 
                 MutyLogger.get_instance().debug(
                     "get_by_filter_wrapper, user_id: %s, result: %s"
@@ -1933,6 +1930,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 )
 
                 return data
-            except Exception as e:
-                await sess.rollback()
-                raise e
+        except Exception as e:
+            await sess.rollback()
+            raise e

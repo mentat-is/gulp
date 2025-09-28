@@ -27,7 +27,7 @@ from typing import Optional, Union, override
 
 import muty.time
 from muty.log import MutyLogger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String, Boolean
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,7 +97,7 @@ class PreviewDone(Exception):
 
 class GulpIngestionStats(BaseModel):
     """
-    Represents the ingestion statistics for an operation.
+    Represents the ingestion statistics
     """
     model_config = ConfigDict(
         extra="allow",
@@ -109,18 +109,28 @@ class GulpIngestionStats(BaseModel):
         },
     )
 
-    source_total: Field(
+    source_total: int = Field(1, description="Number of sources in this request.")
+    source_failed: int = Field(0, description="Number of sources that failed.")
+    records_ingested: int = Field(0, description="Number of records ingested.")
+    records_skipped: int = Field(0, description="Number of records skipped (not ingested because duplicated).")
+    records_failed: int = Field(0, description="Number of records that failed to be ingested.")
 
+class GulpQueryStats(BaseModel):
+    """
+    Represents the query statistics
+    """
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                },
+            ]
+        },
+    )
 
-    source_total: int = 0
-    source_processed: int = 0
-    source_failed: int = 0
-    records_ingested: int = 0
-    records_skipped: int = 0
-    records_processed: int = 0
-    records_failed: int = 0
-    errors: list[str] = []
-    total_hits: int = 0
+    total_hits: int = Field(0, description="Total number of hits for this query.")
+    
 class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     """
     Represents the statistics for an operation.
@@ -151,10 +161,15 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         default=0,
         doc="The timestamp when the stats were completed, in milliseconds from the unix epoch.",
     )
+    errors: list[str] = mapped_column(
+        MutableList.as_mutable(ARRAY(String)),
+        default_factory=list,
+        doc="A list of errors encountered during the operation.",
+    )
     data: Mapped[Optional[dict]] = mapped_column(
         MutableList.as_mutable(JSONB),
         default_factory=dict,
-        doc="Additional data associated with the stats.",
+        doc="Additional data associated with the stats (GulpQueryStats, GulpIngestionStats)",
     )
     __table_args__ = (Index("idx_stats_operation", "operation_id"),)
 
@@ -222,7 +237,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 if time_expire > 0:
                     stats.time_expire = time_expire
                 stats.data.update(**kwargs)
-                return await stats.update(sess, ws_id=ws_id, user_id=user_id,ws_data_type=WSDATA_STATS_UPDATE)
+                return await stats.update(sess, ws_id=ws_id, user_id=user_id)
             
             # create new
             stats = GulpRequestStats.create_internal(
@@ -245,24 +260,149 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         except Exception as e:
             await sess.rollback()
             raise e
-        
+
     @staticmethod
-    async def delete_pending():
+    async def is_canceled(sess: AsyncSession, req_id: str) -> bool:
         """
-        delete all ongoing stats that are not completed.
+        check if the request is canceled
+
+        Args:
+            sess(AsyncSession): collab database session
+            req_id(str): the request id
+        Returns:
+            bool: True if the request is canceled, False otherwise
+        """
+        stats: GulpRequestStats = await GulpRequestStats.get_by_id(
+            sess, req_id, throw_if_not_found=False
+        )
+        if stats and stats.status == GulpRequestStatus.CANCELED.value:
+            MutyLogger.get_instance().warning(f"request {req_id} is canceled!")
+            return True
+        return False
+
+
+    async def _set_finished(
+        self,
+        sess: AsyncSession,
+        status: GulpRequestStatus,
+        expire_now: bool=False,
+        user_id: str = None,
+        ws_id: str = None,
+        **kwargs
+    ) -> dict:
+        """
+        internal, used to set the stats as done, failed or canceled
+        """
+        if expire_now:
+            time_expire: int = muty.time.now_msec()
+        else:
+            # default expires in 1 minutes
+            time_expire: int = muty.time.now_msec() + 60 * 1000
+
+        # cancel
+        self.status = status.value
+        self.time_expire = time_expire
+        self.time_finished = muty.time.now_msec()
+        return await self.update(sess, user_id=user_id, ws_id=ws_id, **kwargs)
+
+    async def set_done(
+        self,
+        sess: AsyncSession,
+        user_id: str = None,
+        ws_id: str = None,
+        **kwargs
+    ) -> dict:
+        """
+        set the stats as done
+
+        Args:
+            sess(AsyncSession): collab database session
+            user_id(str, optional): the user id issuing the request
+            ws_id(str, optional): the websocket id to notify COLLAB_UPDATE to
+            **kwargs: additional arguments to pass to the update method
+        Returns:
+            dict: the updated stats
+        """
+        return await self._set_finished(
+            sess,
+            GulpRequestStatus.DONE,
+            user_id=user_id,
+            ws_id=ws_id,
+            **kwargs
+        )
+
+    async def set_failed(
+        self,
+        sess: AsyncSession,
+        user_id: str = None,
+        ws_id: str = None,
+        **kwargs
+    ) -> dict:
+        """
+        set the stats as failed
+
+        Args:
+            sess(AsyncSession): collab database session
+            user_id(str, optional): the user id issuing the request
+            ws_id(str, optional): the websocket id to notify COLLAB_UPDATE to
+            **kwargs: additional arguments to pass to the update method
+        Returns:
+            dict: the updated stats
+        """
+        return await self._set_finished(
+            sess,
+            GulpRequestStatus.FAILED,
+            user_id=user_id,
+            ws_id=ws_id,
+            **kwargs
+        )
+
+    async def set_canceled(
+        self,
+        sess: AsyncSession,
+        expire_now: bool=False,
+        user_id: str = None,
+        ws_id: str = None,
+        **kwargs
+    ) -> dict:
+        """
+        set the stats as canceled
+        
+        Args:
+            sess(AsyncSession): collab database session
+            expire_now(bool, optional): if True, the stats will expire immediately. Defaults to False.
+            user_id(str, optional): the user id issuing the request
+            ws_id(str, optional): the websocket id to notify COLLAB_UPDATE to
+            **kwargs: additional arguments to pass to the update method
+        Returns:
+            dict: the updated stats
+        """
+        return await self._set_finished(
+            sess,
+            GulpRequestStatus.CANCELED,
+            expire_now=expire_now,
+            user_id=user_id,
+            ws_id=ws_id,
+            **kwargs
+        )
+
+    @staticmethod
+    async def delete_ongoing():
+        """
+        delete all ongoing stats (status="ongoing")
         """
         sess : AsyncSession = None
         try:
             async with GulpCollab.get_instance().session() as sess:
-                flt = GulpCollabFilter(status="ongoing")
+                flt = GulpCollabFilter(status=GulpRequestStatus.ONGOING.value)
                 deleted = await GulpRequestStats.delete_by_filter(
                     sess, flt, throw_if_not_found=False
                 )
-                MutyLogger.get_instance().info("deleted %d pending stats" % (deleted))
+                MutyLogger.get_instance().info("deleted %d ongoing stats" % (deleted))
                 return deleted
         except Exception as e:
             await sess.rollback()
-
+            raise e
     
     # @classmethod
     # async def create_or_get(
@@ -792,25 +932,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     #     )
     #     return dd
 
-    # @staticmethod
-    # async def is_canceled(sess: AsyncSession, req_id: str) -> bool:
-    #     """
-    #     check if the request is canceled
-
-    #     Args:
-    #         sess(AsyncSession): collab database session
-    #         req_id(str): the request id
-    #     Returns:
-    #         bool: True if the request is canceled, False otherwise
-    #     """
-    #     stats: GulpRequestStats = await GulpRequestStats.get_by_id(
-    #         sess, req_id, throw_if_not_found=False
-    #     )
-    #     if stats and stats.status == GulpRequestStatus.CANCELED.value:
-    #         MutyLogger.get_instance().warning(f"request {req_id} is canceled!")
-    #         return True
-    #     return False
-
     # @classmethod
     # async def update_by_id(
     #     cls,
@@ -852,28 +973,3 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     #         await sess.rollback()
     #         raise e
 
-    # async def cancel(
-    #     self,
-    #     sess: AsyncSession,
-    #     expire_now: bool=False,
-    #     status: GulpRequestStatus = GulpRequestStatus.CANCELED,
-    # ) -> dict:
-    #     """
-    #     Cancel the stats.
-
-    #     Args:
-    #         sess (AsyncSession): The database session to use.
-    #         expire_now (bool, optional): If True, set the expiration time to now. Defaults to False (stats will expire in 5 minutes).
-    #         status (GulpRequestStatus, optional): The status to set. Defaults to GulpRequestStatus.CANCELED.
-    #     """
-    #     # default expires in 5 minutes, allow any loop to finish
-    #     if expire_now:
-    #         time_expire: int = muty.time.now_msec()
-    #     else:
-    #         time_expire: int = muty.time.now_msec() + 60 * 1000 * 5
-
-    #     # cancel
-    #     self.status = status.value
-    #     self.time_expire = time_expire
-    #     self.time_finished = muty.time.now_msec()
-    #     return await super().update(sess)
