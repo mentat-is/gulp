@@ -3,8 +3,6 @@
 import asyncio
 import inspect
 import ipaddress
-import json
-import orjson
 import os
 import sys
 from abc import ABC, abstractmethod
@@ -14,6 +12,7 @@ from types import ModuleType
 from typing import Any, Callable, Optional
 
 import json5
+import orjson
 import muty.dict
 import muty.dynload
 import muty.file
@@ -614,10 +613,10 @@ class GulpPluginBase(ABC):
         self._is_source_failed: bool = False
         self._req_canceled: bool = False
         self._source_error: str = None
-        self._tot_skipped_in_source: int = 0
-        self._tot_failed_in_source: int = 0
-        self._tot_processed_in_source: int = 0
-        self._tot_ingested_in_source: int = 0
+        self._doc_skipped: int = 0
+        self._doc_failed: int = 0
+        self._doc_processed: int = 0
+        self._doc_ingested: int = 0
 
         # to keep track of ingested chunks
         self._chunks_ingested: int = 0
@@ -647,7 +646,7 @@ class GulpPluginBase(ABC):
     def check_license(self, throw_on_invalid: bool = True) -> bool:
         """
         stub method for license checking, overridden by make_paid.py for paid plugins.
-        
+
         if the plugin is not protected, this method does nothing and returns True.
 
         Args:
@@ -658,7 +657,7 @@ class GulpPluginBase(ABC):
             ValueError: if the license is invalid and throw_on_invalid is True
         """
         return True
-    
+
     @abstractmethod
     def display_name(self) -> str:
         """
@@ -779,17 +778,13 @@ class GulpPluginBase(ABC):
                 if self._plugin_params
                 else None
             ),
-            "status": (
-                str(self._stats.status)
-                if self._stats
-                else str(GulpRequestStatus.ONGOING)
-            ),
+            "status": self._stats.status,
             "errors": [self._source_error] if self._source_error else [],
             "req_id": self._req_id,
-            "ingested": self._tot_ingested_in_source,
-            "failed": self._tot_failed_in_source,
-            "skipped": self._tot_skipped_in_source,
-            "processed": self._tot_processed_in_source,
+            "ingested": self._doc_ingested,
+            "failed": self._doc_failed,
+            "skipped": self._doc_skipped,
+            "processed": self._doc_processed,
             "operation_id": self._operation_id,
             "file_path": (
                 self._original_file_path
@@ -968,8 +963,7 @@ class GulpPluginBase(ABC):
         # update cache
         self._ctx_cache[cache_key] = context.id
         MutyLogger.get_instance().debug(
-            "context name=%s, id=%s added to cache, created=%r"
-            % (v, context.id, created)
+            "context name=%s, id=%s added to cache, created=%r", v, context.id, created
         )
         return context.id
 
@@ -1073,8 +1067,14 @@ class GulpPluginBase(ABC):
             ObjectNotFound: if no document is found.
         """
         MutyLogger.get_instance().debug(
-            "GulpPluginBase.query_external: q=%s, sess=%s, index=%s, operation_id=%s, q_options=%s, plugin_params=%s, kwargs=%s"
-            % (q, sess, index, operation_id, q_options, plugin_params, kwargs)
+            "GulpPluginBase.query_external: q=%s, sess=%s, index=%s, operation_id=%s, q_options=%s, plugin_params=%s, kwargs=%s",
+            q,
+            sess,
+            index,
+            operation_id,
+            q_options,
+            plugin_params,
+            kwargs,
         )
         self._sess = sess
         self._stats = stats
@@ -1084,8 +1084,6 @@ class GulpPluginBase(ABC):
         self._external_query = True
         self._enrich_during_ingestion = False
         self._operation_id = operation_id
-
-        self._stats = None
 
         if index:
             # ingestion is enabled, set index
@@ -1161,7 +1159,15 @@ class GulpPluginBase(ABC):
         self._last_raw_chunk = last
 
         MutyLogger.get_instance().debug(
-            f"ingesting raw, chunk size={len(chunk)}, plugin {self.name}, last={last}, user_id={user_id}, operation_id={operation_id}, index={index}, ws_id={ws_id}, req_id={req_id}"
+            "ingesting raw, chunk size=%d, plugin %s, last=%r, user_id=%s, operation_id=%s, index=%s, ws_id=%s, req_id=%s",
+            len(chunk),
+            self.name,
+            last,
+            user_id,
+            operation_id,
+            index,
+            ws_id,
+            req_id,
         )
 
         # initialize
@@ -1293,8 +1299,6 @@ class GulpPluginBase(ABC):
                 "plugin %s does not support enrichment" % (self.name)
             )
 
-        # await self._initialize(plugin_params=plugin_params)
-
         self._user_id = user_id
         self._stats = stats
         self._req_id = req_id
@@ -1367,7 +1371,7 @@ class GulpPluginBase(ABC):
             GulpPluginBase._enrich_documents_chunk
         ):
             raise NotImplementedError(
-                "plugin %s does not support enrichment" % (self.name)
+                "plugin %s does not support enrichment", self.name
             )
 
         self._operation_id = operation_id
@@ -2123,29 +2127,26 @@ class GulpPluginBase(ABC):
             ingested (int): number of documents ingested
             skipped (int): number of documents skipped
         """
-        if self._stats and self._sess:
-            # update stats
-            MutyLogger.get_instance().debug(
-                "updating stats, processed=%d, ingested=%d, skipped=%d, tot_failed(in instance)=%d, tot_skipped(in instance)=%d"
-                % (
-                    self._records_processed_per_chunk,
-                    ingested,
-                    skipped,
-                    self._tot_failed_in_source,
-                    self._tot_skipped_in_source,
-                )
-            )
-            d = {
-                "data": {
-                    "records_skipped": skipped,
-                    "records_ingested": ingested,
-                    "records_processed": self._records_processed_per_chunk,
-                    "records_failed": self._records_failed_per_chunk,
-                }
+        # update stats
+        MutyLogger.get_instance().debug(
+            "updating stats, processed=%d, ingested=%d, skipped=%d, tot_failed(in instance)=%d, tot_skipped(in instance)=%d",
+            self._records_processed_per_chunk,
+            ingested,
+            skipped,
+            self._doc_failed,
+            self._doc_skipped,
+        )
+        d = {
+            "data": {
+                "records_skipped": skipped,
+                "records_ingested": ingested,
+                "records_processed": self._records_processed_per_chunk,
+                "records_failed": self._records_failed_per_chunk,
             }
-            await self._stats.update(
-                self._sess, d=d, ws_id=self._ws_id, user_id=self._user_id
-            )
+        }
+        await self._stats.update(
+            self._sess, d=d, ws_id=self._ws_id, user_id=self._user_id
+        )
 
     async def _flush_and_check_thresholds(
         self,
@@ -2171,18 +2172,17 @@ class GulpPluginBase(ABC):
         # check failure thresholds
         failure_threshold = GulpConfig.get_instance().ingestion_evt_failure_threshold()
         if failure_threshold > 0 and (
-            self._tot_skipped_in_source >= failure_threshold
-            or self._tot_failed_in_source >= failure_threshold
+            self._doc_skipped >= failure_threshold
+            or self._doc_failed >= failure_threshold
         ):
             raise SourceCanceledError(
-                f"ingestion per-source failure threshold reached (tot_skipped={self._tot_skipped_in_source}, "
-                f"tot_failed={self._tot_failed_in_source}, threshold={failure_threshold}), "
+                f"ingestion per-source failure threshold reached (tot_skipped={self._doc_skipped}, "
+                f"tot_failed={self._doc_failed}, threshold={failure_threshold}), "
                 f"canceling source..."
             )
 
         # update stats if available
-        if self._stats:
-            await self._update_ingestion_stats(ingested, skipped)
+        await self._update_ingestion_stats(ingested, skipped)
 
         # reset buffers and counters
         self._docs_buffer = []
@@ -2229,7 +2229,7 @@ class GulpPluginBase(ABC):
         )
 
         self._extra_docs = []
-        self._tot_processed_in_source += 1
+        self._doc_processed += 1
 
         # process this record and generate one or more gulpdocument dictionaries
         try:
@@ -2256,9 +2256,7 @@ class GulpPluginBase(ABC):
                 >= GulpConfig.get_instance().preview_mode_num_docs()
             ):
                 # must stop
-                raise PreviewDone(
-                    "preview done", processed=self._tot_processed_in_source
-                )
+                raise PreviewDone("preview done", processed=self._doc_processed)
 
             # and do nothing else
             return
@@ -2699,9 +2697,9 @@ class GulpPluginBase(ABC):
             all_fields_on_ws=all_fields_on_ws,
         )
 
-        self._tot_failed_in_source += self._records_failed_per_chunk
-        self._tot_skipped_in_source += skipped
-        self._tot_ingested_in_source += ingested
+        self._doc_failed += self._records_failed_per_chunk
+        self._doc_skipped += skipped
+        self._doc_ingested += ingested
 
         # if wait_for_refresh:
         #     # update index type mapping too
@@ -2753,10 +2751,10 @@ class GulpPluginBase(ABC):
             % (
                 self._file_path,
                 e,
-                self._tot_processed_in_source,
-                self._tot_ingested_in_source,
-                self._tot_failed_in_source,
-                self._tot_skipped_in_source,
+                self._doc_processed,
+                self._doc_ingested,
+                self._doc_failed,
+                self._doc_skipped,
                 self._req_canceled,
                 self._is_source_failed,
                 self._ingestion_enabled,
@@ -2845,9 +2843,9 @@ class GulpPluginBase(ABC):
                     source_id=self._source_id or "default",
                     context_id=self._context_id or "default",
                     req_id=self._req_id,
-                    docs_ingested=self._tot_ingested_in_source,
-                    docs_skipped=self._tot_skipped_in_source,
-                    docs_failed=self._tot_failed_in_source,
+                    docs_ingested=self._doc_ingested,
+                    docs_skipped=self._doc_skipped,
+                    docs_failed=self._doc_failed,
                     status=status,
                 ),
             )
@@ -2980,7 +2978,9 @@ class GulpPluginBase(ABC):
             force_load_from_disk = True
         elif cache_mode == GulpPluginCacheMode.FORCE:
             # force load from disk
-            MutyLogger.get_instance().warning("force cache for plugin %s" % (internal_plugin_name))
+            MutyLogger.get_instance().warning(
+                "force cache for plugin %s" % (internal_plugin_name)
+            )
             force_load_from_disk = False
         else:
             # cache mode DEFAULT
@@ -3067,7 +3067,7 @@ class GulpPluginBase(ABC):
 
         # delete the loaded module from sys.modules
         del sys.modules[self.module_name]
-        
+
     @staticmethod
     def path_from_plugin(
         plugin: str, is_extension: bool = False, raise_if_not_found: bool = False

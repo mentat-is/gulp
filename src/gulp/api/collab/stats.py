@@ -47,8 +47,6 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.ws_api import (
     WSDATA_COLLAB_DELETE,
     WSDATA_QUERY_DONE,
-    WSDATA_STATS_UPDATE,
-    WSDATA_STATS_CREATE,
     GulpQueryDonePacket,
     GulpWsSharedQueue,
 )
@@ -95,45 +93,64 @@ class PreviewDone(Exception):
         super().__init__(message)
         self.processed = processed
 
+
 class GulpIngestionStats(BaseModel):
     """
     Represents the ingestion statistics
     """
+
     model_config = ConfigDict(
         extra="allow",
         json_schema_extra={
             "examples": [
-                {
-                },
+                {},
             ]
         },
     )
 
     source_total: int = Field(1, description="Number of sources in this request.")
-    source_failed: int = Field(0, description="Number of sources that failed.")
-    records_ingested: int = Field(0, description="Number of records ingested.")
-    records_skipped: int = Field(0, description="Number of records skipped (not ingested because duplicated).")
-    records_failed: int = Field(0, description="Number of records that failed to be ingested.")
+    source_processed: int = Field(
+        0, description="Number of processed sources in this request."
+    )
+    source_failed: int = Field(
+        0, description="Number of failed sources in this request."
+    )
+    records_processed: int = Field(
+        0, description="Number of processed records (includes all sources)."
+    )
+    records_ingested: int = Field(
+        0,
+        description="Number of ingested records (includes all sources, may be different than processed, i.e. failed/skipped/extra-generated documents)",
+    )
+    records_skipped: int = Field(
+        0,
+        description="Number of skipped(=not ingested because duplicated) records (includes all sources)",
+    )
+    records_failed: int = Field(
+        0, description="Number of failed records (includes all sources)"
+    )
+
 
 class GulpQueryStats(BaseModel):
     """
     Represents the query statistics
     """
+
     model_config = ConfigDict(
         extra="allow",
         json_schema_extra={
             "examples": [
-                {
-                },
+                {},
             ]
         },
     )
 
     total_hits: int = Field(0, description="Total number of hits for this query.")
-    
+
+
 class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     """
-    Represents the statistics for an operation.
+    Represents the statistics for a request (the `req_id` parameter passed to API is the id of the GulpRequestStats)
     """
 
     operation_id: Mapped[str] = mapped_column(
@@ -144,7 +161,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     status: Mapped[str] = mapped_column(
         String,
         default=GulpRequestStatus.ONGOING.value,
-        doc="The status of the stats (done, ongoing, ...).",
+        doc="The status of the stats (done, ongoing, failed, canceled).",
     )
     req_type: Mapped[str] = mapped_column(
         String,
@@ -180,13 +197,11 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         *args,
         **kwargs,
     ) -> dict:
-        """
-        disabled, use create_or_get instead
-        """
         raise TypeError("use GulpRequestStats.create_stats() instead of create()")
 
     @classmethod
-    async def create_stats(cls,
+    async def create_stats(
+        cls,
         sess: AsyncSession,
         req_id: str,
         user_id: str,
@@ -194,10 +209,26 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         req_type: RequestStatsType = RequestStatsType.REQUEST_TYPE_INGESTION,
         ws_id: str = None,
         never_expire: bool = False,
-        **kwargs
+        **kwargs,
     ) -> T:
         """
+        create a new GulpRequestStats object on the collab database (or update an existing one if the req_id already exists).
+
+        NOTE: session is committed inside this method.
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            req_id (str): The request ID (=id of the stats): if a stats with this ID already exists, its expire time and status are updated and returned instead of creating a new one.
+            user_id (str): The user ID creating the stats.
+            operation_id (str): The operation associated with the stats
+            req_type (RequestStatsType, optional): The type of request stats. Defaults to RequestStatsType.REQUEST_TYPE_INGESTION.
+            ws_id (str, optional): The websocket ID to notify the creation of the stats. Defaults to None.
+            never_expire (bool, optional): If True, the stats will never expire. Defaults to False.
+            **kwargs: Additional data to associate with the stats.
+        Returns:
+            T: The created (or retrieved) stats.
         """
+
         MutyLogger.get_instance().debug(
             "---> create_stats: req_id=%s, operation_id=%s, user_id=%s, stats_type=%s",
             req_id,
@@ -219,7 +250,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
         try:
             await GulpRequestStats.acquire_advisory_lock(sess, req_id)
-            
+
             # check if the stats already exists
             stats: GulpRequestStats = await cls.get_by_id(
                 sess, obj_id=req_id, throw_if_not_found=False
@@ -238,17 +269,16 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     stats.time_expire = time_expire
                 stats.data.update(**kwargs)
                 return await stats.update(sess, ws_id=ws_id, user_id=user_id)
-            
+
             # create new
             stats = GulpRequestStats.create_internal(
                 sess,
                 user_id,
                 operation_id=operation_id,
-                private=True, # stats are private
-                obj_id=req_id, # id is the request id
+                private=True,  # stats are private
+                obj_id=req_id,  # id is the request id
                 ws_id=ws_id,
-                ws_data_type=WSDATA_STATS_CREATE,
-                status = GulpRequestStatus.ONGOING.value,
+                status=GulpRequestStatus.ONGOING.value,
                 time_expire=time_expire,
                 req_type=req_type.value,
                 time_updated=time_updated,
@@ -256,7 +286,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 data=kwargs,
             )
             return stats.to_dict()
-        
+
         except Exception as e:
             await sess.rollback()
             raise e
@@ -276,19 +306,18 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             sess, req_id, throw_if_not_found=False
         )
         if stats and stats.status == GulpRequestStatus.CANCELED.value:
-            MutyLogger.get_instance().warning(f"request {req_id} is canceled!")
+            MutyLogger.get_instance().warning("request %s is canceled!", req_id)
             return True
         return False
-
 
     async def _set_finished(
         self,
         sess: AsyncSession,
         status: GulpRequestStatus,
-        expire_now: bool=False,
+        expire_now: bool = False,
         user_id: str = None,
         ws_id: str = None,
-        **kwargs
+        **kwargs,
     ) -> dict:
         """
         internal, used to set the stats as done, failed or canceled
@@ -306,11 +335,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         return await self.update(sess, user_id=user_id, ws_id=ws_id, **kwargs)
 
     async def set_done(
-        self,
-        sess: AsyncSession,
-        user_id: str = None,
-        ws_id: str = None,
-        **kwargs
+        self, sess: AsyncSession, user_id: str = None, ws_id: str = None, **kwargs
     ) -> dict:
         """
         set the stats as done
@@ -324,19 +349,11 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             dict: the updated stats
         """
         return await self._set_finished(
-            sess,
-            GulpRequestStatus.DONE,
-            user_id=user_id,
-            ws_id=ws_id,
-            **kwargs
+            sess, GulpRequestStatus.DONE, user_id=user_id, ws_id=ws_id, **kwargs
         )
 
     async def set_failed(
-        self,
-        sess: AsyncSession,
-        user_id: str = None,
-        ws_id: str = None,
-        **kwargs
+        self, sess: AsyncSession, user_id: str = None, ws_id: str = None, **kwargs
     ) -> dict:
         """
         set the stats as failed
@@ -350,24 +367,20 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             dict: the updated stats
         """
         return await self._set_finished(
-            sess,
-            GulpRequestStatus.FAILED,
-            user_id=user_id,
-            ws_id=ws_id,
-            **kwargs
+            sess, GulpRequestStatus.FAILED, user_id=user_id, ws_id=ws_id, **kwargs
         )
 
     async def set_canceled(
         self,
         sess: AsyncSession,
-        expire_now: bool=False,
+        expire_now: bool = False,
         user_id: str = None,
         ws_id: str = None,
-        **kwargs
+        **kwargs,
     ) -> dict:
         """
         set the stats as canceled
-        
+
         Args:
             sess(AsyncSession): collab database session
             expire_now(bool, optional): if True, the stats will expire immediately. Defaults to False.
@@ -383,27 +396,139 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             expire_now=expire_now,
             user_id=user_id,
             ws_id=ws_id,
-            **kwargs
+            **kwargs,
         )
 
     @staticmethod
-    async def delete_ongoing():
+    async def purge_ongoing_requests():
         """
         delete all ongoing stats (status="ongoing")
         """
-        sess : AsyncSession = None
+        sess: AsyncSession = None
         try:
             async with GulpCollab.get_instance().session() as sess:
                 flt = GulpCollabFilter(status=GulpRequestStatus.ONGOING.value)
                 deleted = await GulpRequestStats.delete_by_filter(
                     sess, flt, throw_if_not_found=False
                 )
-                MutyLogger.get_instance().info("deleted %d ongoing stats" % (deleted))
+                # use lazy % formatting for logging to defer string interpolation
+                MutyLogger.get_instance().info("deleted %d ongoing stats", deleted)
                 return deleted
         except Exception as e:
             await sess.rollback()
             raise e
-    
+
+    async def update_ingestion_stats(
+        self,
+        sess: AsyncSession,
+        user_id: str = None,
+        ws_id: str = None,
+        ingested: int = 0,
+        skipped: int = 0,
+        processed: int = 0,
+        failed: int = 0,
+        errors: list[str | Exception] = None,
+        status: GulpRequestStatus = GulpRequestStatus.ONGOING,
+    ) -> dict:
+        """
+        update the ingestion stats
+
+        Args:
+            sess(AsyncSession): collab database session
+            user_id(str, optional): the user id issuing the request
+            ws_id(str, optional): the websocket id to notify COLLAB_UPDATE to
+            ingested(int, optional): number of ingested records to add. Defaults to 0.
+            skipped(int, optional): number of skipped records to add. Defaults to 0.
+            processed(int, optional): number of processed records to add. Defaults to 0.
+            failed(int, optional): number of failed records to add. Defaults to 0.
+            errors(list[str|Exception], optional): list of errors to add. Defaults to None.
+            status(GulpRequestStatus, optional): the new status of the request. Defaults to GulpRequestStatus.ONGOING.
+        Returns:
+            dict: the updated stats
+        """
+        try:
+            # more than one process may be working on this request (multiple ingestion with the same req_id)
+            await GulpRequestStats.acquire_advisory_lock(sess, self.id)
+            await sess.refresh(self)
+
+            if self.status != GulpRequestStatus.ONGOING.value:
+                MutyLogger.get_instance().warning(
+                    "UPDATE IGNORED! request %s is already done/failed/canceled, status=%s",
+                    self.id,
+                    self.status,
+                )
+                await sess.commit()  # release the lock
+                return self.to_dict()
+
+            # update
+            errs: list[str] = []
+            if errors:
+                for e in errors:
+                    if isinstance(e, Exception):
+                        e = str(e)
+                    if e not in errs:
+                        errs.append(e)
+            self.errors.extend(errs)
+            self.status = status.value
+            d: GulpIngestionStats = GulpIngestionStats.model_validate(self.data or {})
+            d.records_ingested += ingested
+            d.records_skipped += skipped
+            d.records_processed += processed
+            d.records_failed += failed
+            self.data = d.model_dump()
+            return await self.update(sess, ws_id=ws_id, user_id=user_id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
+
+    async def update_query_stats(
+        self,
+        sess: AsyncSession,
+        user_id: str = None,
+        ws_id: str = None,
+        ingested: int = 0,
+        skipped: int = 0,
+        processed: int = 0,
+        failed: int = 0,
+        errors: list[str | Exception] = None,
+        status: GulpRequestStatus = GulpRequestStatus.ONGOING,
+    ) -> dict:
+        """ """
+        try:
+            # more than one process may be working on this request (multiple ingestion with the same req_id)
+            await GulpRequestStats.acquire_advisory_lock(sess, self.id)
+            await sess.refresh(self)
+
+            if self.status != GulpRequestStatus.ONGOING.value:
+                MutyLogger.get_instance().warning(
+                    "UPDATE IGNORED! request %s is already done/failed/canceled, status=%s",
+                    self.id,
+                    self.status,
+                )
+                await sess.commit()  # release the lock
+                return self.to_dict()
+
+            # update
+            errs: list[str] = []
+            if errors:
+                for e in errors:
+                    if isinstance(e, Exception):
+                        e = str(e)
+                    if e not in errs:
+                        errs.append(e)
+            self.errors.extend(errs)
+            self.status = status.value
+            d: GulpIngestionStats = GulpIngestionStats.model_validate(self.data or {})
+            d.records_ingested += ingested
+            d.records_skipped += skipped
+            d.records_processed += processed
+            d.records_failed += failed
+            self.data = d.model_dump()
+            return await self.update(sess, ws_id=ws_id, user_id=user_id)
+        except Exception as e:
+            await sess.rollback()
+            raise e
+
     # @classmethod
     # async def create_or_get(
     #     cls,
@@ -972,4 +1097,3 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     #     except Exception as e:
     #         await sess.rollback()
     #         raise e
-
