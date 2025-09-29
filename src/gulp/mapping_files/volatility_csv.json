@@ -1,0 +1,223 @@
+{
+    "metadata": {
+        "plugin": [
+            "csv.py"
+        ]
+    },
+    "mappings": {
+        "windows.pslist": {
+            "description": "windows.pslist standard output format",
+            "default_source": "Volatility",
+            "default_context": "standard",
+            "hint": "TreeDepth,PID,PPID,ImageFileName,Offset,Threads,Handles,SessionId,Wow64,CreateTime,ExitTime,File output",
+            "fields": {
+                "CreateTime": {
+                    "ecs": [
+                        "@timestamp"
+                    ]
+                },
+                "ExitTime": {
+                    "ecs": [
+                        "ExitTime"
+                    ]
+                },
+                "TreeDepth": {
+                    "ecs": [
+                        "TreeDepth"
+                    ]
+                },
+                "PID": {
+                    "ecs": [
+                        "process.pid"
+                    ]
+                },
+                "PPID": {
+                    "ecs": [
+                        "process.parent.pid"
+                    ]
+                },
+                "ImageFileName": {
+                    "ecs": [
+                        "process.name"
+                    ]
+                },
+                "Offset(V)": {
+                    "ecs": [
+                        "Offset"
+                    ]
+                },
+                "Threads": {
+                    "ecs": [
+                        "Threads"
+                    ]
+                },
+                "Handles": {
+                    "ecs": [
+                        "Handles"
+                    ]
+                },
+                "SessionId": {
+                    "ecs": [
+                        "SessionId"
+                    ]
+                },
+                "Wow64": {
+                    "ecs": [
+                        "Wow64"
+                    ]
+                },
+                "File output": {
+                    "ecs": [
+                        "FileOutput"
+                    ]
+                }
+            }
+        },
+        "windows.psscan": {
+            "description": "windows.psscan standard output format",
+            "default_source": "Volatility",
+            "default_context": "standard",
+            "hint": "TreeDepth,PID,PPID,ImageFileName,Offset(V),Threads,Handles,SessionId,Wow64,CreateTime,ExitTime,File output",
+            "fields": {
+                "CreateTime": {
+                    "ecs": [
+                        "@timestamp"
+                    ]
+                },
+                "ExitTime": {
+                    "ecs": [
+                        "ExitTime"
+                    ]
+                },
+                "TreeDepth": {
+                    "ecs": [
+                        "TreeDepth"
+                    ]
+                },
+                "PID": {
+                    "ecs": [
+                        "process.pid"
+                    ]
+                },
+                "PPID": {
+                    "ecs": [
+                        "process.parent.pid"
+                    ]
+                },
+                "ImageFileName": {
+                    "ecs": [
+                        "process.name"
+                    ]
+                },
+                "Offset(V)": {
+                    "ecs": [
+                        "Offset"
+                    ]
+                },
+                "Threads": {
+                    "ecs": [
+                        "Threads"
+                    ]
+                },
+                "Handles": {
+                    "ecs": [
+                        "Handles"
+                    ]
+                },
+                "SessionId": {
+                    "ecs": [
+                        "SessionId"
+                    ]
+                },
+                "Wow64": {
+                    "ecs": [
+                        "Wow64"
+                    ]
+                },
+                "File output": {
+                    "ecs": [
+                        "FileOutput"
+                    ]
+                }
+            }
+        },
+        "windows.pstree": {
+            "description": "windows.pstree standard output format",
+            "default_source": "Volatility",
+            "default_context": "standard",
+            "hint": "TreeDepth,PID,PPID,ImageFileName,Offset(V),Threads,Handles,SessionId,Wow64,CreateTime,ExitTime,Audit,Cmd,Path",
+            "fields": {
+                "CreateTime": {
+                    "ecs": [
+                        "@timestamp"
+                    ]
+                },
+                "ExitTime": {
+                    "ecs": [
+                        "ExitTime"
+                    ]
+                },
+                "TreeDepth": {
+                    "ecs": [
+                        "TreeDepth"
+                    ]
+                },
+                "PID": {
+                    "ecs": [
+                        "process.pid"
+                    ]
+                },
+                "PPID": {
+                    "ecs": [
+                        "process.parent.pid"
+                    ]
+                },
+                "ImageFileName": {
+                    "ecs": [
+                        "process.name"
+                    ]
+                },
+                "Offset(V)": {
+                    "ecs": [
+                        "Offset"
+                    ]
+                },
+                "Threads": {
+                    "ecs": [
+                        "Threads"
+                    ]
+                },
+                "Handles": {
+                    "ecs": [
+                        "Handles"
+                    ]
+                },
+                "SessionId": {
+                    "ecs": [
+                        "SessionId"
+                    ]
+                },
+                "Wow64": {
+                    "ecs": [
+                        "Wow64"
+                    ]
+                },
+                "Audit": {
+                    "ecs": [
+                        "Audit"
+                    ]
+                },
+                "Cmd": {
+                    "ecs": [
+                        "process.command_line"
+                    ]
+                },
+                "Path": {
+                    "ecs": [
+                        "process.executable"
+                    ]
+                }
+            }
+        }
+    }
+}
