@@ -27,12 +27,8 @@ from gulp.api.collab.context import GulpContext
 from gulp.api.collab.structs import (
     COLLABTYPE_OPERATION,
     GulpCollabBase,
-    GulpUserPermission,
 )
 from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
-from gulp.api.collab.user_session import GulpUserSession
-from gulp.api.collab_api import GulpCollab
-from gulp.api.ws_api import WSDATA_NEW_CONTEXT
 from gulp.structs import ObjectAlreadyExists
 
 # every operation have a default context and source which are used to associate data when no specific context or source is provided.
@@ -97,7 +93,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
 
     @override
     @classmethod
-    async def create(clr, *args, **kwargs):
+    async def create(cls, *args, **kwargs):
         raise TypeError("use create_operation instead")
 
     @classmethod
@@ -167,7 +163,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         granted_user_group_ids: list[str] = None
         if set_default_grants:
             MutyLogger.get_instance().info(
-                "setting default grants for operation=%s" % (name)
+                "setting default grants for operation=%s", name
             )
             granted_user_ids = ["admin", "guest"]
             granted_user_group_ids = [ADMINISTRATORS_GROUP_ID]
@@ -210,7 +206,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             sess (AsyncSession): The session to use.
             user_id (str): The id of the user adding the context.
             name (str): The name of the context.
-            ws_id (str, optional): The websocket id to stream NEW_CONTEXT to. Defaults to None.
+            ws_id (str, optional): The websocket id to send WSDATA_COLLAB_CREATE message to. Defaults to None.
             req_id (str, optional): The request id. Defaults to None.
             ctx_id (str, optional): The id of the context. If not provided, a new id will be generated from name.
             color (str, optional): The color of the context
@@ -231,26 +227,21 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             )
             if ctx:
                 MutyLogger.get_instance().debug(
-                    f"context {name} already added to operation {self.id}."
+                    "context %s already added to operation %s", name, self.id
                 )
                 return ctx, False
 
             # MutyLogger.get_instance().warning("creating new context: %s, id=%s", name, obj_id)
 
             # create new context and link it to operation
-            object_data = {
-                "operation_id": self.id,
-                "name": name,
-                "color": color,
-                "glyph_id": glyph_id or "box",
-            }
-            # pylint: disable=protected-access
             ctx = await GulpContext.create_internal(
                 sess,
-                object_data,
-                obj_id=ctx_id,
                 user_id=user_id,
-                ws_data_type=WSDATA_NEW_CONTEXT if ws_id else None,
+                name=name,
+                operation_id=self.id,
+                color=color,
+                glyph_id=glyph_id or "box",
+                obj_id=ctx_id,
                 ws_id=ws_id,
                 req_id=req_id,
                 private=False,
@@ -259,14 +250,14 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             # add same grants to the context as the operation
             # TODO: at the moment, keep contexts public (ACL checks are only done operation-wide)
             # for u in self.granted_user_ids:
-            #     await ctx.add_user_grant(sess, u, commit=False)
+            #     await ctx.add_user_grant(sess, u)
             # for g in self.granted_user_group_ids:
-            #     await ctx.add_group_grant(sess, g, commit=False)
+            #     await ctx.add_group_grant(sess, g)
             await sess.commit()
             await sess.refresh(self)
 
             MutyLogger.get_instance().debug(
-                f"context {name} added to operation {self.id}: {self}"
+                "context %s added to operation %s: %s", name, self.id, ctx
             )
             return ctx, True
         except Exception as e:

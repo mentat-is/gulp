@@ -22,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import COLLABTYPE_CONTEXT, GulpCollabBase
-from gulp.api.ws_api import WSDATA_NEW_SOURCE
 from gulp.structs import GulpMappingParameters
 
 
@@ -34,6 +33,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
 
     it has always associated an operation, and the tuple composed by the two is unique.
     """
+
     # multiple sources can be associated with a context
     sources: Mapped[Optional[list[GulpSource]]] = relationship(
         "GulpSource",
@@ -48,7 +48,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
     color: Mapped[Optional[str]] = mapped_column(
         String, doc="The color of the context."
     )
-    
+
     @staticmethod
     def make_context_id_key(operation_id: str, context_name: str) -> str:
         """

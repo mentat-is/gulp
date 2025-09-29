@@ -38,8 +38,7 @@ WSDATA_CONNECTED = "ws_connected"
 WSDATA_COLLAB_CREATE = "collab_create"
 WSDATA_COLLAB_UPDATE = "collab_update"
 WSDATA_COLLAB_DELETE = "collab_delete"
-WSDATA_NEW_SOURCE = "new_source"
-WSDATA_NEW_CONTEXT = "new_context"
+WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # this is sent to indicate a query group match, i.e. a query group that matched some queries
 
 WSDATA_USER_LOGIN = "user_login"
 WSDATA_USER_LOGOUT = "user_logout"
@@ -49,14 +48,12 @@ WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
 WSDATA_GENERIC = "generic"
 
 # the following data types sent on the websocket are to be used to track status
-WSDATA_STATS_CREATE = "stats_create"  # this is sent when a GulpRequestStats is created on the collab db (at start of the operation)
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # this is sent in the end of an ingestion operation, one per source
 WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
 WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
 WSDATA_PROGRESS = "progress"  # this is sent to indicate query progrress during, indicates current/total queries being performed and optionally a progress message
 WSDATA_ENRICH_DONE = "enrich_done"  # this is sent in the end of an enrichment operation
 WSDATA_TAG_DONE = "tag_done"  # this is sent in the end of a tag operation
-WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # this is sent to indicate a query group match, i.e. a query group that matched some queries
 
 # progress types
 PROGRESS_REBASE = "rebase"
@@ -191,8 +188,6 @@ class GulpCollabDeletePacket(BaseModel):
 class WsQueueFullException(Exception):
     """Exception raised when queue is full after retries"""
 
-    pass
-
 
 class GulpUserLoginLogoutPacket(BaseModel):
     """
@@ -288,8 +283,9 @@ class GulpQueryGroupMatchPacket(BaseModel):
             ]
         }
     )
-    name: str = Field(..., description="The query group name.")
-    total_hits: int = Field(..., description="The total number of hits.")
+    q_group: str = Field(..., description="The query group name.")
+    q_matched: int = Field(..., description="The number of queries that matched.")
+    q_total: int = Field(..., description="The total number of queries in the group.")
 
 
 class GulpQueryDonePacket(BaseModel):
@@ -1420,8 +1416,6 @@ class GulpWsSharedQueue:
             WSDATA_COLLAB_CREATE,
             WSDATA_COLLAB_UPDATE,
             WSDATA_COLLAB_DELETE,
-            WSDATA_NEW_CONTEXT,
-            WSDATA_NEW_SOURCE,
             WSDATA_INGEST_SOURCE_DONE,
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,

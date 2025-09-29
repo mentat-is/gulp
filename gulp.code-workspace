@@ -17,8 +17,11 @@
 			"--disable=C0301", // line-too-long
 			"--disable=C0302", // too-many-lines
 			"--disable=C0303", // trailing-whitespace
+			"--disable=C0415", // import-outside-toplevel
 			"--disable=R0903", // too-few-public-methods
 			"--disable=R0913", // too-many-arguments
+			"--disable=R0917", // too-many-positional-arguments,
+			"--disable=W0718" // too-broad-except
 		]
 	}
 }

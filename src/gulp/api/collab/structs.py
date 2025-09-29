@@ -139,7 +139,7 @@ COLLABTYPE_USER_GROUP = "user_group"
 COLLABTYPE_SOURCE_FIELD_TYPES = "source_fields"
 COLLABTYPE_QUERY_HISTORY = "query_history"
 COLLABTYPE_TASK = "task"
-COLLABTYPE_QUERY_GROUP_MATCH = "query_group_match"
+COLLABTYPE_QUERY_GROUP = "query_group"
 
 T = TypeVar("T", bound="GulpCollabBase")
 
@@ -155,7 +155,6 @@ class GulpCollabFilter(BaseModel):
     - all matches are case insensitive
     """
 
-    # allow extra fields to be interpreted as additional filters on the object columns as simple key-value pairs
     model_config = ConfigDict(
         extra="allow",
         json_schema_extra={
@@ -394,7 +393,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             for k, v in self.model_extra.items():
                 if k in obj_type.columns:
                     col = getattr(obj_type, k)
-                    if type(v) is str:
+                    if isinstance(v, str):
                         # single string, convert to list
                         v = [v]
 
@@ -468,7 +467,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                         order_clauses.append(getattr(obj_type, field).desc())
                 else:
                     MutyLogger.get_instance().warning(
-                        "invalid sort field: %s. skipping this field." % (field)
+                        "invalid sort field: %s. skipping this field.", field
                     )
         if isinstance(q, Select):
             q = q.order_by(*order_clauses)
@@ -1076,8 +1075,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # commit
             await sess.commit()
             MutyLogger.get_instance().debug(
-                "---> updated: %s"
-                % (muty.string.make_shorter(str(updated_dict), max_len=260))
+                "---> updated: %s",
+                muty.string.make_shorter(str(updated_dict), max_len=260),
             )
         except Exception as e:
             # release lock
@@ -1151,8 +1150,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         try:
             await self.__class__.acquire_advisory_lock(sess, obj_id)
             MutyLogger.get_instance().debug(
-                "deleting object %s.%s, operation=%s"
-                % (self.__class__, obj_id, operation_id)
+                "deleting object %s.%s, operation=%s",
+                self.__class__,
+                obj_id,
+                operation_id,
             )
             await sess.delete(self)
             await sess.commit()

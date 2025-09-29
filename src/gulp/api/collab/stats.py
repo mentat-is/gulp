@@ -146,6 +146,9 @@ class GulpQueryStats(BaseModel):
     )
 
     total_hits: int = Field(0, description="Total number of hits for this query.")
+    q_group: Optional[str] = Field(
+        None, description="The query group this query belongs to."
+    )
 
 
 class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
