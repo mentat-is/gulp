@@ -455,6 +455,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 ws_data=p.model_dump(),
                 req_id=req_id,
                 time_expire=time_expire,
+                session_user_id=u.id,
             )
 
             # update user with new session and write the new session object itself

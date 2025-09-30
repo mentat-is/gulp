@@ -9,8 +9,9 @@
 		"[python]": {
 			"editor.defaultFormatter": "ms-python.black-formatter"
 		},
-		"pylint.enabled": true,
+		"pylint.enabled": false,
 		"pylint.args": [
+			"--extension-pkg-allow-list=orjson",
 			"--disable=C0114", // missing-module-docstring
 			"--disable=C0115", // missing-class-docstring
 			"--disable=C0116", // missing-function-docstring
@@ -21,7 +22,8 @@
 			"--disable=R0903", // too-few-public-methods
 			"--disable=R0913", // too-many-arguments
 			"--disable=R0917", // too-many-positional-arguments,
-			"--disable=W0718" // too-broad-except
+			"--disable=W0613", // unused-argument
+			"--disable=W0719", // too-broad-except-raised
 		]
 	}
 }

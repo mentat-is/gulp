@@ -1087,7 +1087,7 @@ class GulpOpenSearch:
                     errors.append({"query": operation["query"], "error": str(e)})
 
         except Exception as e:
-            MutyLogger.get_instance().error(f"error updating documents: {str(e)}")
+            MutyLogger.get_instance().error("error updating documents: %s", str(e))
             return 0, [{"error": str(e)}]
 
         return success_count, errors
@@ -1098,7 +1098,7 @@ class GulpOpenSearch:
         docs: list[dict],
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-    ) -> tuple[int, int, list[dict], bool]:
+    ) -> tuple[int, int, list[dict]]:
         """
         ingests a list of GulpDocument into OpenSearch.
 
@@ -1113,7 +1113,6 @@ class GulpOpenSearch:
             - number of skipped (because already existing=duplicated) events
             - number of failed events
             - list of ingested documents
-            - whether the ingestion was successful after retrying
         """
 
         # Filter documents if needed
@@ -1127,17 +1126,17 @@ class GulpOpenSearch:
             ]
 
         if not filtered_docs:
-            MutyLogger.get_instance().warning(f"No document to ingest (flt={flt})")
-            return 0, 0, [], False
+            MutyLogger.get_instance().warning("no document to ingest (flt=%s)", flt)
+            return 0, 0, []
 
-        # Prepare bulk operation format
-        bulk_docs = []
+        # prepare bulk operation format
+        bulk_docs: list[dict] = []
         for doc in filtered_docs:
             bulk_docs.append({"create": {"_id": doc["_id"]}})
             bulk_docs.append({k: v for k, v in doc.items() if k != "_id"})
 
-        # Set request parameters
-        timeout = GulpConfig.get_instance().opensearch_request_timeout()
+        # set request parameters
+        timeout: int = GulpConfig.get_instance().opensearch_request_timeout()
         if timeout > 0:
             params = {"timeout": timeout}
         else:
@@ -1151,11 +1150,10 @@ class GulpOpenSearch:
             "content-type": "application/x-ndjson",
         }
 
-        # Execute bulk operation with retries
-        max_retries = GulpConfig.get_instance().ingestion_retry_max()
-        attempt = 0
-        success_after_retry = False
-        res = None
+        # execute bulk operation with retries
+        max_retries: int = GulpConfig.get_instance().ingestion_retry_max()
+        attempt: int = 0
+        res: dict = None
 
         while attempt < max_retries:
             try:
@@ -1171,12 +1169,7 @@ class GulpOpenSearch:
                                 f"bulk ingestion failed with status {item['create']['status']}: {item['create']['error']}"
                             )
 
-                if attempt > 0:
-                    # mark success after retry if applicable
-                    # (success is intended the bulk operation did not raised an exception, including error items with status 500)
-                    success_after_retry = True
-
-                break  # Success, exit retry loop
+                break  # success, exit retry loop
 
             except Exception as ex:
                 attempt += 1
@@ -1184,15 +1177,19 @@ class GulpOpenSearch:
                     MutyLogger.get_instance().exception(ex)
                     retry_delay = GulpConfig.get_instance().ingestion_retry_delay()
                     MutyLogger.get_instance().warning(
-                        f"bulk ingestion failed, retrying in {retry_delay}s (attempt {attempt}/{max_retries})"
+                        "bulk ingestion failed, retrying in %ds (attempt %d/%d)",
+                        retry_delay,
+                        attempt,
+                        max_retries,
                     )
                     await asyncio.sleep(retry_delay)
                 else:
-                    raise ex  # All retries failed
+                    raise ex  # all retries failed
 
-        # Process results
-        skipped = failed = 0
-        ingested = []
+        # process results
+        skipped: int = 0
+        failed: int = 0
+        ingested: list[dict] = []
 
         if res["errors"]:
             # Count skipped (already exists) and failed documents
@@ -1209,40 +1206,46 @@ class GulpOpenSearch:
                     for item in res["items"]
                     if item["create"]["status"] not in [200, 201]
                 ]
-                s = orjson.dumps(failed_items, option=orjson.OPT_INDENT_2).decode()
+                s: str = orjson.dumps(failed_items, option=orjson.OPT_INDENT_2).decode()
                 MutyLogger.get_instance().error(
-                    f"{failed} failed ingestion, {skipped} skipped: {muty.string.make_shorter(s, max_len=10000)}"
+                    "%d docs failed ingestion, %d docs skipped: %s",
+                    failed,
+                    skipped,
+                    muty.string.make_shorter(s, max_len=10000),
                 )
 
-            # Extract successfully ingested documents
-            error_ids = {
+            # extract successfully ingested documents
+            error_ids: list[str] = {
                 item["create"]["_id"]
                 for item in res["items"]
                 if item["create"]["status"] not in [200, 201]
             }
-            ingested = [
+            ingested: list[dict] = [
                 {**doc, "_id": action["create"]["_id"]}
                 for action, doc in zip(bulk_docs[::2], bulk_docs[1::2])
                 if action["create"]["_id"] not in error_ids
             ]
         else:
-            # All documents were successfully ingested
-            ingested = [
+            # all documents successfully ingested
+            ingested: list[dict] = [
                 {**doc, "_id": action["create"]["_id"]}
                 for action, doc in zip(bulk_docs[::2], bulk_docs[1::2])
             ]
 
-        if skipped > 0:
+        if skipped:
             MutyLogger.get_instance().debug(
-                f"{skipped} skipped, {failed} failed in this bulk ingestion of {len(filtered_docs)} documents!"
+                "%d docs skipped, %d docs failed in this bulk ingestion of %d docs",
+                skipped,
+                failed,
+                len(filtered_docs),
             )
 
-        if failed > 0:
+        if failed:
             MutyLogger.get_instance().critical(
-                "Failed is set, ingestion format needs to be fixed!"
+                "failed is set, ingestion format needs to be fixed!"
             )
 
-        return skipped, failed, ingested, success_after_retry
+        return skipped, failed, ingested
 
     async def opensearch_cancel_task(self, task_id: str) -> bool:
         """
@@ -1328,21 +1331,18 @@ class GulpOpenSearch:
             """
             send progress update during rebase
             """
-            if not ws_id:
-                return
-
             await GulpWsSharedQueue.get_instance().put_progress(
-                req_id=req_id,
-                ws_id=ws_id,
-                user_id=user_id,
-                operation_id=index,
+                PROGRESS_REBASE,
+                user_id,
+                ws_id,
+                req_id,
+                total=total_hits,
+                current=current_updated,
                 done=done,
-                msg=PROGRESS_REBASE,
-                data={
-                    "total_hits": total_hits,
-                    "updated": current_updated,
+                d={
                     "errors": current_errors,
                 },
+                operation_id=index,
             )
 
         # convert offset to nanoseconds

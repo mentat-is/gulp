@@ -133,7 +133,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         Raises:
             ObjectAlreadyExists: If the operation already exists and `fail_if_exists` is True.
         """
-        operation_id = muty.string.ensure_no_space_no_special(name.lower())
+        operation_id: str = muty.string.ensure_no_space_no_special(name.lower())
         if not index:
             # use the operation_id as the index
             index = operation_id
@@ -177,6 +177,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 granted_user_ids=granted_user_ids,
                 granted_user_group_ids=granted_user_group_ids,
                 index=index,
+                obj_id=operation_id,
                 operation_data={},
             )
         except Exception as exx:

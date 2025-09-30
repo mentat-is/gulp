@@ -105,19 +105,20 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
                 sess, token, permission=GulpUserPermission.INGEST
             )
 
-        d: dict = await GulpOperation.create_operation(
-            name,
-            s.user.id,
-            index=index,
-            description=description,
-            glyph_id=glyph_id,
-            create_index=create_index,
-            set_default_grants=set_default_grants,
-            index_template=index_template,
-            fail_if_exists=False,
-        )
+            d: dict = await GulpOperation.create_operation(
+                sess,
+                name,
+                s.user.id,
+                index=index,
+                description=description,
+                glyph_id=glyph_id,
+                create_index=create_index,
+                set_default_grants=set_default_grants,
+                index_template=index_template,
+                fail_if_exists=False,
+            )
 
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         if sess:
             await sess.rollback()

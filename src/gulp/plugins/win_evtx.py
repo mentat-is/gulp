@@ -207,7 +207,9 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
         try:
-            plugin_params = self._ensure_plugin_params(plugin_params, mapping_file="windows.json")
+            plugin_params = self._ensure_plugin_params(
+                plugin_params, mapping_file="windows.json"
+            )
             await super().ingest_file(
                 sess=sess,
                 stats=stats,
@@ -228,9 +230,7 @@ class Plugin(GulpPluginBase):
             # init parser
             parser = PyEvtxParser(file_path)
         except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+            return await self._source_done(flt, ex)
 
         doc_idx = 0
         try:
@@ -238,15 +238,11 @@ class Plugin(GulpPluginBase):
                 try:
                     await self.process_record(rr, doc_idx, flt=flt)
                 except (RequestCanceledError, SourceCanceledError) as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    await self._source_failed(ex)
-                    break
+                    raise ex
                 except PreviewDone:
                     # preview done, stop processing
                     break
                 doc_idx += 1
+            return await self._source_done(flt)
         except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+            return await self._source_done(flt, ex)

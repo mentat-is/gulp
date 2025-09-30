@@ -63,7 +63,6 @@ class GulpRestServer:
         self._poll_tasks_task: asyncio.Task = None
         self._shutdown: bool = False
         self._running_tasks: int = 0
-        self._restart_signal: asyncio.Event = asyncio.Event()
         self._extension_plugins: list[GulpPluginBase] = []
 
     def __new__(cls):
@@ -85,13 +84,6 @@ class GulpRestServer:
         if not cls._instance:
             cls._instance = cls()
         return cls._instance
-
-    def trigger_restart(self) -> None:
-        """Triggers server restart by setting event"""
-        MutyLogger.get_instance().info("Triggering server restart...")
-        if self._lifespan_task:
-            self._lifespan_task.cancel()
-        self._restart_signal.set()
 
     def running_tasks(self) -> int:
         """
@@ -459,6 +451,7 @@ class GulpRestServer:
             async with GulpCollab.get_instance().session() as sess:
                 # get a batch of tasks, use advisory lock to prevent concurrent dequeueing
                 try:
+                    # TODO: for multiple gulp processes, we should use a database (not application) lock
                     await GulpTask.acquire_advisory_lock(sess, "dequeue")
                     objs: list[GulpTask] = await GulpTask.get_by_filter(
                         sess,
@@ -489,10 +482,11 @@ class GulpRestServer:
                 # process found tasks in this batch
                 for obj in objs:
                     # process task
+                    obj: GulpTask
                     if obj.task_type == "ingest":
                         # spawn background task to process the ingest task
 
-                        d = obj.to_dict(exclude_none=True)
+                        d = obj.to_dict(exclude_none=False)
                         # print("*************** spawning ingest task for: %s" % (d))
                         await self.spawn_bg_task(run_ingest_file_task(d))
 
@@ -677,21 +671,13 @@ class GulpRestServer:
 
         if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
             # delete pending stats
-            await GulpRequestStats.delete_pending()
+            await GulpRequestStats.purge_ongoing_requests()
 
         # unload extension plugins
         await self._unload_extension_plugins()
 
         # cleanup main process
         await self._cleanup()
-
-        if self._restart_signal.is_set():
-            # we need to restart the server
-            MutyLogger.get_instance().info("restarting server ...")
-            self._restart_signal.clear()
-
-            # respawn
-            muty.os.respawn_current_process()
 
     def _reset_first_run(self) -> None:
         """

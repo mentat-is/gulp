@@ -100,7 +100,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             sess (AsyncSession): The session to use.
             user_id (str): The id of the user adding the source.
             name (str): The name of the source (may be file name, path, etc...)
-            ws_id (str, optional): The websocket id to stream NEW_SOURCE to. Defaults to None.
+            ws_id (str, optional): The websocket id to stream WSDATA_COLLAB_CREATE to. Defaults to None.
             req_id (str, optional): The request id. Defaults to None.
             src_id (str, optional): The id of the source. If not provided, a new id will be generated from name.
             color (str, optional): The color of the source
@@ -158,7 +158,6 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 color=color,
                 private=False,
                 ws_id=ws_id,
-                ws_data_type=WSDATA_NEW_SOURCE if ws_id else None,
                 req_id=req_id,
                 **object_data,
             )

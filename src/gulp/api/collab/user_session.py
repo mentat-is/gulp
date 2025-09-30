@@ -33,7 +33,7 @@ from gulp.api.collab.structs import (
 from gulp.config import GulpConfig
 from gulp.structs import ObjectNotFound
 
-#if TYPE_CHECKING:
+# if TYPE_CHECKING:
 from gulp.api.collab.user import GulpUser
 
 
@@ -41,10 +41,12 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
     """
     Represents a user session (logged user).
     """
+
     session_user_id: Mapped[str] = mapped_column(
         ForeignKey("user.id", ondelete="CASCADE"),
         unique=True,
         nullable=False,
+        doc="The ID of the user associated with this session.",
     )
     user: Mapped["GulpUser"] = relationship(
         "GulpUser",
@@ -116,7 +118,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
 
             # create a new permanent admin session
             admin_session: GulpUserSession = await GulpUserSession.create_internal(
-                sess, admin_user.id, time_expire=0
+                sess, admin_user.id, time_expire=0, session_user_id=admin_user.id
             )
             # MutyLogger.get_instance().debug("created new admin session: %s" % (admin_session.to_dict()))
             return admin_session
@@ -226,7 +228,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
 
             if throw_on_no_permission:
                 raise MissingPermission(
-                    f"user={self.user_id} does not have the required permissions {permission} to perform this operation, obj={obj.id if obj else None}, obj_owner={obj.user_id if obj else None}."
+                    f"user={self.session_user_id} does not have the required permissions {permission} to perform this operation, obj={obj.id if obj else None}, obj_owner={obj.user_id if obj else None}."
                 )
             return None
         finally:

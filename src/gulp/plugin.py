@@ -29,6 +29,7 @@ from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import (
+    GulpIngestionStats,
     GulpRequestStats,
     PreviewDone,
     RequestCanceledError,
@@ -610,19 +611,14 @@ class GulpPluginBase(ABC):
         # to keep track of processed/failed records
         self._records_processed_per_chunk: int = 0
         self._records_failed_per_chunk: int = 0
-        self._is_source_failed: bool = False
+        self._records_skipped_total: int = 0
+        self._records_failed_total: int = 0
+        self._records_skipped_total: int = 0
+        self._records_ingested_total: int = 0
         self._req_canceled: bool = False
-        self._source_error: str = None
-        self._doc_skipped: int = 0
-        self._doc_failed: int = 0
-        self._doc_processed: int = 0
-        self._doc_ingested: int = 0
 
         # to keep track of ingested chunks
         self._chunks_ingested: int = 0
-
-        # additional options
-        self._ingestion_enabled: bool = True
 
         # enrichment during ingestion may be disabled also if _enrich_documents_chunk is implemented
         self._enrich_during_ingestion: bool = True
@@ -773,24 +769,23 @@ class GulpPluginBase(ABC):
         d = {
             "plugin": self.name,
             "user_id": self._user_id,
-            "plugin_params": (
-                self._plugin_params.model_dump(exclude_none=True)
-                if self._plugin_params
-                else None
-            ),
-            "status": self._stats.status,
-            "errors": [self._source_error] if self._source_error else [],
-            "req_id": self._req_id,
-            "ingested": self._doc_ingested,
-            "failed": self._doc_failed,
-            "skipped": self._doc_skipped,
-            "processed": self._doc_processed,
             "operation_id": self._operation_id,
+            "req_id": self._req_id,
             "file_path": (
                 self._original_file_path
                 if self._original_file_path
                 else self._file_path
             ),
+            "plugin_params": (
+                self._plugin_params.model_dump(exclude_none=True)
+                if self._plugin_params
+                else None
+            ),
+            "errors": self._stats.errors,
+            "ingested": self._records_ingested_total,
+            "failed": self._records_failed_total,
+            "skipped": self._records_skipped_total,
+            "processed": self._records_processed_total,
         }
 
         wsq = GulpWsSharedQueue.get_instance()
@@ -816,46 +811,39 @@ class GulpPluginBase(ABC):
         Returns:
             tuple[int, int]: the number of ingested documents and the number of skipped documents
         """
-        MutyLogger.get_instance().debug(
-            f"processing chunk of {len(data)} documents with plugin {self.name}"
-        )
         if not data:
             return 0, 0
+
+        MutyLogger.get_instance().debug(
+            "processing chunk of %d documents with plugin=%s", len(data), self.name
+        )
 
         el = GulpOpenSearch.get_instance()
         skipped: int = 0
         ingested_docs: list[dict] = []
-        success_after_retry: bool = False
         if self._raw_ingestion:
             # disable refresh for raw ingestion
             wait_for_refresh = False
 
         # MutyLogger.get_instance().debug(orjson.dumps(data, option=orjson.OPT_INDENT_2).decode())
-        # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d' % (len(self.buffer)))
-        if self._ingestion_enabled:
-            # perform ingestion, ingested_docs may be different from data in the end due to skipped documents
-            skipped, ingestion_errors, ingested_docs, success_after_retry = (
-                await el.bulk_ingest(
-                    self._ingest_index,
-                    data,
-                    flt=flt,
-                    wait_for_refresh=wait_for_refresh,
+        # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d',len(self.buffer))
+
+        # perform ingestion, ingested_docs may be different from data in the end due to skipped documents
+        skipped, ingestion_errors, ingested_docs = await el.bulk_ingest(
+            self._ingest_index,
+            data,
+            flt=flt,
+            wait_for_refresh=wait_for_refresh,
+        )
+        # print(orjson.dumps(ingested_docs, option=orjson.OPT_INDENT_2).decode())
+        if ingestion_errors > 0:
+            # NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
+            # ideally, function should NEVER append errors and the errors total should be the same before and
+            # after this function returns (this function may only change the skipped total, which means some duplicates were found).
+            if GulpConfig.get_instance().debug_abort_on_opensearch_ingestion_error():
+                raise Exception(
+                    "opensearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
                 )
-            )
-            # print(orjson.dumps(ingested_docs, option=orjson.OPT_INDENT_2).decode())
-            if ingestion_errors > 0:
-                # NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
-                # ideally, function should NEVER append errors and the errors total should be the same before and
-                # after this function returns (this function may only change the skipped total, which means some duplicates were found).
-                if (
-                    GulpConfig.get_instance().debug_abort_on_opensearch_ingestion_error()
-                ):
-                    raise Exception(
-                        "opensearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
-                    )
-        else:
-            # use full chunk as ingested docs
-            ingested_docs = data
 
         # send ingested docs to websocket
         if flt:
@@ -865,7 +853,7 @@ class GulpPluginBase(ABC):
             # ensure data on ws is filtered
             flt.storage_ignore_filter = False
 
-        ws_docs = [
+        ws_docs: list[dict] = [
             (  # use all fields on ws if requested
                 doc
                 if all_fields_on_ws
@@ -881,19 +869,18 @@ class GulpPluginBase(ABC):
             == GulpDocumentFilterResult.ACCEPT
         ]
         if ws_docs:
-            # MutyLogger.get_instance().debug("_ingest_chunk_and_or_send_to_ws: %s" % (orjson.dumps(ws_docs, option=orjson.OPT_INDENT_2).decode()))
+            # MutyLogger.get_instance().debug("ws_docs:\n%s", orjson.dumps(ws_docs, option=orjson.OPT_INDENT_2).decode())
             # send documents to the websocket
-            chunk = GulpDocumentsChunkPacket(
+            chunk: GulpDocumentsChunkPacket = GulpDocumentsChunkPacket(
                 docs=ws_docs,
                 num_docs=len(ws_docs),
                 # wait for refresh is set only on the last chunk
                 last=wait_for_refresh,
                 chunk_number=self._chunks_ingested,
             )
-            data = chunk.model_dump(exclude_none=True)
+            data: dict = chunk.model_dump(exclude_none=True)
             MutyLogger.get_instance().debug(
-                f"sending chunk of {len(ws_docs)} documents to ws {
-                    self._ws_id}"
+                "sending chunk of %d documents to ws_id=%s", len(ws_docs), self._ws_id
             )
             wsq = GulpWsSharedQueue.get_instance()
             await wsq.put(
@@ -907,20 +894,15 @@ class GulpPluginBase(ABC):
             self._chunks_ingested += 1
 
         # check if the request is cancelled
-        canceled = await GulpRequestStats.is_canceled(self._sess, self._req_id)
+        canceled: bool = await GulpRequestStats.is_canceled(self._sess, self._req_id)
         if canceled:
             self._req_canceled = True
             MutyLogger.get_instance().warning(
-                "_process_docs_chunk: request %s cancelled" % (self._req_id)
+                "_process_docs_chunk: request %s canceled!", self._req_id
             )
 
-        l: int = len(ingested_docs)
-        if success_after_retry:
-            # do not count skipped
-            return l + skipped, 0
-
-        # MutyLogger.get_instance().debug("returning %d ingested, %d skipped, success_after_retry=%r" % (l, skipped, success_after_retry))
-        return l, skipped
+        # MutyLogger.get_instance().debug("returning %d ingested, %d skipped",l, skipped)
+        return len(ingested_docs), skipped
 
     async def _context_id_from_doc_value(
         self, k: str, v: str, force_v_as_context_id: bool = False
@@ -1084,18 +1066,11 @@ class GulpPluginBase(ABC):
         self._external_query = True
         self._enrich_during_ingestion = False
         self._operation_id = operation_id
-
-        if index:
-            # ingestion is enabled, set index
-            self._ingest_index = index
-        else:
-            # just query, no ingestion
-            self._ingestion_enabled = False
+        self._ingest_index = index
 
         if q_options.preview_mode:
             self._preview_mode = True
             self._ingest_index = None
-            self._ingestion_enabled = False
             MutyLogger.get_instance().warning("external query preview mode enabled !")
 
         # initialize
@@ -1452,7 +1427,6 @@ class GulpPluginBase(ABC):
         if preview_mode:
             # preview mode
             self._preview_mode = True
-            self._ingestion_enabled = False
 
         MutyLogger.get_instance().debug(
             f"ingesting file source_id={source_id}, file_path={file_path}, original_file_path={original_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, \
@@ -1801,75 +1775,6 @@ class GulpPluginBase(ABC):
 
         return d, set_keys
 
-    def _handle_extract_key(d: dict | list, k: str) -> Any:
-        """
-        Extracts a value from a dictionary or list using a dot-notation key.
-
-        Args:
-            d (dict | list): The data structure to extract from.
-            k (str): The key in dot notation, e.g. "key1.key2[0]", "[0].key1.key2[1]", ...
-
-        Returns:
-            Any: The extracted value.
-        Raises:
-            KeyError: If the key is invalid or not found.
-        """
-        if k is None or k == "":
-            return d
-
-        # remove all spaces for simplicity and efficiency
-        k_clean = k.replace(" ", "")
-        n = len(k_clean)
-        tokens = []
-        i = 0
-        while i < n:
-            if k_clean[i] == ".":
-                i += 1
-                continue
-            elif k_clean[i] == "[":
-                i += 1  # Skip '['
-                start = i
-                # Find next ']'
-                while i < n and k_clean[i] != "]":
-                    i += 1
-                if i == n:
-                    raise KeyError(f"Unclosed bracket in key: {k}")
-                num_str = k_clean[start:i]
-                if not num_str.isdigit():
-                    raise KeyError(f"Invalid index: {num_str} in key: {k}")
-                tokens.append(int(num_str))
-                i += 1  # Skip ']'
-            else:
-                start = i
-                # Advance until next '.' or '[' or end
-                while i < n and k_clean[i] not in [".", "["]:
-                    i += 1
-                token_str = k_clean[start:i]
-                tokens.append(token_str)
-
-        # traverse the data structure using tokens
-        current = d
-        for token in tokens:
-            if isinstance(token, int):
-                if not isinstance(current, list):
-                    raise KeyError(
-                        f"Expected list at index token {token}, got {type(current).__name__}"
-                    )
-                if token < 0 or token >= len(current):
-                    raise KeyError(
-                        f"Index {token} out of range for list of length {len(current)}"
-                    )
-                current = current[token]
-            else:
-                if not isinstance(current, dict):
-                    raise KeyError(
-                        f"Expected dict at key token '{token}', got {type(current).__name__}"
-                    )
-                if token not in current:
-                    raise KeyError(f"Key '{token}' not found in dictionary")
-                current = current[token]
-        return current
-
     async def _check_doc_for_ctx_id(
         self, doc: dict, mapping: GulpMapping, **kwargs
     ) -> str:
@@ -2119,35 +2024,6 @@ class GulpPluginBase(ABC):
         )
         return m
 
-    async def _update_ingestion_stats(self, ingested: int, skipped: int) -> None:
-        """
-        updates ingestion stats.
-
-        Args:
-            ingested (int): number of documents ingested
-            skipped (int): number of documents skipped
-        """
-        # update stats
-        MutyLogger.get_instance().debug(
-            "updating stats, processed=%d, ingested=%d, skipped=%d, tot_failed(in instance)=%d, tot_skipped(in instance)=%d",
-            self._records_processed_per_chunk,
-            ingested,
-            skipped,
-            self._doc_failed,
-            self._doc_skipped,
-        )
-        d = {
-            "data": {
-                "records_skipped": skipped,
-                "records_ingested": ingested,
-                "records_processed": self._records_processed_per_chunk,
-                "records_failed": self._records_failed_per_chunk,
-            }
-        }
-        await self._stats.update(
-            self._sess, d=d, ws_id=self._ws_id, user_id=self._user_id
-        )
-
     async def _flush_and_check_thresholds(
         self,
         flt: GulpIngestionFilter = None,
@@ -2172,17 +2048,25 @@ class GulpPluginBase(ABC):
         # check failure thresholds
         failure_threshold = GulpConfig.get_instance().ingestion_evt_failure_threshold()
         if failure_threshold > 0 and (
-            self._doc_skipped >= failure_threshold
-            or self._doc_failed >= failure_threshold
+            self._records_skipped_total >= failure_threshold
+            or self._records_failed_total >= failure_threshold
         ):
             raise SourceCanceledError(
-                f"ingestion per-source failure threshold reached (tot_skipped={self._doc_skipped}, "
-                f"tot_failed={self._doc_failed}, threshold={failure_threshold}), "
+                f"ingestion per-source failure threshold reached (tot_skipped={self._records_skipped_total}, "
+                f"tot_failed={self._records_failed_total}, threshold={failure_threshold}), "
                 f"canceling source..."
             )
 
-        # update stats if available
-        await self._update_ingestion_stats(ingested, skipped)
+        # update stats
+        await self._stats.update_ingestion_stats(
+            self._sess,
+            user_id=self._user_id,
+            ws_id=self._ws_id,
+            ingested=ingested,
+            skipped=skipped,
+            processed=self._records_processed_per_chunk,
+            failed=self._records_failed_per_chunk,
+        )
 
         # reset buffers and counters
         self._docs_buffer = []
@@ -2517,14 +2401,12 @@ class GulpPluginBase(ABC):
         self._plugin_params = plugin_params or GulpPluginParameters()
 
         MutyLogger.get_instance().debug(
-            "---> _initialize: plugin=%s, stacked=%r, plugin_params=%s"
-            % (
-                self.filename,
-                self._stacked,
-                orjson.dumps(
-                    self._plugin_params.model_dump(), option=orjson.OPT_INDENT_2
-                ).decode(),
-            )
+            "---> _initialize: plugin=%s, stacked=%r, plugin_params=%s",
+            self.filename,
+            self._stacked,
+            orjson.dumps(
+                self._plugin_params.model_dump(), option=orjson.OPT_INDENT_2
+            ).decode(),
         )
 
         # parse the custom parameters
@@ -2638,19 +2520,6 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug("returning %s:%s" % (k, v))
         return k, v
 
-    def _stats_status(self) -> GulpRequestStatus:
-        """
-        Returns the status of the ingestion statistics.
-
-        if not stats are set, returns GulpRequestStatus.DONE.
-
-        Returns:
-            GulpRequestStatus: The status of the ingestion statistics.
-        """
-        if not self._stats:
-            return GulpRequestStatus.DONE
-        return GulpRequestStatus(self._stats.status)
-
     async def _flush_buffer(
         self,
         flt: GulpIngestionFilter = None,
@@ -2697,9 +2566,8 @@ class GulpPluginBase(ABC):
             all_fields_on_ws=all_fields_on_ws,
         )
 
-        self._doc_failed += self._records_failed_per_chunk
-        self._doc_skipped += skipped
-        self._doc_ingested += ingested
+        self._records_skipped_total += skipped
+        self._records_ingested_total += ingested
 
         # if wait_for_refresh:
         #     # update index type mapping too
@@ -2715,55 +2583,12 @@ class GulpPluginBase(ABC):
 
     def _record_failed(self, ex: Exception | str = None) -> None:
         """
-        Handles a record failure during ingestion.
+        handles a single record failure during ingestion.
         """
         self._records_failed_per_chunk += 1
+        self._records_failed_total += 1
         if ex:
             MutyLogger.get_instance().exception(ex)
-
-    async def _source_failed(
-        self,
-        err: str | Exception,
-    ) -> None:
-        """
-        Handles the failure of a source during ingestion.
-
-        Args:
-            err (str | Exception): The error that caused the source to fail.
-        """
-        if isinstance(err, SourceCanceledError):
-            # request has benn canceled
-            self._req_canceled = True
-        else:
-            # it's an error
-            self._is_source_failed = True
-            # if self._stats:
-            #     self._stats.status = GulpRequestStatus.FAILED
-
-        if not isinstance(err, str):
-            # exception to string
-            e = muty.log.exception_to_string(err, with_full_traceback=True)
-        else:
-            e = err
-
-        MutyLogger.get_instance().error(
-            "SOURCE FAILED: source=%s, ex=%s, processed=%d, ingested=%d, canceled=%r, failed=%d, skipped=%d, source_failed=%r, ingestion=%r"
-            % (
-                self._file_path,
-                e,
-                self._doc_processed,
-                self._doc_ingested,
-                self._doc_failed,
-                self._doc_skipped,
-                self._req_canceled,
-                self._is_source_failed,
-                self._ingestion_enabled,
-            )
-        )
-
-        # add source info
-        ee = "source=%s,id=%s,err=%s" % (self._file_path, self._source_id, e)
-        self._source_error = ee
 
     async def _update_source_mapping_parameters(self) -> None:
         """
@@ -2791,95 +2616,108 @@ class GulpPluginBase(ABC):
                 ),
             )
 
-    async def _source_done(self, flt: GulpIngestionFilter = None, **kwargs) -> None:
+    async def _source_done(
+        self, flt: GulpIngestionFilter = None, ex: Exception = None, **kwargs
+    ) -> GulpRequestStatus:
         """
         Finalizes the ingestion process for a source by flushing the buffer and updating the ingestion statistics.
 
         Args:
             flt (GulpIngestionFilter, optional): An optional filter to apply during ingestion. Defaults to None.
+            ex (Exception, optional): An optional exception that may have caused the source to fail. Defaults to None.
             **kwargs: Additional keyword arguments.
+
+        Returns:
+            GulpRequestStatus: The final status of the ingestion process.
         """
         MutyLogger.get_instance().debug(
-            "SOURCE DONE: %s, remaining docs to flush in docs_buffer: %d, status=%s, ingestion=%r"
-            % (
-                self._file_path or self._source_id,
-                len(self._docs_buffer),
-                self._stats.status if self._stats else GulpRequestStatus.DONE.value,
-                self._ingestion_enabled,
-            )
+            "**SOURCE DONE**: %s, remaining docs to flush in docs_buffer: %d, status=%s, preview_mode=%r",
+            self._file_path or self._source_id,
+            len(self._docs_buffer),
+            self._stats.status,
+            self._preview_mode,
         )
+        if self._preview_mode:
+            return GulpRequestStatus.DONE
+
+        ingested: int = 0
+        skipped: int = 0
+        errors: list[str] = []
+        status: str = None
+
+        if ex:
+            if isinstance(ex, SourceCanceledError):
+                self._req_canceled = True
+            else:
+                errors.append(muty.log.exception_to_string(ex))
 
         try:
             # flush the last chunk
             ingested, skipped = await self._flush_buffer(
                 flt, wait_for_refresh=True, **kwargs
             )
-        except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
-            self._is_source_failed = True
+        except Exception as e:
+            MutyLogger.get_instance().exception(e)
+            s: str = muty.log.exception_to_string(e)
+            if s not in errors:
+                errors.append(s)
             ingested = 0
             skipped = 0
 
-        if not self._stats and (not self._ingestion_enabled or self._preview_mode):
-            # do not update ws nor stats
-            return
-
-        if self._ws_id and not self._raw_ingestion:
-            # send ingest_source_done packet on ws (this is not needed for raw ingestion)
-            if self._is_source_failed:
-                status = GulpRequestStatus.FAILED
-            elif self._req_canceled:
-                status = GulpRequestStatus.CANCELED
+        source_finished: bool = True
+        if self._raw_ingestion:
+            # ongoing, unless canceled or last chunk
+            source_finished = False
+            if self._last_raw_chunk:
+                status = GulpRequestStatus.DONE.value
             else:
-                status = GulpRequestStatus.DONE
+                status = GulpRequestStatus.ONGOING.value
+            if self._req_canceled:
+                status = GulpRequestStatus.CANCELED.value
+        else:
+            # send WSDATA_INGEST_SOURCE_DONE on the ws
+            if errors:
+                status = GulpRequestStatus.FAILED.value
+            elif self._req_canceled:
+                status = GulpRequestStatus.CANCELED.value
+            else:
+                status = GulpRequestStatus.DONE.value
 
             wsq = GulpWsSharedQueue.get_instance()
+            p: GulpIngestSourceDonePacket = GulpIngestSourceDonePacket(
+                source_id=self._source_id,
+                context_id=self._context_id,
+                records_ingested=self._records_ingested_total,
+                records_skipped=self._records_skipped_total,
+                records_failed=self._records_failed_total,
+                status=status,
+            )
             await wsq.put(
-                type=WSDATA_INGEST_SOURCE_DONE,
+                WSDATA_INGEST_SOURCE_DONE,
+                self._user_id,
                 ws_id=self._ws_id,
-                user_id=self._user_id,
                 operation_id=self._operation_id,
-                data=GulpIngestSourceDonePacket(
-                    source_id=self._source_id or "default",
-                    context_id=self._context_id or "default",
-                    req_id=self._req_id,
-                    docs_ingested=self._doc_ingested,
-                    docs_skipped=self._doc_skipped,
-                    docs_failed=self._doc_failed,
-                    status=status,
-                ),
+                req_id=self._req_id,
+                data=p.model_dump(exclude_none=True),
             )
 
-        if self._stats:
-            d = {
-                "data": {
-                    "source_failed": (
-                        1 if (self._is_source_failed and not self._raw_ingestion) else 0
-                    ),
-                    "source_processed": 1 if not self._raw_ingestion else 0,
-                    "records_ingested": ingested,
-                    "records_skipped": skipped,
-                    "records_failed": self._records_failed_per_chunk,
-                    "records_processed": self._records_processed_per_chunk,
-                    "error": self._source_error,
-                }
-            }
-            if self._raw_ingestion and not self._req_canceled:
-                # force status update, keep status as ongoing until the last raw chunk is processed
-                if self._last_raw_chunk:
-                    d["status"] = GulpRequestStatus.DONE
-                else:
-                    d["status"] = GulpRequestStatus.ONGOING
-
-            try:
-                await self._stats.update(
-                    self._sess,
-                    d,
-                    ws_id=self._ws_id,
-                    user_id=self._user_id,
-                )
-            except RequestCanceledError:
-                MutyLogger.get_instance().warning("request canceled, source_done!")
+        # update stats
+        try:
+            d: dict = await self._stats.update_ingestion_stats(
+                self._sess,
+                user_id=self._user_id,
+                ws_id=self._ws_id,
+                ingested=ingested,
+                skipped=skipped,
+                processed=self._records_processed_per_chunk,
+                failed=self._records_failed_per_chunk,
+                errors=errors,
+                status=status,
+                source_finished=source_finished,
+            )
+            return d["status"]
+        except:
+            return GulpRequestStatus.FAILED
 
     def register_internal_events_callback(self, types: list[str] = None) -> None:
         """

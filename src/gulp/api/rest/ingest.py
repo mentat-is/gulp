@@ -34,7 +34,7 @@ from gulp.api.collab.context import GulpContext
 from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
-from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab.stats import GulpRequestStats, RequestStatsType
 from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -259,7 +259,7 @@ async def _ingest_file_internal(
     # MutyLogger.get_instance().debug("---> _ingest_file_internal")
     preview_chunk: list[dict] = []
     status: GulpRequestStatus = GulpRequestStatus.FAILED
-    
+
     try:
         async with GulpCollab.get_instance().session() as sess:
             mod: GulpPluginBase = None
@@ -272,12 +272,13 @@ async def _ingest_file_internal(
                 )
             else:
                 # create stats
-                await GulpRequestStats.create_or_get(
-                    sess=sess,
-                    req_id=req_id,
-                    user_id=user_id,
+                stats = await GulpRequestStats.create_stats(
+                    sess,
+                    req_id,
+                    user_id,
+                    operation_id,
+                    req_type=RequestStatsType.REQUEST_TYPE_INGESTION,
                     ws_id=ws_id,
-                    operation_id=operation_id,
                 )
 
             # run plugin
@@ -298,30 +299,13 @@ async def _ingest_file_internal(
                 flt=payload.flt,
                 preview_mode=preview_mode,
             )
-    except Exception as ex:
-        status = GulpRequestStatus.FAILED
-        if preview_mode:
-            # on preview (sync mode) raise exception
-            raise ex
-        else:
-            d = {
-                "status": status,
-                "data": {
-                    "source_failed": 1,
-                    "error": ex,
-                },
-            }
-        if sess:
-            await sess.rollback()
-            await stats.update(sess, d, ws_id=ws_id, user_id=user_id)
-    finally:
-        if preview_mode:
-            if mod:
-                # get the accumulated preview chunk
+            if preview_mode:
+                # get the accumulated preview chunk and we're done
                 preview_chunk = deepcopy(mod.preview_chunk())
+                return status, preview_chunk
 
-        else:
-            # create/update mappings on the collab db
+            # default mode: broadcast internal event and update source field types
+            await mod.broadcast_ingest_internal_event()
             try:
                 await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
                     index,
@@ -333,19 +317,24 @@ async def _ingest_file_internal(
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
 
+            await mod.unload()
+            return status, []
+
+    except Exception as ex:
+        status = GulpRequestStatus.FAILED
+        if preview_mode:
+            # on preview (sync mode) raise exception
+            raise ex
+        if sess:
+            await sess.rollback()
+            await stats.update_ingestion_stats(
+                sess, user_id=user_id, ws_id=ws_id, errors=[ex], source_finished=True
+            )
+    finally:
         if delete_after:
             # delete file
             await muty.file.delete_file_or_dir_async(file_path)
 
-        # done
-        if mod:
-            if not preview_mode and status != GulpRequestStatus.FAILED:
-                # broadcast ingest internal event
-                await mod.broadcast_ingest_internal_event()
-
-            await mod.unload()
-
-        return status, preview_chunk
 
 async def run_ingest_file_task(t: dict):
     """
@@ -354,13 +343,11 @@ async def run_ingest_file_task(t: dict):
     :param t: a GulpTask dict to run
     """
     params: dict = t.get("params", {})
-    params["req_id"] = t.get("req_id")
-    params["ws_id"] = t.get("ws_id")
     params["user_id"] = t.get("user_id")
     params["operation_id"] = t.get("operation_id")
     params["payload"] = GulpIngestPayload.model_validate(params.get("payload"))
     # MutyLogger.get_instance().debug(
-    #     "run_ingest_file_task, t=%s, params=%s" % (t, params)
+    #     "run_ingest_file_task, t=%s, params=%s", t, params)
     # )
     await GulpProcess.get_instance().process_pool.apply(
         _ingest_file_internal, kwds=params
@@ -409,6 +396,8 @@ async def _handle_preview_or_enqueue_ingest_task(
     kwds = dict(
         context_id=ctx_id,
         source_id=src_id,
+        req_id=req_id,
+        ws_id=ws_id,
         index=index,
         plugin=plugin,
         file_path=file_path,
@@ -1481,7 +1470,7 @@ async def ingest_zip_handler(
     except Exception as ex:
         if sess:
             await sess.rollback()
-        raise JSendException(req_id=req_id) from ex        
+        raise JSendException(req_id=req_id) from ex
     finally:
         # cleanup
         await muty.file.delete_file_or_dir_async(file_path)

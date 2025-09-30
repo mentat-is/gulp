@@ -15,27 +15,18 @@ from sqlalchemy.dialects.postgresql import JSONB
 from gulp.api.collab.structs import COLLABTYPE_TASK, GulpCollabBase
 import muty.string
 
+
 class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
     """
     a lightweight task object for Gulp, allowing to decouple task processing from the main request handling.
     """
 
-    ws_id: Mapped[str] = mapped_column(
-        String,
-        doc="id of the websocket connection this entry is associated with",
-    )
-    req_id: Mapped[str] = mapped_column(
-        doc="id of the request this entry is associated with",
-    )
     task_type: Mapped[str] = mapped_column(
         String, doc="type of the task, e.g. 'ingest', 'query', etc..."
     )
     params: Mapped[dict] = mapped_column(
         MutableDict.as_mutable(JSONB),
         doc="task parameters, depending on the task type",
-    )
-    raw_data: Mapped[Optional[bytes]] = mapped_column(
-        LargeBinary, nullable=True, doc="raw data associated with the task."
     )
     pid: Mapped[int] = mapped_column(doc="the process id starting the task")
 
@@ -145,19 +136,22 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
         """
 
         MutyLogger.get_instance().debug(
-            "queueing task_type=%s, ws_id=%s, req_id=%s, params=%s" % (task_type, ws_id, req_id, muty.string.make_shorter(str(params), 100))
+            "queueing task_type=%s, ws_id=%s, req_id=%s, params=%s"
+            % (task_type, ws_id, req_id, muty.string.make_shorter(str(params), 100))
         )
         try:
             await GulpTask.create_internal(
                 sess,
                 user_id,
                 operation_id=operation_id,
-                skip_notification=True,
-                ws_id=ws_id,
                 req_id=req_id,
                 task_type=task_type,
                 pid=os.getpid(),
-                raw_data=raw_data,
+                params=params,
+                extra_object_data={
+                    "ws_id": ws_id,
+                    "req_id": req_id,
+                },  # avoids clash with main ws_id, req_id params
             )
         except Exception as ex:
             await sess.rollback()

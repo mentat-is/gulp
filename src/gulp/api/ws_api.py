@@ -1,10 +1,6 @@
 import asyncio
 import collections
-import os
 import queue
-import random
-import threading
-import time
 from enum import StrEnum
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
@@ -34,11 +30,18 @@ class GulpWsType(StrEnum):
 
 # data types for the websocket
 WSDATA_ERROR = "ws_error"
-WSDATA_CONNECTED = "ws_connected"
-WSDATA_COLLAB_CREATE = "collab_create"
-WSDATA_COLLAB_UPDATE = "collab_update"
-WSDATA_COLLAB_DELETE = "collab_delete"
-WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # this is sent to indicate a query group match, i.e. a query group that matched some queries
+WSDATA_CONNECTED = "ws_connected"  # whenever a websocket connection is established
+WSDATA_COLLAB_CREATE = (
+    "collab_create"  # GulpCollabCreatePacket, whenever a collab object is created
+)
+WSDATA_COLLAB_UPDATE = (
+    "collab_update"  # GulpCollabUpdatePacket, whenever a collab object is updated
+)
+WSDATA_COLLAB_DELETE = (
+    "collab_delete"  # GulpCollabDeletePacket, whenever a collab object is deleted
+)
+WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries
+WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
 
 WSDATA_USER_LOGIN = "user_login"
 WSDATA_USER_LOGOUT = "user_logout"
@@ -48,7 +51,6 @@ WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
 WSDATA_GENERIC = "generic"
 
 # the following data types sent on the websocket are to be used to track status
-WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # this is sent in the end of an ingestion operation, one per source
 WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
 WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
 WSDATA_PROGRESS = "progress"  # this is sent to indicate query progrress during, indicates current/total queries being performed and optionally a progress message
@@ -56,7 +58,7 @@ WSDATA_ENRICH_DONE = "enrich_done"  # this is sent in the end of an enrichment o
 WSDATA_TAG_DONE = "tag_done"  # this is sent in the end of a tag operation
 
 # progress types
-PROGRESS_REBASE = "rebase"
+PROGRESS_REBASE = "rebase"  # GulpProgressPacket
 
 # special token used to monitor also logins
 WSTOKEN_MONITOR = "monitor"
@@ -378,17 +380,18 @@ class GulpIngestSourceDonePacket(BaseModel):
         description="The context ID in the collab database.",
         alias="gulp.context_id",
     )
-    docs_ingested: int = Field(
+    records_ingested: int = Field(
         ..., description="The number of documents ingested in this source."
     )
-    docs_skipped: int = Field(
+    records_skipped: int = Field(
         ..., description="The number of documents skipped in this source."
     )
-    docs_failed: int = Field(
+    records_failed: int = Field(
         ..., description="The number of documents failed in this source."
     )
-    req_id: str = Field(..., description="The request ID.")
-    status: GulpRequestStatus = Field(..., description="The request status.")
+    status: GulpRequestStatus = Field(
+        ..., description="The source ingestion status (failed, done, canceled)."
+    )
 
 
 class GulpCollabGenericNotifyPacket(BaseModel):
@@ -704,13 +707,6 @@ class GulpConnectedSocket:
     """
 
     # class constants for configuration
-    BACKPRESSURE_THRESHOLD: int = 1000
-    BACKPRESSURE_DELAY: float = 0.1
-    QUEUE_SIZE_HIGH_THRESHOLD: int = 500
-    QUEUE_SIZE_MEDIUM_THRESHOLD: int = 200
-    MAX_ADAPTIVE_DELAY: float = 0.5
-    METRICS_LOG_INTERVAL: int = 1000
-    COUNTER_RESET_INTERVAL: int = 10000
     YIELD_CONTROL_INTERVAL: int = 100
     YIELD_CONTROL_DELAY: float = 0.01
 
@@ -763,17 +759,17 @@ class GulpConnectedSocket:
             # Wait for first task to complete
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
 
-            # Process completed task
+            # process completed task
             task = done.pop()
             try:
                 await task
             except WebSocketDisconnect as ex:
                 MutyLogger.get_instance().debug(
-                    f"websocket {self.ws_id} disconnected: {ex}"
+                    "websocket %s disconnected: %s", self.ws_id, ex
                 )
                 raise
             except Exception as ex:
-                MutyLogger.get_instance().error(f"error in {task.get_name()}: {ex}")
+                MutyLogger.get_instance().error("error in %s: %s", task.get_name(), ex)
                 raise
 
         finally:
@@ -789,9 +785,9 @@ class GulpConnectedSocket:
             return
 
         MutyLogger.get_instance().debug(
-            "---> cleanup, ensuring ws cleanup for ws=%s, ws_id=%s"
-            % (self.ws, self.ws_id)
+            "---> cleanup, ensuring ws cleanup for ws=%s, ws_id=%s", self.ws, self.ws_id
         )
+
         # empty the queue
         await self._flush_queue()
 
@@ -804,8 +800,9 @@ class GulpConnectedSocket:
 
         self._cleaned_up = True
         MutyLogger.get_instance().debug(
-            "---> GulpConnectedSocket.cleanup() DONE, ws=%s, ws_id=%s"
-            % (self.ws, self.ws_id)
+            "---> GulpConnectedSocket.cleanup() DONE, ws=%s, ws_id=%s",
+            self.ws,
+            self.ws_id,
         )
 
     async def _flush_queue(self) -> None:
@@ -823,10 +820,10 @@ class GulpConnectedSocket:
 
             await self.q.join()
             MutyLogger.get_instance().debug(
-                f"---> queue flushed for ws_id={self.ws_id}"
+                "---> queue flushed for ws_id=%s", self.ws_id
             )
         except Exception as ex:
-            MutyLogger.get_instance().warning(f"error flushing queue: {ex}")
+            MutyLogger.get_instance().warning("error flushing queue: %s", ex)
 
     @staticmethod
     def is_alive(ws_id: str) -> bool:
@@ -858,24 +855,30 @@ class GulpConnectedSocket:
         Args:
             tasks (list): the tasks to clean up
         """
-        logger = MutyLogger.get_instance()
-
         for task in tasks:
             if not task.done():
                 task.cancel()
                 try:
                     await task
                 except asyncio.CancelledError:
-                    logger.debug(f"task {task.get_name()} cancelled successfully")
+                    MutyLogger.get_instance().debug(
+                        "task %s cancelled successfully", task.get_name()
+                    )
                 except WebSocketDisconnect:
-                    logger.debug(f"task {task.get_name()} disconnected during cleanup")
+                    MutyLogger.get_instance().debug(
+                        "task %s disconnected during cleanup", task.get_name()
+                    )
                 except Exception as ex:
-                    logger.error(f"error cleaning up {task.get_name()}: {str(ex)}")
+                    MutyLogger.get_instance().error(
+                        "error cleaning up %s: %s", task.get_name(), str(ex)
+                    )
 
         # remove from global ws list
         from gulp.process import GulpProcess
 
-        logger.debug(f"removing ws_id={self.ws_id} from active sockets shared list ...")
+        MutyLogger.get_instance().debug(
+            "removing ws_id=%s from active sockets shared list ...", self.ws_id
+        )
         GulpProcess.get_instance().shared_memory_remove_from_list(
             SHARED_MEMORY_KEY_ACTIVE_SOCKETS, self.ws_id
         )
@@ -884,9 +887,6 @@ class GulpConnectedSocket:
         """
         continuously receives messages to detect disconnection
         """
-        # track time to periodically yield control
-        last_yield_time = time.monotonic()
-
         while True:
             # raise exception if websocket is disconnected
             self.validate_connection()
@@ -894,18 +894,10 @@ class GulpConnectedSocket:
             try:
                 # use a shorter timeout to ensure we can yield control regularly
                 await asyncio.wait_for(self.ws.receive_json(), timeout=1.0)
-
-                # yield control periodically even if receiving messages quickly
-                current_time = time.monotonic()
-                if current_time - last_yield_time > 0.1:
-                    await asyncio.sleep(
-                        self.YIELD_CONTROL_DELAY
-                    )  # brief yield to handle control frames
-                    last_yield_time = current_time
-
+                await asyncio.sleep(GulpConnectedSocket.YIELD_CONTROL_DELAY)
             except asyncio.TimeoutError:
                 # no message received, good time to yield control
-                await asyncio.sleep(self.YIELD_CONTROL_DELAY)
+                await asyncio.sleep(GulpConnectedSocket.YIELD_CONTROL_DELAY)
                 continue
 
     async def put_message(self, msg: dict) -> None:
@@ -915,9 +907,9 @@ class GulpConnectedSocket:
         Args:
             msg (dict): The message to put.
         """
-        if self.q.qsize() > self.BACKPRESSURE_THRESHOLD:
+        if self.q.qsize() > GulpConnectedSocket.BACKPRESSURE_THRESHOLD:
             # backpressure
-            await asyncio.sleep(self.BACKPRESSURE_DELAY)
+            await asyncio.sleep(GulpConnectedSocket.BACKPRESSURE_DELAY)
 
         # use a slot from the pool
         pooled_msg = self._msg_pool.get()
@@ -940,34 +932,6 @@ class GulpConnectedSocket:
         # rate limit
         await asyncio.sleep(delay)
 
-    def _calculate_adaptive_delay(self, queue_size: int, base_delay: float) -> float:
-        """
-        calculates adaptive delay based on queue size
-
-        args:
-            queue_size (int): current queue size
-            base_delay (float): base delay configuration
-
-        returns:
-            float: calculated delay in seconds
-        """
-        if queue_size > self.QUEUE_SIZE_HIGH_THRESHOLD:
-            # exponential backoff based on queue size
-            return min(base_delay * (queue_size / 100), self.MAX_ADAPTIVE_DELAY)
-        return base_delay
-
-    def _get_queue_timeout(self, queue_size: int) -> float:
-        """
-        determines appropriate queue timeout based on load
-
-        args:
-            queue_size (int): current queue size
-
-        returns:
-            float: timeout value in seconds
-        """
-        return 0.05 if queue_size > self.QUEUE_SIZE_MEDIUM_THRESHOLD else 0.1
-
     def validate_connection(self) -> None:
         """
         validates that the websocket is still connected
@@ -980,17 +944,14 @@ class GulpConnectedSocket:
 
     async def _process_queue_message(self) -> bool:
         """
-        processes a single message from the queue
+        processes message from the websocket queue
 
         returns:
             bool: true if message was processed, false if timeout occurred
         """
-        queue_size = self.q.qsize()
-        timeout = self._get_queue_timeout(queue_size)
-
         try:
             # get message with timeout
-            item = await asyncio.wait_for(self.q.get(), timeout=timeout)
+            item = await asyncio.wait_for(self.q.get(), timeout=0.1)
 
             # check state before sending
             current_task = asyncio.current_task()
@@ -1001,12 +962,7 @@ class GulpConnectedSocket:
             self.validate_connection()
 
             # connection is verified, send the message
-            await self.send_json(
-                item,
-                self._calculate_adaptive_delay(
-                    queue_size, GulpConfig.get_instance().ws_rate_limit_delay()
-                ),
-            )
+            await self.send_json(item, GulpConfig.get_instance().ws_rate_limit_delay())
             self.q.task_done()
             return True
 
@@ -1017,30 +973,9 @@ class GulpConnectedSocket:
                 raise asyncio.CancelledError()
             return False
 
-    def _log_processing_metrics(self, message_count: int, start_time: float) -> None:
-        """
-        logs processing metrics for monitoring
-
-        args:
-            message_count (int): number of messages processed
-            start_time (float): start time reference
-        """
-        elapsed: float = time.monotonic() - start_time
-        queue_size: int = self.q.qsize()
-
-        if elapsed > 0:
-            rate: float = message_count / elapsed
-            MutyLogger.get_instance().info(
-                f"websocket {self.ws_id} processing at {rate:.1f} msg/s, queue_size={queue_size}"
-            )
-        else:
-            MutyLogger.get_instance().info(
-                f"websocket {self.ws_id} processed {message_count} messages, queue_size={queue_size}"
-            )
-
     async def _send_loop(self) -> None:
         """
-        processes outgoing messages with adaptive rate limiting and monitoring
+        processes outgoing messages (filled by the shared queue) and sends them to the websocket
         """
         logger = MutyLogger.get_instance()
 
@@ -1048,48 +983,38 @@ class GulpConnectedSocket:
             logger.debug(f"---> starting send loop for ws_id={self.ws_id}")
 
             # tracking variables for metrics
-            message_count = 0
-            start_time = time.monotonic()
-            yield_counter = 0
+            message_count: int = 0
+            yield_counter: int = 0
 
             while True:
-                # process a single message
+                # process message from the websocket queue (filled by the shared queue)
                 message_processed = await self._process_queue_message()
 
                 if message_processed:
                     message_count += 1
                     yield_counter += 1
 
-                    # log metrics periodically
-                    if message_count % self.METRICS_LOG_INTERVAL == 0:
-                        self._log_processing_metrics(message_count, start_time)
-
-                    # reset counters periodically
-                    if message_count % self.COUNTER_RESET_INTERVAL == 0:
-                        start_time = time.monotonic()
-                        message_count = 0
-
-                    # yield control periodically to allow ping handling
+                    # yield control periodically
                     if yield_counter % self.YIELD_CONTROL_INTERVAL == 0:
                         yield_counter = 0
                         await asyncio.sleep(self.YIELD_CONTROL_DELAY)
 
         except asyncio.CancelledError:
-            logger.warning(f"---> send loop canceled for ws_id={self.ws_id}")
+            logger.warning("---> send loop canceled for ws_id=%s", self.ws_id)
             raise
 
         except WebSocketDisconnect as ex:
-            logger.warning(f"---> websocket disconnected: ws_id={self.ws_id}")
+            logger.warning("---> websocket disconnected: ws_id=%s", self.ws_id)
             logger.exception(ex)
             raise
 
         except Exception as ex:
-            logger.error(f"---> error in send loop: ws_id={self.ws_id}")
+            logger.error("---> error in send loop: ws_id=%s", self.ws_id)
             logger.exception(ex)
             raise
 
     def __str__(self):
-        return f"ConnectedSocket(ws_id={self.ws_id}, types={self.types}, operations={self.operation_ids})"
+        return f"ConnectedSocket(ws_id={self.ws_id}, types={self.types}, operation_ids={self.operation_ids})"
 
 
 class GulpConnectedSockets:
@@ -1172,7 +1097,11 @@ class GulpConnectedSockets:
             SHARED_MEMORY_KEY_ACTIVE_SOCKETS, ws_id
         )
         self._logger.debug(
-            f"---> added connected ws: {ws}, id_str={socket_id}, ws_id={ws_id}, len={len(self._sockets)}"
+            "---> added connected ws: %s, id_str=%s, ws_id=%s, len=%d",
+            ws,
+            socket_id,
+            ws_id,
+            len(self._sockets),
         )
 
         return connected_socket
@@ -1187,13 +1116,17 @@ class GulpConnectedSockets:
 
         """
         socket_id = str(id(ws))
-        self._logger.debug(f"---> remove, ws={ws}, id_str={socket_id}")
+        self._logger.debug("---> remove, ws=%s, id_str=%s", ws, socket_id)
 
         connected_socket = self._sockets.get(socket_id)
         if not connected_socket:
             self._logger.warning(
-                f"remove(): no websocket found for ws={ws}, id_str={socket_id}, len={len(self._sockets)}"
+                "remove(): no websocket found for ws=%s, id_str=%s, len=%d",
+                ws,
+                socket_id,
+                len(self._sockets),
             )
+
             return
 
         # flush queue if requested
@@ -1226,7 +1159,11 @@ class GulpConnectedSockets:
             del self._ws_id_map[ws_id]
 
         self._logger.debug(
-            f"---> removed connected ws={ws}, id={socket_id}, ws_id={ws_id}, len={len(self._sockets)}"
+            "---> removed connected ws=%s, id=%s, ws_id=%s, len=%d",
+            ws,
+            socket_id,
+            ws_id,
+            len(self._sockets),
         )
 
     def find(self, ws_id: str) -> GulpConnectedSocket:
@@ -1255,7 +1192,9 @@ class GulpConnectedSockets:
 
         for connected_socket in sockets_to_cancel:
             self._logger.warning(
-                f"---> canceling ws {connected_socket.ws}, ws_id={connected_socket.ws_id}"
+                "---> canceling ws=%s, ws_id=%s",
+                connected_socket.ws,
+                connected_socket.ws_id,
             )
             if connected_socket.receive_task:
                 connected_socket.receive_task.cancel()
@@ -1263,7 +1202,7 @@ class GulpConnectedSockets:
                 connected_socket.send_task.cancel()
 
         self._logger.debug(
-            f"all active websockets cancelled, count={len(sockets_to_cancel)}"
+            "---> all active websockets cancelled, count=%d", len(sockets_to_cancel)
         )
 
     def num_connected_sockets(self, default_sockets_only: bool = True) -> int:
@@ -1380,13 +1319,13 @@ class GulpConnectedSockets:
 
             except Exception as ex:
                 self._logger.warning(
-                    f"Failed to broadcast to socket {socket_id}: {str(ex)}"
+                    "failed to broadcast to socket %s: %s", socket_id, ex
                 )
                 dead_sockets.append(socket_id)
 
         # clean up dead sockets
         for socket_id in dead_sockets:
-            self._logger.warning(f"removing dead socket {socket_id}")
+            self._logger.warning("removing dead socket %s", socket_id)
             self._sockets.pop(socket_id, None)
 
 
@@ -1398,17 +1337,11 @@ class GulpWsSharedQueue:
 
     _instance: "GulpWsSharedQueue" = None
 
-    # Class constants
     MAX_QUEUE_SIZE = 1000
     QUEUE_TIMEOUT = 30
     MAX_RETRIES = 3
-
-    # Queue processing constants
-    MIN_BATCH_SIZE = 10
-    MAX_BATCH_SIZE = 100
-    BATCH_TIMEOUT = 0.1
+    BATCH_SIZE = 100
     PROCESSING_YIELD_INTERVAL = 0.1
-    SUB_BATCH_SIZE = 20
 
     def __init__(self):
         # these are the fixed broadcast types that are always sent to all connected websockets
@@ -1500,163 +1433,46 @@ class GulpWsSharedQueue:
             await self.close()
 
         MutyLogger.get_instance().debug("re/initializing shared ws queue ...")
-        self._shared_q = mgr.Queue(self.MAX_QUEUE_SIZE)
+        self._shared_q = mgr.Queue(GulpWsSharedQueue.MAX_QUEUE_SIZE)
         self._fill_task = asyncio.create_task(self._fill_ws_queues_from_shared_queue())
 
         return self._shared_q
 
-    def _update_queue_metrics(self, queue_size: int, sleep_time: float) -> None:
-        """
-        update queue metrics for monitoring
-
-        args:
-            queue_size (int): current queue size
-            sleep_time (float): applied sleep time
-        """
-        # log periodic warnings if queue remains consistently full
-        now = time.time()
-        load_ratio = queue_size / self.MAX_QUEUE_SIZE
-
-        # log warning at most once per minute
-        if load_ratio > 0.9 and (now - self._last_queue_warning) > 60:
-            MutyLogger.get_instance().warning(
-                f"high queue pressure: size={queue_size}/{self.MAX_QUEUE_SIZE} "
-                f"({load_ratio:.1%}), applying {sleep_time:.3f}s delay"
-            )
-            self._last_queue_warning = now
-
-    def _apply_backpressure_strategy(self, queue_size: int) -> float:
-        """
-        apply appropriate backpressure based on queue size.
-
-        throttles throughput by increasing sleep time as queue fills up,
-        but never drops messages.
-
-        args:
-            queue_size (int): current queue size
-
-        returns:
-            float: sleep time in seconds to apply
-        """
-        # determine load level
-        load_ratio = queue_size / self.MAX_QUEUE_SIZE
-
-        # exponential backpressure as load increases
-        if load_ratio > 0.95:  # critical load
-            # max 2 second delay at absolute maximum load
-            return min(2.0, 0.5 * (load_ratio**2))
-
-        elif load_ratio > 0.8:  # heavy load
-            # between ~0.1s and ~0.5s delay
-            return min(0.5, 0.15 * load_ratio)
-
-        elif load_ratio > 0.6:  # moderate load
-            # gentle slowdown
-            return min(0.15, 0.05 * load_ratio)
-
-        else:  # normal load
-            # minimal delay
-            return 0.01
-
-    async def _process_message_batch(self, messages: list[GulpWsData]) -> None:
-        """
-        Process a batch of messages with retry logic.
-
-        Args:
-            messages (list): List of messages to process
-        """
-        logger = MutyLogger.get_instance()
-
-        # process in smaller sub-batches to yield control
-        sub_batch_size = max(1, min(self.SUB_BATCH_SIZE, len(messages)))
-        for i in range(0, len(messages), sub_batch_size):
-            sub_batch = messages[i : i + sub_batch_size]
-            for msg in sub_batch:
-                await self._process_single_message(msg, logger)
-
-            # yield control between sub-batches
-            await asyncio.sleep(0.01)
-
-    async def _process_single_message(self, msg: GulpWsData, logger: MutyLogger):
-        """Process a single message with retry logic"""
-        retries = 0
-        while retries < self.MAX_RETRIES:
-            try:
-                cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
-                if cws or msg.internal:
-                    await GulpConnectedSockets.get_instance().broadcast_message(msg)
-                break
-            except Exception as e:
-                retries += 1
-                if retries == self.MAX_RETRIES:
-                    logger.error(
-                        f"Failed to process message after {self.MAX_RETRIES} retries: {e}"
-                    )
-                await asyncio.sleep(0.1 * retries)
-
     async def _fill_ws_queues_from_shared_queue(self):
         """
-        Processes messages from shared queue with guaranteed delivery
+        process shared queue and dispatch messages to the target websockets
         """
         from gulp.api.rest_api import GulpRestServer
 
         logger = MutyLogger.get_instance()
-        logger.debug("Starting queue processing task...")
+        logger.debug("starting shared queue processing task...")
 
+        messages: list[GulpWsData] = []
         try:
-            messages: list[GulpWsData] = []
-            current_batch_size = self.MAX_BATCH_SIZE
-            last_yield_time = time.monotonic()
-
             while not GulpRestServer.get_instance().is_shutdown():
-                # Yield control periodically
-                if time.monotonic() - last_yield_time > self.PROCESSING_YIELD_INTERVAL:
-                    await asyncio.sleep(0.01)
-                    last_yield_time = time.monotonic()
-
-                # shared_queue_size = self._shared_q.qsize()
-
-                """
-                # apply backpressure strategy based on queue load
-                if shared_queue_size > self.MAX_QUEUE_SIZE * 0.6:
-                    sleep_time = self._apply_backpressure_strategy(shared_queue_size)
-                    self._update_queue_metrics(shared_queue_size, sleep_time)
-                    await asyncio.sleep(sleep_time)
-
-                    # increase batch size under heavy load to clear backlog faster
-                    if shared_queue_size > self.MAX_QUEUE_SIZE * 0.95:
-                        current_batch_size = (
-                            self.MAX_BATCH_SIZE
-                        )  # force maximum batch size
-                    else:
-                        # adjust batch size dynamically based on load
-                        current_batch_size = self._calculate_batch_size(
-                            shared_queue_size
-                        )
-                else:
-                    # normal load - use standard batch size calculation
-                    current_batch_size = self._calculate_batch_size(shared_queue_size)
-
-                """
                 # collect batch of messages
-                await self._collect_message_batch(messages, current_batch_size)
+                messages.clear()
+                while len(messages) < GulpWsSharedQueue.BATCH_SIZE:
+                    try:
+                        entry = self._shared_q.get_nowait()
+                        messages.append(entry)
+                        self._shared_q.task_done()
+                    except Empty:
+                        break
 
-                # process collected messages
-                if messages:
-                    await self._process_message_batch(messages)
-                    messages.clear()
+                # dispatch
+                for msg in messages:
+                    cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
+                    if cws or msg.internal:
+                        await GulpConnectedSockets.get_instance().broadcast_message(msg)
 
-                # Adaptive sleep based on queue size
-                sleep_time = self.PROCESSING_YIELD_INTERVAL
-                # sleep_time = (
-                #     0.05 if shared_queue_size > self.MAX_QUEUE_SIZE * 0.5 else 0.1
-                # )
-                await asyncio.sleep(sleep_time)
+                # yield control between batches
+                await asyncio.sleep(GulpWsSharedQueue.PROCESSING_YIELD_INTERVAL)
 
         except asyncio.CancelledError:
-            logger.info("Queue processing cancelled")
+            MutyLogger.get_instance().warning("queue processing cancelled")
         except Exception as e:
-            logger.error(f"Queue processing error: {e}")
+            MutyLogger.get_instance().error("queue processing error: %s", e)
             raise
         finally:
             # process remaining messages
@@ -1666,49 +1482,9 @@ class GulpWsSharedQueue:
                     if cws or msg.internal:
                         await GulpConnectedSockets.get_instance().broadcast_message(msg)
                 except Exception as e:
-                    logger.error(f"Cleanup error: {e}")
+                    MutyLogger.get_instance().error("shared queue cleanup error: %s", e)
 
-            logger.info("Queue processing task completed")
-
-    def _calculate_batch_size(self, queue_size: int) -> int:
-        """Calculate optimal batch size based on queue load"""
-        if queue_size > self.MAX_QUEUE_SIZE * 0.8:
-            return self.MAX_BATCH_SIZE
-        elif queue_size < self.MAX_QUEUE_SIZE * 0.2:
-            return self.MIN_BATCH_SIZE
-        else:
-            # linear interpolation between min and max batch sizes
-            load_factor = (queue_size - self.MAX_QUEUE_SIZE * 0.2) / (
-                self.MAX_QUEUE_SIZE * 0.6
-            )
-            return int(
-                self.MIN_BATCH_SIZE
-                + load_factor * (self.MAX_BATCH_SIZE - self.MIN_BATCH_SIZE)
-            )
-
-    async def _collect_message_batch(
-        self, messages: list[GulpWsData], batch_size: int
-    ) -> None:
-        """
-        Collect a batch of messages from the queue
-
-        Args:
-            messages (list): List to store collected messages
-            batch_size (int): Target batch size
-        """
-        # batch_start = time.monotonic()
-
-        while (
-            len(messages)
-            < batch_size
-            # and (time.monotonic() - batch_start) < self.BATCH_TIMEOUT
-        ):
-            try:
-                entry = self._shared_q.get_nowait()
-                messages.append(entry)
-                self._shared_q.task_done()
-            except Empty:
-                break
+            MutyLogger.get_instance().info("shared queue processing task completed")
 
     async def close(self) -> None:
         """
@@ -1721,7 +1497,7 @@ class GulpWsSharedQueue:
             return
 
         logger = MutyLogger.get_instance()
-        logger.debug("Closing shared WS queue...")
+        logger.debug("closing shared WS queue...")
         success: bool = False
 
         try:
@@ -1800,7 +1576,7 @@ class GulpWsSharedQueue:
         private: bool = False,
     ) -> None:
         """
-        adds data to the shared queue with retry logic and backpressure handling.
+        adds data to the shared queue
 
         this method attempts to put a message into the queue and will retry if the
         queue is full, with progressive backoff between retries.
@@ -1838,32 +1614,34 @@ class GulpWsSharedQueue:
         )
 
         # attempt to add with exponential backoff
-        for retry in range(self.MAX_RETRIES):
+        for retry in range(GulpWsSharedQueue.MAX_RETRIES):
             try:
-                self._shared_q.put(wsd, block=True, timeout=self.QUEUE_TIMEOUT)
-                # MutyLogger.get_instance().debug(f"added {type} message to queue for ws {ws_id}")
+                self._shared_q.put(
+                    wsd, block=True, timeout=GulpWsSharedQueue.QUEUE_TIMEOUT
+                )
+                # MutyLogger.get_instance().debug(f"added type=%s message to queue for ws=%s", type, ws_id)
                 return
             except queue.Full:
                 # exponential backoff
                 backoff_time: int = retry
 
                 # log the attempt
-                queue_size = self._shared_q.qsize() if self._shared_q else "unknown"
                 MutyLogger.get_instance().warning(
-                    f"queue full (size={queue_size}) for ws {ws_id}, attempt {retry+1}/{self.MAX_RETRIES}, "
-                    f"backoff for {backoff_time}s"
+                    "queue full (size=%d) for ws_id=%s, attempt %d/%d, backoff_time=%ds",
+                    self._shared_q.qsize(),
+                    ws_id,
+                    retry + 1,
+                    GulpWsSharedQueue.MAX_RETRIES,
+                    backoff_time,
                 )
 
                 # wait before retrying
                 await asyncio.sleep(backoff_time)
 
         # all retries failed
-        queue_size = self._shared_q.qsize() if self._shared_q else "unknown"
-        MutyLogger.get_instance().error(
-            f"failed to add {type} message to queue for ws {ws_id} after "
-            f"{self.MAX_RETRIES} attempts (queue size: {queue_size})"
+        raise WsQueueFullException(
+            f"queue full (size={self._shared_q.qsize()}) for ws_id={ws_id} after {GulpWsSharedQueue.MAX_RETRIES} attempts!"
         )
-        raise WsQueueFullException(f"queue full for ws {ws_id}")
 
     async def put_generic_notify(
         self,
@@ -1904,13 +1682,13 @@ class GulpWsSharedQueue:
         self,
         msg: str,
         user_id: str,
+        ws_id: str,
+        req_id: str,
         total: int = 0,
         current: int = 0,
         d: dict = None,
         done: bool = False,
         operation_id: str = None,
-        ws_id: str = None,
-        req_id: str = None,
     ) -> None:
         """
         a shortcut method to send progress messages to the queue

@@ -17,8 +17,6 @@ and asynchronous processing with results streamed to websockets.
 # pylint: disable=too-many-lines
 
 import asyncio
-import random
-import re
 from copy import deepcopy
 from typing import Annotated, Any, Optional
 
@@ -26,28 +24,20 @@ import muty.file
 import muty.log
 import muty.pydantic
 import muty.string
-import muty.time
-import muty.uploadfile
 from fastapi import (
     APIRouter,
     BackgroundTasks,
     Body,
     Depends,
-    File,
     Query,
-    Request,
-    UploadFile,
 )
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
-from pydantic import BeforeValidator
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpRequestStats, RequestStatsType
 from gulp.api.collab.structs import (
     GulpCollabFilter,
@@ -57,13 +47,8 @@ from gulp.api.collab.structs import (
 from gulp.api.collab.user import GulpUser, GulpUserDataQueryHistoryEntry
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from gulp.api.mapping.models import GulpSigmaMapping
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.query import GulpQuery, GulpQueryHelpers, GulpQueryParameters
-from gulp.api.opensearch.sigma import (
-    sigma_yml_list_to_queries,
-    sigma_file_list_to_queries,
-)
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
@@ -83,7 +68,7 @@ from gulp.api.ws_api import (
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
-from gulp.structs import GulpMappingParameters, GulpPluginParameters
+from gulp.structs import GulpPluginParameters
 
 router: APIRouter = APIRouter()
 

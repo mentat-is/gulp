@@ -1,20 +1,17 @@
-from typing import override, Any, Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-import os
+from typing import Optional, override
+
 from muty.log import MutyLogger
-from sqlalchemy import ForeignKey, Insert, String, LargeBinary, insert
+from sqlalchemy import ForeignKey, String
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.ext.mutable import MutableDict
-from sqlalchemy.dialects.postgresql import JSONB
+
 from gulp.api.collab.structs import (
     COLLABTYPE_QUERY_GROUP_MATCH,
     GulpCollabBase,
     GulpCollabFilter,
-    GulpUserPermission,
 )
 from gulp.api.ws_api import (
     WSDATA_QUERY_GROUP_MATCH,
-    GulpCollabCreatePacket,
     GulpQueryGroupMatchPacket,
     GulpWsSharedQueue,
 )
@@ -169,15 +166,8 @@ class GulpQueryGroupMatch(GulpCollabBase, type=COLLABTYPE_QUERY_GROUP_MATCH):
         *args,
         **kwargs,
     ) -> dict:
-        """
-        disabled, use the query_group_start method to create query group matches.
-        """
         raise TypeError("use query_group_start method to create query group matches")
 
     @override
-    @classmethod
-    async def update(*args, **kwargs) -> None:
-        """
-        disabled, query group matches can only be updated via the update_matches method.
-        """
-        raise TypeError("use add_match method to update query group matches")
+    async def update(self, *args, **kwargs) -> None:
+        raise TypeError("use query_group_add_match to update query group matches")

@@ -54,7 +54,9 @@ async def _modify_grants(
     # map object type to class and get object
     obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
     obj: GulpCollabBase
-    _, obj, _ = obj_class.get_by_id_wrapper(sess, token, obj, enforce_owner=True)
+    _, obj, _ = await obj_class.get_by_id_wrapper(
+        sess, token, obj_id, enforce_owner=True
+    )
 
     if add:
         # add grant
@@ -94,7 +96,9 @@ async def _make_public_or_private(
     # map object type to class and get object
     obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
     obj: GulpCollabBase
-    _, obj, _ = obj_class.get_by_id_wrapper(sess, token, obj, enforce_owner=True)
+    _, obj, _ = await obj_class.get_by_id_wrapper(
+        sess, token, obj_id, enforce_owner=True
+    )
 
     # set public/private
     if private:
