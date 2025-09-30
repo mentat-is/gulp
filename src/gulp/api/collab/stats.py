@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Integer, String, Boolean
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.mutable import MutableList
+from sqlalchemy.ext.mutable import MutableList, MutableDict
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
 
@@ -181,13 +181,13 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         default=0,
         doc="The timestamp when the stats were completed, in milliseconds from the unix epoch.",
     )
-    errors: list[str] = mapped_column(
+    errors: Mapped[Optional[list[str]]] = mapped_column(
         MutableList.as_mutable(ARRAY(String)),
         default_factory=list,
         doc="A list of errors encountered during the operation.",
     )
     data: Mapped[Optional[dict]] = mapped_column(
-        MutableList.as_mutable(JSONB),
+        MutableDict.as_mutable(JSONB),
         default_factory=dict,
         doc="Additional data associated with the stats (GulpQueryStats, GulpIngestionStats)",
     )
@@ -225,7 +225,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             user_id (str): The user ID creating the stats.
             operation_id (str): The operation associated with the stats
             req_type (RequestStatsType, optional): The type of request stats. Defaults to RequestStatsType.REQUEST_TYPE_INGESTION.
-            ws_id (str, optional): The websocket ID to notify the creation of the stats. Defaults to None.
+            ws_id (str, optional): The websocket ID to notify WSDATA_COLLAB_CREATE to. Defaults to None.
             never_expire (bool, optional): If True, the stats will never expire. Defaults to False.
             **kwargs: Additional data to associate with the stats.
         Returns:
@@ -242,10 +242,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
         # determine expiration time
         time_expire: int = 0
-        time_updated = muty.time.now_msec()
+        time_updated: int = muty.time.now_msec()
         if not never_expire:
             # set expiration time based on config
-            msecs_to_expiration = GulpConfig.get_instance().stats_ttl() * 1000
+            msecs_to_expiration: int = GulpConfig.get_instance().stats_ttl() * 1000
 
             if msecs_to_expiration > 0:
                 time_expire = time_updated + msecs_to_expiration
@@ -271,10 +271,11 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 if time_expire > 0:
                     stats.time_expire = time_expire
                 stats.data.update(**kwargs)
-                return await stats.update(sess, ws_id=ws_id, user_id=user_id)
+                await stats.update(sess, ws_id=ws_id, user_id=user_id)
+                return stats
 
             # create new
-            stats = GulpRequestStats.create_internal(
+            stats = await GulpRequestStats.create_internal(
                 sess,
                 user_id,
                 operation_id=operation_id,
@@ -288,7 +289,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 time_finished=0,
                 data=kwargs,
             )
-            return stats.to_dict()
+            return stats
 
         except Exception as e:
             await sess.rollback()

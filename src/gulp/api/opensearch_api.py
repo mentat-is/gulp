@@ -2214,7 +2214,7 @@ class GulpOpenSearch:
                 )
                 wsq = GulpWsSharedQueue.get_instance()
                 await wsq.put(
-                    type=WSDATA_DOCUMENTS_CHUNK,
+                    t=WSDATA_DOCUMENTS_CHUNK,
                     ws_id=ws_id,
                     user_id=user_id,
                     operation_id=index,

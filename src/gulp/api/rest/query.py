@@ -250,7 +250,7 @@ async def _process_batch_results(
         wsq = GulpWsSharedQueue.get_instance()
         try:
             await wsq.put(
-                type=WSDATA_QUERY_DONE,
+                t=WSDATA_QUERY_DONE,
                 ws_id=ws_id,
                 user_id=user_id,
                 req_id=req_id,
@@ -303,7 +303,7 @@ async def _handle_query_group_match(
     p = GulpQueryGroupMatchPacket(name=q_options.group, total_hits=total_doc_matches)
     wsq = GulpWsSharedQueue.get_instance()
     await wsq.put(
-        type=WSDATA_QUERY_GROUP_MATCH,
+        t=WSDATA_QUERY_GROUP_MATCH,
         ws_id=ws_id,
         user_id=user_id,
         req_id=req_id,
@@ -485,7 +485,7 @@ async def _worker_coro(kwds: dict) -> None:
                 )
                 wsq = GulpWsSharedQueue.get_instance()
                 await wsq.put(
-                    type=WSDATA_PROGRESS,
+                    t=WSDATA_PROGRESS,
                     ws_id=ws_id,
                     user_id=user_id,
                     req_id=req_id,
@@ -539,7 +539,7 @@ async def _worker_coro(kwds: dict) -> None:
         )
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
-            type=WSDATA_PROGRESS,
+            t=WSDATA_PROGRESS,
             ws_id=ws_id,
             user_id=user_id,
             req_id=req_id,

@@ -907,10 +907,6 @@ class GulpConnectedSocket:
         Args:
             msg (dict): The message to put.
         """
-        if self.q.qsize() > GulpConnectedSocket.BACKPRESSURE_THRESHOLD:
-            # backpressure
-            await asyncio.sleep(GulpConnectedSocket.BACKPRESSURE_DELAY)
-
         # use a slot from the pool
         pooled_msg = self._msg_pool.get()
         pooled_msg.update(msg)
@@ -1285,6 +1281,9 @@ class GulpConnectedSockets:
         # self._logger.debug(f"processing internal message: {data}")
         from gulp.plugin import GulpInternalEventsManager
 
+        MutyLogger.get_instance().debug(
+            "routing internal message: type=%s, data=%s", data.type, data.data
+        )
         await GulpInternalEventsManager.get_instance().broadcast_event(
             data.type, data.data
         )
@@ -1301,6 +1300,11 @@ class GulpConnectedSockets:
         """
         if data.internal:
             # this is an internal message, route to plugins
+            # MutyLogger.get_instance().debug(
+            #     "broadcast_message(): routing internal message: type=%s, data=%s",
+            #     data.type,
+            #     data.data,
+            # )
             await self._route_internal_message(data)
             return
 
@@ -1558,8 +1562,8 @@ class GulpWsSharedQueue:
             params (dict, optional): The parameters for the message.
         """
         wsd = GulpWsData(
-            timestamp=muty.time.now_msec(),
-            type=msg,
+            muty.time.now_msec(),
+            msg,
             data=params,
             internal=True,
         )
@@ -1567,7 +1571,7 @@ class GulpWsSharedQueue:
 
     async def put(
         self,
-        type: str,
+        t: str,
         user_id: str,
         ws_id: str = None,
         operation_id: str = None,
@@ -1597,14 +1601,14 @@ class GulpWsSharedQueue:
 
         # verify websocket is alive for document chunks - this allows interrupting
         # lengthy processes if the websocket is no longer connected
-        if type == WSDATA_DOCUMENTS_CHUNK:
+        if t == WSDATA_DOCUMENTS_CHUNK:
             if not ws_id or not GulpConnectedSocket.is_alive(ws_id):
                 raise WebSocketDisconnect("websocket '%s' is not connected!" % (ws_id))
 
         # create the message
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
-            type=type,
+            type=t,
             operation_id=operation_id,
             ws_id=ws_id,
             user_id=user_id,
@@ -1619,7 +1623,9 @@ class GulpWsSharedQueue:
                 self._shared_q.put(
                     wsd, block=True, timeout=GulpWsSharedQueue.QUEUE_TIMEOUT
                 )
-                # MutyLogger.get_instance().debug(f"added type=%s message to queue for ws=%s", type, ws_id)
+                MutyLogger.get_instance().debug(
+                    "added type=%s message to queue for ws=%s", t, ws_id
+                )
                 return
             except queue.Full:
                 # exponential backoff
@@ -1640,7 +1646,7 @@ class GulpWsSharedQueue:
 
         # all retries failed
         raise WsQueueFullException(
-            f"queue full (size={self._shared_q.qsize()}) for ws_id={ws_id} after {GulpWsSharedQueue.MAX_RETRIES} attempts!"
+            f"queue full, size={self._shared_q.qsize()}, for ws_id={ws_id} after {GulpWsSharedQueue.MAX_RETRIES} attempts!"
         )
 
     async def put_generic_notify(
@@ -1670,7 +1676,7 @@ class GulpWsSharedQueue:
         p: GulpCollabGenericNotifyPacket = GulpCollabGenericNotifyPacket(type=t, data=d)
         d = p.model_dump(exclude_none=True, exclude_defaults=True)
         await self.put(
-            type=WSDATA_GENERIC,
+            t=WSDATA_GENERIC,
             user_id=user_id,
             ws_id=ws_id,
             operation_id=operation_id,
@@ -1713,7 +1719,7 @@ class GulpWsSharedQueue:
         )
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
-            type=WSDATA_PROGRESS,
+            t=WSDATA_PROGRESS,
             ws_id=ws_id,
             user_id=user_id,
             req_id=req_id,

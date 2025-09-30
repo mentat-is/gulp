@@ -30,6 +30,7 @@ from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpMappingParameters
 from gulp.api.opensearch.query import GulpQuery
 
+
 async def _read_sigma_mappings_from_file(
     mapping_file: str,
 ) -> dict[str, GulpSigmaMapping]:
@@ -661,7 +662,7 @@ async def sigmas_to_queries(
                 )
                 wsq = GulpWsSharedQueue.get_instance()
                 await wsq.put(
-                    type=WSDATA_PROGRESS,
+                    t=WSDATA_PROGRESS,
                     ws_id=ws_id,
                     user_id=user_id,
                     req_id=req_id,

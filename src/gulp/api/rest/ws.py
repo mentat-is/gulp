@@ -572,7 +572,7 @@ class GulpAPIWebsocket:
                             )
                             wsq = GulpWsSharedQueue.get_instance()
                             await wsq.put(
-                                type=WSDATA_ERROR,
+                                t=WSDATA_ERROR,
                                 ws_id=ingest_packet.ws_id,
                                 user_id=user_id,
                                 data=p.model_dump(exclude_none=True),

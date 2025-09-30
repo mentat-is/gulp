@@ -1127,7 +1127,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         p = GulpCollabUpdatePacket(obj=data)
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
-            type=ws_data_type,
+            t=ws_data_type,
             ws_id=ws_id,
             user_id=user_id,
             operation_id=data.get("operation_id", None),
@@ -1201,7 +1201,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
-            type=ws_data_type,
+            t=ws_data_type,
             ws_id=ws_id,
             user_id=user_id,
             operation_id=operation_id,
@@ -1289,9 +1289,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if not permission:
             permission = [GulpUserPermission.DELETE]
 
-        sess: AsyncSession = None
-        try:
-            async with GulpCollab.get_instance().session() as sess:
+        async with GulpCollab.get_instance().session() as sess:
+            try:
                 s: GulpUserSession
                 obj: GulpCollabBase = await cls.get_by_id(sess, obj_id)
                 if obj.operation_id:
@@ -1324,9 +1323,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     ws_data_type=ws_data_type,
                     ws_data=ws_data,
                 )
-        except Exception as e:
-            await sess.rollback()
-            raise e
+            except Exception as e:
+                raise e
 
     async def add_default_grants(self, sess: AsyncSession):
         """
@@ -1896,9 +1894,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user_session import GulpUserSession
         from gulp.api.collab_api import GulpCollab
 
-        sess: AsyncSession = None
-        try:
-            async with GulpCollab.get_instance().session() as sess:
+        async with GulpCollab.get_instance().session() as sess:
+            try:
                 if not permission:
                     permission = [GulpUserPermission.READ]
 
@@ -1945,6 +1942,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 )
 
                 return data
-        except Exception as e:
-            await sess.rollback()
-            raise e
+            except Exception as e:
+                await sess.rollback()
+                raise e

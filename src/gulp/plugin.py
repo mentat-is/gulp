@@ -776,16 +776,12 @@ class GulpPluginBase(ABC):
                 if self._original_file_path
                 else self._file_path
             ),
-            "plugin_params": (
-                self._plugin_params.model_dump(exclude_none=True)
-                if self._plugin_params
-                else None
-            ),
+            "plugin_params": self._plugin_params.model_dump(exclude_none=True),
             "errors": self._stats.errors,
-            "ingested": self._records_ingested_total,
-            "failed": self._records_failed_total,
-            "skipped": self._records_skipped_total,
-            "processed": self._records_processed_total,
+            "records_ingested": self._records_ingested_total,
+            "records_failed": self._records_failed_total,
+            "records_skipped": self._records_skipped_total,
+            "records_processed": self._records_processed_total,
         }
 
         wsq = GulpWsSharedQueue.get_instance()
@@ -879,12 +875,12 @@ class GulpPluginBase(ABC):
                 chunk_number=self._chunks_ingested,
             )
             data: dict = chunk.model_dump(exclude_none=True)
-            MutyLogger.get_instance().debug(
-                "sending chunk of %d documents to ws_id=%s", len(ws_docs), self._ws_id
-            )
+            # MutyLogger.get_instance().debug(
+            #     "sending chunk of %d documents to ws_id=%s", len(ws_docs), self._ws_id
+            # )
             wsq = GulpWsSharedQueue.get_instance()
             await wsq.put(
-                type=WSDATA_DOCUMENTS_CHUNK,
+                t=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 operation_id=self._operation_id,
                 user_id=self._user_id,
@@ -1198,7 +1194,7 @@ class GulpPluginBase(ABC):
             )
             wsq = GulpWsSharedQueue.get_instance()
             await wsq.put(
-                type=WSDATA_DOCUMENTS_CHUNK,
+                t=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
                 operation_id=self._operation_id,
@@ -1217,7 +1213,7 @@ class GulpPluginBase(ABC):
             )
             wsq = GulpWsSharedQueue.get_instance()
             await wsq.put(
-                type=WSDATA_ENRICH_DONE,
+                t=WSDATA_ENRICH_DONE,
                 ws_id=self._ws_id,
                 user_id=self._user_id,
                 operation_id=self._operation_id,
@@ -2113,7 +2109,6 @@ class GulpPluginBase(ABC):
         )
 
         self._extra_docs = []
-        self._doc_processed += 1
 
         # process this record and generate one or more gulpdocument dictionaries
         try:

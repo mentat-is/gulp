@@ -98,7 +98,7 @@ async def _tag_documents_internal(
             )
             wsq = GulpWsSharedQueue.get_instance()
             await wsq.put(
-                type=WSDATA_ENRICH_DONE,
+                t=WSDATA_ENRICH_DONE,
                 ws_id=ws_id,
                 user_id=user_id,
                 operation_id=index,

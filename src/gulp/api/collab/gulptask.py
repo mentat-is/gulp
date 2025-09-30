@@ -36,9 +36,6 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
         d = super().example()
         d.update(
             {
-                "user_id": "user_id",
-                "ws_id": "websocket_id",
-                "req_id": "request_id",
                 "task_type": "ingest",
                 "pid": 12345,
                 "params": {
@@ -116,7 +113,6 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
         ws_id: str,
         req_id: str,
         params: dict,
-        raw_data: Optional[bytes] = None,
     ) -> None:
         """
         enqueue a new task in the database, to be processed later by a worker.
@@ -129,7 +125,6 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
             ws_id (str): the websocket id the task is associated with.
             req_id (str): the request id the task is associated with.
             params (dict): the parameters of the task
-            raw_data (bytes, optional): the raw data associated with the task, if any.
 
         Raises:
             any exception raised by the underlying create method.
@@ -148,10 +143,6 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
                 task_type=task_type,
                 pid=os.getpid(),
                 params=params,
-                extra_object_data={
-                    "ws_id": ws_id,
-                    "req_id": req_id,
-                },  # avoids clash with main ws_id, req_id params
             )
         except Exception as ex:
             await sess.rollback()
