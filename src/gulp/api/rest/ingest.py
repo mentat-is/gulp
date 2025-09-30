@@ -281,6 +281,7 @@ async def _ingest_file_internal(
                         req_type=RequestStatsType.REQUEST_TYPE_INGESTION,
                         ws_id=ws_id,
                     )
+                    print(stats)
 
                 # run plugin
                 mod = await GulpPluginBase.load(plugin)

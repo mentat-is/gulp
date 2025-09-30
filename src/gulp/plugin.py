@@ -2638,7 +2638,7 @@ class GulpPluginBase(ABC):
         ingested: int = 0
         skipped: int = 0
         errors: list[str] = []
-        status: str = None
+        status: GulpRequestStatus = None
 
         if ex:
             if isinstance(ex, SourceCanceledError):
@@ -2664,19 +2664,19 @@ class GulpPluginBase(ABC):
             # ongoing, unless canceled or last chunk
             source_finished = False
             if self._last_raw_chunk:
-                status = GulpRequestStatus.DONE.value
+                status = GulpRequestStatus.DONE
             else:
-                status = GulpRequestStatus.ONGOING.value
+                status = GulpRequestStatus.ONGOING
             if self._req_canceled:
-                status = GulpRequestStatus.CANCELED.value
+                status = GulpRequestStatus.CANCELED
         else:
             # send WSDATA_INGEST_SOURCE_DONE on the ws
             if errors:
-                status = GulpRequestStatus.FAILED.value
+                status = GulpRequestStatus.FAILED
             elif self._req_canceled:
-                status = GulpRequestStatus.CANCELED.value
+                status = GulpRequestStatus.CANCELED
             else:
-                status = GulpRequestStatus.DONE.value
+                status = GulpRequestStatus.DONE
 
             wsq = GulpWsSharedQueue.get_instance()
             p: GulpIngestSourceDonePacket = GulpIngestSourceDonePacket(
@@ -2685,7 +2685,7 @@ class GulpPluginBase(ABC):
                 records_ingested=self._records_ingested_total,
                 records_skipped=self._records_skipped_total,
                 records_failed=self._records_failed_total,
-                status=status,
+                status=status.value,
             )
             await wsq.put(
                 WSDATA_INGEST_SOURCE_DONE,

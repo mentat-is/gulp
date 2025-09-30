@@ -91,7 +91,6 @@ class GulpCollab:
 
         Args:
             force_recreate (bool, optional): whether to drop and recreate the database tables. Defaults to False (ignore if not main_process).
-            expire_on_commit (bool, optional): whether to expire sessions returned by session() on commit. Defaults to False.
             main_process (bool, optional): whether this is the main process. Defaults to False.
         """
         if self._initialized and not force_recreate:

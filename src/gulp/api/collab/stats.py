@@ -287,6 +287,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 req_type=req_type.value,
                 time_updated=time_updated,
                 time_finished=0,
+                errors=[],
                 data=kwargs,
             )
             return stats
@@ -399,7 +400,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             # more than one process may be working on this request (multiple ingestion with the same req_id)
             await GulpRequestStats.acquire_advisory_lock(sess, self.id)
             await sess.refresh(self)
-
             if self.status != GulpRequestStatus.ONGOING.value:
                 MutyLogger.get_instance().warning(
                     "UPDATE IGNORED! request %s is already done/failed/canceled, status=%s",

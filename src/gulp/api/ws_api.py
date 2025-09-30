@@ -389,7 +389,7 @@ class GulpIngestSourceDonePacket(BaseModel):
     records_failed: int = Field(
         ..., description="The number of documents failed in this source."
     )
-    status: GulpRequestStatus = Field(
+    status: str = Field(
         ..., description="The source ingestion status (failed, done, canceled)."
     )
 
@@ -1623,9 +1623,9 @@ class GulpWsSharedQueue:
                 self._shared_q.put(
                     wsd, block=True, timeout=GulpWsSharedQueue.QUEUE_TIMEOUT
                 )
-                MutyLogger.get_instance().debug(
-                    "added type=%s message to queue for ws=%s", t, ws_id
-                )
+                # MutyLogger.get_instance().debug(
+                #     "added type=%s message to queue for ws=%s", t, ws_id
+                # )
                 return
             except queue.Full:
                 # exponential backoff
