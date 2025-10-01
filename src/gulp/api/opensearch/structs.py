@@ -11,10 +11,6 @@ Key classes include:
 
 - GulpDocumentFieldAliasHelper: Helper class for managing field aliases in document properties.
 
-- GulpRawDocumentBaseFields: Defines mandatory fields for raw Gulp document records.
-
-- GulpRawDocument: Represents a raw Gulp document with base fields and additional document data.
-
 These structures form the foundation for document handling in the Gulp OpenSearch API.
 """
 
@@ -22,6 +18,7 @@ from typing import Optional, TypeVar, override
 
 import muty.crypto
 import muty.time
+from typing import Annotated, Optional
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
@@ -55,37 +52,55 @@ class GulpBasicDocument(BaseModel):
         },
     )
 
-    id: str = Field(
-        description='"_id": the unique identifier of the document.',
-        alias="_id",
-    )
-    timestamp: str = Field(
-        description='"@timestamp": document timestamp, in iso8601 format.',
-        alias="@timestamp",
-    )
-    gulp_timestamp: int = Field(
-        description='"@timestamp": document timestamp in nanoseconds from unix epoch.',
-        alias="gulp.timestamp",
-    )
-    invalid_timestamp: bool = Field(
-        False,
-        description='True if "@timestamp" is invalid and set to 1/1/1970 (the document should be checked, probably ...).',
-        alias="gulp.timestamp_invalid",
-    )
-    operation_id: str = Field(
-        description='"gulp.operation_id": the operation ID the document is associated with.',
-        alias="gulp.operation_id",
-    )
-    context_id: Optional[str] = Field(
-        None,
-        description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
-        alias="gulp.context_id",
-    )
-    source_id: Optional[str] = Field(
-        None,
-        description='"gulp.source_id": the source the document is associated with.',
-        alias="gulp.source_id",
-    )
+    id: Annotated[
+        str,
+        Field(
+            description='"_id": the unique identifier of the document.',
+            alias="_id",
+        ),
+    ]
+    timestamp: Annotated[
+        str,
+        Field(
+            description='"@timestamp": document timestamp, in iso8601 format.',
+            alias="@timestamp",
+        ),
+    ]
+    gulp_timestamp: Annotated[
+        int,
+        Field(
+            description='"@timestamp": document timestamp in nanoseconds from unix epoch.',
+            alias="gulp.timestamp",
+        ),
+    ]
+    invalid_timestamp: Annotated[
+        bool,
+        Field(
+            description='True if "@timestamp" is invalid and set to 1/1/1970 (the document should be checked, probably ...).',
+            alias="gulp.timestamp_invalid",
+        ),
+    ] = False
+    operation_id: Annotated[
+        str,
+        Field(
+            description='"gulp.operation_id": the operation ID the document is associated with.',
+            alias="gulp.operation_id",
+        ),
+    ]
+    context_id: Annotated[
+        str,
+        Field(
+            description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
+            alias="gulp.context_id",
+        ),
+    ]
+    source_id: Annotated[
+        str,
+        Field(
+            description='"gulp.source_id": the source the document is associated with.',
+            alias="gulp.source_id",
+        ),
+    ]
 
 
 class GulpDocument(GulpBasicDocument):
@@ -119,41 +134,55 @@ class GulpDocument(GulpBasicDocument):
         },
     )
 
-    log_file_path: Optional[str] = Field(
-        None,
-        description='"log.file.path": the original log file name or path.',
-        alias="log.file.path",
-    )
-    agent_type: str = Field(
-        None,
-        description='"agent.type": the ingestion source, i.e. gulp plugin.name().',
-        alias="agent.type",
-    )
-    event_original: Optional[str] = Field(
-        None,
-        description='"event.original": the original event as text.',
-        alias="event.original",
-    )
-    event_sequence: int = Field(
-        0,
-        description='"event.sequence": the sequence number of the document in the source.',
-        alias="event.sequence",
-    )
-    event_code: Optional[str] = Field(
-        "0",
-        description='"event.code": the event code, "0" if missing.',
-        alias="event.code",
-    )
-    gulp_event_code: Optional[int] = Field(
-        0,
-        description='"gulp.event_code": "event.code" as integer.',
-        alias="gulp.event_code",
-    )
-    event_duration: Optional[int] = Field(
-        1,
-        description='"event.duration": the duration of the event in nanoseconds, defaults to 1.',
-        alias="event.duration",
-    )
+    log_file_path: Annotated[
+        Optional[str],
+        Field(
+            description='"log.file.path": the original log file name or path.',
+            alias="log.file.path",
+        ),
+    ] = None
+    agent_type: Annotated[
+        str,
+        Field(
+            description='"agent.type": the ingestion source, i.e. gulp plugin.name().',
+            alias="agent.type",
+        ),
+    ] = None
+    event_original: Annotated[
+        str,
+        Field(
+            description='"event.original": the original event as text.',
+            alias="event.original",
+        ),
+    ] = None
+    event_sequence: Annotated[
+        int,
+        Field(
+            description='"event.sequence": the sequence number of the document in the source.',
+            alias="event.sequence",
+        ),
+    ] = 0
+    event_code: Annotated[
+        str,
+        Field(
+            description='"event.code": the event code, "0" if missing.',
+            alias="event.code",
+        ),
+    ] = "0"
+    gulp_event_code: Annotated[
+        int,
+        Field(
+            description='"gulp.event_code": "event.code" as integer.',
+            alias="gulp.event_code",
+        ),
+    ] = 0
+    event_duration: Annotated[
+        int,
+        Field(
+            description='"event.duration": the duration of the event in nanoseconds, defaults to 1.',
+            alias="event.duration",
+        ),
+    ] = 1
 
     @staticmethod
     def ensure_timestamp(
@@ -391,76 +420,3 @@ class GulpDocumentFieldAliasHelper:
             GulpDocumentFieldAliasHelper._alias_to_field_cache.get(k, k): v
             for k, v in kwargs.items()
         }
-
-
-class GulpRawDocumentBaseFields(BaseModel):
-    """
-    the base(=mandatory) fields in a raw GulpDocument record
-    """
-
-    model_config = ConfigDict(
-        # solves the issue of not being able to populate fields using field name instead of alias
-        populate_by_name=True,
-        extra="allow",
-        json_schema_extra={
-            "examples": [
-                {
-                    "@timestamp": "2021-01-01T00:00:00Z",
-                    "event.original": "raw event content",
-                    "event.code": "1234",
-                }
-            ]
-        },
-    )
-    timestamp: str = Field(
-        ...,
-        description="the document timestamp, in iso8601 format.",
-        alias="@timestamp",
-    )
-    event_original: str = Field(
-        ...,
-        description="the original event as text.",
-        alias="event.original",
-    )
-
-
-class GulpRawDocument(BaseModel):
-    """
-    represents a raw GulpDocument record, consisting of:
-
-    - base_fields: these are the mandatory fields (timestamp, event code, original raw event).
-    - doc: the rest of the document as key/value pairs, to generate the `GulpDocument` with.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        # solves the issue of not being able to populate fields using field name instead of alias
-        populate_by_name=True,
-        json_schema_extra={
-            "examples": [
-                {
-                    "base_fields": autogenerate_model_example_by_class(
-                        GulpRawDocumentBaseFields
-                    ),
-                    "doc": {
-                        "agent.type": "win_evtx",
-                        "event.original": "raw event content",
-                        "event.sequence": 1,
-                        "event.code": "1234",
-                        "gulp.event_code": 1234,
-                        "event.duration": 1,
-                        "log.file.path": "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx",
-                    },
-                }
-            ]
-        },
-    )
-
-    base_fields: GulpRawDocumentBaseFields = Field(
-        ...,
-        description="the basic fields.",
-    )
-    doc: dict = Field(
-        ...,
-        description="the document as key/value pairs, to generate the `GulpDocument` with.",
-    )

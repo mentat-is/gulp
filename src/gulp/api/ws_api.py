@@ -4,7 +4,7 @@ import queue
 from enum import StrEnum
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
-from typing import Any, Optional
+from typing import Any, Optional, Annotated
 
 import muty
 import muty.time
@@ -75,38 +75,53 @@ class GulpWsData(BaseModel):
         # solves the issue of not being able to populate fields using field name instead of alias
         populate_by_name=True,
     )
-    timestamp: int = Field(
-        ..., description="The timestamp of the data.", alias="@timestamp"
-    )
-    type: str = Field(
-        ...,
-        description="The type of data carried by the websocket, see WSDATA_* constants.",
-    )
-    private: bool = Field(
-        False,
-        description="If the data is private, only the websocket `ws_id` receives it. Ignored if `internal` is set.",
-    )
-    internal: bool = Field(
-        False,
-        description="set to broadcast internal events to plugins registered through `GulpPluginBase.register_internal_events_callback()`.",
-    )
-    data: Optional[Any] = Field(None, description="The data carried by the websocket.")
-    ws_id: Optional[str] = Field(
-        None,
-        description="The target WebSocket ID, ignored if `internal` is set. if None, the message is broadcasted to all connected websockets.",
-    )
-    user_id: Optional[str] = Field(
-        None,
-        description="The user who issued the request, ignored if `internal` is set.",
-    )
-    req_id: Optional[str] = Field(
-        None, description="The request ID, ignored if `internal` is set."
-    )
-    operation_id: Optional[str] = Field(
-        None,
-        description="The operation this data belongs to, ignored if `internal` is set.",
-        alias="gulp.operation_id",
-    )
+    timestamp: Annotated[
+        int, Field(description="The timestamp of the data.", alias="@timestamp")
+    ]
+    type: Annotated[
+        str,
+        Field(
+            description="The type of data carried by the websocket, see WSDATA_* constants.",
+        ),
+    ]
+    private: Annotated[
+        bool,
+        Field(
+            description="If the data is private, only the websocket `ws_id` receives it. Ignored if `internal` is set.",
+        ),
+    ] = False
+    internal: Annotated[
+        bool,
+        Field(
+            description="set to broadcast internal events to plugins registered through `GulpPluginBase.register_internal_events_callback()`.",
+        ),
+    ] = False
+    data: Annotated[
+        Optional[Any], Field(description="The data carried by the websocket.")
+    ] = None
+    ws_id: Annotated[
+        Optional[str],
+        Field(
+            description="The target WebSocket ID, ignored if `internal` is set. if None, the message is broadcasted to all connected websockets.",
+        ),
+    ] = None
+    user_id: Annotated[
+        Optional[str],
+        Field(
+            description="The user who issued the request, ignored if `internal` is set.",
+        ),
+    ] = None
+    req_id: Annotated[
+        Optional[str],
+        Field(description="The request ID, ignored if `internal` is set."),
+    ] = None
+    operation_id: Annotated[
+        Optional[str],
+        Field(
+            description="The operation this data belongs to, ignored if `internal` is set.",
+            alias="gulp.operation_id",
+        ),
+    ] = None
 
 
 class GulpCollabCreatePacket(BaseModel):
@@ -131,26 +146,36 @@ class GulpCollabCreatePacket(BaseModel):
             ]
         },
     )
-    obj: list[dict] | dict = Field(
-        ...,
-        description="The created object (or bulk of objects): the object `type` is `obj.type` or `obj[0].type` for bulk objects.",
-    )
-    bulk: Optional[bool] = Field(
-        False,
-        description="indicates if `obj` is a bulk of objects (list) or a single object (dict).",
-    )
-    last: Optional[bool] = Field(
-        True,
-        description="for bulk operations, indicates if this is the last chunk of a bulk operation.",
-    )
-    total_size: Optional[int] = Field(
-        0,
-        description="for bulk operations, indicates the total size of the bulk operation, if known.",
-    )
-    bulk_size: Optional[int] = Field(
-        0,
-        description="for bulk operations, indicates the size of this bulk chunk.",
-    )
+    obj: Annotated[
+        list[dict] | dict,
+        Field(
+            description="The created object (or bulk of objects): the object `type` is `obj.type` or `obj[0].type` for bulk objects.",
+        ),
+    ]
+    bulk: Annotated[
+        bool,
+        Field(
+            description="indicates if `obj` is a bulk of objects (list) or a single object (dict).",
+        ),
+    ] = False
+    last: Annotated[
+        bool,
+        Field(
+            description="for bulk operations, indicates if this is the last chunk of a bulk operation.",
+        ),
+    ] = False
+    total_size: Annotated[
+        int,
+        Field(
+            description="for bulk operations, indicates the total size of the bulk operation, if known.",
+        ),
+    ] = 0
+    bulk_size: Annotated[
+        int,
+        Field(
+            description="for bulk operations, indicates the size of this bulk chunk.",
+        ),
+    ] = 0
 
 
 class GulpCollabUpdatePacket(BaseModel):
@@ -173,9 +198,9 @@ class GulpCollabUpdatePacket(BaseModel):
             ]
         },
     )
-    obj: dict = Field(
-        ..., description="The updated object: the object `type` is `obj.type`."
-    )
+    obj: Annotated[
+        dict, Field(description="The updated object: the object `type` is `obj.type`.")
+    ]
 
 
 class GulpCollabDeletePacket(BaseModel):
@@ -184,7 +209,7 @@ class GulpCollabDeletePacket(BaseModel):
     """
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"id": "the id"}]})
-    id: str = Field(..., description="The deleted collab object ID.")
+    id: Annotated[str, Field(description="The deleted collab object ID.")]
 
 
 class WsQueueFullException(Exception):
@@ -199,14 +224,17 @@ class GulpUserLoginLogoutPacket(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={"examples": [{"user_id": "admin", "login": True}]}
     )
-    user_id: str = Field(..., description="The user ID.")
-    login: bool = Field(
-        ..., description="If the event is a login event, either it is a logout."
-    )
-    ip: Optional[str] = Field(
-        None,
-        description="The IP address of the user, if available.",
-    )
+    user_id: Annotated[str, Field(description="The user ID.")]
+    login: Annotated[
+        bool, Field(description="If the event is a login event, either it is a logout.")
+    ]
+    ip: Annotated[
+        Optional[str],
+        Field(
+            None,
+            description="The IP address of the user, if available.",
+        ),
+    ] = None
 
 
 class GulpWsAcknowledgedPacket(BaseModel):
@@ -219,8 +247,8 @@ class GulpWsAcknowledgedPacket(BaseModel):
             "examples": [{"ws_id": "the_ws_id", "token": "the_user_token"}]
         }
     )
-    ws_id: str = Field(..., description="The WebSocket ID.")
-    token: str = Field(..., description="The user token.")
+    ws_id: Annotated[str, Field(description="The WebSocket ID.")]
+    token: Annotated[str, Field(description="The user token.")]
 
 
 class GulpSourceFieldsChunkPacket(BaseModel):
@@ -246,26 +274,36 @@ class GulpSourceFieldsChunkPacket(BaseModel):
         }
     )
 
-    operation_id: str = Field(
-        ...,
-        description="the operation ID.",
-    )
-    source_id: str = Field(
-        ...,
-        description="the source ID.",
-    )
-    context_id: str = Field(
-        ...,
-        description="the context ID.",
-    )
-    fields: dict = Field(
-        ...,
-        description="mappings for the fields in a source.",
-    )
-    last: bool = Field(
-        False,
-        description="if this is the last chunk.",
-    )
+    operation_id: Annotated[
+        str,
+        Field(
+            description="the operation ID.",
+        ),
+    ]
+    source_id: Annotated[
+        str,
+        Field(
+            description="the source ID.",
+        ),
+    ]
+    context_id: Annotated[
+        str,
+        Field(
+            description="the context ID.",
+        ),
+    ]
+    fields: Annotated[
+        dict,
+        Field(
+            description="mappings for the fields in a source.",
+        ),
+    ]
+    last: Annotated[
+        bool,
+        Field(
+            description="if this is the last chunk.",
+        ),
+    ] = False
 
 
 class GulpQueryGroupMatchPacket(BaseModel):
@@ -285,9 +323,11 @@ class GulpQueryGroupMatchPacket(BaseModel):
             ]
         }
     )
-    q_group: str = Field(..., description="The query group name.")
-    q_matched: int = Field(..., description="The number of queries that matched.")
-    q_total: int = Field(..., description="The total number of queries in the group.")
+    q_group: Annotated[str, Field(description="The query group name.")]
+    q_matched: Annotated[int, Field(description="The number of queries that matched.")]
+    q_total: Annotated[
+        int, Field(description="The total number of queries in the group.")
+    ]
 
 
 class GulpQueryDonePacket(BaseModel):
@@ -308,14 +348,14 @@ class GulpQueryDonePacket(BaseModel):
             ]
         },
     )
-    name: Optional[str] = Field(None, description="The query name.")
-    status: GulpRequestStatus = Field(
-        ..., description="The status of the query operation (done/failed)."
-    )
-    errors: Optional[list[str]] = Field([], description="The error message/s, if any.")
-    total_hits: Optional[int] = Field(
-        None, description="The total number of hits for the query."
-    )
+    name: Annotated[str, Field(description="The query name.")]
+    status: Annotated[
+        str, Field(description="The status of the query operation (done/failed).")
+    ]
+    errors: Annotated[list[str], Field(description="The error message/s, if any.")] = []
+    total_hits: Annotated[
+        int, Field(description="The total number of hits for the query.")
+    ] = 0
 
 
 class GulpProgressPacket(BaseModel):
@@ -335,20 +375,21 @@ class GulpProgressPacket(BaseModel):
             ]
         },
     )
-    current: int = Field(0, description="The current progress.")
-    done: Optional[bool] = Field(
-        False, description="If the progress is done, i.e. reached the total."
-    )
-    total: Optional[int] = Field(0, description="The total to be reached.")
-    msg: Optional[str] = Field(
-        None, description="An optional message to display with the progress."
-    )
-    data: Optional[dict] = Field(
-        None, description="Optional extra data to send with the progress."
-    )
-    canceled: Optional[bool] = Field(
-        False, description="If the request has been canceled."
-    )
+    current: Annotated[int, Field(description="The current progress.")] = 0
+    done: Annotated[
+        bool, Field(description="If the progress is done, i.e. reached the total.")
+    ] = False
+    total: Annotated[int, Field(description="The total to be reached.")] = 0
+    msg: Annotated[
+        Optional[str],
+        Field(description="An optional message to display with the progress."),
+    ] = None
+    data: Annotated[
+        dict, Field(description="Optional extra data to send with the progress.")
+    ] = {}
+    canceled: Annotated[
+        bool, Field(description="If the request has been canceled.")
+    ] = False
 
 
 class GulpIngestSourceDonePacket(BaseModel):
@@ -371,27 +412,32 @@ class GulpIngestSourceDonePacket(BaseModel):
             ]
         },
     )
-    source_id: str = Field(
-        description="The source ID in the collab database.",
-        alias="gulp.source_id",
-    )
-    context_id: str = Field(
-        ...,
-        description="The context ID in the collab database.",
-        alias="gulp.context_id",
-    )
-    records_ingested: int = Field(
-        ..., description="The number of documents ingested in this source."
-    )
-    records_skipped: int = Field(
-        ..., description="The number of documents skipped in this source."
-    )
-    records_failed: int = Field(
-        ..., description="The number of documents failed in this source."
-    )
-    status: str = Field(
-        ..., description="The source ingestion status (failed, done, canceled)."
-    )
+    source_id: Annotated[
+        str,
+        Field(
+            description="The source ID in the collab database.",
+            alias="gulp.source_id",
+        ),
+    ]
+    context_id: Annotated[
+        str,
+        Field(
+            description="The context ID in the collab database.",
+            alias="gulp.context_id",
+        ),
+    ]
+    status: Annotated[
+        str, Field(description="The source ingestion status (failed, done, canceled).")
+    ]
+    records_ingested: Annotated[
+        int, Field(description="The number of documents ingested in this source.")
+    ] = 0
+    records_skipped: Annotated[
+        int, Field(description="The number of documents skipped in this source.")
+    ] = 0
+    records_failed: Annotated[
+        int, Field(description="The number of documents failed in this source.")
+    ] = 0
 
 
 class GulpCollabGenericNotifyPacket(BaseModel):
@@ -410,10 +456,13 @@ class GulpCollabGenericNotifyPacket(BaseModel):
             ]
         },
     )
-    type: str = Field(
-        description="An arbitrary application specific notify type.",
-    )
-    data: dict = Field(None, description="Some optional arbitrary data.")
+    type: Annotated[
+        str,
+        Field(
+            description="An arbitrary application specific notify type.",
+        ),
+    ]
+    data: Annotated[str, Field(description="Some optional arbitrary data.")] = {}
 
 
 class GulpWsError(StrEnum):
@@ -442,9 +491,11 @@ class GulpWsErrorPacket(BaseModel):
             ]
         }
     )
-    error: str = Field(..., description="error on the websocket.")
-    error_code: Optional[str] = Field(None, description="optional error code.")
-    data: Optional[dict] = Field(None, description="optional error data")
+    error: Annotated[str, Field(description="error on the websocket.")]
+    error_code: Annotated[Optional[str], Field(description="optional error code.")] = (
+        None
+    )
+    data: Annotated[dict, Field(description="optional error data")] = {}
 
 
 class GulpClientDataPacket(BaseModel):
@@ -463,14 +514,19 @@ class GulpClientDataPacket(BaseModel):
             ]
         }
     )
-    operation_id: Optional[str] = Field(
-        description="the operation ID this data belongs to: if not set, the data is broadcast to all connected websockets.",
-    )
-    target_user_ids: Optional[list[str]] = Field(
-        None,
-        description="optional list of user IDs to send this data to only: if not set, data is broadcast to all connected websockets.",
-    )
-    data: dict = Field(..., description="arbitrary data")
+    data: Annotated[dict, Field(description="arbitrary data")]
+    operation_id: Annotated[
+        Optional[str],
+        Field(
+            description="the operation ID this data belongs to: if not set, the data is broadcast to all connected websockets.",
+        ),
+    ] = None
+    target_user_ids: Annotated[
+        Optional[list[str]],
+        Field(
+            description="optional list of user IDs to send this data to only: if not set, data is broadcast to all connected websockets.",
+        ),
+    ] = None
 
 
 class GulpWsIngestPacket(BaseModel):
@@ -494,31 +550,44 @@ class GulpWsIngestPacket(BaseModel):
         },
     )
 
-    index: str = Field(
-        ...,
-        description="the Gulp index to ingest into.",
-    )
-    operation_id: str = Field(
-        ...,
-        description="the operation ID.",
-    )
-    ws_id: str = Field(
-        ...,
-        description="id of the websocket to stream ingested data to.",
-    )
-    req_id: str = (Field(..., description="id of the request"),)
-    flt: Optional[GulpIngestionFilter] = Field(
-        GulpIngestionFilter(),
-        description="optional filter to apply for ingestion.",
-    )
-    plugin: Optional[str] = Field(
-        "raw",
-        description="plugin to be used for ingestion (default='raw').",
-    )
-    plugin_params: Optional[GulpPluginParameters] = Field(
-        None,
-        description="optional plugin parameters",
-    )
+    index: Annotated[
+        str,
+        Field(
+            description="the Gulp index to ingest into.",
+        ),
+    ]
+    operation_id: Annotated[
+        str,
+        Field(
+            description="the operation ID.",
+        ),
+    ]
+    ws_id: Annotated[
+        str,
+        Field(
+            description="id of the websocket to stream ingested data to.",
+        ),
+    ]
+    req_id: Annotated[str, Field(description="id of the request")]
+
+    flt: Annotated[
+        Optional[GulpIngestionFilter],
+        Field(
+            description="optional filter to apply for ingestion.",
+        ),
+    ] = GulpIngestionFilter()
+    plugin: Annotated[
+        str,
+        Field(
+            description="plugin to be used for ingestion (default='raw').",
+        ),
+    ] = "raw"
+    plugin_params: Annotated[
+        GulpPluginParameters,
+        Field(
+            description="optional plugin parameters",
+        ),
+    ] = None
 
 
 class GulpWsAuthPacket(BaseModel):
@@ -538,24 +607,31 @@ class GulpWsAuthPacket(BaseModel):
             ]
         }
     )
-    token: str = Field(
-        ...,
-        description="""user token.
+    token: Annotated[
+        str,
+        Field(
+            description="""user token.
 
         - `monitor` is a special token, reserved for internal use.
     """,
-    )
-    ws_id: Optional[str] = Field(
-        None, description="the WebSocket ID, leave empty to autogenerate."
-    )
-    operation_ids: Optional[list[str]] = Field(
-        None,
-        description="the `operation_id`/s this websocket is registered to receive data for, defaults to `None` (all).",
-    )
-    types: Optional[list[str]] = Field(
-        None,
-        description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
-    )
+        ),
+    ]
+    ws_id: Annotated[
+        Optional[str],
+        Field(description="the WebSocket ID, leave empty to autogenerate."),
+    ] = None
+    operation_ids: Annotated[
+        Optional[list[str]],
+        Field(
+            description="the `operation_id`/s this websocket is registered to receive data for, defaults to `None` (all).",
+        ),
+    ] = None
+    types: Annotated[
+        Optional[list[str]],
+        Field(
+            description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
+        ),
+    ] = None
 
 
 class GulpDocumentsChunkPacket(BaseModel):
@@ -585,38 +661,54 @@ class GulpDocumentsChunkPacket(BaseModel):
         },
     )
 
-    docs: list[dict] = Field(
-        ...,
-        description="the documents in a query or ingestion chunk.",
-    )
-    num_docs: int = Field(
-        ...,
-        description="the number of documents in this chunk.",
-    )
-    chunk_number: Optional[int] = Field(
-        0,
-        description="the chunk number (may not be available)",
-    )
-    total_hits: Optional[int] = Field(
-        0,
-        description="for query only: the total number of hits for the query related to this chunk.",
-    )
-    name: Optional[str] = Field(
-        None,
-        description="for query only: the query name related to this chunk.",
-    )
-    last: Optional[bool] = Field(
-        False,
-        description="for query only: is this the last chunk of a query response ?",
-    )
-    search_after: Optional[list] = Field(
-        None,
-        description="for query only: to use in `QueryAdditionalParameters.search_after` to request the next chunk in a paged query.",
-    )
-    enriched: Optional[bool] = Field(
-        False,
-        description="if the documents have been enriched.",
-    )
+    docs: Annotated[
+        list[dict],
+        Field(
+            description="the documents in a query or ingestion chunk.",
+        ),
+    ]
+    num_docs: Annotated[
+        int,
+        Field(
+            description="the number of documents in this chunk.",
+        ),
+    ] = 0
+    chunk_number: Annotated[
+        int,
+        Field(
+            description="the chunk number (may not be available)",
+        ),
+    ] = 0
+    total_hits: Annotated[
+        int,
+        Field(
+            description="for query only: the total number of hits for the query related to this chunk.",
+        ),
+    ] = 0
+    name: Annotated[
+        Optional[str],
+        Field(
+            description="for query only: the query name related to this chunk.",
+        ),
+    ] = None
+    last: Annotated[
+        bool,
+        Field(
+            description="for query only: is this the last chunk of a query response ?",
+        ),
+    ] = False
+    search_after: Annotated[
+        Optional[list[dict]],
+        Field(
+            description="for query only: to use in `QueryAdditionalParameters.search_after` to request the next chunk in a paged query.",
+        ),
+    ] = None
+    enriched: Annotated[
+        bool,
+        Field(
+            description="if the documents have been enriched.",
+        ),
+    ] = False
 
 
 class WsQueueMessagePool:
@@ -1219,9 +1311,9 @@ class GulpConnectedSockets:
         # self._logger.debug(f"processing internal message: {data}")
         from gulp.plugin import GulpInternalEventsManager
 
-        MutyLogger.get_instance().debug(
-            "routing internal message: type=%s, data=%s", data.type, data.data
-        )
+        # MutyLogger.get_instance().debug(
+        #     "routing internal message: type=%s, data=%s", data.type, data.data
+        # )
         await GulpInternalEventsManager.get_instance().broadcast_event(
             data.type,
             data=data.data,
@@ -1493,7 +1585,12 @@ class GulpWsSharedQueue:
         MutyLogger.get_instance().debug(f"Flushed {counter} messages from shared queue")
 
     def put_internal_event(
-        self, t: str, user_id: str = None, operation_id: str = None, data: dict = None
+        self,
+        t: str,
+        user_id: str = None,
+        operation_id: str = None,
+        req_id: str = None,
+        data: dict = None,
     ) -> None:
         """
         Puts a GulpInternalEvent (not websocket related) into the shared queue.
@@ -1504,12 +1601,14 @@ class GulpWsSharedQueue:
             t (str): The message type (i.e. GulpInternalEventsManager.EVENT_INGEST)
             user_id (str, optional): the user id associated with this event. Defaults to None.
             operation_id (str, optional): the operation id if applicable. Defaults to None.
+            req_id (str, optional): the request id originating the event, if applicable. Defaults to None.
             data (dict, optional): event data. Defaults to None.
         """
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
             type=t,
             user_id=user_id,
+            req_id=req_id,
             operation_id=operation_id,
             data=data,
             internal=True,

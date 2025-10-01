@@ -13,7 +13,7 @@ and ownership relationships.
 
 """
 
-from typing import TYPE_CHECKING, Any, Optional, override
+from typing import TYPE_CHECKING, Any, Optional, override, Annotated
 
 import muty.crypto
 import muty.time
@@ -59,36 +59,51 @@ class GulpUserDataQueryHistoryEntry(BaseModel):
     Represents a single entry in the user's query history.
     """
 
-    query: Any = Field(
-        ...,
-        description="The query that was performed, may be a string or a dict depending on the query type and target.",
-    )
-    external: bool = Field(False, description="if the query is an external query.")
-    query_options: Optional[GulpQueryParameters] = Field(
-        default_factory=list, description="Additional options for the query."
-    )
-    flt: Optional[GulpQueryFilter] = Field(
-        default_factory=list, description="Filter applied to the query."
-    )
-    plugin: Optional[str] = Field(None, description="Only set for external queries.")
-    plugin_params: Optional[GulpPluginParameters] = Field(
-        None,
-        description="Only set for external queries, the parameters for the external query plugin.",
-    )
-    sigma: Optional[str] = Field(
-        None, description="Sigma rule YML if the query is converted from a sigma rule."
-    )
-    timestamp_msec: int = Field(
-        ..., description="Timestamp of the query in milliseconds from the unix epoch."
-    )
+    q: Annotated[
+        Any,
+        Field(
+            description="The query that was performed, may be a string or a dict depending on the query type and target.",
+        ),
+    ]
+    timestamp_msec: Annotated[
+        int,
+        Field(
+            description="Timestamp of the query in milliseconds from the unix epoch."
+        ),
+    ]
+    external: Annotated[
+        bool, Field(description="if the query is an external query.")
+    ] = False
+    q_options: Annotated[
+        GulpQueryParameters, Field(description="Additional options for the query.")
+    ] = GulpQueryParameters()
+    flt: Annotated[
+        Optional[GulpQueryFilter], Field(description="Filter applied to the query.")
+    ] = None
+    plugin: Annotated[
+        Optional[str], Field(description="Only set for external queries.")
+    ] = None
+    plugin_params: Annotated[
+        GulpPluginParameters,
+        Field(
+            description="Only set for external queries, the parameters for the external query plugin.",
+        ),
+    ] = GulpPluginParameters()
+    sigma: Annotated[
+        Optional[str],
+        Field(
+            None,
+            description="Sigma rule YML if the query is converted from a sigma rule.",
+        ),
+    ] = None
 
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
-                    "query": {"query": {"match_all": {}}},
+                    "q": {"query": {"match_all": {}}},
                     "external": False,
-                    "query_options": autogenerate_model_example_by_class(
+                    "q_options": autogenerate_model_example_by_class(
                         GulpQueryParameters
                     ),
                     "flt": autogenerate_model_example_by_class(GulpQueryFilter),
@@ -191,11 +206,20 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             plugin_params (GulpPluginParameters, optional): Parameters for the plugin used in the query. Defaults to None.
             sigma (str, optional): Sigma rule applied to the query. Defaults to None.
         """
+        if not q_options:
+            q_options = GulpQueryParameters()
+        if not plugin_params:
+            plugin_params = GulpPluginParameters()
         async with GulpCollab.get_instance().session() as sess:
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
-            await u._add_query_history_entry(
-                sess, q, q_options, flt, sigma, external, plugin, plugin_params
-            )
+            try:
+                await GulpUser.acquire_advisory_lock(sess, user_id)
+                u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+                await u._add_query_history_entry(
+                    sess, q, q_options, flt, sigma, external, plugin, plugin_params
+                )
+            except Exception as e:
+                await sess.rollback()
+                raise
 
     async def _add_query_history_entry(
         self,
@@ -221,7 +245,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             plugin_params (GulpPluginParameters, optional): Parameters for the plugin used in the query. Defaults to None.
             sigma (str, optional): Sigma rule applied to the query. Defaults to None.
         """
-        if self.user_data is None:
+        if not self.user_data:
             self.user_data = {}
 
         if "query_history" not in self.user_data:
@@ -229,9 +253,9 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
         q_history = self.user_data["query_history"]
         entry: GulpUserDataQueryHistoryEntry = GulpUserDataQueryHistoryEntry(
-            query=q,
+            q=q,
             external=external,
-            query_options=q_options,
+            q_options=q_options,
             flt=flt,
             plugin=plugin,
             plugin_params=plugin_params,
@@ -283,8 +307,12 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             list[dict]: The query history entries.
         """
         async with GulpCollab.get_instance().session() as sess:
-            u: GulpUser = await GulpUser.get_by_id(sess, user_id)
-            return await u._get_query_history()
+            try:
+                u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+                return await u._get_query_history()
+            except Exception as e:
+                await sess.rollback()
+                raise
 
     @classmethod
     @override
@@ -475,6 +503,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 GulpInternalEventsManager.EVENT_LOGIN,
                 data=GulpUserInfoInternalEvent(user_id=u.id, ip=user_ip).model_dump(),
                 user_id=u.id,
+                req_id=req_id,
             )
 
             return new_session
@@ -523,6 +552,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             GulpInternalEventsManager.EVENT_LOGOUT,
             data=GulpUserInfoInternalEvent(user_id=s.user.id, ip=user_ip).model_dump(),
             user_id=s.user.id,
+            req_id=req_id,
         )
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:

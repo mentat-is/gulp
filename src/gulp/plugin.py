@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from enum import StrEnum
 from types import ModuleType
-from typing import Any, Callable, Optional
+from typing import Annotated, Any, Callable, Optional
 
 import json5
 import orjson
@@ -123,33 +123,46 @@ class GulpIngestInternalEvent(BaseModel):
             ]
         },
     )
-    plugin: str = Field(
-        ..., description="The plugin (internal) name performing the ingestion."
-    )
-    user_id: str = Field(..., description="The user id performing the ingestion.")
-    operation_id: str = Field(
-        ..., description="The operation id associated with this ingestion."
-    )
-    req_id: str = Field(..., description="The request id.")
-    file_path: str = Field(..., description="The file path being ingested.")
-    plugin_params: dict = Field(
-        ..., description="The plugin parameters used for the ingestion."
-    )
-    errors: list = Field(
-        [], description="A list of errors encountered during ingestion."
-    )
-    records_ingested: int = Field(
-        0, description="The total number of records ingested."
-    )
-    records_failed: int = Field(
-        0, description="The total number of records that failed to be ingested."
-    )
-    records_skipped: int = Field(
-        0, description="The total number of records skipped during ingestion."
-    )
-    records_processed: int = Field(
-        0, description="The total number of records processed."
-    )
+    plugin: Annotated[
+        str, Field(description="The plugin (internal) name performing the ingestion.")
+    ]
+    user_id: Annotated[str, Field(description="The user id performing the ingestion.")]
+    operation_id: Annotated[
+        str, Field(description="The operation id associated with this ingestion.")
+    ]
+    req_id: Annotated[str, Field(..., description="The request id.")]
+    file_path: Annotated[str, Field(..., description="The file path being ingested.")]
+    status: Annotated[
+        str,
+        Field(
+            description='The ingestion status, "done", "failed", "canceled".',
+        ),
+    ]
+    plugin_params: Annotated[
+        dict, Field(description="The plugin parameters used for the ingestion.")
+    ]
+    errors: Annotated[
+        list[str],
+        Field(description="A list of errors encountered during ingestion."),
+    ] = []
+    records_ingested: Annotated[
+        int, Field(description="The total number of records ingested.")
+    ] = 0
+    records_failed: Annotated[
+        int,
+        Field(
+            description="The total number of records that failed to be ingested.",
+        ),
+    ] = 0
+    records_skipped: Annotated[
+        int,
+        Field(
+            description="The total number of records skipped during ingestion.",
+        ),
+    ] = 0
+    records_processed: Annotated[
+        int, Field(description="The total number of records processed.")
+    ] = 0
 
 
 class GulpUserInfoInternalEvent(BaseModel):
@@ -161,10 +174,15 @@ class GulpUserInfoInternalEvent(BaseModel):
         extra="allow",
         json_schema_extra={"examples": [{"ip": "192.168.3.12"}]},
     )
-    user_id: str = Field(..., description="The user id.")
-    ip: Optional[str] = Field(
-        None, description="The IP address of the user that logged in, if available."
-    )
+    user_id: Annotated[str, Field(description="The user id.")]
+    ip: Annotated[
+        Optional[str],
+        Field(description="The IP address of the user that logged in, if available."),
+    ] = None
+    req_id: Annotated[
+        Optional[str],
+        Field(description="The request id associated with this event, if applicable."),
+    ] = None
 
 
 class GulpInternalEvent(BaseModel):
@@ -186,31 +204,48 @@ class GulpInternalEvent(BaseModel):
             ]
         },
     )
-    type: str = Field(
-        ...,
-        description="The type of the event (e.g. login, logout, ingestion, etc.).",
-    )
-    timestamp_msec: int = Field(
-        ...,
-        description="The timestamp of the event in milliseconds since epoch.",
-    )
-    data: dict = Field(
-        {},
-        description="Arbitrary data for the event.",
-    )
-    user_id: Optional[str] = Field(
-        None,
-        description="The user id associated with the event.",
-    )
-    operation_id: Optional[str] = Field(
-        None,
-        description="The operation id associated with the event, if applicable.",
-    )
+    type: Annotated[
+        str,
+        Field(
+            description="The type of the event (e.g. login, logout, ingestion, etc.).",
+        ),
+    ]
+    timestamp_msec: Annotated[
+        int,
+        Field(
+            description="The timestamp of the event in milliseconds since epoch.",
+        ),
+    ]
+    data: Annotated[
+        dict,
+        Field(
+            description="Arbitrary data for the event.",
+        ),
+    ] = {}
+    user_id: Annotated[
+        Optional[str],
+        Field(
+            description="The user id associated with the event.",
+        ),
+    ] = None
+    operation_id: Annotated[
+        Optional[str],
+        Field(
+            description="The operation id associated with the event, if applicable.",
+        ),
+    ] = None
+    req_id: Annotated[
+        Optional[str],
+        Field(
+            description="The request id associated with the event, if applicable.",
+        ),
+    ] = None
 
 
 class GulpPluginEntry(BaseModel):
     """
     Gulp plugin entry for the plugin_list API
+
     """
 
     model_config = ConfigDict(
@@ -235,54 +270,84 @@ class GulpPluginEntry(BaseModel):
             ]
         },
     )
-    display_name: str = Field(
-        ...,
-        description="The plugin display name.",
-    )
-    type: list[GulpPluginType] = Field(
-        ...,
-        description="The supported plugin types.",
-    )
-    desc: Optional[str] = Field(
-        None,
-        description="A description of the plugin.",
-    )
-    path: str = Field(
-        ...,
-        description="The file path associated with the plugin.",
-    )
-    data: Optional[dict] = Field(
-        None,
-        description="Arbitrary data for the UI.",
-    )
-    filename: str = Field(
-        ...,
-        description="This is the bare filename without extension (aka the `internal plugin name`, to be used as `plugin` throughout the whole gulp API).",
-    )
-    custom_parameters: Optional[list[GulpPluginCustomParameter]] = Field(
-        [],
-        description="A list of custom parameters this plugin supports.",
-    )
-    depends_on: Optional[list[str]] = Field(
-        [],
-        description="A list of plugins this plugin depends on.",
-    )
-    tags: Optional[list[str]] = Field(
-        [],
-        description="A list of tags for the plugin.",
-    )
-    version: Optional[str] = Field(
-        None,
-        description="The plugin version.",
-    )
-    regex: Optional[str] = Field(
-        None,
-        description="A regex to identify the data type (i.e. to identify the file header), for ingestion plugin only.",
-    )
-    ui: Optional[str] = Field(
-        None,
-        description="HTML frame to be rendered in the UI, i.e. for custom plugin panel.",
-    )
+
+    # plugin display name
+    display_name: Annotated[
+        str,
+        Field(description="The plugin display name."),
+    ]
+
+    # supported plugin types
+    type: Annotated[
+        list[GulpPluginType],
+        Field(description="The supported plugin types."),
+    ]
+
+    # file path associated with the plugin
+    path: Annotated[
+        str,
+        Field(description="The file path associated with the plugin."),
+    ]
+
+    # bare filename without extension (internal plugin name)
+    filename: Annotated[
+        str,
+        Field(
+            description="This is the bare filename without extension (aka the `internal plugin name`, to be used as `plugin` throughout the whole gulp API)."
+        ),
+    ]
+
+    # description of the plugin
+    desc: Annotated[
+        Optional[str],
+        Field(description="A description of the plugin."),
+    ] = None
+
+    # arbitrary data for the UI
+    data: Annotated[
+        Optional[dict],
+        Field(description="Arbitrary data for the UI."),
+    ] = None
+
+    # list of custom parameters this plugin supports
+    custom_parameters: Annotated[
+        Optional[list[GulpPluginCustomParameter]],
+        Field(description="A list of custom parameters this plugin supports."),
+    ] = []
+
+    # list of plugins this plugin depends on
+    depends_on: Annotated[
+        Optional[list[str]],
+        Field(description="A list of plugins this plugin depends on."),
+    ] = []
+
+    # list of tags for the plugin
+    tags: Annotated[
+        Optional[list[str]],
+        Field(description="A list of tags for the plugin."),
+    ] = []
+
+    # plugin version
+    version: Annotated[
+        Optional[str],
+        Field(description="The plugin version."),
+    ] = None
+
+    # regex to identify the data type
+    regex: Annotated[
+        Optional[str],
+        Field(
+            description="A regex to identify the data type (i.e. to identify the file header), for ingestion plugin only."
+        ),
+    ] = None
+
+    # HTML frame to be rendered in the UI
+    ui: Annotated[
+        Optional[str],
+        Field(
+            description="HTML frame to be rendered in the UI, i.e. for custom plugin panel."
+        ),
+    ] = None
 
 
 class GulpUiPluginMetadata(BaseModel):
@@ -295,21 +360,21 @@ class GulpUiPluginMetadata(BaseModel):
 
     ```json
     {
-        // plugin display name
-        "display_name": "Test UI Plugin",
-        // description
-        "desc": "A plugin for testing UI components",
-        // plugin version
-        "version": "1.0.0",
-        // the related gulp plugin
-        "plugin": "some_gulp_plugin.py",
-        // true if the related gulp plugin is an extension
-        "extension": true
-        // filename and path of the TSX plugin to be served will be added by list_ui_plugin API
-        // "filename": "test_ui_plugin.tsx",
-        // "path": "src/gulp/plugins/ui/test_ui_plugin.tsx"
-        //
-        // other fields may be added as well, they are not used by the engine but may be useful for the UI
+            // plugin display name
+            "display_name": "Test UI Plugin",
+            // description
+            "desc": "A plugin for testing UI components",
+            // plugin version
+            "version": "1.0.0",
+            // the related gulp plugin
+            "plugin": "some_gulp_plugin.py",
+            // true if the related gulp plugin is an extension
+            "extension": true
+            // filename and path of the TSX plugin to be served will be added by list_ui_plugin API
+            // "filename": "test_ui_plugin.tsx",
+            // "path": "src/gulp/plugins/ui/test_ui_plugin.tsx"
+            //
+            // other fields may be added as well, they are not used by the engine but may be useful for the UI
     }
     ```
     """
@@ -328,26 +393,41 @@ class GulpUiPluginMetadata(BaseModel):
             ]
         },
     )
-    display_name: str = Field(
-        ...,
-        description="The plugin display name.",
-    )
-    plugin: str = Field(
-        ...,
-        description="The related Gulp plugin.",
-    )
-    extension: bool = Field(
-        ...,
-        description="True if the related Gulp plugin is an extension.",
-    )
-    version: Optional[str] = Field(
-        None,
-        description="The plugin version.",
-    )
-    desc: Optional[str] = Field(
-        None,
-        description="A description of the plugin.",
-    )
+
+    display_name: Annotated[
+        str,
+        Field(
+            description="The plugin display name.",
+        ),
+    ]
+    plugin: Annotated[
+        str,
+        Field(
+            description="The related Gulp plugin.",
+        ),
+    ]
+    extension: Annotated[
+        bool,
+        Field(
+            description="True if the related Gulp plugin is an extension.",
+        ),
+    ] = True
+
+    version: Annotated[
+        Optional[str],
+        Field(
+            None,
+            description="The plugin version.",
+        ),
+    ] = None
+
+    desc: Annotated[
+        Optional[str],
+        Field(
+            None,
+            description="A description of the plugin.",
+        ),
+    ] = None
 
 
 class GulpPluginCache:
@@ -522,7 +602,12 @@ class GulpInternalEventsManager:
             )
 
     async def broadcast_event(
-        self, t: str, data: dict = None, user_id: str = None, operation_id: str = None
+        self,
+        t: str,
+        data: dict = None,
+        user_id: str = None,
+        req_id: str = None,
+        operation_id: str = None,
     ) -> None:
         """
         Broadcast an event to all plugins registered to receive it.
@@ -534,6 +619,7 @@ class GulpInternalEventsManager:
             t: str: the event (must be previously registered with GulpInternalEventsManager.register)
             data (dict, optional): The data to send with the event (event-specific). Defaults to None.
             user_id (str, optional): the user id associated with this event. Defaults to None.
+            req_id (str): the request id associated with this event.
             operation_id (str, optional): the operation id if applicable. Defaults to None.
         Returns:
             None
@@ -544,6 +630,7 @@ class GulpInternalEventsManager:
             data=data,
             user_id=user_id,
             operation_id=operation_id,
+            req_id=req_id,
         )
         for _, entry in self._plugins.items():
             p: GulpPluginBase = entry["plugin_instance"]
@@ -861,6 +948,8 @@ class GulpPluginBase(ABC):
         """
         ev: GulpIngestInternalEvent = GulpIngestInternalEvent(
             plugin=self.name,
+            user_id=self._user_id,
+            operation_id=self._operation_id,
             req_id=self._req_id,
             file_path=(
                 self._original_file_path
@@ -869,19 +958,21 @@ class GulpPluginBase(ABC):
             ),
             plugin_params=self._plugin_params.model_dump(exclude_none=True),
             errors=self._stats.errors,
+            status=self._stats.status,
             records_ingested=self._records_ingested_total,
             records_failed=self._records_failed_total,
             records_skipped=self._records_skipped_total,
             records_processed=self._records_processed_total,
         )
-        MutyLogger.get_instance().debug(
-            "***************************** broadcasting internal ingest event: %s", ev
-        )
+        # MutyLogger.get_instance().debug(
+        #     "***************************** broadcasting internal ingest event: %s", ev
+        # )
         wsq = GulpWsSharedQueue.get_instance()
         wsq.put_internal_event(
             GulpInternalEventsManager.EVENT_INGEST,
             user_id=self._user_id,
             operation_id=self._operation_id,
+            req_id=self._req_id,
             data=ev.model_dump(),
         )
 

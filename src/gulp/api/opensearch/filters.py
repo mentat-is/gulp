@@ -16,7 +16,7 @@ fields to include in query results.
 """
 
 from enum import IntEnum
-from typing import Optional, override
+from typing import Optional, override, Annotated
 import orjson
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -58,22 +58,27 @@ class GulpBaseDocumentFilter(BaseModel):
         },
     )
 
-    time_range: Optional[tuple[int, int]] = Field(
-        default=None,
-        description="""
+    time_range: Annotated[
+        tuple[int, int],
+        Field(
+            default=None,
+            description="""
 a tuple representing a `gulp.timestamp` range `[ start, end ]`.
 
 - `start` and `end` are nanoseconds from the unix epoch.
 """,
-    )
+        ),
+    ] = None
 
-    query_string_parameters: Optional[dict] = Field(
-        default=None,
-        description="""
+    query_string_parameters: Annotated[
+        Optional[dict],
+        Field(
+            description="""
 additional parameters to be applied to the resulting `query_string` query, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/full-text/query-string)
 
 """,
-    )
+        ),
+    ] = None
 
     @override
     def __str__(self) -> str:
@@ -107,13 +112,15 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
             ]
         }
     )
-    storage_ignore_filter: Optional[bool] = Field(
-        False,
-        description="""
+    storage_ignore_filter: Annotated[
+        bool,
+        Field(
+            description="""
 if set, websocket receives filtered results while OpenSearch stores unfiltered (=all) documents.
 default is False (both OpenSearch and websocket receives the filtered results).
 """,
-    )
+        ),
+    ] = False
 
     @override
     def __str__(self) -> str:
@@ -185,37 +192,49 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             ]
         }
     )
-    agent_types: Optional[list[str]] = Field(
-        None,
-        description="include documents matching the given `agent.type`/s.",
-    )
-    doc_ids: Optional[list[str]] = Field(
-        None,
-        description="include documents matching the given `_id`/s.",
-    )
-    operation_ids: Optional[list[str]] = Field(
-        None,
-        description="include documents  matching the given `gulp.operation_id`/s",
-    )
-    context_ids: Optional[list[str]] = Field(
-        None,
-        description="""
+    agent_types: Annotated[
+        list[str],
+        Field(
+            description="include documents matching the given `agent.type`/s.",
+        ),
+    ] = None
+    doc_ids: Annotated[
+        list[str],
+        Field(
+            description="include documents matching the given `_id`/s.",
+        ),
+    ] = None
+    operation_ids: Annotated[
+        list[str],
+        Field(
+            description="include documents  matching the given `gulp.operation_id`/s",
+        ),
+    ] = None
+    context_ids: Annotated[
+        list[str],
+        Field(
+            description="""
 include documents matching the given `gulp.context_id`/s.
 
 - this must be set to the *real context_id* as on the collab database, calculated as *SHA1(operation_id+context_id)*.
 """,
-    )
-    source_ids: Optional[list[str]] = Field(
-        None,
-        description="""
+        ),
+    ] = None
+    source_ids: Annotated[
+        list[str],
+        Field(
+            description="""
 include documents matching the given `gulp.source_id`/s.
 - this must be set to the *real source_id* as on the collab database, calculated as *SHA1(operation_id+context_id+source_id)*.
 """,
-    )
-    event_codes: Optional[list[str]] = Field(
-        None,
-        description="include documents matching the given `event.code`/s.",
-    )
+        ),
+    ] = None
+    event_codes: Annotated[
+        list[str],
+        Field(
+            description="include documents matching the given `event.code`/s.",
+        ),
+    ] = None
 
     @override
     def __str__(self) -> str:

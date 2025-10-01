@@ -378,6 +378,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         errors: list[str | Exception] = None,
         status: GulpRequestStatus = GulpRequestStatus.ONGOING,
         source_finished: bool = False,
+        set_expiration: bool = False,
     ) -> dict:
         """
         update the ingestion stats
@@ -392,7 +393,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             failed(int, optional): number of failed records to add. Defaults to 0.
             errors(list[str|Exception], optional): list of errors to add. Defaults to None.
             status(GulpRequestStatus, optional): the new status of the request. Defaults to GulpRequestStatus.ONGOING.
-
+            source_finished(bool, optional): if True, marks one source as finished. Defaults to False.
+            set_expiration(bool, optional): if True, sets the expiration time so the request will expire then (meant to be used when the request is finished and was set to "never_expire", i.e. ws_raw requests). Defaults to False.
         Returns:
             dict: the updated stats
         """
@@ -425,7 +427,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             d.records_processed += processed
             d.records_failed += failed
 
-            if source_finished:
+            if source_finished or set_expiration:
                 # this request is done, compute status value
                 d.source_processed += 1
                 if d.source_processed >= d.source_total:
@@ -439,6 +441,16 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     MutyLogger.get_instance().info(
                         "**FINISHED** ingestion request: %s", self
                     )
+                if set_expiration:
+                    # set expiration time based on config
+                    MutyLogger.get_instance().debug(
+                        "setting expiration after completion of request %s", self.id
+                    )
+                    msecs_to_expiration: int = (
+                        GulpConfig.get_instance().stats_ttl() * 1000
+                    )
+                    if msecs_to_expiration > 0:
+                        self.time_expire = muty.time.now_msec() + msecs_to_expiration
 
             self.data = d.model_dump()
             return await self.update(sess, ws_id=ws_id, user_id=user_id)

@@ -23,7 +23,7 @@ while inheriting common persistence and access control capabilities.
 # pylint: disable=too-many-lines
 import re
 from enum import StrEnum
-from typing import List, Optional, TypeVar, override
+from typing import List, Optional, TypeVar, override, Annotated
 
 import muty.crypto
 import muty.string
@@ -180,77 +180,99 @@ class GulpCollabFilter(BaseModel):
         },
     )
 
-    ids: Optional[list[str]] = Field(None, description="filter by the given id/s.")
-    types: Optional[list[str]] = Field(
-        None,
-        description="filter by the given collaboration type/s.",
-    )
-    operation_ids: Optional[list[str]] = Field(
-        None, description="filter by the given operation/s."
-    )
-    context_ids: Optional[list[str]] = Field(
-        None, description="filter by the given context/s."
-    )
-    source_ids: Optional[list[str]] = Field(
-        None,
-        description="filter by the given source path/s or name/s.",
-    )
-    user_ids: Optional[list[str]] = Field(
-        None, description="filter by the given owner user id/s."
-    )
-    tags: Optional[list[str]] = Field(None, description="filter by the given tag/s.")
-    names: Optional[list[str]] = Field(None, description="filter by the given name/s.")
-    texts: Optional[list[str]] = Field(
-        None,
-        description="filter by the given object text (wildcard accepted).",
-    )
-    time_created_range: Optional[tuple[int, int]] = Field(
-        None,
-        description="""
+    ids: Annotated[list[str], Field(description="filter by the given id/s.")] = None
+    types: Annotated[
+        list[str],
+        Field(
+            description="filter by the given collaboration type/s.",
+        ),
+    ] = None
+    operation_ids: Annotated[
+        list[str], Field(description="filter by the given operation/s.")
+    ] = None
+    context_ids: Annotated[
+        list[str], Field(description="filter by the given context/s.")
+    ] = None
+    source_ids: Annotated[
+        list[str],
+        Field(
+            description="filter by the given source path/s or name/s.",
+        ),
+    ] = None
+    user_ids: Annotated[
+        list[str], Field(description="filter by the given owner user id/s.")
+    ] = None
+    tags: Annotated[list[str], Field(description="filter by the given tag/s.")] = None
+    names: Annotated[list[str], Field(description="filter by the given name/s.")] = None
+    texts: Annotated[
+        list[str],
+        Field(
+            description="filter by the given object text (wildcard accepted).",
+        ),
+    ] = None
+    time_created_range: Annotated[
+        tuple[int, int],
+        Field(
+            description="""
             if set, matches objects in a `CollabObject.time_created` range [start, end], inclusive, in milliseconds from unix epoch.
         """,
-    )
-    time_pin_range: Optional[tuple[int, int]] = Field(
-        None,
-        description="""
+        ),
+    ] = None
+    time_pin_range: Annotated[
+        tuple[int, int],
+        Field(
+            description="""
 if set, matches objects in a `CollabObject.time_pin` range [start, end], inclusive, in nanoseconds from unix epoch.
 
 - cannot be used with `doc_ids` or `doc_time_range`.
 """,
-    )
-    doc_ids: Optional[list[str]] = Field(
-        None,
-        description="""
+        ),
+    ] = None
+    doc_ids: Annotated[
+        list[str],
+        Field(
+            description="""
 filter by the given document ID/s in a `CollabObject.docs` list of `GulpBasicDocument` or in a `CollabObject.doc_ids` list of document IDs.
 
 - cannot be used with `time_pin_range` or `doc_time_range`.
 """,
-    )
-    doc_time_range: Optional[tuple[int, int]] = Field(
-        None,
-        description="""
+        ),
+    ] = None
+    doc_time_range: Annotated[
+        tuple[int, int],
+        Field(
+            description="""
 if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObject.docs`, inclusive, in nanoseconds from unix epoch.
 
 - cannot be used with `time_pin_range` or `doc_ids`.
 - works with Notes, does not work with Links
 """,
-    )
-    limit: Optional[int] = Field(
-        None,
-        description='to be used together with "offset", maximum number of results to return. default=return all.',
-    )
-    offset: Optional[int] = Field(
-        None,
-        description='to be used together with "limit", number of results to skip from the beginning. default=0 (from start).',
-    )
-    tags_and: Optional[bool] = Field(
-        False,
-        description="if True and `tags` set, all tags must match. Default=False (any tag matches).",
-    )
-    sort: Optional[list[tuple[str, GulpSortOrder]]] = Field(
-        None,
-        description="sort fields and order. Default=sort by `time_created` ASC, `id` ASC.",
-    )
+        ),
+    ] = None
+    limit: Annotated[
+        int,
+        Field(
+            description='to be used together with "offset", maximum number of results to return. default=return all.',
+        ),
+    ] = 0
+    offset: Annotated[
+        int,
+        Field(
+            description='to be used together with "limit", number of results to skip from the beginning. default=0 (from start).',
+        ),
+    ] = 0
+    tags_and: Annotated[
+        bool,
+        Field(
+            description="if True and `tags` set, all tags must match. Default=False (any tag matches).",
+        ),
+    ] = False
+    sort: Annotated[
+        list[tuple[str, GulpSortOrder]],
+        Field(
+            description="sort fields and order. Default=sort by `time_created` ASC, `id` ASC.",
+        ),
+    ] = None
 
     @override
     def __str__(self) -> str:

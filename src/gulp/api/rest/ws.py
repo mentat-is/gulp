@@ -26,7 +26,7 @@ during ingestion operations, collaboration features, and inter-client communicat
 import asyncio
 import time
 from multiprocessing import Queue
-from typing import Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Optional, Annotated
 
 import muty.string
 import muty.time
@@ -75,12 +75,14 @@ class InternalWsIngestPacket(BaseModel):
     holds data for the ws ingest worker
     """
 
-    user_id: str = Field(..., description="the user id")
-    index: str = Field(..., description="the index to ingest into")
-    dict_data: GulpWsIngestPacket = Field(
-        ..., description="a GulpWsIngestPacket dictionary"
-    )
-    raw_data: bytes = Field(..., description="raw data received from the websocket")
+    user_id: Annotated[str, Field(description="the user id")]
+    index: Annotated[str, Field(description="the index to ingest into")]
+    dict_data: Annotated[
+        GulpWsIngestPacket, Field(description="a GulpWsIngestPacket dictionary")
+    ]
+    raw_data: Annotated[
+        bytes, Field(description="raw data received from the websocket")
+    ]
 
 
 class WsIngestRawWorker:
@@ -108,87 +110,76 @@ class WsIngestRawWorker:
         )
 
         async with GulpCollab.get_instance().session() as sess:
-            stats: GulpRequestStats = None
-            prev_ws_id: str = None
-            prev_user_id: str = None
+            try:
+                stats: GulpRequestStats = None
+                prev_ws_id: str = None
+                prev_user_id: str = None
 
-            while True:
-                packet: InternalWsIngestPacket = input_queue.get()
-                if not packet:
-                    # this is the last packet, close the stats and break the loop
-                    if stats:
+                while True:
+                    packet: InternalWsIngestPacket = input_queue.get()
+                    if not packet and stats:
+                        # this is the last packet, close the stats and break the loop
                         MutyLogger.get_instance().debug(
                             "ws ingest _process_loop received termination packet, closing stats %s"
                             % (stats.id)
                         )
-                        time_updated = muty.time.now_msec()
-                        msecs_to_expiration = (
-                            GulpConfig.get_instance().stats_ttl() * 1000
+                        await stats.update_ingestion_stats(
+                            sess,
+                            prev_user_id,
+                            prev_ws_id,
+                            set_expiration=True,
                         )
-                        # setting status=DONE will automatically set the finish time too
-                        time_expire = time_updated + msecs_to_expiration
-                        object_data = {
-                            "time_expire": time_expire,
-                            "status": GulpRequestStatus.DONE.value,
-                        }
-                        await stats.update(
-                            sess, object_data, ws_id=prev_ws_id, user_id=prev_user_id
+                        break
+
+                    # these will be used to end the loop and update the final stats so the stat can expire
+                    prev_ws_id = packet.dict_data.ws_id
+                    prev_user_id = packet.user_id
+                    if not stats:
+                        # first iteration, create a stats that never expire
+                        stats: GulpRequestStats = await GulpRequestStats.create_stats(
+                            sess=sess,
+                            req_id=packet.dict_data.req_id,
+                            user_id=packet.user_id,
+                            operation_id=packet.dict_data.operation_id,
+                            ws_id=packet.dict_data.ws_id,
+                            never_expire=True,
                         )
-                    break
 
-                # these will be used to end the loop and update the final stats so the stat can expire
-                prev_ws_id = packet.dict_data.ws_id
-                prev_user_id = packet.user_id
-                if not stats:
-                    # create a stats that never expire
-                    stats: GulpRequestStats = await GulpRequestStats.create_or_get(
-                        sess=sess,
-                        req_id=packet.dict_data.req_id,
-                        user_id=packet.user_id,
-                        ws_id=packet.dict_data.ws_id,
-                        operation_id=packet.dict_data.operation_id,
-                        never_expire=True,
-                    )
+                    try:
+                        mod: GulpPluginBase = None
+                        MutyLogger.get_instance().debug("_ws_ingest_process_internal")
 
-                try:
-                    mod: GulpPluginBase = None
-                    MutyLogger.get_instance().debug("_ws_ingest_process_internal")
+                        # load plugin, force caching so it will be loaded first time only
+                        mod: GulpPluginBase = await GulpPluginBase.load(
+                            packet.dict_data.plugin,
+                            cache_mode=GulpPluginCacheMode.FORCE,
+                        )
 
-                    # load plugin, force caching so it will be loaded first time only
-                    mod: GulpPluginBase = await GulpPluginBase.load(
-                        packet.dict_data.plugin, cache_mode=GulpPluginCacheMode.FORCE
-                    )
+                        # process raw data using plugin
+                        # handling "last" here is not needed, the termination is handled above setting the stats to DONE
+                        await mod.ingest_raw(
+                            sess,
+                            user_id=packet.user_id,
+                            req_id=packet.dict_data.req_id,
+                            ws_id=packet.dict_data.ws_id,
+                            index=packet.index,
+                            stats=stats,
+                            operation_id=packet.dict_data.operation_id,
+                            chunk=packet.raw_data,
+                            flt=packet.dict_data.flt,
+                            plugin_params=packet.dict_data.plugin_params,
+                        )
 
-                    # process raw data using plugin
-                    # handling "last" here is not needed, the termination is handled above setting the stats to DONE
-                    await mod.ingest_raw(
-                        sess,
-                        user_id=packet.user_id,
-                        req_id=packet.dict_data.req_id,
-                        ws_id=packet.dict_data.ws_id,
-                        index=packet.index,
-                        stats=stats,
-                        operation_id=packet.dict_data.operation_id,
-                        chunk=packet.raw_data,
-                        flt=packet.dict_data.flt,
-                        plugin_params=packet.dict_data.plugin_params,
-                    )
-
-                except Exception as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    # just append error
-                    d = {
-                        "data": {
-                            "error": ex,
-                        }
-                    }
-                    await stats.update(
-                        sess, d, ws_id=packet.dict_data.ws_id, user_id=packet.user_id
-                    )
-
-                finally:
-                    if mod:
-                        await mod.unload()
+                    except Exception as ex:
+                        MutyLogger.get_instance().exception(ex)
+                        await stats.update_ingestion_stats(
+                            sess, prev_user_id, prev_ws_id, errors=[ex]
+                        )
+                    finally:
+                        if mod:
+                            await mod.unload()
+            except Exception as ex:
+                await sess.rollback()
 
         MutyLogger.get_instance().debug("ws ingest _process_loop done")
 
@@ -545,7 +536,7 @@ class GulpAPIWebsocket:
 
                     message_count += 1
 
-                    # Regular message processing
+                    # regular message processing
                     try:
                         # get dict and data from websocket
                         js = await ws.ws.receive_json()
