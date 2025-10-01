@@ -473,7 +473,8 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
             await GulpInternalEventsManager.get_instance().broadcast_event(
                 GulpInternalEventsManager.EVENT_LOGIN,
-                GulpUserInfoInternalEvent(user_id=u.id, ip=user_ip).model_dump(),
+                data=GulpUserInfoInternalEvent(user_id=u.id, ip=user_ip).model_dump(),
+                user_id=u.id,
             )
 
             return new_session
@@ -520,7 +521,8 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
         await GulpInternalEventsManager.get_instance().broadcast_event(
             GulpInternalEventsManager.EVENT_LOGOUT,
-            GulpUserInfoInternalEvent(user_id=s.user.id, ip=user_ip).model_dump(),
+            data=GulpUserInfoInternalEvent(user_id=s.user.id, ip=user_ip).model_dump(),
+            user_id=s.user.id,
         )
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:

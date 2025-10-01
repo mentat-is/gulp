@@ -127,7 +127,9 @@ class GulpIngestInternalEvent(BaseModel):
         ..., description="The plugin (internal) name performing the ingestion."
     )
     user_id: str = Field(..., description="The user id performing the ingestion.")
-    operation_id: str = Field(..., description="The operation id.")
+    operation_id: str = Field(
+        ..., description="The operation id associated with this ingestion."
+    )
     req_id: str = Field(..., description="The request id.")
     file_path: str = Field(..., description="The file path being ingested.")
     plugin_params: dict = Field(
@@ -157,9 +159,9 @@ class GulpUserInfoInternalEvent(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
-        json_schema_extra={"examples": [{"user_id": "user123", "ip": "192.168.3.12"}]},
+        json_schema_extra={"examples": [{"ip": "192.168.3.12"}]},
     )
-    user_id: str = Field(..., description="The user id of the user that logged in.")
+    user_id: str = Field(..., description="The user id.")
     ip: Optional[str] = Field(
         None, description="The IP address of the user that logged in, if available."
     )
@@ -177,7 +179,9 @@ class GulpInternalEvent(BaseModel):
                 {
                     "event_type": "login",
                     "timestamp_msec": 123456789,
-                    "data": {"user_id": "user123", "ip": "192.168.2.10"},
+                    "user_id": "user123",
+                    "operation_id": "op123",
+                    "data": {"ip": "192.168.2.10"},
                 }
             ]
         },
@@ -186,17 +190,21 @@ class GulpInternalEvent(BaseModel):
         ...,
         description="The type of the event (e.g. login, logout, ingestion, etc.).",
     )
-    user_id: str = Field(
-        ...,
-        description="The user id associated with the event.",
-    )
     timestamp_msec: int = Field(
         ...,
         description="The timestamp of the event in milliseconds since epoch.",
     )
     data: dict = Field(
-        ...,
+        {},
         description="Arbitrary data for the event.",
+    )
+    user_id: Optional[str] = Field(
+        None,
+        description="The user id associated with the event.",
+    )
+    operation_id: Optional[str] = Field(
+        None,
+        description="The operation id associated with the event, if applicable.",
     )
 
 
@@ -513,18 +521,29 @@ class GulpInternalEventsManager:
                 "plugin %s not registered to receive internal events" % (plugin)
             )
 
-    async def broadcast_event(self, t: str, data: dict) -> None:
+    async def broadcast_event(
+        self, t: str, data: dict = None, user_id: str = None, operation_id: str = None
+    ) -> None:
         """
         Broadcast an event to all plugins registered to receive it.
 
+        NOTE: this can be used by the main process only.
+        in workers, plugins should call GulpWsSharedQueue.put_internal_event() to broadcast an event.
+
         Args:
             t: str: the event (must be previously registered with GulpInternalEventsManager.register)
-            data: dict: The data to send with the event (event-specific)
+            data (dict, optional): The data to send with the event (event-specific). Defaults to None.
+            user_id (str, optional): the user id associated with this event. Defaults to None.
+            operation_id (str, optional): the operation id if applicable. Defaults to None.
         Returns:
             None
         """
         ev: GulpInternalEvent = GulpInternalEvent(
-            type=t, timestamp_msec=muty.time.now_msec(), data=data
+            type=t,
+            timestamp_msec=muty.time.now_msec(),
+            data=data,
+            user_id=user_id,
+            operation_id=operation_id,
         )
         for _, entry in self._plugins.items():
             p: GulpPluginBase = entry["plugin_instance"]
@@ -842,8 +861,6 @@ class GulpPluginBase(ABC):
         """
         ev: GulpIngestInternalEvent = GulpIngestInternalEvent(
             plugin=self.name,
-            user_id=self._user_id,
-            operation_id=self._operation_id,
             req_id=self._req_id,
             file_path=(
                 self._original_file_path
@@ -862,7 +879,10 @@ class GulpPluginBase(ABC):
         )
         wsq = GulpWsSharedQueue.get_instance()
         wsq.put_internal_event(
-            msg=GulpInternalEventsManager.EVENT_INGEST, params=ev.model_dump()
+            GulpInternalEventsManager.EVENT_INGEST,
+            user_id=self._user_id,
+            operation_id=self._operation_id,
+            data=ev.model_dump(),
         )
 
     async def _ingest_chunk_and_or_send_to_ws(

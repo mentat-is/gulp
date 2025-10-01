@@ -82,11 +82,15 @@ class GulpWsData(BaseModel):
         ...,
         description="The type of data carried by the websocket, see WSDATA_* constants.",
     )
-    data: Optional[Any] = Field(None, description="The data carried by the websocket.")
-    internal: Optional[bool] = Field(
+    private: bool = Field(
+        False,
+        description="If the data is private, only the websocket `ws_id` receives it. Ignored if `internal` is set.",
+    )
+    internal: bool = Field(
         False,
         description="set to broadcast internal events to plugins registered through `GulpPluginBase.register_internal_events_callback()`.",
     )
+    data: Optional[Any] = Field(None, description="The data carried by the websocket.")
     ws_id: Optional[str] = Field(
         None,
         description="The target WebSocket ID, ignored if `internal` is set. if None, the message is broadcasted to all connected websockets.",
@@ -102,10 +106,6 @@ class GulpWsData(BaseModel):
         None,
         description="The operation this data belongs to, ignored if `internal` is set.",
         alias="gulp.operation_id",
-    )
-    private: Optional[bool] = Field(
-        False,
-        description="If the data is private, only the websocket `ws_id` receives it. Ignored if `internal` is set.",
     )
 
 
@@ -1223,7 +1223,10 @@ class GulpConnectedSockets:
             "routing internal message: type=%s, data=%s", data.type, data.data
         )
         await GulpInternalEventsManager.get_instance().broadcast_event(
-            data.type, data.data
+            data.type,
+            data=data.data,
+            user_id=data.user_id,
+            operation_id=data.operation_id,
         )
 
     async def broadcast_message(
@@ -1489,20 +1492,26 @@ class GulpWsSharedQueue:
         self._shared_q.join()
         MutyLogger.get_instance().debug(f"Flushed {counter} messages from shared queue")
 
-    def put_internal_event(self, msg: str, params: dict = None) -> None:
+    def put_internal_event(
+        self, t: str, user_id: str = None, operation_id: str = None, data: dict = None
+    ) -> None:
         """
         Puts a GulpInternalEvent (not websocket related) into the shared queue.
 
-        this is used to send internal events from worker processes to be processed by the main process
+        this is used to broadcast internal events to plugins via the GulpInternalEventsManager
 
         Args:
-            msg (str): The message type (i.e. GulpInternalEventsManager.EVENT_INGEST)
-            params (dict, optional): The parameters for the message.
+            t (str): The message type (i.e. GulpInternalEventsManager.EVENT_INGEST)
+            user_id (str, optional): the user id associated with this event. Defaults to None.
+            operation_id (str, optional): the operation id if applicable. Defaults to None.
+            data (dict, optional): event data. Defaults to None.
         """
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
-            type=msg,
-            data=params,
+            type=t,
+            user_id=user_id,
+            operation_id=operation_id,
+            data=data,
             internal=True,
         )
         self._shared_q.put(wsd)
