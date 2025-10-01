@@ -82,7 +82,7 @@ services:
       - 8081:8080
 
   gulp:
-    profiles: [ "gulp" ]
+    profiles: [ "gulp", "gui" ]
     image: ${GULP_IMAGE:-mentatis/gulp-core:latest}
     container_name: gulp
     user: gulp
