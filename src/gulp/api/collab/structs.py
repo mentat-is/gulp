@@ -1095,7 +1095,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # commit
             await sess.commit()
             MutyLogger.get_instance().debug(
-                "---> updated: %s",
+                "---> updated (type=%s): %s",
+                self.type,
                 muty.string.make_shorter(str(updated_dict), max_len=260),
             )
         except Exception as e:

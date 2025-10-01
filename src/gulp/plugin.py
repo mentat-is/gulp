@@ -98,6 +98,73 @@ class GulpPluginCacheMode(StrEnum):
     DEFAULT = "default"  # use configuration value (cache enabled/disabled)
 
 
+class GulpIngestInternalEvent(BaseModel):
+    """
+    this is sent  at the end of each source ingestion in GulpInternalEvent.data by the engine to plugins registered to the GulpInternalEventsManager.EVENT_INGEST event
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "plugin": "win_evtx",
+                    "user_id": "user123",
+                    "operation_id": "op123",
+                    "req_id": "req123",
+                    "file_path": "/path/to/file.evtx",
+                    "plugin_params": {"param1": "value1", "param2": 2},
+                    "errors": [],
+                    "records_ingested": 1000,
+                    "records_failed": 10,
+                    "records_skipped": 5,
+                    "records_processed": 1015,
+                }
+            ]
+        },
+    )
+    plugin: str = Field(
+        ..., description="The plugin (internal) name performing the ingestion."
+    )
+    user_id: str = Field(..., description="The user id performing the ingestion.")
+    operation_id: str = Field(..., description="The operation id.")
+    req_id: str = Field(..., description="The request id.")
+    file_path: str = Field(..., description="The file path being ingested.")
+    plugin_params: dict = Field(
+        ..., description="The plugin parameters used for the ingestion."
+    )
+    errors: list = Field(
+        [], description="A list of errors encountered during ingestion."
+    )
+    records_ingested: int = Field(
+        0, description="The total number of records ingested."
+    )
+    records_failed: int = Field(
+        0, description="The total number of records that failed to be ingested."
+    )
+    records_skipped: int = Field(
+        0, description="The total number of records skipped during ingestion."
+    )
+    records_processed: int = Field(
+        0, description="The total number of records processed."
+    )
+
+
+class GulpUserInfoInternalEvent(BaseModel):
+    """
+    this is sent by core when a user logs in, in GulpInternalEvent.data to plugins registered to the GulpInternalEventsManager.EVENT_LOGIN/GulpInternalEventsManager.EVENT_LOGOUT events
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={"examples": [{"user_id": "user123", "ip": "192.168.3.12"}]},
+    )
+    user_id: str = Field(..., description="The user id of the user that logged in.")
+    ip: Optional[str] = Field(
+        None, description="The IP address of the user that logged in, if available."
+    )
+
+
 class GulpInternalEvent(BaseModel):
     """
     Gulp internal event, broadcasted by engine to plugins registered via GulpPluginEventQueues.register()
@@ -117,7 +184,11 @@ class GulpInternalEvent(BaseModel):
     )
     type: str = Field(
         ...,
-        description="The type of the event.",
+        description="The type of the event (e.g. login, logout, ingestion, etc.).",
+    )
+    user_id: str = Field(
+        ...,
+        description="The user id associated with the event.",
     )
     timestamp_msec: int = Field(
         ...,
@@ -608,17 +679,20 @@ class GulpPluginBase(ABC):
         # this is used by the engine to generate extra documents from a single gulp document
         self._extra_docs: list[dict] = []
 
-        # to keep track of processed/failed records
+        # to keep track of processed/ingested/failed/skipped records
+        # total here means "for this source", not total for the whole ingestion
         self._records_processed_per_chunk: int = 0
         self._records_failed_per_chunk: int = 0
-        self._records_skipped_total: int = 0
+        self._records_processed_total: int = 0
         self._records_failed_total: int = 0
         self._records_skipped_total: int = 0
         self._records_ingested_total: int = 0
-        self._req_canceled: bool = False
 
         # to keep track of ingested chunks
         self._chunks_ingested: int = 0
+
+        # corresponding request is canceled and we should stop processing
+        self._req_canceled: bool = False
 
         # enrichment during ingestion may be disabled also if _enrich_documents_chunk is implemented
         self._enrich_during_ingestion: bool = True
@@ -764,28 +838,32 @@ class GulpPluginBase(ABC):
 
     async def broadcast_ingest_internal_event(self) -> None:
         """
-        broadcast internal ingest metrics event to plugins registered to the GulpInternalEventsManager.EVENT_INGEST event
+        broadcast internal ingest metrics event (in the end of each source ingestion) to plugins registered to the GulpInternalEventsManager.EVENT_INGEST event
         """
-        d = {
-            "plugin": self.name,
-            "user_id": self._user_id,
-            "operation_id": self._operation_id,
-            "req_id": self._req_id,
-            "file_path": (
+        ev: GulpIngestInternalEvent = GulpIngestInternalEvent(
+            plugin=self.name,
+            user_id=self._user_id,
+            operation_id=self._operation_id,
+            req_id=self._req_id,
+            file_path=(
                 self._original_file_path
                 if self._original_file_path
                 else self._file_path
             ),
-            "plugin_params": self._plugin_params.model_dump(exclude_none=True),
-            "errors": self._stats.errors,
-            "records_ingested": self._records_ingested_total,
-            "records_failed": self._records_failed_total,
-            "records_skipped": self._records_skipped_total,
-            "records_processed": self._records_processed_total,
-        }
-
+            plugin_params=self._plugin_params.model_dump(exclude_none=True),
+            errors=self._stats.errors,
+            records_ingested=self._records_ingested_total,
+            records_failed=self._records_failed_total,
+            records_skipped=self._records_skipped_total,
+            records_processed=self._records_processed_total,
+        )
+        MutyLogger.get_instance().debug(
+            "***************************** broadcasting internal ingest event: %s", ev
+        )
         wsq = GulpWsSharedQueue.get_instance()
-        wsq.put_internal_event(msg=GulpInternalEventsManager.EVENT_INGEST, params=d)
+        wsq.put_internal_event(
+            msg=GulpInternalEventsManager.EVENT_INGEST, params=ev.model_dump()
+        )
 
     async def _ingest_chunk_and_or_send_to_ws(
         self,
@@ -2121,6 +2199,7 @@ class GulpPluginBase(ABC):
             return
 
         self._records_processed_per_chunk += 1
+        self._records_processed_total += 1
 
         if self._preview_mode:
             # preview, accumulate docs

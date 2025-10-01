@@ -34,7 +34,7 @@ from gulp.api.collab.context import GulpContext
 from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
-from gulp.api.collab.stats import GulpRequestStats, RequestStatsType
+from gulp.api.collab.stats import GulpIngestionStats, GulpRequestStats, RequestStatsType
 from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
@@ -231,6 +231,7 @@ async def _ingest_file_internal(
     plugin: str,
     file_path: str,
     payload: GulpIngestPayload,
+    file_total: int = 1,
     preview_mode: bool = False,
     delete_after: bool = False,
     **kwargs: Any,
@@ -248,8 +249,8 @@ async def _ingest_file_internal(
         index (str): the index to ingest data to
         plugin (str): the plugin to use for ingestion
         file_path (str): the path of the file to ingest
-        file_total (int): total number of files in a multi-file upload
         payload (GulpIngestPayload): the ingestion payload (plugin_params, filter, original_file_path, file_sha1)
+        file_total (int, optional): total number of files in a multi-file upload. Defaults to 1.
         preview_mode (bool, optional): if True, runs in preview mode. Defaults to False.
         delete_after (bool, optional): if True, deletes the file after ingestion. Defaults to False.
         **kwargs: additional arguments
@@ -280,8 +281,8 @@ async def _ingest_file_internal(
                         operation_id,
                         req_type=RequestStatsType.REQUEST_TYPE_INGESTION,
                         ws_id=ws_id,
+                        data=GulpIngestionStats(source_total=file_total).model_dump(),
                     )
-                    print(stats)
 
                 # run plugin
                 mod = await GulpPluginBase.load(plugin)
@@ -315,11 +316,11 @@ async def _ingest_file_internal(
                     context_id=context_id,
                     source_id=source_id,
                 )
-                return status, []
             except Exception as ex:
                 await sess.rollback()
                 raise
     except Exception as ex:
+        MutyLogger.get_instance().exception("*** ERROR in _ingest_file_internal!")
         status = GulpRequestStatus.FAILED
         if preview_mode:
             # on preview (sync mode) raise exception
@@ -330,6 +331,8 @@ async def _ingest_file_internal(
         if delete_after:
             # delete file
             await muty.file.delete_file_or_dir_async(file_path)
+
+    return status, preview_chunk
 
 
 async def run_ingest_file_task(t: dict):
@@ -363,6 +366,7 @@ async def _handle_preview_or_enqueue_ingest_task(
     file_path: str,
     payload: GulpIngestPayload,
     preview_mode: bool,
+    file_total: int = 1,
     delete_after: bool = True,
 ) -> JSONResponse:
     """
@@ -381,6 +385,7 @@ async def _handle_preview_or_enqueue_ingest_task(
         file_path (str): the path of the file to ingest.
         payload (GulpIngestPayload): the ingestion payload (plugin_params, filter, original_file_path, file_sha1)
         preview_mode (bool): if True, runs in preview mode (returns directly instead of enqueueing a task)
+        file_total (int, optional): total number of files in a multi-file upload. Defaults to 1.
         delete_after (bool, optional): if True, deletes the file_path after ingestion. Defaults to True.
 
     Returns:
@@ -399,6 +404,7 @@ async def _handle_preview_or_enqueue_ingest_task(
         file_path=file_path,
         payload=payload,
         preview_mode=preview_mode,
+        file_total=file_total,
         delete_after=delete_after,
     )
 
@@ -568,6 +574,13 @@ async def ingest_file_handler(
         str,
         Depends(APIDependencies.param_ws_id),
     ],
+    file_total: Annotated[
+        int,
+        Query(
+            description="set to the total number of files if this call is part of a multi-file upload (same `req_id` for multiple files), default=1.",
+            example=1,
+        ),
+    ] = 1,
     preview_mode: Annotated[
         bool,
         Query(
@@ -665,6 +678,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                     file_path=file_path,
                     payload=payload,
                     preview_mode=preview_mode,
+                    file_total=file_total,
                 )
             except Exception as ex:
                 await sess.rollback()

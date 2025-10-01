@@ -45,6 +45,7 @@ from gulp.api.ws_api import (
     GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
+from gulp.plugin import GulpUserInfoInternalEvent
 from gulp.structs import GulpPluginParameters
 from muty.pydantic import autogenerate_model_example_by_class
 
@@ -472,10 +473,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
             await GulpInternalEventsManager.get_instance().broadcast_event(
                 GulpInternalEventsManager.EVENT_LOGIN,
-                {
-                    "user_id": u.id,
-                    "ip": user_ip,
-                },
+                GulpUserInfoInternalEvent(user_id=u.id, ip=user_ip).model_dump(),
             )
 
             return new_session
@@ -522,10 +520,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
         await GulpInternalEventsManager.get_instance().broadcast_event(
             GulpInternalEventsManager.EVENT_LOGOUT,
-            {
-                "user_id": s.user.id,
-                "ip": user_ip,
-            },
+            GulpUserInfoInternalEvent(user_id=s.user.id, ip=user_ip).model_dump(),
         )
 
     def has_permission(self, permission: list[GulpUserPermission]) -> bool:

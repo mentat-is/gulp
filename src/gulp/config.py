@@ -823,7 +823,7 @@ class GulpConfig:
 
     def ws_rate_limit_delay(self) -> float:
         """
-        Returns the delay in seconds to wait before sending a message to a client.
+        Returns the delay in seconds to wait in between sending messages to connected clients.
         """
         n = self._config.get("ws_rate_limit_delay", 0.01)
         return n

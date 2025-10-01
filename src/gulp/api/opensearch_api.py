@@ -349,8 +349,11 @@ class GulpOpenSearch:
                 )
 
                 MutyLogger.get_instance().info(
-                    "mappings created/updated for index=%s, operation_id=%s, context_id=%s, source_id=%s"
-                    % (index, op, ctx, src)
+                    "mappings created/updated for index=%s, operation_id=%s, context_id=%s, source_id=%s",
+                    index,
+                    op,
+                    ctx,
+                    src,
                 )
 
     async def datastream_update_source_field_types_by_src(
@@ -382,8 +385,11 @@ class GulpOpenSearch:
         """
 
         MutyLogger.get_instance().debug(
-            "creating/updating source->fieldtypes for source_id=%s, context_id=%s, operation_id=%s, doc_ids=%s ..."
-            % (source_id, context_id, operation_id, doc_ids)
+            "creating/updating source->fieldtypes for source_id=%s, context_id=%s, operation_id=%s, doc_ids=%s ...",
+            source_id,
+            context_id,
+            operation_id,
+            doc_ids,
         )
 
         from gulp.api.opensearch.query import GulpQueryParameters
@@ -1334,8 +1340,8 @@ class GulpOpenSearch:
             await GulpWsSharedQueue.get_instance().put_progress(
                 PROGRESS_REBASE,
                 user_id,
-                ws_id,
                 req_id,
+                ws_id=ws_id,
                 total=total_hits,
                 current=current_updated,
                 done=done,

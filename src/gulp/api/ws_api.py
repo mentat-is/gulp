@@ -619,41 +619,6 @@ class GulpDocumentsChunkPacket(BaseModel):
     )
 
 
-class GulpWsData(BaseModel):
-    """
-    data carried by the websocket ui<->gulp
-    """
-
-    model_config = ConfigDict(
-        # solves the issue of not being able to populate fields using field name instead of alias
-        populate_by_name=True,
-    )
-    timestamp: int = Field(
-        ..., description="The timestamp of the data.", alias="@timestamp"
-    )
-    type: str = Field(..., description="The type of data carried by the websocket.")
-    ws_id: Optional[str] = Field(
-        None,
-        description="The target WebSocket ID, may be None only if `internal` is set or if the message must be broadcast to all connected websockets.",
-    )
-    user_id: Optional[str] = Field(None, description="The user who issued the request.")
-    req_id: Optional[str] = Field(None, description="The request ID.")
-    operation_id: Optional[str] = Field(
-        None,
-        description="The operation this data belongs to.",
-        alias="gulp.operation_id",
-    )
-    private: Optional[bool] = Field(
-        False,
-        description="If the data is private, only the websocket `ws_id` receives it.",
-    )
-    data: Optional[Any] = Field(None, description="The data carried by the websocket.")
-    internal: Optional[bool] = Field(
-        False,
-        description="Used internally (i.e. to broadcast internal events to plugins).",
-    )
-
-
 class WsQueueMessagePool:
     """
     message pool for the ws to reduce memory pressure and gc
@@ -706,9 +671,8 @@ class GulpConnectedSocket:
     - cleanup operations
     """
 
-    # class constants for configuration
-    YIELD_CONTROL_INTERVAL: int = 100
-    YIELD_CONTROL_DELAY: float = 0.01
+    YIELD_CONTROL_INTERVAL: int = 100  # yield control every 100 messages
+    YIELD_CONTROL_DELAY: float = 0.01  # yield control delay in seconds
 
     def __init__(
         self,
@@ -810,7 +774,7 @@ class GulpConnectedSocket:
         flushes the websocket queue.
         """
         try:
-            # drain queue quickly and efficiently
+            # drain queue
             while self.q.qsize() != 0:
                 try:
                     self.q.get_nowait()
@@ -883,51 +847,6 @@ class GulpConnectedSocket:
             SHARED_MEMORY_KEY_ACTIVE_SOCKETS, self.ws_id
         )
 
-    async def _receive_loop(self) -> None:
-        """
-        continuously receives messages to detect disconnection
-        """
-        while True:
-            # raise exception if websocket is disconnected
-            self.validate_connection()
-
-            try:
-                # use a shorter timeout to ensure we can yield control regularly
-                await asyncio.wait_for(self.ws.receive_json(), timeout=1.0)
-                await asyncio.sleep(GulpConnectedSocket.YIELD_CONTROL_DELAY)
-            except asyncio.TimeoutError:
-                # no message received, good time to yield control
-                await asyncio.sleep(GulpConnectedSocket.YIELD_CONTROL_DELAY)
-                continue
-
-    async def put_message(self, msg: dict) -> None:
-        """
-        Puts a message into the websocket queue.
-
-        Args:
-            msg (dict): The message to put.
-        """
-        # use a slot from the pool
-        pooled_msg = self._msg_pool.get()
-        pooled_msg.update(msg)
-        await self.q.put(pooled_msg)
-
-    async def send_json(self, msg: dict, delay: float) -> None:
-        """
-        Sends a JSON message to the websocket.
-
-        Args:
-            msg (dict): The message to send.
-            delay (float): The delay to wait before sending the message.
-        """
-        await self.ws.send_json(msg)
-
-        # return msg to pool
-        self._msg_pool.put(msg)
-
-        # rate limit
-        await asyncio.sleep(delay)
-
     def validate_connection(self) -> None:
         """
         validates that the websocket is still connected
@@ -940,7 +859,7 @@ class GulpConnectedSocket:
 
     async def _process_queue_message(self) -> bool:
         """
-        processes message from the websocket queue
+        get and send a message from the queue to the websocket with timeout and cancellation handling
 
         returns:
             bool: true if message was processed, false if timeout occurred
@@ -958,16 +877,35 @@ class GulpConnectedSocket:
             self.validate_connection()
 
             # connection is verified, send the message
-            await self.send_json(item, GulpConfig.get_instance().ws_rate_limit_delay())
+            await self.ws.send_json(item)
+            await asyncio.sleep(GulpConfig.get_instance().ws_rate_limit_delay())
+
             self.q.task_done()
             return True
 
         except asyncio.TimeoutError:
-            # check for cancellation during timeout
+            # no messages, check for cancellation during timeout
             current_task = asyncio.current_task()
             if current_task and current_task.cancelled():
                 raise asyncio.CancelledError()
             return False
+
+    async def _receive_loop(self) -> None:
+        """
+        continuously receives messages to detect disconnection
+        """
+        while True:
+            # raise exception if websocket is disconnected
+            self.validate_connection()
+
+            try:
+                # use a shorter timeout to ensure we can yield control regularly
+                await asyncio.wait_for(self.ws.receive_json(), timeout=1.0)
+            except asyncio.TimeoutError:
+                # no message received
+                continue
+            finally:
+                await asyncio.sleep(GulpConnectedSocket.YIELD_CONTROL_DELAY)
 
     async def _send_loop(self) -> None:
         """
@@ -1268,7 +1206,7 @@ class GulpConnectedSockets:
         message = data.model_dump(
             exclude_none=True, exclude_defaults=True, by_alias=True
         )
-        await target_ws.put_message(message)
+        await target_ws.q.put(message)
         return True
 
     async def _route_internal_message(self, data: GulpWsData) -> None:
@@ -1558,12 +1496,12 @@ class GulpWsSharedQueue:
         this is used to send internal events from worker processes to be processed by the main process
 
         Args:
-            msg (str): The message type.
+            msg (str): The message type (i.e. GulpInternalEventsManager.EVENT_INGEST)
             params (dict, optional): The parameters for the message.
         """
         wsd = GulpWsData(
-            muty.time.now_msec(),
-            msg,
+            timestamp=muty.time.now_msec(),
+            type=msg,
             data=params,
             internal=True,
         )
@@ -1603,7 +1541,7 @@ class GulpWsSharedQueue:
         # lengthy processes if the websocket is no longer connected
         if t == WSDATA_DOCUMENTS_CHUNK:
             if not ws_id or not GulpConnectedSocket.is_alive(ws_id):
-                raise WebSocketDisconnect("websocket '%s' is not connected!" % (ws_id))
+                raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
 
         # create the message
         wsd = GulpWsData(
@@ -1632,8 +1570,8 @@ class GulpWsSharedQueue:
                 backoff_time: int = retry
 
                 # log the attempt
-                MutyLogger.get_instance().warning(
-                    "queue full (size=%d) for ws_id=%s, attempt %d/%d, backoff_time=%ds",
+                MutyLogger.get_instance().error(
+                    "***** queue full (size=%d) for ws_id=%s, attempt %d/%d, backoff_time=%ds",
                     self._shared_q.qsize(),
                     ws_id,
                     retry + 1,
@@ -1653,10 +1591,10 @@ class GulpWsSharedQueue:
         self,
         t: str,
         user_id: str,
+        req_id: str,
+        ws_id: str = None,
         d: dict = None,
         operation_id: str = None,
-        ws_id: str = None,
-        req_id: str = None,
     ) -> None:
         """
         a shortcut method to send generic notify messages to the queue, to be routed among connected sockets
@@ -1664,17 +1602,17 @@ class GulpWsSharedQueue:
         args:
             t (str): the custom notify type
             user_id (str): the user id associated with this message
+            req_id (str): the request id
+            ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
             d (dict, optional): the payload data. Defaults to None.
             operation_id (Optional[str]): the operation id if applicable
-            ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
-            req_id (str, optional): the request id if applicable
         """
 
-        if d is None:
+        if not d:
             d = {}
 
         p: GulpCollabGenericNotifyPacket = GulpCollabGenericNotifyPacket(type=t, data=d)
-        d = p.model_dump(exclude_none=True, exclude_defaults=True)
+        d = p.model_dump(exclude_none=True)
         await self.put(
             t=WSDATA_GENERIC,
             user_id=user_id,
@@ -1688,8 +1626,8 @@ class GulpWsSharedQueue:
         self,
         msg: str,
         user_id: str,
-        ws_id: str,
         req_id: str,
+        ws_id: str = None,
         total: int = 0,
         current: int = 0,
         d: dict = None,
@@ -1697,18 +1635,18 @@ class GulpWsSharedQueue:
         operation_id: str = None,
     ) -> None:
         """
-        a shortcut method to send progress messages to the queue
+        a shortcut method to send GulpProgressPacket messages to the queue
 
         args:
             msg (str): the progress message
             user_id (str): the user id associated with this message
+            req_id (str, optional): the request id
+            ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
             total (int, optional): the total number of items to process
             current (int, optional): the current number of processed items
             d (dict, optional): the progress payload data if any. Defaults to None.
             done (bool, optional): whether the operation is done. Defaults to False.
             operation_id (Optional[str]): the operation id if applicable
-            ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
-            req_id (str, optional): the request id if applicable
         """
         p = GulpProgressPacket(
             total=total,
