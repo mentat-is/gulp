@@ -20,6 +20,7 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
+import time
 
 
 class GulpWsType(StrEnum):
@@ -97,7 +98,7 @@ class GulpWsData(BaseModel):
             description="set to broadcast internal events to plugins registered through `GulpPluginBase.register_internal_events_callback()`.",
         ),
     ] = False
-    data: Annotated[
+    payload: Annotated[
         Optional[Any], Field(description="The data carried by the websocket.")
     ] = None
     ws_id: Annotated[
@@ -189,7 +190,7 @@ class GulpCollabUpdatePacket(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "data": {
+                    "obj": {
                         "id": "the id",
                         "name": "the name",
                         "type": "note",
@@ -1299,6 +1300,9 @@ class GulpConnectedSockets:
         message = data.model_dump(
             exclude_none=True, exclude_defaults=True, by_alias=True
         )
+        # MutyLogger.get_instance().debug(
+        #     "routing message to ws_id=%s: %s", target_ws.ws_id, message
+        # )
         await target_ws.q.put(message)
         return True
 
@@ -1313,11 +1317,11 @@ class GulpConnectedSockets:
         from gulp.plugin import GulpInternalEventsManager
 
         # MutyLogger.get_instance().debug(
-        #     "routing internal message: type=%s, data=%s", data.type, data.data
+        #     "routing internal message: type=%s, data=%s", data.type, data.payload
         # )
         await GulpInternalEventsManager.get_instance().broadcast_event(
             data.type,
-            data=data.data,
+            data=data.payload,
             user_id=data.user_id,
             operation_id=data.operation_id,
         )
@@ -1332,12 +1336,19 @@ class GulpConnectedSockets:
             data (GulpWsData): The message to broadcast.
             skip_list (list[str], optional): The list of websocket IDs to skip. Defaults to None.
         """
+        # MutyLogger.get_instance().debug(
+        #     "******************* broadcasting message: type=%s, data=%s, skip_list=%s",
+        #     data.type,
+        #     data.payload,
+        #     skip_list,
+        # )
+
         if data.internal:
             # this is an internal message, route to plugins
             # MutyLogger.get_instance().debug(
             #     "broadcast_message(): routing internal message: type=%s, data=%s",
             #     data.type,
-            #     data.data,
+            #     data.payload,
             # )
             await self._route_internal_message(data)
             return
@@ -1471,7 +1482,7 @@ class GulpWsSharedQueue:
             # close first
             await self.close()
 
-        MutyLogger.get_instance().debug("re/initializing shared ws queue ...")
+        MutyLogger.get_instance().debug("initializing shared ws queue ...")
         self._shared_q = mgr.Queue(GulpWsSharedQueue.MAX_QUEUE_SIZE)
         self._fill_task = asyncio.create_task(self._fill_ws_queues_from_shared_queue())
 
@@ -1483,8 +1494,7 @@ class GulpWsSharedQueue:
         """
         from gulp.api.rest_api import GulpRestServer
 
-        logger = MutyLogger.get_instance()
-        logger.debug("starting shared queue processing task...")
+        MutyLogger.get_instance().debug("starting shared queue processing task...")
 
         messages: list[GulpWsData] = []
         last_yield_time: GulpWsIngestPacket = time.monotonic()
@@ -1503,6 +1513,14 @@ class GulpWsSharedQueue:
 
                 # dispatch
                 for msg in messages:
+                    # MutyLogger.get_instance().debug(
+                    #     "shared queue processing message: type=%s, ws_id=%s, user_id=%s, operation_id=%s, internal=%s",
+                    #     msg.type,
+                    #     msg.ws_id,
+                    #     msg.user_id,
+                    #     msg.operation_id,
+                    #     msg.internal,
+                    # )
                     cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
                     if cws or msg.internal:
                         await GulpConnectedSockets.get_instance().broadcast_message(msg)
@@ -1621,7 +1639,7 @@ class GulpWsSharedQueue:
             user_id=user_id,
             req_id=req_id,
             operation_id=operation_id,
-            data=data,
+            payload=data,
             internal=True,
         )
         self._shared_q.put(wsd)
@@ -1671,7 +1689,7 @@ class GulpWsSharedQueue:
             user_id=user_id,
             req_id=req_id,
             private=private,
-            data=data,
+            payload=data,
         )
 
         # attempt to add with exponential backoff
@@ -1682,6 +1700,9 @@ class GulpWsSharedQueue:
                 )
                 # MutyLogger.get_instance().debug(
                 #     "added type=%s message to queue for ws=%s", t, ws_id
+                # )
+                # MutyLogger.get_instance().debug(
+                #     "queued message in the shared_q: %s", wsd
                 # )
                 return
             except queue.Full:

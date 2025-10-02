@@ -240,7 +240,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 bulk=True,
                 last=last,
                 bulk_size=len(inserted_notes),
-                total_size=len(notes)
+                total_size=len(notes),
             )
             wsq = GulpWsSharedQueue.get_instance()
             await wsq.put(

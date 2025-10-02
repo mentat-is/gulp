@@ -289,7 +289,7 @@ class GulpAPIWebsocket:
             timestamp=muty.time.now_msec(),
             type=WSDATA_ERROR,
             ws_id=ws_id,
-            data=p.model_dump(exclude_none=True),
+            payload=p.model_dump(exclude_none=True),
         )
         await websocket.send_json(wsd.model_dump(exclude_none=True, by_alias=True))
 

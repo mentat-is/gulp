@@ -875,7 +875,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_id (str, optional): The websocket id to send notification to. Defaults to None (no websocket notification).
             req_id (str, optional): Ignored if ws_id is None, the request ID to include in the websocket notification. Defaults to None.
             ws_data_type (str, optional): this is the type in `GulpWsData.type` sent on the websocket. Defaults to WSDATA_COLLAB_CREATE. Ignored if ws_id is not provided (used only for websocket notification).
-            ws_data (dict, optional): value of GulpWsData.data sent on the websocket. Defaults to the created object.
+            ws_data (dict, optional): value of GulpWsData.payload sent on the websocket. Defaults to the created object.
             extra_object_data (dict, optional): Additional data to include in the object dictionary, to avoid clash with main parameters passed explicitly (i.e. ws_id, ...). Defaults to None.
             **kwargs: Additional attributes to include in the object.
         Returns:
@@ -1091,7 +1091,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The database session to use: the session will be committed and refreshed after the update.
             ws_id (str, optional): The ID of the websocket connection to send update to the websocket. Defaults to None (no update will be sent)
             user_id (str, optional): The ID of the user making the request. Defaults to None, ignored if ws_id is not provided (used only for websocket notification).
-            ws_data (dict, optional): this is the data sent in `GulpWsData.data` on the websocket after the object has been updated on database. Defaults to the (serialized) updated object itself. Ignored if ws_id is not provided.
+            ws_data (dict, optional): this is the data sent in `GulpWsData.payload` on the websocket after the object has been updated on database. Defaults to the (serialized) updated object itself. Ignored if ws_id is not provided.
             ws_data_type (str, optional): this is the type in `GulpWsData.type` sent on the websocket. Defaults to WSDATA_COLLAB_UPDATE. Ignored if ws_id is not provided (used only for websocket notification).
             **kwargs: additional fields to set on the object (existing values will be overwritten, None values will be ignored)
         Returns:
@@ -1180,7 +1180,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             req_id (str, optional): The ID of the request to include in the websocket notification. Defaults to None (ignored if ws_id is None).
             user_id (str, optional): The ID of the user making the request, only used if ws_id is set. Defaults to None.
             ws_data_type (str, optional): value of GulpWsData.type sent to the websocket: if not set, WSDATA_COLLAB_DELETE will be used.
-            ws_data (dict, optional): data to send to the websocket: if not set, a GulpDeleteCollabPacket with object id will be sent.
+            ws_data (dict, optional): payload to send to the websocket: if not set, a GulpDeleteCollabPacket with object id will be sent.
             raise_on_error (bool): Whether to raise an exception on error. Defaults to True.
         Returns:
             None
@@ -1300,7 +1300,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_id (str, optional): id of the websocket to send WS_COLLAB_DELETE notification to. Defaults to None (no websocket notification).
             req_id (str, optional): The ID of the request to include in the websocket notification. Defaults to None (ignored if ws_id is None).
             ws_data_type (str, optional): value of GulpWsData.type sent to the websocket: if not set, WSDATA_COLLAB_DELETE will be used.
-            ws_data (dict, optional): data to send to the websocket: if not set, a GulpDeleteCollabPacket with object id will be sent.
+            ws_data (dict, optional): data to send in GulpWsData.payload on the websocket: if not set, a GulpDeleteCollabPacket with object id will be sent.
             enforce_owner (bool, optional): If True, only the owner of the object (or admin) can delete it. Defaults to False.
         Raises:
             MissingPermission: If the user does not have permission to delete the object.
