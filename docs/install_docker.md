@@ -41,15 +41,21 @@ you can run all the gulp stack on the `local machine` using the provided [docker
 
 you have to just provide your `GULP_WORKING_DIR` to the image, with a valid [gulp_cfg.json](../gulp_cfg_template.json) inside, and you're ready to go!
 
+> if a configuration is not provided, a default one will be created in the `GULP_WORKING_DIR` you specified (may need some tweaking afterwards, though).
+
 ~~~bash
-# supplying local GULP_IMAGE is optional, either the latest is pulled from our registry, starts gulp, sftpd, adminer, elasticvue
-GULP_IMAGE=gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
+# supplying GULP_IMAGE is optional, either the latest is pulled from our registry.
+# starts gulp backend and dev tools (--profile dev), ui must be run separately
+GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
 
-# OR, to add extra arguments, provide them with EXTRA_ARGS, i.e. to tweak log-level
-EXTRA_ARGS="--log-level warning" GULP_IMAGE=gulp-core GULP_BIND_TO_PORT=8080 docker compose --profile gulp --profile dev up
+# also run the ui (--profile gui) in a container
+GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gui --profile dev up
 
-# OR, to just run gulp service oneshot, overriding args
-GULP_IMAGE=gulp-core docker compose run --rm gulp gulp --log-level warning
+# add extra arguments to pass on the gulp commandline with EXTRA_ARGS, i.e. to tweak log-level
+EXTRA_ARGS="--log-level warning" GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gui --profile dev up
+
+# run gulp service only, oneshot (--rm)
+GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose run -p 8080:8080 --rm gulp gulp --log-level warning
 ~~~
 
 multiple profiles (one or more) may be specified using on the `docker compose` command line:

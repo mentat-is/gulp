@@ -121,7 +121,7 @@ services:
 
   ftpserver:
     image: delfer/alpine-ftp-server:latest
-    profiles: [ "gulp", "dev" ]
+    profiles: [ "gulp", "dev", "gui" ]
     container_name: ftpserver
     depends_on:
       - os01
