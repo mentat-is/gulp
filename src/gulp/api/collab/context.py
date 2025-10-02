@@ -159,6 +159,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 private=False,
                 ws_id=ws_id,
                 req_id=req_id,
+                obj_id=src_id,
                 **object_data,
             )
 

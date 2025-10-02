@@ -2829,11 +2829,12 @@ class GulpPluginBase(ABC):
         skipped: int = 0
         errors: list[str] = []
         status: GulpRequestStatus = None
-
+        source_failed: bool = False
         if ex:
             if isinstance(ex, SourceCanceledError):
                 self._req_canceled = True
             else:
+                source_failed = True
                 errors.append(muty.log.exception_to_string(ex))
 
         try:
@@ -2861,12 +2862,12 @@ class GulpPluginBase(ABC):
                 status = GulpRequestStatus.CANCELED
         else:
             # send WSDATA_INGEST_SOURCE_DONE on the ws
-            if errors:
+            if errors or source_failed:
                 status = GulpRequestStatus.FAILED
-            elif self._req_canceled:
-                status = GulpRequestStatus.CANCELED
             else:
                 status = GulpRequestStatus.DONE
+            if self._req_canceled:
+                status = GulpRequestStatus.CANCELED
 
             wsq = GulpWsSharedQueue.get_instance()
             p: GulpIngestSourceDonePacket = GulpIngestSourceDonePacket(
@@ -2897,7 +2898,6 @@ class GulpPluginBase(ABC):
                 processed=self._records_processed_per_chunk,
                 failed=self._records_failed_per_chunk,
                 errors=errors,
-                status=status,
                 source_finished=source_finished,
             )
             return d["status"]
@@ -3019,23 +3019,25 @@ class GulpPluginBase(ABC):
                     )
                     force_load_from_disk = True
 
-        if not force_load_from_disk:
-            # use cache
-            m: ModuleType = GulpPluginCache.get_instance().get(internal_plugin_name)
-            if m:
-                # return from cache
-                return m.Plugin(path, pickled=pickled, **kwargs)
-
-        # load from file
         seed: str = muty.string.generate_unique()
         if extension:
             module_name = f"gulp.plugins.extension.{internal_plugin_name}-{seed}"
         else:
             module_name = f"gulp.plugins.{internal_plugin_name}-{seed}"
 
-        # load from file (will be added to sys.modules)
-        m: ModuleType = muty.dynload.load_dynamic_module_from_file(module_name, path)
-        p: GulpPluginBase = m.Plugin(path, module_name, pickled=pickled, **kwargs)
+        p: GulpPluginBase = None
+        if not force_load_from_disk:
+            # use cache
+            m: ModuleType = GulpPluginCache.get_instance().get(internal_plugin_name)
+            if m:
+                p = m.Plugin(path, module_name, pickled=pickled, **kwargs)
+
+        if not p:
+            # load from file (will be added to sys.modules)
+            m: ModuleType = muty.dynload.load_dynamic_module_from_file(
+                module_name, path
+            )
+            p = m.Plugin(path, module_name, pickled=pickled, **kwargs)
         MutyLogger.get_instance().debug(
             f"LOADED plugin m={m}, p={p}, name()={p.name}, pickled={pickled}, depends_on={p.depends_on()}"
         )
@@ -3088,8 +3090,9 @@ class GulpPluginBase(ABC):
         # empty internal events queue
         self.deregister_internal_events_callback()
 
-        # delete the loaded module from sys.modules
-        del sys.modules[self.module_name]
+        if not GulpConfig.get_instance().plugin_cache_enabled():
+            # delete the loaded module from sys.modules
+            del sys.modules[self.module_name]
 
     @staticmethod
     def path_from_plugin(

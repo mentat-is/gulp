@@ -36,12 +36,12 @@ def _parse_args():
     parser.add_argument(
         "--username",
         help="user name",
-        default="ingest",
+        default="admin",
     )
     parser.add_argument(
         "--password",
         help="user password",
-        default="ingest",
+        default="admin",
     )
     parser.add_argument(
         "--path", help="File or directory path.", metavar="FILEPATH", required=True
@@ -238,24 +238,40 @@ def _login(host, username, password, req_id, ws_id) -> str:
     return token
 
 
-def _reset(host, req_id, ws_id):
-    MutyLogger.get_instance().info("resetting gulp")
+def _reset(host, operation_id, req_id, ws_id):
+    MutyLogger.get_instance().info("resetting gulp (recreates operation)")
     admin_token = _login(host, "admin", "admin", req_id, ws_id)
-    reset_command = [
+    cmd = [
+        "curl",
+        "-v",
+        "-H",
+        f"token: {admin_token}",
+        "-X",
+        "DELETE",
+        f"{host}/operation_delete?req_id={req_id}&operation_id={operation_id}&ws_id={ws_id}",
+    ]
+    MutyLogger.get_instance().info(f"operation_delete command: {cmd}")
+
+    res = subprocess.run(cmd, capture_output=True)
+    if res.returncode != 0:
+        MutyLogger.get_instance().error("operation_delete failed")
+        sys.exit(1)
+    MutyLogger.get_instance().debug(cmd.stdout)
+
+    cmd = [
         "curl",
         "-v",
         "-H",
         f"token: {admin_token}",
         "-X",
         "POST",
-        f"{host}/gulp_reset?req_id={req_id}",
+        f"{host}/operation_create?req_id={req_id}&operation_id={operation_id}&ws_id={ws_id}&index={operation_id}&name={operation_id}&set_default_grants=True",
     ]
-    MutyLogger.get_instance().info(f"reset command: {reset_command}")
-    reset_response = subprocess.run(reset_command, capture_output=True)
-    if reset_response.returncode != 0:
-        MutyLogger.get_instance().error("reset failed")
+    res = subprocess.run(cmd, capture_output=True)
+    if res.returncode != 0:
+        MutyLogger.get_instance().error("operation_create failed")
         sys.exit(1)
-    MutyLogger.get_instance().debug(reset_response.stdout)
+    MutyLogger.get_instance().debug(cmd.stdout)
 
 
 def _ws_loop(host: str, token: str, ws_id: str):
@@ -308,7 +324,12 @@ def main():
 
     if args.reset:
         # reset first
-        _reset(args.host, args.req_id, args.ws_id)
+        _reset(
+            args.host,
+            args.operation_id,
+            args.req_id,
+            args.ws_id,
+        )
 
     # get an ingest token
     args.token = _login(

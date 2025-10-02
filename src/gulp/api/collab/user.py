@@ -501,7 +501,9 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
             await GulpInternalEventsManager.get_instance().broadcast_event(
                 GulpInternalEventsManager.EVENT_LOGIN,
-                data=GulpUserInfoInternalEvent(user_id=u.id, ip=user_ip).model_dump(),
+                data=GulpUserInfoInternalEvent(
+                    user_id=u.id, ip=user_ip, req_id=req_id
+                ).model_dump(),
                 user_id=u.id,
                 req_id=req_id,
             )
@@ -550,7 +552,9 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
         await GulpInternalEventsManager.get_instance().broadcast_event(
             GulpInternalEventsManager.EVENT_LOGOUT,
-            data=GulpUserInfoInternalEvent(user_id=s.user.id, ip=user_ip).model_dump(),
+            data=GulpUserInfoInternalEvent(
+                user_id=s.user.id, ip=user_ip, req_id=req_id
+            ).model_dump(),
             user_id=s.user.id,
             req_id=req_id,
         )

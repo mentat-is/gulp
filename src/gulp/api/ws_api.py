@@ -1,5 +1,6 @@
 import asyncio
 import collections
+from datetime import time
 import queue
 from enum import StrEnum
 from multiprocessing.managers import SyncManager
@@ -1379,6 +1380,7 @@ class GulpWsSharedQueue:
     MAX_RETRIES = 3
     BATCH_SIZE = 100
     PROCESSING_YIELD_INTERVAL = 0.1
+    PROCESSING_YIELD_CONTROL_DELAY = 0.01
 
     def __init__(self):
         # these are the fixed broadcast types that are always sent to all connected websockets
@@ -1485,7 +1487,9 @@ class GulpWsSharedQueue:
         logger.debug("starting shared queue processing task...")
 
         messages: list[GulpWsData] = []
+        last_yield_time: GulpWsIngestPacket = time.monotonic()
         try:
+
             while not GulpRestServer.get_instance().is_shutdown():
                 # collect batch of messages
                 messages.clear()
@@ -1504,7 +1508,14 @@ class GulpWsSharedQueue:
                         await GulpConnectedSockets.get_instance().broadcast_message(msg)
 
                 # yield control between batches
-                await asyncio.sleep(GulpWsSharedQueue.PROCESSING_YIELD_INTERVAL)
+                if (
+                    time.monotonic() - last_yield_time
+                    > GulpWsSharedQueue.PROCESSING_YIELD_INTERVAL
+                ):
+                    await asyncio.sleep(
+                        GulpWsSharedQueue.PROCESSING_YIELD_CONTROL_DELAY
+                    )
+                    last_yield_time = time.monotonic()
 
         except asyncio.CancelledError:
             MutyLogger.get_instance().warning("queue processing cancelled")
