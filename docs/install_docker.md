@@ -44,7 +44,8 @@ you have to just provide your `GULP_WORKING_DIR` to the image, with a valid [gul
 > if a configuration is not provided, a default one will be created in the `GULP_WORKING_DIR` you specified (may need some tweaking afterwards, though).
 
 ~~~bash
-# supplying local GULP_IMAGE is optional, either the latest is pulled from our registry, starts gulp backend and dev tools (--profile dev), ui must be run separately
+# supplying GULP_IMAGE is optional, either the latest is pulled from our registry.
+# starts gulp backend and dev tools (--profile dev), ui must be run separately
 GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
 
 # also run the ui (--profile gui) in a container
@@ -54,7 +55,7 @@ GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/vale
 EXTRA_ARGS="--log-level warning" GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gui --profile dev up
 
 # run gulp service only, oneshot (--rm)
-GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose run --rm gulp gulp --log-level warning
+GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose run -p 8080:8080 --rm gulp gulp --log-level warning
 ~~~
 
 multiple profiles (one or more) may be specified using on the `docker compose` command line:
