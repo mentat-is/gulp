@@ -410,7 +410,9 @@ async def _handle_preview_or_enqueue_ingest_task(
 
     # handle preview mode: run ingestion synchronously and return preview chunk
     if preview_mode:
-        status, preview_chunk = await _ingest_file_internal(**kwds)
+        status, preview_chunk = await _ingest_file_internal(
+            **kwds, user_id=user_id, operation_id=operation_id
+        )
         if status == GulpRequestStatus.DONE:
             return JSONResponse(
                 JSendResponse.success(req_id=req_id, data=preview_chunk)

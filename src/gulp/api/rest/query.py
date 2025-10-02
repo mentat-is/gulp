@@ -1401,7 +1401,7 @@ async def query_single_id_handler(
             await GulpUserSession.check_token(sess, token, obj=op)
             index = op.index
 
-        d = await GulpQueryHelpers.query_single(index, doc_id)
+        d = await GulpOpenSearch.get_instance().query_single_document(index, doc_id)
         return JSONResponse(JSendResponse.success(req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

@@ -256,7 +256,7 @@ def _reset(host, operation_id, req_id, ws_id):
     if res.returncode != 0:
         MutyLogger.get_instance().error("operation_delete failed")
         sys.exit(1)
-    MutyLogger.get_instance().debug(cmd.stdout)
+    MutyLogger.get_instance().debug(res.stdout)
 
     cmd = [
         "curl",
@@ -271,7 +271,7 @@ def _reset(host, operation_id, req_id, ws_id):
     if res.returncode != 0:
         MutyLogger.get_instance().error("operation_create failed")
         sys.exit(1)
-    MutyLogger.get_instance().debug(cmd.stdout)
+    MutyLogger.get_instance().debug(res.stdout)
 
 
 def _ws_loop(host: str, token: str, ws_id: str):

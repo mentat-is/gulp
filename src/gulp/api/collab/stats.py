@@ -373,10 +373,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         sess: AsyncSession,
         user_id: str = None,
         ws_id: str = None,
-        ingested: int = 0,
-        skipped: int = 0,
-        processed: int = 0,
-        failed: int = 0,
+        records_ingested: int = 0,
+        records_skipped: int = 0,
+        records_processed: int = 0,
+        records_failed: int = 0,
         errors: list[str | Exception] = None,
         status: GulpRequestStatus = None,
         source_finished: bool = False,
@@ -428,14 +428,21 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             d: GulpIngestionStats = (
                 GulpIngestionStats.model_validate(self.data) or GulpIngestionStats()
             )
-            d.records_ingested += ingested
-            d.records_skipped += skipped
-            d.records_processed += processed
-            d.records_failed += failed
+            d.records_ingested += records_ingested
+            d.records_skipped += records_skipped
+            d.records_processed += records_processed
+            d.records_failed += records_failed
 
             if source_finished or set_expiration:
                 # this request is done, compute status value
                 d.source_processed += 1
+                if status and (
+                    status == GulpRequestStatus.CANCELED.value
+                    or status == GulpRequestStatus.FAILED.value
+                ):
+                    # if the request was canceled or failed, mark one more source as failed
+                    d.source_failed += 1
+
                 if d.source_processed >= d.source_total:
                     MutyLogger.get_instance().debug(
                         "all sources processed for request %s, processed=%d, total=%d",

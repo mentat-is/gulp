@@ -558,7 +558,9 @@ async def tag_single_id_handler(
             user_id = s.user.id
 
         # get the document and add tags
-        doc: dict = await GulpQueryHelpers.query_single(index, doc_id)
+        doc: dict = await GulpOpenSearch.get_instance().query_single_document(
+            index, doc_id
+        )
         doc.update({"gulp.tags": tags})
 
         # update the document

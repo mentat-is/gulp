@@ -1538,7 +1538,7 @@ class GulpPluginBase(ABC):
         # await self._initialize(plugin_params=plugin_params)
 
         # get the document
-        doc = await GulpQueryHelpers.query_single(index, doc_id)
+        doc = await GulpOpenSearch.get_instance().query_single_document(index, doc_id)
 
         # enrich
         docs = await self._enrich_documents_chunk([doc])
@@ -2247,10 +2247,10 @@ class GulpPluginBase(ABC):
             self._sess,
             user_id=self._user_id,
             ws_id=self._ws_id,
-            ingested=ingested,
-            skipped=skipped,
-            processed=self._records_processed_per_chunk,
-            failed=self._records_failed_per_chunk,
+            records_ingested=ingested,
+            records_skipped=skipped,
+            records_processed=self._records_processed_per_chunk,
+            records_failed=self._records_failed_per_chunk,
         )
 
         # reset buffers and counters
@@ -2815,6 +2815,9 @@ class GulpPluginBase(ABC):
         Returns:
             GulpRequestStatus: The final status of the ingestion process.
         """
+        if self._preview_mode:
+            return GulpRequestStatus.DONE
+
         MutyLogger.get_instance().debug(
             "**SOURCE DONE**: %s, remaining docs to flush in docs_buffer: %d, status=%s, preview_mode=%r",
             self._file_path or self._source_id,
@@ -2822,8 +2825,6 @@ class GulpPluginBase(ABC):
             self._stats.status,
             self._preview_mode,
         )
-        if self._preview_mode:
-            return GulpRequestStatus.DONE
 
         ingested: int = 0
         skipped: int = 0
@@ -2893,11 +2894,12 @@ class GulpPluginBase(ABC):
                 self._sess,
                 user_id=self._user_id,
                 ws_id=self._ws_id,
-                ingested=ingested,
-                skipped=skipped,
-                processed=self._records_processed_per_chunk,
-                failed=self._records_failed_per_chunk,
+                records_ingested=ingested,
+                records_skipped=skipped,
+                records_processed=self._records_processed_per_chunk,
+                records_failed=self._records_failed_per_chunk,
                 errors=errors,
+                status=status,
                 source_finished=source_finished,
             )
             return d["status"]

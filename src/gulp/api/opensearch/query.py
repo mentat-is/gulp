@@ -458,30 +458,3 @@ class GulpQueryHelpers:
             source_q=source_q,
         )
         return processed, total, q_options.name
-
-    @staticmethod
-    async def query_single(
-        index: str,
-        doc_id: str,
-        el: AsyncElasticsearch | AsyncOpenSearch = None,
-    ) -> dict:
-        """
-        Perform a single document query using the given document id on gulp's opensearch/elasticsearch, and return the document as a GulpDocument dictionary.
-
-        Args:
-            req_id (str): the request id
-            index (str): the opensearch/elasticsearch index/datastream to target
-            doc_id (str): the document id to query
-            el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
-
-        Returns:
-            dict: the document as a GulpDocument dictionary
-
-        Raises:
-            ObjectNotFound: if the document is not found.
-        """
-        from gulp.api.opensearch_api import GulpOpenSearch
-
-        return await GulpOpenSearch.get_instance().query_single_document(
-            index, doc_id, el=el
-        )
