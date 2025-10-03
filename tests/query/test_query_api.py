@@ -53,7 +53,7 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    ingest = os.getenv("INGEST", "1")
+    ingest = os.getenv("SKIP_RESET", "1")
     if ingest == "1":
         await _ensure_test_operation()
     else:
@@ -267,7 +267,7 @@ async def test_queries():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
-    ingest = os.getenv("INGEST", "1")
+    ingest = os.getenv("SKIP_RESET", "1")
     if ingest == "1":
         # ingest some data
         from tests.ingest.test_ingest import test_win_evtx

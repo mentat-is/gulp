@@ -33,7 +33,7 @@ from gulp.structs import GulpSortOrder
 
 class GulpQuery(BaseModel):
     """
-    A query
+    A query (may be sigma yml or opensearch lucene raw)
     """
 
     def __init__(

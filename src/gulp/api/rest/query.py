@@ -69,6 +69,7 @@ from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router: APIRouter = APIRouter()
 
@@ -591,6 +592,7 @@ async def _worker_coro(kwds: dict) -> None:
 
 
 async def _preview_query(
+    sess: AsyncSession,
     operation_id: str,
     user_id: str,
     req_id: str,
@@ -604,6 +606,7 @@ async def _preview_query(
     runs a single preview query
 
     Args:
+        sess (AsyncSession): database session
         operation_id (str): operation id
         user_id (str): user id
         req_id (str): request id
@@ -621,35 +624,32 @@ async def _preview_query(
     MutyLogger.get_instance().debug("running preview query %s" % (q))
     mod: GulpPluginBase = None
 
-    try:
-        if plugin:
-            # load plugin (common for all)
-            mod = await GulpPluginBase.load(plugin)
-
+    if plugin:
+        # load plugin (common for all)
+        mod = await GulpPluginBase.load(plugin)
+        try:
             # external query
-            async with GulpCollab.get_instance().session() as sess:
-                total, docs = await mod.query_external(
-                    sess=sess,
-                    user_id=user_id,
-                    req_id=req_id,
-                    ws_id=None,
-                    operation_id=operation_id,
-                    q=q,
-                    index=None,
-                    plugin_params=plugin_params,
-                    q_options=q_options,
-                )
-        else:
-            # standard query
-            total, docs, _ = await GulpOpenSearch.get_instance().search_dsl_sync(
-                query_index, q, q_options
+            total, docs = await mod.query_external(
+                sess=sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=None, # preview
+                operation_id=operation_id,
+                q=q,
+                index=None, # preview
+                plugin_params=plugin_params,
+                q_options=q_options,
             )
-            for d in docs:
-                # remove highlight, not needed in preview
-                d.pop("highlight", None)
-    finally:
-        if mod:
+        finally:
             await mod.unload()
+    else:
+        # standard query
+        total, docs, _ = await GulpOpenSearch.get_instance().search_dsl_sync(
+            query_index, q, q_options
+        )
+        for d in docs:
+            # remove highlight, not needed in preview
+            d.pop("highlight", None)
 
     return total, docs
 
@@ -726,6 +726,61 @@ async def _spawn_query_group_workers(
     # run _worker_coro in background, it will spawn a worker for each query and wait them
     await GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
 
+async def _query_raw_internal(sess: AsyncSession,
+    user_id: str,
+    operation_id: str,
+    req_id: str,
+    ws_id: str,                              
+    index: str,
+    q: list[dict]|list[GulpQuery],
+    q_options: GulpQueryParameters,
+    ) -> dict, None:
+    if q_options.preview_mode:
+        if len(q) > 1:
+            raise ValueError(
+                "if `q_options.preview_mode` is set, only one query is allowed."
+            )
+
+        # preview mode, run the query and return the data
+        total, docs = await _preview_query(
+            sess,
+            operation_id=operation_id,
+            user_id=user_id,
+            req_id=req_id,
+            q=q[0],
+            query_index=index,
+            q_options=q_options,
+        )
+        return {
+            "total_hits": total,
+            "docs": docs
+        }
+
+        queries: list[GulpQuery] = []
+        if isinstance(q[0], GulpQuery):
+            queries=q
+        else:
+            for qq in q:
+                # build query
+                gq = GulpQuery(name=q_options.name, q=qq)
+                queries.append(gq)
+
+        # add query to history (first one only)
+        await GulpUser.add_query_history_entry(
+            user_id, queries[0].q, q_options=q_options
+        )
+
+            await _spawn_query_group_workers(
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                index=op.index,
+                queries=queries,
+                q_options=q_options,
+            )
+
+    pass
 
 @router.post(
     "/query_raw",
@@ -817,60 +872,63 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            permission = GulpUserPermission.READ
-
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(
-                sess, token, permission=permission, obj=op
-            )
-            user_id = s.user.id
-        if not q_options.name:
-            q_options.name = muty.string.generate_unique()
-        if q_options.preview_mode:
-            if len(q) > 1:
-                raise ValueError(
-                    "if `q_options.preview_mode` is set, only one query is allowed."
+            try:
+                # get operation and check acl
+                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+                s = await GulpUserSession.check_token(
+                    sess, token, obj=op
                 )
+                user_id = s.user.id
+                if not q_options.name:
+                    q_options.name = muty.string.generate_unique()
+                if q_options.preview_mode:
+                    if len(q) > 1:
+                        raise ValueError(
+                            "if `q_options.preview_mode` is set, only one query is allowed."
+                        )
 
-            # preview mode, run the query and return the data
-            total, docs = await _preview_query(
-                operation_id=operation_id,
+                    # preview mode, run the query and return the data
+                    total, docs = await _preview_query(
+                        sess,
+                        operation_id=operation_id,
+                        user_id=user_id,
+                        req_id=req_id,
+                        q=q[0],
+                        query_index=op.index,
+                        q_options=q_options,
+                    )
+                    return JSONResponse(
+                        JSendResponse.success(
+                            req_id=req_id, data={"total_hits": total, "docs": docs}
+                        )
+                    )
+
+                queries: list[GulpQuery] = []
+                for qq in q:
+                    # build query
+                    gq = GulpQuery(name=q_options.name, q=qq)
+                    queries.append(gq)
+
+            # add query to history (first one only)
+            await GulpUser.add_query_history_entry(
+                user_id, queries[0].q, q_options=q_options
+            )
+
+            await _spawn_query_group_workers(
                 user_id=user_id,
                 req_id=req_id,
-                q=q[0],
-                query_index=op.index,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                index=op.index,
+                queries=queries,
                 q_options=q_options,
             )
-            return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id, data={"total_hits": total, "docs": docs}
-                )
-            )
 
-        queries: list[GulpQuery] = []
-        for qq in q:
-            # build query
-            gq = GulpQuery(name=q_options.name, q=qq)
-            queries.append(gq)
-
-        # add query to history (first one only)
-        await GulpUser.add_query_history_entry(
-            user_id, queries[0].q, q_options=q_options
-        )
-
-        await _spawn_query_group_workers(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            index=op.index,
-            queries=queries,
-            q_options=q_options,
-        )
-
-        # and return pending
-        return JSONResponse(JSendResponse.pending(req_id=req_id))
+            # and return pending
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
+        except Exception as ex:
+            await sess.rollback()
+            raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -927,7 +985,7 @@ async def query_gulp_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)],
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),
@@ -1497,7 +1555,7 @@ async def query_max_min_per_field(
         Query(description="group by field (i.e. `event.code`), default=no grouping"),
     ] = None,
     flt: Annotated[
-        GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)
+        GulpQueryFilter, Depends(APIDependencies.param_q_flt)
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -1787,7 +1845,7 @@ async def query_gulp_export_json_handler(
     bt: BackgroundTasks,
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_query_flt_optional)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)],
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),

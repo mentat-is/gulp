@@ -22,6 +22,7 @@ from typing import Annotated, Union
 from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
+from pydantic import Field
 
 from gulp.api.collab.glyph import GulpGlyph
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
@@ -80,12 +81,11 @@ def _read_img_file(file: UploadFile) -> bytes:
 async def glyph_create_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     img: Annotated[UploadFile, File(description="an image file.")],
+    private: Annotated[bool, Depends(APIDependencies.param_private)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     name: Annotated[
-        str,
-        Depends(APIDependencies.param_display_name_optional),
+        str, Field(description="an optional name, either the uploaded filename is used")
     ] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     params["img"] = img.filename
@@ -131,10 +131,10 @@ async def glyph_create_handler(
 )
 async def glyph_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    img: Annotated[Union[UploadFile, str], File(description="an image file.")] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    name: Annotated[str, Depends(APIDependencies.param_name)],
+    img: Annotated[UploadFile, File(description="optional image file.")] = None,
 ) -> JSONResponse:
     params = locals()
     params["img"] = img.filename if img else None
@@ -191,8 +191,8 @@ async def glyph_update_handler(
 )
 async def glyph_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -228,8 +228,8 @@ async def glyph_delete_handler(
 )
 async def glyph_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     sess: AsyncSession = None
@@ -278,10 +278,8 @@ async def glyph_get_by_id_handler(
 )
 async def glyph_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    flt: Annotated[
-        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
-    ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)

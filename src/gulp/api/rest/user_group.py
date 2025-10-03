@@ -102,7 +102,7 @@ async def user_group_create_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     name: Annotated[
         str,
-        Depends(APIDependencies.param_display_name),
+        Depends(APIDependencies.param_name),
     ],
     permission: Annotated[
         list[GulpUserPermission],
@@ -110,7 +110,7 @@ async def user_group_create_handler(
     ],
     description: Annotated[
         str,
-        Depends(APIDependencies.param_description_optional),
+        Depends(APIDependencies.param_description),
     ] = None,
     glyph_id: Annotated[
         str,
@@ -181,7 +181,7 @@ async def user_group_update_handler(
     ] = None,
     description: Annotated[
         str,
-        Depends(APIDependencies.param_description_optional),
+        Depends(APIDependencies.param_description),
     ] = None,
     glyph_id: Annotated[
         str,
@@ -342,9 +342,7 @@ async def user_group_get_by_id_handler(
 )
 async def user_group_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    flt: Annotated[
-        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
-    ] = None,
+    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()

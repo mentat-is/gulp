@@ -70,47 +70,48 @@ async def link_create_handler(
     doc_id_from: Annotated[str, Query(description="the source document ID.")],
     doc_ids: Annotated[list[str], Body(description="One or more target document IDs.")],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[
-        str, Depends(APIDependencies.param_description_optional)
-    ] = None,
+    description: Annotated[str, Depends(APIDependencies.param_description)] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
+    private: Annotated[bool, Depends(APIDependencies.param_private)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
-    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # check token on operation
-            s: GulpUserSession
-            s, _, _ = await GulpOperation.get_by_id_wrapper(
-                sess, token, operation_id, GulpUserPermission.EDIT
-            )
-            user_id: str = s.user.id
+            try:
+                # check token on operation
+                s: GulpUserSession
+                s, _, _ = await GulpOperation.get_by_id_wrapper(
+                    sess, token, operation_id, GulpUserPermission.EDIT
+                )
+                user_id: str = s.user.id
 
-            l: GulpLink = await GulpLink.create_internal(
-                sess,
-                user_id,
-                ws_id=ws_id,
-                private=private,
-                req_id=req_id,
-                operation_id=operation_id,
-                glyph_id=glyph_id,
-                tags=tags,
-                color=color,
-                description=description,
-                name=name,
-                doc_id_from=doc_id_from,
-                doc_ids=doc_ids,
-            )
-            return JSONResponse(
-                JSendResponse.success(req_id=req_id, data=l.to_dict(exclude_none=True))
-            )
+                l: GulpLink = await GulpLink.create_internal(
+                    sess,
+                    user_id,
+                    ws_id=ws_id,
+                    private=private,
+                    req_id=req_id,
+                    operation_id=operation_id,
+                    glyph_id=glyph_id,
+                    tags=tags,
+                    color=color,
+                    description=description,
+                    name=name,
+                    doc_id_from=doc_id_from,
+                    doc_ids=doc_ids,
+                )
+                return JSONResponse(
+                    JSendResponse.success(
+                        req_id=req_id, data=l.to_dict(exclude_none=True)
+                    )
+                )
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
-        if sess:
-            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -140,22 +141,19 @@ async def link_create_handler(
 )
 async def link_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     doc_ids: Annotated[
         list[str], Body(description="One or more target document IDs.")
     ] = None,
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[
-        str, Depends(APIDependencies.param_description_optional)
-    ] = None,
+    description: Annotated[str, Depends(APIDependencies.param_description)] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
-    sess: AsyncSession = None
 
     try:
         if not any([doc_ids, name, description, tags, glyph_id, color]):
@@ -163,36 +161,37 @@ async def link_update_handler(
                 "At least one of doc_ids, name, description, tags, glyph_id, color must be provided."
             )
         async with GulpCollab.get_instance().session() as sess:
-            # check permissions on both operation and object
-            s: GulpUserSession
-            obj: GulpLink
-            s, obj, _ = await GulpLink.get_by_id_wrapper(
-                sess,
-                token,
-                obj_id,
-                permission=GulpUserPermission.EDIT,
-            )
+            try:
+                # check permissions on both operation and object
+                s: GulpUserSession
+                obj: GulpLink
+                s, obj, _ = await GulpLink.get_by_id_wrapper(
+                    sess,
+                    token,
+                    obj_id,
+                    permission=GulpUserPermission.EDIT,
+                )
 
-            # update
-            if doc_ids:
-                obj.doc_ids = doc_ids
-            if name:
-                obj.name = name
-            if description:
-                obj.description = description
-            if tags:
-                obj.tags = tags
-            if glyph_id:
-                obj.glyph_id = glyph_id
-            if color:
-                obj.color = color
+                # update
+                if doc_ids:
+                    obj.doc_ids = doc_ids
+                if name:
+                    obj.name = name
+                if description:
+                    obj.description = description
+                if tags:
+                    obj.tags = tags
+                if glyph_id:
+                    obj.glyph_id = glyph_id
+                if color:
+                    obj.color = color
 
-            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
-            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
-
+                dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
+                return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
-        if sess:
-            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -222,7 +221,7 @@ async def link_update_handler(
 )
 async def link_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     operation_id: Annotated[
         str,
         Depends(APIDependencies.param_operation_id),
@@ -267,24 +266,26 @@ async def link_delete_handler(
 )
 async def link_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            obj: GulpLink
-            _, obj, _ = await GulpLink.get_by_id_wrapper(
-                sess,
-                token,
-                obj_id,
-            )
-            return JSendResponse.success(
-                req_id=req_id, data=obj.to_dict(exclude_none=True)
-            )
+            try:
+                obj: GulpLink
+                _, obj, _ = await GulpLink.get_by_id_wrapper(
+                    sess,
+                    token,
+                    obj_id,
+                )
+                return JSendResponse.success(
+                    req_id=req_id, data=obj.to_dict(exclude_none=True)
+                )
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
-        if sess:
-            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -320,9 +321,7 @@ async def link_list_handler(
         str,
         Depends(APIDependencies.param_operation_id),
     ],
-    flt: Annotated[
-        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
-    ] = None,
+    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()

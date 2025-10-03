@@ -29,7 +29,6 @@ from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import (
-    GulpIngestionStats,
     GulpRequestStats,
     PreviewDone,
     RequestCanceledError,
@@ -40,7 +39,6 @@ from gulp.api.mapping.models import (
     GulpMapping,
     GulpMappingField,
     GulpMappingFile,
-    GulpSigmaMapping,
 )
 from gulp.api.opensearch.filters import (
     QUERY_DEFAULT_FIELDS,
@@ -48,7 +46,7 @@ from gulp.api.opensearch.filters import (
     GulpIngestionFilter,
     GulpQueryFilter,
 )
-from gulp.api.opensearch.query import GulpQuery, GulpQueryHelpers, GulpQueryParameters
+from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import (
@@ -1336,7 +1334,7 @@ class GulpPluginBase(ABC):
 
     async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
         """
-        to be implemented in a plugin to enrich a chunk of documents, called by GulpOpenSearch.search_dsl during loop for each chunk.
+        to be implemented in a plugin to enrich a chunk of documents, called by _enrich_documents_chunk_wrapper
 
         NOTE: do not call this function directly: this is called by the engine right before ingesting a chunk of documents in _flush_buffer()
             also, this is also called by the engine when enriching documents on-demand through the enrich_documents function.
@@ -1345,16 +1343,17 @@ class GulpPluginBase(ABC):
 
         Args:
             docs (list[dict]): the GulpDocuments as dictionaries, to be enriched
-            kwargs: additional keyword arguments, the following are guaranteed to be set by opensearch_api.search_dsl():
-                - total_hits : total hits for the query
-                - chunk_num: the chunk number, 0 based
-                - last: whether this is the last chunk
         """
         return docs
 
-    async def _enrich_documents_chunk_wrapper(self, docs: list[dict], **kwargs):
-        last = kwargs.get("last", False)
-
+    async def _enrich_documents_chunk_wrapper(
+        self,
+        docs: list[dict],
+        total_hits: int,
+        chunk_num: int,
+        last: bool = False,
+        **kwargs,
+    ) -> None:
         # call the plugin function
         docs = await self._enrich_documents_chunk(docs, **kwargs)
         self._tot_enriched += len(docs)
@@ -1367,7 +1366,6 @@ class GulpPluginBase(ABC):
                 d.pop("highlight", None)
                 dd.append(d)
 
-            last = kwargs.get("last", False)
             await GulpOpenSearch.get_instance().update_documents(
                 self._enrich_index, dd, wait_for_refresh=last
             )
@@ -1376,8 +1374,8 @@ class GulpPluginBase(ABC):
             chunk = GulpDocumentsChunkPacket(
                 docs=dd,
                 num_docs=len(dd),
-                chunk_number=kwargs.get("chunk_num", 0),
-                total_hits=kwargs.get("total_hits", 0),
+                chunk_number=chunk_num,
+                total_hits=total_hits,
                 last=last,
                 enriched=True,
             )
@@ -1424,7 +1422,7 @@ class GulpPluginBase(ABC):
         **kwargs,
     ) -> int:
         """
-        to be implemented in a plugin to enrich a chunk of GulpDocuments dictionaries on-demand.
+        enriches a chunk of GulpDocuments dictionaries on-demand.
 
         the resulting documents will be streamed to the websocket `ws_id` as GulpDocumentsChunkPacket.
 

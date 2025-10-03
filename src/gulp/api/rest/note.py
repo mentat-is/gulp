@@ -96,13 +96,12 @@ async def note_create_handler(
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
+    private: Annotated[bool, Depends(APIDependencies.param_private)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     params["doc"] = str(doc) if doc else "None"
     ServerUtils.dump_params(params)
-    sess: AsyncSession = None
 
     try:
         if doc and time_pin:
@@ -111,36 +110,44 @@ async def note_create_handler(
             raise ValueError("either doc or time_pin must be set.")
 
         async with GulpCollab.get_instance().session() as sess:
-            # check token on operation
-            s: GulpUserSession
-            s, _, _ = await GulpOperation.get_by_id_wrapper(
-                sess, token, operation_id, GulpUserPermission.EDIT
-            )
-            user_id: str = s.user.id
+            try:
+                # check token on operation
+                s: GulpUserSession
+                s, _, _ = await GulpOperation.get_by_id_wrapper(
+                    sess, token, operation_id, GulpUserPermission.EDIT
+                )
+                user_id: str = s.user.id
 
-            n: GulpNote = await GulpNote.create_internal(
-                sess,
-                user_id,
-                name=name,
-                operation_id=operation_id,
-                glyph_id=glyph_id,
-                tags=tags,
-                color=color,
-                private=private,
-                ws_id=ws_id,
-                req_id=req_id,
-                context_id=context_id,
-                source_id=source_id,
-                doc=doc.model_dump(by_alias=True, exclude_none=True) if doc else None,
-                time_pin=time_pin,
-                text=text,
-            )
-            return JSONResponse(
-                JSendResponse.success(req_id=req_id, data=n.to_dict(exclude_none=True))
-            )
+                n: GulpNote = await GulpNote.create_internal(
+                    sess,
+                    user_id,
+                    name=name,
+                    operation_id=operation_id,
+                    glyph_id=glyph_id,
+                    tags=tags,
+                    color=color,
+                    private=private,
+                    ws_id=ws_id,
+                    req_id=req_id,
+                    context_id=context_id,
+                    source_id=source_id,
+                    doc=(
+                        doc.model_dump(by_alias=True, exclude_none=True)
+                        if doc
+                        else None
+                    ),
+                    time_pin=time_pin,
+                    text=text,
+                )
+                return JSONResponse(
+                    JSendResponse.success(
+                        req_id=req_id, data=n.to_dict(exclude_none=True)
+                    )
+                )
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
-        if sess:
-            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -170,7 +177,7 @@ async def note_create_handler(
 )
 async def note_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     doc: Annotated[
         GulpBasicDocument,
@@ -194,7 +201,6 @@ async def note_update_handler(
     params = locals()
     params["doc"] = str(doc) if doc else "None"
     ServerUtils.dump_params(params)
-    sess: AsyncSession = None
 
     try:
         # we cannot have both docs and time_pin set
@@ -205,48 +211,50 @@ async def note_update_handler(
                 "at least one of doc, time_pin, text, name, tags, glyph_id, color must be set."
             )
         async with GulpCollab.get_instance().session() as sess:
-            # check permissions on both operation and object
-            s: GulpUserSession
-            obj: GulpNote
-            s, obj, _ = await GulpNote.get_by_id_wrapper(
-                sess,
-                token,
-                obj_id,
-                permission=GulpUserPermission.EDIT,
-            )
-
-            # update
-            if name:
-                obj.name = name
-            if tags:
-                obj.tags = tags
-            if glyph_id:
-                obj.glyph_id = glyph_id
-            if color:
-                obj.color = color
-
-            # ensure only one in time_pin and docs is set
-            if time_pin:
-                obj.doc = None
-                obj.time_pin = time_pin
-            elif doc:
-                obj.doc = doc.model_dump(
-                    by_alias=True, exclude_none=True, exclude_defaults=True
+            try:
+                # check permissions on both operation and object
+                s: GulpUserSession
+                obj: GulpNote
+                s, obj, _ = await GulpNote.get_by_id_wrapper(
+                    sess,
+                    token,
+                    obj_id,
+                    permission=GulpUserPermission.EDIT,
                 )
-            # add an edit
-            p = GulpNoteEdit(
-                user_id=s.user.id, text=text, timestamp=muty.time.now_msec()
-            )
-            current_edits = obj.edits or []
-            current_edits.append(p.model_dump(exclude_none=True))
-            obj.edits = current_edits  # trigger ORM update
-            obj.last_editor_id = s.user.id
 
-            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
-            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
+                # update
+                if name:
+                    obj.name = name
+                if tags:
+                    obj.tags = tags
+                if glyph_id:
+                    obj.glyph_id = glyph_id
+                if color:
+                    obj.color = color
+
+                # ensure only one in time_pin and docs is set
+                if time_pin:
+                    obj.doc = None
+                    obj.time_pin = time_pin
+                elif doc:
+                    obj.doc = doc.model_dump(
+                        by_alias=True, exclude_none=True, exclude_defaults=True
+                    )
+                # add an edit
+                p = GulpNoteEdit(
+                    user_id=s.user.id, text=text, timestamp=muty.time.now_msec()
+                )
+                current_edits = obj.edits or []
+                current_edits.append(p.model_dump(exclude_none=True))
+                obj.edits = current_edits  # trigger ORM update
+                obj.last_editor_id = s.user.id
+
+                dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
+                return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
-        if sess:
-            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -276,7 +284,7 @@ async def note_update_handler(
 )
 async def note_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     operation_id: Annotated[
         str,
         Depends(APIDependencies.param_operation_id),
@@ -321,26 +329,27 @@ async def note_delete_handler(
 )
 async def note_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
-    sess: AsyncSession = None
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            obj: GulpNote
-            _, obj, _ = await GulpNote.get_by_id_wrapper(
-                sess,
-                token,
-                obj_id,
-            )
-            return JSendResponse.success(
-                req_id=req_id, data=obj.to_dict(exclude_none=True)
-            )
+            try:
+                obj: GulpNote
+                _, obj, _ = await GulpNote.get_by_id_wrapper(
+                    sess,
+                    token,
+                    obj_id,
+                )
+                return JSendResponse.success(
+                    req_id=req_id, data=obj.to_dict(exclude_none=True)
+                )
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
-        if sess:
-            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -377,9 +386,7 @@ async def note_list_handler(
         str,
         Depends(APIDependencies.param_operation_id),
     ],
-    flt: Annotated[
-        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
-    ] = None,
+    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()

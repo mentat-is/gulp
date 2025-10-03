@@ -136,7 +136,7 @@ async def _make_public_or_private(
 )
 async def object_add_granted_user_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
         Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
@@ -189,7 +189,7 @@ async def object_add_granted_user_handler(
 )
 async def object_remove_granted_user_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
         Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
@@ -242,7 +242,7 @@ async def object_remove_granted_user_handler(
 )
 async def object_add_granted_group_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
         Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
@@ -295,7 +295,7 @@ async def object_add_granted_group_handler(
 )
 async def object_remove_granted_group_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
         Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
@@ -350,7 +350,7 @@ a private object is only accessible by the owner or by administrators.
 )
 async def object_make_private_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
         Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
@@ -409,7 +409,7 @@ a public object is accessible by anyone.
 )
 async def object_make_public_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
         Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),

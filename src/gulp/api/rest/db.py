@@ -34,6 +34,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
+from gulp.api.ws_api import WSDATA_PROGRESS_REBASE, GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.process import GulpProcess
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,10 +83,38 @@ async def db_reset() -> None:
     await GulpCollab.get_instance().init(main_process=True, force_recreate=True)
 
 
+async def _rebase_callback(
+    total: int,
+    current: int,
+    ws_id: str,
+    user_id: str,
+    req_id: str,
+    operation_id: str,
+    done: bool = False,
+    canceled: bool = False,
+    data: dict = None,
+):
+    """
+    GulpProgressCallback to report progress during rebase.
+    """
+    await GulpWsSharedQueue.get_instance().put_progress(
+        WSDATA_PROGRESS_REBASE,
+        user_id,
+        req_id,
+        ws_id=ws_id,
+        total=total,
+        current=current,
+        done=done,
+        d=data,
+        operation_id=operation_id,
+    )
+
+
 async def _rebase_by_query_internal(
     req_id: str,
     ws_id: str,
     user_id: str,
+    operation_id: str,
     index: str,
     offset_msec: int,
     flt: GulpQueryFilter,
@@ -99,6 +128,15 @@ async def _rebase_by_query_internal(
     try:
         # rebase
         async with GulpCollab.get_instance().session() as sess:
+            await GulpRequestStats.create_stats(
+                sess,
+                req_id,
+                user_id,
+                operation_id,
+                req_type=RequestStatsType.REQUEST_TYPE_REBASE,
+                ws_id=ws_id,
+            )
+
             res = await GulpOpenSearch.get_instance().opensearch_rebase_by_query(
                 sess, index, offset_msec, req_id, ws_id, user_id, flt, script
             )
@@ -108,16 +146,6 @@ async def _rebase_by_query_internal(
         MutyLogger.get_instance().exception(ex)
         errors.append(str(ex))
         return
-    finally:
-        # finalize the stats
-        await GulpRequestStats.finalize(
-            sess,
-            req_id=req_id,
-            ws_id=ws_id,
-            user_id=user_id,
-            hits=updated,
-            errors=errors,
-        )
 
 
 @router.post(
@@ -155,6 +183,9 @@ rebases documents in-place on the same index using update_by_query, shifting tim
 async def opensearch_rebase_by_query_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     offset_msec: Annotated[
         int,
         Query(
@@ -175,9 +206,6 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
 """
         ),
     ] = None,
-    flt: Annotated[str, Depends(APIDependencies.param_query_flt_optional)] = None,
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     """
     rebases documents in-place on the same index using update_by_query, shifting timestamps.
@@ -201,45 +229,34 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(
-                sess, token, obj=op, permission=GulpUserPermission.INGEST
-            )
-            user_id = s.user.id
-            index = op.index
-
-        async def _worker_coro():
-            # create a stats, just to allow request canceling
-            async with GulpCollab.get_instance().session() as sess:
-                await GulpRequestStats.create_or_get(
-                    sess=sess,
-                    req_id=req_id,
-                    user_id=user_id,
-                    ws_id=ws_id,
-                    operation_id=operation_id,
-                    object_data=None,  # uses default
-                    stats_type=RequestStatsType.REQUEST_TYPE_REBASE,
+            try:
+                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+                s = await GulpUserSession.check_token(
+                    sess, token, obj=op, permission=GulpUserPermission.INGEST
                 )
+                user_id = s.user.id
+                index = op.index
 
-            # offload to a worker process withouyt waiting for it
-            asyncio.create_task(
-                GulpProcess.get_instance().process_pool.apply(
-                    _rebase_by_query_internal,
-                    kwds=dict(
-                        req_id=req_id,
-                        ws_id=ws_id,
-                        user_id=user_id,
-                        index=index,
-                        offset_msec=offset_msec,
-                        flt=flt,
-                        script=script,
-                    ),
+                # offload to a worker process anmd return pending
+                asyncio.create_task(
+                    GulpProcess.get_instance().process_pool.apply(
+                        _rebase_by_query_internal,
+                        kwds=dict(
+                            req_id=req_id,
+                            ws_id=ws_id,
+                            user_id=user_id,
+                            index=index,
+                            operation_id=operation_id,
+                            offset_msec=offset_msec,
+                            flt=flt,
+                            script=script,
+                        ),
+                    )
                 )
-            )
-
-        # spawn a background worker to perform the rebase and return pending
-        await GulpRestServer.get_instance().spawn_bg_task(_worker_coro())
-        return JSONResponse(JSendResponse.pending(req_id=req_id))
+                return JSONResponse(JSendResponse.pending(req_id=req_id))
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -278,50 +295,56 @@ deletes the datastream `index`, including the backing index/es and the index tem
 async def opensearch_delete_index_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     index: Annotated[str, Depends(APIDependencies.param_index)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     delete_operation: Annotated[
         bool,
         Query(
             description="if set, the corresponding operation (if any) on the collab database is deleted as well (default: true)."
         ),
     ] = True,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # we must be admin
-            s: GulpUserSession = await GulpUserSession.check_token(
-                sess, token, permission=GulpUserPermission.ADMIN
-            )
-            user_id: str = s.user.id
-            op: GulpOperation = None
-            if delete_operation:
-                # get operation
-                op = await GulpOperation.get_first_by_filter(
-                    sess,
-                    GulpCollabFilter(index=[index]),
-                    throw_if_not_found=False,
-                    user_id=user_id,
+            try:
+                # we must be admin
+                s: GulpUserSession = await GulpUserSession.check_token(
+                    sess, token, permission=GulpUserPermission.ADMIN
                 )
-                if op:
-                    # delete the operation on collab
-                    await op.delete(sess, ws_id=None, user_id=s.user.id, req_id=req_id)
-                else:
-                    MutyLogger.get_instance().warning(
-                        f"operation with index={index} not found, skipping deletion..."
+                user_id: str = s.user.id
+                op: GulpOperation = None
+                if delete_operation:
+                    # get operation
+                    op = await GulpOperation.get_first_by_filter(
+                        sess,
+                        GulpCollabFilter(index=[index]),
+                        throw_if_not_found=False,
+                        user_id=user_id,
                     )
+                    if op:
+                        # delete the operation on collab
+                        await op.delete(
+                            sess, ws_id=None, user_id=s.user.id, req_id=req_id
+                        )
+                    else:
+                        MutyLogger.get_instance().warning(
+                            f"operation with index={index} not found, skipping deletion..."
+                        )
 
-            # delete the datastream (deletes the corresponding index and template)
-            await GulpOpenSearch.get_instance().datastream_delete(
-                ds=index, throw_on_error=True
-            )
-            return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id,
-                    data={"index": index, "operation_id": op.id if op else None},
+                # delete the datastream (deletes the corresponding index and template)
+                await GulpOpenSearch.get_instance().datastream_delete(
+                    ds=index, throw_on_error=True
                 )
-            )
+                return JSONResponse(
+                    JSendResponse.success(
+                        req_id=req_id,
+                        data={"index": index, "operation_id": op.id if op else None},
+                    )
+                )
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -377,17 +400,21 @@ lists all the available datastreams and their backing indexes
 )
 async def opensearch_list_index_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
-            await GulpUserSession.check_token(
-                sess, token, permission=GulpUserPermission.ADMIN
-            )
+            try:
+                await GulpUserSession.check_token(
+                    sess, token, permission=GulpUserPermission.ADMIN
+                )
 
-        l = await GulpOpenSearch.get_instance().datastream_list()
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
+                l = await GulpOpenSearch.get_instance().datastream_list()
+                return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

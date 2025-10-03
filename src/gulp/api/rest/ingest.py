@@ -94,15 +94,16 @@ class GulpIngestPayload(GulpBaseIngestPayload):
         },
     )
 
-    plugin_params: Optional[GulpPluginParameters] = Field(
-        None, description="The plugin parameters."
-    )
-    original_file_path: Optional[str] = Field(
-        None, description="The original file path."
-    )
-    file_sha1: Optional[str] = Field(
-        None, description="The SHA1 of the file being ingested."
-    )
+    plugin_params: Annotated[
+        Optional[GulpPluginParameters],
+        Field(description="To customize plugin behaviour"),
+    ] = GulpPluginParameters()
+    original_file_path: Annotated[
+        Optional[str], Field(description="The original file path.")
+    ] = None
+    file_sha1: Annotated[
+        Optional[str], Field(description="The SHA1 of the file being ingested.")
+    ] = None
 
 
 class GulpZipIngestPayload(GulpBaseIngestPayload):
@@ -140,15 +141,17 @@ class GulpZipMetadataEntry(BaseModel):
             ]
         }
     )
-    plugin: str = Field(..., description="The plugin to use.")
-    files: list[str] = Field(..., description="The files to ingest.")
-    original_path: Optional[str] = Field(
-        None,
-        description="The original base path where `files` are taken from.",
-    )
-    plugin_params: Optional[GulpPluginParameters] = Field(
-        GulpPluginParameters(), description="The plugin parameters."
-    )
+    plugin: Annotated[str, Field(description="The plugin to use.")]
+    files: Annotated[list[str], Field(description="The files to ingest.")]
+    original_path: Annotated[
+        Optional[str],
+        Field(
+            description="The original base path where `files` are taken from.",
+        ),
+    ] = None
+    plugin_params: Annotated[
+        Optional[GulpPluginParameters], Field(description="The plugin parameters.")
+    ] = GulpPluginParameters()
 
 
 router = APIRouter()
@@ -232,43 +235,27 @@ async def _ingest_file_internal(
     file_path: str,
     payload: GulpIngestPayload,
     file_total: int = 1,
-    preview_mode: bool = False,
     delete_after: bool = False,
     **kwargs: Any,
-) -> tuple[GulpRequestStatus, list[dict]]:
+) -> tuple[GulpRequestStatus, list[dict] | None]:
     """
     runs in a worker process to ingest a single file
 
-    Args:
-        user_id (str): the user id
-        req_id (str): the request id
-        ws_id (str): the websocket id to stream stats and data to
-        operation_id (str): the operation id
-        context_id (str): the context id
-        source_id (str): the source id
-        index (str): the index to ingest data to
-        plugin (str): the plugin to use for ingestion
-        file_path (str): the path of the file to ingest
-        payload (GulpIngestPayload): the ingestion payload (plugin_params, filter, original_file_path, file_sha1)
-        file_total (int, optional): total number of files in a multi-file upload. Defaults to 1.
-        preview_mode (bool, optional): if True, runs in preview mode. Defaults to False.
-        delete_after (bool, optional): if True, deletes the file after ingestion. Defaults to False.
-        **kwargs: additional arguments
     Returns:
-        tuple[GulpRequestStatus, list[dict]]: the status and, in preview mode, the preview chunk (a list of GulpDocument dictionaries)
+    tuple[GulpRequestStatus, list[dict]]: the ingestion return status and the preview chunk (if preview_mode)
     """
     # MutyLogger.get_instance().debug("---> _ingest_file_internal")
     preview_chunk: list[dict] = []
     status: GulpRequestStatus = GulpRequestStatus.FAILED
+    mod: GulpPluginBase = None
 
     try:
         async with GulpCollab.get_instance().session() as sess:
             try:
-                mod: GulpPluginBase = None
                 status = GulpRequestStatus.DONE
                 stats: GulpRequestStats = None
 
-                if preview_mode:
+                if payload.plugin_params.preview_mode:
                     MutyLogger.get_instance().warning(
                         "PREVIEW MODE, no stats is created on the collab database."
                     )
@@ -300,9 +287,8 @@ async def _ingest_file_internal(
                     original_file_path=payload.original_file_path,
                     plugin_params=payload.plugin_params,
                     flt=payload.flt,
-                    preview_mode=preview_mode,
                 )
-                if preview_mode:
+                if payload.plugin_params.preview_mode:
                     # get the accumulated preview chunk and we're done
                     preview_chunk = deepcopy(mod.preview_chunk())
                     return status, preview_chunk
@@ -322,8 +308,8 @@ async def _ingest_file_internal(
     except Exception as ex:
         MutyLogger.get_instance().exception("*** ERROR in _ingest_file_internal!")
         status = GulpRequestStatus.FAILED
-        if preview_mode:
-            # on preview (sync mode) raise exception
+        if payload.plugin_params.preview_mode:
+            # on preview (sync) raise exception
             raise
     finally:
         if mod:
@@ -353,7 +339,7 @@ async def run_ingest_file_task(t: dict):
     )
 
 
-async def _handle_preview_or_enqueue_ingest_task(
+async def _preview_or_enqueue_ingest_task(
     sess: AsyncSession,
     user_id: str,
     req_id: str,
@@ -365,34 +351,17 @@ async def _handle_preview_or_enqueue_ingest_task(
     plugin: str,
     file_path: str,
     payload: GulpIngestPayload,
-    preview_mode: bool,
     file_total: int = 1,
     delete_after: bool = True,
 ) -> JSONResponse:
     """
     Handles preview mode or enqueues an ingestion task, returning the appropriate JSONResponse
 
-    Args:
-        sess (AsyncSession): the database session to use (ignored in preview mode)
-        user_id (str): the user id performing the ingestion
-        req_id (str): the request id originating the ingestion
-        ws_id (str): the websocket id to use throughout the ingestion (i.e. to stream data)
-        operation_id (str): the operation id this ingestion is associated with.
-        ctx_id (str): the context id this ingestion is associated with.
-        src_id (str): the source id this ingestion is associated with.
-        index (str): the OpenSearch index to ingest data to (usually= operation_id)
-        plugin (str): the plugin to use for ingestion.
-        file_path (str): the path of the file to ingest.
-        payload (GulpIngestPayload): the ingestion payload (plugin_params, filter, original_file_path, file_sha1)
-        preview_mode (bool): if True, runs in preview mode (returns directly instead of enqueueing a task)
-        file_total (int, optional): total number of files in a multi-file upload. Defaults to 1.
-        delete_after (bool, optional): if True, deletes the file_path after ingestion. Defaults to True.
-
     Returns:
-        JSONResponse: the response to return to the client (either preview data or pending status)
+    JSONResponse: a pending response if enqueuing, or a success/error response in preview mode
 
-    Throws:
-        JSendException: if preview fails
+    Raises:
+    any exception raised by the underlying _ingest_file_internal or enqueue methods.
     """
     kwds = dict(
         context_id=ctx_id,
@@ -403,13 +372,12 @@ async def _handle_preview_or_enqueue_ingest_task(
         plugin=plugin,
         file_path=file_path,
         payload=payload,
-        preview_mode=preview_mode,
         file_total=file_total,
         delete_after=delete_after,
     )
 
     # handle preview mode: run ingestion synchronously and return preview chunk
-    if preview_mode:
+    if payload.plugin_params.preview_mode:
         status, preview_chunk = await _ingest_file_internal(
             **kwds, user_id=user_id, operation_id=operation_id
         )
@@ -472,6 +440,7 @@ the json payload is a `GulpIngestPayload`, which may contain the following field
 * `plugin_params` (GulpPluginParameters): the plugin parameters, specific for the plugin being used
 * `original_file_path` (str): the original file path, to indicate the original full path of the file being ingested on the machine where it was acquired from
 * `file_sha1` (str): the SHA1 of the file being ingested (optional)
+* `preview_mode` (bool): if `preview_mode` is set, this function runs synchronously and returns the preview chunk of documents generated by the plugin, **without streaming data on the websocket, without saving data to the index and without creating a `request_stats` object on the collab database**.
 
 ### response with resume handling
 
@@ -487,14 +456,12 @@ once the upload is complete, the API will return a `pending` response and proces
 
 ### websocket
 
-once the upload is complete, this function returns a `pending` response and the following will be sent on the `ws_id` websocket during processing, every `ingestion_buffer_size` documents (defined in the configuration):
+once the upload is complete, this function returns a `pending` response and the following will be sent on the `ws_id` websocket during processing:
 
-- `WSDATA_STATS_UPDATE`: with totals and stats
-- `WSDATA_DOCUMENTS_CHUNK`: the actual GulpDocuments chunk
+- `WSDATA_COLLAB_CREATE` with `type=request_stats`: GulpRequestStats object with initial `GulpIngestionStats` (at start)
+- `WSDATA_COLLAB_UPDATE` with `type=request_stats`: GulpRequestStats object with updated `GulpIngestionStats` (once every `ingestion_buffer_size` documents)
+- `WSDATA_DOCUMENTS_CHUNK`: the actual chunk of ingested `GulpDocument`s (once every `ingestion_buffer_size` documents)
 
-### preview mode
-
-if `preview_mode` is set, this function runs synchronously and returns the preview chunk of documents generated by the plugin, **without streaming data on the websocket, without saving data to the index and not counting data in the stats**.
 """,
     summary="ingest file using the specified plugin.",
     openapi_extra={
@@ -583,14 +550,6 @@ async def ingest_file_handler(
             example=1,
         ),
     ] = 1,
-    preview_mode: Annotated[
-        bool,
-        Query(
-            description="""
-if set, this function is **synchronous** and returns the preview chunk of documents generated by the plugin, without streaming data on the websocket, without saving data to the index nor counting data in the stats.
-""",
-        ),
-    ] = False,
     req_id: Annotated[
         str,
         Depends(APIDependencies.ensure_req_id),
@@ -637,7 +596,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 ctx_id: str = None
                 src_id: str = None
 
-                if preview_mode:
+                if payload.plugin_params.preview_mode:
                     MutyLogger.get_instance().warning(
                         "PREVIEW MODE, no context and source are created on the collab database."
                     )
@@ -667,7 +626,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                     src_id = src.id
 
                 # we have all we need, proceed with ingestion outside the session
-                return await _handle_preview_or_enqueue_ingest_task(
+                return await _preview_or_enqueue_ingest_task(
                     sess,
                     user_id=user_id,
                     req_id=req_id,
@@ -806,7 +765,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                     ctx_id = "preview"
                     src_id = "preview"
 
-                return await _handle_preview_or_enqueue_ingest_task(
+                return await _preview_or_enqueue_ingest_task(
                     sess,
                     user_id=user_id,
                     req_id=req_id,
@@ -961,7 +920,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                     original_file_path=path,
                     file_sha1=None,
                 )
-                return await _handle_preview_or_enqueue_ingest_task(
+                return await _preview_or_enqueue_ingest_task(
                     sess,
                     user_id=user_id,
                     req_id=req_id,
@@ -1103,7 +1062,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                     file_sha1=None,
                 )
 
-                return await _handle_preview_or_enqueue_ingest_task(
+                return await _preview_or_enqueue_ingest_task(
                     sess,
                     user_id=user_id,
                     req_id=req_id,

@@ -17,7 +17,7 @@ import re
 from typing import Annotated, Optional
 
 import muty.string
-from fastapi import Body, Header, Query
+from fastapi import Body, Header, Query, UploadFile, File
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
@@ -27,9 +27,9 @@ from gulp.api.opensearch.query import GulpQueryParameters
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
 
-TASK_TYPE_INGEST: str="ingest"
-TASK_TYPE_INGEST_RAW: str="ingest_raw"
-TASK_TYPE_QUERY: str="query"
+TASK_TYPE_INGEST: str = "ingest"
+TASK_TYPE_INGEST_RAW: str = "ingest_raw"
+TASK_TYPE_QUERY: str = "query"
 
 # 5-16 characters length, only letters, numbers, underscore, dot, @, dash allowed
 REGEX_CHECK_USERNAME = "^([a-zA-Z0-9_.@-]).{4,16}$"
@@ -63,10 +63,13 @@ class GulpUploadResponse(BaseModel):
             ]
         },
     )
-    done: bool = Field(..., description="Indicates whether the upload is complete.")
-    continue_offset: Optional[int] = Field(
-        0, description="The offset of the next chunk to be uploaded, to resume."
-    )
+    done: Annotated[
+        bool, Field(description="Indicates whether the upload is complete.")
+    ] = False
+    continue_offset: Annotated[
+        int,
+        Field(description="The offset of the next chunk to be uploaded, to resume."),
+    ] = 0
 
 
 class APIDependencies:
@@ -138,19 +141,38 @@ class APIDependencies:
         return value
 
     @staticmethod
-    def param_private_optional(
+    def param_obj_id(
+        obj_id: Annotated[
+            str,
+            Query(description="the object id", example="obj_id"),
+        ],
+    ) -> str:
+        """
+        an object id, stripped and lowercased.
+
+        Args:
+            obj_id (str, Query): The object ID.
+
+        Returns:
+            str: The object ID.
+        """
+        return obj_id.lower().strip()
+        # return APIDependencies._strip_or_none(obj_id)
+
+    @staticmethod
+    def param_private(
         private: Annotated[
-            Optional[bool],
+            bool,
             Query(
                 description="sets the object as private, so only the *owner* `user_id` and administrators can access it.",
             ),
         ] = False,
     ) -> bool:
         """
-        used with fastapi Depends to provide API parameter
+        to set the object as private.
 
         Args:
-            private (bool, optional, Body): Whether the object is private. Defaults to False (public).
+            private (bool, Body): Whether the object is private. Defaults to False (public).
 
         Returns:
             bool: The private flag.
@@ -158,9 +180,9 @@ class APIDependencies:
         return private
 
     @staticmethod
-    def param_description_optional(
+    def param_description(
         description: Annotated[
-            Optional[str],
+            str,
             Body(
                 description="the object description.",
                 examples=["this is a description"],
@@ -168,38 +190,135 @@ class APIDependencies:
         ] = None,
     ) -> str:
         """
-        used with fastapi Depends to provide API parameter
+        to set the object description.
 
         Args:
-            description (str, optional, Body): The description. Defaults to None.
+            description (str, Body): The description. Defaults to None.
 
         Returns:
             str: The description.
         """
-        return APIDependencies._strip_or_none(description, lower=False)
-
-    _DESC_OBJ_DISPLAY_NAME = "the object display name."
-    _EXAMPLE_OBJ_DISPLAY_NAME = "object name"
+        return description.strip()
 
     @staticmethod
-    def param_display_name(
-        name: Annotated[
+    def param_token(
+        token: Annotated[
             str,
-            Query(
-                description=_DESC_OBJ_DISPLAY_NAME, example=_EXAMPLE_OBJ_DISPLAY_NAME
+            Header(
+                description="""
+an authentication token obtained through `login`.
+
+if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresponding user is logged in:
+
+- `token_admin`: a token with admin permissions.
+- `token_editor`: a token with read/edit permissions.
+- `token_guest`: a token with just read permission
+- `token_ingest`: a token with read/edit/ingest permission.
+- `token_power`: a token with read/edit/delete permission.
+""",
+                example="token_admin",
             ),
         ],
     ) -> str:
         """
-        used with fastapi Depends to provide API parameter
+        the authentication token.
 
         Args:
-            name (str, Query): The display name.
+            token (str, Header): The token.
+
+        Returns:
+            str: The token.
+        """
+        return token.strip()
+
+    @staticmethod
+    def ensure_req_id(
+        req_id: Annotated[
+            str,
+            Query(
+                description="""
+id of a request, will be replicated in the response `req_id`.
+
+- leave empty to autogenerate.
+""",
+                example="test_req",
+            ),
+        ] = None,
+    ) -> str:
+        """
+        Ensures a request ID is set, either generates it.
+
+        Args:
+            req_id (str, optional): The request ID. Defaults to None.
+
+        Returns:
+            str: The request ID.
+        """
+        return req_id.lower().strip() or muty.string.generate_unique()
+
+    @staticmethod
+    def param_name(
+        name: Annotated[
+            str,
+            Query(description="the object name", example="my object"),
+        ] = None,
+    ) -> str:
+        """
+        to set the object name
+
+        Args:
+            name (str, Query): the object name
 
         Returns:
             str: The name.
         """
-        return APIDependencies._strip_or_none(name, lower=False)
+        return name.strip()
+
+    @staticmethod
+    def param_ws_id(
+        ws_id: Annotated[
+            str,
+            Query(
+                description="""
+id of the websocket to send progress and results during the processing of a request.
+""",
+                example="test_ws",
+            ),
+        ],
+    ) -> str:
+        """
+        the websocket id.
+
+        Args:
+            ws_id (str, Query): The WS ID.
+
+        Returns:
+            str: The WS ID.
+        """
+        return ws_id.strip()
+
+    @staticmethod
+    def param_collab_flt(
+        flt: Annotated[
+            GulpCollabFilter,
+            Body(
+                description="the collab filter.",
+            ),
+        ] = None,
+    ) -> GulpCollabFilter:
+        """
+        to filter collab objects.
+
+        Args:
+            flt (GulpCollabFilter, Body): The collab filter. Defaults to empty filter.
+
+        Returns:
+            GulpCollabFilter: The collab filter.
+        """
+        return flt or GulpCollabFilter()
+
+    _DESC_OBJ_DISPLAY_NAME = "the object display name."
+    _EXAMPLE_OBJ_DISPLAY_NAME = "object name"
 
     @staticmethod
     def param_display_name_optional(
@@ -292,7 +411,6 @@ the user password.
         """
         return APIDependencies._strip_or_none(password, lower=False)
 
-
     @staticmethod
     def param_password_optional(
         password: Annotated[
@@ -379,37 +497,6 @@ one or more user permission.
         return APIDependencies._strip_or_none(email)
 
     @staticmethod
-    def param_token(
-        token: Annotated[
-            str,
-            Header(
-                description="""
-an authentication token obtained through `login`.
-
-if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresponding user is logged in:
-
-- `token_admin`: a token with admin permissions.
-- `token_editor`: a token with read/edit permissions.
-- `token_guest`: a token with just read permission
-- `token_ingest`: a token with read/edit/ingest permission.
-- `token_power`: a token with read/edit/delete permission.
-""",
-                example="token_admin",
-            ),
-        ],
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            token (str, Header): The token.
-
-        Returns:
-            str: The token.
-        """
-        return APIDependencies._strip_or_none(token)
-
-    @staticmethod
     def param_glyph_id_optional(
         glyph_id: Annotated[
             Optional[str],
@@ -431,24 +518,6 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
 
     _DESC_OBJ_ID = "id of an object in the collab database."
     _EXAMPLE_OBJ_ID = "obj_id"
-
-    @staticmethod
-    def param_object_id(
-        obj_id: Annotated[
-            str,
-            Query(description=_DESC_OBJ_ID, example=_EXAMPLE_OBJ_ID),
-        ],
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            obj_id (str, Query): The object ID.
-
-        Returns:
-            str: The object ID.
-        """
-        return APIDependencies._strip_or_none(obj_id)
 
     @staticmethod
     def param_group_id(
@@ -658,29 +727,6 @@ it must be the `bare filename` of the plugin (`.py`,`.pyc` extension may be omit
         return APIDependencies._strip_or_none(plugin)
 
     @staticmethod
-    def param_ws_id(
-        ws_id: Annotated[
-            str,
-            Query(
-                description="""
-id of the websocket to send progress and results during the processing of a request.
-""",
-                example="test_ws",
-            ),
-        ],
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            ws_id (str, Query): The WS ID.
-
-        Returns:
-            str: The WS ID.
-        """
-        return APIDependencies._strip_or_none(ws_id)
-
-    @staticmethod
     def param_ingestion_flt_optional(
         flt: Annotated[
             Optional[GulpIngestionFilter],
@@ -747,9 +793,9 @@ to customize `mapping` and specific `plugin` parameters.
         return plugin_params
 
     @staticmethod
-    def param_query_flt_optional(
+    def param_q_flt(
         flt: Annotated[
-            Optional[GulpQueryFilter],
+            GulpQueryFilter,
             Body(
                 description="""
 the query filter, to filter for common fields, including:
@@ -757,8 +803,7 @@ the query filter, to filter for common fields, including:
 - `operation_id`, `context_id`, `source_id` to filter for specific objects.
 - `event_original` to search into the original event.
 - `time_range` to filter by time.
-
-> any extra `key: value` field may be applied too in the filter `dict`.
+- to filter for custom keys, just add them in `flt` as `key: value` or `key: [values]` for `OR` match.
 """
             ),
         ] = None,
@@ -799,50 +844,3 @@ additional parameters for querying, including:
             dict: The query options.
         """
         return q_options or GulpQueryParameters()
-
-    @staticmethod
-    def param_collab_flt_optional(
-        flt: Annotated[
-            Optional[GulpCollabFilter],
-            Body(
-                description="the collab filter.",
-            ),
-        ] = None,
-    ) -> GulpCollabFilter:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            flt (GulpCollabFilter, optional, Body): The collab filter. Defaults to empty(no) filter.
-
-        Returns:
-            GulpCollabFilter: The collab filter.
-        """
-        return flt or GulpCollabFilter()
-
-    @staticmethod
-    def ensure_req_id(
-        req_id: Annotated[
-            str,
-            Query(
-                description="""
-id of a request, will be replicated in the response `req_id`.
-
-- leave empty to autogenerate.
-""",
-                example="test_req",
-            ),
-        ] = None,
-    ) -> str:
-        """
-        Ensures a request ID is set, either generates it.
-
-        Args:
-            req_id (str, optional): The request ID. Defaults to None.
-
-        Returns:
-            str: The request ID.
-        """
-        if not req_id:
-            return muty.string.generate_unique()
-        return req_id

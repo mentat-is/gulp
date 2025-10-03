@@ -11,7 +11,7 @@ Key components:
 """
 
 from enum import StrEnum
-from typing import Any, Literal, Optional, Annotated
+from typing import Any, Literal, Optional, Annotated, Protocol
 
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
@@ -79,7 +79,7 @@ class GulpAPIMethod(BaseModel):
         str, Field(..., description="the endpoint url, relative to the base host")
     ]
     params: Annotated[
-        Optional[list[GulpAPIParameter]],
+        list[GulpAPIParameter],
         Field(description="list of parameters for the method"),
     ] = []
 
@@ -260,6 +260,12 @@ class GulpPluginParameters(BaseModel):
             description="additional plugin-specific custom parameters.",
         ),
     ] = {}
+    preview_mode: Annotated[
+        bool,
+        Field(
+            description="if True, the plugin should run in preview mode (return synchronously a chunk of data)"
+        ),
+    ] = False
 
     def is_empty(self) -> bool:
         """
@@ -327,3 +333,80 @@ class GulpSortOrder(StrEnum):
 
     ASC = "asc"
     DESC = "desc"
+
+
+class GulpProgressCallback(Protocol):
+    """
+    callback protocol for progress updates
+    """
+
+    async def __call__(
+        self,
+        total: int,
+        current: int,
+        ws_id: str,
+        user_id: str,
+        req_id: str,
+        operation_id: str,
+        done: bool = False,
+        canceled: bool = False,
+        data: dict = None,
+    ) -> None:
+        """
+        callback function to report progress.
+
+        Args:
+            total (int): total number of items to process
+            current (int): current number of processed items
+            ws_id (str): websocket id to send progress updates to
+            user_id (str): the caller user_id
+            req_id (str): originating request id
+            operation_id (str): id of the GulpOperation
+            done (bool, optional): True if the operation is done. Defaults to False.
+            canceled (bool, optional): True if the operation was canceled. Defaults to False.
+            data (dict, optional): additional data to send with the progress update. Defaults to None.
+
+        Returns:
+            None
+        """
+        ...
+
+
+class GulpDocumentCallback(Protocol):
+    """
+    callback protocol for chunk processing during query
+    """
+
+    async def __call__(
+        self,
+        chunk: list[dict],
+        chunk_num: int,
+        total_hits: int,
+        q_name: str,
+        ws_id: str,
+        user_id: str,
+        req_id: str,
+        operation_id: str,
+        chunk_total: int = 0,
+        q_group: str = None,
+        last: bool = False,
+    ) -> None:
+        """
+        callback function to process a chunk of documents.
+
+        Args:
+            chunk (list[dict]): one or more GulpDocument dictionaries
+            chunk_num (int): current chunk number (starting from 0)
+            total_hits (int): total number of hits for the query
+            q_name (str): name of the query
+            ws_id (str): websocket id to send WSDATA_DOCUMENTS_CHUNK to (None to skip)
+            user_id (str): the caller user_id, ignored if ws_id is None
+            req_id (str): originating request id, ignored if ws_id is None
+            operation_id (str): id of the GulpOperation, ignored if ws_id is None
+            chunk_total (int, optional): total number of chunks, if known. Defaults to 0.
+            q_group (str, optional): query group name, if any. Defaults to None.
+            last (bool, optional): True if this is the last chunk. Defaults to False.
+        Returns:
+            None
+        """
+        ...

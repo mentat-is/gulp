@@ -76,47 +76,48 @@ async def highlight_create_handler(
         ),
     ],
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[
-        str, Depends(APIDependencies.param_description_optional)
-    ] = None,
+    description: Annotated[str, Depends(APIDependencies.param_description)] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private_optional)] = False,
+    private: Annotated[bool, Depends(APIDependencies.param_private)] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
-    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # check token on operation
-            s: GulpUserSession
-            s, _, _ = await GulpOperation.get_by_id_wrapper(
-                sess, token, operation_id, GulpUserPermission.EDIT
-            )
-            user_id: str = s.user.id
+            try:
+                # check token on operation
+                s: GulpUserSession
+                s, _, _ = await GulpOperation.get_by_id_wrapper(
+                    sess, token, operation_id, GulpUserPermission.EDIT
+                )
+                user_id: str = s.user.id
 
-            l: GulpHighlight = await GulpHighlight.create_internal(
-                sess,
-                user_id,
-                ws_id=ws_id,
-                private=private,
-                req_id=req_id,
-                operation_id=operation_id,
-                glyph_id=glyph_id,
-                tags=tags,
-                color=color,
-                description=description,
-                name=name,
-                source_id=source_id,
-                time_range=time_range,
-            )
-            return JSONResponse(
-                JSendResponse.success(req_id=req_id, data=l.to_dict(exclude_none=True))
-            )
+                l: GulpHighlight = await GulpHighlight.create_internal(
+                    sess,
+                    user_id,
+                    ws_id=ws_id,
+                    private=private,
+                    req_id=req_id,
+                    operation_id=operation_id,
+                    glyph_id=glyph_id,
+                    tags=tags,
+                    color=color,
+                    description=description,
+                    name=name,
+                    source_id=source_id,
+                    time_range=time_range,
+                )
+                return JSONResponse(
+                    JSendResponse.success(
+                        req_id=req_id, data=l.to_dict(exclude_none=True)
+                    )
+                )
+            except Exception as ex:
+                if sess:
+                    await sess.rollback()
     except Exception as ex:
-        if sess:
-            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -146,7 +147,7 @@ async def highlight_create_handler(
 )
 async def highlight_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     time_range: Annotated[
         tuple[int, int],
@@ -155,9 +156,7 @@ async def highlight_update_handler(
         ),
     ] = None,
     name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[
-        str, Depends(APIDependencies.param_description_optional)
-    ] = None,
+    description: Annotated[str, Depends(APIDependencies.param_description)] = None,
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
@@ -171,36 +170,39 @@ async def highlight_update_handler(
                 "at least one of time_range, name, description, tags, glyph_id, color must be set."
             )
         async with GulpCollab.get_instance().session() as sess:
-            # check permissions on both operation and object
-            s: GulpUserSession
-            obj: GulpHighlight
-            s, obj, _ = await GulpHighlight.get_by_id_wrapper(
-                sess,
-                token,
-                obj_id,
-                permission=GulpUserPermission.EDIT,
-            )
+            try:
+                # check permissions on both operation and object
+                s: GulpUserSession
+                obj: GulpHighlight
+                s, obj, _ = await GulpHighlight.get_by_id_wrapper(
+                    sess,
+                    token,
+                    obj_id,
+                    permission=GulpUserPermission.EDIT,
+                )
 
-            # update
-            if name:
-                obj.name = name
-            if description:
-                obj.description = description
-            if tags:
-                obj.tags = tags
-            if glyph_id:
-                obj.glyph_id = glyph_id
-            if color:
-                obj.color = color
-            if time_range:
-                obj.time_range = list(time_range)
+                # update
+                if name:
+                    obj.name = name
+                if description:
+                    obj.description = description
+                if tags:
+                    obj.tags = tags
+                if glyph_id:
+                    obj.glyph_id = glyph_id
+                if color:
+                    obj.color = color
+                if time_range:
+                    obj.time_range = list(time_range)
 
-            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
-            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
+                dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
+                return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
+            except Exception as ex:
+                if sess:
+                    await sess.rollback()
+                raise
 
     except Exception as ex:
-        if sess:
-            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -230,7 +232,7 @@ async def highlight_update_handler(
 )
 async def highlight_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
@@ -270,25 +272,26 @@ async def highlight_delete_handler(
 )
 async def highlight_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
-    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            obj: GulpHighlight
-            _, obj, _ = await GulpHighlight.get_by_id_wrapper(
-                sess,
-                token,
-                obj_id,
-            )
-            return JSendResponse.success(
-                req_id=req_id, data=obj.to_dict(exclude_none=True)
-            )
+            try:
+                obj: GulpHighlight
+                _, obj, _ = await GulpHighlight.get_by_id_wrapper(
+                    sess,
+                    token,
+                    obj_id,
+                )
+                return JSendResponse.success(
+                    req_id=req_id, data=obj.to_dict(exclude_none=True)
+                )
+            except Exception as ex:
+                if sess:
+                    await sess.rollback()
     except Exception as ex:
-        if sess:
-            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -324,9 +327,7 @@ async def highlight_list_handler(
         str,
         Depends(APIDependencies.param_operation_id),
     ],
-    flt: Annotated[
-        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
-    ] = None,
+    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()

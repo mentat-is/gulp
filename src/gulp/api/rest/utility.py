@@ -65,7 +65,7 @@ router: APIRouter = APIRouter()
 )
 async def request_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:

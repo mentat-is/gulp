@@ -70,7 +70,7 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
     ] = None,
     description: Annotated[
         Optional[str],
-        Depends(APIDependencies.param_description_optional),
+        Depends(APIDependencies.param_description),
     ] = None,
     glyph_id: Annotated[
         str,
@@ -161,7 +161,7 @@ async def operation_update_handler(
     ] = None,
     description: Annotated[
         str,
-        Depends(APIDependencies.param_description_optional),
+        Depends(APIDependencies.param_description),
     ] = None,
     operation_data: Annotated[
         dict, Body(description="arbitrary operation data.", examples=[{"op": "data"}])
@@ -379,9 +379,7 @@ async def operation_get_by_id_handler(
 )
 async def operation_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    flt: Annotated[
-        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
-    ] = None,
+    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -466,7 +464,7 @@ async def context_list_handler(
 )
 async def context_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
@@ -682,7 +680,7 @@ async def context_update_handler(
     ] = None,
     description: Annotated[
         Optional[str],
-        Depends(APIDependencies.param_description_optional),
+        Depends(APIDependencies.param_description),
     ] = None,
     glyph_id: Annotated[
         Optional[str],
@@ -794,7 +792,7 @@ async def source_list_handler(
 )
 async def source_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    obj_id: Annotated[str, Depends(APIDependencies.param_object_id)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
@@ -939,7 +937,7 @@ async def source_update_handler(
     ] = None,
     description: Annotated[
         Optional[str],
-        Depends(APIDependencies.param_description_optional),
+        Depends(APIDependencies.param_description),
     ] = None,
     glyph_id: Annotated[
         Optional[str],

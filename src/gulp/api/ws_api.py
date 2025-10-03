@@ -44,6 +44,9 @@ WSDATA_COLLAB_DELETE = (
 )
 WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
+WSDATA_PROGRESS_REBASE = (
+    "progress_rebase"  # GulpProgressPacket.type type for rebase operations
+)
 
 WSDATA_USER_LOGIN = "user_login"
 WSDATA_USER_LOGOUT = "user_logout"
@@ -55,12 +58,9 @@ WSDATA_GENERIC = "generic"
 # the following data types sent on the websocket are to be used to track status
 WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
 WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
-WSDATA_PROGRESS = "progress"  # this is sent to indicate query progrress during, indicates current/total queries being performed and optionally a progress message
 WSDATA_ENRICH_DONE = "enrich_done"  # this is sent in the end of an enrichment operation
 WSDATA_TAG_DONE = "tag_done"  # this is sent in the end of a tag operation
 
-# progress types
-PROGRESS_REBASE = "rebase"  # GulpProgressPacket
 
 # special token used to monitor also logins
 WSTOKEN_MONITOR = "monitor"
@@ -382,9 +382,9 @@ class GulpProgressPacket(BaseModel):
         bool, Field(description="If the progress is done, i.e. reached the total.")
     ] = False
     total: Annotated[int, Field(description="The total to be reached.")] = 0
-    msg: Annotated[
+    type: Annotated[
         Optional[str],
-        Field(description="An optional message to display with the progress."),
+        Field(description="progress type, see PROGRESS_* constants."),
     ] = None
     data: Annotated[
         dict, Field(description="Optional extra data to send with the progress.")
@@ -699,12 +699,6 @@ class GulpDocumentsChunkPacket(BaseModel):
             description="for query only: is this the last chunk of a query response ?",
         ),
     ] = False
-    search_after: Annotated[
-        Optional[list[dict]],
-        Field(
-            description="for query only: to use in `QueryAdditionalParameters.search_after` to request the next chunk in a paged query.",
-        ),
-    ] = None
     enriched: Annotated[
         bool,
         Field(
