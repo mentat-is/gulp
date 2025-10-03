@@ -23,7 +23,7 @@ long-running ingestion processes.
 """
 
 from enum import StrEnum
-from typing import Optional, Union, override
+from typing import Annotated, Optional, Union, override
 
 import muty.time
 from muty.log import MutyLogger
@@ -44,6 +44,7 @@ from gulp.api.collab.structs import (
     T,
 )
 from gulp.api.collab_api import GulpCollab
+from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.ws_api import (
     WSDATA_COLLAB_DELETE,
     WSDATA_QUERY_DONE,
@@ -103,32 +104,46 @@ class GulpIngestionStats(BaseModel):
         extra="allow",
         json_schema_extra={
             "examples": [
-                {},
+                {
+                    "source_total": 2,
+                    "source_processed": 1,
+                    "source_failed": 0,
+                    "records_processed": 100,
+                    "records_ingested": 90,
+                    "records_skipped": 5,
+                    "records_failed": 5,
+                },
             ]
         },
     )
 
-    source_total: int = Field(1, description="Number of sources in this request.")
-    source_processed: int = Field(
-        0, description="Number of processed sources in this request."
-    )
-    source_failed: int = Field(
-        0, description="Number of failed sources in this request."
-    )
-    records_processed: int = Field(
-        0, description="Number of processed records (includes all sources)."
-    )
-    records_ingested: int = Field(
-        0,
-        description="Number of ingested records (includes all sources, may be different than processed, i.e. failed/skipped/extra-generated documents)",
-    )
-    records_skipped: int = Field(
-        0,
-        description="Number of skipped(=not ingested because duplicated) records (includes all sources)",
-    )
-    records_failed: int = Field(
-        0, description="Number of failed records (includes all sources)"
-    )
+    source_total: Annotated[
+        int, Field(description="Number of sources in this request.")
+    ] = 1
+    source_processed: Annotated[
+        int, Field(description="Number of processed sources in this request.")
+    ] = 0
+    source_failed: Annotated[
+        int, Field(description="Number of failed sources in this request.")
+    ] = 0
+    records_processed: Annotated[
+        int, Field(description="Number of processed records (includes all sources).")
+    ] = 0
+    records_ingested: Annotated[
+        int,
+        Field(
+            description="Number of ingested records (includes all sources, may be different than processed, i.e. failed/skipped/extra-generated documents)",
+        ),
+    ] = 0
+    records_skipped: Annotated[
+        int,
+        Field(
+            description="Number of skipped(=not ingested because duplicated) records (includes all sources)",
+        ),
+    ] = 0
+    records_failed: Annotated[
+        int, Field(description="Number of failed records (includes all sources)")
+    ] = 0
 
 
 class GulpQueryStats(BaseModel):
@@ -140,15 +155,45 @@ class GulpQueryStats(BaseModel):
         extra="allow",
         json_schema_extra={
             "examples": [
-                {},
+                {"total_hits": 100, "q_group": "my_query_group"},
             ]
         },
     )
 
-    total_hits: int = Field(0, description="Total number of hits for this query.")
-    q_group: Optional[str] = Field(
-        None, description="The query group this query belongs to."
+    total_hits: Annotated[
+        int, Field(description="Total number of hits for this query.")
+    ] = 0
+    q_group: Annotated[
+        Optional[str], Field(description="The query group this query belongs to.")
+    ] = None
+
+
+class GulpRebaseStats(BaseModel):
+    """
+    Represents the query statistics
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {"total_hits": 100, "updated": 80, "errors": ["error1", "error2"]},
+            ]
+        },
     )
+
+    total_hits: Annotated[
+        int, Field(description="Number of documents to be rebased.")
+    ] = 0
+    updated: Annotated[
+        int, Field(description="Number of documents effectively rebased.")
+    ] = 0
+    errors: Annotated[
+        list[str], Field(description="List of errors encountered during the rebase.")
+    ] = []
+    flt: Annotated[
+        Optional[GulpQueryFilter], Field(description="The filter used for the rebase.")
+    ] = None
 
 
 class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
@@ -169,7 +214,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     req_type: Mapped[str] = mapped_column(
         String,
         default=RequestStatsType.REQUEST_TYPE_INGESTION,
-        doc="The type of request stats (ingestion, query, enrichment, generic).",
+        doc="The type of request stats (ingestion, query, rebase, enrich, generic).",
     )
     time_expire: Mapped[Optional[int]] = mapped_column(
         BIGINT,
@@ -213,7 +258,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         ws_id: str = None,
         never_expire: bool = False,
         data: dict = None,
-        **kwargs,
     ) -> T:
         """
         create a new GulpRequestStats object on the collab database (or update an existing one if the req_id already exists).
@@ -228,8 +272,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             req_type (RequestStatsType, optional): The type of request stats. Defaults to RequestStatsType.REQUEST_TYPE_INGESTION.
             ws_id (str, optional): The websocket ID to notify WSDATA_COLLAB_CREATE to. Defaults to None.
             never_expire (bool, optional): If True, the stats will never expire. Defaults to False.
-            data
-            **kwargs: Additional data to associate with the stats.
+            data (dict, optional): Additional data to store in the stats. Defaults to None.
         Returns:
             T: The created (or retrieved) stats.
         """
@@ -317,13 +360,53 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             return True
         return False
 
+    async def set_finished(
+        self,
+        sess: AsyncSession,
+        status: GulpRequestStatus = GulpRequestStatus.DONE,
+        data: dict = None,
+        time_expire: int = 0,
+        user_id: str = None,
+        ws_id: str = None,
+    ) -> dict:
+        """
+        set the stats as finished (done, failed, canceled)
+
+        Args:
+            sess(AsyncSession): collab database session
+            status(GulpRequestStatus, optional): the status to set the stats to. Defaults to
+                GulpRequestStatus.DONE.
+            data(dict, optional): additional data to store in the stats. Defaults to None.
+            time_expire(int, optional): the time when the stats will expire, in milliseconds from
+                the unix epoch. If 0, the expiration time is not updated. Defaults to 0.
+            user_id(str, optional): the user id issuing the request
+            ws_id(str, optional): the websocket id to notify COLLAB_UPDATE to
+        Returns:
+            dict: the updated stats
+        """
+        try:
+            await GulpRequestStats.acquire_advisory_lock(sess, self.id)
+
+            # cancel
+            self.status = status.value
+            self.time_finished = muty.time.now_msec()
+            if time_expire:
+                self.time_expire = time_expire
+            if data:
+                self.data = data
+            return await self.update(sess, ws_id=ws_id, user_id=user_id)
+        except Exception as e:
+            # ensure release of the lock
+            await sess.rollback()
+            raise e
+
     async def set_canceled(
         self,
         sess: AsyncSession,
         expire_now: bool = False,
+        data: dict = None,
         user_id: str = None,
         ws_id: str = None,
-        **kwargs,
     ) -> dict:
         """
         set the stats as canceled
@@ -331,9 +414,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         Args:
             sess(AsyncSession): collab database session
             expire_now(bool, optional): if True, the stats will expire immediately. Defaults to False.
+            data(dict, optional): additional data to store in the stats. Defaults to None.
             user_id(str, optional): the user id issuing the request
             ws_id(str, optional): the websocket id to notify COLLAB_UPDATE to
-            **kwargs: additional arguments to pass to the update method
         Returns:
             dict: the updated stats
         """
@@ -343,11 +426,18 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             # default expires in 1 minutes
             time_expire: int = muty.time.now_msec() + 60 * 1000
 
-        # cancel
-        self.status = GulpRequestStatus.CANCELED.value
-        self.time_expire = time_expire
-        self.time_finished = muty.time.now_msec()
-        return await self.update(sess, user_id=user_id, ws_id=ws_id, **kwargs)
+        MutyLogger.get_instance().warning(
+            "setting request %s as CANCELED, expires at %s", self.id, time_expire
+        )
+        await self.set_finished(
+            sess,
+            status=GulpRequestStatus.CANCELED,
+            time_expire=time_expire,
+            data=data,
+            user_id=user_id,
+            ws_id=ws_id,
+        )
+        return self.to_dict()
 
     @staticmethod
     async def purge_ongoing_requests():

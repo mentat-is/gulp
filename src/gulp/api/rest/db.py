@@ -22,9 +22,10 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.stats import GulpRequestStats, RequestStatsType
+from gulp.api.collab.stats import GulpRebaseStats, GulpRequestStats, RequestStatsType
 from gulp.api.collab.structs import (
     GulpCollabFilter,
+    GulpRequestStatus,
     GulpUserPermission,
 )
 from gulp.api.collab.user_session import GulpUserSession
@@ -48,12 +49,10 @@ async def db_reset() -> None:
 
     NOTE: must be called on the main process!
 
-    Args:
     """
-    sess: AsyncSession = None
-    try:
-        # delete all operations first
-        async with GulpCollab.get_instance().session() as sess:
+    # delete all operations first
+    async with GulpCollab.get_instance().session() as sess:
+        try:
             # enumerate all operations
             ops = await GulpOperation.get_by_filter(sess, throw_if_not_found=False)
             for op in ops:
@@ -70,10 +69,10 @@ async def db_reset() -> None:
 
                 # delete the operation itself
                 await op.delete(sess)
-    except Exception as ex:
-        MutyLogger.get_instance().exception("cannot delete data on opensearch!")
-        await sess.rollback()
-        # raise
+        except Exception as ex:
+            MutyLogger.get_instance().exception("cannot delete data on opensearch!")
+            await sess.rollback()
+            raise
 
     # reset
     # TODO: try to handle worker processes termination gracefully
@@ -123,25 +122,59 @@ async def _rebase_by_query_internal(
     """
     runs in a worker process to rebase the index using update_by_query.
     """
-    errors: list[str] = []
+    stats: GulpRequestStats = None
+    p: GulpRebaseStats = GulpRebaseStats()
+    total_hits: int = 0
     updated: int = 0
+    errors: list[str] = []
+    status = GulpRequestStatus.DONE
     try:
         # rebase
         async with GulpCollab.get_instance().session() as sess:
-            await GulpRequestStats.create_stats(
-                sess,
-                req_id,
-                user_id,
-                operation_id,
-                req_type=RequestStatsType.REQUEST_TYPE_REBASE,
-                ws_id=ws_id,
-            )
+            try:
+                stats = await GulpRequestStats.create_stats(
+                    sess,
+                    req_id,
+                    user_id,
+                    operation_id,
+                    req_type=RequestStatsType.REQUEST_TYPE_REBASE,
+                    ws_id=ws_id,
+                    data=p.model_dump(),
+                )
 
-            res = await GulpOpenSearch.get_instance().opensearch_rebase_by_query(
-                sess, index, offset_msec, req_id, ws_id, user_id, flt, script
-            )
-            errors = res.get("errors", [])
-            updated = res.get("updated", 0)
+                (
+                    total_hits,
+                    updated,
+                    errors,
+                ) = await GulpOpenSearch.get_instance().opensearch_rebase_by_query(
+                    sess,
+                    index,
+                    offset_msec,
+                    req_id,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    flt=flt,
+                    script=script,
+                    callback=_rebase_callback,
+                )
+            except Exception as ex:
+                await sess.rollback()
+                status = GulpRequestStatus.FAILED
+                raise
+            finally:
+                if stats:
+                    # update stats and set finished
+                    p.total_hits = total_hits
+                    p.updated = updated
+                    p.errors = errors
+                    p.flt = flt
+                    await stats.set_finished(
+                        sess,
+                        status=status,
+                        data=p.model_dump(),
+                        user_id=user_id,
+                        ws_id=ws_id,
+                    )
     except Exception as ex:
         MutyLogger.get_instance().exception(ex)
         errors.append(str(ex))

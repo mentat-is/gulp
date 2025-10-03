@@ -317,6 +317,29 @@ id of the websocket to send progress and results during the processing of a requ
         """
         return flt or GulpCollabFilter()
 
+    @staticmethod
+    def param_operation_id(
+        operation_id: Annotated[
+            str,
+            Query(
+                description="id of an `operation` in the collab database.",
+                example="test_operation",
+            ),
+        ],
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            operation_id (str, Query): The operation ID.
+
+        Returns:
+            str: The operation ID.
+        """
+        return operation_id.strip()
+
+    ############################
+
     _DESC_OBJ_DISPLAY_NAME = "the object display name."
     _EXAMPLE_OBJ_DISPLAY_NAME = "object name"
 
@@ -614,27 +637,6 @@ one or more user permission.
             int: The index.
         """
         return APIDependencies._strip_or_none(index)
-
-    @staticmethod
-    def param_operation_id(
-        operation_id: Annotated[
-            str,
-            Query(
-                description="id of an `operation` in the collab database.",
-                example="test_operation",
-            ),
-        ],
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            operation_id (str, Query): The operation ID.
-
-        Returns:
-            str: The operation ID.
-        """
-        return APIDependencies._strip_or_none(operation_id)
 
     @staticmethod
     def param_context_id(

@@ -1303,7 +1303,7 @@ class GulpOpenSearch:
         flt: GulpQueryFilter = None,
         script: str = None,
         callback: GulpProgressCallback = None,
-    ) -> dict:
+    ) -> tuple[int, int, list[str]]:
         """
         Rebases documents in-place on the same index using update_by_query, shifting timestamps in batches of 1000 documents.
 
@@ -1320,7 +1320,10 @@ class GulpOpenSearch:
             script (str, optional): A [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html) to customize the update. Defaults to None (use the default script which just updates @timestamp and gulp.timestamp).
             callback (GulpProgressCallback, optional): A callback function to report GulpProgressPacket with type=WSDATA_PROGRESS_REBASE progress on ws_id. Defaults to None.
         Returns:
-                dict: {"total_matches": int, "updated": int, "errors": list}
+            tuple:
+            - total number of documents matching the filter
+            - number of successfully updated documents
+            - list of errors if any occurred
         Throws:
                 Exception: If the update_by_query fails.
         """
@@ -1470,7 +1473,7 @@ class GulpOpenSearch:
             done=True,
             data={"errors": errors} if errors else {},
         )
-        return {"total_hits": total_hits, "updated": num_updated_docs, "errors": errors}
+        return total_hits, num_updated_docs, errors
 
     async def index_refresh(self, index: str) -> None:
         """
