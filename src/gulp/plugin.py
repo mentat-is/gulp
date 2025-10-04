@@ -30,6 +30,7 @@ from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import (
     GulpRequestStats,
+    GulpUpdateDocumentsStats,
     PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
@@ -53,6 +54,7 @@ from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
     WSDATA_ENRICH_DONE,
     WSDATA_INGEST_SOURCE_DONE,
+    WSDATA_PROGRESS_ENRICH,
     WSDATA_USER_LOGIN,
     WSDATA_USER_LOGOUT,
     GulpDocumentsChunkPacket,
@@ -62,6 +64,7 @@ from gulp.api.ws_api import (
 )
 from gulp.config import GulpConfig
 from gulp.structs import (
+    GulpDocumentChunkCallback,
     GulpMappingParameters,
     GulpPluginCustomParameter,
     GulpPluginParameters,
@@ -128,8 +131,8 @@ class GulpIngestInternalEvent(BaseModel):
     operation_id: Annotated[
         str, Field(description="The operation id associated with this ingestion.")
     ]
-    req_id: Annotated[str, Field(..., description="The request id.")]
-    file_path: Annotated[str, Field(..., description="The file path being ingested.")]
+    req_id: Annotated[str, Field(description="The request id.")]
+    file_path: Annotated[str, Field(description="The file path being ingested.")]
     status: Annotated[
         str,
         Field(
@@ -571,7 +574,7 @@ class GulpInternalEventsManager:
         name: str = plugin.name
         if name not in self._plugins.keys():
             MutyLogger.get_instance().debug(
-                "registering plugin %s to receive internal events: %s" % (name, types)
+                "registering plugin %s to receive internal events: %s", name, types
             )
             self._plugins[name] = {
                 "plugin_instance": plugin,  # the plugin instance
@@ -591,12 +594,12 @@ class GulpInternalEventsManager:
         """
         if plugin in self._plugins.keys():
             MutyLogger.get_instance().debug(
-                "deregistering plugin %s from receiving internal events" % (plugin)
+                "deregistering plugin %s from receiving internal events", plugin
             )
             del self._plugins[plugin]
         else:
             MutyLogger.get_instance().debug(
-                "plugin %s not registered to receive internal events" % (plugin)
+                "plugin %s not registered to receive internal events", plugin
             )
 
     async def broadcast_event(
@@ -635,7 +638,7 @@ class GulpInternalEventsManager:
             if t in entry["types"]:
                 try:
                     MutyLogger.get_instance().debug(
-                        "broadcasting event %s to plugin %s" % (t, p.name)
+                        "broadcasting event %s to plugin %s", t, p.name
                     )
                     await p.internal_event_callback(ev)
                 except Exception as e:
@@ -717,6 +720,11 @@ class GulpPluginBase(ABC):
         # print("********************************** INIT *************************************************")
         super().__init__()
 
+        # enforce callback type
+        self._enrich_documents_chunk_cb: GulpDocumentChunkCallback = (
+            self._enrich_documents_chunk
+        )
+
         # plugin file path
         self.path: str = path
         self.module_name: str = module_name
@@ -737,30 +745,30 @@ class GulpPluginBase(ABC):
         #
 
         # SQLAlchemy session
-        self._sess: AsyncSession = None
+        self._sess: AsyncSession | None = None
 
         # request stats
-        self._stats: GulpRequestStats = None
+        self._stats: GulpRequestStats | None = None
 
         # for ingestion, the mappings to apply
         self._mappings: dict[str, GulpMapping] = {}
         # for ingestion, the key in the mappings dict to be used
-        self._mapping_id: str = None
+        self._mapping_id: str = ""
         # calling user
-        self._user_id: str = None
+        self._user_id: str = ""
         # current gulp operation
-        self._operation_id: str = None
+        self._operation_id: str = ""
         # current gulp context id
-        self._context_id: str = None
+        self._context_id: str = ""
         # current gulp source id
-        self._source_id: str = None
+        self._source_id: str = ""
 
         # current file being ingested
-        self._file_path: str = None
+        self._file_path: str = ""
         # original file path, if any
-        self._original_file_path: str = None
-        # opensearch index to ingest into
-        self._ingest_index: str = None
+        self._original_file_path: str = ""
+        # opensearch index to operate to
+        self._index: str = ""
         self._raw_ingestion: bool = False
 
         # this is retrieved from the index to check types during ingestion
@@ -768,14 +776,14 @@ class GulpPluginBase(ABC):
         # if the plugin is processing an external query
         self._external_query: bool = False
         # websocket to stream data to
-        self._ws_id: str = None
+        self._ws_id: str = ""
         # current request id
-        self._req_id: str = None
+        self._req_id: str = ""
 
         # for stacked plugins
-        self._upper_record_to_gulp_document_fun: Callable = None
-        self._upper_enrich_documents_chunk_fun: Callable = None
-        self._upper_instance: GulpPluginBase = None
+        self._upper_record_to_gulp_document_fun: Callable | None = None
+        self._upper_enrich_documents_chunk_fun: Callable | None = None
+        self._upper_instance: GulpPluginBase | None = None
 
         # to bufferize gulpdocuments
         self._docs_buffer: list[dict] = []
@@ -799,8 +807,6 @@ class GulpPluginBase(ABC):
         self._req_canceled: bool = False
 
         # enrichment during ingestion may be disabled also if _enrich_documents_chunk is implemented
-        self._enrich_during_ingestion: bool = True
-        self._enrich_index: str = None
         self._tot_enriched: int = 0
 
         self._plugin_params: GulpPluginParameters = GulpPluginParameters()
@@ -808,7 +814,7 @@ class GulpPluginBase(ABC):
         # to minimize db requests to postgres to get context and source at every record
         self._ctx_cache: dict = {}
         self._src_cache: dict = {}
-        self._operation: GulpOperation = None
+        self._operation: GulpOperation | None = None
 
         # in preview mode, ingestion and stats are disabled
         self._preview_mode = False
@@ -879,7 +885,7 @@ class GulpPluginBase(ABC):
         """
         return {}
 
-    def ui(self) -> str:
+    def ui(self) -> str | None:
         """
         Returns HTML frame to be rendered in the UI, i.e. for custom plugin panel
         """
@@ -891,7 +897,7 @@ class GulpPluginBase(ABC):
         """
         return []
 
-    def regex(self) -> str:
+    def regex(self) -> str | None:
         """
         A regex to identify the data type (i.e. to identify the file header), for ingestion plugin only
         """
@@ -944,6 +950,7 @@ class GulpPluginBase(ABC):
         """
         broadcast internal ingest metrics event (in the end of each source ingestion) to plugins registered to the GulpInternalEventsManager.EVENT_INGEST event
         """
+        assert self._stats
         ev: GulpIngestInternalEvent = GulpIngestInternalEvent(
             plugin=self.name,
             user_id=self._user_id,
@@ -977,7 +984,7 @@ class GulpPluginBase(ABC):
     async def _ingest_chunk_and_or_send_to_ws(
         self,
         data: list[dict],
-        flt: GulpIngestionFilter = None,
+        flt: GulpIngestionFilter | None = None,
         wait_for_refresh: bool = False,
         all_fields_on_ws: bool = False,
     ) -> tuple[int, int]:
@@ -1013,7 +1020,7 @@ class GulpPluginBase(ABC):
 
         # perform ingestion, ingested_docs may be different from data in the end due to skipped documents
         skipped, ingestion_errors, ingested_docs = await el.bulk_ingest(
-            self._ingest_index,
+            self._index,
             data,
             flt=flt,
             wait_for_refresh=wait_for_refresh,
@@ -1056,12 +1063,11 @@ class GulpPluginBase(ABC):
             # send documents to the websocket
             chunk: GulpDocumentsChunkPacket = GulpDocumentsChunkPacket(
                 docs=ws_docs,
-                num_docs=len(ws_docs),
+                chunk_size=len(ws_docs),
                 # wait for refresh is set only on the last chunk
                 last=wait_for_refresh,
                 chunk_number=self._chunks_ingested,
             )
-            data: dict = chunk.model_dump(exclude_none=True)
             # MutyLogger.get_instance().debug(
             #     "sending chunk of %d documents to ws_id=%s", len(ws_docs), self._ws_id
             # )
@@ -1072,7 +1078,7 @@ class GulpPluginBase(ABC):
                 operation_id=self._operation_id,
                 user_id=self._user_id,
                 req_id=self._req_id,
-                data=data,
+                data=chunk.model_dump(exclude_none=True),
             )
             self._chunks_ingested += 1
 
@@ -1247,13 +1253,12 @@ class GulpPluginBase(ABC):
         self._req_id = req_id
         self._user_id = user_id
         self._external_query = True
-        self._enrich_during_ingestion = False
         self._operation_id = operation_id
-        self._ingest_index = index
+        self._index = index
 
         if q_options.preview_mode:
             self._preview_mode = True
-            self._ingest_index = None
+            self._index = None
             MutyLogger.get_instance().warning("external query preview mode enabled !")
 
         # initialize
@@ -1311,7 +1316,7 @@ class GulpPluginBase(ABC):
         self._req_id = req_id
         self._user_id = user_id
         self._operation_id = operation_id
-        self._ingest_index = index
+        self._index = index
         self._raw_ingestion = True
         self._stats = stats
         self._last_raw_chunk = last
@@ -1332,80 +1337,107 @@ class GulpPluginBase(ABC):
         await self._initialize(plugin_params=plugin_params)
         return GulpRequestStatus.ONGOING
 
-    async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
+    async def _enrich_documents_chunk(
+        self,
+        chunk: list[dict],
+        chunk_num: int = 0,
+        total_hits: int = 0,
+        ws_id: str | None = None,
+        user_id: str | None = None,
+        req_id: str | None = None,
+        operation_id: str | None = None,
+        q_name: str | None = None,
+        chunk_total: int = 0,
+        q_group: str | None = None,
+        last: bool = False,
+    ) -> list[dict]:
         """
-        to be implemented in a plugin to enrich a chunk of documents, called by _enrich_documents_chunk_wrapper
+        a GulpDocumentChunkCallback to be implemented by a plugin to enrich a chunk of documents, called by _enrich_documents_chunk_wrapper
 
         NOTE: do not call this function directly: this is called by the engine right before ingesting a chunk of documents in _flush_buffer()
             also, this is also called by the engine when enriching documents on-demand through the enrich_documents function.
 
             THIS FUNCTION MUST NOT GENERATE EXCEPTIONS, on failure it should (i.e. cannot enrich one or more documents) it should return the original document/s instead.
-
-        Args:
-            docs (list[dict]): the GulpDocuments as dictionaries, to be enriched
         """
-        return docs
+        return chunk
 
     async def _enrich_documents_chunk_wrapper(
         self,
-        docs: list[dict],
-        total_hits: int,
-        chunk_num: int,
+        sess: AsyncSession,
+        chunk: list[dict],
+        chunk_num: int = 0,
+        total_hits: int = 0,
+        ws_id: str = None,
+        user_id: str = None,
+        req_id: str = None,
+        operation_id: str = None,
+        q_name: str = None,
+        chunk_total: int = 0,
+        q_group: str = None,
         last: bool = False,
-        **kwargs,
     ) -> None:
+        """
+        called internally by the engine to enrich a chunk of documents.
+        """
+        if not chunk:
+            MutyLogger.get_instance().warning("empty chunk, nothing to do")
+            return
+
         # call the plugin function
-        docs = await self._enrich_documents_chunk(docs, **kwargs)
-        self._tot_enriched += len(docs)
-        MutyLogger.get_instance().debug(f"enriched ({self.name}) {len(docs)} documents")
+        chunk = await self._enrich_documents_chunk_cb(
+            chunk,
+            chunk_num,
+            total_hits,
+            ws_id,
+            user_id,
+            req_id,
+            operation_id,
+            q_name,
+            chunk_total,
+            q_group,
+            last,
+        )
+        self._tot_enriched += len(chunk)
+        MutyLogger.get_instance().debug(
+            "%s: enriched %d documents", self.name, len(chunk)
+        )
 
-        if docs:
-            # update the documents, also ensure no highlight field is left from the query
-            dd: list[dict] = []
-            for d in docs:
-                d.pop("highlight", None)
-                dd.append(d)
+        # update the documents on opensearch
+        # also ensure no highlight field is left from the query
+        dd: list[dict] = []
+        for d in chunk:
+            d.pop("highlight", None)
+            dd.append(d)
 
-            await GulpOpenSearch.get_instance().update_documents(
-                self._enrich_index, dd, wait_for_refresh=last
-            )
+        await GulpOpenSearch.get_instance().update_documents(
+            self._index, dd, wait_for_refresh=last
+        )
 
-            # send the enriched documents to the websocket
-            chunk = GulpDocumentsChunkPacket(
-                docs=dd,
-                num_docs=len(dd),
-                chunk_number=chunk_num,
-                total_hits=total_hits,
-                last=last,
-                enriched=True,
-            )
-            wsq = GulpWsSharedQueue.get_instance()
-            await wsq.put(
-                t=WSDATA_DOCUMENTS_CHUNK,
-                ws_id=self._ws_id,
-                user_id=self._user_id,
-                operation_id=self._operation_id,
-                req_id=self._req_id,
-                data=chunk.model_dump(exclude_none=True),
-            )
-
-            # update stats
+        # send progress
+        await GulpWsSharedQueue.get_instance().put_progress(
+            WSDATA_PROGRESS_ENRICH,
+            user_id,
+            req_id,
+            ws_id=ws_id,
+            total=total_hits,
+            current=self._tot_enriched,
+            operation_id=operation_id,
+            done=last,
+        )
 
         if last:
-            # also send a GulpQueryDonePacket
-            p = GulpQueryDonePacket(
-                status=GulpRequestStatus.DONE,
-                total_enriched=self._tot_enriched,
-                total_hits=kwargs.get("total_hits", 0),
+            # finish stats
+            p = GulpUpdateDocumentsStats(
+                total_hits=self._tot_enriched,
+                plugin=self.name,
+                updated=self._tot_enriched,
             )
-            wsq = GulpWsSharedQueue.get_instance()
-            await wsq.put(
-                t=WSDATA_ENRICH_DONE,
-                ws_id=self._ws_id,
-                user_id=self._user_id,
-                operation_id=self._operation_id,
-                req_id=self._req_id,
-                data=p.model_dump(exclude_none=True),
+            await self._stats.set_finished(
+                sess,
+                status=GulpRequestStatus.DONE,
+                data=p.model_dump(),
+                user_id=user_id,
+                ws_id=ws_id,
             )
 
     async def enrich_documents(
@@ -1446,7 +1478,7 @@ class GulpPluginBase(ABC):
 
         NOTE: implementers of enrich_documents must:
 
-        1. implement _enrich_documents_chunk
+        1. also implement _enrich_documents_chunk
         2. in enrich_documents, call self._initialize() and then super().enrich_documents
 
         """
@@ -1463,7 +1495,7 @@ class GulpPluginBase(ABC):
         self._ws_id = ws_id
         self._sess = sess
         self._operation_id = operation_id
-        self._enrich_index = index
+        self._index = index
 
         # check if the caller provided a raw query to be used
         rq = kwargs.get("rq", None)
@@ -1533,6 +1565,7 @@ class GulpPluginBase(ABC):
             )
 
         self._operation_id = operation_id
+        self._index = index
         # await self._initialize(plugin_params=plugin_params)
 
         # get the document
@@ -1542,7 +1575,11 @@ class GulpPluginBase(ABC):
         docs = await self._enrich_documents_chunk([doc])
         # MutyLogger.get_instance().debug("docs=%s" % (docs))
         if not docs:
-            raise ObjectNotFound("document not suitable for enrichment")
+            raise ValueError(
+                "document %s found but not enriched (check plugin %s)!",
+                doc_id,
+                self.name,
+            )
 
         # update the document
         await GulpOpenSearch.get_instance().update_documents(
@@ -1602,7 +1639,7 @@ class GulpPluginBase(ABC):
         self._user_id = user_id
         self._operation_id = operation_id
         self._context_id = context_id
-        self._ingest_index = index
+        self._index = index
         self._file_path = file_path
         self._original_file_path = original_file_path
         self._source_id = source_id
@@ -1677,7 +1714,7 @@ class GulpPluginBase(ABC):
         lower._user_id = user_id
         lower._operation_id = operation_id
         lower._context_id = context_id
-        lower._ingest_index = index
+        lower._index = index
         lower._file_path = file_path
         lower._original_file_path = original_file_path
         lower._source_id = source_id
@@ -1718,9 +1755,7 @@ class GulpPluginBase(ABC):
         )
 
         # set upper plugin functions in lower, so it can call them after processing data itself
-        # pylint: disable=W0212
         lower._upper_record_to_gulp_document_fun = self._record_to_gulp_document
-        lower._upper_enrich_documents_chunk_fun = self._enrich_documents_chunk
         lower._upper_instance = self
 
         # set the lower plugin as stacked
@@ -2211,7 +2246,6 @@ class GulpPluginBase(ABC):
         self,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-        **kwargs,
     ) -> None:
         """
         flushes buffer and checks failure thresholds.
@@ -2222,7 +2256,7 @@ class GulpPluginBase(ABC):
             kwargs: additional keyword arguments
         """
         # flush buffer and get stats
-        ingested, skipped = await self._flush_buffer(flt, wait_for_refresh, **kwargs)
+        ingested, skipped = await self._flush_buffer(flt, wait_for_refresh)
 
         # check if request was canceled
         if self._req_canceled:
@@ -2332,7 +2366,7 @@ class GulpPluginBase(ABC):
         for d in docs:
             self._docs_buffer.append(d)
             if len(self._docs_buffer) >= ingestion_buffer_size:
-                await self._flush_and_check_thresholds(flt, wait_for_refresh, **kwargs)
+                await self._flush_and_check_thresholds(flt, wait_for_refresh)
 
     async def _parse_custom_parameters(self) -> None:
         """
@@ -2560,7 +2594,7 @@ class GulpPluginBase(ABC):
         if not self._index_type_mapping:
             self._index_type_mapping = (
                 await GulpOpenSearch.get_instance().datastream_get_field_types(
-                    self._ingest_index
+                    self._index
                 )
             )
             MutyLogger.get_instance().debug(
@@ -2707,7 +2741,6 @@ class GulpPluginBase(ABC):
         self,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-        **kwargs,
     ) -> tuple[int, int]:
         """
         flushes the ingestion buffer to opensearch, updating the ingestion stats on the collab db.
@@ -2721,24 +2754,6 @@ class GulpPluginBase(ABC):
         Returns:
             tuple[int,int]: ingested, skipped records
         """
-
-        if self._enrich_during_ingestion:
-            # first, enrich documents
-            try:
-                # call our enrich_documents
-                self._docs_buffer = await self._enrich_documents_chunk(
-                    self._docs_buffer, **kwargs
-                )
-
-                if self._upper_enrich_documents_chunk_fun:
-                    # if an upper plugin is stacked, call its enrich_documents too to postprocess
-                    # pylint: disable=E1102
-                    self._docs_buffer = await self._upper_enrich_documents_chunk_fun(
-                        self._docs_buffer, **kwargs
-                    )
-            except:  # Exception aa ex:
-                # MutyLogger.get_instance().exception(ex)
-                pass
 
         # then finally ingest the chunk, use all_fields_on_ws if external query or preview mode
         all_fields_on_ws = self._external_query
@@ -2800,7 +2815,7 @@ class GulpPluginBase(ABC):
             )
 
     async def _source_done(
-        self, flt: GulpIngestionFilter = None, ex: Exception = None, **kwargs
+        self, flt: GulpIngestionFilter = None, ex: Exception = None
     ) -> GulpRequestStatus:
         """
         Finalizes the ingestion process for a source by flushing the buffer and updating the ingestion statistics.
@@ -2808,7 +2823,6 @@ class GulpPluginBase(ABC):
         Args:
             flt (GulpIngestionFilter, optional): An optional filter to apply during ingestion. Defaults to None.
             ex (Exception, optional): An optional exception that may have caused the source to fail. Defaults to None.
-            **kwargs: Additional keyword arguments.
 
         Returns:
             GulpRequestStatus: The final status of the ingestion process.
@@ -2839,7 +2853,8 @@ class GulpPluginBase(ABC):
         try:
             # flush the last chunk
             ingested, skipped = await self._flush_buffer(
-                flt, wait_for_refresh=True, **kwargs
+                flt,
+                wait_for_refresh=True,
             )
         except Exception as e:
             MutyLogger.get_instance().exception(e)

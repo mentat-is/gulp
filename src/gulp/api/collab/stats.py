@@ -168,9 +168,9 @@ class GulpQueryStats(BaseModel):
     ] = None
 
 
-class GulpRebaseStats(BaseModel):
+class GulpUpdateDocumentsStats(BaseModel):
     """
-    Represents the query statistics
+    Represents the rebase/enrich statistics
     """
 
     model_config = ConfigDict(
@@ -183,16 +183,20 @@ class GulpRebaseStats(BaseModel):
     )
 
     total_hits: Annotated[
-        int, Field(description="Number of documents to be rebased.")
+        int, Field(description="Number of documents to be update.")
     ] = 0
     updated: Annotated[
-        int, Field(description="Number of documents effectively rebased.")
+        int, Field(description="Number of documents effectively updated.")
     ] = 0
     errors: Annotated[
-        list[str], Field(description="List of errors encountered during the rebase.")
+        list[str], Field(description="List of errors encountered during the operation.")
     ] = []
     flt: Annotated[
-        Optional[GulpQueryFilter], Field(description="The filter used for the rebase.")
+        Optional[GulpQueryFilter],
+        Field(description="The filter used for the operation."),
+    ] = None
+    plugin: Annotated[
+        Optional[str], Field(description="The plugin used for the operation.")
     ] = None
 
 
@@ -444,9 +448,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         """
         delete all ongoing stats (status="ongoing")
         """
-        sess: AsyncSession = None
-        try:
-            async with GulpCollab.get_instance().session() as sess:
+        async with GulpCollab.get_instance().session() as sess:
+            try:
                 flt = GulpCollabFilter(status=GulpRequestStatus.ONGOING.value)
                 deleted = await GulpRequestStats.delete_by_filter(
                     sess, flt, throw_if_not_found=False
@@ -454,9 +457,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 # use lazy % formatting for logging to defer string interpolation
                 MutyLogger.get_instance().info("deleted %d ongoing stats", deleted)
                 return deleted
-        except Exception as e:
-            await sess.rollback()
-            raise e
+            except Exception as e:
+                await sess.rollback()
+                raise e
 
     async def update_ingestion_stats(
         self,

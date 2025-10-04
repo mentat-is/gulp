@@ -7,6 +7,7 @@ from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
 from typing import Any, Optional, Annotated
 
+from gitdb.fun import chunk_size
 import muty
 import muty.time
 from fastapi import WebSocket, WebSocketDisconnect
@@ -46,6 +47,9 @@ WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, thi
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
 WSDATA_PROGRESS_REBASE = (
     "progress_rebase"  # GulpProgressPacket.type type for rebase operations
+)
+WSDATA_PROGRESS_ENRICH = (
+    "progress_enrich"  # GulpProgressPacket.type type for enrich operations
 )
 
 WSDATA_USER_LOGIN = "user_login"
@@ -669,10 +673,10 @@ class GulpDocumentsChunkPacket(BaseModel):
             description="the documents in a query or ingestion chunk.",
         ),
     ]
-    num_docs: Annotated[
+    chunk_size: Annotated[
         int,
         Field(
-            description="the number of documents in this chunk.",
+            description="the chunk size (number of documents)",
         ),
     ] = 0
     chunk_number: Annotated[
@@ -1758,7 +1762,7 @@ class GulpWsSharedQueue:
 
     async def put_progress(
         self,
-        msg: str,
+        t: str,
         user_id: str,
         req_id: str,
         ws_id: str = None,
@@ -1772,7 +1776,7 @@ class GulpWsSharedQueue:
         a shortcut method to send GulpProgressPacket messages to the queue
 
         args:
-            msg (str): the progress message
+            t (str): the progress type, i.e. WSDATA_PROGRESS_REBASE
             user_id (str): the user id associated with this message
             req_id (str, optional): the request id
             ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
@@ -1786,7 +1790,7 @@ class GulpWsSharedQueue:
             total=total,
             current=current,
             done=done,
-            msg=msg,
+            msg=t,
             data=d or {},
         )
         wsq = GulpWsSharedQueue.get_instance()

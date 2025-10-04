@@ -323,7 +323,9 @@ class Plugin(GulpPluginBase):
                     if addr_info_list:
                         # add all resolved ip addresses
                         for addr_info_tuple in addr_info_list:
-                            resolved_ip: str = addr_info_tuple[4][0]  # ip is the first element of sockaddr
+                            resolved_ip: str = addr_info_tuple[4][
+                                0
+                            ]  # ip is the first element of sockaddr
                             entities_for_rdap.add(resolved_ip.lower())
                             # MutyLogger.get_instance().debug(f"resolved '{entity_str}' to '{resolved_ip}'")
                             if resolve_first_only:
@@ -537,7 +539,8 @@ class Plugin(GulpPluginBase):
 
                 # dump only the data for that single entity
                 ud: str = orjson.dumps(
-                    data_for_unification[single_entity_data_key], option=orjson.OPT_INDENT_2
+                    data_for_unification[single_entity_data_key],
+                    option=orjson.OPT_INDENT_2,
                 ).decode()
                 final_combined_enriched_data["unified_dump"] = ud
 
@@ -548,7 +551,9 @@ class Plugin(GulpPluginBase):
                 # multiple entities found (either via regex or potentially complex single input that resolved to multiple, though less likely for single path)
                 # or if it wasn't a single entity path but unify_dump is on
                 # dump the dictionary of all entities and their data
-                ud: str = orjson.dumps(data_for_unification, option=orjson.OPT_INDENT_2).decode()
+                ud: str = orjson.dumps(
+                    data_for_unification, option=orjson.OPT_INDENT_2
+                ).decode()
                 final_combined_enriched_data["unified_dump"] = ud
                 MutyLogger.get_instance().debug(
                     f"unified dump created for {len(data_for_unification)} entities:\n{ud}"
@@ -669,15 +674,28 @@ class Plugin(GulpPluginBase):
             }
         }
 
-    async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
+    async def _enrich_documents_chunk(
+        self,
+        chunk: list[dict],
+        chunk_num: int = 0,
+        total_hits: int = 0,
+        ws_id: str | None = None,
+        user_id: str | None = None,
+        req_id: str | None = None,
+        operation_id: str | None = None,
+        q_name: str | None = None,
+        chunk_total: int = 0,
+        q_group: str | None = None,
+        last: bool = False,
+    ) -> list[dict]:
         dd = []
         host_fields = self._plugin_params.custom_parameters.get("host_fields", [])
 
         # MutyLogger.get_instance().debug("host_fields: %s, num_docs=%d" % (host_fields, len(docs)))
-        for doc in docs:
+        for doc in chunk:
             # TODO: when opensearch will support runtime mappings, this can be removed and done with "highlight" queries.
             # either, we may also add text mappings to ip fields in the index template..... but keep it as is for now...
-            enriched: bool=False
+            enriched: bool = False
             for host_field in host_fields:
                 f = doc.get(host_field)
                 if not f:
@@ -686,7 +704,7 @@ class Plugin(GulpPluginBase):
                 # append flattened whois data to the document
                 whois_data = await self._get_whois(f)
                 if whois_data:
-                    enriched=True
+                    enriched = True
                     for key, value in whois_data.items():
                         if value:
                             # also replace . with _ in the field name
@@ -716,7 +734,7 @@ class Plugin(GulpPluginBase):
         # parse custom parameters
         await self._initialize(plugin_params)
 
-        # build queries for each host field that match non-private IP addresses (both v4 and v6)
+        # build "should" nodes for each host field that match non-private IP addresses (both v4 and v6)
         host_fields = self._plugin_params.custom_parameters.get("host_fields", [])
         qq = {
             "query": {

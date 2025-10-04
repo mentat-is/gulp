@@ -22,7 +22,11 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.stats import GulpRebaseStats, GulpRequestStats, RequestStatsType
+from gulp.api.collab.stats import (
+    GulpUpdateDocumentsStats,
+    GulpRequestStats,
+    RequestStatsType,
+)
 from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpRequestStatus,
@@ -123,7 +127,7 @@ async def _rebase_by_query_internal(
     runs in a worker process to rebase the index using update_by_query.
     """
     stats: GulpRequestStats = None
-    p: GulpRebaseStats = GulpRebaseStats()
+    p: GulpUpdateDocumentsStats = GulpUpdateDocumentsStats()
     total_hits: int = 0
     updated: int = 0
     errors: list[str] = []

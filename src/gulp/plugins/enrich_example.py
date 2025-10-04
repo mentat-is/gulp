@@ -3,6 +3,7 @@ this is an example enrichment plugin.
 
 it processes every provided documents and adds a bunch of fields, including "enriched": true
 """
+
 from typing import override
 import muty.file
 import muty.log
@@ -33,8 +34,21 @@ class Plugin(GulpPluginBase):
     def desc(self) -> str:
         return "Example enrichment plugin."
 
-    async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
-        for doc in docs:
+    async def _enrich_documents_chunk(
+        self,
+        chunk: list[dict],
+        chunk_num: int = 0,
+        total_hits: int = 0,
+        ws_id: str = None,
+        user_id: str = None,
+        req_id: str = None,
+        operation_id: str = None,
+        q_name: str = None,
+        chunk_total: int = 0,
+        q_group: str = None,
+        last: bool = False,
+    ) -> list[dict]:
+        for doc in chunk:
             doc["enriched"] = True
             doc["gulp.enriched.new_field"] = muty.string.generate_unique()
             doc["gulp.enriched.nested"] = {
@@ -54,9 +68,9 @@ class Plugin(GulpPluginBase):
         ws_id: str,
         operation_id: str,
         index: str,
-        flt: GulpQueryFilter =None,
+        flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
-        **kwargs
+        **kwargs,
     ) -> int:
         await self._initialize(plugin_params)
         return await super().enrich_documents(
@@ -72,4 +86,6 @@ class Plugin(GulpPluginBase):
         index: str,
         plugin_params: GulpPluginParameters,
     ) -> dict:
-        return await super().enrich_single_document(sess, doc_id, operation_id, index, plugin_params)
+        return await super().enrich_single_document(
+            sess, doc_id, operation_id, index, plugin_params
+        )

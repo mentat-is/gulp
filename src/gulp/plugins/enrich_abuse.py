@@ -104,11 +104,24 @@ class Plugin(GulpPluginBase):
         except AttributeError:
             return False
 
-    async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
+    async def _enrich_documents_chunk(
+        self,
+        chunk: list[dict],
+        chunk_num: int = 0,
+        total_hits: int = 0,
+        ws_id: str = None,
+        user_id: str = None,
+        req_id: str = None,
+        operation_id: str = None,
+        q_name: str = None,
+        chunk_total: int = 0,
+        q_group: str = None,
+        last: bool = False,
+    ) -> list[dict]:
         auth_key = self._plugin_params.custom_parameters.get("auth_key")
         dd = []
         url_fields = self._plugin_params.custom_parameters.get("url_fields", [])
-        for doc in docs:
+        for doc in chunk:
             for url_field in url_fields:
                 f = doc.get(url_field)
                 if not f:

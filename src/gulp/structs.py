@@ -372,7 +372,7 @@ class GulpProgressCallback(Protocol):
         ...
 
 
-class GulpDocumentCallback(Protocol):
+class GulpDocumentChunkCallback(Protocol):
     """
     callback protocol for chunk processing during query
     """
@@ -380,17 +380,17 @@ class GulpDocumentCallback(Protocol):
     async def __call__(
         self,
         chunk: list[dict],
-        chunk_num: int,
-        total_hits: int,
-        q_name: str,
-        ws_id: str,
-        user_id: str,
-        req_id: str,
-        operation_id: str,
+        chunk_num: int = 0,
+        total_hits: int = 0,
+        ws_id: str | None = None,
+        user_id: str | None = None,
+        req_id: str | None = None,
+        operation_id: str | None = None,
+        q_name: str | None = None,
         chunk_total: int = 0,
-        q_group: str = None,
+        q_group: str | None = None,
         last: bool = False,
-    ) -> None:
+    ) -> list[dict]:
         """
         callback function to process a chunk of documents.
 
@@ -398,15 +398,15 @@ class GulpDocumentCallback(Protocol):
             chunk (list[dict]): one or more GulpDocument dictionaries
             chunk_num (int): current chunk number (starting from 0)
             total_hits (int): total number of hits for the query
-            q_name (str): name of the query
-            ws_id (str): websocket id to send WSDATA_DOCUMENTS_CHUNK to (None to skip)
-            user_id (str): the caller user_id, ignored if ws_id is None
-            req_id (str): originating request id, ignored if ws_id is None
-            operation_id (str): id of the GulpOperation, ignored if ws_id is None
-            chunk_total (int, optional): total number of chunks, if known. Defaults to 0.
-            q_group (str, optional): query group name, if any. Defaults to None.
-            last (bool, optional): True if this is the last chunk. Defaults to False.
+            ws_id (str|None): the websocket id to send progress updates to, if any. If None, no progress updates will be sent.
+            user_id (str|None): the caller user_id, ignored if ws_id is None
+            req_id (str|None): originating request id, ignored if ws_id is None
+            operation_id (str|None): id of the GulpOperation, ignored if ws_id is None
+            q_name (str|None): query name, if any. Defaults to None.
+            chunk_total (int): total number of chunks for the query, if known. Defaults to 0.
+            q_group (str|None): query group, if any. Defaults to None.
+            last (bool): True if this is the last chunk. Defaults to False.
         Returns:
-            None
+            list[dict]: the processed chunk of documents
         """
         ...
