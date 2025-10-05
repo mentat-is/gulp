@@ -372,7 +372,7 @@ class GulpProgressCallback(Protocol):
         ...
 
 
-class GulpDocumentChunkCallback(Protocol):
+class GulpDocumentsChunkCallback(Protocol):
     """
     callback protocol for chunk processing during query
     """
@@ -382,14 +382,15 @@ class GulpDocumentChunkCallback(Protocol):
         chunk: list[dict],
         chunk_num: int = 0,
         total_hits: int = 0,
-        ws_id: str | None = None,
-        user_id: str | None = None,
-        req_id: str | None = None,
-        operation_id: str | None = None,
-        q_name: str | None = None,
+        ws_id: str = None,
+        user_id: str = None,
+        req_id: str = None,
+        operation_id: str = None,
+        q_name: str = None,
         chunk_total: int = 0,
-        q_group: str | None = None,
+        q_group: str = None,
         last: bool = False,
+        **kwargs,
     ) -> list[dict]:
         """
         callback function to process a chunk of documents.
@@ -406,6 +407,7 @@ class GulpDocumentChunkCallback(Protocol):
             chunk_total (int): total number of chunks for the query, if known. Defaults to 0.
             q_group (str|None): query group, if any. Defaults to None.
             last (bool): True if this is the last chunk. Defaults to False.
+            **kwargs: additional arguments passed to the callback
         Returns:
             list[dict]: the processed chunk of documents
         """

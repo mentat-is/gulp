@@ -23,7 +23,7 @@ import json
 from importlib import resources as impresources
 import os
 import tempfile
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import aiofiles
@@ -31,7 +31,6 @@ import muty.dict
 import muty.file
 import muty.string
 import muty.time
-from typing import Protocol
 import asyncio
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
@@ -49,18 +48,19 @@ from gulp.api.opensearch.filters import (
     GulpQueryFilter,
 )
 from gulp.api.ws_api import (
-    PROGRESS_REBASE,
     WSDATA_DOCUMENTS_CHUNK,
-    WSDATA_SOURCE_FIELDS_CHUNK,
     GulpDocumentsChunkPacket,
-    GulpSourceFieldsChunkPacket,
     GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
-from gulp.structs import GulpProgressCallback, ObjectNotFound
+from gulp.structs import (
+    GulpDocumentsChunkCallback,
+    GulpProgressCallback,
+    ObjectNotFound,
+)
 
 if TYPE_CHECKING:
-    from gulp.api.opensearch.query import GulpQueryParameters
+    from gulp.api.opensearch.structs import GulpQueryParameters
     from gulp.plugin import GulpPluginBase
 
 
@@ -362,6 +362,7 @@ class GulpOpenSearch:
 
     async def datastream_update_source_field_types_by_src(
         self,
+        sess: AsyncSession,
         index: str,
         user_id: str,
         operation_id: str = None,
@@ -376,6 +377,7 @@ class GulpOpenSearch:
         WARNING: this call may take long time, so it is better to run it in a background task.
 
         Args:
+            sess (AsyncSession): The database session.
             index (str): The index/datastream name.
             user_id (str): the requesting user ID.
             operation_id (str): The operation ID, may be None to indicate all operations.
@@ -396,7 +398,7 @@ class GulpOpenSearch:
             doc_ids,
         )
 
-        from gulp.api.opensearch.query import GulpQueryParameters
+        from gulp.api.opensearch.structs import GulpQueryParameters
 
         options = GulpQueryParameters()
         options.limit = 1000
@@ -424,7 +426,7 @@ class GulpOpenSearch:
                     " OR ".join(doc_ids)
                 )
 
-        # get mapping
+        # get all the fields/types mapping for this index
         mapping = await self.datastream_get_field_types(index)
         filtered_mapping = {}
 
@@ -432,7 +434,6 @@ class GulpOpenSearch:
         processed: int = 0
         total_hits: int = 0
         while True:
-            last: bool = False
             parsed_options = options.parse()
             total_hits, docs, search_after = await self._search_dsl_internal(
                 index, parsed_options, q, el=el, raise_on_error=False
@@ -441,21 +442,15 @@ class GulpOpenSearch:
             options.search_after = search_after
             processed += len(docs)
             # MutyLogger.get_instance().debug("processed=%d, total=%d", processed, total_hits)
-            if processed >= total_hits:
-                # last chunk
-                last = True
 
             # update filtered_mapping with the current batch of documents
-            chunk: dict = {}
             for doc in docs:
                 for k in mapping.keys():
                     if k in doc:
                         if k not in filtered_mapping:
                             filtered_mapping[k] = mapping[k]
-                            if k not in chunk:
-                                chunk[k] = mapping[k]
 
-            if last:
+            if processed >= total_hits or not total_hits:
                 # no more results
                 break
 
@@ -471,18 +466,14 @@ class GulpOpenSearch:
             )
             return {}
 
-        # sort the keys
-        # filtered_mapping = dict(sorted(filtered_mapping.items()))
-
         # store on database (create or update)
         MutyLogger.get_instance().debug(
             "found %d source->fieldtype mappings, storing on db ...",
             len(filtered_mapping),
         )
-        async with GulpCollab.get_instance().session() as sess:
-            await GulpSourceFieldTypes.create_source_field_types(
-                sess, user_id, operation_id, context_id, source_id, filtered_mapping
-            )
+        await GulpSourceFieldTypes.create_source_field_types(
+            sess, user_id, operation_id, context_id, source_id, filtered_mapping
+        )
 
         return filtered_mapping
 
@@ -1318,7 +1309,7 @@ class GulpOpenSearch:
             user_id (str, optional): user_id of the caller, ignored if callback is not set
             flt (GulpQueryFilter, optional): to filter the documents to rebase. Defaults to None (all documents).
             script (str, optional): A [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html) to customize the update. Defaults to None (use the default script which just updates @timestamp and gulp.timestamp).
-            callback (GulpProgressCallback, optional): A callback function to report GulpProgressPacket with type=WSDATA_PROGRESS_REBASE progress on ws_id. Defaults to None.
+            callback (GulpProgressCallback, optional): A callback function called at every processed chunk. Defaults to None.
         Returns:
             tuple:
             - total number of documents matching the filter
@@ -1369,30 +1360,42 @@ class GulpOpenSearch:
             params["timeout"] = timeout
 
         errors: list[str] = []
+        search_body = {
+            "track_total_hits": True,
+            "size": batch_size,
+            "query": base_query,
+            "sort": ["_doc"],
+        }
         while True:
 
             # search for up to batch_size docs matching the filter
-            search_body = {
-                "track_total_hits": True,
-                "size": batch_size,
-                "query": base_query,
-                "sort": ["_doc"],
-            }
-            if search_after:
-                search_body["search_after"] = search_after
 
             res = await self._opensearch.search(
                 index=index, body=search_body, headers=headers
             )
             hits = res["hits"]["hits"]
             if not hits:
-                # done
+                # done, last progress update
+                if callback:
+                    d = {
+                        "errors": errors,
+                        "flt": flt.model_dump() if flt else None,
+                    }
+                    await callback(
+                        total_hits,
+                        num_updated_docs,
+                        ws_id,
+                        user_id,
+                        req_id,
+                        index,
+                        done=True,
+                        data=d,
+                    )
                 break
 
+            # call update_by_query on the doc_ids chunk
             total_hits = res["hits"]["total"]["value"]
             doc_ids = [hit["_id"] for hit in hits]
-
-            # call update_by_query for these IDs
             MutyLogger.get_instance().debug(
                 "rebase chunk %d, offset_nsec=%d, updating %d docs ...",
                 chunk_count,
@@ -1430,6 +1433,10 @@ class GulpOpenSearch:
                 canceled = await GulpRequestStats.is_canceled(sess, req_id)
                 if callback:
                     # and also send progress updates
+                    d = {
+                        "errors": errors,
+                        "flt": flt.model_dump() if flt else None,
+                    }
                     await callback(
                         total_hits,
                         num_updated_docs,
@@ -1439,7 +1446,7 @@ class GulpOpenSearch:
                         index,
                         done=canceled,
                         canceled=canceled,
-                        data={"errors": errors} if errors else None,
+                        data=d,
                     )
                 if canceled:
                     # we're done
@@ -1449,9 +1456,8 @@ class GulpOpenSearch:
             chunk_count += 1
 
             # prepare for next batch
-            search_after = hits[-1]["sort"] if "sort" in hits[-1] else None
-            if not search_after:
-                break
+            search_after = hits[-1]["sort"]
+            search_body["search_after"] = search_after
 
         MutyLogger.get_instance().debug(
             "rebase completed: index=%s, flt=%s, total_hits=%d, updated=%d, errors=%s",
@@ -1460,18 +1466,6 @@ class GulpOpenSearch:
             total_hits,
             num_updated_docs,
             errors,
-        )
-
-        # last progress update
-        await callback(
-            total_hits,
-            num_updated_docs,
-            ws_id,
-            user_id,
-            req_id,
-            index,
-            done=True,
-            data={"errors": errors} if errors else {},
         )
         return total_hits, num_updated_docs, errors
 
@@ -1947,7 +1941,7 @@ class GulpOpenSearch:
         parsed_options: dict,
         q: dict,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
-        raise_on_error: bool = True,
+        raise_on_error: bool = False,
     ) -> tuple[int, list[dict], list[dict]]:
         """
         Executes a raw DSL query on OpenSearch and returns the results.
@@ -1957,11 +1951,11 @@ class GulpOpenSearch:
             parsed_options (dict): The parsed query options.
             q (dict): The DSL query to execute.
             el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
-            raise_on_error (bool, optional): Whether to raise an exception if no more hits are found. Defaults to True.
+            raise_on_error (bool, optional): Whether to raise an exception if no more hits are found. Defaults to False.
         Returns:
             tuple:
-            - total_hits (int): The total number of hits found.
-            - docs (list[dict]): The documents found.
+            - total_hits (int): The total number of hits.
+            - docs (list[dict]): The documents.
             - search_after (list[dict]): to be passed via `q_options.search_after` in the next iteration.
 
         Raises:
@@ -1991,6 +1985,7 @@ class GulpOpenSearch:
             params["timeout"] = timeout
 
         if el:
+            # use provided client
             if isinstance(el, AsyncElasticsearch):
                 # use the ElasticSearch client provided
                 res = await el.search(
@@ -2005,12 +2000,12 @@ class GulpOpenSearch:
                     timeout=timeout if timeout else None,
                 )
             else:
-                # external opensearch
+                # opensearch client provided by the caller
                 res = await el.search(
                     body=body, index=index, headers=headers, params=params
                 )
         else:
-            # use the OpenSearch client (default)
+            # use gulp's own opensearch client
             res = await self._opensearch.search(
                 body=body, index=index, headers=headers, params=params
             )
@@ -2043,7 +2038,7 @@ class GulpOpenSearch:
         q: dict,
         q_options: "GulpQueryParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
-        raise_on_error: bool = True,
+        raise_on_error: bool = False,
     ) -> tuple[int, list[dict], list[dict]]:
         """
         Executes a raw DSL query on OpenSearch/Elasticsearch and returns the results directly.
@@ -2051,19 +2046,19 @@ class GulpOpenSearch:
         Args:
             index (str): Name of the index (or datastream) to query.
             q (dict): The DSL query to execute.
-            el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
-            raise_on_error (bool, optional): Whether to raise an exception if no more hits are found. Defaults to True.
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): an ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
+            raise_on_error (bool, optional): Whether to raise an exception if no more hits are found. Defaults to False.
 
         Returns:
             tuple:
-            - total_hits (int): The total number of hits found.
-            - docs (list[dict]): The documents found.
+            - total_hits (int): The total number of hits.
+            - docs (list[dict]): The documents.
             - search_after (list[dict]): to be passed via `q_options.search_after` in the next iteration.
 
         Raises:
             ObjectNotFound: If no more hits are found.
         """
-        from gulp.api.opensearch.query import GulpQueryParameters
+        from gulp.api.opensearch.structs import GulpQueryParameters
 
         if not q_options:
             q_options = GulpQueryParameters()
@@ -2074,21 +2069,203 @@ class GulpOpenSearch:
         )
         return total_hits, docs, search_after
 
+    # async def search_dsl(
+    #     self,
+    #     sess: AsyncSession,
+    #     index: str,
+    #     q: dict,
+    #     req_id: str = None,
+    #     ws_id: str = None,
+    #     user_id: str = None,
+    #     q_options: "GulpQueryParameters" = None,
+    #     el: AsyncElasticsearch | AsyncOpenSearch = None,
+    #     callback: GulpDocumentsChunkCallback = None,
+    #     source_q: str = None,
+    # ) -> tuple[int, int]:
+    #     """
+    #     Executes a raw DSL query on OpenSearch and optionally streams the results on the websocket.
+
+    #     NOTE: in the end, all gulp **local** queries and all **elasticsearch/opensearch** based queries for external plugins will be done through this function.
+
+    #     Args:
+    #         sess (AsyncSession): SQLAlchemy session (to check if request has been canceled)
+    #         index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
+    #         q (dict): The DSL query to execute (will be run as "query": q }, so be sure it is stripped of the root "query" key)
+    #         req_id (str), optional: The request ID for the query
+    #         ws_id (str, optional): The websocket ID to send the results to, pass None to disable sending on the websocket.
+    #         user_id (str, optional): The user ID performing the query
+    #         q_options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
+    #         el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
+    #         callback (callable, optional): the callback to call for each document found. Defaults to None.
+    #             the callback must be defined as:
+    #             async def callback(doc: dict, idx: int, **kwargs) -> None
+
+    #             NOTE: if callback is set, all postprocessing on the document is disabled (including sending on the websockets and note creations) and must be done by the callback if needed.
+    #         callback_args (dict, optional): further arguments to pass to the callback. Defaults to None.
+    #         callback_chunk (callable, optional): the callback to call for each chunk of documents found. Defaults to None.
+    #             the callback must be defined as:
+    #             async def callback_chunk(docs: list[dict], **kwargs) -> None
+
+    #             NOTE: if callback is set, all postprocessing on the document is disabled (including sending on the websockets and note creations) and must done by the callback if needed.
+    #         callback_chunk_args (dict, optional): further arguments to pass to the callback_chunk. Defaults to None.
+    #         source_q (str, optional): the source query (i.e. a sigma rule) from which this query was generated.
+    #     Return:
+    #         tuple:
+    #         - processed (int): The number of documents processed (on a clean exit, this will be equal to total_hits).
+    #         - total_hits (int): The total number of hits found.
+
+    #     Raises:
+    #         ValueError: argument error
+    #         Exception: If an error occurs during the query.
+    #     """
+    #     from gulp.api.opensearch.query import GulpQueryParameters
+
+    #     if not q_options:
+    #         # use defaults
+    #         q_options = GulpQueryParameters()
+
+    #     if el:
+    #         # force use_elasticsearch_api if el is provided
+    #         MutyLogger.get_instance().debug(
+    #             "search_dsl: using provided ElasticSearch/OpenSearch client %s, class=%s",
+    #             el,
+    #             el.__class__,
+    #         )
+
+    #     parsed_options: dict = q_options.parse()
+    #     processed: int = 0
+    #     chunk_num: int = 0
+    #     check_canceled_count: int = 0
+    #     total_hits: int = 0
+
+    #     while True:
+    #         last: bool = False
+    #         docs: list[dict] = []
+    #         try:
+    #             total_hits, docs, search_after = await self._search_dsl_internal(
+    #                 index, parsed_options, q, el
+    #             )
+    #             if q_options.loop:
+    #                 # auto setup for next iteration
+    #                 parsed_options["search_after"] = search_after
+
+    #             processed += len(docs)
+    #             if (
+    #                 processed >= total_hits
+    #                 or not q_options.loop
+    #                 or (q_options.total_limit and processed >= q_options.total_limit)
+    #             ):
+    #                 # this is the last chunk
+    #                 last = True
+
+    #             # MutyLogger.get_instance().debug("retrieved chunk of %d documents, total=%d", len(docs), total_hits)
+
+    #             check_canceled_count += 1
+    #             if check_canceled_count == 10:
+    #                 # every 10 chunk, check for request cancelation
+    #                 check_canceled_count = 0
+    #                 canceled = await GulpRequestStats.is_canceled(sess, req_id)
+    #                 # MutyLogger.get_instance().debug("search_dsl: request %s stats=%s", req_id, stats)
+    #                 if canceled:
+    #                     last = True
+    #                     MutyLogger.get_instance().warning(
+    #                         "search_dsl: request %s canceled!", req_id
+    #                     )
+
+    #             if callback:
+    #                 # call the callback for each document
+    #                 for idx, doc in enumerate(docs):
+    #                     await callback(
+    #                         doc,
+    #                         processed + idx,
+    #                         **callback_args if callback_args else {},
+    #                     )
+
+    #             if callback_chunk:
+    #                 # call the callback for each chunk of documents
+    #                 await callback_chunk(
+    #                     docs,
+    #                     total_hits=total_hits,
+    #                     last=last,
+    #                     chunk_num=chunk_num,
+    #                     **callback_chunk_args if callback_chunk_args else {},
+    #                 )
+
+    #         except ObjectNotFound:
+    #             if processed == 0 and ws_id:
+    #                 # no results
+    #                 return 0, 0
+    #             # indicates the last result
+    #             last = True
+    #         except Exception as ex:
+    #             # something went wrong
+    #             # MutyLogger.get_instance().exception(ex)
+    #             raise ex
+
+    #         if ws_id and not callback and not callback_chunk:
+    #             # build a GulpDocumentsChunk and send to websocket
+    #             chunk = GulpDocumentsChunkPacket(
+    #                 docs=docs,
+    #                 chunk_size=len(docs),
+    #                 chunk_number=chunk_num,
+    #                 total_hits=total_hits,
+    #                 last=last,
+    #                 name=q_options.name,
+    #             )
+    #             wsq = GulpWsSharedQueue.get_instance()
+    #             await wsq.put(
+    #                 t=WSDATA_DOCUMENTS_CHUNK,
+    #                 ws_id=ws_id,
+    #                 user_id=user_id,
+    #                 operation_id=index,
+    #                 req_id=req_id,
+    #                 d=chunk.model_dump(exclude_none=True),
+    #             )
+
+    #         if (
+    #             q_options.note_parameters.create_notes
+    #             and not callback
+    #             and not callback_chunk
+    #         ):
+    #             # automatically generate notes
+    #             await GulpNote.bulk_create_from_documents(
+    #                 sess,
+    #                 user_id,
+    #                 ws_id=ws_id,
+    #                 req_id=req_id,
+    #                 docs=docs,
+    #                 name=q_options.note_parameters.note_name,
+    #                 tags=q_options.note_parameters.note_tags,
+    #                 color=q_options.note_parameters.note_color,
+    #                 glyph_id=q_options.note_parameters.glyph_id,
+    #                 source_q=source_q,
+    #             )
+
+    #         # next chunk
+    #         chunk_num += 1
+    #         if last or not q_options.loop:
+    #             break
+
+    #     MutyLogger.get_instance().info(
+    #         "search_dsl: processed %d documents, total=%d, chunks=%d",
+    #         processed,
+    #         total_hits,
+    #         chunk_num,
+    #     )
+    #     return processed, total_hits
+
     async def search_dsl(
         self,
         sess: AsyncSession,
         index: str,
         q: dict,
+        user_id: str = None,
         req_id: str = None,
         ws_id: str = None,
-        user_id: str = None,
         q_options: "GulpQueryParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
-        callback: callable = None,
-        callback_args: dict = None,
-        callback_chunk: callable = None,
-        callback_chunk_args: dict = None,
-        source_q: str = None,
+        callback: GulpDocumentsChunkCallback = None,
+        **kwargs,
     ) -> tuple[int, int]:
         """
         Executes a raw DSL query on OpenSearch and optionally streams the results on the websocket.
@@ -2096,27 +2273,16 @@ class GulpOpenSearch:
         NOTE: in the end, all gulp **local** queries and all **elasticsearch/opensearch** based queries for external plugins will be done through this function.
 
         Args:
-            sess (AsyncSession): SQLAlchemy session (to check if request has been canceled)
+            sess (AsyncSession): SQLAlchemy session: use None here if you don't need to check if the request has been canceled.
             index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
             q (dict): The DSL query to execute (will be run as "query": q }, so be sure it is stripped of the root "query" key)
             req_id (str), optional: The request ID for the query
             ws_id (str, optional): The websocket ID to send the results to, pass None to disable sending on the websocket.
             user_id (str, optional): The user ID performing the query
             q_options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
-            el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
-            callback (callable, optional): the callback to call for each document found. Defaults to None.
-                the callback must be defined as:
-                async def callback(doc: dict, idx: int, **kwargs) -> None
-
-                NOTE: if callback is set, all postprocessing on the document is disabled (including sending on the websockets and note creations) and must be done by the callback if needed.
-            callback_args (dict, optional): further arguments to pass to the callback. Defaults to None.
-            callback_chunk (callable, optional): the callback to call for each chunk of documents found. Defaults to None.
-                the callback must be defined as:
-                async def callback_chunk(docs: list[dict], **kwargs) -> None
-
-                NOTE: if callback is set, all postprocessing on the document is disabled (including sending on the websockets and note creations) and must done by the callback if needed.
-            callback_chunk_args (dict, optional): further arguments to pass to the callback_chunk. Defaults to None.
-            source_q (str, optional): the source query (i.e. a sigma rule) from which this query was generated.
+            el (AsyncElasticSearch|AsyncOpenSearch, optional): an ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
+            callback (GulpDocumentChunkCallback, optional): the callback to call for each chunk of documents during query. Defaults to None.
+            **kwargs: further arguments to pass to the callback.
         Return:
             tuple:
             - processed (int): The number of documents processed (on a clean exit, this will be equal to total_hits).
@@ -2126,7 +2292,7 @@ class GulpOpenSearch:
             ValueError: argument error
             Exception: If an error occurs during the query.
         """
-        from gulp.api.opensearch.query import GulpQueryParameters
+        from gulp.api.opensearch.structs import GulpQueryParameters
 
         if not q_options:
             # use defaults
@@ -2147,112 +2313,68 @@ class GulpOpenSearch:
         total_hits: int = 0
 
         while True:
-            last: bool = False
             docs: list[dict] = []
-            try:
-                total_hits, docs, search_after = await self._search_dsl_internal(
-                    index, parsed_options, q, el
-                )
-                if q_options.loop:
-                    # auto setup for next iteration
-                    parsed_options["search_after"] = search_after
+            total_hits, docs, search_after = await self._search_dsl_internal(
+                index, parsed_options, q, el
+            )
 
-                processed += len(docs)
-                if (
-                    processed >= total_hits
-                    or not q_options.loop
-                    or (q_options.total_limit and processed >= q_options.total_limit)
-                ):
-                    # this is the last chunk
-                    last = True
-
-                # MutyLogger.get_instance().debug("retrieved chunk of %d documents, total=%d", len(docs), total_hits)
-
-                check_canceled_count += 1
-                if check_canceled_count == 10:
-                    # every 10 chunk, check for request cancelation
-                    check_canceled_count = 0
-                    canceled = await GulpRequestStats.is_canceled(sess, req_id)
-                    # MutyLogger.get_instance().debug("search_dsl: request %s stats=%s", req_id, stats)
-                    if canceled:
-                        last = True
-                        MutyLogger.get_instance().warning(
-                            "search_dsl: request %s canceled!", req_id
-                        )
-
+            processed += len(docs)
+            # MutyLogger.get_instance().debug("retrieved chunk of %d documents, total=%d", len(docs), total_hits)
+            if (
+                processed >= total_hits
+                or not total_hits
+                or not q_options.loop
+                or (q_options.total_limit and processed >= q_options.total_limit)
+            ):
+                # this is the last chunk
                 if callback:
-                    # call the callback for each document
-                    for idx, doc in enumerate(docs):
-                        await callback(
-                            doc,
-                            processed + idx,
-                            **callback_args if callback_args else {},
-                        )
-
-                if callback_chunk:
-                    # call the callback for each chunk of documents
-                    await callback_chunk(
+                    callback(
                         docs,
-                        total_hits=total_hits,
-                        last=last,
                         chunk_num=chunk_num,
-                        **callback_chunk_args if callback_chunk_args else {},
+                        total_hits=total_hits,
+                        ws_id=ws_id,
+                        user_id=user_id,
+                        req_id=req_id,
+                        operation_id=index,
+                        last=True,
+                        q_name=q_options.name,
+                        q_group_by=q_options.group,
+                        **kwargs,
+                    )
+                break
+
+            if check_canceled_count % 10 == 0:
+                # every 10 chunk, check for request cancelation
+                canceled = (
+                    await GulpRequestStats.is_canceled(sess, req_id) if sess else False
+                )
+                # MutyLogger.get_instance().debug("search_dsl: request %s stats=%s", req_id, stats)
+                if callback:
+                    callback(
+                        docs,
+                        chunk_num=chunk_num,
+                        total_hits=total_hits,
+                        ws_id=ws_id,
+                        user_id=user_id,
+                        req_id=req_id,
+                        operation_id=index,
+                        last=canceled,
+                        q_name=q_options.name,
+                        q_group_by=q_options.group,
+                        **kwargs,
                     )
 
-            except ObjectNotFound:
-                if processed == 0 and ws_id:
-                    # no results
-                    return 0, 0
-                # indicates the last result
-                last = True
-            except Exception as ex:
-                # something went wrong
-                # MutyLogger.get_instance().exception(ex)
-                raise ex
-
-            if ws_id and not callback and not callback_chunk:
-                # build a GulpDocumentsChunk and send to websocket
-                chunk = GulpDocumentsChunkPacket(
-                    docs=docs,
-                    chunk_size=len(docs),
-                    chunk_number=chunk_num,
-                    total_hits=total_hits,
-                    last=last,
-                    name=q_options.name,
-                )
-                wsq = GulpWsSharedQueue.get_instance()
-                await wsq.put(
-                    t=WSDATA_DOCUMENTS_CHUNK,
-                    ws_id=ws_id,
-                    user_id=user_id,
-                    operation_id=index,
-                    req_id=req_id,
-                    data=chunk.model_dump(exclude_none=True),
-                )
-
-            if (
-                q_options.note_parameters.create_notes
-                and not callback
-                and not callback_chunk
-            ):
-                # automatically generate notes
-                await GulpNote.bulk_create_from_documents(
-                    sess,
-                    user_id,
-                    ws_id=ws_id,
-                    req_id=req_id,
-                    docs=docs,
-                    name=q_options.note_parameters.note_name,
-                    tags=q_options.note_parameters.note_tags,
-                    color=q_options.note_parameters.note_color,
-                    glyph_id=q_options.note_parameters.glyph_id,
-                    source_q=source_q,
-                )
+                if canceled:
+                    # we're done
+                    MutyLogger.get_instance().warning(
+                        "search_dsl: request %s canceled!", req_id
+                    )
+                    break
 
             # next chunk
             chunk_num += 1
-            if last or not q_options.loop:
-                break
+            check_canceled_count += 1
+            parsed_options["search_after"] = search_after
 
         MutyLogger.get_instance().info(
             "search_dsl: processed %d documents, total=%d, chunks=%d",
@@ -2261,151 +2383,3 @@ class GulpOpenSearch:
             chunk_num,
         )
         return processed, total_hits
-
-    async def search_dsl_sync_output_file(
-        self,
-        sess: AsyncSession,
-        index: str,
-        q: dict,
-        req_id: str,
-        q_options: "GulpQueryParameters" = None,
-        file_path: str = None,
-        el: AsyncElasticsearch | AsyncOpenSearch = None,
-    ) -> str:
-        """
-        Executes a raw DSL query on OpenSearch and writes the results to a JSON file in the temp directory.
-
-        Args:
-            sess (AsyncSession): SQLAlchemy session (to check if request has been canceled).
-            index (str): Name of the index (or datastream) to query.
-            q (dict): The DSL query to execute.
-            req_id (str): The request ID for the query.
-            q_options (GulpQueryParameters, optional): Additional query options. Defaults to None (use defaults).
-            file_path (str, optional): The path to the output file. If None, a temporary file will be created and it is the responsibility of the caller to delete it when no longer needed. Defaults to None.
-            el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
-
-        Returns:
-            str: The path to the output file containing the results in JSON format
-        Raises:
-            ValueError: If `sess` is None and `q_options.note_parameters.create_notes` is True.
-            ObjectNotFound: If no results are found and `processed` is 0.
-            Exception: If an error occurs during the query or file writing.
-        """
-        from gulp.api.opensearch.query import GulpQueryParameters
-
-        # create output file in the temp directory
-        if not file_path:
-            # generate temporary file
-            t = tempfile.mkstemp(suffix=".json", prefix="gulp_search_")
-            path: str = t[1]
-        else:
-            path = file_path
-
-        if not q_options:
-            # use defaults
-            q_options = GulpQueryParameters()
-
-        if el:
-            # force use_elasticsearch_api if el is provided
-            MutyLogger.get_instance().debug(
-                "search_dsl_sync_output_file: using provided ElasticSearch/OpenSearch client %s, class=%s",
-                el,
-                el.__class__,
-            )
-
-        parsed_options: dict = q_options.parse()
-        processed: int = 0
-        chunk_num: int = 0
-        check_canceled_count: int = 0
-        total_hits: int = 0
-
-        MutyLogger.get_instance().info("streaming responses to file %s ...", path)
-
-        async with aiofiles.open(path, "wb") as f:
-            # write json start
-            await f.write('{\n\t"docs": [\n'.encode())
-
-            # loop
-            while True:
-                last: bool = False
-                docs: list[dict] = []
-                try:
-                    total_hits, docs, search_after = await self._search_dsl_internal(
-                        index, parsed_options, q, el
-                    )
-
-                    # write this chunk
-                    for d in docs:
-                        # convert to json and write to file, remove highlight if any
-                        d.pop("highlight", None)
-                        d = json.dumps(d, indent="\t")
-
-                        await f.write(f"\t{d},\n".encode())
-
-                    if q_options.loop:
-                        # auto setup for next iteration
-                        parsed_options["search_after"] = search_after
-
-                    processed += len(docs)
-                    if (
-                        processed >= total_hits
-                        or not q_options.loop
-                        or (
-                            q_options.total_limit and processed >= q_options.total_limit
-                        )
-                    ):
-                        # this is the last chunk
-                        last = True
-
-                    # MutyLogger.get_instance().debug("retrieved chunk of %d documents, total=%d", len(docs), total_hits)
-
-                    check_canceled_count += 1
-                    if check_canceled_count == 10:
-                        # every 10 chunk, check for request cancelation
-                        check_canceled_count = 0
-                        canceled = await GulpRequestStats.is_canceled(sess, req_id)
-                        # MutyLogger.get_instance().debug("search_dsl: request %s stats=%s", req_id, stats)
-                        if canceled:
-                            last = True
-                            MutyLogger.get_instance().warning(
-                                "search_dsl: request %s canceled!", req_id
-                            )
-
-                except ObjectNotFound as ex:
-                    MutyLogger.get_instance().debug(
-                        "search_dsl_sync_output_file: no more hits found, processed=%d, total_hits=%d",
-                        processed,
-                        total_hits,
-                    )
-                    if processed == 0:
-                        # no results
-                        raise ex
-
-                    # indicates the last result
-                    last = True
-                except Exception as ex:
-                    # something went wrong
-                    MutyLogger.get_instance().exception(ex)
-                    if path:
-                        # delete output file
-                        await muty.file.delete_file_or_dir_async(path)
-                    raise ex
-
-                # next chunk
-                chunk_num += 1
-                if last or not q_options.loop:
-                    # remove last comma
-                    await f.seek(-2, os.SEEK_END)
-                    await f.truncate()
-
-                    # write json end
-                    await f.write("\t]\n}\n".encode())
-                    break
-
-        MutyLogger.get_instance().info(
-            "search_dsl_sync_output_file: processed %d documents, total=%d, chunks=%d",
-            processed,
-            total_hits,
-            chunk_num,
-        )
-        return path

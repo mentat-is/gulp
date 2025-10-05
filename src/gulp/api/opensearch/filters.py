@@ -411,5 +411,6 @@ include documents matching the given `gulp.source_id`/s.
                 self.source_ids,
                 self.event_codes,
                 self.doc_ids,
+                self.model_extra,
             ]
         )

@@ -145,5 +145,6 @@ a dict representing the type of each field ingested in this source.
             )
             return obj.to_dict()
         except Exception as e:
+            # unlock and re-raise
             await sess.rollback()
             raise e

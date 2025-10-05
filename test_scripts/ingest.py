@@ -265,7 +265,7 @@ def _reset(host, operation_id, req_id, ws_id):
         f"token: {admin_token}",
         "-X",
         "POST",
-        f"{host}/operation_create?req_id={req_id}&operation_id={operation_id}&ws_id={ws_id}&index={operation_id}&name={operation_id}&set_default_grants=True",
+        f"{host}/operation_create?req_id={req_id}&operation_id={operation_id}&ws_id={ws_id}&name={operation_id}&set_default_grants=True",
     ]
     res = subprocess.run(cmd, capture_output=True)
     if res.returncode != 0:

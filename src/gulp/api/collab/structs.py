@@ -965,7 +965,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_id=ws_id,
             operation_id=operation_id,
             req_id=req_id,
-            data=p.model_dump(exclude_none=True, exclude_defaults=True),
+            d=p.model_dump(exclude_none=True, exclude_defaults=True),
             private=private,
         )
         return instance
@@ -1155,7 +1155,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             user_id=user_id,
             operation_id=data.get("operation_id", None),
             req_id=self.id,
-            data=p.model_dump(exclude_none=True, exclude_defaults=True),
+            d=p.model_dump(exclude_none=True, exclude_defaults=True),
             private=private,
         )
         return updated_dict
@@ -1229,7 +1229,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             user_id=user_id,
             operation_id=operation_id,
             req_id=req_id,
-            data=data,
+            d=data,
         )
 
     @classmethod

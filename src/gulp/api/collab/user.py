@@ -37,7 +37,7 @@ from gulp.api.collab.structs import (
 from gulp.api.collab.user_group import GulpUserGroupAssociation
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import GulpQueryParameters
+from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp.api.ws_api import (
     WSDATA_USER_LOGIN,
     WSDATA_USER_LOGOUT,

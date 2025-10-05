@@ -37,6 +37,7 @@ class Plugin(GulpPluginBase):
         chunk_total: int = 0,
         q_group: str = None,
         last: bool = False,
+        **kwargs,
     ) -> list[dict]:
         for doc in chunk:
             doc["enriched"] = True

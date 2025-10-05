@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import muty
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
+from gulp.api.opensearch.structs import GulpQueryHelpers
+from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
@@ -104,6 +105,7 @@ class Plugin(GulpPluginBase):
         chunk_total: int = 0,
         q_group: str = None,
         last: bool = False,
+        **kwargs,
     ) -> list[dict]:
         hash_type = self._plugin_params.custom_parameters.get("hash_type")
         compute = self._plugin_params.custom_parameters.get("compute")

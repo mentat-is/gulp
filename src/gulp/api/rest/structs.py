@@ -23,7 +23,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 from gulp.api.opensearch.filters import GulpIngestionFilter, GulpQueryFilter
-from gulp.api.opensearch.query import GulpQueryParameters
+from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
 
@@ -198,7 +198,7 @@ class APIDependencies:
         Returns:
             str: The description.
         """
-        return description.strip()
+        return description.strip() if description else None
 
     @staticmethod
     def param_token(
@@ -254,7 +254,7 @@ id of a request, will be replicated in the response `req_id`.
         Returns:
             str: The request ID.
         """
-        return req_id.lower().strip() or muty.string.generate_unique()
+        return req_id.lower().strip() if req_id else muty.string.generate_unique()
 
     @staticmethod
     def param_name(
@@ -272,7 +272,7 @@ id of a request, will be replicated in the response `req_id`.
         Returns:
             str: The name.
         """
-        return name.strip()
+        return name.strip() if name else None
 
     @staticmethod
     def param_ws_id(
@@ -318,11 +318,64 @@ id of the websocket to send progress and results during the processing of a requ
         return flt or GulpCollabFilter()
 
     @staticmethod
+    def param_q_flt(
+        flt: Annotated[
+            GulpQueryFilter,
+            Body(
+                description="""
+the query filter, to filter for common fields, including:
+
+- `operation_id`, `context_id`, `source_id` to filter for specific objects.
+- `event_original` to search into the original event.
+- `time_range` to filter by time.
+- to filter for custom keys, just add them in `flt` as `key: value` or `key: [values]` for `OR` match.
+"""
+            ),
+        ] = None,
+    ) -> GulpQueryFilter:
+        """
+        to filter documents during query.
+
+        Args:
+            flt (GulpQueryFilter, Body): The query filter. Defaults to empty(no) filter.
+
+        Returns:
+            GulpQueryFilter: The query filter.
+        """
+        return flt or GulpQueryFilter()
+
+    @staticmethod
+    def param_q_options(
+        q_options: Annotated[
+            GulpQueryParameters,
+            Body(
+                description="""
+additional parameters for querying, including:
+
+- `limit`, `offset`, `search_after` for pagination.
+- `fields` to restrict returned fields.
+- `sort` for sorting
+"""
+            ),
+        ] = None,
+    ) -> dict:
+        """
+        to customize query
+
+        Args:
+            options (GulpQueryParameters, Body): The query options. Defaults to empty(no) options.
+
+        Returns:
+            GulpQueryParameters: The query options.
+        """
+        return q_options or GulpQueryParameters()
+
+    @staticmethod
     def param_operation_id(
         operation_id: Annotated[
             str,
             Query(
-                description="id of an `operation` in the collab database.",
+                description="id of a `GulpOperation` object in the collab database.",
                 example="test_operation",
             ),
         ],
@@ -337,6 +390,53 @@ id of the websocket to send progress and results during the processing of a requ
             str: The operation ID.
         """
         return operation_id.strip()
+
+    @staticmethod
+    def param_context_id(
+        context_id: Annotated[
+            str,
+            Query(
+                description="""
+id of a `GulpContext` object on the collab database.
+""",
+                example="66d98ed55d92b6b7382ffc77df70eda37a6efaa1",
+            ),
+        ],
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            context_id (str, Query): The context ID.
+
+        Returns:
+            str: The context ID.
+        """
+        return context_id.strip()
+
+    @staticmethod
+    def param_source_id(
+        source_id: Annotated[
+            str,
+            Query(
+                description="""
+id of a `GulpSource` object on the collab database.
+""",
+                example="fa144510fd16cf5ffbaeec79d68b593f3ba7e7e0",
+            ),
+        ],
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+
+        Args:
+            source_id (str, Query): The source ID.
+
+        Returns:
+            str: The source ID.
+        """
+        return source_id.strip()
 
     ############################
 
@@ -638,53 +738,6 @@ one or more user permission.
         """
         return APIDependencies._strip_or_none(index)
 
-    @staticmethod
-    def param_context_id(
-        context_id: Annotated[
-            str,
-            Query(
-                description="""
-id of a `context` object on the collab database.
-""",
-                example="66d98ed55d92b6b7382ffc77df70eda37a6efaa1",
-            ),
-        ],
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            context_id (str, Query): The context ID.
-
-        Returns:
-            str: The context ID.
-        """
-        return APIDependencies._strip_or_none(context_id)
-
-    @staticmethod
-    def param_source_id(
-        source_id: Annotated[
-            str,
-            Query(
-                description="""
-id of a `source` object on the collab database.
-""",
-                example="fa144510fd16cf5ffbaeec79d68b593f3ba7e7e0",
-            ),
-        ],
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-
-        Args:
-            source_id (str, Query): The source ID.
-
-        Returns:
-            str: The source ID.
-        """
-        return APIDependencies._strip_or_none(source_id)
-
     _DESC_PLUGIN = """
 the plugin to process the request with.
 
@@ -793,56 +846,3 @@ to customize `mapping` and specific `plugin` parameters.
             GulpPluginParameters: The plugin parameters or None if empty
         """
         return plugin_params
-
-    @staticmethod
-    def param_q_flt(
-        flt: Annotated[
-            GulpQueryFilter,
-            Body(
-                description="""
-the query filter, to filter for common fields, including:
-
-- `operation_id`, `context_id`, `source_id` to filter for specific objects.
-- `event_original` to search into the original event.
-- `time_range` to filter by time.
-- to filter for custom keys, just add them in `flt` as `key: value` or `key: [values]` for `OR` match.
-"""
-            ),
-        ] = None,
-    ) -> GulpQueryFilter:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            flt (GulpQueryFilter, optional, Body): The query filter. Defaults to empty(no) filter.
-
-        Returns:
-            GulpQueryFilter: The query filter.
-        """
-        return flt or GulpQueryFilter()
-
-    @staticmethod
-    def param_q_options(
-        q_options: Annotated[
-            Optional[GulpQueryParameters],
-            Body(
-                description="""
-additional parameters for querying, including:
-
-- `limit`, `offset`, `search_after` for pagination.
-- `fields` to restrict returned fields.
-- `sort` for sorting
-"""
-            ),
-        ] = None,
-    ) -> dict:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            options (dict, optional, Body): The query options. Defaults to empty(no) options.
-
-        Returns:
-            dict: The query options.
-        """
-        return q_options or GulpQueryParameters()

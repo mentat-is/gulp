@@ -337,7 +337,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 time_finished=0,
                 errors=[],
                 data=data,
-                **kwargs,
             )
             return stats
 

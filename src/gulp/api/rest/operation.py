@@ -59,15 +59,6 @@ async def operation_create_handler(
             example="test_operation",
         ),
     ],
-    index: Annotated[
-        str,
-        Query(
-            description="""
-if set, the Gulp's OpenSearch index to associate with the operation (default: same as `operation_id`).
-
-**NOTE**: `index` is **created** if it doesn't exist, and **recreated** if it exists.""",
-        ),
-    ] = None,
     description: Annotated[
         Optional[str],
         Depends(APIDependencies.param_description),
@@ -109,7 +100,6 @@ if set, the Gulp's OpenSearch index to associate with the operation (default: sa
                     sess,
                     name,
                     s.user.id,
-                    index=index,
                     description=description,
                     glyph_id=glyph_id,
                     create_index=create_index,

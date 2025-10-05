@@ -47,14 +47,14 @@ from gulp.api.opensearch.filters import (
     GulpIngestionFilter,
     GulpQueryFilter,
 )
-from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
-from gulp.api.opensearch.structs import GulpDocument
+from gulp.api.opensearch.structs import GulpQueryHelpers
+from gulp.api.opensearch.structs import GulpDocument, GulpQueryParameters
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
     WSDATA_ENRICH_DONE,
     WSDATA_INGEST_SOURCE_DONE,
-    WSDATA_PROGRESS_ENRICH,
+    PROGRESS_ENRICH,
     WSDATA_USER_LOGIN,
     WSDATA_USER_LOGOUT,
     GulpDocumentsChunkPacket,
@@ -64,7 +64,7 @@ from gulp.api.ws_api import (
 )
 from gulp.config import GulpConfig
 from gulp.structs import (
-    GulpDocumentChunkCallback,
+    GulpDocumentsChunkCallback,
     GulpMappingParameters,
     GulpPluginCustomParameter,
     GulpPluginParameters,
@@ -721,7 +721,7 @@ class GulpPluginBase(ABC):
         super().__init__()
 
         # enforce callback type
-        self._enrich_documents_chunk_cb: GulpDocumentChunkCallback = (
+        self._enrich_documents_chunk_cb: GulpDocumentsChunkCallback = (
             self._enrich_documents_chunk
         )
 
@@ -1078,7 +1078,7 @@ class GulpPluginBase(ABC):
                 operation_id=self._operation_id,
                 user_id=self._user_id,
                 req_id=self._req_id,
-                data=chunk.model_dump(exclude_none=True),
+                d=chunk.model_dump(exclude_none=True),
             )
             self._chunks_ingested += 1
 
@@ -1342,14 +1342,15 @@ class GulpPluginBase(ABC):
         chunk: list[dict],
         chunk_num: int = 0,
         total_hits: int = 0,
-        ws_id: str | None = None,
-        user_id: str | None = None,
-        req_id: str | None = None,
-        operation_id: str | None = None,
-        q_name: str | None = None,
+        ws_id: str = None,
+        user_id: str = None,
+        req_id: str = None,
+        operation_id: str = None,
+        q_name: str = None,
         chunk_total: int = 0,
-        q_group: str | None = None,
+        q_group: str = None,
         last: bool = False,
+        **kwargs,
     ) -> list[dict]:
         """
         a GulpDocumentChunkCallback to be implemented by a plugin to enrich a chunk of documents, called by _enrich_documents_chunk_wrapper
@@ -1415,7 +1416,7 @@ class GulpPluginBase(ABC):
 
         # send progress
         await GulpWsSharedQueue.get_instance().put_progress(
-            WSDATA_PROGRESS_ENRICH,
+            PROGRESS_ENRICH,
             user_id,
             req_id,
             ws_id=ws_id,
@@ -2898,7 +2899,7 @@ class GulpPluginBase(ABC):
                 ws_id=self._ws_id,
                 operation_id=self._operation_id,
                 req_id=self._req_id,
-                data=p.model_dump(exclude_none=True),
+                d=p.model_dump(exclude_none=True),
             )
 
         # update stats

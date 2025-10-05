@@ -687,6 +687,7 @@ class Plugin(GulpPluginBase):
         chunk_total: int = 0,
         q_group: str | None = None,
         last: bool = False,
+        **kwargs,
     ) -> list[dict]:
         dd = []
         host_fields = self._plugin_params.custom_parameters.get("host_fields", [])

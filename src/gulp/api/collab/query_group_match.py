@@ -145,7 +145,7 @@ class GulpQueryGroupMatch(GulpCollabBase, type=COLLABTYPE_QUERY_GROUP_MATCH):
                     ws_id=ws_id,
                     operation_id=operation_id,
                     req_id=req_id,
-                    data=p.model_dump(exclude_none=True),
+                    d=p.model_dump(exclude_none=True),
                 )
                 # then we can delete this entry
                 await sess.delete(obj)

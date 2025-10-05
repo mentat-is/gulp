@@ -87,7 +87,7 @@ class Plugin(GulpPluginBase):
             ws_id=ws_id,
             operation_id=operation_id,
             user_id="dummy",
-            data={"hello": "world"},
+            d={"hello": "world"},
         )
         return {"done": True}
 

@@ -208,6 +208,7 @@ class ServerUtils:
                 - the parsed JSON payload, if any
                 - the upload response object to be returned to the client.
         """
+
         def _extract_filename(content_disposition: str) -> str:
             """extract filename from Content-Disposition header."""
             if not content_disposition:
@@ -248,7 +249,7 @@ class ServerUtils:
                 None,
                 None,
                 GulpUploadResponse(
-                    done=True, continue_offset=None, error="file size is 0"
+                    done=True, continue_offset=0, error="file size is 0"
                 ),
             )
 
@@ -324,7 +325,7 @@ class ServerUtils:
         is_complete = current_written_size == total_file_size
         result = GulpUploadResponse(
             done=is_complete,
-            continue_offset=None if is_complete else current_written_size,
+            continue_offset=0 if is_complete else current_written_size,
         )
         MutyLogger.get_instance().debug(
             "file_path=%s,\npayload=%s,\nresult=%s"

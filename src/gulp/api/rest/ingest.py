@@ -321,22 +321,20 @@ async def _ingest_file_internal(
     return status, preview_chunk
 
 
-async def run_ingest_file_task(t: dict):
+async def run_ingest_file_task(t: GulpTask):
     """
     runs the ingest file task in a task into a worker process
 
     :param t: a GulpTask dict to run
     """
-    params: dict = t.get("params", {})
-    params["user_id"] = t.get("user_id")
-    params["operation_id"] = t.get("operation_id")
-    params["payload"] = GulpIngestPayload.model_validate(params.get("payload"))
+    ingest_args = t.params
+    ingest_args["user_id"] = t.user_id
+    ingest_args["operation_id"] = t.operation_id
+    ingest_args["payload"] = GulpIngestPayload.model_validate(ingest_args["payload"])
     # MutyLogger.get_instance().debug(
-    #     "run_ingest_file_task, t=%s, params=%s", t, params)
+    #     "run_ingest_file_task, t=%s", t)
     # )
-    await GulpProcess.get_instance().process_pool.apply(
-        _ingest_file_internal, kwds=params
-    )
+    await _ingest_file_internal(**ingest_args)
 
 
 async def _preview_or_enqueue_ingest_task(
@@ -638,7 +636,6 @@ async def ingest_file_handler(
                     plugin=plugin,
                     file_path=file_path,
                     payload=payload,
-                    preview_mode=preview_mode,
                     file_total=file_total,
                 )
             except Exception as ex:

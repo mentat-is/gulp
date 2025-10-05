@@ -39,7 +39,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import WSDATA_PROGRESS_REBASE, GulpWsSharedQueue
+from gulp.api.ws_api import PROGRESS_REBASE, WSDATA_REBASE_DONE, GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.process import GulpProcess
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,7 +101,7 @@ async def _rebase_callback(
     GulpProgressCallback to report progress during rebase.
     """
     await GulpWsSharedQueue.get_instance().put_progress(
-        WSDATA_PROGRESS_REBASE,
+        PROGRESS_REBASE,
         user_id,
         req_id,
         ws_id=ws_id,
@@ -111,6 +111,22 @@ async def _rebase_callback(
         d=data,
         operation_id=operation_id,
     )
+    if done:
+        # send WSDATA_REBASE_DONE
+        p: GulpUpdateDocumentsStats = GulpUpdateDocumentsStats(
+            total_hits=total,
+            updated=current,
+            errors=data.get("errors") if data else [],
+            flt=data.get("flt") if data else None,
+        )
+        await GulpWsSharedQueue.get_instance().put(
+            WSDATA_REBASE_DONE,
+            user_id,
+            ws_id=ws_id,
+            operation_id=operation_id,
+            req_id=req_id,
+            d=p.model_dump(exclude_none=True),
+        )
 
 
 async def _rebase_by_query_internal(
@@ -210,11 +226,11 @@ rebases documents in-place on the same index using update_by_query, shifting tim
 
 - `token` needs `ingest` permission.
 - `flt` may be used to filter the documents to rebase.
-- rebase happens in the background: progress updates are sent to the `ws_id` websocket.
 
 ### checking progress
 
-- during rebase, GulpProgressPacket with `msg=ws_api.PROGRESS_REBASE` are sent on the websocket with data set to total_matches, updated, errors.
+- during rebase, `WS_DATA_PROGRESS` is sent on the websocket with `ws_id` at every chunk
+- when rebase is done, `WS_DATA_REBASE_DONE` is sent on the websocket with `ws_id` and broadcasted to all connected websockets
 """,
 )
 async def opensearch_rebase_by_query_handler(
@@ -274,21 +290,17 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
                 user_id = s.user.id
                 index = op.index
 
-                # offload to a worker process anmd return pending
-                asyncio.create_task(
-                    GulpProcess.get_instance().process_pool.apply(
-                        _rebase_by_query_internal,
-                        kwds=dict(
-                            req_id=req_id,
-                            ws_id=ws_id,
-                            user_id=user_id,
-                            index=index,
-                            operation_id=operation_id,
-                            offset_msec=offset_msec,
-                            flt=flt,
-                            script=script,
-                        ),
-                    )
+                # offload to a worker process and return pending
+                await GulpRestServer.get_instance().spawn_worker_task(
+                    _rebase_by_query_internal,
+                    req_id,
+                    ws_id,
+                    user_id,
+                    operation_id,
+                    index,
+                    offset_msec,
+                    flt,
+                    script,
                 )
                 return JSONResponse(JSendResponse.pending(req_id=req_id))
             except Exception as ex:

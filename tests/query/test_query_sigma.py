@@ -10,7 +10,7 @@ import websockets
 from muty.log import MutyLogger
 
 from gulp.api.collab.structs import GulpCollabFilter
-from gulp.api.opensearch.query import GulpQueryParameters
+from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp_client.common import GulpAPICommon, _ensure_test_operation
 from gulp_client.note import GulpAPINote
 from gulp_client.query import GulpAPIQuery

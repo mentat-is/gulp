@@ -7,7 +7,7 @@ import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
-from gulp.api.opensearch.query import GulpQueryParameters
+from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp_client.common import _ensure_test_operation
 from gulp_client.query import GulpAPIQuery
 from gulp_client.user import GulpAPIUser

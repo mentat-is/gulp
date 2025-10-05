@@ -28,7 +28,7 @@ from gulp.api.ws_api import WSDATA_PROGRESS, GulpProgressPacket, GulpWsSharedQue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpMappingParameters
-from gulp.api.opensearch.query import GulpQuery
+from gulp.api.opensearch.structs import GulpQuery
 
 
 async def _read_sigma_mappings_from_file(
@@ -666,7 +666,7 @@ async def sigmas_to_queries(
                     ws_id=ws_id,
                     user_id=user_id,
                     req_id=req_id,
-                    data=p.model_dump(exclude_none=True),
+                    d=p.model_dump(exclude_none=True),
                 )
 
     return gulp_queries

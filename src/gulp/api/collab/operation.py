@@ -102,7 +102,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         sess: AsyncSession,
         name: str,
         user_id: str,
-        index: str = None,
         description: str = None,
         glyph_id: str = None,
         create_index: bool = True,
@@ -119,7 +118,6 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             sess (AsyncSession): The session to use.
             name (str): The name of the operation.
             user_id (str): The id of the user creating the operation.
-            index (str, optional): The index to associate with the operation. If not provided, it will be derived from the name.
             description (str, optional): A description for the operation.
             glyph_id (str, optional): The glyph id for the operation.
             create_index (bool, optional): Whether to create the index for the operation. Defaults to True.
@@ -134,9 +132,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             ObjectAlreadyExists: If the operation already exists and `fail_if_exists` is True.
         """
         operation_id: str = muty.string.ensure_no_space_no_special(name.lower())
-        if not index:
-            # use the operation_id as the index
-            index = operation_id
+        index: str = operation_id
 
         op: GulpOperation = await GulpOperation.get_by_id(
             sess, operation_id, throw_if_not_found=False

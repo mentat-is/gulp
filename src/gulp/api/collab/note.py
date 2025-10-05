@@ -249,7 +249,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 ws_id=ws_id,
                 operation_id=operation_id,
                 req_id=req_id,
-                data=p.model_dump(exclude_none=True),
+                d=p.model_dump(exclude_none=True),
             )
             MutyLogger.get_instance().debug(
                 "sent %d notes on the websocket %s (notes=%d, inserted=%d)"

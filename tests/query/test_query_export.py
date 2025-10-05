@@ -5,7 +5,7 @@ import pytest
 from muty.log import MutyLogger
 
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.query import GulpQueryParameters
+from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp_client.common import GulpAPICommon
 from gulp_client.query import GulpAPIQuery
 from gulp_client.user import GulpAPIUser

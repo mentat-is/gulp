@@ -14,7 +14,7 @@ import asyncio
 import os
 import ssl
 import sys
-from typing import Any, Coroutine
+from typing import Any, Awaitable, Callable, Coroutine, Sequence
 
 import asyncio_atexit
 import muty.file
@@ -62,7 +62,7 @@ class GulpRestServer:
         self._lifespan_task: asyncio.Task = None
         self._poll_tasks_task: asyncio.Task = None
         self._shutdown: bool = False
-        self._running_tasks: int = 0
+        self._running_tasks: int = 0  # in the main process
         self._extension_plugins: list[GulpPluginBase] = []
 
     def __new__(cls):
@@ -112,7 +112,7 @@ class GulpRestServer:
         """
         if self._extension_plugins:
             MutyLogger.get_instance().debug(
-                "unloading %d extension plugins ..." % (len(self._extension_plugins))
+                "unloading %d extension plugins ...", len(self._extension_plugins)
             )
             for p in self._extension_plugins:
                 await p.unload()
@@ -129,7 +129,7 @@ class GulpRestServer:
         path_extension = os.path.join(p, "extension")
         files: list[str] = await muty.file.list_directory_async(path_extension, "*.py*")
         MutyLogger.get_instance().debug(
-            "found %d extensions in default path: %s" % (len(files), path_extension)
+            "found %d extensions in default path: %s", len(files), path_extension
         )
 
         # extras, if any
@@ -140,7 +140,7 @@ class GulpRestServer:
                 path_extension, "*.py*"
             )
             MutyLogger.get_instance().debug(
-                "found %d extensions in extra path: %s" % (len(ff), path_extension)
+                "found %d extensions in extra path: %s", len(ff), path_extension
             )
             files.extend(ff)
 
@@ -159,7 +159,7 @@ class GulpRestServer:
             except Exception as ex:
                 # plugin failed to load
                 MutyLogger.get_instance().error(
-                    "failed to load (extension) plugin file: %s" % (f)
+                    "failed to load (extension) plugin file: %s", f
                 )
                 MutyLogger.get_instance().exception(ex)
                 continue
@@ -170,7 +170,7 @@ class GulpRestServer:
 
     def set_shutdown(self, *args):
         """
-        Sets the global `_shutting_down` flag to True.
+        Sets the global `_shutdown` flag to True.
         """
         MutyLogger.get_instance().debug("setting shutdown=True !")
         self._shutdown = True
@@ -352,7 +352,7 @@ class GulpRestServer:
         # init fastapi
         self._app: FastAPI = FastAPI(
             title="gULP",
-            description="(gui)Universal Log Processor",
+            description="(generic)Universal Log Processor",
             swagger_ui_parameters={"operationsSorter": "alpha", "tagsSorter": "alpha"},
             version=self.version_string(),
             lifespan=self._lifespan_handler,
@@ -385,8 +385,12 @@ class GulpRestServer:
 
         address, port = GulpConfig.get_instance().bind_to()
         MutyLogger.get_instance().info(
-            "starting server at %s, port=%d, logger_file_path=%s, reset_collab=%r, create_operation=%s ..."
-            % (address, port, logger_file_path, reset_collab, create_operation)
+            "starting server at %s, port=%d, logger_file_path=%s, reset_collab=%r, create_operation=%s ...",
+            address,
+            port,
+            logger_file_path,
+            reset_collab,
+            create_operation,
         )
 
         if cfg.enforce_https():
@@ -410,14 +414,12 @@ class GulpRestServer:
             ssl_keyfile = muty.file.safe_path_join(path_certs, "gulp.key")
             ssl_certfile = muty.file.safe_path_join(path_certs, "gulp.pem")
             MutyLogger.get_instance().info(
-                "ssl_keyfile=%s, ssl_certfile=%s, cert_password=%s, ssl_ca_certs=%s, ssl_cert_verify_mode=%d"
-                % (
-                    ssl_keyfile,
-                    ssl_certfile,
-                    cert_password,
-                    gulp_ca_certs,
-                    ssl_cert_verify_mode,
-                )
+                "ssl_keyfile=%s, ssl_certfile=%s, cert_password=%s, ssl_ca_certs=%s, ssl_cert_verify_mode=%d",
+                ssl_keyfile,
+                ssl_certfile,
+                cert_password,
+                gulp_ca_certs,
+                ssl_cert_verify_mode,
             )
             uvicorn.run(
                 self._app,
@@ -443,7 +445,7 @@ class GulpRestServer:
         limit: int = GulpConfig.get_instance().concurrency_max_tasks()
         offset: int = 0
         MutyLogger.get_instance().info(
-            "STARTING poll task, max task concurrency=%d ..." % (limit)
+            "STARTING poll task, max task concurrency=%d ...", limit
         )
 
         # loop until the server exits
@@ -460,6 +462,7 @@ class GulpRestServer:
                     )
                     if not objs:
                         # no tasks to process, wait before next poll
+                        await sess.commit()
                         await asyncio.sleep(5)
                         continue
 
@@ -475,9 +478,7 @@ class GulpRestServer:
                     await asyncio.sleep(5)
                     continue
 
-                MutyLogger.get_instance().debug(
-                    "found %d tasks to process" % (len(objs))
-                )
+                MutyLogger.get_instance().debug("found %d tasks to process", len(objs))
 
                 # process found tasks in this batch
                 for obj in objs:
@@ -485,38 +486,85 @@ class GulpRestServer:
                     obj: GulpTask
                     if obj.task_type == "ingest":
                         # spawn background task to process the ingest task
-
-                        d = obj.to_dict(exclude_none=False)
-                        # print("*************** spawning ingest task for: %s" % (d))
-                        await self.spawn_bg_task(run_ingest_file_task(d))
+                        # print("*************** spawning ingest task for: %s", obj)
+                        await self.spawn_worker_task(run_ingest_file_task, obj)
 
         MutyLogger.get_instance().info("EXITING poll task...")
 
-    async def handle_bg_future(self, future: asyncio.Future) -> None:
+    def spawn_bg_task(self, coro: Coroutine, name: str = None) -> bool:
         """
-        waits for a future running in background to complete, logs any exceptions
-
-        future (asyncio.Future): the future to wait for
-        """
-        try:
-            await future
-        except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
-        finally:
-            self._running_tasks -= 1
-            MutyLogger.get_instance().debug("future completed!")
-
-    async def spawn_bg_task(self, coro: Coroutine) -> None:
-        """
-        spawns a background task, future is awaited in the background and exceptions are logged
+        spawns a background task without awaiting it
 
         Args:
             coro (Coroutine): the coroutine to spawn
-            kwds (dict, optional): the keyword arguments to pass to the coroutine
+            name (str, optional): the name of the task: if a task with the same name already exists, it will not spawn another one.
+
+        Returns:
+            bool: True if the task was spawned, False otherwise (e.g. a task with the same name already exists).
         """
-        f = await GulpProcess.get_instance().coro_pool.spawn(coro)
+
+        # f = await GulpProcess.get_instance().coro_pool.spawn(coro)
+        async def _run_and_await():
+            try:
+                await coro
+            except Exception as ex:
+                MutyLogger.get_instance().exception(ex)
+            finally:
+                self._running_tasks -= 1
+                MutyLogger.get_instance().debug("background task completed!")
+
+        if name:
+            # check if a task with the same name already exists
+            for t in asyncio.all_tasks():
+                if t.get_name() == name and not t.done():
+                    MutyLogger.get_instance().warning(
+                        "a task with the same name (%s) already exists, not spawning another one!",
+                        name,
+                    )
+                    return False
         self._running_tasks += 1
-        _ = asyncio.create_task(self.handle_bg_future(f))
+        _ = asyncio.create_task(_run_and_await(), name=name)
+        return True
+
+    async def spawn_worker_task(
+        self,
+        func: Callable[..., Awaitable[Any]],
+        *args,
+        wait: bool = False,
+        task_name: str = None,
+        **kwargs,
+    ) -> Any | None:
+        """
+        spawns a task in the process pool of a worker process
+
+        Args:
+            func (Callable[..., Awaitable[Any]]): the function to call
+            *args: the arguments to pass to the function
+            wait (bool, optional): if True, wait for the result and return it
+            task_name (str, optional): the name of the task, ignored if wait=True: if a task with the same name already exists, it will not spawn another one.
+            **kwargs: the keyword arguments to pass to the function
+
+        Returns:
+            Any|None: the result of the function if wait is True, None otherwise
+        """
+        MutyLogger.get_instance().debug(
+            "spawning worker task, func=%s, args=%s, kwargs=%s, wait=%r",
+            func,
+            args,
+            kwargs,
+            wait,
+        )
+
+        coro = GulpProcess.get_instance().process_pool.apply(
+            func, args=args, kwds=kwargs
+        )
+        if wait:
+            # wait for result
+            return await coro
+
+        # fire and forget (just use spawn_bg_task to schedule the coro)
+        self.spawn_bg_task(coro, task_name)
+        return None
 
     async def _cleanup(self):
         """
@@ -597,7 +645,7 @@ class GulpRestServer:
             await GulpCollab.get_instance().init(main_process=True)
         except SchemaMismatch as ex:
             MutyLogger.get_instance().warning(
-                "collab database schema mismatch, forcing recreate!\n%s" % (ex)
+                "collab database schema mismatch, forcing recreate!\n%s", ex
             )
             # force reset
             self._reset_collab = True
@@ -607,12 +655,10 @@ class GulpRestServer:
             self._create_operation = "test_operation"
 
         MutyLogger.get_instance().warning(
-            "******** first_run=%r, _reset_collab=%r, _create_operation=%s ********"
-            % (
-                first_run,
-                self._reset_collab,
-                self._create_operation,
-            )
+            "******** first_run=%r, _reset_collab=%r, _create_operation=%s ********",
+            first_run,
+            self._reset_collab,
+            self._create_operation,
         )
 
         # initialize the opensearch client
@@ -687,7 +733,7 @@ class GulpRestServer:
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             muty.file.delete_file_or_dir(check_first_run_file)
-            MutyLogger.get_instance().warning("deleted: %s" % (check_first_run_file))
+            MutyLogger.get_instance().warning("deleted: %s", check_first_run_file)
 
     def _check_first_run(self) -> bool:
         """
@@ -701,13 +747,13 @@ class GulpRestServer:
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
             MutyLogger.get_instance().debug(
-                "NOT FIRST RUN, first run file exists: %s" % (check_first_run_file)
+                "NOT FIRST RUN, first run file exists: %s", check_first_run_file
             )
             return False
 
         # create firstrun file
         MutyLogger.get_instance().warning(
-            "FIRST RUN! first run file does not exist: %s" % (check_first_run_file)
+            "FIRST RUN! first run file does not exist: %s", check_first_run_file
         )
         with open(check_first_run_file, "w", encoding="utf-8") as f:
             f.write("gulp!")

@@ -45,11 +45,13 @@ WSDATA_COLLAB_DELETE = (
 )
 WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
-WSDATA_PROGRESS_REBASE = (
-    "progress_rebase"  # GulpProgressPacket.type type for rebase operations
+WSDATA_REBASE_DONE = (
+    "rebase_done"  # GulpUpdateDocumentsStats, sent when a rebase operation is done
 )
-WSDATA_PROGRESS_ENRICH = (
-    "progress_enrich"  # GulpProgressPacket.type type for enrich operations
+PROGRESS_REBASE = "rebase"  # GulpProgressPacket.type type for rebase operations
+PROGRESS_ENRICH = "enrich"  # GulpProgressPacket.type type for enrich operations
+WSDATA_PROGRESS = (
+    "progress"  # GulpProgressPacket with type=one of the PROGRESS_* constants
 )
 
 WSDATA_USER_LOGIN = "user_login"
@@ -1397,6 +1399,7 @@ class GulpWsSharedQueue:
             WSDATA_COLLAB_CREATE,
             WSDATA_COLLAB_UPDATE,
             WSDATA_COLLAB_DELETE,
+            WSDATA_REBASE_DONE,
             WSDATA_INGEST_SOURCE_DONE,
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,
@@ -1649,7 +1652,7 @@ class GulpWsSharedQueue:
         ws_id: str = None,
         operation_id: str = None,
         req_id: str = None,
-        data: Any = None,
+        d: Any = None,
         private: bool = False,
     ) -> None:
         """
@@ -1664,7 +1667,7 @@ class GulpWsSharedQueue:
             ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
             operation_id (Optional[str]): the operation id if applicable
             req_id (Optional[str]): the request id if applicable
-            data (Optional[Any]): the payload data
+            d (Optional[Any]): the payload data
             private (bool): whether this message is private to the specified ws_id
 
         raises:
@@ -1687,7 +1690,7 @@ class GulpWsSharedQueue:
             user_id=user_id,
             req_id=req_id,
             private=private,
-            payload=data,
+            payload=d,
         )
 
         # attempt to add with exponential backoff
@@ -1725,41 +1728,6 @@ class GulpWsSharedQueue:
             f"queue full, size={self._shared_q.qsize()}, for ws_id={ws_id} after {GulpWsSharedQueue.MAX_RETRIES} attempts!"
         )
 
-    async def put_generic_notify(
-        self,
-        t: str,
-        user_id: str,
-        req_id: str,
-        ws_id: str = None,
-        d: dict = None,
-        operation_id: str = None,
-    ) -> None:
-        """
-        a shortcut method to send generic notify messages to the queue, to be routed among connected sockets
-
-        args:
-            t (str): the custom notify type
-            user_id (str): the user id associated with this message
-            req_id (str): the request id
-            ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
-            d (dict, optional): the payload data. Defaults to None.
-            operation_id (Optional[str]): the operation id if applicable
-        """
-
-        if not d:
-            d = {}
-
-        p: GulpCollabGenericNotifyPacket = GulpCollabGenericNotifyPacket(type=t, data=d)
-        d = p.model_dump(exclude_none=True)
-        await self.put(
-            t=WSDATA_GENERIC,
-            user_id=user_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            req_id=req_id,
-            data=d,
-        )
-
     async def put_progress(
         self,
         t: str,
@@ -1790,7 +1758,7 @@ class GulpWsSharedQueue:
             total=total,
             current=current,
             done=done,
-            msg=t,
+            type=t,
             data=d or {},
         )
         wsq = GulpWsSharedQueue.get_instance()
@@ -1800,5 +1768,5 @@ class GulpWsSharedQueue:
             user_id=user_id,
             req_id=req_id,
             operation_id=operation_id,
-            data=p.model_dump(exclude_none=True),
+            d=p.model_dump(exclude_none=True),
         )

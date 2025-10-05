@@ -35,8 +35,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats, PreviewDone
 from gulp.api.mapping.models import GulpMappingField
-from gulp.api.opensearch.query import GulpQueryHelpers, GulpQueryParameters
-from gulp.api.opensearch.structs import GulpDocument
+from gulp.api.opensearch.structs import GulpQueryHelpers
+from gulp.api.opensearch.structs import GulpDocument, GulpQueryParameters
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import (
     GulpMappingParameters,

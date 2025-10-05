@@ -1,4 +1,3 @@
-
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
@@ -21,8 +20,10 @@ extension plugins are automatically loaded at startup from `PLUGIN_DIR/extension
 - `their init runs in the MAIN process context`
 """
 
+
 class Events:
     events: list[str]
+
 
 class EventsData:
     affected_items: list[str]
@@ -30,10 +31,12 @@ class EventsData:
     total_failed_items: int
     failed_items: list[str]
 
+
 class EventsResponse:
     data: EventsData
     message: str
     error: int
+
 
 class Plugin(GulpPluginBase):
     def __init__(
@@ -84,7 +87,7 @@ class Plugin(GulpPluginBase):
             ws_id=ws_id,
             operation_id=operation_id,
             user_id="dummy",
-            data={"hello": "world"},
+            d={"hello": "world"},
         )
         return {"done": True}
 
@@ -100,31 +103,27 @@ class Plugin(GulpPluginBase):
             "/wazuh/events",
             self.wazuh_extension_handler,
             methods=["POST"],
-            response_model=None, #TODO: use a valid pydantic response model (wip above)
+            response_model=None,  # TODO: use a valid pydantic response model (wip above)
             response_model_exclude_none=False,
             tags=["extensions"],
-            responses={
-                200: {}
-            },
+            responses={200: {}},
             summary="Send security events to be analyzed.",
         )
 
     async def wazuh_extension_handler(
         self,
-        #token: Annotated[str, Depends(APIDependencies.param_token)], # for now its public, we need to integrate it somehow using the JWT token sent by hte wazuh agents
-        #operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)], # this is from the config in this case
-        #context_id: Annotated[str, Depends(APIDependencies.param_context_id)], # this is from the config/extracted from the events
-        #ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-        #req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+        # token: Annotated[str, Depends(APIDependencies.param_token)], # for now its public, we need to integrate it somehow using the JWT token sent by hte wazuh agents
+        # operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)], # this is from the config in this case
+        # context_id: Annotated[str, Depends(APIDependencies.param_context_id)], # this is from the config/extracted from the events
+        # ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+        # req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
         events: dict,
     ) -> JSendResponse:
-        req_id=1
+        req_id = 1
 
         try:
             # spawn coroutine in the main process, will run asap
-            coro = self._handle_wazuh_events(
-                events
-            )
+            coro = self._handle_wazuh_events(events)
             await GulpProcess.get_instance().coro_pool.spawn(coro)
             return JSendResponse.pending(req_id=req_id)
         except Exception as ex:

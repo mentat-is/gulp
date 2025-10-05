@@ -117,6 +117,7 @@ class Plugin(GulpPluginBase):
         chunk_total: int = 0,
         q_group: str = None,
         last: bool = False,
+        **kwargs,
     ) -> list[dict]:
         auth_key = self._plugin_params.custom_parameters.get("auth_key")
         dd = []

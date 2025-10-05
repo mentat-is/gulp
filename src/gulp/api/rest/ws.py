@@ -188,15 +188,12 @@ class WsIngestRawWorker:
         starts the worker, which will run in a task in a separate process
         1 ws -> 1 task in a worker process
         """
-
-        async def worker_coro():
-            await GulpProcess.get_instance().process_pool.apply(
-                WsIngestRawWorker._process_loop, args=(self._input_queue,)
-            )
+        MutyLogger.get_instance().debug("starting ws ingest worker ...")
 
         # run _process_loop in a separate process
-        MutyLogger.get_instance().debug("starting ws ingest worker ...")
-        await GulpRestServer.get_instance().spawn_bg_task(worker_coro())
+        await GulpRestServer.get_instance().spawn_worker_task(
+            WsIngestRawWorker._process_loop, self._input_queue
+        )
 
     async def stop(self):
         """
@@ -566,7 +563,7 @@ class GulpAPIWebsocket:
                                 t=WSDATA_ERROR,
                                 ws_id=ingest_packet.ws_id,
                                 user_id=user_id,
-                                data=p.model_dump(exclude_none=True),
+                                d=p.model_dump(exclude_none=True),
                             )
                             break
 
