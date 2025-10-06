@@ -45,6 +45,10 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "chrome_webdata_sqlite_stacked"
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return None
+    
     @override
     def depends_on(self) -> list[str]:
         return ["sqlite"]

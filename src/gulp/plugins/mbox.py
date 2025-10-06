@@ -34,6 +34,10 @@ class Plugin(GulpPluginBase):
     def depends_on(self) -> list[str]:
         return ["eml"]
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return None
+
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [

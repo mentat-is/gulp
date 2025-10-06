@@ -52,6 +52,10 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "pcap"
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return "^(\xd4\xc3\xb2\xa1|\xa1\xb2\xc3\xd4|\x4d\x3c\xb2\xa1|\xa1\xb2\x3c\x4d|^\x0a\x0d\x0d\x0a)"
+
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         # since we are using scapy PCapNgReader sets PcapReader as alternative if file isnt a pcapng

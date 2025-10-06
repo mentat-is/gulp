@@ -49,6 +49,10 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "sqlite"
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return "^\x53\x51\x4c\x69\x74\x65\x20\x66\x6f\x72\x6d\x61\x74\x20\x33\x00"
+
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [

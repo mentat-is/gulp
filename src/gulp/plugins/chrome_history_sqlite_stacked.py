@@ -52,6 +52,10 @@ class Plugin(GulpPluginBase):
     def depends_on(self) -> list[str]:
         return ["sqlite"]
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return None
+
     class ChromeHistoryTable(Enum):
         """
         Chrome history tables int mapping

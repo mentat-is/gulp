@@ -38,7 +38,11 @@ class Plugin(GulpPluginBase):
 
     def display_name(self) -> str:
         return "lin_syslog"
-
+    
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return None
+    
     @override
     def depends_on(self) -> list[str]:
         return ["regex"]

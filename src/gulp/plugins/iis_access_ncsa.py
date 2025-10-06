@@ -41,6 +41,10 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "iis_access_ncsa"
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return None
+    
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
