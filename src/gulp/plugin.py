@@ -813,8 +813,8 @@ class GulpPluginBase(ABC):
         self._src_cache: dict = {}
         self._operation: GulpOperation | None = None
 
-        # in preview mode, ingestion and stats are disabled
-        self._preview_mode = False
+        # for preview mode
+        self._preview_mode: bool = False
         self._preview_chunk: list[dict] = []
 
         # indicates the last chunk in a raw ingestion
@@ -1253,13 +1253,13 @@ class GulpPluginBase(ABC):
         self._operation_id = operation_id
         self._index = index
 
+        # initialize
+        await self._initialize(plugin_params=plugin_params)
         if q_options.preview_mode:
             self._preview_mode = True
             self._index = None
             MutyLogger.get_instance().warning("external query preview mode enabled !")
 
-        # initialize
-        await self._initialize(plugin_params=plugin_params)
         return (0, 0, None)
 
     async def ingest_raw(
@@ -1676,18 +1676,16 @@ class GulpPluginBase(ABC):
         self._file_path = file_path
         self._original_file_path = original_file_path
         self._source_id = source_id
-        preview_mode = kwargs.get("preview_mode", False)
-        if preview_mode:
-            # preview mode
+
+        # initialize
+        await self._initialize(plugin_params=plugin_params)
+        if self._plugin_params.preview_mode:
             self._preview_mode = True
 
         MutyLogger.get_instance().debug(
             f"ingesting file source_id={source_id}, file_path={file_path}, original_file_path={original_file_path}, plugin {self.name}, user_id={user_id}, operation_id={operation_id}, \
-                plugin_params={plugin_params}, flt={flt}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}, preview_mode={self._preview_mode}"
+                plugin_params={self._plugin_params}, flt={flt}, context_id={context_id}, index={index}, ws_id={ws_id}, req_id={req_id}, preview_mode={self._preview_mode}"
         )
-
-        # initialize
-        await self._initialize(plugin_params=plugin_params)
 
         # add mapping parameters to source
         await self._update_source_mapping_parameters()
@@ -1709,7 +1707,6 @@ class GulpPluginBase(ABC):
         original_file_path: str = None,
         plugin_params: GulpPluginParameters = None,
         cache_mode: GulpPluginCacheMode = GulpPluginCacheMode.DEFAULT,
-        preview_mode: bool = False,
     ) -> "GulpPluginBase":
         """
         loads and initializes a plugin to use its methods directly from another plugin, bypassing the engine.
@@ -1729,7 +1726,6 @@ class GulpPluginBase(ABC):
             original_file_path (str, optional): the original file path. Defaults to None.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
             cache_mode (GulpPluginCacheMode, optional): the cache mode for the plugin. Defaults to GulpPluginCacheMode.DEFAULT.
-            preview_mode (bool, optional): whether to set the plugin in preview mode. Defaults to False.
         Returns:
             GulpPluginBase: the loaded plugin.
         """
@@ -1751,8 +1747,8 @@ class GulpPluginBase(ABC):
         lower._file_path = file_path
         lower._original_file_path = original_file_path
         lower._source_id = source_id
-        lower._preview_mode = preview_mode
         await lower._initialize(plugin_params)
+        lower._preview_mode = self._preview_mode
         return lower
 
     async def setup_stacked_plugin(
@@ -2789,7 +2785,7 @@ class GulpPluginBase(ABC):
         """
 
         # then finally ingest the chunk, use all_fields_on_ws if external query or preview mode
-        all_fields_on_ws = self._external_query
+        all_fields_on_ws: bool = self._external_query
         ingested, skipped = await self._ingest_chunk_and_or_send_to_ws(
             self._docs_buffer,
             flt,
@@ -2861,14 +2857,16 @@ class GulpPluginBase(ABC):
             GulpRequestStatus: The final status of the ingestion process.
         """
         if self._preview_mode:
+            MutyLogger.get_instance().debug(
+                "**SOURCE DONE**: preview mode, no ingestion!"
+            )
             return GulpRequestStatus.DONE
 
         MutyLogger.get_instance().debug(
-            "**SOURCE DONE**: %s, remaining docs to flush in docs_buffer: %d, status=%s, preview_mode=%r",
+            "**SOURCE DONE**: %s, remaining docs to flush in docs_buffer: %d, status=%s",
             self._file_path or self._source_id,
             len(self._docs_buffer),
             self._stats.status,
-            self._preview_mode,
         )
 
         ingested: int = 0

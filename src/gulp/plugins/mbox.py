@@ -13,8 +13,12 @@ from typing import Any, override
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
-                                   RequestCanceledError, SourceCanceledError)
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    PreviewDone,
+    RequestCanceledError,
+    SourceCanceledError,
+)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
@@ -57,12 +61,11 @@ class Plugin(GulpPluginBase):
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         # document is processed by eml plugin
-        eml_parser: GulpPluginBase =kwargs["eml_parser"]
+        eml_parser: GulpPluginBase = kwargs["eml_parser"]
 
         # pylint: disable=W0212
         # call the eml plugin directly
         return await eml_parser._record_to_gulp_document(record, record_idx, **kwargs)
-
 
     @override
     async def ingest_file(
@@ -80,8 +83,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        **kwargs,
+    ) -> GulpRequestStatus:
         try:
             await super().ingest_file(
                 sess=sess,
@@ -115,7 +118,6 @@ class Plugin(GulpPluginBase):
                 file_path=file_path,
                 original_file_path=original_file_path,
                 plugin_params=plugin_params,
-                preview_mode=self._preview_mode,
             )
 
         except Exception as ex:
@@ -128,7 +130,9 @@ class Plugin(GulpPluginBase):
             mbox = mailbox.mbox(file_path)
             for message in mbox.itervalues():
                 try:
-                    await self.process_record(message, doc_idx, flt=flt, eml_parser=eml_parser)
+                    await self.process_record(
+                        message, doc_idx, flt=flt, eml_parser=eml_parser
+                    )
                 except (RequestCanceledError, SourceCanceledError) as ex:
                     MutyLogger.get_instance().exception(ex)
                     await self._source_failed(ex)

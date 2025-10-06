@@ -250,9 +250,11 @@ async def test_raw(raw_data: list[dict] = None):
             operation_id=TEST_OPERATION_ID,
         )
         check_size = 6  # plus the 3 above, we're using the same req_id
-    
+
     await asyncio.sleep(10)
-    op = await GulpAPIOperation.operation_get_by_id(ingest_token, TEST_OPERATION_ID, get_count=True)
+    op = await GulpAPIOperation.operation_get_by_id(
+        ingest_token, TEST_OPERATION_ID, get_count=True
+    )
     assert op["doc_count"] == check_size
     MutyLogger.get_instance().info(test_raw.__name__ + " succeeded!")
 
@@ -383,13 +385,14 @@ async def test_ingest_preview():
     assert ingest_token
 
     # ingest the file
+    plugin_params = GulpPluginParameters(preview_mode=True)
     d: dict = await GulpAPIIngest.ingest_file(
         token=ingest_token,
         file_path=file_path,
         operation_id=TEST_OPERATION_ID,
         context_name=TEST_CONTEXT_NAME,
         plugin="win_evtx",
-        preview_mode=True,
+        plugin_params=plugin_params,
     )
     assert len(d) == 7
     MutyLogger.get_instance().info(test_ingest_preview.__name__ + " succeeded!")

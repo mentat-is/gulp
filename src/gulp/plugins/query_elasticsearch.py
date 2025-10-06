@@ -211,7 +211,7 @@ class Plugin(GulpPluginBase):
             MutyLogger.get_instance().exception(ex)
             if self._preview_mode:
                 # in preview mode, we want to raise the exception
-                raise ex
+                raise
 
             return 0, 0, q_options.name
 
@@ -255,7 +255,7 @@ class Plugin(GulpPluginBase):
             # error during query
             MutyLogger.get_instance().exception(ex)
             if self._preview_mode:
-                raise ex
+                raise
 
             return total_count, processed, q_options.name
 
