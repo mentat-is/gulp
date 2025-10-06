@@ -43,6 +43,12 @@ WSDATA_COLLAB_UPDATE = (
 WSDATA_COLLAB_DELETE = (
     "collab_delete"  # GulpCollabDeletePacket, whenever a collab object is deleted
 )
+WSDATA_STATS_CREATE = (
+    "stats_create"  # GulpRequestStats, whenever a stats object is created
+)
+WSDATA_STATS_UPDATED = (
+    "stats_update"  # GulpRequestStats, whenever a stats object is updated
+)
 WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
 WSDATA_REBASE_DONE = (

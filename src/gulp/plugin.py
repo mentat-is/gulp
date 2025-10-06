@@ -806,9 +806,6 @@ class GulpPluginBase(ABC):
         # corresponding request is canceled and we should stop processing
         self._req_canceled: bool = False
 
-        # enrichment during ingestion may be disabled also if _enrich_documents_chunk is implemented
-        self._tot_enriched: int = 0
-
         self._plugin_params: GulpPluginParameters = GulpPluginParameters()
 
         # to minimize db requests to postgres to get context and source at every record
@@ -1372,20 +1369,22 @@ class GulpPluginBase(ABC):
         user_id: str = None,
         req_id: str = None,
         operation_id: str = None,
+        index: str = None,
         q_name: str = None,
         chunk_total: int = 0,
         q_group: str = None,
         last: bool = False,
-    ) -> None:
-        """
-        called internally by the engine to enrich a chunk of documents.
-        """
+        **kwargs,
+    ) -> list[dict]:
+        """callback called by GulpOpenSearch.search_dsl to enrich each chunk of documents"""
+        cb_context = kwargs["cb_context"]
         if not chunk:
-            MutyLogger.get_instance().warning("empty chunk, nothing to do")
-            return
+            MutyLogger.get_instance().warning("empty chunk")
+            return []
 
         # call the plugin function
         chunk = await self._enrich_documents_chunk_cb(
+            sess,
             chunk,
             chunk_num,
             total_hits,
@@ -1393,25 +1392,24 @@ class GulpPluginBase(ABC):
             user_id,
             req_id,
             operation_id,
+            index,
             q_name,
             chunk_total,
             q_group,
             last,
         )
-        self._tot_enriched += len(chunk)
+        cb_context["total_enriched"] += len(chunk)
         MutyLogger.get_instance().debug(
             "%s: enriched %d documents", self.name, len(chunk)
         )
 
         # update the documents on opensearch
         # also ensure no highlight field is left from the query
-        dd: list[dict] = []
         for d in chunk:
             d.pop("highlight", None)
-            dd.append(d)
 
         await GulpOpenSearch.get_instance().update_documents(
-            self._index, dd, wait_for_refresh=last
+            index, chunk, wait_for_refresh=last
         )
 
         # send progress
@@ -1421,24 +1419,20 @@ class GulpPluginBase(ABC):
             req_id,
             ws_id=ws_id,
             total=total_hits,
-            current=self._tot_enriched,
+            current=cb_context["total_enriched"],
             operation_id=operation_id,
             done=last,
         )
 
         if last:
-            # finish stats
-            p = GulpUpdateDocumentsStats(
-                total_hits=self._tot_enriched,
-                plugin=self.name,
-                updated=self._tot_enriched,
-            )
-            await self._stats.set_finished(
-                sess,
-                status=GulpRequestStatus.DONE,
-                data=p.model_dump(),
-                user_id=user_id,
-                ws_id=ws_id,
+            # update source=>fields mappings on the collab db
+            flt: GulpQueryFilter = cb_context["flt"]
+            await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
+                index,
+                user_id,
+                operation_ids=flt.operation_ids,
+                context_ids=flt.context_ids,
+                source_ids=flt.source_ids,
             )
 
     async def enrich_documents(
@@ -1457,7 +1451,7 @@ class GulpPluginBase(ABC):
         """
         enriches a chunk of GulpDocuments dictionaries on-demand.
 
-        the resulting documents will be streamed to the websocket `ws_id` as GulpDocumentsChunkPacket.
+        progress is sent to the websocket, and documents are updated in the opensearch index.
 
         NOTE: this is guaranteed to be called by the gulp API in a worker process
 
@@ -1480,7 +1474,7 @@ class GulpPluginBase(ABC):
         NOTE: implementers of enrich_documents must:
 
         1. also implement _enrich_documents_chunk
-        2. in enrich_documents, call self._initialize() and then super().enrich_documents
+        2. in enrich_documents, call self._initialize() and then super().enrich_documents, possibly providing "rq" in kwargs to further filter the documents to enrich.
 
         """
         if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(
@@ -1501,10 +1495,12 @@ class GulpPluginBase(ABC):
         # check if the caller provided a raw query to be used
         rq = kwargs.get("rq", None)
         q: dict = {}
+        if not flt:
+            flt = GulpQueryFilter()
+
         if rq:
-            # raw query provided by the caller
-            if not flt or flt.is_empty():
-                # no filter, use the raw query
+            if flt.is_empty():
+                # raw query provided by the caller
                 q = rq
             else:
                 # merge raw query and filter
@@ -1512,7 +1508,7 @@ class GulpPluginBase(ABC):
                 q = GulpQueryHelpers.merge_queries(qq, rq)
         else:
             # no raw query, just filter
-            if not flt or flt.is_empty():
+            if flt.is_empty():
                 # match all query
                 q = {"query": {"match_all": {}}}
             else:
@@ -1521,17 +1517,53 @@ class GulpPluginBase(ABC):
 
         # force return all fields
         q_options = GulpQueryParameters(fields="*")
-        _, matched, _ = await GulpQueryHelpers.query_raw(
-            sess=sess,
-            user_id=self._user_id,
-            req_id=self._req_id,
-            ws_id=self._ws_id,
-            q=q,
-            index=index,
-            q_options=q_options,
-            callback_chunk=self._enrich_documents_chunk_wrapper,
-        )
-        return matched
+        error: Exception
+        cb_context = {"total_enriched": 0, "flt": flt}
+        enriched: int = 0
+        try:
+            enriched, total_hits = await GulpOpenSearch.get_instance().search_dsl(
+                sess,
+                index,
+                q,
+                operation_id=operation_id,
+                user_id=self._user_id,
+                req_id=self._req_id,
+                ws_id=self._ws_id,
+                q_options=q_options,
+                callback=self._enrich_documents_chunk_wrapper,
+                cb_context=cb_context,
+            )
+        except Exception as ex:
+            MutyLogger.get_instance().exception(
+                "enrich_documents: exception while enriching documents with plugin %s",
+                self.name,
+            )
+            error = ex
+            raise
+        finally:
+            # finish stats
+            p = GulpUpdateDocumentsStats(
+                total_hits=total_hits,
+                plugin=self.name,
+                updated=cb_context["total_enriched"],
+                errors=[str(error)] if error else [],
+                flt=flt,
+            )
+            MutyLogger.get_instance().debug(
+                "enrich_documents: finished, total_hits=%d, enriched=%d, errors=%s",
+                p.total_hits,
+                p.updated,
+                p.errors,
+            )
+            await self._stats.set_finished(
+                sess,
+                status=GulpRequestStatus.FAILED if error else GulpRequestStatus.DONE,
+                data=p.model_dump(),
+                user_id=user_id,
+                ws_id=ws_id,
+            )
+
+        return enriched
 
     async def enrich_single_document(
         self,

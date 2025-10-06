@@ -438,6 +438,49 @@ id of a `GulpSource` object on the collab database.
         """
         return source_id.strip()
 
+    @staticmethod
+    def param_plugin(
+        plugin: Annotated[
+            str,
+            Query(
+                description="internal name (filename without extension) of the plugin to use.",
+                example="win_evtx",
+            ),
+        ],
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            plugin (str, Query): The plugin.
+
+        Returns:
+            str: The plugin.
+        """
+        return plugin.strip()
+
+    @staticmethod
+    def param_plugin_params(
+        plugin_params: Annotated[
+            GulpPluginParameters,
+            Body(
+                description="""
+to customize `mapping` and specific `plugin` parameters.
+"""
+            ),
+        ] = None,
+    ) -> GulpPluginParameters:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            plugin_params (GulpPluginParameters, Body): The plugin parameters
+
+        Returns:
+            GulpPluginParameters: The plugin parameters or None if empty
+        """
+        return plugin_params or GulpPluginParameters()
+
     ############################
 
     _DESC_OBJ_DISPLAY_NAME = "the object display name."
@@ -764,24 +807,6 @@ it must be the `bare filename` of the plugin (`.py`,`.pyc` extension may be omit
         return APIDependencies._strip_or_none(plugin)
 
     @staticmethod
-    def param_plugin(
-        plugin: Annotated[
-            str,
-            Query(description=_DESC_PLUGIN, example=_EXAMPLE_PLUGIN),
-        ],
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            plugin (str, Query): The plugin.
-
-        Returns:
-            str: The plugin.
-        """
-        return APIDependencies._strip_or_none(plugin)
-
-    @staticmethod
     def param_ingestion_flt_optional(
         flt: Annotated[
             Optional[GulpIngestionFilter],
@@ -824,25 +849,3 @@ to customize `mapping` and specific `plugin` parameters.
             GulpPluginParameters: The plugin parameters or None if empty
         """
         return plugin_params or GulpPluginParameters()
-
-    @staticmethod
-    def param_plugin_params(
-        plugin_params: Annotated[
-            GulpPluginParameters,
-            Body(
-                description="""
-to customize `mapping` and specific `plugin` parameters.
-"""
-            ),
-        ],
-    ) -> GulpPluginParameters:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            plugin_params (GulpPluginParameters, Body): The plugin parameters
-
-        Returns:
-            GulpPluginParameters: The plugin parameters or None if empty
-        """
-        return plugin_params

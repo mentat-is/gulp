@@ -676,6 +676,7 @@ class Plugin(GulpPluginBase):
 
     async def _enrich_documents_chunk(
         self,
+        sess: AsyncSession,
         chunk: list[dict],
         chunk_num: int = 0,
         total_hits: int = 0,

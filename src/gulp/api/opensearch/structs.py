@@ -216,7 +216,7 @@ class GulpDocument(GulpBasicDocument):
             else:
                 ns = muty.time.string_to_nanos_from_unix_epoch(timestamp)
 
-            # Timestamp is epoch or before, that's usually a sign of an invalid timestamp
+            # timestamp is epoch or before, that's usually a sign of an invalid timestamp
             if ns <= 0:
                 raise ValueError("timestamp is before unix epoch")
 
@@ -768,6 +768,6 @@ class GulpQueryHelpers:
         if not q2:
             return q1
 
-        return {
-            "query": {"bool": {"filter": [q1.get("query", q1), q2.get("query", q2)]}}
-        }
+        # merge both queries into a bool filter
+        d: dict = dict(query={"bool": {"filter": [q1["query"], q2["query"]]}})
+        return d

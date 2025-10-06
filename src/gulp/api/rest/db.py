@@ -289,23 +289,23 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
                 )
                 user_id = s.user.id
                 index = op.index
-
-                # offload to a worker process and return pending
-                await GulpRestServer.get_instance().spawn_worker_task(
-                    _rebase_by_query_internal,
-                    req_id,
-                    ws_id,
-                    user_id,
-                    operation_id,
-                    index,
-                    offset_msec,
-                    flt,
-                    script,
-                )
-                return JSONResponse(JSendResponse.pending(req_id=req_id))
             except Exception as ex:
                 await sess.rollback()
                 raise
+
+            # offload to a worker process and return pending
+            await GulpRestServer.get_instance().spawn_worker_task(
+                _rebase_by_query_internal,
+                req_id,
+                ws_id,
+                user_id,
+                operation_id,
+                index,
+                offset_msec,
+                flt,
+                script,
+            )
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

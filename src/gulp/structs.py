@@ -16,7 +16,7 @@ from typing import Any, Literal, Optional, Annotated, Protocol
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.mapping.models import GulpMapping, GulpSigmaMapping
 
 
@@ -379,6 +379,7 @@ class GulpDocumentsChunkCallback(Protocol):
 
     async def __call__(
         self,
+        sess: AsyncSession,
         chunk: list[dict],
         chunk_num: int = 0,
         total_hits: int = 0,
@@ -386,6 +387,7 @@ class GulpDocumentsChunkCallback(Protocol):
         user_id: str = None,
         req_id: str = None,
         operation_id: str = None,
+        index: str = None,
         q_name: str = None,
         chunk_total: int = 0,
         q_group: str = None,
@@ -396,6 +398,7 @@ class GulpDocumentsChunkCallback(Protocol):
         callback function to process a chunk of documents.
 
         Args:
+            sess (AsyncSession): the current database session
             chunk (list[dict]): one or more GulpDocument dictionaries
             chunk_num (int): current chunk number (starting from 0)
             total_hits (int): total number of hits for the query
@@ -403,6 +406,7 @@ class GulpDocumentsChunkCallback(Protocol):
             user_id (str|None): the caller user_id, ignored if ws_id is None
             req_id (str|None): originating request id, ignored if ws_id is None
             operation_id (str|None): id of the GulpOperation, ignored if ws_id is None
+            index (str|None): the index (may be different from operation_id), if any. Defaults to None.
             q_name (str|None): query name, if any. Defaults to None.
             chunk_total (int): total number of chunks for the query, if known. Defaults to 0.
             q_group (str|None): query group, if any. Defaults to None.

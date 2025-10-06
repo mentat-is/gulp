@@ -317,47 +317,39 @@ class GulpOpenSearch:
 
         return result
 
-    async def datastream_update_mapping_by_operation(
+    async def datastream_update_source_field_types_by_flt(
         self,
+        sess,
         index: str,
         user_id: str,
-        operation_ids: list[str],
-        context_ids: list[str] = None,
-        source_ids: list[str] = None,
+        flt: GulpQueryFilter,
     ) -> None:
         """
-        Updates the mappings for the given operation/context/source IDs on the given index/datastream.
+        shortcut to datastream_update_source_field_types_by_src using a GulpQueryFilter
+
+        WARNING: this call may take long time, so it is better to run it in a background task.
 
         Args:
             index (str): The index/datastream name.
             user_id (str): The user ID.
-            operation_ids (list[str]): The operation IDs to update mappings for.
-            context_ids (list[str], optional): The context IDs to update mappings for. Defaults to None.
-            source_ids (list[str], optional): The source IDs to update mappings for. Defaults to None.
+            flt (GulpQueryFilter): The filter to select operations, contexts and sources.
 
         """
-        MutyLogger.get_instance().debug(
-            "updating mappings for index=%s, operation_ids=%s", index, operation_ids
-        )
-
         l = await self.query_operations(index, user_id)
         ids = self._extract_ids_from_query_operations_result(l)
+
+        operation_ids: list[str] = flt.operation_ids
+        context_ids: list[str] = flt.context_ids
+        source_ids: list[str] = flt.source_ids
+
         for op, ctx, src in ids:
             if (
-                (not operation_ids or (operation_ids and op in operation_ids))
+                (operation_ids and op in operation_ids)
                 and (not context_ids or (context_ids and ctx in context_ids))
                 and (not source_ids or (source_ids and src in source_ids))
             ):
                 await self.datastream_update_source_field_types_by_src(
                     index, user_id, operation_id=op, context_id=ctx, source_id=src
-                )
-
-                MutyLogger.get_instance().info(
-                    "mappings created/updated for index=%s, operation_id=%s, context_id=%s, source_id=%s",
-                    index,
-                    op,
-                    ctx,
-                    src,
                 )
 
     async def datastream_update_source_field_types_by_src(
@@ -468,7 +460,7 @@ class GulpOpenSearch:
 
         # store on database (create or update)
         MutyLogger.get_instance().debug(
-            "found %d source->fieldtype mappings, storing on db ...",
+            "found %d source->fieldtype mappings",
             len(filtered_mapping),
         )
         await GulpSourceFieldTypes.create_source_field_types(
@@ -2019,15 +2011,13 @@ class GulpOpenSearch:
 
         # get data
         total_hits = res["hits"]["total"]["value"]
-        # docs = [{**hit["_source"], "_id": hit["_id"]} for hit in hits]
-        docs = [
-            {
-                **hit["_source"],
-                "_id": hit["_id"],
-                **({"highlight": hit["highlight"]} if "highlight" in hit else {}),
-            }
-            for hit in hits
-        ]
+        docs: list[dict] = []
+        add_highlight = parsed_options.get("highlight", False)
+        for hit in hits:
+            doc = {**hit["_source"], "_id": hit["_id"]}
+            if "highlight" in hit and add_highlight:
+                doc["highlight"] = hit["highlight"]
+            docs.append(doc)
 
         search_after = hits[-1]["sort"]
         return total_hits, docs, search_after
@@ -2259,9 +2249,10 @@ class GulpOpenSearch:
         sess: AsyncSession,
         index: str,
         q: dict,
+        req_id: str,
         user_id: str = None,
-        req_id: str = None,
         ws_id: str = None,
+        operation_id: str = None,
         q_options: "GulpQueryParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         callback: GulpDocumentsChunkCallback = None,
@@ -2276,9 +2267,10 @@ class GulpOpenSearch:
             sess (AsyncSession): SQLAlchemy session: use None here if you don't need to check if the request has been canceled.
             index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
             q (dict): The DSL query to execute (will be run as "query": q }, so be sure it is stripped of the root "query" key)
-            req_id (str), optional: The request ID for the query
-            ws_id (str, optional): The websocket ID to send the results to, pass None to disable sending on the websocket.
-            user_id (str, optional): The user ID performing the query
+            req_id (str), optional: The query request ID, used to check if the request has been canceled.
+            user_id (str, optional): The user ID performing the query, ignored if callback is not set.
+            ws_id (str, optional): the websocket to send progress to, ignored if callback is not set.
+            operation_id (str, optional): The target operation id, ignored if callback is not set
             q_options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
             el (AsyncElasticSearch|AsyncOpenSearch, optional): an ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
             callback (GulpDocumentChunkCallback, optional): the callback to call for each chunk of documents during query. Defaults to None.
@@ -2335,7 +2327,8 @@ class GulpOpenSearch:
                         ws_id=ws_id,
                         user_id=user_id,
                         req_id=req_id,
-                        operation_id=index,
+                        operation_id=operation_id,
+                        index=index,
                         last=True,
                         q_name=q_options.name,
                         q_group_by=q_options.group,
@@ -2357,7 +2350,8 @@ class GulpOpenSearch:
                         ws_id=ws_id,
                         user_id=user_id,
                         req_id=req_id,
-                        operation_id=index,
+                        operation_id=operation_id,
+                        index=index,
                         last=canceled,
                         q_name=q_options.name,
                         q_group_by=q_options.group,

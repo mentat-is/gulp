@@ -34,6 +34,7 @@ from fastapi import (
     Depends,
     Query,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.responses import FileResponse, JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -1800,6 +1801,7 @@ async def query_fields_by_source_handler(
 
 
 async def _write_file_callback(
+    sess: AsyncSession,
     chunk: list[dict],
     chunk_num: int = 0,
     total_hits: int = 0,
@@ -1838,6 +1840,7 @@ async def _write_file_callback(
 
 async def _export_json_internal(
     index: str,
+    operation_id: str,
     q: dict,
     req_id: str = None,
     q_options: "GulpQueryParameters" = None,
@@ -1855,6 +1858,7 @@ async def _export_json_internal(
                 None,  # we don't need to check for request cancellation here
                 index,
                 q,
+                operation_id=operation_id,
                 req_id=req_id,
                 q_options=q_options,
                 callback=_write_file_callback,
@@ -1961,6 +1965,7 @@ async def query_gulp_export_json_handler(
                 dsl,
                 wait=True,
                 req_id=req_id,
+                operation_id=operation_id,
                 q_options=q_options,
             )
             if isinstance(file_path, Exception):

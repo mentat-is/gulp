@@ -48,6 +48,8 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.ws_api import (
     WSDATA_COLLAB_DELETE,
     WSDATA_QUERY_DONE,
+    WSDATA_STATS_CREATE,
+    WSDATA_STATS_UPDATE,
     GulpQueryDonePacket,
     GulpWsSharedQueue,
 )
@@ -274,7 +276,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             user_id (str): The user ID creating the stats.
             operation_id (str): The operation associated with the stats
             req_type (RequestStatsType, optional): The type of request stats. Defaults to RequestStatsType.REQUEST_TYPE_INGESTION.
-            ws_id (str, optional): The websocket ID to notify WSDATA_COLLAB_CREATE to. Defaults to None.
+            ws_id (str, optional): The websocket ID to notify WSDATA_STATS_CREATE to. Defaults to None.
             never_expire (bool, optional): If True, the stats will never expire. Defaults to False.
             data (dict, optional): Additional data to store in the stats. Defaults to None.
         Returns:
@@ -337,6 +339,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 time_finished=0,
                 errors=[],
                 data=data,
+                ws_data_type=WSDATA_STATS_CREATE,
             )
             return stats
 
@@ -397,7 +400,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 self.time_expire = time_expire
             if data:
                 self.data = data
-            return await self.update(sess, ws_id=ws_id, user_id=user_id)
+            return await self.update(
+                sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            )
         except Exception as e:
             # ensure release of the lock
             await sess.rollback()
@@ -577,7 +582,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     self,
                 )
 
-            return await super().update(sess, ws_id=ws_id, user_id=user_id)
+            return await super().update(
+                sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            )
         except Exception as e:
             await sess.rollback()
             raise e
@@ -625,7 +632,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             d.records_processed += processed
             d.records_failed += failed
             self.data = d.model_dump()
-            return await super().update(sess, ws_id=ws_id, user_id=user_id)
+            return await super().update(
+                sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            )
         except Exception as e:
             await sess.rollback()
             raise e

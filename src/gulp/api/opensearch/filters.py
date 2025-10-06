@@ -370,6 +370,7 @@ include documents matching the given `gulp.source_id`/s.
 
         q_string = query_dict["query"]["query_string"]
         if self.query_string_parameters:
+            # add provided parameters
             q_string.update(self.query_string_parameters)
 
         # MutyLogger.get_instance().debug('resulting query=%s' % (orjson.dumps(query_dict, option=orjson.OPT_INDENT_2).decode()))
