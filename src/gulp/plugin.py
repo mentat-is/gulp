@@ -753,22 +753,22 @@ class GulpPluginBase(ABC):
         # for ingestion, the mappings to apply
         self._mappings: dict[str, GulpMapping] = {}
         # for ingestion, the key in the mappings dict to be used
-        self._mapping_id: str = ""
+        self._mapping_id: str = None
         # calling user
-        self._user_id: str = ""
+        self._user_id: str = None
         # current gulp operation
-        self._operation_id: str = ""
+        self._operation_id: str = None
         # current gulp context id
-        self._context_id: str = ""
+        self._context_id: str = None
         # current gulp source id
-        self._source_id: str = ""
+        self._source_id: str = None
 
         # current file being ingested
-        self._file_path: str = ""
+        self._file_path: str = None
         # original file path, if any
-        self._original_file_path: str = ""
+        self._original_file_path: str = None
         # opensearch index to operate to
-        self._index: str = ""
+        self._index: str = None
         self._raw_ingestion: bool = False
 
         # this is retrieved from the index to check types during ingestion
@@ -776,9 +776,9 @@ class GulpPluginBase(ABC):
         # if the plugin is processing an external query
         self._external_query: bool = False
         # websocket to stream data to
-        self._ws_id: str = ""
+        self._ws_id: str = None
         # current request id
-        self._req_id: str = ""
+        self._req_id: str = None
 
         # for stacked plugins
         self._upper_record_to_gulp_document_fun: Callable | None = None
@@ -2899,7 +2899,7 @@ class GulpPluginBase(ABC):
 
         source_finished: bool = True
         if self._raw_ingestion:
-            # ongoing, unless canceled or last chunk
+            # on raw ingestion, source is never done unless last chunk or canceled
             source_finished = False
             if self._last_raw_chunk:
                 status = GulpRequestStatus.DONE
@@ -2908,7 +2908,7 @@ class GulpPluginBase(ABC):
             if self._req_canceled:
                 status = GulpRequestStatus.CANCELED
         else:
-            # send WSDATA_INGEST_SOURCE_DONE on the ws
+            # standard ingestion, send WSDATA_INGEST_SOURCE_DONE on the ws
             if errors or source_failed:
                 status = GulpRequestStatus.FAILED
             else:
@@ -2948,6 +2948,21 @@ class GulpPluginBase(ABC):
                 status=status,
                 source_finished=source_finished,
             )
+
+            # update source field types (in background)
+            from gulp.api.rest_api import GulpRestServer
+
+            coro = GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
+                self._sess,
+                self._index,
+                self._user_id,
+                operation_id=self._operation_id,
+                context_id=self._context_id,
+                source_id=self._source_id,
+            )
+            bg_task_name = f"update_source_field_types_{self._operation_id}_{self._context_id}_{self._source_id}"
+            GulpRestServer.get_instance().spawn_bg_task(coro, bg_task_name)
+
             return d["status"]
         except:
             return GulpRequestStatus.FAILED

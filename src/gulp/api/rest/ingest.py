@@ -295,13 +295,6 @@ async def _ingest_file_internal(
 
                 # default mode: broadcast internal event and update source field types
                 await mod.broadcast_ingest_internal_event()
-                await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
-                    index,
-                    user_id,
-                    operation_id=operation_id,
-                    context_id=context_id,
-                    source_id=source_id,
-                )
             except Exception as ex:
                 await sess.rollback()
                 raise

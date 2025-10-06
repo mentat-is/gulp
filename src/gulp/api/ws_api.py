@@ -46,7 +46,7 @@ WSDATA_COLLAB_DELETE = (
 WSDATA_STATS_CREATE = (
     "stats_create"  # GulpRequestStats, whenever a stats object is created
 )
-WSDATA_STATS_UPDATED = (
+WSDATA_STATS_UPDATE = (
     "stats_update"  # GulpRequestStats, whenever a stats object is updated
 )
 WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries

@@ -460,7 +460,7 @@ class GulpOpenSearch:
 
         # store on database (create or update)
         MutyLogger.get_instance().debug(
-            "found %d source->fieldtype mappings",
+            "***DONE*** datastream_update_source_field_types_by_src, found %d source->fieldtype mappings, storing/updating on collab db...",
             len(filtered_mapping),
         )
         await GulpSourceFieldTypes.create_source_field_types(
