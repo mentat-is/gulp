@@ -43,7 +43,11 @@ class Plugin(GulpPluginBase):
 
     def display_name(self) -> str:
         return "win_reg"
-
+    
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return "^\x72\x65\x67\x66"
+    
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(

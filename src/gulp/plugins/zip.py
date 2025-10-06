@@ -48,6 +48,10 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "zip"
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return "^\x50\x4b\x03\x04|^\x50\x4b\x05\x06|^\x50\x4b\x07\x08"
+
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [

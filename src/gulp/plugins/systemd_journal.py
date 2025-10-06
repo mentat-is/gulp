@@ -65,6 +65,10 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "systemd_journal"
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return "^(\x4c\x50\x4b\x53\x48\x48\x52\x48|LPKSHHRH)"
+    
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs

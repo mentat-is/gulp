@@ -53,6 +53,10 @@ class Plugin(GulpPluginBase):
     def type(self) -> list[GulpPluginType]:
         return [GulpPluginType.INGESTION]
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return '^\s*(\{[\s\n\r]*"[^"]+"\s*:|^\s*\[\s*(\{[\s\n\r]*"[^"]+"\s*:|\d|"|\[|null|true|false))'
+
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [

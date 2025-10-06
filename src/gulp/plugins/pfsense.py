@@ -39,6 +39,10 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "pfsense"
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return "^(<[0-9]{1,3}>[0-9]*\ (\S+?)\ (\S+?)\ filterlog\ \S+?\ \S+?\ \S+?\ (.*)|(.*)\s(.*)\sfilterlog\[[0-9]+\]:\s(.*))"
+
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs

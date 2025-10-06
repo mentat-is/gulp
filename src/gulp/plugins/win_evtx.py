@@ -41,6 +41,10 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "win_evtx"
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return "^\x45\x6c\x66\x46\x69\x6c\x65\x00"
+
     @override
     def desc(self) -> str:
         return "Windows EVTX log file processor."
