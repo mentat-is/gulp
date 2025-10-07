@@ -362,7 +362,8 @@ class GulpQueryDonePacket(BaseModel):
             ]
         },
     )
-    name: Annotated[str, Field(description="The query name.")]
+    q_name: Annotated[str, Field(description="The query name.")]
+    q_group: Annotated[str, Field(description="The query group name, if any.")] = None
     status: Annotated[
         str, Field(description="The status of the query operation (done/failed).")
     ]

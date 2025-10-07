@@ -1398,7 +1398,8 @@ class GulpPluginBase(ABC):
             q_group,
             last,
         )
-        cb_context["total_enriched"] += len(chunk)
+        cb_context["total_hits"] = total_hits
+
         MutyLogger.get_instance().debug(
             "%s: enriched %d documents", self.name, len(chunk)
         )
@@ -1408,32 +1409,12 @@ class GulpPluginBase(ABC):
         for d in chunk:
             d.pop("highlight", None)
 
-        await GulpOpenSearch.get_instance().update_documents(
+        updated, _, errors = await GulpOpenSearch.get_instance().update_documents(
             index, chunk, wait_for_refresh=last
         )
-
-        # send progress
-        await GulpWsSharedQueue.get_instance().put_progress(
-            PROGRESS_ENRICH,
-            user_id,
-            req_id,
-            ws_id=ws_id,
-            total=total_hits,
-            current=cb_context["total_enriched"],
-            operation_id=operation_id,
-            done=last,
-        )
-
-        if last:
-            # update source=>fields mappings on the collab db
-            flt: GulpQueryFilter = cb_context["flt"]
-            await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
-                index,
-                user_id,
-                operation_ids=flt.operation_ids,
-                context_ids=flt.context_ids,
-                source_ids=flt.source_ids,
-            )
+        cb_context["total_enriched"] += updated
+        cb_context["errors"].extend(errors)
+        return chunk
 
     async def enrich_documents(
         self,
@@ -1447,7 +1428,7 @@ class GulpPluginBase(ABC):
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
-    ) -> int:
+    ) -> tuple[int, int, list[str]]:
         """
         enriches a chunk of GulpDocuments dictionaries on-demand.
 
@@ -1469,7 +1450,7 @@ class GulpPluginBase(ABC):
                 - rq (dict): a raw query to be used, additionally to the filter
 
         Returns:
-            int: the total number of enriched documents
+            tuple[int, int, list[str]]: total hits for the query, total enriched documents (may be less than total hits if errors), list of unique errors encountered (if any)
 
         NOTE: implementers of enrich_documents must:
 
@@ -1517,11 +1498,15 @@ class GulpPluginBase(ABC):
 
         # force return all fields
         q_options = GulpQueryParameters(fields="*")
-        error: Exception
-        cb_context = {"total_enriched": 0, "flt": flt}
-        enriched: int = 0
+        errors: list[str] = []
+        cb_context = {
+            "total_hits": 0,
+            "total_enriched": 0,
+            "flt": flt,
+            "errors": errors,
+        }
         try:
-            enriched, total_hits = await GulpOpenSearch.get_instance().search_dsl(
+            await GulpOpenSearch.get_instance().search_dsl(
                 sess,
                 index,
                 q,
@@ -1538,32 +1523,10 @@ class GulpPluginBase(ABC):
                 "enrich_documents: exception while enriching documents with plugin %s",
                 self.name,
             )
-            error = ex
-            raise
-        finally:
-            # finish stats
-            p = GulpUpdateDocumentsStats(
-                total_hits=total_hits,
-                plugin=self.name,
-                updated=cb_context["total_enriched"],
-                errors=[str(error)] if error else [],
-                flt=flt,
-            )
-            MutyLogger.get_instance().debug(
-                "enrich_documents: finished, total_hits=%d, enriched=%d, errors=%s",
-                p.total_hits,
-                p.updated,
-                p.errors,
-            )
-            await self._stats.set_finished(
-                sess,
-                status=GulpRequestStatus.FAILED if error else GulpRequestStatus.DONE,
-                data=p.model_dump(),
-                user_id=user_id,
-                ws_id=ws_id,
-            )
+            MutyLogger.get_instance().exception(ex)
+            errors.append(str(ex))
 
-        return enriched
+        return cb_context["total_hits"], cb_context["total_enriched"], errors
 
     async def enrich_single_document(
         self,

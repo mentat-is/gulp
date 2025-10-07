@@ -732,7 +732,7 @@ class Plugin(GulpPluginBase):
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
-    ) -> int:
+    ) -> tuple[int, int, list[str]]:
         # parse custom parameters
         await self._initialize(plugin_params)
 

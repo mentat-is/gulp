@@ -369,7 +369,7 @@ class GulpOpenSearch:
         WARNING: this call may take long time, so it is better to run it in a background task.
 
         Args:
-            sess (AsyncSession): The database session.
+            sess (AsyncSession): The database session, use None to create a temporary one.
             index (str): The index/datastream name.
             user_id (str): the requesting user ID.
             operation_id (str): The operation ID, may be None to indicate all operations.
@@ -463,9 +463,26 @@ class GulpOpenSearch:
             "***DONE*** datastream_update_source_field_types_by_src, found %d source->fieldtype mappings, storing/updating on collab db...",
             len(filtered_mapping),
         )
-        await GulpSourceFieldTypes.create_source_field_types(
-            sess, user_id, operation_id, context_id, source_id, filtered_mapping
-        )
+        if sess:
+            # session provided
+            await GulpSourceFieldTypes.create_source_field_types(
+                sess, user_id, operation_id, context_id, source_id, filtered_mapping
+            )
+        else:
+            # no session provided, create a temporary one
+            async with GulpCollab.get_instance().get_session() as sess:
+                try:
+                    await GulpSourceFieldTypes.create_source_field_types(
+                        sess,
+                        user_id,
+                        operation_id,
+                        context_id,
+                        source_id,
+                        filtered_mapping,
+                    )
+                except Exception as e:
+                    await sess.rollback()
+                    raise e
 
         return filtered_mapping
 
@@ -990,7 +1007,7 @@ class GulpOpenSearch:
         docs: list[dict],
         wait_for_refresh: bool = False,
         replace: bool = False,
-    ) -> tuple[int, list[dict]]:
+    ) -> tuple[int, int, list[str]]:
         """
         updates documents in an OpenSearch datastream using update_by_query.
 
@@ -998,33 +1015,28 @@ class GulpOpenSearch:
 
         Args:
             index (str): Name of the datastream/index to update documents in
-            docs (list[dict]): List of documents to update. Each doc must have _id field
+            docs (list[dict]): List of GulpDocument dictionaries to update, each document must contain the _id field
             wait_for_refresh (bool): Whether to wait for index refresh. Defaults to False
             replace (bool): Whether to completely replace documents keeping only _id. Defaults to False
 
         Returns:
             tuple:
             - number of successfully updated documents
+            - number of failed updates
             - list of errors if any occurred
-
-        Raises:
-            ValueError: If doc is missing _id field
         """
         if not docs:
-            return 0, []
+            return 0, 0, []
 
-        # Build document updates
-        update_operations = []
+        # build document updates
+        scripts: list[str] = []
         for doc in docs:
-            if "_id" not in doc:
-                raise ValueError("Document missing _id field")
-
-            doc_id = doc["_id"]
-            update_fields = {k: v for k, v in doc.items() if k != "_id"}
+            doc_id: str = doc["_id"]
+            update_fields: dict = {k: v for k, v in doc.items() if k != "_id"}
 
             if replace:
                 # replace entire document except _id
-                operation = {
+                update_doc_script: dict = {
                     "script": {
                         "source": "ctx._source.clear(); for (entry in params.updates.entrySet()) { ctx._source[entry.getKey()] = entry.getValue(); }",
                         "lang": "painless",
@@ -1034,7 +1046,7 @@ class GulpOpenSearch:
                 }
             else:
                 # update only specified fields
-                operation = {
+                update_doc_script: dict = {
                     "script": {
                         "source": """
                             for (entry in params.updates.entrySet()) {
@@ -1047,34 +1059,36 @@ class GulpOpenSearch:
                     "query": {"term": {"_id": doc_id}},
                 }
 
-            update_operations.append(operation)
+            scripts.append(update_doc_script)
 
-        # set parameters
-        params = {"conflicts": "abort", "wait_for_completion": "true"}
+        # execute updates
+        params: dict = {"conflicts": "abort", "wait_for_completion": "true"}
         if wait_for_refresh:
             params["refresh"] = "true"
 
-        # Execute updates
-        headers = {"accept": "application/json", "content-type": "application/json"}
+        headers: dict = {
+            "accept": "application/json",
+            "content-type": "application/json",
+        }
+        success_count: int = 0
+        failed_count: int = 0
+        errors: list[str] = []
+        for update_doc_script in scripts:
+            try:
+                res = await self._opensearch.update_by_query(
+                    index=index, body=update_doc_script, params=params, headers=headers
+                )
+                success_count += res.get("updated", 0)
+            except Exception as e:
+                failed_count += 1
+                if str(e) not in errors:
+                    # add an unique error with the query that caused it
+                    q: str = orjson.dumps(
+                        update_doc_script, option=orjson.OPT_INDENT_2
+                    ).decode()
+                    errors.append(str({"error": str(e), "query": q}))
 
-        success_count = 0
-        errors = []
-
-        try:
-            for operation in update_operations:
-                try:
-                    res = await self._opensearch.update_by_query(
-                        index=index, body=operation, params=params, headers=headers
-                    )
-                    success_count += res.get("updated", 0)
-                except Exception as e:
-                    errors.append({"query": operation["query"], "error": str(e)})
-
-        except Exception as e:
-            MutyLogger.get_instance().error("error updating documents: %s", str(e))
-            return 0, [{"error": str(e)}]
-
-        return success_count, errors
+        return success_count, failed_count, errors
 
     async def bulk_ingest(
         self,
@@ -2321,6 +2335,7 @@ class GulpOpenSearch:
                 # this is the last chunk
                 if callback:
                     callback(
+                        sess,
                         docs,
                         chunk_num=chunk_num,
                         total_hits=total_hits,
@@ -2344,6 +2359,7 @@ class GulpOpenSearch:
                 # MutyLogger.get_instance().debug("search_dsl: request %s stats=%s", req_id, stats)
                 if callback:
                     callback(
+                        sess,
                         docs,
                         chunk_num=chunk_num,
                         total_hits=total_hits,

@@ -831,14 +831,18 @@ async def _query_raw_internal(
     description="""
 query Gulp with a raw OpenSearch DSL query.
 
-- this API returns `pending` and results are streamed to the `ws_id` websocket.
+- this API returns `pending` and results are streamed to the `ws_id` websocket (unless `q_options.preview_mode` is set, read later).
 - `q` must be one or more queries with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
-- if more than one query is provided, `q_options.group` must be set.
-- if `q_options.preview_mode` is set, this API only accepts a single query in the `q` array and the data is returned directly without using the websocket.
+- if `q_options.q_group` is set, `WSDATA_QUERY_GROUP_MATCH` packet is sent on the websocket in the end.
+- also, if `q_options.note_parameters.create_notes` is set, notes are created for each query match, with tags containing the query name (and group name if set and all queries in the group matched)
+- if `q_options.preview_mode` is set, this API takes the first query in the `q` array and the data is returned directly without using the websocket.
 
 ## tracking query progresses
 
-during a query, WSDATA_PROGRESS packets are sent to the `ws_id` websocket.
+during query, the following data is sent on the websocket `ws_id`:
+
+- WSDATA_QUERY_DONE (GulpQueryDonePacket) for each query in `q`
+- WSDATA_QUERY_GROUP_MATCH (GulpQueryGroupMatchPacket) if `q_options.q_group` is set
 
 when converting sigma rules, `msg` is set to `sigma_conversion_progress` and `sigma_conversion_done`:
 
@@ -863,7 +867,7 @@ async def query_raw_handler(
             description="""
 one or more queries according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
 
-- each query in `q` is run in a task in one of the worker processes, unless `preview_mode` is set.
+- each query in `q` is run in a task in one of the worker processes
 """,
             examples=[[EXAMPLE_QUERY_RAW], [{"query": {"match_all": {}}}]],
         ),
@@ -871,13 +875,22 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),
-    ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     params = locals()
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
-    pass
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            try:
+                # get operation and check acl
+                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+                s = await GulpUserSession.check_token(
+                    sess, token, obj=op
+                )
+                user_id = s.user.id
     # try:
     #     async with GulpCollab.get_instance().session() as sess:
     #         try:
@@ -1809,6 +1822,7 @@ async def _write_file_callback(
     user_id: str = None,
     req_id: str = None,
     operation_id: str = None,
+    index: str = None,
     q_name: str = None,
     chunk_total: int = 0,
     q_group: str = None,

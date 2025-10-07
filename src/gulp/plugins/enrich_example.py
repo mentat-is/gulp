@@ -73,7 +73,7 @@ class Plugin(GulpPluginBase):
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
-    ) -> int:
+    ) -> tuple[int, int, list[str]]:
         await self._initialize(plugin_params)
         return await super().enrich_documents(
             sess, user_id, req_id, ws_id, operation_id, index, flt, plugin_params

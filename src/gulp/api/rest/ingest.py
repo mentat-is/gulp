@@ -449,9 +449,9 @@ once the upload is complete, the API will return a `pending` response and proces
 
 once the upload is complete, this function returns a `pending` response and the following will be sent on the `ws_id` websocket during processing:
 
-- `WSDATA_COLLAB_CREATE` with `type=request_stats`: GulpRequestStats object with initial `GulpIngestionStats` (at start)
-- `WSDATA_COLLAB_UPDATE` with `type=request_stats`: GulpRequestStats object with updated `GulpIngestionStats` (once every `ingestion_buffer_size` documents)
-- `WSDATA_DOCUMENTS_CHUNK`: the actual chunk of ingested `GulpDocument`s (once every `ingestion_buffer_size` documents)
+- `WSDATA_STATS_CREATE`: GulpRequestStats object with initial `GulpIngestionStats` (at start)
+- `WSDATA_STATS_UPDATE`: GulpRequestStats object with updated `GulpIngestionStats` (once every `ingestion_buffer_size` documents)
+- `WSDATA_DOCUMENTS_CHUNK`: GulpDocumentsChunkpacket with the actual chunk of ingested GulpDocuments (once every `ingestion_buffer_size` documents)
 
 """,
     summary="ingest file using the specified plugin.",
