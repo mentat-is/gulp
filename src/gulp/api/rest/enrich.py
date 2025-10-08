@@ -15,6 +15,7 @@ websocket communication for asynchronous operations.
 from typing import Annotated
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
+from llvmlite.tests.test_ir import flt
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
@@ -25,6 +26,7 @@ from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import (
     GulpRequestStats,
     GulpUpdateDocumentsStats,
+    RequestCanceledError,
     RequestStatsType,
 )
 from gulp.api.collab.structs import GulpRequestStatus, GulpUserPermission
@@ -73,11 +75,9 @@ async def _enrich_documents_internal(
                 data=GulpUpdateDocumentsStats(),
             )
 
-            # load plugin
+            # call plugin
             mod = await GulpPluginBase.load(plugin)
-
-            # enrich
-            total_hits, enriched, errs = await mod.enrich_documents(
+            total_hits, enriched, errs, canceled = await mod.enrich_documents(
                 sess,
                 stats,
                 user_id,
@@ -109,11 +109,16 @@ async def _enrich_documents_internal(
                     p.updated,
                     p.errors,
                 )
+                status = (
+                    GulpRequestStats.CANCELED
+                    if canceled
+                    else (
+                        GulpRequestStatus.FAILED if errors else GulpRequestStatus.DONE
+                    )
+                )
                 await stats.set_finished(
                     sess,
-                    status=(
-                        GulpRequestStatus.FAILED if errors else GulpRequestStatus.DONE
-                    ),
+                    status=status,
                     data=p.model_dump(),
                     user_id=user_id,
                     ws_id=ws_id,
@@ -297,26 +302,24 @@ async def enrich_single_id_handler(
             await mod.unload()
 
 
-async def _tag_documents_chunk_wrapper(
+async def _tag_documents_chunk(
     sess: AsyncSession,
     chunk: list[dict],
     chunk_num: int = 0,
     total_hits: int = 0,
-    ws_id: str = None,
-    user_id: str = None,
-    req_id: str = None,
-    operation_id: str = None,
     index: str = None,
-    q_name: str = None,
-    chunk_total: int = 0,
-    q_group: str = None,
     last: bool = False,
+    req_id: str = None,
+    q_name: str = None,
+    q_group: str = None,
     **kwargs,
 ) -> list[dict]:
-    """callback called by GulpOpenSearch.search_dsl to tag each chunk of documents"""
+    """GulpDocumentsChunkCallback to tag each chunk of documents"""
     cb_context = kwargs["cb_context"]
     tags = kwargs["tags"]
     stats: GulpRequestStats = cb_context["stats"]
+    ws_id = cb_context["ws_id"]
+    flt: GulpQueryFilter = cb_context["flt"]
     if not chunk:
         MutyLogger.get_instance().warning("empty chunk")
         return []
@@ -335,17 +338,18 @@ async def _tag_documents_chunk_wrapper(
     updated, _, errs = await GulpOpenSearch.get_instance().update_documents(
         index, chunk, wait_for_refresh=last
     )
-    cb_context["total_enriched"] += len(updated)
+    num_updated = len(updated)
+    cb_context["total_updated"] += num_updated
     cb_context["errors"].extend(errs)
 
     # update running stats
     await stats.update_updatedocuments_stats(
         sess,
         total_hits=total_hits,
-        updated=len(updated),
-        flt=cb_context["flt"],
+        updated=num_updated,
+        flt=flt,
         errs=errs,
-        user_id=user_id,
+        user_id=stats.user_id,
         ws_id=ws_id,
     )
     return chunk
@@ -380,8 +384,14 @@ async def _tag_documents_internal(
     enriched: int = 0
     total_hits: int = 0
     errors: list[str] = []
-    cb_context = {"total_enriched": 0, "flt": flt, "errors": errors, "tags": tags}
-
+    cb_context = {
+        "total_updated": 0,
+        "flt": flt,
+        "errors": errors,
+        "tags": tags,
+        "ws_id": ws_id,
+    }
+    canceled: bool = False
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
@@ -399,24 +409,23 @@ async def _tag_documents_internal(
                 sess,
                 index,
                 q,
-                operation_id=operation_id,
-                user_id=user_id,
                 req_id=req_id,
-                ws_id=ws_id,
                 q_options=q_options,
-                callback=_tag_documents_chunk_wrapper,
+                callback=_tag_documents_chunk,
                 cb_context=cb_context,
             )
         except Exception as ex:
             await sess.rollback()
             errors.append(str(ex))
+            if isinstance(ex, RequestCanceledError):
+                canceled = True
             raise
         finally:
             if stats:
                 # finish stats
                 p = GulpUpdateDocumentsStats(
                     total_hits=total_hits,
-                    updated=cb_context["total_enriched"],
+                    updated=cb_context["total_updated"],
                     errors=errors,
                     flt=flt,
                 )
@@ -426,11 +435,16 @@ async def _tag_documents_internal(
                     p.updated,
                     p.errors,
                 )
+                status: GulpRequestStatus = (
+                    GulpRequestStatus.CANCELED
+                    if canceled
+                    else (
+                        GulpRequestStatus.FAILED if errors else GulpRequestStatus.DONE
+                    )
+                )
                 await stats.set_finished(
                     sess,
-                    status=(
-                        GulpRequestStatus.FAILED if errors else GulpRequestStatus.DONE
-                    ),
+                    status=status,
                     data=p.model_dump(),
                     user_id=user_id,
                     ws_id=ws_id,

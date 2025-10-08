@@ -242,7 +242,7 @@ class Plugin(GulpPluginBase):
                 try:
                     await self.process_record(rr, doc_idx, flt=flt)
                 except (RequestCanceledError, SourceCanceledError) as ex:
-                    raise ex
+                    raise
                 except PreviewDone:
                     # preview done, stop processing
                     break

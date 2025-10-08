@@ -18,6 +18,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
+from llvmlite.tests.test_ir import flt
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
@@ -25,6 +26,7 @@ from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import (
     GulpUpdateDocumentsStats,
     GulpRequestStats,
+    RequestCanceledError,
     RequestStatsType,
 )
 from gulp.api.collab.structs import (
@@ -87,46 +89,29 @@ async def db_reset() -> None:
 
 
 async def _rebase_callback(
+    sess: AsyncSession,
     total: int,
     current: int,
-    ws_id: str,
-    user_id: str,
     req_id: str,
-    operation_id: str,
-    done: bool = False,
-    canceled: bool = False,
-    data: dict = None,
+    last: bool = False,
+    **kwargs,
 ):
     """
     GulpProgressCallback to report progress during rebase.
     """
-    await GulpWsSharedQueue.get_instance().put_progress(
-        PROGRESS_REBASE,
-        user_id,
-        req_id,
+    flt: GulpQueryFilter = kwargs["flt"]
+    errors: list[str] = kwargs["errors"]
+    stats: GulpRequestStats = kwargs["stats"]
+    ws_id: str = kwargs["ws_id"]
+    await stats.update_updatedocuments_stats(
+        sess,
+        user_id=stats.user_id,
         ws_id=ws_id,
-        total=total,
-        current=current,
-        done=done,
-        d=data,
-        operation_id=operation_id,
+        req_id=req_id,
+        flt=flt,
+        updated=current,
+        errors=errors,
     )
-    if done:
-        # send WSDATA_REBASE_DONE
-        p: GulpUpdateDocumentsStats = GulpUpdateDocumentsStats(
-            total_hits=total,
-            updated=current,
-            errors=data.get("errors") if data else [],
-            flt=data.get("flt") if data else None,
-        )
-        await GulpWsSharedQueue.get_instance().put(
-            WSDATA_REBASE_DONE,
-            user_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            req_id=req_id,
-            d=p.model_dump(exclude_none=True),
-        )
 
 
 async def _rebase_by_query_internal(
@@ -143,11 +128,17 @@ async def _rebase_by_query_internal(
     runs in a worker process to rebase the index using update_by_query.
     """
     stats: GulpRequestStats = None
-    p: GulpUpdateDocumentsStats = GulpUpdateDocumentsStats()
     total_hits: int = 0
-    updated: int = 0
+    canceled: bool = False
     errors: list[str] = []
     status = GulpRequestStatus.DONE
+    cb_context = {
+        "total_updated": 0,
+        "flt": flt,
+        "errors": errors,
+        "ws_id": ws_id,
+    }
+
     try:
         # rebase
         async with GulpCollab.get_instance().session() as sess:
@@ -161,31 +152,43 @@ async def _rebase_by_query_internal(
                     ws_id=ws_id,
                     data=p.model_dump(),
                 )
+                cb_context["stats"] = stats
 
                 (
                     total_hits,
-                    updated,
+                    _,
                     errors,
                 ) = await GulpOpenSearch.get_instance().opensearch_rebase_by_query(
                     sess,
                     index,
                     offset_msec,
                     req_id,
-                    ws_id=ws_id,
-                    user_id=user_id,
                     flt=flt,
                     script=script,
                     callback=_rebase_callback,
+                    cb_context=cb_context,
                 )
             except Exception as ex:
                 await sess.rollback()
-                status = GulpRequestStatus.FAILED
+                if isinstance(ex, RequestCanceledError):
+                    canceled = True
                 raise
             finally:
                 if stats:
+                    status: GulpRequestStatus = (
+                        GulpRequestStatus.CANCELED
+                        if canceled
+                        else (
+                            GulpRequestStatus.FAILED
+                            if errors
+                            else GulpRequestStatus.DONE
+                        )
+                    )
+
                     # update stats and set finished
+                    p: GulpUpdateDocumentsStats = GulpUpdateDocumentsStats()
                     p.total_hits = total_hits
-                    p.updated = updated
+                    p.updated = cb_context["total_updated"]
                     p.errors = errors
                     p.flt = flt
                     await stats.set_finished(

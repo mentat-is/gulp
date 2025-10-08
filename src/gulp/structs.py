@@ -337,34 +337,28 @@ class GulpSortOrder(StrEnum):
 
 class GulpProgressCallback(Protocol):
     """
-    callback protocol for progress updates
+    callback protocol for generic progress updates
     """
 
     async def __call__(
         self,
+        sess: AsyncSession,
         total: int,
         current: int,
-        ws_id: str,
-        user_id: str,
         req_id: str,
-        operation_id: str,
-        done: bool = False,
-        canceled: bool = False,
-        data: dict = None,
+        last: bool = False,
+        **kwargs,
     ) -> None:
         """
         callback function to report progress.
 
         Args:
+            sess (AsyncSession): the current database session
             total (int): total number of items to process
             current (int): current number of processed items
-            ws_id (str): websocket id to send progress updates to
-            user_id (str): the caller user_id
+            last (bool, optional): True if this is the last progress update. Defaults to False.
             req_id (str): originating request id
-            operation_id (str): id of the GulpOperation
-            done (bool, optional): True if the operation is done. Defaults to False.
-            canceled (bool, optional): True if the operation was canceled. Defaults to False.
-            data (dict, optional): additional data to send with the progress update. Defaults to None.
+            **kwargs: additional arguments passed to the callback
 
         Returns:
             None
@@ -383,15 +377,11 @@ class GulpDocumentsChunkCallback(Protocol):
         chunk: list[dict],
         chunk_num: int = 0,
         total_hits: int = 0,
-        ws_id: str = None,
-        user_id: str = None,
-        req_id: str = None,
-        operation_id: str = None,
         index: str = None,
-        q_name: str = None,
-        chunk_total: int = 0,
-        q_group: str = None,
         last: bool = False,
+        req_id: str = None,
+        q_name: str = None,
+        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
         """
@@ -402,15 +392,11 @@ class GulpDocumentsChunkCallback(Protocol):
             chunk (list[dict]): one or more GulpDocument dictionaries
             chunk_num (int): current chunk number (starting from 0)
             total_hits (int): total number of hits for the query
-            ws_id (str|None): the websocket id to send progress updates to, if any. If None, no progress updates will be sent.
-            user_id (str|None): the caller user_id, ignored if ws_id is None
-            req_id (str|None): originating request id, ignored if ws_id is None
-            operation_id (str|None): id of the GulpOperation, ignored if ws_id is None
             index (str|None): the index (may be different from operation_id), if any. Defaults to None.
-            q_name (str|None): query name, if any. Defaults to None.
-            chunk_total (int): total number of chunks for the query, if known. Defaults to 0.
-            q_group (str|None): query group, if any. Defaults to None.
             last (bool): True if this is the last chunk. Defaults to False.
+            req_id (str|None): the originating request id, if any. Defaults to None.
+            q_name (str|None): query name, if any. Defaults to None.
+            q_group (str|None): query group, if any. Defaults to None.
             **kwargs: additional arguments passed to the callback
         Returns:
             list[dict]: the processed chunk of documents

@@ -98,14 +98,11 @@ class Plugin(GulpPluginBase):
         chunk: list[dict],
         chunk_num: int = 0,
         total_hits: int = 0,
-        ws_id: str = None,
-        user_id: str = None,
-        req_id: str = None,
-        operation_id: str = None,
-        q_name: str = None,
-        chunk_total: int = 0,
-        q_group: str = None,
+        index: str = None,
         last: bool = False,
+        req_id: str = None,
+        q_name: str = None,
+        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
         hash_type = self._plugin_params.custom_parameters.get("hash_type")
@@ -159,7 +156,7 @@ class Plugin(GulpPluginBase):
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
-    ) -> tuple[int, int, list[str]]:
+    ) -> tuple[int, int, list[str], bool]:
         # parse custom parameters
         self._initialize(plugin_params)
 

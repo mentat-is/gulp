@@ -40,14 +40,11 @@ class Plugin(GulpPluginBase):
         chunk: list[dict],
         chunk_num: int = 0,
         total_hits: int = 0,
-        ws_id: str = None,
-        user_id: str = None,
-        req_id: str = None,
-        operation_id: str = None,
-        q_name: str = None,
-        chunk_total: int = 0,
-        q_group: str = None,
+        index: str = None,
         last: bool = False,
+        req_id: str = None,
+        q_name: str = None,
+        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
         for doc in chunk:
@@ -59,7 +56,7 @@ class Plugin(GulpPluginBase):
                 "field3": {"field4": muty.string.generate_unique()},
             }
 
-        return docs
+        return chunk
 
     @override
     async def enrich_documents(
@@ -73,7 +70,7 @@ class Plugin(GulpPluginBase):
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
-    ) -> tuple[int, int, list[str]]:
+    ) -> tuple[int, int, list[str], bool]:
         await self._initialize(plugin_params)
         return await super().enrich_documents(
             sess, user_id, req_id, ws_id, operation_id, index, flt, plugin_params

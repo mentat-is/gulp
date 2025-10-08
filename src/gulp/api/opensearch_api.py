@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.source_field_types import GulpSourceFieldTypes
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab.stats import GulpRequestStats, RequestCanceledError
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import (
@@ -1295,11 +1295,10 @@ class GulpOpenSearch:
         index: str,
         offset_msec: int,
         req_id: str,
-        ws_id: str = None,
-        user_id: str = None,
         flt: GulpQueryFilter = None,
         script: str = None,
         callback: GulpProgressCallback = None,
+        **kwargs,
     ) -> tuple[int, int, list[str]]:
         """
         Rebases documents in-place on the same index using update_by_query, shifting timestamps in batches of 1000 documents.
@@ -1311,11 +1310,10 @@ class GulpOpenSearch:
             index (str): The index/datastream name.
             offset_msec (int): The offset in milliseconds to apply to timestamps.
             req_id (str): id of the request
-            ws_id (str, optional): the ws_id to send progress updates to, ignored if callback is not set
-            user_id (str, optional): user_id of the caller, ignored if callback is not set
             flt (GulpQueryFilter, optional): to filter the documents to rebase. Defaults to None (all documents).
             script (str, optional): A [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html) to customize the update. Defaults to None (use the default script which just updates @timestamp and gulp.timestamp).
             callback (GulpProgressCallback, optional): A callback function called at every processed chunk. Defaults to None.
+            **kwargs: Additional keyword arguments to pass to the callback.
         Returns:
             tuple:
             - total number of documents matching the filter
@@ -1357,11 +1355,15 @@ class GulpOpenSearch:
         # process in batches of 1000 documents using search_after
         batch_size: int = 1000
         total_hits: int = 0
-        num_updated_docs: int = 0
+        total_updated: int = 0
+        num_updated: int = 0
         search_after: list[dict] = None
-        chunk_count: int = 0
-        timeout = GulpConfig.get_instance().opensearch_request_timeout()
+        chunk_num: int = 0
+        timeout: int = GulpConfig.get_instance().opensearch_request_timeout()
+        check_canceled_count: int = 0
         params: dict = {}
+        canceled: bool = False
+        last: bool = False
         if timeout > 0:
             params["timeout"] = timeout
 
@@ -1373,95 +1375,78 @@ class GulpOpenSearch:
             "sort": ["_doc"],
         }
         while True:
-
             # search for up to batch_size docs matching the filter
-
             res = await self._opensearch.search(
                 index=index, body=search_body, headers=headers
             )
             hits = res["hits"]["hits"]
             if not hits:
-                # done, last progress update
-                if callback:
-                    d = {
-                        "errors": errors,
-                        "flt": flt.model_dump() if flt else None,
-                    }
-                    await callback(
-                        total_hits,
-                        num_updated_docs,
-                        ws_id,
-                        user_id,
-                        req_id,
-                        index,
-                        done=True,
-                        data=d,
-                    )
-                break
-
-            # call update_by_query on the doc_ids chunk
-            total_hits = res["hits"]["total"]["value"]
-            doc_ids = [hit["_id"] for hit in hits]
-            MutyLogger.get_instance().debug(
-                "rebase chunk %d, offset_nsec=%d, updating %d docs ...",
-                chunk_count,
-                offset_nsec,
-                len(doc_ids),
-            )
-
-            update_query = {
-                "script": {
-                    "source": script,
-                    "lang": "painless",
-                    "params": {"offset_nsec": offset_nsec},
-                },
-                "query": {"ids": {"values": doc_ids}},
-            }
-            try:
-                update_res = await self._opensearch.update_by_query(
-                    index=index, body=update_query, params=params, headers=headers
+                # this is the last chunk
+                last = True
+            else:
+                # call update_by_query on the doc_ids chunk
+                total_hits = res["hits"]["total"]["value"]
+                doc_ids = [hit["_id"] for hit in hits]
+                MutyLogger.get_instance().debug(
+                    "rebase chunk %d, offset_nsec=%d, updating %d docs ...",
+                    chunk_num,
+                    offset_nsec,
+                    len(doc_ids),
                 )
 
-                # update counts (updated documents and errors)
-                num_updated_docs += update_res.get("updated", 0)
-                if "failures" in update_res and update_res["failures"]:
-                    for r in update_res["failures"]:
-                        rr = str(r)
-                        if rr not in errors:
-                            errors.append(rr)
-            except Exception as e:
-                err = str(e)
-                if err not in errors:
-                    errors.append(err)
-
-            if chunk_count % 10 == 0:
-                # every 10 chunk, check for request cancelation
-                canceled = await GulpRequestStats.is_canceled(sess, req_id)
-                if callback:
-                    # and also send progress updates
-                    d = {
-                        "errors": errors,
-                        "flt": flt.model_dump() if flt else None,
-                    }
-                    await callback(
-                        total_hits,
-                        num_updated_docs,
-                        ws_id,
-                        user_id,
-                        req_id,
-                        index,
-                        done=canceled,
-                        canceled=canceled,
-                        data=d,
+                update_query = {
+                    "script": {
+                        "source": script,
+                        "lang": "painless",
+                        "params": {"offset_nsec": offset_nsec},
+                    },
+                    "query": {"ids": {"values": doc_ids}},
+                }
+                try:
+                    num_updated = 0
+                    update_res = await self._opensearch.update_by_query(
+                        index=index, body=update_query, params=params, headers=headers
                     )
+
+                    # update counts (updated documents and errors)
+                    num_updated = update_res.get("updated", 0)
+                    total_updated += update_res.get("updated", 0)
+                    if "failures" in update_res and update_res["failures"]:
+                        for r in update_res["failures"]:
+                            rr = str(r)
+                            if rr not in errors:
+                                errors.append(rr)
+                except Exception as e:
+                    err = str(e)
+                    if err not in errors:
+                        errors.append(err)
+
+            if check_canceled_count % 10 == 0:
+                # every 10 chunk, call callback and check for request cancelation
+                canceled = (
+                    await GulpRequestStats.is_canceled(sess, req_id) if sess else False
+                )
+
+            if callback:
+                # call the callback with progress update
+                await callback(
+                    total_hits,
+                    num_updated,
+                    req_id=req_id,
+                    last=True if last or canceled else False,
+                    **kwargs,
+                )
+            if last or canceled:
                 if canceled:
-                    # we're done
-                    break
+                    MutyLogger.get_instance().warning(
+                        "opensearch_rebase_by_query: request %s canceled!", req_id
+                    )
+                    raise RequestCanceledError()
+                break
 
             # next chunk
-            chunk_count += 1
-
-            # prepare for next batch
+            chunk_num += 1
+            check_canceled_count += 1
             search_after = hits[-1]["sort"]
             search_body["search_after"] = search_after
 
@@ -1470,10 +1455,10 @@ class GulpOpenSearch:
             index,
             flt,
             total_hits,
-            num_updated_docs,
+            total_updated,
             errors,
         )
-        return total_hits, num_updated_docs, errors
+        return total_hits, total_updated, errors
 
     async def index_refresh(self, index: str) -> None:
         """
@@ -2264,16 +2249,13 @@ class GulpOpenSearch:
         index: str,
         q: dict,
         req_id: str,
-        user_id: str = None,
-        ws_id: str = None,
-        operation_id: str = None,
         q_options: "GulpQueryParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         callback: GulpDocumentsChunkCallback = None,
         **kwargs,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, bool]:
         """
-        Executes a raw DSL query on OpenSearch and optionally streams the results on the websocket.
+        Executes a raw DSL query on OpenSearch
 
         NOTE: in the end, all gulp **local** queries and all **elasticsearch/opensearch** based queries for external plugins will be done through this function.
 
@@ -2282,9 +2264,6 @@ class GulpOpenSearch:
             index (str): Name of the index (or datastream) to query. may also be a comma-separated list of indices/datastreams, or "*" to query all.
             q (dict): The DSL query to execute (will be run as "query": q }, so be sure it is stripped of the root "query" key)
             req_id (str), optional: The query request ID, used to check if the request has been canceled.
-            user_id (str, optional): The user ID performing the query, ignored if callback is not set.
-            ws_id (str, optional): the websocket to send progress to, ignored if callback is not set.
-            operation_id (str, optional): The target operation id, ignored if callback is not set
             q_options (GulpQueryOptions, optional): Additional query options. Defaults to None (use defaults).
             el (AsyncElasticSearch|AsyncOpenSearch, optional): an ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
             callback (GulpDocumentChunkCallback, optional): the callback to call for each chunk of documents during query. Defaults to None.
@@ -2293,10 +2272,10 @@ class GulpOpenSearch:
             tuple:
             - processed (int): The number of documents processed (unless limit or errors, this will be equal to total_hits).
             - total_hits (int): The total number of hits found.
-
         Raises:
             ValueError: argument error
             Exception: If an error occurs during the query.
+            RequestCanceledError: If the request was canceled.
         """
         from gulp.api.opensearch.structs import GulpQueryParameters
 
@@ -2317,6 +2296,8 @@ class GulpOpenSearch:
         chunk_num: int = 0
         check_canceled_count: int = 0
         total_hits: int = 0
+        canceled: bool = False
+        last: bool = False
 
         while True:
             docs: list[dict] = []
@@ -2327,59 +2308,42 @@ class GulpOpenSearch:
             processed += len(docs)
             # MutyLogger.get_instance().debug("retrieved chunk of %d documents, total=%d", len(docs), total_hits)
             if (
-                processed >= total_hits
-                or not total_hits
+                not total_hits
+                or processed >= total_hits
                 or not q_options.loop
                 or (q_options.total_limit and processed >= q_options.total_limit)
             ):
                 # this is the last chunk
-                if callback:
-                    callback(
-                        sess,
-                        docs,
-                        chunk_num=chunk_num,
-                        total_hits=total_hits,
-                        ws_id=ws_id,
-                        user_id=user_id,
-                        req_id=req_id,
-                        operation_id=operation_id,
-                        index=index,
-                        last=True,
-                        q_name=q_options.name,
-                        q_group_by=q_options.group,
-                        **kwargs,
-                    )
-                break
+                last = True
 
             if check_canceled_count % 10 == 0:
-                # every 10 chunk, check for request cancelation
+                # every 10 chunk, call callback and check for request cancelation
                 canceled = (
                     await GulpRequestStats.is_canceled(sess, req_id) if sess else False
                 )
-                # MutyLogger.get_instance().debug("search_dsl: request %s stats=%s", req_id, stats)
-                if callback:
-                    callback(
-                        sess,
-                        docs,
-                        chunk_num=chunk_num,
-                        total_hits=total_hits,
-                        ws_id=ws_id,
-                        user_id=user_id,
-                        req_id=req_id,
-                        operation_id=operation_id,
-                        index=index,
-                        last=canceled,
-                        q_name=q_options.name,
-                        q_group_by=q_options.group,
-                        **kwargs,
-                    )
 
+            if callback:
+                # call the callback at every chunk
+                callback(
+                    sess,
+                    docs,
+                    chunk_num=chunk_num,
+                    total_hits=total_hits,
+                    index=index,
+                    last=True if last or canceled else False,
+                    req_id=req_id,
+                    q_name=q_options.name,
+                    q_group_by=q_options.group,
+                    **kwargs,
+                )
+
+            if last or canceled:
                 if canceled:
-                    # we're done
                     MutyLogger.get_instance().warning(
                         "search_dsl: request %s canceled!", req_id
                     )
-                    break
+                    raise RequestCanceledError()
+                break
 
             # next chunk
             chunk_num += 1

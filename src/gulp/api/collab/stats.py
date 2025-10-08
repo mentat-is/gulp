@@ -393,7 +393,6 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         try:
             await GulpRequestStats.acquire_advisory_lock(sess, self.id)
 
-            # cancel
             self.status = status.value
             self.time_finished = muty.time.now_msec()
             if time_expire:

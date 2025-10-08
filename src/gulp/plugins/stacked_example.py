@@ -24,27 +24,6 @@ class Plugin(GulpPluginBase):
         return """stacked plugin on top of csv example"""
 
     @override
-    async def _enrich_documents_chunk(
-        self,
-        sess: AsyncSession,
-        chunk: list[dict],
-        chunk_num: int = 0,
-        total_hits: int = 0,
-        ws_id: str = None,
-        user_id: str = None,
-        req_id: str = None,
-        operation_id: str = None,
-        q_name: str = None,
-        chunk_total: int = 0,
-        q_group: str = None,
-        last: bool = False,
-        **kwargs,
-    ) -> list[dict]:
-        for doc in chunk:
-            doc["enriched"] = True
-        return chunk
-
-    @override
     async def _record_to_gulp_document(
         self, record: dict, record_idx: int, **kwargs
     ) -> dict:

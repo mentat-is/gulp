@@ -1337,17 +1337,15 @@ class GulpPluginBase(ABC):
 
     async def _enrich_documents_chunk(
         self,
+        sess: AsyncSession,
         chunk: list[dict],
         chunk_num: int = 0,
         total_hits: int = 0,
-        ws_id: str = None,
-        user_id: str = None,
-        req_id: str = None,
-        operation_id: str = None,
-        q_name: str = None,
-        chunk_total: int = 0,
-        q_group: str = None,
+        index: str = None,
         last: bool = False,
+        req_id: str = None,
+        q_name: str = None,
+        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
         """
@@ -1366,40 +1364,36 @@ class GulpPluginBase(ABC):
         chunk: list[dict],
         chunk_num: int = 0,
         total_hits: int = 0,
-        ws_id: str = None,
-        user_id: str = None,
-        req_id: str = None,
-        operation_id: str = None,
         index: str = None,
-        q_name: str = None,
-        chunk_total: int = 0,
-        q_group: str = None,
         last: bool = False,
+        req_id: str = None,
+        q_name: str = None,
+        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
-        """callback called by GulpOpenSearch.search_dsl to enrich each chunk of documents"""
+        """a GulpDocumentsChunk callback wrapper to enrich each chunk of documents during query"""
         cb_context = kwargs["cb_context"]
+        stats: GulpRequestStats = cb_context["stats"]
+        ws_id: str = cb_context["ws_id"]
+        flt: GulpQueryFilter = cb_context["flt"]
+
         if not chunk:
             MutyLogger.get_instance().warning("empty chunk")
             return []
 
-        # call the plugin function
+        # call plugin's _enrich_documents_chunk
         chunk = await self._enrich_documents_chunk_cb(
             sess,
             chunk,
-            chunk_num,
-            total_hits,
-            ws_id,
-            user_id,
-            req_id,
-            operation_id,
-            index,
-            q_name,
-            chunk_total,
-            q_group,
-            last,
+            chunk_num=chunk_num,
+            total_hits=total_hits,
+            index=index,
+            last=last,
+            req_id=req_id,
+            q_name=q_name,
+            q_group=q_group,
+            **kwargs,
         )
-        cb_context["total_hits"] = total_hits
 
         MutyLogger.get_instance().debug(
             "%s: enriched %d documents", self.name, len(chunk)
@@ -1413,18 +1407,18 @@ class GulpPluginBase(ABC):
         updated, _, errors = await GulpOpenSearch.get_instance().update_documents(
             index, chunk, wait_for_refresh=last
         )
-        cb_context["total_enriched"] += updated
+        cb_context["total_updated"] += updated
         cb_context["errors"].extend(errors)
+        cb_context["total_hits"] = total_hits
 
         # update running stats
-        stats: GulpRequestStats = cb_context["stats"]
         await stats.update_updatedocuments_stats(
             sess,
             total_hits=total_hits,
             updated=len(updated),
-            flt=cb_context["flt"],
+            flt=flt,
             errs=errors,
-            user_id=user_id,
+            user_id=stats.user_id,
             ws_id=ws_id,
         )
 
@@ -1442,7 +1436,7 @@ class GulpPluginBase(ABC):
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
-    ) -> tuple[int, int, list[str]]:
+    ) -> tuple[int, int, list[str], bool]:
         """
         enriches a chunk of GulpDocuments dictionaries on-demand.
 
@@ -1464,7 +1458,7 @@ class GulpPluginBase(ABC):
                 - rq (dict): a raw query to be used, additionally to the filter
 
         Returns:
-            tuple[int, int, list[str]]: total hits for the query, total enriched documents (may be less than total hits if errors), list of unique errors encountered (if any)
+            tuple[int, int, list[str], bool]: total hits for the query, total enriched documents (may be less than total hits if errors), list of unique errors encountered (if any), and whether the request was canceled
 
         NOTE: implementers of enrich_documents must:
 
@@ -1479,6 +1473,7 @@ class GulpPluginBase(ABC):
                 "plugin %s does not support enrichment" % (self.name)
             )
 
+        # initialize these in plugin
         self._user_id = user_id
         self._stats = stats
         self._req_id = req_id
@@ -1513,35 +1508,32 @@ class GulpPluginBase(ABC):
         # force return all fields
         q_options = GulpQueryParameters(fields="*")
         errors: list[str] = []
-        total_hits: int = 0
         cb_context = {
-            "total_enriched": 0,
+            "total_updated": 0,
             "flt": flt,
             "errors": errors,
             "stats": stats,
+            "ws_id": ws_id,
         }
+        canceled: bool = False
         try:
-            _, total_hits = await GulpOpenSearch.get_instance().search_dsl(
+            await GulpOpenSearch.get_instance().search_dsl(
                 sess,
                 index,
                 q,
-                operation_id=operation_id,
-                user_id=self._user_id,
                 req_id=self._req_id,
-                ws_id=self._ws_id,
                 q_options=q_options,
                 callback=self._enrich_documents_chunk_wrapper,
                 cb_context=cb_context,
             )
         except Exception as ex:
-            MutyLogger.get_instance().exception(
-                "enrich_documents: exception while enriching documents with plugin %s",
-                self.name,
-            )
             MutyLogger.get_instance().exception(ex)
             errors.append(str(ex))
+            if isinstance(ex, RequestCanceledError):
+                # flag canceled
+                canceled = True
 
-        return total_hits, cb_context["total_enriched"], errors
+        return cb_context["total_hits"], cb_context["total_updated"], errors, canceled
 
     async def enrich_single_document(
         self,
@@ -1579,11 +1571,10 @@ class GulpPluginBase(ABC):
         self._index = index
         # await self._initialize(plugin_params=plugin_params)
 
-        # get the document
+        # get the document and call the plugin to enrich
         doc = await GulpOpenSearch.get_instance().query_single_document(index, doc_id)
+        docs = await self._enrich_documents_chunk(None, [doc])  # sess not used here
 
-        # enrich
-        docs = await self._enrich_documents_chunk([doc])
         # MutyLogger.get_instance().debug("docs=%s" % (docs))
         if not docs:
             raise ValueError(
