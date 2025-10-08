@@ -1,0 +1,5 @@
+{"ts": 1507562478.110863,"uid": "CzgIrZ31Lh5vCHioWi","id.orig_h": "192.168.10.31","id.orig_p": 49282,"id.resp_h": "192.168.10.10","id.resp_p": 445}
+{"ts": 1507565438.204785,"uid": "CR7Vww4LuLkMzi4jMd","id.orig_h": "192.168.10.31","id.orig_p": 49238,"id.resp_h": "192.168.10.30","id.resp_p": 445}
+{"ts": 1512585460.296744,"uid": "C4j5Ds3VyExc2ZAOh9","id.orig_h": "192.168.10.31","id.orig_p": 1112,"id.resp_h": "192.168.10.30","id.resp_p": 445}
+{"ts": 1507565599.590346,"uid": "CT7qITytKtae83Tyi","id.orig_h": "192.168.10.31","id.orig_p": 49242,"id.resp_h": "192.168.10.10","id.resp_p": 88,"request_type": "TGS","client": "RonHD/CONTOSO.LOCAL","service": "HOST/admin-pc","success": true,"till": 2136422885,"cipher": "aes256-cts-hmac-sha1-96","forwardable": true,"renewable": true}
+{"ts": 1507565599.575721,"uid": "C6HQVsDf8VCu0XTJe","id.orig_h": "192.168.10.31","id.orig_p": 49239,"id.resp_h": "192.168.10.30","id.resp_p": 445}

@@ -22,10 +22,8 @@ from typing import Annotated, Optional
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
-
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
-import json
 
 from gulp.structs import GulpPluginParameters, GulpSortOrder
 
@@ -210,11 +208,7 @@ class GulpDocument(GulpBasicDocument):
 
         ns: int = 0
         try:
-            if timestamp.isdigit():
-                # timestamp is in seconds/milliseconds/nanoseconds from unix epoch
-                ns = muty.time.number_to_nanos_from_unix_epoch(timestamp)
-            else:
-                ns = muty.time.string_to_nanos_from_unix_epoch(timestamp)
+            ns = muty.time.string_to_nanos_from_unix_epoch(timestamp)
 
             # timestamp is epoch or before, that's usually a sign of an invalid timestamp
             if ns <= 0:
@@ -226,7 +220,8 @@ class GulpDocument(GulpBasicDocument):
                     plugin_params.timestamp_offset_msec
                     * muty.time.MILLISECONDS_TO_NANOSECONDS
                 )
-                timestamp = str(ns)
+
+            timestamp = str(ns)
 
             # enforce iso8601 timestamp
             ts_string = muty.time.ensure_iso8601(timestamp)
@@ -278,6 +273,14 @@ class GulpDocument(GulpBasicDocument):
         # ensure we have non-aliased keys in kwargs (we want i.e. "operation_id" instead of "gulp.operation_id"), to pass to the GulpDocument constructor
         kwargs = GulpDocumentFieldAliasHelper.set_kwargs_and_fix_aliases(kwargs)
 
+        # severe log file contains duration values in float format (fractional seconds),
+        # this constructor converts them to nanoseconds for consistency in storage and processing.
+        if "event_duration" in kwargs and isinstance(kwargs["event_duration"], float):
+            value_to_change = kwargs["event_duration"]
+            s, us = divmod(float(value_to_change), 1.0)
+            kwargs["event_duration"] = int(s) * 1_000_000_000 + round(
+                us * 1_000_000_000
+            )
         # internal flag, set by _finalize_process_record() in the mapping engine: this will ignore the default event code from the mapping
         # and use the one passed in the event_code argument
         # (this happens when extra documents are generated from a single document, read the corresponding code in plugin.py)

@@ -1,0 +1,1 @@
+{"ts": 1463256456.047579,"uid": "CAOF1l3FR8UzQ7mIb8","id.orig_h": "10.0.0.1","id.orig_p": 25936,"id.resp_h": "10.0.0.2","id.resp_p": 3268,"message_id": 2,"scope": "tree","deref_aliases": "always","base_object": "DC=xx,DC=xxx,DC=xxxxx,DC=net","result_count": 1,"result": "success","filter": "(&(objectclass=*)(sAMAccountName=xxxxxxxx))","attributes": ["sAMAccountName"]}

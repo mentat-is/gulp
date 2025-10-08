@@ -1,0 +1,2 @@
+{"ts": 1463256456.051759,"uid": "ChD43F3guxAmJ5f2aj","id.orig_h": "10.0.0.1","id.orig_p": 25936,"id.resp_h": "10.0.0.2","id.resp_p": 3268,"message_id": 3,"version": 3,"opcode": "bind simple","result": "success","object": "CN=xxxxxxxx,OU=Users,OU=Accounts,DC=xx,DC=xxx,DC=xxxxx,DC=net","argument": "REDACTED"}
+{"ts": 1721218680.158341,"uid": "CW0qzo9A3QsrCWL4k","id.orig_h": "127.0.0.1","id.orig_p": 45936,"id.resp_h": "127.0.1.1","id.resp_p": 389,"message_id": 1,"opcode": "extended","result": "success","object": "1.3.6.1.4.1.1466.20037 (StartTLS)"}
