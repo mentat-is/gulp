@@ -368,7 +368,7 @@ class GulpProgressCallback(Protocol):
 
 class GulpDocumentsChunkCallback(Protocol):
     """
-    callback protocol for chunk processing during query
+    callback protocol for chunk processing
     """
 
     async def __call__(

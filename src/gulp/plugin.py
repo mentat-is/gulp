@@ -1208,29 +1208,26 @@ class GulpPluginBase(ABC):
         """
         query an external source, convert results to gulpdocument dictionaries, ingest them and stream them to the websocket.
 
-        NOTE: this is guaranteed to be called by the gulp API in a worker process, unless preview_mode is set in **kwargs.
+        NOTE: this is guaranteed to be called by the gulp API in a worker process, unless q_options.prweview_mode is set
 
         Args:
             sess (AsyncSession): The database session.
-            stats (GulpRequestStats): the request stats, to be updated by the plugin during query/ingestion
-            user_id (str): the user performing the query
-            req_id (str): the request id
-            ws_id (str): the websocket id
+            stats (GulpRequestStats): the request stats, ignored if q_options.preview_mode is set
+            user_id (str): the user performing the query, ignored if q_options.preview_mode is set
+            req_id (str): the request id, ignored if q_options.preview_mode is set
+            ws_id (str): the websocket id to receive WSDATA_DOCUMENTS_CHUNK, WSDATA_QUERY_DONE, WSDATA_QUERY_GROUP_MATCH packets, ignored if q_options.preview_mode is set
             operation_id (str): the operation id
             q(Any): the query to perform, format is plugin specific
             plugin_params (GulpPluginParameters): the plugin parameters, they are mandatory here (custom_parameters should usually be set with specific external source parameters, i.e. how to connect)
-            q_options (GulpQueryParameters): additional query options.
-            index (str, optional): the gulp's operation index to ingest into during query, ignored (set to None) when preview is enabled
+            q_options (GulpQueryParameters): additional query options, defaults to None (use defaults)
+            index (str, optional): the gulp's operation index to ingest into during query, ignored if q_options.preview_mode is set
             kwargs: additional keyword arguments
         Notes:
             - implementers must call super().query_external first
             - this function *MUST NOT* raise exceptions.
 
-        Returns (q_options.preview_mode=False):
-            tuple[int, int, str]: total documents found, total processed(ingested, usually=found unless errors), query_name
-
-        Returns (q_options.preview_mode=True):
-            q_options.preview_mode=True: tuple[int, list[dict]]: total_hits (len(preview)), a preview chunk of the documents
+        Returns:
+            tuple[int, int, str]: total hits, total processed (=total hits unless exception/preview), error message or None if no error
 
         Raises:
             ObjectNotFound: if no document is found.

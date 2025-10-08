@@ -19,6 +19,7 @@ and asynchronous processing with results streamed to websockets.
 import asyncio
 from copy import deepcopy
 import json
+import os
 import tempfile
 from typing import Annotated, Any, Optional
 
@@ -584,27 +585,15 @@ async def _preview_query(
     operation_id: str,
     user_id: str,
     req_id: str,
+    ws_id: str,
     q: Any,
-    query_index: str = None,
+    index: str = None,
     q_options: GulpQueryParameters = None,
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
 ) -> tuple[int, list[dict]]:
     """
-    runs a single preview query
-
-    Args:
-        sess (AsyncSession): database session
-        operation_id (str): operation id
-        user_id (str): user id
-        req_id (str): request id
-        q (Any): the query to run, local or external
-        query_index (str, optional): index to query, local only. Defaults to None.
-        q_options (GulpQueryParameters, optional): query options. Defaults to None.
-        plugin (str, optional): plugin to use, in case of external query. Defaults to None.
-        plugin_params (GulpPluginParameters, optional): plugin parameters. Defaults to None.
-    Returns:
-        tuple(int, list[dict]: total hits, documents
+    runs a preview query and returns the results directly.
     """
     q_options.loop = False
     q_options.fields = "*"
@@ -613,14 +602,15 @@ async def _preview_query(
     mod: GulpPluginBase = None
 
     if plugin:
-        # load plugin (common for all)
+        # this is an external query, load plugin
         mod = await GulpPluginBase.load(plugin)
         try:
             # external query
             total, docs = await mod.query_external(
-                sess=sess,
-                user_id=user_id,
-                req_id=req_id,
+                sess,
+                stats=None,
+                user_id,
+                req_id,
                 ws_id=None,  # preview
                 operation_id=operation_id,
                 q=q,
@@ -640,26 +630,6 @@ async def _preview_query(
             d.pop("highlight", None)
 
     return total, docs
-
-
-async def run_query_task(t: dict) -> None:
-    params: dict = t.get("params", {})
-    req_id: str = params.get("req_id")
-    kwds = dict(
-        user_id=user_id,
-        req_id=req_id,
-        ws_id=ws_id,
-        operation_id=operation_id,
-        index=index,
-        queries=queries,
-        q_options=q_options,
-        plugin=plugin,
-        plugin_params=plugin_params,
-        flt=flt,
-    )
-
-    # run _worker_coro in background, it will spawn a worker for each query and wait them
-    GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
 
 
 async def _spawn_query_group_workers(
@@ -874,6 +844,8 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                     sess, token, obj=op
                 )
                 user_id = s.user.id
+                if q_options.preview_mode:
+
     # try:
     #     async with GulpCollab.get_instance().session() as sess:
     #         try:
@@ -1801,17 +1773,13 @@ async def _write_file_callback(
     chunk: list[dict],
     chunk_num: int = 0,
     total_hits: int = 0,
-    ws_id: str = None,
-    user_id: str = None,
-    req_id: str = None,
-    operation_id: str = None,
     index: str = None,
-    q_name: str = None,
-    chunk_total: int = 0,
-    q_group: str = None,
     last: bool = False,
+    req_id: str = None,
+    q_name: str = None,
+    q_group: str = None,
     **kwargs,
-) -> list[dict]:
+    ) -> list[dict]:
     """
     export file callback,  to write each chunk to file
     """
@@ -1952,8 +1920,6 @@ async def query_gulp_export_json_handler(
 
             # convert gulp query to opensearch dsl
             dsl: dict = flt.to_opensearch_dsl()
-            if not q_options.name:
-                q_options.name = muty.string.generate_unique()
 
             # execute export operation in worker process (non-blocking)
             file_path = await GulpRestServer.get_instance().spawn_worker_task(
