@@ -23,6 +23,7 @@ import muty.string
 from muty.log import MutyLogger
 from opensearchpy import Field
 from pydantic import BaseModel, ConfigDict, ValidationError
+from scipy import stats
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.context import GulpContext
@@ -1414,6 +1415,19 @@ class GulpPluginBase(ABC):
         )
         cb_context["total_enriched"] += updated
         cb_context["errors"].extend(errors)
+
+        # update running stats
+        stats: GulpRequestStats = cb_context["stats"]
+        await stats.update_updatedocuments_stats(
+            sess,
+            total_hits=total_hits,
+            updated=len(updated),
+            flt=cb_context["flt"],
+            errs=errors,
+            user_id=user_id,
+            ws_id=ws_id,
+        )
+
         return chunk
 
     async def enrich_documents(
@@ -1499,14 +1513,15 @@ class GulpPluginBase(ABC):
         # force return all fields
         q_options = GulpQueryParameters(fields="*")
         errors: list[str] = []
+        total_hits: int = 0
         cb_context = {
-            "total_hits": 0,
             "total_enriched": 0,
             "flt": flt,
             "errors": errors,
+            "stats": stats,
         }
         try:
-            await GulpOpenSearch.get_instance().search_dsl(
+            _, total_hits = await GulpOpenSearch.get_instance().search_dsl(
                 sess,
                 index,
                 q,
@@ -1526,7 +1541,7 @@ class GulpPluginBase(ABC):
             MutyLogger.get_instance().exception(ex)
             errors.append(str(ex))
 
-        return cb_context["total_hits"], cb_context["total_enriched"], errors
+        return total_hits, cb_context["total_enriched"], errors
 
     async def enrich_single_document(
         self,

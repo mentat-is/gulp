@@ -589,6 +589,55 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             await sess.rollback()
             raise e
 
+    async def update_updatedocuments_stats(
+        self,
+        sess: AsyncSession,
+        user_id: str = None,
+        ws_id: str = None,
+        total_hits: int = 0,
+        updated: int = 0,
+        flt: GulpQueryFilter = None,
+        errors: list[str] = None,
+    ) -> dict:
+        """
+        update the rebase/enrich stats
+
+        Args:
+            sess(AsyncSession): collab database session
+            user_id(str, optional): the user id issuing the request
+            ws_id(str, optional): the websocket id to notify COLLAB_UPDATE to
+            total_hits(int, optional): number of documents to update. Defaults to 0.
+            updated(int, optional): number of documents effectively updated. Defaults to 0.
+            flt(GulpQueryFilter, optional): the filter used for the operation. Defaults to None.
+            errors(list[str], optional): list of errors to add. Defaults to None.
+        Returns:
+            dict: the updated stats
+        """
+        try:
+            await sess.refresh(self)
+
+            # update
+            errs: list[str] = []
+            if errors:
+                for e in errors:
+                    if e not in errs:
+                        errs.append(e)
+            d: GulpUpdateDocumentsStats = (
+                GulpUpdateDocumentsStats.model_validate(self.data)
+                or GulpUpdateDocumentsStats()
+            )
+            d.updated += updated
+            d.total_hits = total_hits
+            if flt:
+                d.flt = GulpQueryFilter.model_validate(flt.model_dump())
+            d.errors.extend(errs)
+            return await super().update(
+                sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            )
+        except Exception as e:
+            await sess.rollback()
+            raise e
+
     async def update_query_stats(
         self,
         sess: AsyncSession,

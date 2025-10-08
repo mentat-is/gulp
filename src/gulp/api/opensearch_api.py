@@ -2291,7 +2291,7 @@ class GulpOpenSearch:
             **kwargs: further arguments to pass to the callback.
         Return:
             tuple:
-            - processed (int): The number of documents processed (on a clean exit, this will be equal to total_hits).
+            - processed (int): The number of documents processed (unless limit or errors, this will be equal to total_hits).
             - total_hits (int): The total number of hits found.
 
         Raises:

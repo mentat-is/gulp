@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
+from scipy import stats
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.operation import GulpOperation
@@ -315,6 +316,7 @@ async def _tag_documents_chunk_wrapper(
     """callback called by GulpOpenSearch.search_dsl to tag each chunk of documents"""
     cb_context = kwargs["cb_context"]
     tags = kwargs["tags"]
+    stats: GulpRequestStats = cb_context["stats"]
     if not chunk:
         MutyLogger.get_instance().warning("empty chunk")
         return []
@@ -336,6 +338,16 @@ async def _tag_documents_chunk_wrapper(
     cb_context["total_enriched"] += len(updated)
     cb_context["errors"].extend(errs)
 
+    # update running stats
+    await stats.update_updatedocuments_stats(
+        sess,
+        total_hits=total_hits,
+        updated=len(updated),
+        flt=cb_context["flt"],
+        errs=errs,
+        user_id=user_id,
+        ws_id=ws_id,
+    )
     return chunk
 
 
@@ -382,7 +394,7 @@ async def _tag_documents_internal(
                 ws_id=ws_id,
                 data=GulpUpdateDocumentsStats(),
             )
-
+            cb_context["stats"] = stats
             enriched, total_hits = await GulpOpenSearch.get_instance().search_dsl(
                 sess,
                 index,
