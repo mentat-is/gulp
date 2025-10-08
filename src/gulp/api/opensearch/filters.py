@@ -170,7 +170,10 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     a GulpQueryFilter defines a filter for the query API.
 
     - query is built using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query.
-    - further extra key=value pairs are allowed and are intended as k: [v1, v2, ...] filters: they match any of the values as OR, i.e.: `{"key": ["v1", "v2"]}` matches `key: v1 OR key: v2`.
+    - further extra key=value pairs are allowed and are intended as k: list[str]|str:
+        if it is a list of values, an OR clause is built, otherwise an equality clause is built, i.e.
+        - `{"event.code": ["5152", "5156"]}` becomes `(event.code: 5152 OR event.code: 5156)`
+        - `{"event.code": "5152"}` becomes `event.code: 5152`
     """
 
     model_config = ConfigDict(
@@ -345,7 +348,12 @@ include documents matching the given `gulp.source_id`/s.
             if self.model_extra:
                 # extra fields
                 for k, v in self.model_extra.items():
-                    clauses.append(self._query_string_build_or_clauses(k, v))
+                    if isinstance(v, list):
+                        # OR clauses
+                        clauses.append(self._query_string_build_or_clauses(k, v))
+                    else:
+                        # equality
+                        clauses.append(self._query_string_build_eq_clause(k, v))
 
             # only return non-empty clauses
             clauses = [c for c in clauses if c and c.strip()]

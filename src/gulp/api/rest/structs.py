@@ -369,13 +369,7 @@ additional parameters for querying, including:
         Returns:
             GulpQueryParameters: The query options.
         """
-        if not q_options:
-            q_options = GulpQueryParameters()
-
-        if not q_options.name:
-            # generate a unique name if not provided
-            q_options.name = muty.string.generate_unique()
-        return q_options
+        return q_options or GulpQueryParameters()
 
     @staticmethod
     def param_operation_id(

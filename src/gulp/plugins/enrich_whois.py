@@ -715,7 +715,18 @@ class Plugin(GulpPluginBase):
                 # at least one host field was enriched
                 dd.append(doc)
 
-        return dd
+        return super()._enrich_documents_chunk(
+            sess,
+            dd,
+            chunk_num=chunk_num,
+            total_hits=total_hits,
+            index=index,
+            last=last,
+            req_id=req_id,
+            q_name=q_name,
+            q_group=q_group,
+            **kwargs,
+        )
 
     @override
     async def enrich_documents(

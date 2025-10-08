@@ -281,8 +281,8 @@ class GulpPluginEntry(BaseModel):
 
     # supported plugin types
     type: Annotated[
-        list[GulpPluginType],
-        Field(description="The supported plugin types."),
+        GulpPluginType,
+        Field(description="One of the GulpPluginType values."),
     ]
 
     # file path associated with the plugin
@@ -690,7 +690,7 @@ class GulpPluginBase(ABC):
         """
         # print("********************************** REDUCE *************************************************")
         # determine if this is an extension plugin
-        extension = GulpPluginType.EXTENSION in self.type()
+        extension = self.type() == GulpPluginType.EXTENSION
 
         # return the reconstruction information as a tuple
         return (
@@ -843,9 +843,9 @@ class GulpPluginBase(ABC):
         """
 
     @abstractmethod
-    def type(self) -> list[GulpPluginType]:
+    def type(self) -> GulpPluginType:
         """
-        the supported plugin types.
+        type of this plugin, must be one of GulpPluginType
         """
 
     def is_running_in_main_process(self) -> bool:
@@ -1204,7 +1204,7 @@ class GulpPluginBase(ABC):
         plugin_params: GulpPluginParameters,
         q_options: GulpQueryParameters = None,
         **kwargs,
-    ) -> tuple[int, int, str] | tuple[int, list[dict]]:
+    ) -> tuple[int, int, list[str]]:
         """
         query an external source, convert results to gulpdocument dictionaries, ingest them and stream them to the websocket.
 
@@ -1227,7 +1227,7 @@ class GulpPluginBase(ABC):
             - this function *MUST NOT* raise exceptions.
 
         Returns:
-            tuple[int, int, str]: total hits, total processed (=total hits unless exception/preview), error message or None if no error
+            tuple[int, int, list[str]]: total hits, total processed (=total hits unless exception/preview), error messages (if any)
 
         Raises:
             ObjectNotFound: if no document is found.
@@ -1242,6 +1242,10 @@ class GulpPluginBase(ABC):
             plugin_params,
             kwargs,
         )
+
+        # setup the engine in external query mode:
+        # the flow is similar to ingest_file, with the difference the documents are queried from an external source instead of being read from a file
+        # once read (in chunks), they are processed the same way as in ingestion, i.e. converted to GulpDocuments, ingested and sent to the websocket
         self._sess = sess
         self._stats = stats
         self._ws_id = ws_id
@@ -1255,7 +1259,6 @@ class GulpPluginBase(ABC):
         await self._initialize(plugin_params=plugin_params)
         if q_options.preview_mode:
             self._preview_mode = True
-            self._index = None
             MutyLogger.get_instance().warning("external query preview mode enabled !")
 
         return (0, 0, None)
@@ -1348,11 +1351,22 @@ class GulpPluginBase(ABC):
         """
         a GulpDocumentChunkCallback to be implemented by a plugin to enrich a chunk of documents, called by _enrich_documents_chunk_wrapper
 
-        NOTE: do not call this function directly: this is called by the engine right before ingesting a chunk of documents in _flush_buffer()
-            also, this is also called by the engine when enriching documents on-demand through the enrich_documents function.
-
-            THIS FUNCTION MUST NOT GENERATE EXCEPTIONS, on failure it should (i.e. cannot enrich one or more documents) it should return the original document/s instead.
+        NOTE: implementors should process the chunk then call super()._enrich_documents_chunk to allow for stacked plugins.
         """
+        if self._upper_enrich_documents_chunk_fun:
+            # call upper plugin's enrich_documents_chunk
+            chunk = await self._upper_enrich_documents_chunk_fun(
+                sess,
+                chunk,
+                chunk_num=chunk_num,
+                total_hits=total_hits,
+                index=index,
+                last=last,
+                req_id=req_id,
+                q_name=q_name,
+                q_group=q_group,
+                **kwargs,
+            )
         return chunk
 
     async def _enrich_documents_chunk_wrapper(
@@ -1459,9 +1473,8 @@ class GulpPluginBase(ABC):
 
         NOTE: implementers of enrich_documents must:
 
-        1. also implement _enrich_documents_chunk
-        2. in enrich_documents, call self._initialize() and then super().enrich_documents, possibly providing "rq" in kwargs to further filter the documents to enrich.
-
+        1. in enrich_documents, call self._initialize() and then super().enrich_documents, possibly providing "rq" in kwargs to further filter the documents to enrich.
+        2. implement _enrich_documents_chunk to process each chunk of documents and enrich them.
         """
         if inspect.getmodule(self._enrich_documents_chunk) == inspect.getmodule(
             GulpPluginBase._enrich_documents_chunk
@@ -1742,15 +1755,27 @@ class GulpPluginBase(ABC):
             *args: additional arguments to pass to the plugin constructor.
             cache_mode (GulpPluginCacheMode, optional): the cache mode for the plugin. Defaults to GulpPluginCacheMode.DEFAULT.
             **kwargs: additional keyword arguments to pass to the plugin constructor.
+        Raise:
+            ValueError: if the plugin types do not match or are not INGESTION or ENRICHMENT
         Returns:
             PluginBase: the loaded plugin
         """
         lower = await GulpPluginBase.load(
             plugin, extension=False, cache_mode=cache_mode, *args, **kwargs
         )
-
+        if (
+            self.type() != lower.type()
+            or self.type() not in [GulpPluginType.INGESTION, GulpPluginType.ENRICHMENT]
+            or lower.type() not in [GulpPluginType.INGESTION, GulpPluginType.ENRICHMENT]
+        ):
+            await lower.unload()
+            raise ValueError(
+                "cannot stack plugin %s (type %s) over %s (type %s), types must match and be INGESTION or ENRICHMENT"
+                % (self.name, self.type(), lower.name, lower.type())
+            )
         # set upper plugin functions in lower, so it can call them after processing data itself
         lower._upper_record_to_gulp_document_fun = self._record_to_gulp_document
+        lower._upper_enrich_documents_chunk_fun = self._enrich_documents_chunk
         lower._upper_instance = self
 
         # set the lower plugin as stacked
@@ -2301,6 +2326,8 @@ class GulpPluginBase(ABC):
         if the record fails processing, it is counted as a failure, the failure counter is updated, and this function
         returns without further processing and without throwing exceptions.
 
+        in preview mode, documents are accumulated in self._preview_chunk until the configured number of documents is reached,
+        at which point a PreviewDone exception is raised to stop processing.
 
         Args:
             record (any): The record to process.
@@ -2623,12 +2650,10 @@ class GulpPluginBase(ABC):
 
         # parse the custom parameters
         await self._parse_custom_parameters()
-        if (
-            GulpPluginType.EXTENSION in self.type()
-            or GulpPluginType.ENRICHMENT in self.type()
-        ):
+        pt: GulpPluginType = self.type()
+        if pt in [GulpPluginType.EXTENSION, GulpPluginType.ENRICHMENT]:
             MutyLogger.get_instance().debug(
-                "extension/enrichment plugin, no mappings needed"
+                "plugin %s type=%s, no mappings needed", self.name, pt
             )
             return
 

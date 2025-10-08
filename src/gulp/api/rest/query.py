@@ -582,13 +582,9 @@ async def _worker_coro(kwds: dict) -> None:
 
 async def _preview_query(
     sess: AsyncSession,
-    operation_id: str,
-    user_id: str,
-    req_id: str,
-    ws_id: str,
     q: Any,
+    q_options: GulpQueryParameters,
     index: str = None,
-    q_options: GulpQueryParameters = None,
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
 ) -> tuple[int, list[dict]]:

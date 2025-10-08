@@ -35,8 +35,8 @@ from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     def display_name(self) -> str:
         return "win_evtx"
