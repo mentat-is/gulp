@@ -250,9 +250,11 @@ async def test_raw(raw_data: list[dict] = None):
             operation_id=TEST_OPERATION_ID,
         )
         check_size = 6  # plus the 3 above, we're using the same req_id
-    
+
     await asyncio.sleep(10)
-    op = await GulpAPIOperation.operation_get_by_id(ingest_token, TEST_OPERATION_ID, get_count=True)
+    op = await GulpAPIOperation.operation_get_by_id(
+        ingest_token, TEST_OPERATION_ID, get_count=True
+    )
     assert op["doc_count"] == check_size
     MutyLogger.get_instance().info(test_raw.__name__ + " succeeded!")
 
@@ -514,7 +516,7 @@ async def test_csv_stacked():
     # check at least one document ...
     guest_token = await GulpAPIUser.login("guest", "guest")
     doc = await GulpAPIQuery.query_single_id(
-        guest_token, TEST_OPERATION_ID, "d3bd618f59c8b001d77c6c8edc729b0a"
+        guest_token, TEST_OPERATION_ID, "903bd0a1ecb33ce4b3fec4a5575c9085"
     )
     assert doc["event.duration"] == 9999
     assert doc["enriched"]
@@ -700,6 +702,165 @@ async def test_json_list():
     )
     await _test_ingest_generic(files, "json", 1000000, plugin_params=plugin_params)
     MutyLogger.get_instance().info(test_json.__name__ + " (list) succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_zeek_conn_file_mapping():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    zeek_mapping = {
+        "conn": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/conn.log")],
+            "count": 34,
+        },
+        "dns": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/dns.log")],
+            "count": 4,
+        },
+        "http": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/http.log")],
+            "count": 5,
+        },
+        "file": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/files.log")],
+            "count": 11,
+        },
+        "ftp": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ftp.log")],
+            "count": 4,
+        },
+        "ssl": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ssl.log")],
+            "count": 13,
+        },
+        "x509": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/x509.log")],
+            "count": 7,
+        },
+        "smtp": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/smtp.log")],
+            "count": 2,
+        },
+        "ssh": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ssh.log")],
+            "count": 5,
+        },
+        "pe": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/pe.log")],
+            "count": 4,
+        },
+        "dhcp": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/dhcp.log")],
+            "count": 4,
+        },
+        "ntp": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ntp.log")],
+            "count": 2,
+        },
+        "notice": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/notice.log")],
+            "count": 6,
+        },
+        "dce_rpc": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/dce_rpc.log")],
+            "count": 3,
+        },
+        "kerberos": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/kerberos.log")],
+            "count": 5,
+        },
+        "smb_mapping": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/smb_mapping.log")],
+            "count": 5,
+        },
+        "smb_files": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/smb_files.log")],
+            "count": 7,
+        },
+        "ntlm": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ntlm.log")],
+            "count": 7,
+        },
+        "irc": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/irc.log")],
+            "count": 11,
+        },
+        "ldap": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ldap.log")],
+            "count": 2,
+        },
+        "postgresql": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/postgresql.log")],
+            "count": 3,
+        },
+        "quic": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/quic.log")],
+            "count": 1,
+        },
+        "rdp": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/rdp.log")],
+            "count": 1,
+        },
+        "traceroute": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/traceroute.log")],
+            "count": 4,
+        },
+        "tunnel": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/tunnel.log")],
+            "count": 8,
+        },
+        "known_certs": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/known_certs.log")],
+            "count": 1,
+        },
+        "known_hosts": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/known_hosts.log")],
+            "count": 5,
+        },
+        "known_services": {
+            "path": [
+                os.path.join(current_dir, "../../samples/zeek/known_services.log")
+            ],
+            "count": 20,
+        },
+        "software": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/software.log")],
+            "count": 4,
+        },
+        "weird": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/weird.log")],
+            "count": 2,
+        },
+    }
+    total_doc_injested = 0
+    for key, value in zeek_mapping.items():
+        total_doc_injested += value["count"]
+        await _test_zeek_ingest(value["path"], key, total_doc_injested)
+
+    MutyLogger.get_instance().info(test_zeek_conn_file_mapping.__name__ + " succeeded!")
+
+
+async def _test_zeek_ingest(files: list, mapping_id: str, check_ingested: int):
+    plugin_params = GulpPluginParameters(
+        custom_parameters={"mode": "line"},
+        mapping_parameters=GulpMappingParameters(
+            mapping_file="zeek.json", mapping_id=mapping_id
+        ),
+    )
+
+    MutyLogger.get_instance().info(
+        f"\n\n*********************\n START INGEST\n Mapping: {mapping_id}\n Ingest {check_ingested} doc \n*********************\n"
+    )
+
+    await _test_ingest_generic(
+        files,
+        "json",
+        check_ingested=check_ingested,
+        plugin_params=plugin_params,
+    )
+
+    MutyLogger.get_instance().info(
+        f"\n\n*********************\n END INGEST\n Mapping: {mapping_id}\n Ingest {check_ingested} doc \n*********************\n"
+    )
 
 
 @pytest.mark.asyncio

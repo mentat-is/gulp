@@ -1,0 +1,2 @@
+{"ts": "2021-01-04T04:59:21.582639Z","uid": "CxdbSa2KGTlMl3PPB2","id.orig_h": "192.168.4.129","id.orig_p": 51020,"id.resp_h": "40.71.25.43","id.resp_p": 8080,"name": "bad_HTTP_request","notice": false,"peer": "so16-enp0s8-1"}
+{"ts": "2021-01-04T04:59:21.582639Z","uid": "CxdbSa2KGTlMl3PPB2","id.orig_h": "192.168.4.129","id.orig_p": 51020,"id.resp_h": "40.71.25.43","id.resp_p": 8080,"name": "line_terminated_with_single_CR","notice": false,"peer": "so16-enp0s8-1"}

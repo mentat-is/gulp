@@ -1,0 +1,8 @@
+{"ts": 1607993758.290539,"uid": "CUqiKk4m6VpWwcaJ4l","id.orig_h": "192.168.4.31","id.orig_p": 3074,"id.resp_h": "40.84.25.61","id.resp_p": 65444,"tunnel_type": "Tunnel::TEREDO","action": "Tunnel::DISCOVER"}
+{"ts": 1607993759.321945,"uid": "CO9T0A3FPac5ig4hud","id.orig_h": "192.168.4.31","id.orig_p": 3074,"id.resp_h": "40.84.25.61","id.resp_p": 3544,"tunnel_type": "Tunnel::TEREDO","action": "Tunnel::DISCOVER"}
+{"ts": 1607993759.337323,"uid": "CO9T0A3FPac5ig4hud","id.orig_h": "192.168.4.31","id.orig_p": 3074,"id.resp_h": "40.84.25.61","id.resp_p": 3544,"tunnel_type": "Tunnel::TEREDO","action": "Tunnel::CLOSE"}
+{"ts": 1607993759.337323,"uid": "CUqiKk4m6VpWwcaJ4l","id.orig_h": "192.168.4.31","id.orig_p": 3074,"id.resp_h": "40.84.25.61","id.resp_p": 65444,"tunnel_type": "Tunnel::TEREDO","action": "Tunnel::CLOSE"}
+{"ts": 1214050326.059907,"uid": "CllZAw139PBBVBawlj","id.orig_h": "10.0.0.1","id.orig_p": 0,"id.resp_h": "10.0.0.2","id.resp_p": 0,"tunnel_type": "Tunnel::IP","action": "Tunnel::DISCOVER"}
+{"ts": 1214049966.434897,"uid": "C2ELkSIprfG0oMEae","id.orig_h": "10.0.0.1","id.orig_p": 0,"id.resp_h": "10.0.0.2","id.resp_p": 0,"tunnel_type": "Tunnel::GRE","action": "Tunnel::DISCOVER"}
+{"ts": 1417577703.821897,"uid": "CPnYZx2edh7O2ueTm4","id.orig_h": "2402:f000:1:8e01::5555","id.orig_p": 0,"id.resp_h": "2607:fcd0:100:2300::b108:2a6b","id.resp_p": 0,"tunnel_type": "Tunnel::IP","action": "Tunnel::DISCOVER"}
+{"ts": 1417577703.821897,"uid": "CBvCtfO5sjjyQb2V4","id.orig_h": "16.0.0.200","id.orig_p": 0,"id.resp_h": "192.52.166.154","id.resp_p": 0,"tunnel_type": "Tunnel::GRE","action": "Tunnel::DISCOVER"}
