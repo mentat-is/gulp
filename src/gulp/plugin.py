@@ -2905,7 +2905,6 @@ class GulpPluginBase(ABC):
             if self._req_canceled:
                 status = GulpRequestStatus.CANCELED
 
-            wsq = GulpWsSharedQueue.get_instance()
             p: GulpIngestSourceDonePacket = GulpIngestSourceDonePacket(
                 source_id=self._source_id,
                 context_id=self._context_id,
@@ -2914,7 +2913,7 @@ class GulpPluginBase(ABC):
                 records_failed=self._records_failed_total,
                 status=status.value,
             )
-            await wsq.put(
+            await GulpWsSharedQueue.get_instance().put(
                 WSDATA_INGEST_SOURCE_DONE,
                 self._user_id,
                 ws_id=self._ws_id,

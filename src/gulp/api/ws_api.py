@@ -388,23 +388,23 @@ class GulpIngestSourceDonePacket(BaseModel):
             ]
         },
     )
-    source_id: Annotated[
-        str,
-        Field(
-            description="The source ID in the collab database.",
-            alias="gulp.source_id",
-        ),
-    ]
-    context_id: Annotated[
-        str,
-        Field(
-            description="The context ID in the collab database.",
-            alias="gulp.context_id",
-        ),
-    ]
     status: Annotated[
         str, Field(description="The source ingestion status (failed, done, canceled).")
     ]
+    source_id: Annotated[
+        Optional[str],
+        Field(
+            description="The source ID in the collab database (this may be None if the plugin dynamically created a source).",
+            alias="gulp.source_id",
+        ),
+    ] = None
+    context_id: Annotated[
+        Optional[str],
+        Field(
+            description="The context ID in the collab database (this may be None if the plugin dynamically created a context).",
+            alias="gulp.context_id",
+        ),
+    ] = None
     records_ingested: Annotated[
         int, Field(description="The number of documents ingested in this source.")
     ] = 0

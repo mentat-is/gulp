@@ -70,7 +70,7 @@ from gulp.api.ws_api import (
     WsQueueFullException,
 )
 from gulp.config import GulpConfig
-from gulp.plugin import GulpPluginBase
+from gulp.plugin import GulpPluginBase, PreviewDone
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -595,37 +595,48 @@ async def _preview_query(
     q_options.fields = "*"
     q_options.limit = GulpConfig.get_instance().preview_mode_num_docs()
     MutyLogger.get_instance().debug("running preview query %s" % (q))
+    
     mod: GulpPluginBase = None
+    total_hits: int = 0
+    docs: list[dict] = []
 
     if plugin:
         # this is an external query, load plugin
         mod = await GulpPluginBase.load(plugin)
         try:
             # external query
-            total, docs = await mod.query_external(
+            await mod.query_external(
                 sess,
                 stats=None,
-                user_id,
-                req_id,
-                ws_id=None,  # preview
-                operation_id=operation_id,
+                user_id=None,
+                req_id=None,
+                ws_id=None,
+                operation_id=None,
                 q=q,
-                index=None,  # preview
+                index=None,
                 plugin_params=plugin_params,
                 q_options=q_options,
             )
+        except Exception as ex:
+            if isinstance(ex, PreviewDone):
+                # preview done
+                docs = mod.preview_chunk()
+                total_hits = len(docs)
+            else:
+                # another exception, raise
+                raise
         finally:
             await mod.unload()
     else:
         # standard query
-        total, docs, _ = await GulpOpenSearch.get_instance().search_dsl_sync(
-            query_index, q, q_options, raise_on_error=True
+        total_hits, docs, errors = await GulpOpenSearch.get_instance().search_dsl_sync(
+            index, q, q_options, raise_on_error=True
         )
         for d in docs:
             # remove highlight, not needed in preview
             d.pop("highlight", None)
 
-    return total, docs
+    return total_hits, docs
 
 
 async def _spawn_query_group_workers(
@@ -841,7 +852,12 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 )
                 user_id = s.user.id
                 if q_options.preview_mode:
-
+                    total_hits, docs = await _preview_query(
+                        sess,
+                        q=q[0],
+                        q_options=q_options,
+                        index=op.index,
+                    )
     # try:
     #     async with GulpCollab.get_instance().session() as sess:
     #         try:
