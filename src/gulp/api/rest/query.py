@@ -60,11 +60,9 @@ from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
-    WSDATA_PROGRESS,
     WSDATA_QUERY_DONE,
     WSDATA_QUERY_GROUP_DONE,
     WSDATA_QUERY_GROUP_MATCH,
-    GulpProgressPacket,
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
     GulpWsSharedQueue,
@@ -483,19 +481,12 @@ async def _worker_coro(kwds: dict) -> None:
             processed += len(batch)
             if processed > 0 and (processed % 100 == 0):
                 # send progress packet to the websocket every 100 queries
-                p = GulpProgressPacket(
-                    total=num_queries,  # total number of queries
-                    current=processed,  # number of processed queries so far
-                    msg="query_batch_progress",
-                    total_matches=total_doc_matches,
-                )
                 wsq = GulpWsSharedQueue.get_instance()
                 await wsq.put(
-                    t=WSDATA_PROGRESS,
+                    t="TOREMOVEprogress"
                     ws_id=ws_id,
                     user_id=user_id,
-                    req_id=req_id,
-                    d=p.model_dump(exclude_none=True),
+                    req_id=req_id,                    
                 )
                 MutyLogger.get_instance().debug(
                     "processed %d queries, total=%d, total_matches=%d"
@@ -534,22 +525,14 @@ async def _worker_coro(kwds: dict) -> None:
             # we're done
             return
 
-        # send progress packet (done) to the websocket
-        p = GulpProgressPacket(
-            total=num_queries,
-            current=num_queries,
-            msg="query_batch_done",
-            done=True,
-            canceled=canceled,
-            total_matches=total_doc_matches,
-        )
+        # TODO:send progress packet (done) to the websocket
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
-            t=WSDATA_PROGRESS,
+            t="TOREMOVE"
             ws_id=ws_id,
             user_id=user_id,
             req_id=req_id,
-            d=p.model_dump(exclude_none=True),
+            #d=p.model_dump(exclude_none=True),
         )
 
         # if query groups is set and all queries in the group matched, update note tags and send notification

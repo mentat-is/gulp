@@ -49,20 +49,15 @@ WSDATA_STATS_CREATE = (
 WSDATA_STATS_UPDATE = (
     "stats_update"  # GulpRequestStats, whenever a stats object is updated
 )
-WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries
+WSDATA_USER_LOGIN = "user_login"  # GulpUserAccessPacket
+WSDATA_USER_LOGOUT = "user_logout"  # GulpUserAccessPacket
+WSDATA_DOCUMENTS_CHUNK = "docs_chunk"  # GulpDocumentsChunkPacket
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
 WSDATA_REBASE_DONE = (
     "rebase_done"  # GulpUpdateDocumentsStats, sent when a rebase operation is done
 )
-PROGRESS_REBASE = "rebase"  # GulpProgressPacket.type type for rebase operations
-PROGRESS_ENRICH = "enrich"  # GulpProgressPacket.type type for enrich operations
-WSDATA_PROGRESS = (
-    "progress"  # GulpProgressPacket with type=one of the PROGRESS_* constants
-)
+WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries
 
-WSDATA_USER_LOGIN = "user_login"
-WSDATA_USER_LOGOUT = "user_logout"
-WSDATA_DOCUMENTS_CHUNK = "docs_chunk"
 WSDATA_CLIENT_DATA = "client_data"
 WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
 WSDATA_GENERIC = "generic"
@@ -230,7 +225,7 @@ class WsQueueFullException(Exception):
     """Exception raised when queue is full after retries"""
 
 
-class GulpUserLoginLogoutPacket(BaseModel):
+class GulpUserAccessPacket(BaseModel):
     """
     Represents a user login or logout event.
     """
@@ -371,40 +366,6 @@ class GulpQueryDonePacket(BaseModel):
     total_hits: Annotated[
         int, Field(description="The total number of hits for the query.")
     ] = 0
-
-
-class GulpProgressPacket(BaseModel):
-    """
-    Used to signal progress on the websocket.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        json_schema_extra={
-            "examples": [
-                {
-                    "current": 50,
-                    "total": 100,
-                    "msg": "some_msg",
-                }
-            ]
-        },
-    )
-    current: Annotated[int, Field(description="The current progress.")] = 0
-    done: Annotated[
-        bool, Field(description="If the progress is done, i.e. reached the total.")
-    ] = False
-    total: Annotated[int, Field(description="The total to be reached.")] = 0
-    type: Annotated[
-        Optional[str],
-        Field(description="progress type, see PROGRESS_* constants."),
-    ] = None
-    data: Annotated[
-        dict, Field(description="Optional extra data to send with the progress.")
-    ] = {}
-    canceled: Annotated[
-        bool, Field(description="If the request has been canceled.")
-    ] = False
 
 
 class GulpIngestSourceDonePacket(BaseModel):
@@ -617,7 +578,7 @@ class GulpWsAuthPacket(BaseModel):
                     "token": "token_admin",
                     "ws_id": "test_ws",
                     "operation_id": ["test_operation"],
-                    "type": [WSDATA_DOCUMENTS_CHUNK],
+                    "types": [WSDATA_DOCUMENTS_CHUNK],
                 }
             ]
         }
@@ -1733,47 +1694,4 @@ class GulpWsSharedQueue:
         # all retries failed
         raise WsQueueFullException(
             f"queue full, size={self._shared_q.qsize()}, for ws_id={ws_id} after {GulpWsSharedQueue.MAX_RETRIES} attempts!"
-        )
-
-    async def put_progress(
-        self,
-        t: str,
-        user_id: str,
-        req_id: str,
-        ws_id: str = None,
-        total: int = 0,
-        current: int = 0,
-        d: dict = None,
-        done: bool = False,
-        operation_id: str = None,
-    ) -> None:
-        """
-        a shortcut method to send GulpProgressPacket messages to the queue
-
-        args:
-            t (str): the progress type, i.e. WSDATA_PROGRESS_REBASE
-            user_id (str): the user id associated with this message
-            req_id (str, optional): the request id
-            ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
-            total (int, optional): the total number of items to process
-            current (int, optional): the current number of processed items
-            d (dict, optional): the progress payload data if any. Defaults to None.
-            done (bool, optional): whether the operation is done. Defaults to False.
-            operation_id (Optional[str]): the operation id if applicable
-        """
-        p = GulpProgressPacket(
-            total=total,
-            current=current,
-            done=done,
-            type=t,
-            data=d or {},
-        )
-        wsq = GulpWsSharedQueue.get_instance()
-        await wsq.put(
-            t=WSDATA_PROGRESS,
-            ws_id=ws_id,
-            user_id=user_id,
-            req_id=req_id,
-            operation_id=operation_id,
-            d=p.model_dump(exclude_none=True),
         )

@@ -630,6 +630,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             if flt:
                 d.flt = GulpQueryFilter.model_validate(flt.model_dump())
             d.errors.extend(errs)
+
+            self.data = d.model_dump()
             return await super().update(
                 sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
             )

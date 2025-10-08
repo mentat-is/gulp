@@ -191,7 +191,7 @@ the returned `token` is then used in all other API calls to authenticate the use
 
 ### websocket
 
-a `GulpUserLoginLogoutPacket` with `login: true` is sent on the `ws_id` websocket.
+a `GulpUserAccessPacket` with `login: true` is sent on the `ws_id` websocket.
 
 ### configuration
 
@@ -274,7 +274,7 @@ the `user_session` object corresponding to `token` is deleted from the `collab` 
 
 ### websocket
 
-a `GulpUserLoginLogoutPacket` with `login: false` is sent on the `ws_id` websocket.
+a `GulpUserAccessPacket` with `login: false` is sent on the `ws_id` websocket.
 """,
 )
 async def logout_handler(

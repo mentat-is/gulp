@@ -41,7 +41,7 @@ from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp.api.ws_api import (
     WSDATA_USER_LOGIN,
     WSDATA_USER_LOGOUT,
-    GulpUserLoginLogoutPacket,
+    GulpUserAccessPacket,
     GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
@@ -461,7 +461,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 return u.session
 
             # create new session
-            p = GulpUserLoginLogoutPacket(user_id=u.id, login=True, ip=user_ip)
+            p = GulpUserAccessPacket(user_id=u.id, login=True, ip=user_ip)
             time_expire = GulpConfig.get_instance().token_expiration_time(u.is_admin())
             if GulpConfig.get_instance().is_integration_test():
                 # for integration tests, this api will return a fixed token based on the user_id
@@ -537,7 +537,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         MutyLogger.get_instance().info(
             "logging out token=%s, user=%s" % (s.id, s.user.id)
         )
-        p = GulpUserLoginLogoutPacket(user_id=s.user.id, login=False)
+        p = GulpUserAccessPacket(user_id=s.user.id, login=False)
         await s.delete(
             sess=sess,
             user_id=s.user.id,

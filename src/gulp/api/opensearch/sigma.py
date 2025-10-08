@@ -24,7 +24,7 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
-from gulp.api.ws_api import WSDATA_PROGRESS, GulpProgressPacket, GulpWsSharedQueue
+from gulp.api.ws_api import GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpMappingParameters
@@ -653,20 +653,21 @@ async def sigmas_to_queries(
                 raise Exception("request canceled")
 
             if ws_id:
+                # HANDLE THIS
                 # send progress packet to the websocket
-                p = GulpProgressPacket(
-                    total=total,
-                    current=count,
-                    generated_q=len(gulp_queries),
-                    msg="sigma_conversion",
-                )
-                wsq = GulpWsSharedQueue.get_instance()
-                await wsq.put(
-                    t=WSDATA_PROGRESS,
-                    ws_id=ws_id,
-                    user_id=user_id,
-                    req_id=req_id,
-                    d=p.model_dump(exclude_none=True),
-                )
+                # p = GwlpProgressPacket(
+                #     total=total,
+                #     current=count,
+                #     generated_q=len(gulp_queries),
+                #     msg="sigma_conversion",
+                # )
+                # wsq = GulpWsSharedQueue.get_instance()
+                # await wsq.put(
+                #     t="TOREMOVEprogress"
+                #     ws_id=ws_id,
+                #     user_id=user_id,
+                #     req_id=req_id,
+                #     d=p.model_dump(exclude_none=True),
+                # )
 
     return gulp_queries

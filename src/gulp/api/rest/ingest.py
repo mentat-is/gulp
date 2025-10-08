@@ -445,14 +445,14 @@ to resume file, the uploader must then forge a request (as in the example above)
 
 once the upload is complete, the API will return a `pending` response and processing will start in the background.
 
-### websocket
+### tracking progress
 
-once the upload is complete, this function returns a `pending` response and the following will be sent on the `ws_id` websocket during processing:
+once the file upload is complete, this function returns a `pending` response and the following will be sent on the `ws_id` websocket during ingestion processing:
 
-- `WSDATA_STATS_CREATE`: GulpRequestStats object with initial `GulpIngestionStats` (at start)
-- `WSDATA_STATS_UPDATE`: GulpRequestStats object with updated `GulpIngestionStats` (once every `ingestion_buffer_size` documents)
-- `WSDATA_DOCUMENTS_CHUNK`: GulpDocumentsChunkpacket with the actual chunk of ingested GulpDocuments (once every `ingestion_buffer_size` documents)
-
+- `WSDATA_STATS_CREATE`: `GulpRequestStats` object with initial `GulpIngestionStats` (at start)
+- `WSDATA_STATS_UPDATE`: `GulpRequestStats` object with updated `GulpIngestionStats` (once every `ingestion_buffer_size` documents)
+- `WSDATA_DOCUMENTS_CHUNK`: `GulpDocumentsChunkPacket` with the actual chunk of ingested `GulpDocuments` (once every `ingestion_buffer_size` documents)
+- `WSDATA_INGEST_SOURCE_DONE`: `GulpIngestSourceDonePacket` when the ingestion is done
 """,
     summary="ingest file using the specified plugin.",
     openapi_extra={

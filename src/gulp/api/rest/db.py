@@ -191,13 +191,25 @@ async def _rebase_by_query_internal(
                     p.updated = cb_context["total_updated"]
                     p.errors = errors
                     p.flt = flt
+                    pp: dict = p.model_dump()
                     await stats.set_finished(
                         sess,
                         status=status,
-                        data=p.model_dump(),
+                        data=pp,
                         user_id=user_id,
                         ws_id=ws_id,
                     )
+
+                    # also send a WSDATA_REBASE_DONE packet to the websocket
+                    GulpWsSharedQueue.get_instance().put(
+                        WSDATA_REBASE_DONE,
+                        user_id,
+                        ws_id=ws_id,
+                        operation_id=operation_id,
+                        req_id=req_id,
+                        d=pp,
+                    )
+
     except Exception as ex:
         MutyLogger.get_instance().exception(ex)
         errors.append(str(ex))
@@ -230,10 +242,10 @@ rebases documents in-place on the same index using update_by_query, shifting tim
 - `token` needs `ingest` permission.
 - `flt` may be used to filter the documents to rebase.
 
-### checking progress
+### tracking progress
 
-- during rebase, `WS_DATA_PROGRESS` is sent on the websocket with `ws_id` at every chunk
-- when rebase is done, `WS_DATA_REBASE_DONE` is sent on the websocket with `ws_id` and broadcasted to all connected websockets
+- during rebase, the `req_id` stats is updated with GulpUpdateDocumentsStats data at every chunk (and sent to `ws_id` websocket)
+- when rebase is done, `WS_DATA_REBASE_DONE` is sent on the websocket with the same GulpUpdateDocumentsStats as wsdata.payload, and broadcasted to all connected websockets
 """,
 )
 async def opensearch_rebase_by_query_handler(
