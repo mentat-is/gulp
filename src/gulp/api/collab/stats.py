@@ -148,6 +148,7 @@ class GulpQueryStats(BaseModel):
     total_hits: Annotated[
         int, Field(description="Total number of hits for this query.")
     ] = 0
+    num_queries: Annotated[int, Field(description="Number of queries executed.")] = 1
     q_group: Annotated[
         Optional[str], Field(description="The query group this query belongs to.")
     ] = None
@@ -234,10 +235,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         *args,
         **kwargs,
     ) -> dict:
-        raise TypeError("use GulpRequestStats.create_stats() instead of create()")
+        raise TypeError("use GulpRequestStats.create_or_get_existing_stats() instead")
 
     @classmethod
-    async def create_stats(
+    async def create_or_get_existing_stats(
         cls,
         sess: AsyncSession,
         req_id: str,
@@ -249,13 +250,11 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         data: dict = None,
     ) -> T:
         """
-        create a new GulpRequestStats object on the collab database (or update an existing one if the req_id already exists).
-
-        NOTE: session is committed inside this method.
+        creates (or get an existing) GulpRequestStats object on the collab database
 
         Args:
             sess (AsyncSession): The database session to use.
-            req_id (str): The request ID (=id of the stats): if a stats with this ID already exists, its expire time and status are updated and returned instead of creating a new one.
+            req_id (str): The request ID (=id of the stats): if a stats with this ID already exists, its expire time and status are updated and the stats object is returned instead of creating a new one.
             user_id (str): The user ID creating the stats.
             operation_id (str): The operation associated with the stats
             req_type (RequestStatsType, optional): The type of request stats. Defaults to RequestStatsType.REQUEST_TYPE_INGESTION.
@@ -466,8 +465,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
         Args:
             sess(AsyncSession): collab database session
-            user_id(str, optional): the user id issuing the request
-            ws_id(str, optional): the websocket id to notify COLLAB_UPDATE to
+            user_id(str, optional): the user id issuing the request (ignored if ws_id is not set)
+            ws_id(str, optional): the websocket id to notify WS_STATS_UPDATE to (ignored if not set)
             ingested(int, optional): number of ingested records to add. Defaults to 0.
             skipped(int, optional): number of skipped records to add. Defaults to 0.
             processed(int, optional): number of processed records to add. Defaults to 0.
@@ -586,9 +585,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
         Args:
             sess(AsyncSession): collab database session
-            user_id(str, optional): the user id issuing the request
-            ws_id(str, optional): the websocket id to notify COLLAB_UPDATE to
-            total_hits(int, optional): number of documents to update. Defaults to 0.
+            user_id(str, optional): the user id issuing the request (ignored if ws_id is not set)
+            ws_id(str, optional): the websocket id to notify WS_STATS_UPDATE to (ignored if not set)
+            total_hits(int, optional): number of documents found to be updated. Defaults to 0.
             updated(int, optional): number of documents effectively updated. Defaults to 0.
             flt(GulpQueryFilter, optional): the filter used for the operation. Defaults to None.
             errors(list[str], optional): list of errors to add. Defaults to None.
@@ -596,6 +595,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             dict: the updated stats
         """
         try:
+            await GulpRequestStats.acquire_advisory_lock(sess, self.id)
             await sess.refresh(self)
 
             # update
@@ -619,6 +619,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
             )
         except Exception as e:
+            # ensure release of the lock
             await sess.rollback()
             raise e
 
@@ -627,47 +628,39 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         sess: AsyncSession,
         user_id: str = None,
         ws_id: str = None,
-        ingested: int = 0,
-        skipped: int = 0,
-        processed: int = 0,
-        failed: int = 0,
-        errors: list[str | Exception] = None,
-        status: GulpRequestStatus = GulpRequestStatus.ONGOING,
+        total_hits: int = 0,
+        updated: int = 0,
+        errors: list[str] = None,
     ) -> dict:
-        """ """
+        """
+        Returns:
+            dict: the updated stats
+        """
         try:
-            # more than one process may be working on this request (multiple ingestion with the same req_id)
             await GulpRequestStats.acquire_advisory_lock(sess, self.id)
             await sess.refresh(self)
-
-            if self.status != GulpRequestStatus.ONGOING.value:
-                MutyLogger.get_instance().warning(
-                    "UPDATE IGNORED! request %s is already done/failed/canceled, status=%s",
-                    self.id,
-                    self.status,
-                )
-                await sess.commit()  # release the lock
-                return self.to_dict()
 
             # update
             errs: list[str] = []
             if errors:
                 for e in errors:
-                    if isinstance(e, Exception):
-                        e = str(e)
                     if e not in errs:
                         errs.append(e)
-            self.errors.extend(errs)
-            self.status = status.value
-            d: GulpIngestionStats = GulpIngestionStats.model_validate(self.data or {})
-            d.records_ingested += ingested
-            d.records_skipped += skipped
-            d.records_processed += processed
-            d.records_failed += failed
+            d: GulpUpdateDocumentsStats = (
+                GulpUpdateDocumentsStats.model_validate(self.data)
+                or GulpUpdateDocumentsStats()
+            )
+            d.updated += updated
+            d.total_hits = total_hits
+            if flt:
+                d.flt = GulpQueryFilter.model_validate(flt.model_dump())
+            d.errors.extend(errs)
+
             self.data = d.model_dump()
             return await super().update(
                 sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
             )
         except Exception as e:
+            # ensure release of the lock
             await sess.rollback()
             raise e

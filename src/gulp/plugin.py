@@ -2901,7 +2901,7 @@ class GulpPluginBase(ABC):
             if self._req_canceled:
                 status = GulpRequestStatus.CANCELED
         else:
-            # standard ingestion, send WSDATA_INGEST_SOURCE_DONE on the ws
+            # standard ingestion or query external, send WSDATA_INGEST_SOURCE_DONE on the ws
             if errors or source_failed:
                 status = GulpRequestStatus.FAILED
             else:

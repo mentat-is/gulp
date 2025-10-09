@@ -258,7 +258,7 @@ async def _ingest_file_internal(
 
             if not payload.plugin_params.preview_mode:
                 # create stats
-                stats = await GulpRequestStats.create_stats(
+                stats = await GulpRequestStats.create_or_get_existing_stats(
                     sess,
                     req_id,
                     user_id,

@@ -65,14 +65,16 @@ async def _enrich_documents_internal(
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
-            stats: GulpRequestStats = await GulpRequestStats.create_stats(
-                sess,
-                req_id,
-                user_id,
-                operation_id,
-                req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
-                ws_id=ws_id,
-                data=GulpUpdateDocumentsStats(),
+            stats: GulpRequestStats = (
+                await GulpRequestStats.create_or_get_existing_stats(
+                    sess,
+                    req_id,
+                    user_id,
+                    operation_id,
+                    req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
+                    ws_id=ws_id,
+                    data=GulpUpdateDocumentsStats(),
+                )
             )
 
             # call plugin
@@ -395,14 +397,16 @@ async def _tag_documents_internal(
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
-            stats: GulpRequestStats = await GulpRequestStats.create_stats(
-                sess,
-                req_id,
-                user_id,
-                operation_id,
-                req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
-                ws_id=ws_id,
-                data=GulpUpdateDocumentsStats(),
+            stats: GulpRequestStats = (
+                await GulpRequestStats.create_or_get_existing_stats(
+                    sess,
+                    req_id,
+                    user_id,
+                    operation_id,
+                    req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
+                    ws_id=ws_id,
+                    data=GulpUpdateDocumentsStats(),
+                )
             )
             cb_context["stats"] = stats
             enriched, total_hits = await GulpOpenSearch.get_instance().search_dsl(

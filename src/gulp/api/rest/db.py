@@ -143,7 +143,7 @@ async def _rebase_by_query_internal(
         # rebase
         async with GulpCollab.get_instance().session() as sess:
             try:
-                stats = await GulpRequestStats.create_stats(
+                stats = await GulpRequestStats.create_or_get_existing_stats(
                     sess,
                     req_id,
                     user_id,
