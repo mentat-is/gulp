@@ -1029,3 +1029,18 @@ async def test_ingest_file_local_to_source():
     MutyLogger.get_instance().info(
         test_ingest_file_local_to_source.__name__ + " succeeded!"
     )
+
+
+@pytest.mark.asyncio
+async def test_memprocfs_timeline_ingest():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+
+    files = [
+        os.path.join(current_dir, "../../samples/memprocfs/timeline/timeline_all.txt")
+    ]
+
+    plugin_params = GulpPluginParameters()
+    await _test_ingest_generic(files, "mem_proc_fs", 77140, plugin_params=plugin_params)
+    MutyLogger.get_instance().info(
+        test_memprocfs_timeline_ingest.__name__ + " succeeded!"
+    )
