@@ -74,6 +74,7 @@ class RequestStatsType(StrEnum):
 
     REQUEST_TYPE_INGESTION = "ingest"
     REQUEST_TYPE_QUERY = "query"
+    REQUEST_TYPE_EXTERNAL_QUERY = "ext_query"
     REQUEST_TYPE_ENRICHMENT = "enrich"
     REQUEST_TYPE_REBASE = "rebase"
     REQUEST_TYPE_GENERIC = "generic"

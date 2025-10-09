@@ -27,7 +27,7 @@ from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMappi
 from gulp.api.ws_api import GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
-from gulp.structs import GulpMappingParameters
+from gulp.structs import GulpMappingParameters, GulpProgressCallback
 from gulp.api.opensearch.structs import GulpQuery
 
 
@@ -458,8 +458,6 @@ async def sigmas_to_queries(
     categories: list[str] = None,
     tags: list[str] = None,
     paths: bool = False,
-    req_id: str = None,
-    ws_id: str = None,
 ) -> list["GulpQuery"]:
     """
     convert a list of sigma rules to GulpQuery objects.
@@ -481,8 +479,6 @@ async def sigmas_to_queries(
         categories (list[str], optional): list of categories to check. Defaults to None.
         tags (list[str], optional): list of tags to check. Defaults to None.
         paths (bool, optional): if True, sigmas are paths to files (will be read). Defaults to False.
-        req_id (str, optional): the request id. Defaults to None.
-        ws_id (str, optional): the websocket id to stream progress updates. Defaults to None.
     Returns:
         list[GulpQuery]: the list of GulpQuery objects
     """
@@ -645,30 +641,5 @@ async def sigmas_to_queries(
 
         # for query in gulp_queries:
         #     print(query)
-
-        if count % 100 == 0 and req_id:
-            # check if the request is cancelled
-            canceled = await GulpRequestStats.is_canceled(sess, req_id)
-            if canceled:
-                raise Exception("request canceled")
-
-            if ws_id:
-                # HANDLE THIS
-                # send progress packet to the websocket
-                # p = GwlpProgressPacket(
-                #     total=total,
-                #     current=count,
-                #     generated_q=len(gulp_queries),
-                #     msg="sigma_conversion",
-                # )
-                # wsq = GulpWsSharedQueue.get_instance()
-                # await wsq.put(
-                #     t="TOREMOVEprogress"
-                #     ws_id=ws_id,
-                #     user_id=user_id,
-                #     req_id=req_id,
-                #     d=p.model_dump(exclude_none=True),
-                # )
-                pass
 
     return gulp_queries

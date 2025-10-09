@@ -508,7 +508,9 @@ class GulpRestServer:
             try:
                 await coro
             except Exception as ex:
-                MutyLogger.get_instance().exception(ex)
+                MutyLogger.get_instance().exception(
+                    "***ERROR*** in background task: %s", ex
+                )
             finally:
                 self._running_tasks -= 1
                 MutyLogger.get_instance().debug("background task completed!")
@@ -560,7 +562,13 @@ class GulpRestServer:
         )
         if wait:
             # wait for result
-            return await coro
+            try:
+                return await coro
+            except Exception as ex:
+                MutyLogger.get_instance().exception(
+                    "***ERROR*** in (awaited) worker task: %s", ex
+                )
+                raise ex
 
         # fire and forget (just use spawn_bg_task to schedule the coro)
         self.spawn_bg_task(coro, task_name)

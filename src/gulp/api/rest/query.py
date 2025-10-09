@@ -316,97 +316,97 @@ async def _handle_query_group_match(
     )
 
 
-async def _process_query_batch(
-    batch: list[GulpQuery],
-    user_id: str,
-    req_id: str,
-    ws_id: str,
-    operation_id: str,
-    index: str,
-    q_options: GulpQueryParameters,
-    plugin: str,
-    plugin_params: GulpPluginParameters,
-    flt: GulpQueryFilter,
-    current_batch: int,
-    num_batches: int,
-) -> tuple[list[tuple[int, Exception, str]], int, int, list[str], list[str]]:
-    """
-    process a single batch of queries, each in a task in one of the worker processes.
+# async def _process_query_batch(
+#     batch: list[GulpQuery],
+#     user_id: str,
+#     req_id: str,
+#     ws_id: str,
+#     operation_id: str,
+#     index: str,
+#     q_options: GulpQueryParameters,
+#     plugin: str,
+#     plugin_params: GulpPluginParameters,
+#     flt: GulpQueryFilter,
+#     current_batch: int,
+#     num_batches: int,
+# ) -> tuple[list[tuple[int, Exception, str]], int, int, list[str], list[str]]:
+#     """
+#     process a single batch of queries, each in a task in one of the worker processes.
 
-    Args:
-        batch (list[GulpQuery]): batch of queries to process
-        user_id (str): user id
-        req_id (str): request id
-        ws_id (str): websocket id
-        operation_id (str): operation id
-        index (str): index to query
-        q_options (GulpQueryParameters): query options
-        plugin (str): plugin to use
-        plugin_params (GulpPluginParameters): plugin parameters
-        flt (GulpQueryFilter): query filter
-        current_batch (int): current batch number
-        num_batches (int): total number of batches
+#     Args:
+#         batch (list[GulpQuery]): batch of queries to process
+#         user_id (str): user id
+#         req_id (str): request id
+#         ws_id (str): websocket id
+#         operation_id (str): operation id
+#         index (str): index to query
+#         q_options (GulpQueryParameters): query options
+#         plugin (str): plugin to use
+#         plugin_params (GulpPluginParameters): plugin parameters
+#         flt (GulpQueryFilter): query filter
+#         current_batch (int): current batch number
+#         num_batches (int): total number of batches
 
-    Returns:
-        tuple[list[tuple[int, Exception, str]], int, int, list[str], list[str]]:
-            batch results, matched queries count, total document matches, query names that matched, errors
-    """
-    tuples_arr: list[dict] = []
-    # print("************************************************************")
-    # print(batch)
-    # print("************************************************************")
-    # create a task for each query in the batch
-    for gq in batch:
-        q_opt = deepcopy(q_options)
+#     Returns:
+#         tuple[list[tuple[int, Exception, str]], int, int, list[str], list[str]]:
+#             batch results, matched queries count, total document matches, query names that matched, errors
+#     """
+#     tuples_arr: list[dict] = []
+#     # print("************************************************************")
+#     # print(batch)
+#     # print("************************************************************")
+#     # create a task for each query in the batch
+#     for gq in batch:
+#         q_opt = deepcopy(q_options)
 
-        # set name, i.e. for sigma rules we want the sigma rule name to be used
-        q_opt.name = gq.name
+#         # set name, i.e. for sigma rules we want the sigma rule name to be used
+#         q_opt.name = gq.name
 
-        # note name set to query name
-        q_opt.note_parameters.note_name = gq.name
+#         # note name set to query name
+#         q_opt.note_parameters.note_name = gq.name
 
-        if gq.name not in q_opt.note_parameters.note_tags:
-            # query name in note tags (this will allow to identify the results in the end)
-            q_opt.note_parameters.note_tags.append(gq.name)
+#         if gq.name not in q_opt.note_parameters.note_tags:
+#             # query name in note tags (this will allow to identify the results in the end)
+#             q_opt.note_parameters.note_tags.append(gq.name)
 
-        # add note tags
-        for t in gq.tags:
-            if t not in q_opt.note_parameters.note_tags:
-                q_opt.note_parameters.note_tags.append(t)
+#         # add note tags
+#         for t in gq.tags:
+#             if t not in q_opt.note_parameters.note_tags:
+#                 q_opt.note_parameters.note_tags.append(t)
 
-        # add task
-        d: tuple = (
-            user_id,
-            req_id,
-            ws_id,
-            operation_id,
-            index,
-            gq.q,
-            q_opt,
-            plugin,
-            plugin_params,
-            flt,
-            gq.sigma_yml,
-        )
-        tuples_arr.append(d)
+#         # add task
+#         d: tuple = (
+#             user_id,
+#             req_id,
+#             ws_id,
+#             operation_id,
+#             index,
+#             gq.q,
+#             q_opt,
+#             plugin,
+#             plugin_params,
+#             flt,
+#             gq.sigma_yml,
+#         )
+#         tuples_arr.append(d)
 
-    # run the queries and wait to complete
-    MutyLogger.get_instance().debug(
-        "waiting for queries batch %d/%d, size of batch=%d"
-        % (current_batch, num_batches, len(tuples_arr))
-    )
-    batch_results: list[tuple[int, Exception, str]] = []
-    pool = GulpProcess.get_instance().process_pool
-    async for res in pool.starmap(_query_internal, tuples_arr):
-        # res is a tuple (hits, exception, query_name)
-        batch_results.append(res)
+#     # run the queries and wait to complete
+#     MutyLogger.get_instance().debug(
+#         "waiting for queries batch %d/%d, size of batch=%d"
+#         % (current_batch, num_batches, len(tuples_arr))
+#     )
+#     batch_results: list[tuple[int, Exception, str]] = []
+#     pool = GulpProcess.get_instance().process_pool
+#     async for res in pool.starmap(_query_internal, tuples_arr):
+#         # res is a tuple (hits, exception, query_name)
+#         batch_results.append(res)
 
-    # process batch results and send query_done packets
-    query_matched, total_matches, names, errors = await _process_batch_results(
-        batch_results, user_id, req_id, ws_id
-    )
+#     # process batch results and send query_done packets
+#     query_matched, total_matches, names, errors = await _process_batch_results(
+#         batch_results, user_id, req_id, ws_id
+#     )
 
-    return batch_results, query_matched, total_matches, names, errors
+#     return batch_results, query_matched, total_matches, names, errors
 
 
 async def _worker_coro(kwds: dict) -> None:
@@ -580,60 +580,6 @@ async def _worker_coro(kwds: dict) -> None:
         all_query_names.clear()
 
 
-async def _preview_query(
-    sess: AsyncSession,
-    q: Any,
-    q_options: GulpQueryParameters,
-    index: str = None,
-    plugin: str = None,
-    plugin_params: GulpPluginParameters = None,
-) -> tuple[int, list[dict]]:
-    """
-    runs a preview query and returns the results directly.
-    """
-    q_options.loop = False
-    q_options.fields = "*"
-    q_options.limit = GulpConfig.get_instance().preview_mode_num_docs()
-    MutyLogger.get_instance().debug("running preview query %s" % (q))
-
-    mod: GulpPluginBase = None
-    total_hits: int = 0
-    docs: list[dict] = []
-
-    if plugin:
-        # this is an external query, load plugin
-        try:
-            mod = await GulpPluginBase.load(plugin)
-            # external query
-            total_hits, _ = await mod.query_external(
-                sess,
-                stats=None,
-                user_id=None,
-                req_id=None,
-                ws_id=None,
-                operation_id=None,
-                q=q,
-                index=None,
-                plugin_params=plugin_params,
-                q_options=q_options,
-            )
-            docs = mod.preview_chunk()
-            total_hits = len(docs)
-        finally:
-            if mod:
-                await mod.unload()
-    else:
-        # standard query
-        total_hits, docs, _ = await GulpOpenSearch.get_instance().search_dsl_sync(
-            index, q, q_options, raise_on_error=True
-        )
-        for d in docs:
-            # remove highlight, not needed in preview
-            d.pop("highlight", None)
-
-    return total_hits, docs
-
-
 async def _spawn_query_group_workers(
     user_id: str,
     req_id: str,
@@ -745,6 +691,116 @@ async def _query_raw_internal(
     pass
 
 
+async def process_queries(
+    user_id: str,
+    req_id: str,
+    operation_id: str,
+    ws_id: str,
+    queries: list[GulpQuery],
+    q_options: GulpQueryParameters,
+    plugin: str = None,
+    plugin_params: GulpPluginParameters = None,
+    write_history: bool = True,
+) -> None:
+    """ """
+    try:
+        #1 
+        async with GulpCollab.get_instance().session() as sess:
+            try:
+                stats = await GulpRequestStats.create_stats(
+                    sess,
+                    req_id,
+                    user_id,
+                    operation_id,
+                    req_type=RequestStatsType.REQUEST_TYPE_EXTERNAL_QUERY if plugin else RequestStatsType.REQUEST_TYPE_QUERY,
+                    ws_id=ws_id,
+                    data=GulpIngestionStats(source_total=file_total).model_dump(),
+                )
+        # 2. batch queries in configured batch size
+        batch_size: int = GulpConfig.get_instance().concurrency_max_tasks()
+        for i in range(0, len(queries), batch_size):
+            batch = queries[i : i + batch_size]
+            MutyLogger.get_instance().debug(
+                "processing queries batch %d/%d, size of batch=%d",
+                i // batch_size + 1,
+                (len(queries) + batch_size - 1) // batch_size,
+                len(batch),
+            )
+            if write_history:
+                # add each query in the batch to user history
+                async with GulpCollab.get_instance().session() as sess:
+                    try:
+                        for gq in batch:
+                            await GulpUser.add_query_history_entry(
+                                sess,
+                                gq.q,
+                                q_options=q_options,
+                                sigma_yml=gq.sigma_yml,
+                                external=True if plugin else False,
+                                plugin=plugin,
+                                plugin_params=plugin_params,
+                            )
+                    except:
+                        await sess.rollback()
+                        raise
+    finally:
+
+
+
+async def _preview_query(
+    sess: AsyncSession,
+    q: Any,
+    q_options: GulpQueryParameters,
+    index: str = None,
+    plugin: str = None,
+    plugin_params: GulpPluginParameters = None,
+) -> tuple[int, list[dict]]:
+    """
+    runs a preview query and returns the results directly.
+    """
+    q_options.loop = False
+    q_options.fields = "*"
+    q_options.limit = GulpConfig.get_instance().preview_mode_num_docs()
+    MutyLogger.get_instance().debug("running preview query %s" % (q))
+
+    mod: GulpPluginBase = None
+    total_hits: int = 0
+    docs: list[dict] = []
+
+    if plugin:
+        # this is an external query, load plugin
+        try:
+            mod = await GulpPluginBase.load(plugin)
+            # external query
+            total_hits, _ = await mod.query_external(
+                sess,
+                stats=None,
+                user_id=None,
+                req_id=None,
+                ws_id=None,
+                operation_id=None,
+                q=q,
+                index=None,
+                plugin_params=plugin_params,
+                q_options=q_options,
+            )
+            docs = mod.preview_chunk()
+            total_hits = len(docs)
+        finally:
+            if mod:
+                await mod.unload()
+    else:
+        # standard query
+        total_hits, docs, _ = await GulpOpenSearch.get_instance().search_dsl_sync(
+            index, q, q_options, raise_on_error=True
+        )
+        for d in docs:
+            # remove highlight, not needed in preview
+            d.pop("highlight", None)
+
+    return total_hits, docs
+
+
 @router.post(
     "/query_raw",
     response_model=JSendResponse,
@@ -838,14 +894,12 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
     ServerUtils.dump_params(params)
 
     ##### WIP
-    """try:
+    try:
         async with GulpCollab.get_instance().session() as sess:
             try:
                 # get operation and check acl
                 op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                s = await GulpUserSession.check_token(
-                    sess, token, obj=op
-                )
+                s = await GulpUserSession.check_token(sess, token, obj=op)
                 user_id = s.user.id
                 if q_options.preview_mode:
                     total_hits, docs = await _preview_query(
@@ -853,8 +907,38 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                         q=q[0],
                         q_options=q_options,
                         index=op.index,
-                    )"""
+                    )
+                    return JSONResponse(
+                        JSendResponse.success(
+                            req_id=req_id, data={"total_hits": total_hits, "docs": docs}
+                        )
+                    )
 
+                # build queries
+                queries: list[GulpQuery] = []
+                count: int = 0
+                for qq in q:
+                    # build query
+                    gq = GulpQuery(
+                        name="%s-%d" % (q_options.name, count),
+                        q=qq,
+                    )
+                    count += 1
+                    queries.append(gq)
+
+                # run a background task (will batch queries, spawn workers, gather results)
+                coro = _process_queries(
+                    user_id, req_id, operation_id, ws_id, queries, q_options
+                )
+                GulpRestServer.get_instance().spawn_bg_task(coro)
+
+                # and return pending
+                return JSONResponse(JSendResponse.pending(req_id=req_id))
+            except Exception as ex:
+                await sess.rollback()
+                raise
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
     # try:
     #     async with GulpCollab.get_instance().session() as sess:
     #         try:
@@ -1486,11 +1570,13 @@ async def query_history_get_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            s: GulpUserSession = await GulpUserSession.check_token(sess, token)
-            user_id: str = s.user.id
-
-        d = await GulpUser.get_query_history(user_id)
-        return JSONResponse(JSendResponse.success(req_id, data=d))
+            try:
+                s: GulpUserSession = await GulpUserSession.check_token(sess, token)
+                d = await s.user.get_query_history()
+                return JSONResponse(JSendResponse.success(req_id, data=d))
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

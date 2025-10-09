@@ -77,9 +77,6 @@ class GulpUserDataQueryHistoryEntry(BaseModel):
     q_options: Annotated[
         GulpQueryParameters, Field(description="Additional options for the query.")
     ] = GulpQueryParameters()
-    flt: Annotated[
-        Optional[GulpQueryFilter], Field(description="Filter applied to the query.")
-    ] = None
     plugin: Annotated[
         Optional[str], Field(description="Only set for external queries.")
     ] = None
@@ -89,11 +86,11 @@ class GulpUserDataQueryHistoryEntry(BaseModel):
             description="Only set for external queries, the parameters for the external query plugin.",
         ),
     ] = GulpPluginParameters()
-    sigma: Annotated[
+    sigma_yml: Annotated[
         Optional[str],
         Field(
             None,
-            description="Sigma rule YML if the query is converted from a sigma rule.",
+            description="Original YML if the query originates from a sigma rule.",
         ),
     ] = None
 
@@ -102,16 +99,9 @@ class GulpUserDataQueryHistoryEntry(BaseModel):
             "examples": [
                 {
                     "q": {"query": {"match_all": {}}},
-                    "external": False,
                     "q_options": autogenerate_model_example_by_class(
                         GulpQueryParameters
                     ),
-                    "flt": autogenerate_model_example_by_class(GulpQueryFilter),
-                    "plugin": None,
-                    "plugin_params": autogenerate_model_example_by_class(
-                        GulpPluginParameters
-                    ),
-                    "sigma": None,
                     "timestamp_msec": muty.time.now_msec(),
                 }
             ]
@@ -182,52 +172,12 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         )
         return d
 
-    @staticmethod
     async def add_query_history_entry(
-        user_id: str,
-        q: Any,
-        q_options: GulpQueryParameters = None,
-        flt: GulpQueryFilter = None,
-        sigma: str = None,
-        external: bool = False,
-        plugin: str = None,
-        plugin_params: GulpPluginParameters = None,
-    ) -> None:
-        """
-        Adds a query history entry for the user.
-
-        Args:
-            user_id (str): The ID of the user.
-            q (Any): the query to perform
-            q_options (GulpQueryParameters, optional): Additional query options. Defaults to None.
-            flt (GulpQueryFilter, optional): Filter applied to the query. Defaults to None.
-            external (bool, optional): Whether the query is external. Defaults to False.
-            plugin (str, optional): The plugin used for the query. Defaults to None.
-            plugin_params (GulpPluginParameters, optional): Parameters for the plugin used in the query. Defaults to None.
-            sigma (str, optional): Sigma rule applied to the query. Defaults to None.
-        """
-        if not q_options:
-            q_options = GulpQueryParameters()
-        if not plugin_params:
-            plugin_params = GulpPluginParameters()
-        async with GulpCollab.get_instance().session() as sess:
-            try:
-                await GulpUser.acquire_advisory_lock(sess, user_id)
-                u: GulpUser = await GulpUser.get_by_id(sess, user_id)
-                await u._add_query_history_entry(
-                    sess, q, q_options, flt, sigma, external, plugin, plugin_params
-                )
-            except Exception as e:
-                await sess.rollback()
-                raise
-
-    async def _add_query_history_entry(
         self,
         sess: AsyncSession,
         q: Any,
         q_options: GulpQueryParameters = None,
-        flt: GulpQueryFilter = None,
-        sigma: str = None,
+        sigma_yml: str = None,
         external: bool = False,
         plugin: str = None,
         plugin_params: GulpPluginParameters = None,
@@ -236,51 +186,55 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         Adds a query history entry for the user.
 
         Args:
-            sess (AsyncSession): The database session, will be committed after the entry is added.
-            q (Any): The query to perform
+            sess (AsyncSession): The database session
+            q (Any): The query to store in the history.
             q_options (GulpQueryParameters, optional): Additional query options. Defaults to None.
-            flt (GulpQueryFilter, optional): Filter applied to the query. Defaults to None.
+            sigma_yml (str, optional): Original YML if the query originates from a sigma rule. Defaults to None.
             external (bool, optional): Whether the query is external. Defaults to False.
-            plugin (str, optional): The plugin used for the query. Defaults to None.
-            plugin_params (GulpPluginParameters, optional): Parameters for the plugin used in the query. Defaults to None.
-            sigma (str, optional): Sigma rule applied to the query. Defaults to None.
+            plugin (str, optional): The plugin used for the external query, if external is set. Defaults to None.
+            plugin_params (GulpPluginParameters, optional): Parameters for the plugin used in the external query, if external is set. Defaults to None.
         """
-        if not self.user_data:
-            self.user_data = {}
+        await GulpUser.acquire_advisory_lock(sess, self.id)
+        try:
+            ud: dict = self.user_data if self.user_data else {}
+            if "query_history" not in self.ud:
+                ud["query_history"] = []
 
-        if "query_history" not in self.user_data:
-            self.user_data["query_history"] = []
-
-        q_history = self.user_data["query_history"]
-        entry: GulpUserDataQueryHistoryEntry = GulpUserDataQueryHistoryEntry(
-            q=q,
-            external=external,
-            q_options=q_options,
-            flt=flt,
-            plugin=plugin,
-            plugin_params=plugin_params,
-            sigma=sigma,
-            timestamp_msec=muty.time.now_msec(),
-        )
-        q_history.append(entry.model_dump(exclude_none=True))
-
-        # trim if the history is too long
-        MutyLogger.get_instance().debug(
-            "current user query histor size=%d" % (len(q_history))
-        )
-        max_history_size: int = GulpConfig.get_instance().query_history_max_size()
-        if len(q_history) > max_history_size:
-            # keep only the last `max_history_size` entries
-            MutyLogger.get_instance().warning(
-                "trimming query history for user %s, size=%d, max_size=%d"
-                % (self.id, len(q_history), max_history_size)
+            q_history: list[dict] = ud["query_history"]
+            entry: GulpUserDataQueryHistoryEntry = GulpUserDataQueryHistoryEntry(
+                q=q,
+                external=external,
+                q_options=q_options,
+                plugin=plugin,
+                plugin_params=plugin_params,
+                sigma_yml=sigma_yml,
+                timestamp_msec=muty.time.now_msec(),
             )
-            q_history = q_history[-max_history_size:]
+            q_history.append(entry.model_dump(exclude_none=True))
 
-        self.user_data["query_history"] = q_history
-        await sess.commit()
+            # trim if the history is too long
+            max_history_size: int = GulpConfig.get_instance().query_history_max_size()
+            if len(q_history) > max_history_size:
+                # keep only the last `max_history_size` entries
+                MutyLogger.get_instance().warning(
+                    "trimming query history for user %s, size=%d, max_size=%d",
+                    self.id,
+                    len(q_history),
+                    max_history_size,
+                )
+                q_history = q_history[-max_history_size:]
 
-    async def _get_query_history(self) -> list[dict]:
+            self.user_data = ud  # trigger update
+            MutyLogger.get_instance().debug(
+                "added query history entry for user %s, total size=%d",
+                self.id,
+                len(q_history),
+            )
+        finally:
+            # unlock and commit
+            await sess.commit()
+
+    async def get_query_history(self) -> list[dict]:
         """
         Retrieves the query history for the user.
 
@@ -294,25 +248,6 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             return []
 
         return self.user_data["query_history"]
-
-    @staticmethod
-    async def get_query_history(user_id: str) -> list[dict]:
-        """
-        Retrieves the query history for the user.
-
-        Args:
-            user_id (str): The ID of the user.
-
-        Returns:
-            list[dict]: The query history entries.
-        """
-        async with GulpCollab.get_instance().session() as sess:
-            try:
-                u: GulpUser = await GulpUser.get_by_id(sess, user_id)
-                return await u._get_query_history()
-            except Exception as e:
-                await sess.rollback()
-                raise
 
     @classmethod
     @override
@@ -375,8 +310,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         #         sess, ADMINISTRATORS_GROUP_ID
         #     )
         #     MutyLogger.get_instance().debug(
-        #         "adding user %s to the 'administrators' group" % (u.id)
-        #     )
+        #         "adding user %s to the 'administrators' group",u.id)
         #     await g.add_user(sess, u.id)
         return u
 
@@ -449,8 +383,8 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             if u.session:
                 # session already exist, update expiration time
                 MutyLogger.get_instance().warning(
-                    "user %s was already logged in, resetting and renewing token..."
-                    % (user_id)
+                    "user %s was already logged in, resetting and renewing token...",
+                    user_id,
                 )
 
                 # update expiration
@@ -468,7 +402,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 # (the user must anyway log in first)
                 token_id: str = "token_" + user_id
                 MutyLogger.get_instance().warning(
-                    "using fixed token %s for integration test" % (token_id)
+                    "using fixed token %s for integration test", token_id
                 )
             else:
                 # autogenerated
@@ -491,8 +425,11 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             u.session = new_session
             u.time_last_login = muty.time.now_msec()
             MutyLogger.get_instance().info(
-                "user %s logged in, token=%s, expire=%d, admin=%r"
-                % (u.id, new_session.id, new_session.time_expire, u.is_admin())
+                "user %s logged in, token=%s, expire=%d, admin=%r",
+                u.id,
+                new_session.id,
+                new_session.time_expire,
+                u.is_admin(),
             )
             await sess.commit()
 
@@ -534,9 +471,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         Returns:
             None
         """
-        MutyLogger.get_instance().info(
-            "logging out token=%s, user=%s" % (s.id, s.user.id)
-        )
+        MutyLogger.get_instance().info("logging out token=%s, user=%s", s.id, s.user.id)
         p = GulpUserAccessPacket(user_id=s.user.id, login=False)
         await s.delete(
             sess=sess,
@@ -626,7 +561,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         if not obj.granted_user_group_ids and not obj.granted_user_ids:
             # public object (both granted_user_group_ids and granted_user_ids are empty)
             MutyLogger.get_instance().debug(
-                "allowing access to public object, user=%s" % (self.id)
+                "allowing access to public object, user=%s", self.id
             )
             return True
 
@@ -637,14 +572,14 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             for group in self.groups:
                 if group.id in obj.granted_user_group_ids:
                     MutyLogger.get_instance().debug(
-                        "allowing access to granted group %s" % (group.id)
+                        "allowing access to granted group %s", group.id
                     )
                     return True
 
         # check if the user is in the granted users
         if obj.granted_user_ids and self.id in obj.granted_user_ids:
             MutyLogger.get_instance().debug(
-                "allowing access to granted user %s" % (self.id)
+                "allowing access to granted user %s", self.id
             )
             return True
 
