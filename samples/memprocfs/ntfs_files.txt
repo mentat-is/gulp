@@ -1,0 +1,34 @@
+     0           0       5       0                     *** :                     ***            0 A  D \0
+     1           0       0       5                     *** :                     ***            0 A  D \0\$_ORPHAN
+     2    9b306c00   24caf   2423b 2025-10-09 08:48:42 UTC : 2025-10-09 08:48:42 UTC         400e A    \0\$_ORPHAN\DesktopTargetCompDB_coren_nl-nl.xml.cab
+     3    d074b400   48d29   608ea 2025-10-09 08:14:42 UTC : 2025-10-09 08:25:58 UTC         432a A    \0\$_ORPHAN\dmxmlhelputils.dll
+     4    d074c400   48d25    1c18 2025-10-09 08:14:42 UTC : 2025-10-09 08:40:11 UTC        1b200 A    \0\$_ORPHAN\dmxmlhelputils.dll
+     5           0     293       0                     *** :                     ***            0 A  D \0\$_ORPHAN\$1
+     6    9b306000   24cac     293 2024-09-05 21:15:54 UTC : 2025-10-09 08:04:55 UTC            0 A    \0\$_ORPHAN\$1\Microsoft-DesktopEditions-Layer-Data-VersionInfo-Dynamic-Ge-Beta-Version-EKB-Package~31bf3856ad364e35~amd64~lt-LT~10.0.26100.712.mum
+     7    9b306400   24cad     293 2024-09-05 21:15:50 UTC : 2025-10-09 08:04:55 UTC            0 A    \0\$_ORPHAN\$1\Microsoft-DesktopEditions-Layer-Data-VersionInfo-Dynamic-Ge-Beta-Version-EKB-Package~31bf3856ad364e35~amd64~lv-LV~10.0.26100.712.mum
+     8    9b306800   24cae     293 2024-09-05 21:15:52 UTC : 2025-10-09 08:04:55 UTC            0 A    \0\$_ORPHAN\$1\Microsoft-DesktopEditions-Layer-Data-VersionInfo-Dynamic-Ge-Beta-Version-EKB-Package~31bf3856ad364e35~amd64~nb-NO~10.0.26100.712.mum
+     9    2409c000   442b8     293 2024-09-05 21:16:01 UTC : 2025-10-09 08:03:40 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-DNS-Server-Tools-NanoServer-Package~31bf3856ad364e35~amd64~uk-UA~10.0.26100.1457.cat
+     a    2409c400   442b9     293 2024-09-05 21:15:56 UTC : 2025-10-09 08:03:40 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-DNS-Server-Tools-NanoServer-Package~31bf3856ad364e35~amd64~zh-CN~10.0.26100.1457.cat
+     b    2409c800   442ba     293 2024-09-05 21:15:57 UTC : 2025-10-09 08:03:40 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-DNS-Server-Tools-NanoServer-Package~31bf3856ad364e35~amd64~zh-TW~10.0.26100.1457.cat
+     c    2409cc00   442bb     293 2024-09-05 21:15:46 UTC : 2025-10-09 08:03:40 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-DNS-Server-Tools-NanoServer-Package~31bf3856ad364e35~amd64~~10.0.26100.1742.cat
+     d    d074c000   48d24     293 2024-09-05 21:15:43 UTC : 2025-10-09 08:03:58 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-Spelling-Dictionaries-fr-Package~31bf3856ad364e35~amd64~~10.0.26100.1000.cat
+     e    d074c800   48d26     293 2024-09-05 21:15:43 UTC : 2025-10-09 08:03:58 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-Spelling-Dictionaries-ga-Package~31bf3856ad364e35~amd64~~10.0.26100.1000.cat
+     f    d074cc00   48d27     293 2024-09-05 21:15:43 UTC : 2025-10-09 08:03:58 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-Spelling-Dictionaries-gd-Package~31bf3856ad364e35~amd64~~10.0.26100.1000.cat
+    10    d074b000   48d28     293 2024-09-05 21:15:43 UTC : 2025-10-09 08:03:58 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-Spelling-Dictionaries-gl-Package~31bf3856ad364e35~amd64~~10.0.26100.1000.cat
+    11    d074b800   48d2a     293 2024-09-05 21:15:43 UTC : 2025-10-09 08:03:58 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-Spelling-Dictionaries-gu-Package~31bf3856ad364e35~amd64~~10.0.26100.1000.cat
+    12    d074a000   48d2c     293 2024-09-05 21:15:43 UTC : 2025-10-09 08:03:58 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-Spelling-Dictionaries-ha-latn-Package~31bf3856ad364e35~amd64~~10.0.26100.1000.cat
+    13    d074a400   48d2d     293 2024-09-05 21:15:43 UTC : 2025-10-09 08:03:58 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-Spelling-Dictionaries-he-Package~31bf3856ad364e35~amd64~~10.0.26100.1000.cat
+    14    d074a800   48d2e     293 2024-09-05 21:15:43 UTC : 2025-10-09 08:03:58 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-Spelling-Dictionaries-hi-Package~31bf3856ad364e35~amd64~~10.0.26100.1000.cat
+    15    d074ac00   48d2f     293 2024-09-05 21:15:43 UTC : 2025-10-09 08:03:58 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-Spelling-Dictionaries-hr-Package~31bf3856ad364e35~amd64~~10.0.26100.1000.cat
+    16    d0749000   48d30     293 2024-09-05 21:15:43 UTC : 2025-10-09 08:03:58 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-Spelling-Dictionaries-hu-Package~31bf3856ad364e35~amd64~~10.0.26100.1000.cat
+    17    d0749800   48d32     293 2024-09-05 21:15:43 UTC : 2025-10-09 08:03:58 UTC            0      \0\$_ORPHAN\$1\Microsoft-Windows-Spelling-Dictionaries-hy-Package~31bf3856ad364e35~amd64~~10.0.26100.1000.cat
+    18    d0749c00   48d33   2fe45 2025-10-09 08:14:42 UTC : 2025-10-09 08:24:15 UTC            0 A  D \0\$_ORPHAN\r
+    19    d0749400   48d31   328ab 2025-10-09 08:14:42 UTC : 2025-10-09 08:24:18 UTC            0 A  D \0\$_ORPHAN\r
+    1a    d074bc00   48d2b   328a4 2025-10-09 08:14:42 UTC : 2025-10-09 08:24:18 UTC            0 A  D \0\$_ORPHAN\r
+    1b           0       5       0                     *** :                     ***            0 A  D \1
+    1c   102e06800       2       5 2025-10-09 08:42:46 UTC : 2025-10-09 08:42:46 UTC       46c000 A    \1\$LogFile
+    1d   102e06000       0       5 2025-10-09 08:42:46 UTC : 2025-10-09 08:42:46 UTC         4000 A    \1\$MFT
+    1e   101a7b000       0       5 2025-02-02 23:11:57 UTC : 2025-02-02 23:11:57 UTC         4000 A    \1\$MFT
+    1f   102e06400       1       5 2025-10-09 08:42:46 UTC : 2025-10-09 08:42:46 UTC         1000 A    \1\$MFTMirr
+    20   102e06c00       3       5 2025-10-09 08:42:46 UTC : 2025-10-09 08:42:46 UTC            0 A    \1\$Volume
+    21           0       0       5                     *** :                     ***            0 A  D \1\$_ORPHAN

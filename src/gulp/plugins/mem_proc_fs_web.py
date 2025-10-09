@@ -1,16 +1,17 @@
 """
 MemProcFS Plugin for Gulp
 
-This module provides a plugin for processing MemProcFS files timeline_*.txt logs.
+This module provides a plugin for processing MemProcFS files web.txt logs.
 """
 
 import aiofiles
-import asyncio
 import muty.time
 import re
 
 from datetime import datetime
 from typing import override, Any, Optional
+
+from muty.log import MutyLogger
 
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.structs import GulpDocument
@@ -22,13 +23,13 @@ from gulp.plugin import (
 )
 
 LOG_PATTERN = re.compile(
-    r"^(?P<date>\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\sUTC)\s+"
-    r"(?P<type>\w+)\s+"
-    r"(?P<action>\w+)\s+"
+    r"^\s*(?P<index>[0-9a-fA-F]+)\s+"
     r"(?P<pid>\d+)\s+"
-    r"(?P<num>\d+)\s+"
-    r"(?P<hex>[0-9a-fA-F]+)\s+"
-    r"(?P<desc>.*)$"
+    r"(?P<date>[\d-]{10}\s+[\d:]{8}\s+UTC)\s+"
+    r"(?P<browser>[A-Z]+)\s+"
+    r"(?P<type>[A-Z]+)\s+"
+    r"(?P<url>.+?)\s+::\s+"
+    r"(?P<info>.+)$"
 )
 
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S %Z"
@@ -45,12 +46,6 @@ class Plugin(GulpPluginBase):
                 desc="encoding to use",
                 default_value="utf-8",
             ),
-            GulpPluginCustomParameter(
-                name="encoding",
-                type="str",
-                desc="encoding to use",
-                default_value="utf-8",
-            ),
         ]
 
     def type(self) -> list[GulpPluginType]:
@@ -61,7 +56,7 @@ class Plugin(GulpPluginBase):
 
     @override
     def desc(self) -> str:
-        return """ingest MemProcFS timeline_*.txt logs inside gulp"""
+        return """ingest MemProcFS web.txt logs inside gulp"""
 
     @override
     async def _record_to_gulp_document(
@@ -77,26 +72,15 @@ class Plugin(GulpPluginBase):
         )
         record["@timestamp"] = ts
         d["@timestamp"] = ts
-        d["agent.type"] = self.display_name()
-
-        # The columns NUM, HEX and DESC have different meaning depending on the type
-        match record["type"]:
-            case "PROC":
-                d["process.parent.pid"] = record["num"]
-                d["gulp.mem_proc_fs.eprocess_address"] = record["hex"]
-            case "NTFS":
-                d["file.size"] = record["num"]
-                d["gulp.mem_proc_fs.mft_record_physical_address"] = record["hex"]
-            case "THREAD":
-                d["thread.id"] = record["num"]
-                d["gulp.mem_proc_fs.ethread_address"] = record["hex"]
-            case "KObj" | "Net":
-                d["gulp.mem_proc_fs.object_address"] = record["hex"]
-
-        d["gulp.mem_proc_fs.desc"] = record["desc"]
-        d["event.category"] = record["type"]
-        d["event.action"] = record["action"]
         d["process.pid"] = record["pid"]
+        d["user_agent.name"] = record["browser"]
+        d["event.action"] = record["type"]
+        d["url.full"] = record["url"]
+        d["gulp.memprocfs.web.info"] = record["info"]
+
+        MutyLogger.get_instance().warning(
+            f"\n\n**********\ninfo: {record["info"]}\nurl: {record["url"]}\n*********\n\n"
+        )
 
         return GulpDocument(
             self,
@@ -110,7 +94,7 @@ class Plugin(GulpPluginBase):
 
     async def _parse_line(self, line: str, idx: int) -> Optional[dict[str, Any]]:
         """
-        parse a MemProcFS timeline rows to extract information and return dict to injest in gulp
+        parse a MemProcFS web rows to extract information and return dict to injest in gulp
         """
 
         match = LOG_PATTERN.match(line)
