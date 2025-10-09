@@ -8,6 +8,7 @@ status code, and bytes sent.
 The plugin supports custom date formatting through the 'date_format' parameter,
 defaulting to '%d/%b/%Y:%H:%M:%S %z'.
 """
+
 import datetime
 import os
 import re
@@ -19,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -44,7 +44,7 @@ class Plugin(GulpPluginBase):
     def regex(self) -> str:
         """regex to identify this format"""
         return None
-    
+
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
@@ -64,14 +64,16 @@ class Plugin(GulpPluginBase):
         # fields = record.split(",")
 
         # TODO: move compile regex outside _record_to_gulp_document (also in apache plugin)
-        regex = "".join([
+        regex = "".join(
+            [
                 r"^(?P<remote_host>(.*)\s)-",
                 r"\s(?P<username>.+)\s",
                 r"\[(?P<timestamp>([^\]])+)\]\s",
                 r"\"(?P<verb>([^ ])+) (?P<path>([^ ])+) (?P<version>[^\"]+)\"",
                 r"\s(?P<status_code>([0-9]+))\s",
-                r"(?P<bytes_sent>([0-9]+))$"
-        ])
+                r"(?P<bytes_sent>([0-9]+))$",
+            ]
+        )
         pattern = re.compile(regex)
         matches = pattern.match(record.strip("\n"))
 
@@ -81,14 +83,13 @@ class Plugin(GulpPluginBase):
             "timestamp": matches["timestamp"],
             "verb": matches["verb"],
             "status_code": matches["status_code"],
-            "bytes_sent": matches["bytes_sent"]
+            "bytes_sent": matches["bytes_sent"],
         }
 
         d = {}
         # map timestamp manually
         time_str = event.get("timestamp")
-        timestamp = datetime.datetime.strptime(
-            time_str, date_format).isoformat()
+        timestamp = datetime.datetime.strptime(time_str, date_format).isoformat()
 
         # map
         for k, v in event.items():
@@ -103,8 +104,7 @@ class Plugin(GulpPluginBase):
             event_original=record,
             event_sequence=record_idx,
             timestamp=timestamp,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
@@ -124,8 +124,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-        **kwargs
- ) -> GulpRequestStatus:
+        **kwargs,
+    ) -> GulpRequestStatus:
 
         try:
             await super().ingest_file(
@@ -150,7 +150,8 @@ class Plugin(GulpPluginBase):
             return GulpRequestStatus.FAILED
 
         date_format = self._plugin_params.custom_parameters.get(
-            "date_format", "%d/%b/%Y:%H:%M:%S %z")
+            "date_format", "%d/%b/%Y:%H:%M:%S %z"
+        )
         doc_idx = 0
         try:
             async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
@@ -160,7 +161,9 @@ class Plugin(GulpPluginBase):
                     # continue
 
                     try:
-                        await self.process_record(l, doc_idx, flt=flt, date_format=date_format)
+                        await self.process_record(
+                            l, doc_idx, flt=flt, date_format=date_format
+                        )
                     except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)

@@ -32,7 +32,6 @@ from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import (
     GulpRequestStats,
     GulpUpdateDocumentsStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -53,9 +52,7 @@ from gulp.api.opensearch.structs import GulpDocument, GulpQueryParameters
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
-    WSDATA_ENRICH_DONE,
     WSDATA_INGEST_SOURCE_DONE,
-    PROGRESS_ENRICH,
     WSDATA_USER_LOGIN,
     WSDATA_USER_LOGOUT,
     GulpDocumentsChunkPacket,
@@ -1204,7 +1201,7 @@ class GulpPluginBase(ABC):
         plugin_params: GulpPluginParameters,
         q_options: GulpQueryParameters = None,
         **kwargs,
-    ) -> tuple[int, int, list[str]]:
+    ) -> tuple[int, int]:
         """
         query an external source, convert results to gulpdocument dictionaries, ingest them and stream them to the websocket.
 
@@ -1224,13 +1221,12 @@ class GulpPluginBase(ABC):
             kwargs: additional keyword arguments
         Notes:
             - implementers must call super().query_external first
-            - this function *MUST NOT* raise exceptions.
 
         Returns:
-            tuple[int, int, list[str]]: total hits, total processed (=total hits unless exception/preview), error messages (if any)
+            tuple[int, int]: total_hits, total_processed (usually equal unless failed records or preview mode)
 
         Raises:
-            ObjectNotFound: if no document is found.
+            any exception encountered during the query
         """
         MutyLogger.get_instance().debug(
             "GulpPluginBase.query_external: q=%s, sess=%s, index=%s, operation_id=%s, q_options=%s, plugin_params=%s, kwargs=%s",
@@ -1259,9 +1255,11 @@ class GulpPluginBase(ABC):
         await self._initialize(plugin_params=plugin_params)
         if q_options.preview_mode:
             self._preview_mode = True
-            MutyLogger.get_instance().warning("external query preview mode enabled !")
+            MutyLogger.get_instance().warning(
+                "***PREVIEW MODE** enabled for external query!"
+            )
 
-        return (0, 0, None)
+        return (0, 0)
 
     async def ingest_raw(
         self,
@@ -1619,7 +1617,7 @@ class GulpPluginBase(ABC):
         """
         ingests a file containing records in the plugin specific format.
 
-        NOTE: this is guaranteed to be called by the gulp API in a worker process, unless preview_mode is set in **kwargs.
+        NOTE: this is guaranteed to be called by the gulp API in a worker process (unless preview_mode is set in plugin_params)
 
         Args:
             sess (AsyncSession): The database session.
@@ -1635,14 +1633,15 @@ class GulpPluginBase(ABC):
             original_file_path (str, optional): the original file path. Defaults to None.
             flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
             plugin_params (GulpPluginParameters, optional): The plugin parameters. Defaults to None.
-            kwargs: additional keyword arguments
-                - preview_mode (bool, optional): whether to ingest in preview mode. Defaults to False.
+            **kwargs: additional keyword arguments
         Returns:
             GulpRequestStatus: The status of the ingestion.
 
+        Raises:
+            any exception encountered during ingestion
+
         Notes:
             - implementers must call super().ingest_file first
-            - this function *MUST NOT* raise exceptions.
         """
         self._sess = sess
         self._stats = stats
@@ -2317,17 +2316,17 @@ class GulpPluginBase(ABC):
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
         **kwargs,
-    ) -> None:
+    ) -> bool:
         """
         Processes a single record by converting it to one or more documents.
 
         the document is then sent to the configured websocket and, if enabled, ingested in the configured opensearch index.
 
         if the record fails processing, it is counted as a failure, the failure counter is updated, and this function
-        returns without further processing and without throwing exceptions.
+        returns without further processing and without throwing exceptions (returns True to indicate processing should continue).
 
         in preview mode, documents are accumulated in self._preview_chunk until the configured number of documents is reached,
-        at which point a PreviewDone exception is raised to stop processing.
+        at which point process_record returns False to indicate that no further records should be processed.
 
         Args:
             record (any): The record to process.
@@ -2336,8 +2335,9 @@ class GulpPluginBase(ABC):
             wait_for_refresh (bool, optional): Whether to wait for a refresh after ingestion. Defaults to False.
             kwargs: additional keyword arguments, they will be passed to plugin's `_record_to_gulp_documennt`
 
+        Returns:
+            bool: True if processing should continue, False if it should stop (i.e. in preview mode and enough documents have been accumulated).
         Raises:
-            PreviewDone: if in preview mode and the number of accumulated documents reaches the configured limit.
             SourceCanceledError: if the per-source failure threshold is reached.
             RequestCanceledError: if the request is canceled.
         """
@@ -2361,7 +2361,7 @@ class GulpPluginBase(ABC):
         except Exception as ex:
             # report failure
             self._record_failed(ex)
-            return
+            return True
 
         self._records_processed_per_chunk += 1
         self._records_processed_total += 1
@@ -2379,16 +2379,20 @@ class GulpPluginBase(ABC):
                 >= GulpConfig.get_instance().preview_mode_num_docs()
             ):
                 # must stop
-                raise PreviewDone("preview done", processed=self._doc_processed)
-
-            # and do nothing else
-            return
+                MutyLogger.get_instance().warning(
+                    "***PREVIEW MODE*** reached %d documents, stopping!",
+                    len(self._preview_chunk),
+                )
+                return False
+            # continue accumulating
+            return True
 
         # add documents to buffer and check if we need to flush
         for d in docs:
             self._docs_buffer.append(d)
             if len(self._docs_buffer) >= ingestion_buffer_size:
                 await self._flush_and_check_thresholds(flt, wait_for_refresh)
+        return True
 
     async def _parse_custom_parameters(self) -> None:
         """
@@ -2953,6 +2957,7 @@ class GulpPluginBase(ABC):
 
             return d["status"]
         except:
+            MutyLogger.get_instance().exception("error updating ingestion stats")
             return GulpRequestStatus.FAILED
 
     def register_internal_events_callback(self, types: list[str] = None) -> None:

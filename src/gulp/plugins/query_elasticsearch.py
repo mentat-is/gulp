@@ -158,7 +158,7 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters,
         q_options: GulpQueryParameters = None,
         **kwargs,
-    ) -> tuple[int, int, str] | tuple[int, list[dict]]:
+    ) -> tuple[int, int]:
         await super().query_external(
             sess,
             stats,

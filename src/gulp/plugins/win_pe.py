@@ -28,7 +28,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -124,9 +123,7 @@ class Plugin(GulpPluginBase):
 
         # apply mappings
         final = {}
-        rec: dict = muty.dict.flatten(
-            d, normalize=pretty, expand_lists=False
-        )
+        rec: dict = muty.dict.flatten(d, normalize=pretty, expand_lists=False)
         for k, v in rec.items():
             if isinstance(v, bytes):
                 v = v.encode(encoding)
@@ -207,7 +204,7 @@ class Plugin(GulpPluginBase):
         keep_files: bool = self._plugin_params.custom_parameters.get("keep_files")
         keep_warnings: bool = self._plugin_params.custom_parameters.get("keep_warnings")
         encoding: str = self._plugin_params.custom_parameters.get("encoding")
-        
+
         doc_idx = 0
         try:
             with pefile.PE(file_path) as pe:
@@ -220,7 +217,7 @@ class Plugin(GulpPluginBase):
                         entropy_checks=entropy_check,
                         keep_files=keep_files,
                         keep_warnings=keep_warnings,
-                        encoding=encoding
+                        encoding=encoding,
                     )
                 except (RequestCanceledError, SourceCanceledError) as ex:
                     MutyLogger.get_instance().exception(ex)

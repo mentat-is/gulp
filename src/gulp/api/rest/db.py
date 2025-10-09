@@ -41,7 +41,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import PROGRESS_REBASE, WSDATA_REBASE_DONE, GulpWsSharedQueue
+from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.process import GulpProcess
 from sqlalchemy.ext.asyncio import AsyncSession

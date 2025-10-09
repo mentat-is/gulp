@@ -16,6 +16,7 @@ Features:
 The plugin normalizes field names and values for consistent indexing and provides
 configurable decoding of message parts.
 """
+
 import email
 import os
 from email.message import Message
@@ -32,7 +33,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )

@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -234,19 +233,18 @@ class Plugin(GulpPluginBase):
             # init parser
             parser = PyEvtxParser(file_path)
         except Exception as ex:
-            return await self._source_done(flt, ex)
+            await self._source_done(flt, ex)
+            raise
 
-        doc_idx = 0
+        doc_idx: int = 0
         try:
             for rr in parser.records_json():
-                try:
-                    await self.process_record(rr, doc_idx, flt=flt)
-                except (RequestCanceledError, SourceCanceledError) as ex:
-                    raise
-                except PreviewDone:
-                    # preview done, stop processing
+                if not await self.process_record(rr, doc_idx, flt=flt):
+                    # signal to stop processing (preview mode)
                     break
                 doc_idx += 1
             return await self._source_done(flt)
         except Exception as ex:
-            return await self._source_done(flt, ex)
+            # i.e. parser exception, cannot continue
+            await self._source_done(flt, ex)
+            raise

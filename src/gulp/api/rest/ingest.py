@@ -237,81 +237,72 @@ async def _ingest_file_internal(
     file_total: int = 1,
     delete_after: bool = False,
     **kwargs: Any,
-) -> tuple[GulpRequestStatus, list[dict] | None]:
+) -> tuple[GulpRequestStatus, list[dict]]:
     """
     runs in a worker process to ingest a single file
 
     Returns:
-    tuple[GulpRequestStatus, list[dict]]: the ingestion return status and the preview chunk (if preview_mode)
+    tuple[GulpRequestStatus, list[dict]]: the ingestion return status and the preview chunk (empty if not preview_mode)
     """
     # MutyLogger.get_instance().debug("---> _ingest_file_internal")
-    preview_chunk: list[dict] = []
-    status: GulpRequestStatus = GulpRequestStatus.FAILED
     mod: GulpPluginBase = None
+    if payload.plugin_params.preview_mode:
+        MutyLogger.get_instance().warning(
+            "***PREVIEW MODE*** ingestion for file=%s", file_path
+        )
 
-    try:
-        async with GulpCollab.get_instance().session() as sess:
-            try:
-                status = GulpRequestStatus.DONE
-                stats: GulpRequestStats = None
+    async with GulpCollab.get_instance().session() as sess:
+        try:
+            status = GulpRequestStatus.DONE
+            stats: GulpRequestStats = None
 
-                if payload.plugin_params.preview_mode:
-                    MutyLogger.get_instance().warning(
-                        "PREVIEW MODE, no stats is created on the collab database."
-                    )
-                else:
-                    # create stats
-                    stats = await GulpRequestStats.create_stats(
-                        sess,
-                        req_id,
-                        user_id,
-                        operation_id,
-                        req_type=RequestStatsType.REQUEST_TYPE_INGESTION,
-                        ws_id=ws_id,
-                        data=GulpIngestionStats(source_total=file_total).model_dump(),
-                    )
-
-                # run plugin
-                mod = await GulpPluginBase.load(plugin)
-                status = await mod.ingest_file(
-                    sess=sess,
-                    stats=stats,
-                    req_id=req_id,
+            if not payload.plugin_params.preview_mode:
+                # create stats
+                stats = await GulpRequestStats.create_stats(
+                    sess,
+                    req_id,
+                    user_id,
+                    operation_id,
+                    req_type=RequestStatsType.REQUEST_TYPE_INGESTION,
                     ws_id=ws_id,
-                    user_id=user_id,
-                    index=index,
-                    operation_id=operation_id,
-                    context_id=context_id,
-                    source_id=source_id,
-                    file_path=file_path,
-                    original_file_path=payload.original_file_path,
-                    plugin_params=payload.plugin_params,
-                    flt=payload.flt,
+                    data=GulpIngestionStats(source_total=file_total).model_dump(),
                 )
-                if payload.plugin_params.preview_mode:
-                    # get the accumulated preview chunk and we're done
-                    preview_chunk = deepcopy(mod.preview_chunk())
-                    return status, preview_chunk
 
-                # default mode: broadcast internal event and update source field types
-                await mod.broadcast_ingest_internal_event()
-            except Exception as ex:
-                await sess.rollback()
-                raise
-    except Exception as ex:
-        MutyLogger.get_instance().exception("*** ERROR in _ingest_file_internal!")
-        status = GulpRequestStatus.FAILED
-        if payload.plugin_params.preview_mode:
-            # on preview (sync) raise exception
+            # run plugin
+            mod = await GulpPluginBase.load(plugin)
+            status = await mod.ingest_file(
+                sess=sess,
+                stats=stats,
+                req_id=req_id,
+                ws_id=ws_id,
+                user_id=user_id,
+                index=index,
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+                file_path=file_path,
+                original_file_path=payload.original_file_path,
+                plugin_params=payload.plugin_params,
+                flt=payload.flt,
+            )
+            if payload.plugin_params.preview_mode:
+                # get the accumulated preview chunk and we're done
+                preview_chunk: list[dict] = deepcopy(mod.preview_chunk())
+                return status, preview_chunk
+
+            # default mode: broadcast internal event and update source field types
+            await mod.broadcast_ingest_internal_event()
+            return status, []
+        except:
+            await sess.rollback()
+            status = GulpRequestStatus.FAILED
             raise
-    finally:
-        if mod:
-            await mod.unload()
-        if delete_after:
-            # delete file
-            await muty.file.delete_file_or_dir_async(file_path)
-
-    return status, preview_chunk
+        finally:
+            if mod:
+                await mod.unload()
+            if delete_after:
+                # delete file
+                await muty.file.delete_file_or_dir_async(file_path)
 
 
 async def run_ingest_file_task(t: GulpTask):
@@ -327,7 +318,12 @@ async def run_ingest_file_task(t: GulpTask):
     # MutyLogger.get_instance().debug(
     #     "run_ingest_file_task, t=%s", t)
     # )
-    await _ingest_file_internal(**ingest_args)
+    try:
+        await _ingest_file_internal(**ingest_args)
+    except:
+        MutyLogger.get_instance().exception(
+            "***ERROR*** in run_ingest_file_task, task=%s", t
+        )
 
 
 async def _preview_or_enqueue_ingest_task(

@@ -669,5 +669,6 @@ async def sigmas_to_queries(
                 #     req_id=req_id,
                 #     d=p.model_dump(exclude_none=True),
                 # )
+                pass
 
     return gulp_queries

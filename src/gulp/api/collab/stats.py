@@ -4,7 +4,6 @@ The stats module provides functionality for tracking and managing request statis
 This module defines classes for managing collaborative request statistics, including:
 - RequestCanceledError: Raised when a request is aborted
 - SourceCanceledError: Raised when a source is aborted
-- PreviewDone: Raised when a preview is completed during ingestion
 - GulpRequestStats: Main class for tracking statistics of ingestion operations
 
 GulpRequestStats maintains metrics such as processed/failed sources, processed/ingested records,
@@ -78,23 +77,6 @@ class RequestStatsType(StrEnum):
     REQUEST_TYPE_ENRICHMENT = "enrich"
     REQUEST_TYPE_REBASE = "rebase"
     REQUEST_TYPE_GENERIC = "generic"
-
-
-class PreviewDone(Exception):
-    """
-    Raised when a preview is done on ingestion
-    """
-
-    def __init__(self, message: str, processed: int = 0):
-        """
-        Initialize the PreviewDone exception.
-
-        Args:
-            message (str): The message describing the preview completion.
-            processed (int, optional): The number of records processed in the preview. Defaults to 0.
-        """
-        super().__init__(message)
-        self.processed = processed
 
 
 class GulpIngestionStats(BaseModel):

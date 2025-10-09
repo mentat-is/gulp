@@ -70,7 +70,7 @@ from gulp.api.ws_api import (
     WsQueueFullException,
 )
 from gulp.config import GulpConfig
-from gulp.plugin import GulpPluginBase, PreviewDone
+from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -484,10 +484,10 @@ async def _worker_coro(kwds: dict) -> None:
                 # send progress packet to the websocket every 100 queries
                 wsq = GulpWsSharedQueue.get_instance()
                 await wsq.put(
-                    t="TOREMOVEprogress"
+                    t="TOREMOVEprogress",
                     ws_id=ws_id,
                     user_id=user_id,
-                    req_id=req_id,                    
+                    req_id=req_id,
                 )
                 MutyLogger.get_instance().debug(
                     "processed %d queries, total=%d, total_matches=%d"
@@ -529,11 +529,11 @@ async def _worker_coro(kwds: dict) -> None:
         # TODO:send progress packet (done) to the websocket
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
-            t="TOREMOVE"
+            t="TOREMOVE",
             ws_id=ws_id,
             user_id=user_id,
             req_id=req_id,
-            #d=p.model_dump(exclude_none=True),
+            # d=p.model_dump(exclude_none=True),
         )
 
         # if query groups is set and all queries in the group matched, update note tags and send notification
@@ -595,17 +595,17 @@ async def _preview_query(
     q_options.fields = "*"
     q_options.limit = GulpConfig.get_instance().preview_mode_num_docs()
     MutyLogger.get_instance().debug("running preview query %s" % (q))
-    
+
     mod: GulpPluginBase = None
     total_hits: int = 0
     docs: list[dict] = []
 
     if plugin:
         # this is an external query, load plugin
-        mod = await GulpPluginBase.load(plugin)
         try:
+            mod = await GulpPluginBase.load(plugin)
             # external query
-            await mod.query_external(
+            total_hits, _ = await mod.query_external(
                 sess,
                 stats=None,
                 user_id=None,
@@ -617,19 +617,14 @@ async def _preview_query(
                 plugin_params=plugin_params,
                 q_options=q_options,
             )
-        except Exception as ex:
-            if isinstance(ex, PreviewDone):
-                # preview done
-                docs = mod.preview_chunk()
-                total_hits = len(docs)
-            else:
-                # another exception, raise
-                raise
+            docs = mod.preview_chunk()
+            total_hits = len(docs)
         finally:
-            await mod.unload()
+            if mod:
+                await mod.unload()
     else:
         # standard query
-        total_hits, docs, errors = await GulpOpenSearch.get_instance().search_dsl_sync(
+        total_hits, docs, _ = await GulpOpenSearch.get_instance().search_dsl_sync(
             index, q, q_options, raise_on_error=True
         )
         for d in docs:
@@ -842,7 +837,8 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    try:
+    ##### WIP
+    """try:
         async with GulpCollab.get_instance().session() as sess:
             try:
                 # get operation and check acl
@@ -857,7 +853,8 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                         q=q[0],
                         q_options=q_options,
                         index=op.index,
-                    )
+                    )"""
+
     # try:
     #     async with GulpCollab.get_instance().session() as sess:
     #         try:
@@ -1791,7 +1788,7 @@ async def _write_file_callback(
     q_name: str = None,
     q_group: str = None,
     **kwargs,
-    ) -> list[dict]:
+) -> list[dict]:
     """
     export file callback,  to write each chunk to file
     """

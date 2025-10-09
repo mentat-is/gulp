@@ -25,7 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -311,4 +310,3 @@ class Plugin(GulpPluginBase):
             await self._source_done(flt)
 
         return self._stats_status()
-

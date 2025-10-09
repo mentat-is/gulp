@@ -28,7 +28,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -40,6 +39,7 @@ from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("scapy", ">=2.6.1,<3")
 from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
+
 
 class Plugin(GulpPluginBase):
     def type(self) -> list[GulpPluginType]:

@@ -1,4 +1,3 @@
-
 """
 A plugin for processing and ingesting ZIP files into GULP.
 
@@ -13,6 +12,7 @@ Features:
 - Support for password-protected archives
 - Customizable hashing algorithm
 """
+
 import os
 import datetime
 import hashlib
@@ -29,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -82,8 +81,8 @@ class Plugin(GulpPluginBase):
                 name="keep_files",
                 type="bool",
                 desc="if True, event.original will contain the file extracted from the zip",
-                default_value=False
-            )
+                default_value=False,
+            ),
         ]
 
     def type(self) -> list[GulpPluginType]:
@@ -134,7 +133,8 @@ class Plugin(GulpPluginBase):
         event_code = str()
 
         timestamp = datetime.datetime(
-            *d["date_time"], tzinfo=datetime.timezone.utc).isoformat()
+            *d["date_time"], tzinfo=datetime.timezone.utc
+        ).isoformat()
         d["date_time"] = str(d["date_time"])
 
         # if keep_file is false, discard original files and only keep raw metadata
@@ -157,8 +157,7 @@ class Plugin(GulpPluginBase):
             timestamp=timestamp,
             event_original=event_original,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **final,
         )
 
@@ -178,8 +177,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-        **kwargs 
-        ) -> GulpRequestStatus:
+        **kwargs,
+    ) -> GulpRequestStatus:
         try:
 
             await super().ingest_file(
@@ -214,7 +213,8 @@ class Plugin(GulpPluginBase):
                 for f in z.filelist:
                     try:
                         await self.process_record(
-                            f, doc_idx,
+                            f,
+                            doc_idx,
                             flt=flt,
                             zip=z,
                             file=f,

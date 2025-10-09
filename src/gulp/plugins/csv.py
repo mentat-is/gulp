@@ -36,7 +36,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -65,7 +64,7 @@ class Plugin(GulpPluginBase):
     def regex(self) -> str:
         """regex to identify this format"""
         return None
-    
+
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [

@@ -8,6 +8,7 @@ and message, and converts them into GulpDocument objects for indexing.
 The plugin uses regex patterns to match log entries that may span multiple lines, handling the
 multi-line nature of MySQL error logs appropriately.
 """
+
 import datetime
 import os
 import re
@@ -19,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -95,8 +95,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        **kwargs,
+    ) -> GulpRequestStatus:
         try:
             await super().ingest_file(
                 sess=sess,

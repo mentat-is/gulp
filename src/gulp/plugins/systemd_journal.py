@@ -7,6 +7,7 @@ It extracts information from journal entries and transforms them into structured
 NOTE: This plugin requires the systemd-python package and is not available on Windows or macOS.
 
 """
+
 import datetime
 import os
 from typing import Any, override
@@ -21,8 +22,11 @@ import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
-                                   RequestCanceledError, SourceCanceledError)
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
@@ -68,7 +72,7 @@ class Plugin(GulpPluginBase):
     def regex(self) -> str:
         """regex to identify this format"""
         return "^(\x4c\x50\x4b\x53\x48\x48\x52\x48|LPKSHHRH)"
-    
+
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
@@ -114,8 +118,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        **kwargs,
+    ) -> GulpRequestStatus:
         try:
             plugin_params = self._ensure_plugin_params(
                 plugin_params,
