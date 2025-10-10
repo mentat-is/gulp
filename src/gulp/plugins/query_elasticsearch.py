@@ -213,13 +213,13 @@ class Plugin(GulpPluginBase):
                 # in preview mode, we want to raise the exception
                 raise
 
-            return 0, 0, q_options.name
+            return 0, 0
 
         # query
         q_options.fields = "*"
-        total_count = 0
+        total_hits = 0
         try:
-            total_count, processed, _ = await GulpQueryHelpers.query_raw(
+            total_hits, processed, _ = await GulpQueryHelpers.query_raw(
                 sess=sess,
                 user_id=user_id,
                 req_id=req_id,
@@ -230,21 +230,21 @@ class Plugin(GulpPluginBase):
                 el=cl,
                 callback=self.process_record,
             )
-            if total_count == 0:
+            if total_hits == 0:
                 MutyLogger.get_instance().warning("no results!")
                 if self._preview_mode:
                     return 0, []
 
-                return 0, 0, q_options.name
+                return 0, 0
 
             MutyLogger.get_instance().debug(
                 "elasticsearch/opensearch query done, total=%d, processed=%d!"
-                % (total_count, processed)
+                % (total_hits, processed)
             )
             if self._preview_mode:
-                return total_count, self.preview_chunk()
+                return total_hits, self.preview_chunk()
 
-            return total_count, processed, q_options.name
+            return processed, total_hits
 
         except PreviewDone:
             # preview done before finishing current chunk processing
@@ -257,7 +257,7 @@ class Plugin(GulpPluginBase):
             if self._preview_mode:
                 raise
 
-            return total_count, processed, q_options.name
+            return processed, total_hits
 
         finally:
             # last flush

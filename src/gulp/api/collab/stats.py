@@ -149,6 +149,9 @@ class GulpQueryStats(BaseModel):
         int, Field(description="Total number of hits for this query.")
     ] = 0
     num_queries: Annotated[int, Field(description="Number of queries executed.")] = 1
+    completed_queries: Annotated[
+        int, Field(description="Number of queries completed so far.")
+    ] = 0
     q_group: Annotated[
         Optional[str], Field(description="The query group this query belongs to.")
     ] = None
@@ -248,7 +251,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         ws_id: str = None,
         never_expire: bool = False,
         data: dict = None,
-    ) -> T:
+    ) -> tuple[T, bool]:
         """
         creates (or get an existing) GulpRequestStats object on the collab database
 
@@ -262,7 +265,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             never_expire (bool, optional): If True, the stats will never expire. Defaults to False.
             data (dict, optional): Additional data to store in the stats. Defaults to None.
         Returns:
-            T: The created (or retrieved) stats.
+            tuple[GulpRequestStats, bool]: The created or existing stats object and a boolean indicating if it was created (True) or already existed (False).
         """
 
         MutyLogger.get_instance().debug(
@@ -304,7 +307,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 if time_expire > 0:
                     stats.time_expire = time_expire
                 await stats.update(sess, ws_id=ws_id, user_id=user_id)
-                return stats
+                return stats, False
 
             # create new
             stats = await GulpRequestStats.create_internal(
@@ -323,7 +326,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 data=data,
                 ws_data_type=WSDATA_STATS_CREATE,
             )
-            return stats
+            return stats, True
 
         except Exception as e:
             await sess.rollback()
@@ -628,11 +631,20 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         sess: AsyncSession,
         user_id: str = None,
         ws_id: str = None,
-        total_hits: int = 0,
-        updated: int = 0,
+        hits: int = 0,
+        inc_completed: int = 1,
         errors: list[str] = None,
     ) -> dict:
         """
+        update the query stats
+
+        Args:
+            sess(AsyncSession): collab database session
+            user_id(str, optional): the user id issuing the request (ignored if ws_id is not set)
+            ws_id(str, optional): the websocket id to notify WS_STATS_UPDATE to (ignored if not set)
+            hits(int, optional): number of hits to add. Defaults to 0.
+            inc_completed(int, optional): number of completed queries to add. Defaults to 1.
+            errors(list[str], optional): list of errors to add. Defaults to None.
         Returns:
             dict: the updated stats
         """
@@ -646,15 +658,40 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 for e in errors:
                     if e not in errs:
                         errs.append(e)
-            d: GulpUpdateDocumentsStats = (
-                GulpUpdateDocumentsStats.model_validate(self.data)
-                or GulpUpdateDocumentsStats()
+            d: GulpQueryStats = (
+                GulpQueryStats.model_validate(self.data) or GulpQueryStats()
             )
-            d.updated += updated
-            d.total_hits = total_hits
-            if flt:
-                d.flt = GulpQueryFilter.model_validate(flt.model_dump())
+
+            d.total_hits += hits
             d.errors.extend(errs)
+            if inc_completed:
+                # some queries completed
+                d.completed_queries += inc_completed
+                MutyLogger.get_instance().info(
+                    "**QUERY REQ=%s completed=%d/%d**, current hits=%d",
+                    self.id,
+                    d.completed_queries,
+                    d.num_queries,
+                    d.total_hits,
+                )
+
+            if self.status != GulpRequestStatus.CANCELED.value:
+                # if the query has not been canceled
+                if d.completed_queries >= d.num_queries:
+                    # the whole req is finished
+                    self.time_finished = muty.time.now_msec()
+                    self.status = (
+                        GulpRequestStatus.DONE.value
+                        if not errs
+                        else GulpRequestStatus.FAILED.value
+                    )
+                    MutyLogger.get_instance().info(
+                        "**QUERY REQ=%s FINISHED** status=%s, elapsed_time=%ds, stats=%s",
+                        self.id,
+                        self.status,
+                        (self.time_finished - self.time_created) // 1000,
+                        self,
+                    )
 
             self.data = d.model_dump()
             return await super().update(

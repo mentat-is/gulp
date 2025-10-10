@@ -143,7 +143,7 @@ async def _rebase_by_query_internal(
         # rebase
         async with GulpCollab.get_instance().session() as sess:
             try:
-                stats = await GulpRequestStats.create_or_get_existing_stats(
+                stats, _ = await GulpRequestStats.create_or_get_existing_stats(
                     sess,
                     req_id,
                     user_id,
@@ -235,17 +235,23 @@ async def _rebase_by_query_internal(
             }
         }
     },
-    summary="rebases documents in-place on the same index using update_by_query.",
+    summary="rebases documents specifying a time offset.",
     description="""
-rebases documents in-place on the same index using update_by_query, shifting timestamps.
+rebases documents `in-place` using `update_by_query`, shifting timestamps.
 
 - `token` needs `ingest` permission.
 - `flt` may be used to filter the documents to rebase.
 
-### tracking progress
+## tracking progress
 
-- during rebase, the `req_id` stats is updated with GulpUpdateDocumentsStats data at every chunk (and sent to `ws_id` websocket)
-- when rebase is done, `WS_DATA_REBASE_DONE` is sent on the websocket with the same GulpUpdateDocumentsStats as wsdata.payload, and broadcasted to all connected websockets
+from the gulp's point of view, the rebase operation is an `enrichment`, so the flow of data on `ws_id` is the same:
+
+- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
+- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
+
+plus, in the end of rebase:
+
+- `WSDATA_REBASE_DONE`: `GulpUpdateDocumentsStats` when rebase is done, broadcasted to all connected websockets
 """,
 )
 async def opensearch_rebase_by_query_handler(

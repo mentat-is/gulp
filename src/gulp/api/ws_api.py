@@ -53,21 +53,12 @@ WSDATA_USER_LOGIN = "user_login"  # GulpUserAccessPacket
 WSDATA_USER_LOGOUT = "user_logout"  # GulpUserAccessPacket
 WSDATA_DOCUMENTS_CHUNK = "docs_chunk"  # GulpDocumentsChunkPacket
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
-WSDATA_REBASE_DONE = (
-    "rebase_done"  # GulpUpdateDocumentsStats, sent when a rebase operation is done
-)
+WSDATA_REBASE_DONE = "rebase_done"  # GulpUpdateDocumentsStats, sent when a rebase operation is done (broadcasted to all websockets)
 WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries
-
-WSDATA_CLIENT_DATA = "client_data"
+WSDATA_CLIENT_DATA = "client_data"  # arbitrary content, to be routed to all connected websockets (used by the ui to communicate with other connected clients with its own protocol)
 WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
-WSDATA_GENERIC = "generic"
-
-# the following data types sent on the websocket are to be used to track status
 WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
 WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
-WSDATA_ENRICH_DONE = "enrich_done"  # this is sent in the end of an enrichment operation
-WSDATA_TAG_DONE = "tag_done"  # this is sent in the end of a tag operation
-
 
 # special token used to monitor also logins
 WSTOKEN_MONITOR = "monitor"
@@ -1371,7 +1362,6 @@ class GulpWsSharedQueue:
             WSDATA_INGEST_SOURCE_DONE,
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,
-            WSDATA_GENERIC,
         }
         self._initialized: bool = True
         self._shared_q: Queue = None

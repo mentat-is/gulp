@@ -2253,7 +2253,7 @@ class GulpOpenSearch:
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         callback: GulpDocumentsChunkCallback = None,
         **kwargs,
-    ) -> tuple[int, int, bool]:
+    ) -> tuple[int, int]:
         """
         Executes a raw DSL query on OpenSearch
 
@@ -2310,7 +2310,6 @@ class GulpOpenSearch:
             if (
                 not total_hits
                 or processed >= total_hits
-                or not q_options.loop
                 or (q_options.total_limit and processed >= q_options.total_limit)
             ):
                 # this is the last chunk

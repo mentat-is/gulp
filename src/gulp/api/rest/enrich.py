@@ -62,19 +62,18 @@ async def _enrich_documents_internal(
     errors: list[str] = []
     total_hits: int = 0
     enriched: int = 0
+    stats: GulpRequestStats
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
-            stats: GulpRequestStats = (
-                await GulpRequestStats.create_or_get_existing_stats(
-                    sess,
-                    req_id,
-                    user_id,
-                    operation_id,
-                    req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
-                    ws_id=ws_id,
-                    data=GulpUpdateDocumentsStats(),
-                )
+            stats, _ = await GulpRequestStats.create_or_get_existing_stats(
+                sess,
+                req_id,
+                user_id,
+                operation_id,
+                req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
+                ws_id=ws_id,
+                data=GulpUpdateDocumentsStats(),
             )
 
             # call plugin
@@ -162,6 +161,14 @@ uses an `enrichment` plugin to augment data in multiple documents.
 - this funciton returns `pending` and the enriched documents are updated in the Gulp `operation_id.index` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
 - `flt.operation_ids` is ignored and set to `[operation_id]`
 - `flt` is provided as a `GulpQueryFilter` to select the documents to enrich.
+
+## tracking progress
+
+during enrichment, the following is sent on the websocket `ws_id`:
+
+- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
+- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
+
 """,
 )
 async def enrich_documents_handler(
@@ -394,19 +401,18 @@ async def _tag_documents_internal(
         "ws_id": ws_id,
     }
     canceled: bool = False
+    stats: GulpRequestStats
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
-            stats: GulpRequestStats = (
-                await GulpRequestStats.create_or_get_existing_stats(
-                    sess,
-                    req_id,
-                    user_id,
-                    operation_id,
-                    req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
-                    ws_id=ws_id,
-                    data=GulpUpdateDocumentsStats(),
-                )
+            stats, _ = await GulpRequestStats.create_or_get_existing_stats(
+                sess,
+                req_id,
+                user_id,
+                operation_id,
+                req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
+                ws_id=ws_id,
+                data=GulpUpdateDocumentsStats(),
             )
             cb_context["stats"] = stats
             enriched, total_hits = await GulpOpenSearch.get_instance().search_dsl(
@@ -485,7 +491,14 @@ Tag important documents, so they can be queried back via `gulp.tags` provided vi
 - token must have the `edit` permission.
 - this funciton returns `pending` and the enriched documents are updated in the Gulp `operation_id.index` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
 - `flt.operation_ids` is ignored and set to `[operation_id]`
-- the enriched documents are updated in the Gulp `index`.
+
+## tracking progress
+
+Tagging is an `enrichment`, from gulp's point of view: so, the flow on `ws_id` is the same as the `enrich_documents` API.
+
+- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
+- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
+
 """,
 )
 async def tag_documents_handler(

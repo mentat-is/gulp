@@ -136,7 +136,7 @@ class WsIngestRawWorker:
                     prev_user_id = packet.user_id
                     if not stats:
                         # first iteration, create a stats that never expire
-                        stats: GulpRequestStats = await GulpRequestStats.create_or_get_existing_stats(
+                        stats, _ = await GulpRequestStats.create_or_get_existing_stats(
                             sess=sess,
                             req_id=packet.dict_data.req_id,
                             user_id=packet.user_id,

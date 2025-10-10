@@ -1223,8 +1223,9 @@ class GulpPluginBase(ABC):
             - implementers must call super().query_external first
 
         Returns:
-            tuple[int, int]: total_hits, total_processed (usually equal unless failed records or preview mode)
-
+            tuple:
+            - total_processed (int): The number of documents processed (unless limit, preview mode or errors this will be equal to total_hits).
+            - total_hits (int): The total number of hits found.
         Raises:
             any exception encountered during the query
         """

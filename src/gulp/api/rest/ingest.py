@@ -258,7 +258,7 @@ async def _ingest_file_internal(
 
             if not payload.plugin_params.preview_mode:
                 # create stats
-                stats = await GulpRequestStats.create_or_get_existing_stats(
+                stats, _ = await GulpRequestStats.create_or_get_existing_stats(
                     sess,
                     req_id,
                     user_id,
@@ -441,14 +441,23 @@ to resume file, the uploader must then forge a request (as in the example above)
 
 once the upload is complete, the API will return a `pending` response and processing will start in the background.
 
+### response
+
+this function returns the following:
+
+- `status=error`, http status code `206` if the upload is incomplete (see above)
+- `status=pending, http status code `200` if the upload is complete and the ingestion task has been enqueued
+- `status=success`, http status code `200` if the upload is complete and `preview_mode` is set, with `data` set to the preview chunk of documents
+
 ### tracking progress
 
-once the file upload is complete, this function returns a `pending` response and the following will be sent on the `ws_id` websocket during ingestion processing:
+during ingesstion, the following is the flow on data on the websocket `ws_id`:
 
-- `WSDATA_STATS_CREATE`: `GulpRequestStats` object with initial `GulpIngestionStats` (at start)
-- `WSDATA_STATS_UPDATE`: `GulpRequestStats` object with updated `GulpIngestionStats` (once every `ingestion_buffer_size` documents)
-- `WSDATA_DOCUMENTS_CHUNK`: `GulpDocumentsChunkPacket` with the actual chunk of ingested `GulpDocuments` (once every `ingestion_buffer_size` documents)
-- `WSDATA_INGEST_SOURCE_DONE`: `GulpIngestSourceDonePacket` when the ingestion is done
+- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpIngestionStats` (at start)
+- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpIngestionStats` (once every `ingestion_buffer_size` documents)
+- `WSDATA_COLLAB_CREATE`: data=`GulpContext`/`GulpSource`, when they are created on the collab database (if they do not exist yet)
+- `WSDATA_DOCUMENTS_CHUNK`: `GulpDocumentsChunkPacket`, the actual chunk of ingested `GulpDocuments` (once every `ingestion_buffer_size` documents)
+- `WSDATA_INGEST_SOURCE_DONE`: `GulpIngestSourceDonePacket`, when the ingestion is done
 """,
     summary="ingest file using the specified plugin.",
     openapi_extra={

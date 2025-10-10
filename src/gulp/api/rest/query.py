@@ -692,15 +692,37 @@ async def _query_raw_internal(
     pass
 
 
-async def _run_query() -> tuple[int, str, Exception]:
+async def _run_query(user_id: str,
+    req_id: str,
+    operation_id: str,
+    ws_id: str,
+    queries: list[GulpQuery],
+    num_total_queries: int,
+    q_options: GulpQueryParameters,
+    index: str = None,
+    plugin: str = None,
+    plugin_params: GulpPluginParameters = None,
+) -> tuple[int, str]:
     """
-    runs a single query and returns the results.
+    runs a single query in a worker process and wait for the result.
+    """
+    total_hits: int = 0
+    total_processed: int = 0    
+    mod: GulpPluginBase = None
 
-    Returns:
-        tuple[int, str, Exception]: total hits, query name, exception if any
-    """
-    pass
-async def process_queries(
+    try:
+        if plugin:
+            # external query, load plugin (it is guaranteed to be the same for all queries)
+            mod = await GulpPluginBase.load(plugin)
+            total_processed, total_hits = await mod.query_external()
+        else:
+            # raw gulp query
+    finally:
+        if mod:
+            await mod.unload()
+    return total_hits, total_processed
+
+async def process_query_batch(
     user_id: str,
     req_id: str,
     operation_id: str,
@@ -713,50 +735,80 @@ async def process_queries(
     plugin_params: GulpPluginParameters = None,
     write_history: bool = True,
 ) -> None:
-    """ """
-    try:
-        #1 
-        async with GulpCollab.get_instance().session() as sess:
-            try:
-                stats = await GulpRequestStats.create_or_get_existing_stats(
-                    sess,
-                    req_id,
-                    user_id,
-                    operation_id,
-                    req_type=RequestStatsType.REQUEST_TYPE_EXTERNAL_QUERY if plugin else RequestStatsType.REQUEST_TYPE_QUERY,
-                    ws_id=ws_id,
-                    data=GulpIngestionStats() if plugin else GulpQueryStats(num_queries=num_total_queries, q_group=q_options.group)
-                )
-            
-        # 2. batch queries in configured batch size
-        batch_size: int = GulpConfig.get_instance().concurrency_max_tasks()
-        for i in range(0, len(queries), batch_size):
-            batch = queries[i : i + batch_size]
-            MutyLogger.get_instance().debug(
-                "processing queries batch %d/%d, size of batch=%d",
-                i // batch_size + 1,
-                (len(queries) + batch_size - 1) // batch_size,
-                len(batch),
+    """ 
+    runs in a background task and spawns workers to process the query batch.
+    if plugin is set, queries size is always 1 (external query)
+    """
+    l: int = len(queries)
+    stats: GulpRequestStats = None
+    async with GulpCollab.get_instance().session() as sess:
+        try:
+            # create a stats, or get it if it doesn't exist yet
+            stats, created = await GulpRequestStats.create_or_get_existing_stats(
+                sess,
+                req_id,
+                user_id,
+                operation_id,
+                req_type=RequestStatsType.REQUEST_TYPE_EXTERNAL_QUERY if plugin else RequestStatsType.REQUEST_TYPE_QUERY,
+                ws_id=ws_id,
+                data=GulpIngestionStats() if plugin else GulpQueryStats(num_queries=num_total_queries, q_group=q_options.group)
             )
-            if write_history:
-                # add each query in the batch to user history
-                async with GulpCollab.get_instance().session() as sess:
-                    try:
-                        for gq in batch:
-                            await GulpUser.add_query_history_entry(
-                                sess,
-                                gq.q,
-                                q_options=q_options,
-                                sigma_yml=gq.sigma_yml,
-                                external=True if plugin else False,
-                                plugin=plugin,
-                                plugin_params=plugin_params,
-                            )
-                    except:
-                        await sess.rollback()
-                        raise
-    finally:
-        pass
+
+            # spawn a worker for each query and wait them all
+            batch_size = len(queries)
+            if len(queries) > GulpConfig.get_instance().concurrency_max_tasks():
+                # sub-batching
+                batch_size = GulpConfig.get_instance().concurrency_max_tasks()
+            
+            for i in range(0, l, batch_size):
+                batch = queries[i : i + batch_size]
+                coros = []
+                for q in batch:
+                    coros.append(_run_query(
+                        user_id=user_id,
+                        req_id=req_id,
+                        operation_id=operation_id,
+                        ws_id=ws_id,
+                        queries=[q],
+                        num_total_queries=num_total_queries,
+                        q_options=q_options,
+                        index=index,
+                        plugin=plugin,
+                        plugin_params=plugin_params
+                    ))
+
+        except:
+            await sess.rollback()
+            raise
+    #     # 2. batch queries in configured batch size
+    #     batch_size: int = GulpConfig.get_instance().concurrency_max_tasks()
+    #     for i in range(0, len(queries), batch_size):
+    #         batch = queries[i : i + batch_size]
+    #         MutyLogger.get_instance().debug(
+    #             "processing queries batch %d/%d, size of batch=%d",
+    #             i // batch_size + 1,
+    #             (len(queries) + batch_size - 1) // batch_size,
+    #             len(batch),
+    #         )
+    #         if write_history:
+    #             # add each query in the batch to user history
+    #             async with GulpCollab.get_instance().session() as sess:
+    #                 try:
+    #                     for gq in batch:
+    #                         await GulpUser.add_query_history_entry(
+    #                             sess,
+    #                             gq.q,
+    #                             q_options=q_options,
+    #                             sigma_yml=gq.sigma_yml,
+    #                             external=True if plugin else False,
+    #                             plugin=plugin,
+    #                             plugin_params=plugin_params,
+    #                         )
+    #                 except:
+    #                     await sess.rollback()
+    #                     raise
+    # finally:
+    #     pass
 
 
 async def _preview_query(
@@ -861,28 +913,18 @@ query Gulp with a raw OpenSearch DSL query.
 
 - this API returns `pending` and results are streamed to the `ws_id` websocket (unless `q_options.preview_mode` is set, read later).
 - `q` must be one or more queries with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
-- if `q_options.q_group` is set, `WSDATA_QUERY_GROUP_MATCH` packet is sent on the websocket in the end.
-- also, if `q_options.note_parameters.create_notes` is set, notes are created for each query match, with tags containing the query name (and group name if set and all queries in the group matched)
+- if `q_options.create_notes` is set, notes are created for each query match: each note `tags` will include `q_options.name` and, if set, `q_options.group` if all queries in `q` matches.
 - if `q_options.preview_mode` is set, this API takes the first query in the `q` array and the data is returned directly without using the websocket.
 
-## tracking query progresses
+## tracking progress
 
-during query, the following data is sent on the websocket `ws_id`:
+during `raw_query, the flow of data on `ws_id` is the following:
 
-- WSDATA_QUERY_DONE (GulpQueryDonePacket) for each query in `q`
-- WSDATA_QUERY_GROUP_MATCH (GulpQueryGroupMatchPacket) if `q_options.q_group` is set
-
-when converting sigma rules, `msg` is set to `sigma_conversion_progress` and `sigma_conversion_done`:
-
-- `total` is the total number of sigma rules to convert
-- `current` is the number of sigma rules converted so far
-- `generated_q` is the number of successfully converted queries
-
-when running queries, `msg` is set to `query_batch_progress` and `query_batch_done`:
-
-- `total` is the total number of queries to run
-- `current` is the number of queries run so far
-- `total_matches` is the total number of document matches so far
+- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpQueryStats` (at start)
+- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpQueryStats` (once every `q_options.limit` documents, default=1000)
+- `WSDATA_DOCUMENTS_CHUNK`: `GulpDocumentsChunkPacket` on each documents chunk retrieved
+- `WSDATA_QUERY_DONE`: `GulpIngestSourceDonePacket` when each query in `q` is done
+- `WSDATA_QUERY_GROUP_MATCH`: `GulpQueryGroupMatchPacket` if `q_options.q_group` is set and all queries in `q` matches.
 """,
 )
 async def query_raw_handler(
@@ -935,7 +977,6 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 queries: list[GulpQuery] = []
                 count: int = 0
                 for qq in q:
-                    # build query
                     gq = GulpQuery(
                         name="%s-%d" % (q_options.name, count),
                         q=qq,
@@ -944,8 +985,8 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                     queries.append(gq)
 
                 # run a background task (will batch queries, spawn workers, gather results)
-                coro = process_queries(
-                    user_id, req_id, operation_id, ws_id, queries, q_options
+                coro = process_query_batch(
+                    user_id, req_id, operation_id, ws_id, queries, len(queries)
                 )
                 GulpRestServer.get_instance().spawn_bg_task(coro)
 
@@ -1191,6 +1232,15 @@ queries an external source using the target source query language, ingesting dat
 - token must have `ingest` permission (unless `q_options.preview_mode` is set).
 - if `q_options.preview_mode` is set, this API only accepts a single query in the `q` array and the data is returned directly without using the websocket.
 - `q` runs in a task in one of the worker processes, unless `preview_mode` is set.
+
+## tracking progress
+
+during `external query` (which, from the gulp's side, is an `ingestion`), the flow of data on `ws_id` is the same as for `ingest_file` API.
+
+- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpIngestionStats` (at start)
+- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpIngestionStats` (once every `q_options.limit` documents, default=1000)
+- `WSDATA_DOCUMENTS_CHUNK`: `GulpDocumentsChunkPacket` on each documents chunk retrieved and ingested
+- `WSDATA_INGEST_SOURCE_DONE`: `GulpIngestSourceDonePacket` when the query is done
 """,
 )
 async def query_external_handler(
@@ -1261,7 +1311,7 @@ async def query_external_handler(
 
                 # run a background task (will batch queries, spawn workers, gather results)
                 queries: list[GulpQuery] = [GulpQuery(name=q_options.name, q=q)]
-                coro = process_queries(
+                coro = process_query_batch(
                     user_id, req_id, operation_id, ws_id, queries, 1, q_options,
                     index=index, plugin=plugin, plugin_params=plugin_params
                 )
