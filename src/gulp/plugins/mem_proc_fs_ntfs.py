@@ -1,7 +1,7 @@
 """
 MemProcFS Plugin for Gulp
 
-This module provides a plugin for processing MemProcFS files timeline_*.txt logs.
+This module provides a plugin for processing MemProcFS files ntfs_files.txt logs.
 """
 
 import aiofiles
@@ -10,6 +10,8 @@ import re
 
 from datetime import datetime
 from typing import override, Any, Optional
+
+from muty.log import MutyLogger
 
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.structs import GulpDocument
@@ -21,13 +23,15 @@ from gulp.plugin import (
 )
 
 LOG_PATTERN = re.compile(
-    r"^(?P<date>\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\sUTC)\s+"
-    r"(?P<type>\w+)\s+"
-    r"(?P<action>\w+)\s+"
-    r"(?P<pid>\d+)\s+"
-    r"(?P<num>\d+)\s+"
-    r"(?P<hex>[0-9a-fA-F]+)\s+"
-    r"(?P<desc>.*)$"
+    r"^\s*(?P<index>[0-9a-fA-F]+)\s+"
+    r"(?P<phys_addr>[0-9a-fA-F]+)\s+"
+    r"(?P<recid>[0-9a-fA-F]+)\s+"
+    r"(?P<parent>[0-9a-fA-F]+)\s+"
+    r"(?P<date_created>[\d-]{10}\s+[\d:]{8}\s+UTC|\s*\*{3})\s+:\s+"
+    r"(?P<date_modified>[\d-]{10}\s+[\d:]{8}\s+UTC|\s*\*{3})\s+"
+    r"(?P<size>[0-9a-fA-F]+)\s+"
+    r"(?P<flag>([A-Z]\s+[A-Z])|([A-Z])|(\s+))\s+"
+    r"(?P<path>.+)$"
 )
 
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S %Z"
@@ -54,7 +58,7 @@ class Plugin(GulpPluginBase):
 
     @override
     def desc(self) -> str:
-        return """ingest MemProcFS timeline_*.txt logs inside gulp"""
+        return """ingest MemProcFS ntfs_files.txt logs inside gulp"""
 
     @override
     async def _record_to_gulp_document(
@@ -64,32 +68,17 @@ class Plugin(GulpPluginBase):
         create a new GulpDocument to ingest
         """
         d = {}
-        event_original = record["__line__"]
-        ts = muty.time.datetime_to_nanos_from_unix_epoch(
-            datetime.strptime(record["date"], DATE_FORMAT)
-        )
-        record["@timestamp"] = ts
-        d["@timestamp"] = ts
-        d["agent.type"] = self.display_name()
-
-        # The columns NUM, HEX and DESC have different meaning depending on the type
-        match record["type"]:
-            case "PROC":
-                d["process.parent.pid"] = record["num"]
-                d["gulp.mem_proc_fs.eprocess_address"] = record["hex"]
-            case "NTFS":
-                d["file.size"] = record["num"]
-                d["gulp.mem_proc_fs.mft_record_physical_address"] = record["hex"]
-            case "THREAD":
-                d["thread.id"] = record["num"]
-                d["gulp.mem_proc_fs.ethread_address"] = record["hex"]
-            case "KObj" | "Net":
-                d["gulp.mem_proc_fs.object_address"] = record["hex"]
-
-        d["gulp.mem_proc_fs.desc"] = record["desc"]
-        d["event.category"] = record["type"]
-        d["event.action"] = record["action"]
-        d["process.pid"] = record["pid"]
+        event_original = record.pop("__line__")
+        time = record.pop("timestamp")
+        d["@timestamp"] = time
+        for k, v in record.items():
+            try:
+                mapped = await self._process_key(k, v, d, **kwargs)
+                d.update(mapped)
+            except Exception as ex:
+                MutyLogger.get_instance().warning(
+                    f"cannot map {k} with value: {v} inside GulpDocument, error: {ex}"
+                )
 
         return GulpDocument(
             self,
@@ -103,7 +92,7 @@ class Plugin(GulpPluginBase):
 
     async def _parse_line(self, line: str, idx: int) -> Optional[dict[str, Any]]:
         """
-        parse a MemProcFS timeline rows to extract information and return dict to injest in gulp
+        parse a MemProcFS web rows to extract information and return dict to injest in gulp
         """
 
         match = LOG_PATTERN.match(line)
@@ -137,6 +126,10 @@ class Plugin(GulpPluginBase):
             if not plugin_params:
                 plugin_params = GulpPluginParameters()
 
+            plugin_params = self._ensure_plugin_params(
+                plugin_params, mapping_file="mem_proc_fs.json", mapping_id="ntfs"
+            )
+
             await super().ingest_file(
                 sess,
                 stats,
@@ -167,10 +160,37 @@ class Plugin(GulpPluginBase):
                     if not row:
                         continue
                     row = row.strip()
-                    record = await self._parse_line(row, doc_idx)
-                    if record:
+                    try:
+                        record = await self._parse_line(row, doc_idx)
+                        if not record or (
+                            "date_created" not in record
+                            and "date_modified" not in record
+                        ):
+                            continue
+                        if "date_created" in record and record["date_created"]:
+                            ts = muty.time.datetime_to_nanos_from_unix_epoch(
+                                datetime.strptime(
+                                    record.pop("date_created"), DATE_FORMAT
+                                )
+                            )
+                            record["timestamp"] = ts
+                        elif "date_modified" in record and record["date_modified"]:
+                            ts_modified = ts = (
+                                muty.time.datetime_to_nanos_from_unix_epoch(
+                                    datetime.strptime(
+                                        record.pop("date_modified"), DATE_FORMAT
+                                    )
+                                )
+                            )
+                            if "timestamp" in record and not record["timestamp"]:
+                                record["timestamp"] = ts_modified
+                            else:
+                                record["date_modified"] = ts_modified
                         await self.process_record(record, doc_idx, flt)
                         doc_idx += 1
+                    except:
+                        MutyLogger.get_instance().warning(f"cannot ingest row: {row}")
+                        continue
         except Exception as ex:
             await self._source_failed(ex)
         finally:
