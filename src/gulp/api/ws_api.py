@@ -323,11 +323,21 @@ class GulpQueryGroupMatchPacket(BaseModel):
             ]
         }
     )
-    q_group: Annotated[str, Field(description="The query group name.")]
-    q_matched: Annotated[int, Field(description="The number of queries that matched.")]
-    q_total: Annotated[
-        int, Field(description="The total number of queries in the group.")
-    ]
+    group: Annotated[str, Field(description="The query group name.")]
+    color: Annotated[
+        Optional[str],
+        Field(
+            None,
+            description="The color associated with the query group, if any.",
+        ),
+    ] = None
+    glyph_id: Annotated[
+        Optional[str],
+        Field(
+            None,
+            description="The glyph associated with the query group, if any.",
+        ),
+    ] = None
 
 
 class GulpQueryDonePacket(BaseModel):

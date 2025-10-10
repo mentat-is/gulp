@@ -69,13 +69,13 @@ async def link_create_handler(
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     doc_id_from: Annotated[str, Query(description="the source document ID.")],
     doc_ids: Annotated[list[str], Body(description="One or more target document IDs.")],
-    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[str, Depends(APIDependencies.param_description)] = None,
-    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private)] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    name: Annotated[str, Depends(APIDependencies.param_display_name)],
+    description: Annotated[str, Depends(APIDependencies.param_description)],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
+    color: Annotated[str, Depends(APIDependencies.param_color)],
+    private: Annotated[bool, Depends(APIDependencies.param_private)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -143,15 +143,15 @@ async def link_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    name: Annotated[str, Depends(APIDependencies.param_name)],
+    description: Annotated[str, Depends(APIDependencies.param_description)],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
+    color: Annotated[str, Depends(APIDependencies.param_color)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     doc_ids: Annotated[
         list[str], Body(description="One or more target document IDs.")
     ] = None,
-    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[str, Depends(APIDependencies.param_description)] = None,
-    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
@@ -227,7 +227,7 @@ async def link_delete_handler(
         Depends(APIDependencies.param_operation_id),
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -267,7 +267,7 @@ async def link_delete_handler(
 async def link_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -321,8 +321,8 @@ async def link_list_handler(
         str,
         Depends(APIDependencies.param_operation_id),
     ],
-    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)

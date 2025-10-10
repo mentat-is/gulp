@@ -1024,9 +1024,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user_session import GulpUserSession
         from gulp.api.collab_api import GulpCollab
 
-        sess: AsyncSession = None
-        try:
-            async with GulpCollab.get_instance().session() as sess:
+        async with GulpCollab.get_instance().session() as sess:
+            try:
                 if not permission:
                     permission = [GulpUserPermission.EDIT]
 
@@ -1069,9 +1068,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 )
                 nn = n.to_dict(exclude_none=True, nested=return_nested)
                 return nn
-        except Exception as e:
-            await sess.rollback()
-            raise e
+            except:
+                await sess.rollback()
+                raise
 
     async def update(
         self,
@@ -1346,8 +1345,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     ws_data_type=ws_data_type,
                     ws_data=ws_data,
                 )
-            except Exception as e:
-                raise e
+            except:
+                raise
 
     async def add_default_grants(self, sess: AsyncSession):
         """
@@ -1965,6 +1964,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 )
 
                 return data
-            except Exception as e:
+            except:
                 await sess.rollback()
-                raise e
+                raise

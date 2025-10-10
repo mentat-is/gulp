@@ -129,7 +129,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         tags: list[str] = None,
         color: str = None,
         glyph_id: str = None,
-        source_q: str = None,
+        q: str = None,
         last: bool = False,
     ) -> int:
         """
@@ -155,6 +155,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             tt = []
 
         if "auto" not in tt:
+            # add "auto" tag if not present
             tt.append("auto")
         if not docs:
             MutyLogger.get_instance().warning("no documents provided, no notes created")
@@ -164,7 +165,8 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         notes: list[dict] = []
         MutyLogger.get_instance().info("creating a bulk of %d notes ..." % len(docs))
         for doc in docs:
-            highlights = doc.pop("highlight", None)
+            # remove highlights from the document, if any
+            highlights: dict = doc.pop("highlight", {})
 
             # use basic fields from the document and builds an associated doc for the note
             associated_doc: dict = {
@@ -183,7 +185,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             }
 
             # build the note text
-            text = ""
+            text: str = ""
             if highlights:
                 # if highlights are present, add highlights to the text
                 text += "### matches\n\n"
@@ -195,7 +197,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 )
 
             text += "\n\n### query:\n\n"
-            text += f"````text\n{str(source_q)}````"
+            text += f"````text\n{str(q)}````"
 
             if doc:
                 # if a document is provided, convert it to a dictionary

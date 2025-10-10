@@ -75,13 +75,13 @@ async def highlight_create_handler(
             description="the time range of the highlight, in nanoseconds from unix epoch."
         ),
     ],
-    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[str, Depends(APIDependencies.param_description)] = None,
-    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private)] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    name: Annotated[str, Depends(APIDependencies.param_name)],
+    description: Annotated[str, Depends(APIDependencies.param_description)],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
+    color: Annotated[str, Depends(APIDependencies.param_color)],
+    private: Annotated[bool, Depends(APIDependencies.param_private)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -149,18 +149,18 @@ async def highlight_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    name: Annotated[str, Depends(APIDependencies.param_name)],
+    description: Annotated[str, Depends(APIDependencies.param_description)],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
+    color: Annotated[str, Depends(APIDependencies.param_color)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     time_range: Annotated[
         tuple[int, int],
         Body(
             description="the time range of the highlight, in nanoseconds from unix epoch."
         ),
     ] = None,
-    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    description: Annotated[str, Depends(APIDependencies.param_description)] = None,
-    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     sess: AsyncSession = None
@@ -234,7 +234,7 @@ async def highlight_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -273,7 +273,7 @@ async def highlight_delete_handler(
 async def highlight_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -327,8 +327,8 @@ async def highlight_list_handler(
         str,
         Depends(APIDependencies.param_operation_id),
     ],
-    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)

@@ -453,11 +453,11 @@ this function returns the following:
 
 during ingesstion, the following is the flow on data on the websocket `ws_id`:
 
-- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpIngestionStats` (at start)
-- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpIngestionStats` (once every `ingestion_buffer_size` documents)
-- `WSDATA_COLLAB_CREATE`: data=`GulpContext`/`GulpSource`, when they are created on the collab database (if they do not exist yet)
-- `WSDATA_DOCUMENTS_CHUNK`: `GulpDocumentsChunkPacket`, the actual chunk of ingested `GulpDocuments` (once every `ingestion_buffer_size` documents)
-- `WSDATA_INGEST_SOURCE_DONE`: `GulpIngestSourceDonePacket`, when the ingestion is done
+- `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpIngestionStats` (at start)
+- `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpIngestionStats` (once every `ingestion_buffer_size` documents)
+- `WSDATA_COLLAB_CREATE`.payload: data=`GulpContext`/`GulpSource`, when they are created on the collab database (if they do not exist yet)
+- `WSDATA_DOCUMENTS_CHUNK`.payload: `GulpDocumentsChunkPacket`, the actual chunk of ingested `GulpDocuments` (once every `ingestion_buffer_size` documents)
+- `WSDATA_INGEST_SOURCE_DONE`.payload: `GulpIngestSourceDonePacket`, when the ingestion is done
 """,
     summary="ingest file using the specified plugin.",
     openapi_extra={

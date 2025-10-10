@@ -67,22 +67,23 @@ async def request_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
-    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            obj: GulpRequestStats = await GulpRequestStats.get_by_id_wrapper(
-                sess,
-                token,
-                obj_id,
-                operation_id=operation_id,
-            )
-            return JSendResponse.success(req_id=req_id, data=obj.to_dict())
+            try:
+                obj: GulpRequestStats = await GulpRequestStats.get_by_id_wrapper(
+                    sess,
+                    token,
+                    obj_id,
+                    operation_id=operation_id,
+                )
+                return JSendResponse.success(req_id=req_id, data=obj.to_dict())
+            except:
+                await sess.rollback()
+                raise
     except Exception as ex:
-        if sess:
-            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -119,6 +120,7 @@ async def request_cancel_handler(
         str, Query(description="request id to cancel.", example="test_req")
     ],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     status: Annotated[
         Literal["canceled", "done", "failed"],
         Query(
@@ -131,38 +133,41 @@ async def request_cancel_handler(
             description="if set, the request expiration time is set to now, so the stats are deleted immediately from the collab database (default is delete in 5 minutes)."
         ),
     ] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
-    sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            obj: GulpRequestStats = await GulpRequestStats.get_by_id_wrapper(
-                sess,
-                token,
-                req_id_to_cancel,
-                operation_id=operation_id,
-                enforce_owner=True,
-            )
-            await obj.cancel(sess, status=status, expire_now=expire_now)
+            try:
+                obj: GulpRequestStats = await GulpRequestStats.get_by_id_wrapper(
+                    sess,
+                    token,
+                    req_id_to_cancel,
+                    operation_id=operation_id,
+                    enforce_owner=True,
+                )
+                await obj.cancel(sess, status=status, expire_now=expire_now)
 
-            # also delete related tasks if any
-            d: int = await GulpTask.delete_by_filter(
-                sess,
-                GulpCollabFilter(
-                    operation_ids=[operation_id], req_id=[req_id_to_cancel]
-                ),
-                throw_if_not_found=False,
-            )
-            MutyLogger.get_instance().debug(
-                "also deleted %d pending tasks for request %s" % (d, req_id_to_cancel)
-            )
+                # also delete related tasks if any
+                d: int = await GulpTask.delete_by_filter(
+                    sess,
+                    GulpCollabFilter(
+                        operation_ids=[operation_id], req_id=[req_id_to_cancel]
+                    ),
+                    throw_if_not_found=False,
+                )
+                MutyLogger.get_instance().debug(
+                    "also deleted %d pending tasks for request %s"
+                    % (d, req_id_to_cancel)
+                )
 
-        return JSendResponse.success(req_id=req_id, data={"id": req_id_to_cancel})
+                return JSendResponse.success(
+                    req_id=req_id, data={"id": req_id_to_cancel}
+                )
+            except:
+                await sess.rollback()
+                raise
     except Exception as ex:
-        if sess:
-            await sess.rollback()
         raise JSendException(req_id=req_id) from ex
 
 
@@ -199,10 +204,10 @@ async def request_set_completed_handler(
         str, Query(description="request id to set completed.", example="test_req")
     ],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     failed: Annotated[
         bool, Query(description="if set, the request is marked as failed.")
     ] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
@@ -245,10 +250,10 @@ get a list of all requests (identified by their `req_id`) issued by the calling 
 async def request_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     running_only: Annotated[
         bool, Query(description="if set, only return requests that are still running.")
     ] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)

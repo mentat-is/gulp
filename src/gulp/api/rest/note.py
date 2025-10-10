@@ -80,6 +80,12 @@ async def note_create_handler(
     text: Annotated[
         str, Body(description="the text of the note.", example="this is a note")
     ],
+    name: Annotated[str, Depends(APIDependencies.param_name)],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
+    color: Annotated[str, Depends(APIDependencies.param_color)],
+    private: Annotated[bool, Depends(APIDependencies.param_private)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     time_pin: Annotated[
         int,
         Query(
@@ -92,12 +98,6 @@ async def note_create_handler(
             description="the document associated with the note, ignored if `time_pin` is set."
         ),
     ] = None,
-    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    private: Annotated[bool, Depends(APIDependencies.param_private)] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     params["doc"] = str(doc) if doc else "None"
@@ -179,6 +179,11 @@ async def note_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    name: Annotated[str, Depends(APIDependencies.param_name)],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
+    color: Annotated[str, Depends(APIDependencies.param_color)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     doc: Annotated[
         GulpBasicDocument,
         Body(description="document associated with the note."),
@@ -192,11 +197,6 @@ async def note_update_handler(
     text: Annotated[
         str, Body(description="note text.", example="the newnote text")
     ] = None,
-    name: Annotated[str, Depends(APIDependencies.param_display_name_optional)] = None,
-    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     params["doc"] = str(doc) if doc else "None"
@@ -244,7 +244,7 @@ async def note_update_handler(
                 p = GulpNoteEdit(
                     user_id=s.user.id, text=text, timestamp=muty.time.now_msec()
                 )
-                current_edits = obj.edits or []
+                current_edits: list[dict] = obj.edits or []
                 current_edits.append(p.model_dump(exclude_none=True))
                 obj.edits = current_edits  # trigger ORM update
                 obj.last_editor_id = s.user.id
@@ -290,7 +290,7 @@ async def note_delete_handler(
         Depends(APIDependencies.param_operation_id),
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -330,7 +330,7 @@ async def note_delete_handler(
 async def note_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
 
@@ -386,8 +386,8 @@ async def note_list_handler(
         str,
         Depends(APIDependencies.param_operation_id),
     ],
-    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)

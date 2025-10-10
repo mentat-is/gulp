@@ -79,26 +79,6 @@ class APIDependencies:
     """
 
     @staticmethod
-    def _strip_or_none(value: Optional[str], lower: bool = True) -> Optional[str]:
-        """
-        Strips a string, or returns None if the string is empty.
-
-        Args:
-            value (Optional[str]): The string to strip.
-            lower (bool, optional): Whether to convert the string to lowercase. Defaults to True.
-
-        Returns:
-            Optional[str]: The stripped string, or None.
-        """
-        if value:
-            v = value.strip()
-            if lower:
-                v = v.lower()
-        else:
-            v = None
-        return v
-
-    @staticmethod
     def _pwd_regex_validator(value: str) -> str:
         """
         Validates a password against the password regex.
@@ -111,6 +91,8 @@ class APIDependencies:
         """
         if GulpConfig.get_instance().debug_allow_insecure_passwords():
             return value
+        if not value:
+            return None
 
         if not re.match(REGEX_CHECK_PASSWORD, value):
             raise ValueError(
@@ -134,12 +116,127 @@ class APIDependencies:
         Returns:
             Optional[str]: The email if it is valid.
         """
-        if value is None:
+        if not value:
             return None
 
         if not bool(re.match(REGEX_CHECK_EMAIL, value)):
             raise ValueError(f"invalid email format: {value}")
         return value
+
+    @staticmethod
+    def param_user_id(
+        user_id: Annotated[
+            str,
+            Query(
+                description="id of an user in the collab database.",
+                example="admin",
+            ),
+        ],
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            user_id (str, Query): The user ID.
+
+        Returns:
+            str: The user ID.
+        """
+        return user_id.lower().strip()
+
+    @staticmethod
+    def param_password(
+        password: Annotated[
+            str,
+            Query(
+                description="""
+the user password.
+
+- 8-64 characters, at least one uppercase, one lowercase, one number, one special character.
+""",
+                example="Password1!",
+            ),
+            AfterValidator(_pwd_regex_validator),
+        ] = None,
+    ) -> str:
+        """
+        password for the user (validated with _pwd_regex_validator).
+
+        NOTE: use config `debug_allow_insecure_passwords` to disable validation (not recommended).
+
+        Args:
+            password (str, Query): The password.
+
+        Returns:
+            str: The password.
+        """
+        return password.strip() if password else None
+
+    @staticmethod
+    def param_permission(
+        permission: Annotated[
+            list[GulpUserPermission],
+            Body(
+                description="""
+one or more user/group permission.
+
+- read: read the object.
+- edit: edit the object.
+- delete: delete the object.
+- ingest: ingest data.
+- **admin: every permission.**
+""",
+                example='["read","edit"]',
+            ),
+        ] = [],
+    ) -> list[GulpUserPermission]:
+        """
+        permission for the user.
+
+        Args:
+            permission (list[GulpUserPermission], Body): The permission. Defaults to None.
+
+        Returns:
+            list[GulpUserPermission]: The permission.
+        """
+        return permission
+
+    @staticmethod
+    def param_email(
+        email: Annotated[
+            str,
+            Query(description="the user email.", example="user@mail.com"),
+            AfterValidator(_email_regex_validator),
+        ] = None,
+    ) -> str:
+        """
+        user email (validated with _email_regex_validator).
+
+        Args:
+            email (str, optional, Query): The email. Defaults to None.
+
+        Returns:
+            str: The email.
+        """
+        return email.strip() if email else None
+
+    @staticmethod
+    def param_group_id(
+        group_id: Annotated[
+            str,
+            Query(description="the usergroup ID", example=ADMINISTRATORS_GROUP_ID),
+        ],
+    ) -> str:
+        """
+        used with fastapi Depends to provide API parameter
+
+        Args:
+            group_id (str, Query): The group ID.
+
+        Returns:
+            str: The object ID.
+        """
+        return group_id.strip()
 
     @staticmethod
     def param_obj_id(
@@ -149,7 +246,7 @@ class APIDependencies:
         ],
     ) -> str:
         """
-        an object id, stripped and lowercased.
+        an object id
 
         Args:
             obj_id (str, Query): The object ID.
@@ -158,7 +255,6 @@ class APIDependencies:
             str: The object ID.
         """
         return obj_id.lower().strip()
-        # return APIDependencies._strip_or_none(obj_id)
 
     @staticmethod
     def param_private(
@@ -319,6 +415,28 @@ id of the websocket to send progress and results during the processing of a requ
         return flt or GulpCollabFilter()
 
     @staticmethod
+    def param_ingestion_flt(
+        flt: Annotated[
+            Optional[GulpIngestionFilter],
+            Body(
+                description="""
+to filter documents by `time_range` during `ingestion`.
+"""
+            ),
+        ] = None,
+    ) -> GulpIngestionFilter:
+        """
+        to filter documents during ingestion.
+
+        Args:
+            flt (GulpIngestionFilter, Body): The ingestion filter. Defaults to empty(no) filter.
+
+        Returns:
+            GulpIngestionFilter: The ingestion filter.
+        """
+        return flt or GulpIngestionFilter()
+
+    @staticmethod
     def param_q_flt(
         flt: Annotated[
             GulpQueryFilter,
@@ -382,7 +500,7 @@ additional parameters for querying, including:
         ],
     ) -> str:
         """
-        used with fastapi Depends to provide API parameter
+        the operation ID
 
         Args:
             operation_id (str, Query): The operation ID.
@@ -390,7 +508,28 @@ additional parameters for querying, including:
         Returns:
             str: The operation ID.
         """
-        return operation_id.strip()
+        return operation_id.lower().strip()
+
+    @staticmethod
+    def param_index(
+        index: Annotated[
+            str,
+            Query(
+                description="the OpenSearch index (usually equal to `operation_id`)",
+                example="test_operation",
+            ),
+        ],
+    ) -> str:
+        """
+        the opensearch index/datastream name
+
+        Args:
+            index (str, Query): The opensearch index.
+
+        Returns:
+            int: The index.
+        """
+        return index.lower().strip()
 
     @staticmethod
     def param_context_id(
@@ -405,7 +544,7 @@ id of a `GulpContext` object on the collab database.
         ],
     ) -> str:
         """
-        used with fastapi Depends to provide API parameter
+        the GulpContext ID
 
         Args:
             context_id (str, Query): The context ID.
@@ -413,7 +552,7 @@ id of a `GulpContext` object on the collab database.
         Returns:
             str: The context ID.
         """
-        return context_id.strip()
+        return context_id.lower().strip()
 
     @staticmethod
     def param_source_id(
@@ -428,8 +567,7 @@ id of a `GulpSource` object on the collab database.
         ],
     ) -> str:
         """
-        used with fastapi Depends to provide API parameter
-
+        the GulpSource ID
 
         Args:
             source_id (str, Query): The source ID.
@@ -437,7 +575,7 @@ id of a `GulpSource` object on the collab database.
         Returns:
             str: The source ID.
         """
-        return source_id.strip()
+        return source_id.lower().strip()
 
     @staticmethod
     def param_plugin(
@@ -450,7 +588,7 @@ id of a `GulpSource` object on the collab database.
         ],
     ) -> str:
         """
-        used with fastapi Depends to provide API parameter
+        the plugin (internal) name: this is the plugin filename without extension.
 
         Args:
             plugin (str, Query): The plugin.
@@ -472,7 +610,7 @@ to customize `mapping` and specific `plugin` parameters.
         ] = None,
     ) -> GulpPluginParameters:
         """
-        used with fastapi Depends to provide API parameter
+        plugin parameters to customize mapping and specific plugin parameters.
 
         Args:
             plugin_params (GulpPluginParameters, Body): The plugin parameters
@@ -482,43 +620,18 @@ to customize `mapping` and specific `plugin` parameters.
         """
         return plugin_params or GulpPluginParameters()
 
-    ############################
-
-    _DESC_OBJ_DISPLAY_NAME = "the object display name."
-    _EXAMPLE_OBJ_DISPLAY_NAME = "object name"
-
     @staticmethod
-    def param_display_name_optional(
-        name: Annotated[
-            Optional[str],
-            Query(
-                description=_DESC_OBJ_DISPLAY_NAME, example=_EXAMPLE_OBJ_DISPLAY_NAME
-            ),
-        ] = None,
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            name (str, optional, Query): The display name. Defaults to None.
-
-        Returns:
-            str: The name.
-        """
-        return APIDependencies._strip_or_none(name, lower=False)
-
-    @staticmethod
-    def param_tags_optional(
+    def param_tags(
         tags: Annotated[
-            Optional[list[str]],
+            list[str],
             Body(
                 description="tags to be assigned to the object.",
                 example='["tag1","tag2"]',
             ),
-        ] = None,
+        ] = [],
     ) -> list[str]:
         """
-        used with fastapi Depends to provide API parameter
+        tags to be assigned to the object
 
         Args:
             tags (list[str], optional, Body): The tags. Defaults to None.
@@ -533,138 +646,7 @@ to customize `mapping` and specific `plugin` parameters.
         return tags or []
 
     @staticmethod
-    def param_color_optional(
-        color: Annotated[
-            Optional[str],
-            Query(
-                description="the color in #rrggbb or css-name format.", example="yellow"
-            ),
-        ] = None,
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            color (str, optional, Query): The color. Defaults to None.
-
-        Returns:
-            str: The color.
-        """
-        return APIDependencies._strip_or_none(color)
-
-    _DESC_PASSWORD = """
-the user password.
-
-- 8-64 characters, at least one uppercase, one lowercase, one number, one special character.
-"""
-    _EXAMPLE_PASSWORD = "Password1!"
-
-    @staticmethod
-    def param_password(
-        password: Annotated[
-            str,
-            Query(description=_DESC_PASSWORD, example=_EXAMPLE_PASSWORD),
-            AfterValidator(_pwd_regex_validator),
-        ],
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            password (str, Query): The password.
-
-        Returns:
-            str: The password.
-        """
-        return APIDependencies._strip_or_none(password, lower=False)
-
-    @staticmethod
-    def param_password_optional(
-        password: Annotated[
-            Optional[str],
-            Query(description=_DESC_PASSWORD, example=_EXAMPLE_PASSWORD),
-            AfterValidator(_pwd_regex_validator),
-        ] = None,
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            password (str, optional, Query): The password. Defaults to None.
-
-        Returns:
-            str: The password.
-        """
-        return APIDependencies._strip_or_none(password, lower=False)
-
-    _DESC_PERMISSION = """
-one or more user permission.
-
-- read: read the object.
-- edit: edit the object.
-- delete: delete the object.
-- ingest: ingest data.
-- **admin: every permission.**
-"""
-    _EXAMPLE_PERMISSION = '["read","edit"]'
-
-    @staticmethod
-    def param_permission_optional(
-        permission: Annotated[
-            Optional[list[GulpUserPermission]],
-            Body(description=_DESC_PERMISSION, example=_EXAMPLE_PERMISSION),
-        ] = None,
-    ) -> list[GulpUserPermission]:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            permission (list[GulpUserPermission], optional, Body): The permission. Defaults to None.
-
-        Returns:
-            list[GulpUserPermission]: The permission.
-        """
-        return permission
-
-    @staticmethod
-    def param_permission(
-        permission: Annotated[
-            list[GulpUserPermission],
-            Body(description=_DESC_PERMISSION, example=_EXAMPLE_PERMISSION),
-        ] = None,
-    ) -> list[GulpUserPermission]:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            permission (list[GulpUserPermission], optional, Body): The permission. Defaults to None.
-
-        Returns:
-            list[GulpUserPermission]: The permission.
-        """
-        return permission
-
-    @staticmethod
-    def param_email_optional(
-        email: Annotated[
-            Optional[str],
-            Query(description="the user email.", example="user@mail.com"),
-            AfterValidator(_email_regex_validator),
-        ] = None,
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            email (str, optional, Query): The email. Defaults to None.
-
-        Returns:
-            str: The email.
-        """
-        return APIDependencies._strip_or_none(email)
-
-    @staticmethod
-    def param_glyph_id_optional(
+    def param_glyph_id(
         glyph_id: Annotated[
             Optional[str],
             Query(
@@ -673,180 +655,33 @@ one or more user permission.
         ] = None,
     ) -> str:
         """
-        used with fastapi Depends to provide API parameter
+        to set the glyph ID.
 
         Args:
-            glyph_id (str, optional, Query): The glyph ID. Defaults to None
+            glyph_id (str, Query): The glyph ID. Defaults to None
 
         Returns:
             str: The glyph ID.
         """
-        return APIDependencies._strip_or_none(glyph_id)
-
-    _DESC_OBJ_ID = "id of an object in the collab database."
-    _EXAMPLE_OBJ_ID = "obj_id"
+        return glyph_id.strip() if glyph_id else None
 
     @staticmethod
-    def param_group_id(
-        group_id: Annotated[
-            str,
-            Query(description="the usergroup ID", example=ADMINISTRATORS_GROUP_ID),
-        ],
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            group_id (str, Query): The group ID.
-
-        Returns:
-            str: The object ID.
-        """
-        return APIDependencies._strip_or_none(group_id)
-
-    @staticmethod
-    def param_object_id_optional(
-        obj_id: Annotated[
+    def param_color(
+        color: Annotated[
             Optional[str],
-            Query(description=_DESC_OBJ_ID, example=_EXAMPLE_OBJ_ID),
-        ] = None,
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            obj_id (str, optional, Query): The object ID. Defaults to None.
-
-        Returns:
-            str: The object ID.
-        """
-        return APIDependencies._strip_or_none(obj_id)
-
-    @staticmethod
-    def param_user_id(
-        user_id: Annotated[
-            str,
             Query(
-                description="id of an user in the collab database.",
-                example="admin",
+                description="the color in #rrggbb or css-name format.",
+                example="#ff0000",
             ),
-        ],
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            user_id (str, Query): The user ID.
-
-        Returns:
-            str: The user ID.
-        """
-        return APIDependencies._strip_or_none(user_id)
-
-    _DESC_INDEX = "the gulp's opensearch index/datastream name."
-    _EXAMPLE_INDEX = "test_operation"
-
-    @staticmethod
-    def param_index(
-        index: Annotated[
-            str,
-            Query(description=_DESC_INDEX, example=_EXAMPLE_INDEX),
-        ],
-    ) -> int:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            index (str, Query): The opensearch index.
-
-        Returns:
-            int: The index.
-        """
-        return APIDependencies._strip_or_none(index)
-
-    @staticmethod
-    def param_index_optional(
-        index: Annotated[
-            Optional[str],
-            Query(description=_DESC_INDEX, example=_EXAMPLE_INDEX),
-        ] = None,
-    ) -> int:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            index (str, optional, Query): The opensearch index. Defaults to None.
-
-        Returns:
-            int: The index.
-        """
-        return APIDependencies._strip_or_none(index)
-
-    _DESC_PLUGIN = """
-the plugin to process the request with.
-
-it must be the `bare filename` of the plugin (`.py`,`.pyc` extension may be omitted).
-"""
-    _EXAMPLE_PLUGIN = "win_evtx"
-
-    @staticmethod
-    def param_plugin_optional(
-        plugin: Annotated[
-            Optional[str],
-            Query(description=_DESC_PLUGIN, example=_EXAMPLE_PLUGIN),
         ] = None,
     ) -> str:
         """
-        used with fastapi Depends to provide API parameter
+        color to set on the object
 
         Args:
-            plugin (str, optional, Query): The plugin. Defaults to None.
+            color (str, Query): The color. Defaults to None.
 
         Returns:
-            str: The plugin.
+            str: The color.
         """
-        return APIDependencies._strip_or_none(plugin)
-
-    @staticmethod
-    def param_ingestion_flt_optional(
-        flt: Annotated[
-            Optional[GulpIngestionFilter],
-            Body(
-                description="""
-to filter documents by `time_range` during `ingestion`.
-"""
-            ),
-        ] = None,
-    ) -> GulpIngestionFilter:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            flt (GulpIngestionFilter, optional, Body): The ingestion filter. Defaults to empty(no) filter.
-
-        Returns:
-            GulpIngestionFilter: The ingestion filter.
-        """
-        return flt or GulpIngestionFilter()
-
-    @staticmethod
-    def param_plugin_params_optional(
-        plugin_params: Annotated[
-            Optional[GulpPluginParameters],
-            Body(
-                description="""
-to customize `mapping` and specific `plugin` parameters.
-"""
-            ),
-        ] = None,
-    ) -> GulpPluginParameters:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            plugin_params (GulpPluginParameters, optional, Body): The plugin parameters. Defaults to default parameters.
-
-        Returns:
-            GulpPluginParameters: The plugin parameters or None if empty
-        """
-        return plugin_params or GulpPluginParameters()
+        return color.strip() if color else None

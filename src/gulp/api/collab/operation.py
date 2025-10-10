@@ -108,6 +108,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         set_default_grants: bool = False,
         fail_if_exists: bool = True,
         index_template: dict = None,
+        operation_data: dict = None,
     ) -> dict:
         """
         creates a new operation with the given name and index.
@@ -124,7 +125,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             set_default_grants (bool, optional): Whether to set grants for default users (guest, admin) for the operation. Defaults to False.
             fail_if_exists (bool, optional): Whether to raise an error if the operation already exists. Defaults to True.
             index_template (dict, optional): The index template to use for creating the index. Defaults to None.
-
+            operation_data (dict, optional): Arbitrary operation data to associate with the operation. Defaults to None.
         Returns:
             dict: The created operation as a dictionary.
 
@@ -174,7 +175,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 granted_user_group_ids=granted_user_group_ids,
                 index=index,
                 obj_id=operation_id,
-                operation_data={},
+                operation_data=operation_data or {},
             )
         except Exception as exx:
             if create_index:

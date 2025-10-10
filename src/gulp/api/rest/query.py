@@ -54,6 +54,7 @@ from gulp.api.collab.user import GulpUser, GulpUserDataQueryHistoryEntry
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.opensearch.sigma import sigmas_to_queries
 from gulp.api.opensearch.structs import GulpQueryHelpers
 from gulp.api.opensearch.structs import GulpDocument, GulpQuery, GulpQueryParameters
 from gulp.api.opensearch_api import GulpOpenSearch
@@ -62,9 +63,11 @@ from gulp.api.rest.server_utils import ServerUtils
 from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
 from gulp.api.ws_api import (
+    WSDATA_DOCUMENTS_CHUNK,
     WSDATA_QUERY_DONE,
     WSDATA_QUERY_GROUP_DONE,
     WSDATA_QUERY_GROUP_MATCH,
+    GulpDocumentsChunkPacket,
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
     GulpWsSharedQueue,
@@ -692,35 +695,124 @@ async def _query_raw_internal(
     pass
 
 
-async def _run_query(user_id: str,
+async def _query_raw_chunk_callback(
+    sess: AsyncSession,
+    chunk: list[dict],
+    chunk_num: int = 0,
+    total_hits: int = 0,
+    index: str = None,
+    last: bool = False,
+    req_id: str = None,
+    q_name: str = None,
+    q_group: str = None,
+    **kwargs,
+) -> list[dict]:
+    cb_context: dict = kwargs["cb_context"]
+    user_id: str = cb_context["user_id"]
+    operation_id: str = cb_context["operation_id"]
+    ws_id: str = cb_context["ws_id"]
+    q_name: str = cb_context["q_name"]
+    q_options: GulpQueryParameters = cb_context["q_options"]
+    q: dict = cb_context["q"]
+
+    # we also have these for sigma query
+    sigma_yml: str = cb_context.get("sigma_yml")
+    tags: list[str] = cb_context.get("tags", [])
+
+    # send chunk to websocket
+    c = GulpDocumentsChunkPacket(
+        docs=chunk,
+        chunk_size=len(chunk),
+        chunk_num=chunk_num,
+        total_hits=total_hits,
+        name=q_name,
+        last=last,
+    )
+    await GulpWsSharedQueue.get_instance().put(
+        t=WSDATA_DOCUMENTS_CHUNK,
+        ws_id=ws_id,
+        user_id=user_id,
+        operation_id=operation_id,
+        req_id=req_id,
+        d=c.model_dump(exclude_none=True),
+    )
+
+    if q_options.create_notes:
+        pass
+
+
+async def _run_query(
+    user_id: str,
     req_id: str,
     operation_id: str,
     ws_id: str,
-    queries: list[GulpQuery],
-    num_total_queries: int,
+    gq: GulpQuery,
     q_options: GulpQueryParameters,
     index: str = None,
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
 ) -> tuple[int, str]:
     """
-    runs a single query in a worker process and wait for the result.
+    runs a single query in a worker
     """
     total_hits: int = 0
-    total_processed: int = 0    
+    total_processed: int = 0
     mod: GulpPluginBase = None
-
+    sess: AsyncSession = None
     try:
         if plugin:
             # external query, load plugin (it is guaranteed to be the same for all queries)
             mod = await GulpPluginBase.load(plugin)
-            total_processed, total_hits = await mod.query_external()
+            stats: GulpRequestStats = None
+
+            # get the stats we previously created
+            async with GulpCollab.get_instance().session() as sess:
+                stats = await GulpRequestStats.get_by_id(sess, req_id)
+
+                total_processed, total_hits = await mod.query_external(
+                    sess,
+                    stats,
+                    user_id,
+                    req_id,
+                    ws_id,
+                    operation_id,
+                    index,
+                    gq.q,
+                    plugin_params,
+                    q_options,
+                )
         else:
             # raw gulp query
+            async with GulpCollab.get_instance().session() as sess:
+                cb_context: dict = {
+                    "user_id": user_id,
+                    "operation_id": operation_id,
+                    "ws_id": ws_id,
+                    "q_options": q_options,
+                    "q": gq.q,
+                    "tags": gq.tags,
+                    "sigma_yml": gq.sigma_yml,
+                    "q_name": gq.name,
+                }
+                await GulpOpenSearch.get_instance().search_dsl(
+                    None,
+                    index,
+                    gq.q,
+                    req_id=req_id,
+                    q_options=q_options,
+                    callback=_query_raw_chunk_callback,
+                    cb_context=cb_context,
+                )
+
+    except:
+        if sess:
+            await sess.rollback()
+        raise
     finally:
         if mod:
             await mod.unload()
     return total_hits, total_processed
+
 
 async def process_query_batch(
     user_id: str,
@@ -735,9 +827,10 @@ async def process_query_batch(
     plugin_params: GulpPluginParameters = None,
     write_history: bool = True,
 ) -> None:
-    """ 
+    """
     runs in a background task and spawns workers to process the query batch.
-    if plugin is set, queries size is always 1 (external query)
+
+    index, plugin, plugin_params are used for external queries only
     """
     l: int = len(queries)
     stats: GulpRequestStats = None
@@ -749,37 +842,59 @@ async def process_query_batch(
                 req_id,
                 user_id,
                 operation_id,
-                req_type=RequestStatsType.REQUEST_TYPE_EXTERNAL_QUERY if plugin else RequestStatsType.REQUEST_TYPE_QUERY,
+                req_type=(
+                    RequestStatsType.REQUEST_TYPE_EXTERNAL_QUERY
+                    if plugin
+                    else RequestStatsType.REQUEST_TYPE_QUERY
+                ),
                 ws_id=ws_id,
-                data=GulpIngestionStats() if plugin else GulpQueryStats(num_queries=num_total_queries, q_group=q_options.group)
+                data=(
+                    GulpIngestionStats()
+                    if plugin
+                    else GulpQueryStats(
+                        num_queries=num_total_queries, q_group=q_options.group
+                    )
+                ),
             )
 
             # spawn a worker for each query and wait them all
+            # for query external, we always have just one query to run
             batch_size = len(queries)
             if len(queries) > GulpConfig.get_instance().concurrency_max_tasks():
                 # sub-batching
                 batch_size = GulpConfig.get_instance().concurrency_max_tasks()
-            
+
             for i in range(0, l, batch_size):
                 batch = queries[i : i + batch_size]
                 coros = []
-                for q in batch:
-                    coros.append(_run_query(
-                        user_id=user_id,
-                        req_id=req_id,
-                        operation_id=operation_id,
-                        ws_id=ws_id,
-                        queries=[q],
-                        num_total_queries=num_total_queries,
-                        q_options=q_options,
-                        index=index,
-                        plugin=plugin,
-                        plugin_params=plugin_params
-                    ))
+                for gq in batch:
+                    coros.append(
+                        _run_query(
+                            user_id=user_id,
+                            req_id=req_id,
+                            operation_id=operation_id,
+                            ws_id=ws_id,
+                            gq=gq,
+                            q_options=q_options,
+                            index=index,
+                            plugin=plugin,
+                            plugin_params=plugin_params,
+                        )
+                    )
 
         except:
             await sess.rollback()
             raise
+
+        # 2. add each query to history
+        #  # add query to history (first one only)
+        # await GulpUser.add_query_history_entry(
+        #    user_id, queries[0].q, q_options=q_options, flt=flt, sigma=sigmas[0]
+        # )
+        # 3. gather results
+        # 4. check groups and if match, retag notes
+        # 5. finalize stats
+
     #     # 2. batch queries in configured batch size
     #     batch_size: int = GulpConfig.get_instance().concurrency_max_tasks()
     #     for i in range(0, len(queries), batch_size):
@@ -823,7 +938,7 @@ async def _preview_query(
     runs a preview query (no ingestion) and returns the results directly.
 
     plugin and plugin_params are meant for external querie only, index is ignored in that case.
-    
+
     Returns:
         tuple[int, list[dict]]: total hits, list of documents
     """
@@ -920,11 +1035,11 @@ query Gulp with a raw OpenSearch DSL query.
 
 during `raw_query, the flow of data on `ws_id` is the following:
 
-- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpQueryStats` (at start)
-- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpQueryStats` (once every `q_options.limit` documents, default=1000)
-- `WSDATA_DOCUMENTS_CHUNK`: `GulpDocumentsChunkPacket` on each documents chunk retrieved
-- `WSDATA_QUERY_DONE`: `GulpIngestSourceDonePacket` when each query in `q` is done
-- `WSDATA_QUERY_GROUP_MATCH`: `GulpQueryGroupMatchPacket` if `q_options.q_group` is set and all queries in `q` matches.
+- `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpQueryStats` (at start)
+- `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpQueryStats` (once every batch of queries in `q` completed)
+- `WSDATA_DOCUMENTS_CHUNK`.payload: `GulpDocumentsChunkPacket` on each documents chunk retrieved
+- `WSDATA_QUERY_DONE`.payload: `GulpIngestSourceDonePacket` when each **single** query in `q` is completed
+- `WSDATA_QUERY_GROUP_MATCH`.payload: `GulpQueryGroupMatchPacket` if `q_options.q_group` is set and all queries in `q` matches.
 """,
 )
 async def query_raw_handler(
@@ -961,6 +1076,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 s = await GulpUserSession.check_token(sess, token, obj=op)
                 user_id = s.user.id
                 if q_options.preview_mode:
+                    # preview mode, run the first query and return sync
                     total_hits, docs = await _preview_query(
                         sess,
                         q=q[0],
@@ -997,68 +1113,6 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-    # try:
-    #     async with GulpCollab.get_instance().session() as sess:
-    #         try:
-    #             # get operation and check acl
-    #             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-    #             s = await GulpUserSession.check_token(
-    #                 sess, token, obj=op
-    #             )
-    #             user_id = s.user.id
-    #             if not q_options.name:
-    #                 q_options.name = muty.string.generate_unique()
-    #             if q_options.preview_mode:
-    #                 if len(q) > 1:
-    #                     raise ValueError(
-    #                         "if `q_options.preview_mode` is set, only one query is allowed."
-    #                     )
-
-    #                 # preview mode, run the query and return the data
-    #                 total, docs = await _preview_query(
-    #                     sess,
-    #                     operation_id=operation_id,
-    #                     user_id=user_id,
-    #                     req_id=req_id,
-    #                     q=q[0],
-    #                     query_index=op.index,
-    #                     q_options=q_options,
-    #                 )
-    #                 return JSONResponse(
-    #                     JSendResponse.success(
-    #                         req_id=req_id, data={"total_hits": total, "docs": docs}
-    #                     )
-    #                 )
-
-    #             queries: list[GulpQuery] = []
-    #             for qq in q:
-    #                 # build query
-    #                 gq = GulpQuery(name=q_options.name, q=qq)
-    #                 queries.append(gq)
-
-    #         # add query to history (first one only)
-    #         await GulpUser.add_query_history_entry(
-    #             user_id, queries[0].q, q_options=q_options
-    #         )
-
-    #         await _spawn_query_group_workers(
-    #             user_id=user_id,
-    #             req_id=req_id,
-    #             ws_id=ws_id,
-    #             operation_id=operation_id,
-    #             index=op.index,
-    #             queries=queries,
-    #             q_options=q_options,
-    #         )
-
-    #         # and return pending
-    #         return JSONResponse(JSendResponse.pending(req_id=req_id))
-    #     except Exception as ex:
-    #         await sess.rollback()
-    #         raise
-    # except Exception as ex:
-    #     raise JSendException(req_id=req_id) from ex
-
 
 @router.post(
     "/query_gulp",
@@ -1116,8 +1170,8 @@ async def query_gulp_handler(
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),
-    ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
@@ -1125,65 +1179,53 @@ async def query_gulp_handler(
     ServerUtils.dump_params(params)
 
     try:
-        # setup flt if not provided, must include operation_id
-        if not flt:
-            flt = GulpQueryFilter()
+        # enforce operation_id in filter
         flt.operation_ids = [operation_id]
 
         async with GulpCollab.get_instance().session() as sess:
-            permission = GulpUserPermission.READ
+            try:
+                # get operation and check acl
+                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+                s = await GulpUserSession.check_token(sess, token, obj=op)
+                user_id = s.user.id
+                index = op.index
 
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(
-                sess, token, permission=permission, obj=op
-            )
-            user_id = s.user.id
-            index = op.index
+                # convert gulp query to raw query
+                q: dict = flt.to_opensearch_dsl()
+                if q_options.preview_mode:
+                    # preview mode, run the query and return the data
+                    total_hits, docs = await _preview_query(
+                        sess,
+                        q=q,
+                        q_options=q_options,
+                        index=op.index,
+                    )
+                    return JSONResponse(
+                        JSendResponse.success(
+                            req_id=req_id, data={"total_hits": total_hits, "docs": docs}
+                        )
+                    )
 
-        # convert gulp query to raw query
-        dsl = flt.to_opensearch_dsl()
-        if not q_options.name:
-            q_options.name = muty.string.generate_unique()
-        gq = GulpQuery(name=q_options.name, q=dsl)
-
-        if q_options.preview_mode:
-            # preview mode, run the query and return the data
-            total, docs = await _preview_query(
-                operation_id=operation_id,
-                user_id=user_id,
-                req_id=req_id,
-                q=dsl,
-                query_index=index,
-                q_options=q_options,
-            )
-            return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id, data={"total_hits": total, "docs": docs}
+                # run a background task to process the query
+                queries: list[GulpQuery] = [GulpQuery(name=q_options.name, q=q)]
+                coro = process_query_batch(
+                    user_id,
+                    req_id,
+                    operation_id,
+                    ws_id,
+                    queries,
+                    len(queries),
+                    q_options,
                 )
-            )
+                GulpRestServer.get_instance().spawn_bg_task(coro)
 
-        # add query to history
-        await GulpUser.add_query_history_entry(
-            user_id, gq.q, q_options=q_options, flt=flt
-        )
-
-        # spawn worker
-        await _spawn_query_group_workers(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            index=index,
-            queries=[gq],
-            q_options=q_options,
-        )
-
-        # and return pending
-        return JSONResponse(JSendResponse.pending(req_id=req_id))
+                # and return pending
+                return JSONResponse(JSendResponse.pending(req_id=req_id))
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-
 
 @router.post(
     "/query_external",
@@ -1222,7 +1264,7 @@ async def query_gulp_handler(
             }
         }
     },
-    summary="Query an external source.",
+    summary="Query an external source to import data into Gulp.",
     description="""
 queries an external source using the target source query language, ingesting data back into gulp at `operation_id`'s index.
 
@@ -1237,10 +1279,10 @@ queries an external source using the target source query language, ingesting dat
 
 during `external query` (which, from the gulp's side, is an `ingestion`), the flow of data on `ws_id` is the same as for `ingest_file` API.
 
-- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpIngestionStats` (at start)
-- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpIngestionStats` (once every `q_options.limit` documents, default=1000)
-- `WSDATA_DOCUMENTS_CHUNK`: `GulpDocumentsChunkPacket` on each documents chunk retrieved and ingested
-- `WSDATA_INGEST_SOURCE_DONE`: `GulpIngestSourceDonePacket` when the query is done
+- `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpIngestionStats` (at start)
+- `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpIngestionStats` (once every `q_options.limit` documents, default=1000)
+- `WSDATA_DOCUMENTS_CHUNK`.payload: `GulpDocumentsChunkPacket` on each documents chunk retrieved and ingested
+- `WSDATA_INGEST_SOURCE_DONE`.payload: `GulpIngestSourceDonePacket` when the query is done
 """,
 )
 async def query_external_handler(
@@ -1254,12 +1296,7 @@ async def query_external_handler(
             examples=[[{"query": {"match_all": {}}}]],
         ),
     ],
-    plugin: Annotated[
-        str,
-        Query(
-            description="the plugin implementing `query_external` to handle the external query."
-        ),
-    ],
+    plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
     plugin_params: Annotated[
         GulpPluginParameters, Depends(APIDependencies.param_plugin_params)
     ],
@@ -1275,8 +1312,8 @@ async def query_external_handler(
     ServerUtils.dump_params(params)
 
     try:
-        try:
-            async with GulpCollab.get_instance().session() as sess:
+        async with GulpCollab.get_instance().session() as sess:
+            try:
                 # check token and get caller user id
                 if q_options.preview_mode:
                     # preview mode, no ingest needed
@@ -1309,19 +1346,27 @@ async def query_external_handler(
                         )
                     )
 
-                # run a background task (will batch queries, spawn workers, gather results)
+                # run a background task to process the query
                 queries: list[GulpQuery] = [GulpQuery(name=q_options.name, q=q)]
                 coro = process_query_batch(
-                    user_id, req_id, operation_id, ws_id, queries, 1, q_options,
-                    index=index, plugin=plugin, plugin_params=plugin_params
+                    user_id,
+                    req_id,
+                    operation_id,
+                    ws_id,
+                    queries,
+                    len(queries)
+                    q_options,
+                    index=index,
+                    plugin=plugin,
+                    plugin_params=plugin_params,
                 )
                 GulpRestServer.get_instance().spawn_bg_task(coro)
 
                 # and return pending
                 return JSONResponse(JSendResponse.pending(req_id=req_id))
-        except Exception as ex:
-            await sess.rollback()
-            raise
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1408,123 +1453,106 @@ async def query_sigma_handler(
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options),
-    ] = None,
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     levels: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.level` to restrict the applied sigma rules (`high`, `low`, `medium`, `critical`, `informational`)",
             examples=[["high", "critical"]],
         ),
-    ] = None,
+    ] = [],
     products: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.logsource.product` to restrict the applied sigma rules.",
             examples=[["windows"]],
         ),
-    ] = None,
+    ] = [],
     categories: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.logsource.category` to restrict the applied sigma rules."
         ),
-    ] = None,
+    ] = [],
     services: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.logsource.service` to restrict the applied sigma rules.",
             examples=[["windefend"]],
         ),
-    ] = None,
+    ] = [],
     tags: Annotated[
         Optional[list[str]],
         Body(description="optional `sigma.tags` to restrict the applied sigma rules."),
-    ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    ] = [],
 ) -> JSONResponse:
     params = locals()
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    # setup flt if not provided, must include operation_id
-    if not src_ids:
-        # all sources
-        flt = GulpQueryFilter()
-    else:
-        # only query these sources
-        flt = GulpQueryFilter(source_ids=src_ids)
-
-    flt.operation_ids = [operation_id]
-
     try:
-        if len(sigmas) > 1 and not q_options.group:
-            raise ValueError(
-                "if more than one query is provided, `q_options.group` must be set."
-            )
-
         async with GulpCollab.get_instance().session() as sess:
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(sess, token, obj=op)
-            user_id = s.user.id
-            index = op.index
+            try:
+                # get operation and check acl
+                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+                s = await GulpUserSession.check_token(sess, token, obj=op)
+                user_id = s.user.id
 
-            # convert sigma rule/s using pysigma
-            queries: list[GulpQuery] = await sigmas_to_queries(
-                sess,
-                user_id,
-                operation_id,
-                sigmas,
-                src_ids=src_ids,
-                levels=levels,
-                products=products,
-                categories=categories,
-                services=services,
-                tags=tags,
-                req_id=req_id,
-                ws_id=ws_id,
-            )
+                if q_options.preview_mode:
+                    # preview mode, run the first query and return sync
+                    queries: list[GulpQuery] = await sigmas_to_queries(
+                        sess,
+                        user_id,
+                        operation_id,
+                        sigmas[:1],
+                        src_ids=src_ids,
+                        levels=levels,
+                        products=products,
+                        services=services,
+                        categories=categories,
+                        tags=tags,
+                    )
 
-        if q_options.preview_mode:
-            if len(sigmas) > 1:
-                raise ValueError(
-                    "if `q_options.preview_mode` is set, only one query is allowed."
+                    total_hits, docs = await _preview_query(
+                        operation_id=operation_id,
+                        user_id=user_id,
+                        req_id=req_id,
+                        q=queries[0],
+                        query_index=op.index,
+                        q_options=q_options,
+                    )
+                    return JSONResponse(
+                        JSendResponse.success(
+                            req_id=req_id, data={"total_hits": total_hits, "docs": docs}
+                        )
+                    )
+
+                # convert sigma rule/s using pysigma
+                queries: list[GulpQuery] = await sigmas_to_queries(
+                    sess,
+                    user_id,
+                    operation_id,
+                    sigmas,
+                    src_ids=src_ids,
+                    levels=levels,
+                    products=products,
+                    services=services,
+                    categories=categories,
+                    tags=tags,
                 )
 
-            # preview mode, run the query and return the data
-            total, docs = await _preview_query(
-                operation_id=operation_id,
-                user_id=user_id,
-                req_id=req_id,
-                q=queries[0].q,
-                query_index=op.index,
-                q_options=q_options,
-            )
-            return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id, data={"total_hits": total, "docs": docs}
+                # run a background task (will batch queries, spawn workers, gather results)
+                coro = process_query_batch(
+                    user_id, req_id, operation_id, ws_id, queries, len(queries)
                 )
-            )
+                GulpRestServer.get_instance().spawn_bg_task(coro)
 
-        # add query to history (first one only)
-        await GulpUser.add_query_history_entry(
-            user_id, queries[0].q, q_options=q_options, flt=flt, sigma=sigmas[0]
-        )
-
-        # spawn one aio task, it will spawn n multiprocessing workers and wait them
-        await _spawn_query_group_workers(
-            user_id=user_id,
-            req_id=req_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            index=index,
-            queries=queries,
-            q_options=q_options,
-            flt=flt,
-        )
-
-        # and return pending
-        return JSONResponse(JSendResponse.pending(req_id=req_id))
+                # and return pending
+                return JSONResponse(JSendResponse.pending(req_id=req_id))
+            except Exception as ex:
+                await sess.rollback()
+                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1560,19 +1588,25 @@ async def query_single_id_handler(
         str,
         Query(description="the `_id` of the document on Gulp `index`."),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            await GulpUserSession.check_token(sess, token, obj=op)
-            index = op.index
+            try:
+                # get operation and check acl
+                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+                await GulpUserSession.check_token(sess, token, obj=op)
+                index = op.index
 
-        d = await GulpOpenSearch.get_instance().query_single_document(index, doc_id)
-        return JSONResponse(JSendResponse.success(req_id, data=d))
+                d = await GulpOpenSearch.get_instance().query_single_document(
+                    index, doc_id
+                )
+                return JSONResponse(JSendResponse.success(req_id, data=d))
+            except:
+                await sess.rollback()
+                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1607,7 +1641,7 @@ if `query_history_max_size` is not set in the configuration, it defaults to 20.
 )
 async def query_history_get_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
@@ -1664,33 +1698,35 @@ async def query_history_get_handler(
 async def query_max_min_per_field(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     group_by: Annotated[
         Optional[str],
         Query(description="group by field (i.e. `event.code`), default=no grouping"),
     ] = None,
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    # setup flt if not provided, must include operation_id
-    if not flt:
-        flt = GulpQueryFilter()
+    # enforce operation_id in filter
     flt.operation_ids = [operation_id]
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            await GulpUserSession.check_token(sess, token, obj=op)
-            index = op.index
+            try:
+                # get operation and check acl
+                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+                await GulpUserSession.check_token(sess, token, obj=op)
+                index = op.index
 
-        d = await GulpOpenSearch.get_instance().query_max_min_per_field(
-            index, group_by=group_by, flt=flt
-        )
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+                d = await GulpOpenSearch.get_instance().query_max_min_per_field(
+                    index, group_by=group_by, flt=flt
+                )
+                return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+            except:
+                await sess.rollback()
+                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1759,30 +1795,36 @@ for each `operation` returns `sources` and `contexts` with their max/min `event.
 )
 async def query_operations(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            s: GulpUserSession = await GulpUserSession.check_token(sess, token)
-            user_id = s.user.id
+            try:
+                s: GulpUserSession = await GulpUserSession.check_token(sess, token)
+                user_id = s.user.id
 
-        # check token and get its accessible operations
-        ops: list[dict] = await GulpOperation.get_by_filter_wrapper(
-            token,
-            GulpCollabFilter(),
-        )
-        operations: list[dict] = []
-        for o in ops:
-            # get each op details by querying the associated index
-            d = await GulpOpenSearch.get_instance().query_operations(
-                o["index"], user_id
-            )
-            operations.extend(d)
+                # check token and get its accessible operations
+                ops: list[dict] = await GulpOperation.get_by_filter_wrapper(
+                    token,
+                    GulpCollabFilter(),
+                )
+                operations: list[dict] = []
+                for o in ops:
+                    # get each op details by querying the associated index
+                    d = await GulpOpenSearch.get_instance().query_operations(
+                        o["index"], user_id
+                    )
+                    operations.extend(d)
 
-        return JSONResponse(JSendResponse.success(req_id=req_id, data=operations))
+                return JSONResponse(
+                    JSendResponse.success(req_id=req_id, data=operations)
+                )
+            except:
+                await sess.rollback()
+                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1993,7 +2035,7 @@ async def _export_json_internal(
 same as performing a `query_gulp` but streams a JSON file as response to the client.
 
 - flt.operation_ids is enforced to the provided `operation_id`.
-- `q_options.preview_mode` and `q_options.note_parameters.create_notes` are ignored.
+- `q_options.preview_mode` is ignored and set to `False`.
 - if unset, `q_options.fields` is set to `*` to export all fields.
 """,
 )
@@ -2039,12 +2081,10 @@ async def query_gulp_export_json_handler(
     if not q_options.fields:
         # export all fields if not specified
         q_options.fields = "*"
-    # setup filter: if not provided, must include operation_id
-    if not flt.operation_ids:
-        flt.operation_ids = [operation_id]
-    else:
-        if operation_id not in flt.operation_ids:
-            flt.operation_ids.append(operation_id)
+
+    # enforce operation_id in filter
+    flt.operation_ids = [operation_id]
+
     try:
         async with GulpCollab.get_instance().session() as sess:
             try:
@@ -2052,9 +2092,9 @@ async def query_gulp_export_json_handler(
                 op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
                 _ = await GulpUserSession.check_token(sess, token, obj=op)
                 index = op.index
-            except Exception as ex:
+            except:
                 await sess.rollback()
-                raise ex
+                raise
 
             # convert gulp query to opensearch dsl
             dsl: dict = flt.to_opensearch_dsl()

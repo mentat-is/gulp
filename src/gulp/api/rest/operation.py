@@ -62,11 +62,12 @@ async def operation_create_handler(
     description: Annotated[
         Optional[str],
         Depends(APIDependencies.param_description),
-    ] = None,
+    ],
     glyph_id: Annotated[
         str,
-        Depends(APIDependencies.param_glyph_id_optional),
-    ] = None,
+        Depends(APIDependencies.param_glyph_id),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     set_default_grants: Annotated[
         bool,
         Query(
@@ -85,7 +86,9 @@ async def operation_create_handler(
             description="if `True`, re/create the corresponding OpenSearch index (will be overwritten if exists). Defaults to `True`."
         ),
     ] = True,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    operation_data: Annotated[
+        dict, Body(description="arbitrary operation data.", examples=[{"op": "data"}])
+    ] = {},
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -105,6 +108,7 @@ async def operation_create_handler(
                     create_index=create_index,
                     set_default_grants=set_default_grants,
                     index_template=index_template,
+                    operation_data=operation_data,
                     fail_if_exists=False,
                 )
 
@@ -148,25 +152,25 @@ async def operation_update_handler(
         Query(
             description="the new index to be set for the operation (must exist on OpenSearch)."
         ),
-    ] = None,
+    ],
     description: Annotated[
         str,
         Depends(APIDependencies.param_description),
-    ] = None,
+    ],
+    glyph_id: Annotated[
+        str,
+        Depends(APIDependencies.param_glyph_id),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     operation_data: Annotated[
         dict, Body(description="arbitrary operation data.", examples=[{"op": "data"}])
-    ] = None,
+    ] = {},
     merge_operation_data: Annotated[
         Optional[bool],
         Query(
             description="if `True`, `operation_data` will be merged with the existing data, if set. Either, it will be replaced."
         ),
     ] = True,
-    glyph_id: Annotated[
-        str,
-        Depends(APIDependencies.param_glyph_id_optional),
-    ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -235,14 +239,14 @@ async def operation_update_handler(
 async def operation_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     delete_data: Annotated[
         Optional[bool],
         Query(
             description="also deletes the related data on the given opensearch `index`."
         ),
     ] = True,
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -305,13 +309,13 @@ async def operation_delete_handler(
 async def operation_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     get_count: Annotated[
         Optional[bool],
         Query(
             description="if set, the operation's document count is also retrieved as `doc_count` (default=True)."
         ),
     ] = True,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -369,8 +373,8 @@ async def operation_get_by_id_handler(
 )
 async def operation_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
@@ -414,7 +418,7 @@ async def operation_list_handler(
 async def context_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
@@ -455,7 +459,7 @@ async def context_list_handler(
 async def context_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -504,14 +508,14 @@ async def context_get_by_id_handler(
 async def context_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     delete_data: Annotated[
         Optional[bool],
         Query(
             description="also deletes the related data on the given opensearch `index`."
         ),
     ] = True,
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -578,28 +582,19 @@ async def context_create_handler(
             example="test_context",
         ),
     ],
-    ws_id: Annotated[
-        Optional[str],
-        Depends(APIDependencies.param_ws_id),
-    ] = None,
-    color: Annotated[
-        str,
-        Query(
-            description="the color of the context.",
-            example="#fafafa",
-        ),
-    ] = None,
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    color: Annotated[str, Depends(APIDependencies.param_color)],
     glyph_id: Annotated[
         str,
-        Depends(APIDependencies.param_glyph_id_optional),
-    ] = None,
+        Depends(APIDependencies.param_glyph_id),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     fail_if_exists: Annotated[
         Optional[bool],
         Query(
             description="if set, fails if the context already exists. Defaults to `False`."
         ),
     ] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -661,26 +656,17 @@ async def context_create_handler(
 async def context_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
-    color: Annotated[
-        Optional[str],
-        Query(
-            description="new color for the context",
-            example="#fafafa",
-        ),
-    ] = None,
+    color: Annotated[str, Depends(APIDependencies.param_color)],
     description: Annotated[
         Optional[str],
         Depends(APIDependencies.param_description),
-    ] = None,
+    ],
     glyph_id: Annotated[
         Optional[str],
-        Depends(APIDependencies.param_glyph_id_optional),
-    ] = None,
-    ws_id: Annotated[
-        Optional[str],
-        Depends(APIDependencies.param_ws_id),
-    ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+        Depends(APIDependencies.param_glyph_id),
+    ],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -746,7 +732,7 @@ async def source_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -783,7 +769,7 @@ async def source_list_handler(
 async def source_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -839,22 +825,19 @@ async def source_create_handler(
     ws_id: Annotated[
         str,
         Depends(APIDependencies.param_ws_id),
-    ] = None,
-    color: Annotated[
-        str,
-        Query(description="the color of the source.", example="#313373"),
-    ] = None,
+    ],
+    color: Annotated[str, Depends(APIDependencies.param_color)],
     glyph_id: Annotated[
         str,
-        Depends(APIDependencies.param_glyph_id_optional),
-    ] = None,
+        Depends(APIDependencies.param_glyph_id),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     fail_if_exists: Annotated[
         Optional[bool],
         Query(
             description="if set, the operation fails if the source already exists. Defaults to `False`."
         ),
     ] = False,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -921,23 +904,20 @@ async def source_create_handler(
 async def source_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
-    color: Annotated[
-        Optional[str],
-        Query(description="new color for the source.", example="#313373"),
-    ] = None,
+    color: Annotated[str, Depends(APIDependencies.param_color)],
     description: Annotated[
         Optional[str],
         Depends(APIDependencies.param_description),
-    ] = None,
+    ],
     glyph_id: Annotated[
         Optional[str],
-        Depends(APIDependencies.param_glyph_id_optional),
-    ] = None,
+        Depends(APIDependencies.param_glyph_id),
+    ],
     ws_id: Annotated[
         str,
         Depends(APIDependencies.param_ws_id),
-    ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -1003,14 +983,14 @@ async def source_update_handler(
 async def source_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     delete_data: Annotated[
         Optional[bool],
         Query(
             description="also deletes the related data on the given opensearch `index`."
         ),
     ] = True,
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:

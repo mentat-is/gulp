@@ -111,10 +111,9 @@ class GulpLoginMethod(BaseModel):
         },
     )
 
-    name: str = Field(..., description="the name of the login method.")
-
-    login: GulpAPIMethod = Field(..., description="the login method.")
-    logout: GulpAPIMethod = Field(..., description="the logout method.")
+    name: Annotated[str, Field(description="the name of the login method.")]
+    login: Annotated[GulpAPIMethod, Field(description="the login method.")]
+    logout: Annotated[GulpAPIMethod, Field(description="the logout method.")]
 
 
 router = APIRouter()
@@ -149,7 +148,7 @@ NOTE: the `gulp` login method is always available, `extension` plugins may overr
 """,
 )
 async def get_available_login_api_handler(
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
@@ -215,7 +214,7 @@ async def login_handler(
         str, Body(description="password for authentication.", examples=["admin"])
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ip: str = r.client.host if r.client else "unknown"
     params = locals()
@@ -281,7 +280,7 @@ async def logout_handler(
     r: Request,
     token: Annotated[str, Depends(APIDependencies.param_token)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ip: str = r.client.host if r.client else "unknown"
     params = locals()
@@ -355,10 +354,10 @@ the new user id.
     ],
     email: Annotated[
         str,
-        Depends(APIDependencies.param_email_optional),
-    ] = None,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+        Depends(APIDependencies.param_email),
+    ],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -427,7 +426,7 @@ async def user_delete_handler(
         str,
         Depends(APIDependencies.param_user_id),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -481,24 +480,24 @@ async def user_update_handler(
         str,
         Depends(APIDependencies.param_token),
     ],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
     user_id: Annotated[
-        Optional[str],
-        Query(
-            description="an user to update: if not set, the token user is used instead."
-        ),
-    ] = None,
+        str,
+        Depends(APIDependencies.param_user_id),
+    ],
     password: Annotated[
         str,
-        Depends(APIDependencies.param_password_optional),
-    ] = None,
+        Depends(APIDependencies.param_password),
+    ],
     permission: Annotated[
         Optional[list[GulpUserPermission]],
-        Depends(APIDependencies.param_permission_optional),
-    ] = None,
+        Depends(APIDependencies.param_permission),
+    ],
     email: Annotated[
         str,
-        Depends(APIDependencies.param_email_optional),
-    ] = None,
+        Depends(APIDependencies.param_email),
+    ],
     user_data: Annotated[
         dict,
         Body(
@@ -513,8 +512,6 @@ async def user_update_handler(
             example=True,
         ),
     ] = True,
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:

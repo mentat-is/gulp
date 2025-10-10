@@ -2252,6 +2252,7 @@ class GulpOpenSearch:
         q_options: "GulpQueryParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         callback: GulpDocumentsChunkCallback = None,
+        check_canceled: bool = True,
         **kwargs,
     ) -> tuple[int, int]:
         """
@@ -2315,7 +2316,7 @@ class GulpOpenSearch:
                 # this is the last chunk
                 last = True
 
-            if check_canceled_count % 10 == 0:
+            if check_canceled_count % 10 == 0 and check_canceled and sess:
                 # every 10 chunk, call callback and check for request cancelation
                 canceled = (
                     await GulpRequestStats.is_canceled(sess, req_id) if sess else False

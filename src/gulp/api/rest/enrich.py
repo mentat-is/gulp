@@ -166,8 +166,8 @@ uses an `enrichment` plugin to augment data in multiple documents.
 
 during enrichment, the following is sent on the websocket `ws_id`:
 
-- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
-- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
+- `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
+- `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
 
 """,
 )
@@ -261,9 +261,9 @@ async def enrich_single_id_handler(
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
     plugin_params: Annotated[
         GulpPluginParameters,
-        Depends(APIDependencies.param_plugin_params_optional),
-    ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+        Depends(APIDependencies.param_plugin_params),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
 ) -> JSONResponse:
     params = locals()
     params["plugin_params"] = (
@@ -496,8 +496,8 @@ Tag important documents, so they can be queried back via `gulp.tags` provided vi
 
 Tagging is an `enrichment`, from gulp's point of view: so, the flow on `ws_id` is the same as the `enrich_documents` API.
 
-- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
-- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
+- `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
+- `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
 
 """,
 )

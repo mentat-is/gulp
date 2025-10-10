@@ -246,12 +246,12 @@ rebases documents `in-place` using `update_by_query`, shifting timestamps.
 
 from the gulp's point of view, the rebase operation is an `enrichment`, so the flow of data on `ws_id` is the same:
 
-- `WSDATA_STATS_CREATE`: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
-- `WSDATA_STATS_UPDATE`: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
+- `WSDATA_STATS_CREATE.payload`: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
+- `WSDATA_STATS_UPDATE.payload`: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
 
 plus, in the end of rebase:
 
-- `WSDATA_REBASE_DONE`: `GulpUpdateDocumentsStats` when rebase is done, broadcasted to all connected websockets
+- `WSDATA_REBASE_DONE.payload`: `GulpUpdateDocumentsStats` when rebase is done, broadcasted to all connected websockets
 """,
 )
 async def opensearch_rebase_by_query_handler(
