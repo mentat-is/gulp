@@ -11,8 +11,6 @@ import re
 from datetime import datetime
 from typing import override, Any, Optional
 
-from muty.log import MutyLogger
-
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import (
@@ -77,10 +75,6 @@ class Plugin(GulpPluginBase):
         d["event.action"] = record["type"]
         d["url.full"] = record["url"]
         d["gulp.memprocfs.web.info"] = record["info"]
-
-        MutyLogger.get_instance().warning(
-            f"\n\n**********\ninfo: {record["info"]}\nurl: {record["url"]}\n*********\n\n"
-        )
 
         return GulpDocument(
             self,
