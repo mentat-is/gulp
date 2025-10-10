@@ -181,7 +181,7 @@ async def enrich_documents_handler(
         GulpPluginParameters,
         Depends(APIDependencies.param_plugin_params),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
@@ -263,7 +263,7 @@ async def enrich_single_id_handler(
         GulpPluginParameters,
         Depends(APIDependencies.param_plugin_params),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     params = locals()
     params["plugin_params"] = (
@@ -505,9 +505,9 @@ async def tag_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)],
-    tags: Annotated[list[str], Body(description="The tags to add.")],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
@@ -582,7 +582,7 @@ async def tag_single_id_handler(
         Query(description="the `_id` of the document to tag."),
     ],
     tags: Annotated[list[str], Body(description="The tags to add.")],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)

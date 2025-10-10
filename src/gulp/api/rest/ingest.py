@@ -548,7 +548,7 @@ async def ingest_file_handler(
     ] = 1,
     req_id: Annotated[
         str,
-        Depends(APIDependencies.ensure_req_id),
+        Depends(APIDependencies.ensure_req_id_optional),
     ] = None,
 ) -> JSONResponse:
     params = locals()
@@ -690,7 +690,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
     ] = False,
     req_id: Annotated[
         str,
-        Depends(APIDependencies.ensure_req_id),
+        Depends(APIDependencies.ensure_req_id_optional),
     ] = None,
 ) -> JSONResponse:
     params = locals()
@@ -831,7 +831,7 @@ async def ingest_file_local_handler(
     ],
     plugin_params: Annotated[
         GulpPluginParameters,
-        Depends(APIDependencies.param_plugin_params_optional),
+        Depends(APIDependencies.param_plugin_params),
     ] = None,
     flt: Annotated[
         GulpIngestionFilter,
@@ -853,7 +853,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
     ] = False,
     req_id: Annotated[
         str,
-        Depends(APIDependencies.ensure_req_id),
+        Depends(APIDependencies.ensure_req_id_optional),
     ] = None,
 ) -> JSONResponse:
     params = locals()
@@ -1003,7 +1003,7 @@ if set, this function is **synchronous** and returns the preview chunk of docume
     ] = False,
     req_id: Annotated[
         str,
-        Depends(APIDependencies.ensure_req_id),
+        Depends(APIDependencies.ensure_req_id_optional),
     ] = None,
 ) -> JSONResponse:
     params = locals()
@@ -1142,7 +1142,7 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
     ] = False,
     req_id: Annotated[
         str,
-        Depends(APIDependencies.ensure_req_id),
+        Depends(APIDependencies.ensure_req_id_optional),
     ] = None,
 ) -> JSONResponse:
     params = locals()
@@ -1366,7 +1366,7 @@ async def ingest_zip_handler(
     ],
     req_id: Annotated[
         str,
-        Depends(APIDependencies.ensure_req_id),
+        Depends(APIDependencies.ensure_req_id_optional),
     ] = None,
 ) -> JSONResponse:
     params = locals()
@@ -1522,7 +1522,7 @@ async def ingest_zip_local_handler(
     ] = False,
     req_id: Annotated[
         str,
-        Depends(APIDependencies.ensure_req_id),
+        Depends(APIDependencies.ensure_req_id_optional),
     ] = None,
 ) -> JSONResponse:
     params = locals()
@@ -1648,7 +1648,7 @@ async def ingest_zip_local_handler(
 )
 async def ingest_local_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)

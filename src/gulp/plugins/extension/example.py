@@ -176,7 +176,7 @@ class Plugin(GulpPluginBase):
         operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
         context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
         ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-        req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+        req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     ) -> JSendResponse:
         try:
             async with GulpCollab.get_instance().session() as sess:

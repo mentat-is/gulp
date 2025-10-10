@@ -61,13 +61,13 @@ async def operation_create_handler(
     ],
     description: Annotated[
         Optional[str],
-        Depends(APIDependencies.param_description),
+        Depends(APIDependencies.param_description_optional),
     ],
     glyph_id: Annotated[
         str,
-        Depends(APIDependencies.param_glyph_id),
+        Depends(APIDependencies.param_glyph_id_optional),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     set_default_grants: Annotated[
         bool,
         Query(
@@ -155,13 +155,13 @@ async def operation_update_handler(
     ],
     description: Annotated[
         str,
-        Depends(APIDependencies.param_description),
+        Depends(APIDependencies.param_description_optional),
     ],
     glyph_id: Annotated[
         str,
-        Depends(APIDependencies.param_glyph_id),
+        Depends(APIDependencies.param_glyph_id_optional),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     operation_data: Annotated[
         dict, Body(description="arbitrary operation data.", examples=[{"op": "data"}])
     ] = {},
@@ -240,7 +240,7 @@ async def operation_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     delete_data: Annotated[
         Optional[bool],
         Query(
@@ -309,7 +309,7 @@ async def operation_delete_handler(
 async def operation_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     get_count: Annotated[
         Optional[bool],
         Query(
@@ -373,8 +373,10 @@ async def operation_get_by_id_handler(
 )
 async def operation_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    flt: Annotated[
+        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
@@ -418,7 +420,7 @@ async def operation_list_handler(
 async def context_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
@@ -459,7 +461,7 @@ async def context_list_handler(
 async def context_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -509,7 +511,7 @@ async def context_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     delete_data: Annotated[
         Optional[bool],
         Query(
@@ -583,12 +585,12 @@ async def context_create_handler(
         ),
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    color: Annotated[str, Depends(APIDependencies.param_color)],
+    color: Annotated[str, Depends(APIDependencies.param_color_optional)],
     glyph_id: Annotated[
         str,
-        Depends(APIDependencies.param_glyph_id),
+        Depends(APIDependencies.param_glyph_id_optional),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     fail_if_exists: Annotated[
         Optional[bool],
         Query(
@@ -656,17 +658,17 @@ async def context_create_handler(
 async def context_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
-    color: Annotated[str, Depends(APIDependencies.param_color)],
+    color: Annotated[str, Depends(APIDependencies.param_color_optional)],
     description: Annotated[
         Optional[str],
-        Depends(APIDependencies.param_description),
+        Depends(APIDependencies.param_description_optional),
     ],
     glyph_id: Annotated[
         Optional[str],
-        Depends(APIDependencies.param_glyph_id),
+        Depends(APIDependencies.param_glyph_id_optional),
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -732,7 +734,7 @@ async def source_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -769,7 +771,7 @@ async def source_list_handler(
 async def source_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -826,12 +828,12 @@ async def source_create_handler(
         str,
         Depends(APIDependencies.param_ws_id),
     ],
-    color: Annotated[str, Depends(APIDependencies.param_color)],
+    color: Annotated[str, Depends(APIDependencies.param_color_optional)],
     glyph_id: Annotated[
         str,
-        Depends(APIDependencies.param_glyph_id),
+        Depends(APIDependencies.param_glyph_id_optional),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     fail_if_exists: Annotated[
         Optional[bool],
         Query(
@@ -904,20 +906,20 @@ async def source_create_handler(
 async def source_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
-    color: Annotated[str, Depends(APIDependencies.param_color)],
+    color: Annotated[str, Depends(APIDependencies.param_color_optional)],
     description: Annotated[
         Optional[str],
-        Depends(APIDependencies.param_description),
+        Depends(APIDependencies.param_description_optional),
     ],
     glyph_id: Annotated[
         Optional[str],
-        Depends(APIDependencies.param_glyph_id),
+        Depends(APIDependencies.param_glyph_id_optional),
     ],
     ws_id: Annotated[
         str,
         Depends(APIDependencies.param_ws_id),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -984,7 +986,7 @@ async def source_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     delete_data: Annotated[
         Optional[bool],
         Query(

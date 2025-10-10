@@ -259,7 +259,7 @@ async def opensearch_rebase_by_query_handler(
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     offset_msec: Annotated[
         int,
         Query(
@@ -364,8 +364,14 @@ deletes the datastream `index`, including the backing index/es and the index tem
 )
 async def opensearch_delete_index_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    index: Annotated[str, Depends(APIDependencies.param_index)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    index: Annotated[
+        str,
+        Query(
+            description="the OpenSearch index (usually equal to `operation_id`)",
+            example="test_operation",
+        ),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     delete_operation: Annotated[
         bool,
         Query(
@@ -470,7 +476,7 @@ lists all the available datastreams and their backing indexes
 )
 async def opensearch_list_index_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)

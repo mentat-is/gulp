@@ -67,7 +67,7 @@ async def request_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -120,7 +120,7 @@ async def request_cancel_handler(
         str, Query(description="request id to cancel.", example="test_req")
     ],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     status: Annotated[
         Literal["canceled", "done", "failed"],
         Query(
@@ -204,7 +204,7 @@ async def request_set_completed_handler(
         str, Query(description="request id to set completed.", example="test_req")
     ],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     failed: Annotated[
         bool, Query(description="if set, the request is marked as failed.")
     ] = False,
@@ -250,7 +250,7 @@ get a list of all requests (identified by their `req_id`) issued by the calling 
 async def request_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     running_only: Annotated[
         bool, Query(description="if set, only return requests that are still running.")
     ] = False,
@@ -511,7 +511,7 @@ async def server_status_handler(
             description="if set, only return process information for gulp processes only. either, return process information for all the running processes."
         ),
     ] = True,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
 
     params = locals()
@@ -676,7 +676,7 @@ async def server_status_handler(
 )
 async def plugin_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -729,7 +729,7 @@ async def plugin_list_handler(
     summary="list available UI plugins.",
 )
 async def ui_plugin_list_handler(
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -769,7 +769,7 @@ async def ui_plugin_list_handler(
 )
 async def get_version_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
 
@@ -829,7 +829,7 @@ async def get_version_handler(
 )
 async def mapping_file_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
 

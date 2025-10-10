@@ -148,7 +148,7 @@ NOTE: the `gulp` login method is always available, `extension` plugins may overr
 """,
 )
 async def get_available_login_api_handler(
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
@@ -214,7 +214,7 @@ async def login_handler(
         str, Body(description="password for authentication.", examples=["admin"])
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     ip: str = r.client.host if r.client else "unknown"
     params = locals()
@@ -280,7 +280,7 @@ async def logout_handler(
     r: Request,
     token: Annotated[str, Depends(APIDependencies.param_token)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     ip: str = r.client.host if r.client else "unknown"
     params = locals()
@@ -356,8 +356,8 @@ the new user id.
         str,
         Depends(APIDependencies.param_email),
     ],
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -426,7 +426,7 @@ async def user_delete_handler(
         str,
         Depends(APIDependencies.param_user_id),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -480,27 +480,28 @@ async def user_update_handler(
         str,
         Depends(APIDependencies.param_token),
     ],
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     user_id: Annotated[
         str,
-        Depends(APIDependencies.param_user_id),
+        Depends(APIDependencies.param_user_id_optional),
     ],
     password: Annotated[
         str,
-        Depends(APIDependencies.param_password),
+        Depends(APIDependencies.param_password_optional),
     ],
     permission: Annotated[
         Optional[list[GulpUserPermission]],
-        Depends(APIDependencies.param_permission),
+        Depends(APIDependencies.param_permission_optional),
     ],
     email: Annotated[
         str,
-        Depends(APIDependencies.param_email),
+        Depends(APIDependencies.param_email_optional),
     ],
     user_data: Annotated[
         dict,
         Body(
+            default={},
             description="user data to set.",
             examples=[{"data1": "abcd", "data2": 1234, "data3": [1, 2, 3]}],
         ),
@@ -516,11 +517,11 @@ async def user_update_handler(
     ServerUtils.dump_params(locals())
     try:
         if (
-            password is None
-            and permission is None
-            and email is None
-            and glyph_id is None
-            and user_data is None
+            not password
+            and not permission
+            and not email
+            and not glyph_id
+            and not user_data
         ):
             raise ValueError(
                 "at least one of password, permission, email, user_data or glyph_id must be specified."
@@ -631,7 +632,7 @@ async def user_update_handler(
 )
 async def user_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     # only admin can get users list
@@ -673,7 +674,7 @@ async def user_list_handler(
 )
 async def user_session_keepalive_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     sess: AsyncSession = None
@@ -727,7 +728,7 @@ async def user_get_by_id_handler(
             description="an user to get: if not set, the token user is used instead."
         ),
     ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -801,7 +802,7 @@ async def user_set_data_handler(
             description="an user to set data for: if not set, the token user is used instead."
         ),
     ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -887,7 +888,7 @@ async def user_get_data_handler(
             description="an user to get data for: if not set, the token user is used instead."
         ),
     ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -976,7 +977,7 @@ async def user_delete_data_handler(
             description="an user to delete data for: if not set, the token user is used instead."
         ),
     ] = None,
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:

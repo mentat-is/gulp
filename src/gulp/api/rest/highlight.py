@@ -76,12 +76,12 @@ async def highlight_create_handler(
         ),
     ],
     name: Annotated[str, Depends(APIDependencies.param_name)],
-    description: Annotated[str, Depends(APIDependencies.param_description)],
-    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
-    color: Annotated[str, Depends(APIDependencies.param_color)],
+    description: Annotated[str, Depends(APIDependencies.param_description_optional)],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)],
+    color: Annotated[str, Depends(APIDependencies.param_color_optional)],
     private: Annotated[bool, Depends(APIDependencies.param_private)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -149,12 +149,12 @@ async def highlight_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    name: Annotated[str, Depends(APIDependencies.param_name)],
-    description: Annotated[str, Depends(APIDependencies.param_description)],
-    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id)],
-    color: Annotated[str, Depends(APIDependencies.param_color)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    name: Annotated[str, Depends(APIDependencies.param_name_optional)],
+    description: Annotated[str, Depends(APIDependencies.param_description_optional)],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)],
+    color: Annotated[str, Depends(APIDependencies.param_color_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     time_range: Annotated[
         tuple[int, int],
         Body(
@@ -234,7 +234,7 @@ async def highlight_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -273,7 +273,7 @@ async def highlight_delete_handler(
 async def highlight_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -327,8 +327,10 @@ async def highlight_list_handler(
         str,
         Depends(APIDependencies.param_operation_id),
     ],
-    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)],
+    flt: Annotated[
+        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)

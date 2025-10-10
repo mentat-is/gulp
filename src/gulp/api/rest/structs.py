@@ -17,6 +17,7 @@ from os import name
 import re
 from typing import Annotated, Optional
 
+from llvmlite.tests.test_ir import flt
 import muty.string
 from fastapi import Body, Header, Query, UploadFile, File
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
@@ -124,178 +125,16 @@ class APIDependencies:
         return value
 
     @staticmethod
-    def param_user_id(
-        user_id: Annotated[
+    def param_operation_id(
+        operation_id: Annotated[
             str,
             Query(
-                description="id of an user in the collab database.",
-                example="admin",
+                description="id of a `GulpOperation` object in the collab database.",
+                example="test_operation",
             ),
         ],
     ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            user_id (str, Query): The user ID.
-
-        Returns:
-            str: The user ID.
-        """
-        return user_id.lower().strip()
-
-    @staticmethod
-    def param_password(
-        password: Annotated[
-            str,
-            Query(
-                description="""
-the user password.
-
-- 8-64 characters, at least one uppercase, one lowercase, one number, one special character.
-""",
-                example="Password1!",
-            ),
-            AfterValidator(_pwd_regex_validator),
-        ] = None,
-    ) -> str:
-        """
-        password for the user (validated with _pwd_regex_validator).
-
-        NOTE: use config `debug_allow_insecure_passwords` to disable validation (not recommended).
-
-        Args:
-            password (str, Query): The password.
-
-        Returns:
-            str: The password.
-        """
-        return password.strip() if password else None
-
-    @staticmethod
-    def param_permission(
-        permission: Annotated[
-            list[GulpUserPermission],
-            Body(
-                description="""
-one or more user/group permission.
-
-- read: read the object.
-- edit: edit the object.
-- delete: delete the object.
-- ingest: ingest data.
-- **admin: every permission.**
-""",
-                example='["read","edit"]',
-            ),
-        ] = [],
-    ) -> list[GulpUserPermission]:
-        """
-        permission for the user.
-
-        Args:
-            permission (list[GulpUserPermission], Body): The permission. Defaults to None.
-
-        Returns:
-            list[GulpUserPermission]: The permission.
-        """
-        return permission
-
-    @staticmethod
-    def param_email(
-        email: Annotated[
-            str,
-            Query(description="the user email.", example="user@mail.com"),
-            AfterValidator(_email_regex_validator),
-        ] = None,
-    ) -> str:
-        """
-        user email (validated with _email_regex_validator).
-
-        Args:
-            email (str, optional, Query): The email. Defaults to None.
-
-        Returns:
-            str: The email.
-        """
-        return email.strip() if email else None
-
-    @staticmethod
-    def param_group_id(
-        group_id: Annotated[
-            str,
-            Query(description="the usergroup ID", example=ADMINISTRATORS_GROUP_ID),
-        ],
-    ) -> str:
-        """
-        used with fastapi Depends to provide API parameter
-
-        Args:
-            group_id (str, Query): The group ID.
-
-        Returns:
-            str: The object ID.
-        """
-        return group_id.strip()
-
-    @staticmethod
-    def param_obj_id(
-        obj_id: Annotated[
-            str,
-            Query(description="the object id", example="obj_id"),
-        ],
-    ) -> str:
-        """
-        an object id
-
-        Args:
-            obj_id (str, Query): The object ID.
-
-        Returns:
-            str: The object ID.
-        """
-        return obj_id.lower().strip()
-
-    @staticmethod
-    def param_private(
-        private: Annotated[
-            bool,
-            Query(
-                description="sets the object as private, so only the *owner* `user_id` and administrators can access it.",
-            ),
-        ] = False,
-    ) -> bool:
-        """
-        to set the object as private.
-
-        Args:
-            private (bool, Body): Whether the object is private. Defaults to False (public).
-
-        Returns:
-            bool: The private flag.
-        """
-        return private
-
-    @staticmethod
-    def param_description(
-        description: Annotated[
-            str,
-            Body(
-                description="the object description.",
-                examples=["this is a description"],
-            ),
-        ] = None,
-    ) -> str:
-        """
-        to set the object description.
-
-        Args:
-            description (str, Body): The description. Defaults to None.
-
-        Returns:
-            str: The description.
-        """
-        return description.strip() if description else None
+        return operation_id.lower().strip()
 
     @staticmethod
     def param_token(
@@ -317,19 +156,174 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
             ),
         ],
     ) -> str:
-        """
-        the authentication token.
-
-        Args:
-            token (str, Header): The token.
-
-        Returns:
-            str: The token.
-        """
         return token.strip()
 
     @staticmethod
-    def ensure_req_id(
+    def param_ws_id(
+        ws_id: Annotated[
+            str,
+            Query(
+                description="""
+id of the websocket to use during a request.
+""",
+                example="test_ws",
+            ),
+        ],
+    ) -> str:
+        return ws_id.strip()
+
+    @staticmethod
+    def param_group_id(
+        group_id: Annotated[
+            str,
+            Query(
+                description="id of a usergroup in the collab database.",
+                example=ADMINISTRATORS_GROUP_ID,
+            ),
+        ],
+    ) -> str:
+        return group_id.strip()
+
+    @staticmethod
+    def param_obj_id(
+        obj_id: Annotated[
+            str,
+            Query(description="the object id", example="obj_id"),
+        ],
+    ) -> str:
+        return obj_id.lower().strip()
+
+    @staticmethod
+    def _param_user_id(
+        user_id: Annotated[
+            str,
+            Query(
+                description="id of an user in the collab database.",
+                example="admin",
+            ),
+        ] = None,
+    ) -> str:
+        return user_id.lower().strip() if user_id else None
+
+    @staticmethod
+    def param_user_id() -> str:
+        user_id: str = (APIDependencies._param_user_id(),)
+        if not user_id:
+            raise ValueError("user_id is required")
+        return user_id
+
+    @staticmethod
+    def param_user_id_optional() -> str:
+        return APIDependencies._param_user_id()
+
+    @staticmethod
+    def _param_password(
+        password: Annotated[
+            str,
+            Query(
+                description="""
+the user password.
+
+- 8-64 characters, at least one uppercase, one lowercase, one number, one special character.
+""",
+                example="Password1!",
+            ),
+            AfterValidator(_pwd_regex_validator),
+        ] = None,
+    ) -> str:
+        """
+        NOTE: use config `debug_allow_insecure_passwords` to disable validation (not recommended).
+        """
+        return password.strip() if password else None
+
+    @staticmethod
+    def param_password() -> str:
+        password: str = APIDependencies._param_password()
+        if not password:
+            raise ValueError("password is required")
+        return password
+
+    @staticmethod
+    def param_password_optional() -> str | None:
+        return APIDependencies._param_password()
+
+    @staticmethod
+    def _param_permission(
+        permission: Annotated[
+            list[GulpUserPermission],
+            Body(
+                description="""
+one or more user/group permission.
+
+- read: read the object.
+- edit: edit the object.
+- delete: delete the object.
+- ingest: ingest data.
+- **admin: every permission.**
+""",
+                example='["read","edit"]',
+            ),
+        ] = [],
+    ) -> list[GulpUserPermission]:
+        return permission
+
+    @staticmethod
+    def param_permission() -> list[GulpUserPermission]:
+        permission = APIDependencies._param_permission()
+        if not permission:
+            raise ValueError("permission is required")
+        return permission
+
+    @staticmethod
+    def param_permission_optional() -> list[GulpUserPermission]:
+        return APIDependencies._param_permission()
+
+    @staticmethod
+    def _param_email(
+        email: Annotated[
+            str,
+            Query(description="the user email.", example="user@mail.com"),
+            AfterValidator(_email_regex_validator),
+        ] = None,
+    ) -> str:
+        return email.strip() if email else None
+
+    @staticmethod
+    def param_email() -> str:
+        email: str = APIDependencies._param_email()
+        if not email:
+            raise ValueError("email is required")
+        return email
+
+    @staticmethod
+    def param_email_optional() -> str:
+        return APIDependencies._param_email()
+
+    @staticmethod
+    def param_private(
+        private: Annotated[
+            bool,
+            Query(
+                description="sets the object as private, so only the *owner* `user_id` and administrators can access it.",
+            ),
+        ] = False,
+    ) -> bool:
+        return private
+
+    @staticmethod
+    def param_description_optional(
+        description: Annotated[
+            str,
+            Body(
+                description="the object description.",
+                examples=["this is a description"],
+            ),
+        ] = None,
+    ) -> str:
+        return description.strip() if description else None
+
+    @staticmethod
+    def ensure_req_id_optional(
         req_id: Annotated[
             str,
             Query(
@@ -342,102 +336,54 @@ id of a request, will be replicated in the response `req_id`.
             ),
         ] = None,
     ) -> str:
-        """
-        Ensures a request ID is set, either generates it.
-
-        Args:
-            req_id (str, optional): The request ID. Defaults to None.
-
-        Returns:
-            str: The request ID.
-        """
         return req_id.lower().strip() if req_id else muty.string.generate_unique()
 
     @staticmethod
-    def param_name(
+    def _param_name(
         name: Annotated[
             str,
             Query(description="the object name", example="my object"),
         ] = None,
     ) -> str:
-        """
-        to set the object name
-
-        Args:
-            name (str, Query): the object name
-
-        Returns:
-            str: The name.
-        """
         return name.strip() if name else None
 
     @staticmethod
-    def param_ws_id(
-        ws_id: Annotated[
-            str,
-            Query(
-                description="""
-id of the websocket to send progress and results during the processing of a request.
-""",
-                example="test_ws",
-            ),
-        ],
-    ) -> str:
-        """
-        the websocket id.
-
-        Args:
-            ws_id (str, Query): The WS ID.
-
-        Returns:
-            str: The WS ID.
-        """
-        return ws_id.strip()
+    def param_name_optional() -> str:
+        return APIDependencies._param_name()
 
     @staticmethod
-    def param_collab_flt(
+    def param_name() -> str:
+        name = APIDependencies._param_name()
+        if not name:
+            raise ValueError("name is required")
+        return name
+
+    @staticmethod
+    def param_collab_flt_optional(
         flt: Annotated[
             GulpCollabFilter,
             Body(
-                description="the collab filter.",
+                description="to filter objects on the collab database.",
             ),
         ] = None,
     ) -> GulpCollabFilter:
-        """
-        to filter collab objects.
-
-        Args:
-            flt (GulpCollabFilter, Body): The collab filter. Defaults to empty filter.
-
-        Returns:
-            GulpCollabFilter: The collab filter.
-        """
         return flt or GulpCollabFilter()
 
     @staticmethod
-    def param_ingestion_flt(
+    def param_ingestion_flt_optional(
         flt: Annotated[
-            Optional[GulpIngestionFilter],
+            GulpIngestionFilter,
             Body(
                 description="""
-to filter documents by `time_range` during `ingestion`.
-"""
+to filter documents by `time_range` during ingestion.
+""",
             ),
         ] = None,
     ) -> GulpIngestionFilter:
-        """
-        to filter documents during ingestion.
-
-        Args:
-            flt (GulpIngestionFilter, Body): The ingestion filter. Defaults to empty(no) filter.
-
-        Returns:
-            GulpIngestionFilter: The ingestion filter.
-        """
         return flt or GulpIngestionFilter()
 
     @staticmethod
-    def param_q_flt(
+    def _param_q_flt(
         flt: Annotated[
             GulpQueryFilter,
             Body(
@@ -448,88 +394,40 @@ the query filter, to filter for common fields, including:
 - `event_original` to search into the original event.
 - `time_range` to filter by time.
 - to filter for custom keys, just add them in `flt` as `key: value` or `key: [values]` for `OR` match.
-"""
+""",
             ),
         ] = None,
     ) -> GulpQueryFilter:
-        """
-        to filter documents during query.
-
-        Args:
-            flt (GulpQueryFilter, Body): The query filter. Defaults to empty(no) filter.
-
-        Returns:
-            GulpQueryFilter: The query filter.
-        """
         return flt or GulpQueryFilter()
 
     @staticmethod
-    def param_q_options(
+    def param_q_flt_optional() -> GulpQueryFilter:
+        return APIDependencies._param_q_flt()
+
+    @staticmethod
+    def param_q_flt() -> GulpQueryFilter:
+        flt = APIDependencies._param_q_flt()
+        if not flt:
+            raise ValueError("filter is required")
+        return flt
+
+    @staticmethod
+    def param_q_options_optional(
         q_options: Annotated[
             GulpQueryParameters,
             Body(
+                default=GulpQueryParameters(),
                 description="""
 additional parameters for querying, including:
 
 - `limit`, `offset`, `search_after` for pagination.
 - `fields` to restrict returned fields.
 - `sort` for sorting
-"""
+""",
             ),
         ] = None,
-    ) -> dict:
-        """
-        to customize query
-
-        Args:
-            options (GulpQueryParameters, Body): The query options. Defaults to empty(no) options.
-
-        Returns:
-            GulpQueryParameters: The query options.
-        """
+    ) -> GulpQueryParameters:
         return q_options or GulpQueryParameters()
-
-    @staticmethod
-    def param_operation_id(
-        operation_id: Annotated[
-            str,
-            Query(
-                description="id of a `GulpOperation` object in the collab database.",
-                example="test_operation",
-            ),
-        ],
-    ) -> str:
-        """
-        the operation ID
-
-        Args:
-            operation_id (str, Query): The operation ID.
-
-        Returns:
-            str: The operation ID.
-        """
-        return operation_id.lower().strip()
-
-    @staticmethod
-    def param_index(
-        index: Annotated[
-            str,
-            Query(
-                description="the OpenSearch index (usually equal to `operation_id`)",
-                example="test_operation",
-            ),
-        ],
-    ) -> str:
-        """
-        the opensearch index/datastream name
-
-        Args:
-            index (str, Query): The opensearch index.
-
-        Returns:
-            int: The index.
-        """
-        return index.lower().strip()
 
     @staticmethod
     def param_context_id(
@@ -543,15 +441,6 @@ id of a `GulpContext` object on the collab database.
             ),
         ],
     ) -> str:
-        """
-        the GulpContext ID
-
-        Args:
-            context_id (str, Query): The context ID.
-
-        Returns:
-            str: The context ID.
-        """
         return context_id.lower().strip()
 
     @staticmethod
@@ -566,15 +455,6 @@ id of a `GulpSource` object on the collab database.
             ),
         ],
     ) -> str:
-        """
-        the GulpSource ID
-
-        Args:
-            source_id (str, Query): The source ID.
-
-        Returns:
-            str: The source ID.
-        """
         return source_id.lower().strip()
 
     @staticmethod
@@ -587,15 +467,6 @@ id of a `GulpSource` object on the collab database.
             ),
         ],
     ) -> str:
-        """
-        the plugin (internal) name: this is the plugin filename without extension.
-
-        Args:
-            plugin (str, Query): The plugin.
-
-        Returns:
-            str: The plugin.
-        """
         return plugin.strip()
 
     @staticmethod
@@ -609,19 +480,10 @@ to customize `mapping` and specific `plugin` parameters.
             ),
         ] = None,
     ) -> GulpPluginParameters:
-        """
-        plugin parameters to customize mapping and specific plugin parameters.
-
-        Args:
-            plugin_params (GulpPluginParameters, Body): The plugin parameters
-
-        Returns:
-            GulpPluginParameters: The plugin parameters or None if empty
-        """
         return plugin_params or GulpPluginParameters()
 
     @staticmethod
-    def param_tags(
+    def _param_tags(
         tags: Annotated[
             list[str],
             Body(
@@ -630,15 +492,6 @@ to customize `mapping` and specific `plugin` parameters.
             ),
         ] = [],
     ) -> list[str]:
-        """
-        tags to be assigned to the object
-
-        Args:
-            tags (list[str], optional, Body): The tags. Defaults to None.
-
-        Returns:
-            list[str]: The tags.
-        """
         if tags:
             # strip each tag, remove empty tags
             tags = [tag.strip().lower() for tag in tags if tag and tag.strip()]
@@ -646,29 +499,31 @@ to customize `mapping` and specific `plugin` parameters.
         return tags or []
 
     @staticmethod
-    def param_glyph_id(
+    def param_tags() -> list[str]:
+        tags = APIDependencies._param_tags()
+        if not tags:
+            raise ValueError("tags is required")
+        return tags
+
+    @staticmethod
+    def param_tags_optional() -> list[str]:
+        return APIDependencies._param_tags()
+
+    @staticmethod
+    def param_glyph_id_optional(
         glyph_id: Annotated[
-            Optional[str],
+            str,
             Query(
                 description="id of a `glyph` in the collab database.",
             ),
         ] = None,
     ) -> str:
-        """
-        to set the glyph ID.
-
-        Args:
-            glyph_id (str, Query): The glyph ID. Defaults to None
-
-        Returns:
-            str: The glyph ID.
-        """
         return glyph_id.strip() if glyph_id else None
 
     @staticmethod
-    def param_color(
+    def param_color_optional(
         color: Annotated[
-            Optional[str],
+            str,
             Query(
                 description="the color in #rrggbb or css-name format.",
                 example="#ff0000",
