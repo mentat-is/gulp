@@ -335,11 +335,11 @@ async def process_queries(
                 ),
                 ws_id=ws_id,
                 data=(
-                    GulpIngestionStats()
+                    GulpIngestionStats().model_dump(exclude_none=True)
                     if plugin
                     else GulpQueryStats(
                         num_queries=num_total_queries, q_group=q_options.group
-                    )
+                    ).model_dump(exclude_none=True)
                 ),
             )
 
@@ -362,7 +362,7 @@ async def process_queries(
 
             # 2. batch queries and gather results: spawn a worker for each query and wait them all.
             # NOTE: for query_external, we will always have just one query to run
-            batch_size = len(queries)
+            batch_size: int = len(queries)
             if len(queries) > GulpConfig.get_instance().concurrency_max_tasks():
                 batch_size = GulpConfig.get_instance().concurrency_max_tasks()
 
@@ -375,7 +375,7 @@ async def process_queries(
             l: int = len(queries)
             for i in range(0, l, batch_size):
                 # run one batch
-                batch = queries[i : i + batch_size]
+                batch: list[GulpQuery] = queries[i : i + batch_size]
                 coros = []
                 for gq in batch:
                     run_query_args = dict(
@@ -472,8 +472,18 @@ async def process_queries(
                 req_id=req_id,
                 d=p.model_dump(exclude_none=True),
             )
-        except:
+        except Exception as ex:
             await sess.rollback()
+            if stats:
+                # ensure we set the stats as failed on error
+                await stats.set_finished(
+                    sess,
+                    GulpRequestStatus.FAILED,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                    errors=[muty.log.exception_to_string(ex)],
+                )
+
             raise
 
 

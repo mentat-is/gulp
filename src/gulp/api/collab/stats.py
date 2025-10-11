@@ -359,6 +359,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         time_expire: int = 0,
         user_id: str = None,
         ws_id: str = None,
+        errors: list[str] = None,
     ) -> dict:
         """
         set the stats as finished (done, failed, canceled)
@@ -371,7 +372,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             time_expire(int, optional): the time when the stats will expire, in milliseconds from
                 the unix epoch. If 0, the expiration time is not updated. Defaults to 0.
             user_id(str, optional): the user id issuing the request
-            ws_id(str, optional): the websocket id to notify COLLAB_UPDATE to
+            ws_id(str, optional): the websocket id to notify WS_STATS_UPDATE to
+            errors(list[str], optional): list of errors to add. Defaults to None.
         Returns:
             dict: the updated stats
         """
@@ -380,6 +382,20 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
             self.status = status.value
             self.time_finished = muty.time.now_msec()
+
+            # get time elapsed in seconds
+            MutyLogger.get_instance().info(
+                "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
+                self.status,
+                (self.time_finished - self.time_created) // 1000,
+                self,
+            )
+
+            if errors:
+                # add errors
+                err = self.errors or []
+                err.extend(errors)
+                self.errors = err
             if time_expire:
                 self.time_expire = time_expire
             if data:
@@ -691,9 +707,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                         if not errs
                         else GulpRequestStatus.FAILED.value
                     )
+                    # get time elapsed in seconds
                     MutyLogger.get_instance().info(
-                        "**QUERY REQ=%s FINISHED** status=%s, elapsed_time=%ds, stats=%s",
-                        self.id,
+                        "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
                         self.status,
                         (self.time_finished - self.time_created) // 1000,
                         self,
