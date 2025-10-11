@@ -28,6 +28,7 @@ import muty.file
 import muty.log
 import muty.pydantic
 import muty.string
+import muty.time
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -637,64 +638,6 @@ async def _spawn_query_group_workers(
     GulpRestServer.get_instance().spawn_bg_task(_worker_coro(kwds))
 
 
-async def _query_raw_internal(
-    sess: AsyncSession,
-    user_id: str,
-    operation_id: str,
-    req_id: str,
-    ws_id: str,
-    index: str,
-    q: list[dict] | list[GulpQuery],
-    q_options: GulpQueryParameters,
-) -> dict:
-    # if q_options.preview_mode:
-    #     if len(q) > 1:
-    #         raise ValueError(
-    #             "if `q_options.preview_mode` is set, only one query is allowed."
-    #         )
-
-    #     # preview mode, run the query and return the data
-    #     total, docs = await _preview_query(
-    #         sess,
-    #         operation_id=operation_id,
-    #         user_id=user_id,
-    #         req_id=req_id,
-    #         q=q[0],
-    #         query_index=index,
-    #         q_options=q_options,
-    #     )
-    #     return {
-    #         "total_hits": total,
-    #         "docs": docs
-    #     }
-
-    #     queries: list[GulpQuery] = []
-    #     if isinstance(q[0], GulpQuery):
-    #         queries=q
-    #     else:
-    #         for qq in q:
-    #             # build query
-    #             gq = GulpQuery(name=q_options.name, q=qq)
-    #             queries.append(gq)
-
-    #     # add query to history (first one only)
-    #     await GulpUser.add_query_history_entry(
-    #         user_id, queries[0].q, q_options=q_options
-    #     )
-
-    #         await _spawn_query_group_workers(
-    #             user_id=user_id,
-    #             req_id=req_id,
-    #             ws_id=ws_id,
-    #             operation_id=operation_id,
-    #             index=op.index,
-    #             queries=queries,
-    #             q_options=q_options,
-    #         )
-
-    pass
-
-
 async def _query_raw_chunk_callback(
     sess: AsyncSession,
     chunk: list[dict],
@@ -707,6 +650,11 @@ async def _query_raw_chunk_callback(
     q_group: str = None,
     **kwargs,
 ) -> list[dict]:
+    """
+    callback called by GulpOpenSearch when a chunk of documents is available:
+    - sends the chunk to the websocket
+    - creates notes if requested (and send them to the websocket as well)
+    """
     cb_context: dict = kwargs["cb_context"]
     user_id: str = cb_context["user_id"]
     operation_id: str = cb_context["operation_id"]
@@ -719,7 +667,7 @@ async def _query_raw_chunk_callback(
     sigma_yml: str = cb_context.get("sigma_yml")
     tags: list[str] = cb_context.get("tags", [])
 
-    # send chunk to websocket
+    # send chunk of documents to the websocket
     c = GulpDocumentsChunkPacket(
         docs=chunk,
         chunk_size=len(chunk),
@@ -738,7 +686,21 @@ async def _query_raw_chunk_callback(
     )
 
     if q_options.create_notes:
-        pass
+        # create notes for this chunk and send them to the websocket as well
+        await GulpNote.bulk_create_from_documents_and_send_to_ws(
+            sess,
+            user_id,
+            ws_id=ws_id,
+            req_id=req_id,
+            docs=chunk,
+            name=q_name,
+            tags=tags,
+            color=q_options.color,
+            glyph_id=q_options.glyph_id,
+            source_q=orjson.dumps(q, option=orjson.OPT_INDENT_2).decode(),
+            sigma_yml=sigma_yml,
+            last=last,
+        )
 
 
 async def _run_query(
@@ -857,7 +819,7 @@ async def process_query_batch(
                 ),
             )
 
-            # spawn a worker for each query and wait them all
+            # spawn a worker for each query in this batch and wait them all
             # for query external, we always have just one query to run
             batch_size = len(queries)
             if len(queries) > GulpConfig.get_instance().concurrency_max_tasks():
@@ -882,11 +844,29 @@ async def process_query_batch(
                         )
                     )
 
+            # 2. add query history entries
+            if write_history:
+                history: list[GulpUserDataQueryHistoryEntry] = []
+                for gq in queries:
+                    h: GulpUserDataQueryHistoryEntry = GulpUserDataQueryHistoryEntry(
+                        q=gq.q,
+                        timestamp_msec=muty.time.now_msec(),
+                        external=True if plugin else False,
+                        q_options=q_options,
+                        plugin=plugin,
+                        plugin_params=plugin_params,
+                        sigma_yml=gq.sigma_yml,
+                    )
+
+                    history.append(h)
+                    await GulpUser.add_query_history_entry_batch(sess, history)
+            # 3. gather results
+            results = await asyncio.gather(*coros, return_exceptions=True)
+
         except:
             await sess.rollback()
             raise
 
-        # 2. add each query to history
         #  # add query to history (first one only)
         # await GulpUser.add_query_history_entry(
         #    user_id, queries[0].q, q_options=q_options, flt=flt, sigma=sigmas[0]
@@ -1114,6 +1094,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.post(
     "/query_gulp",
     response_model=JSendResponse,
@@ -1160,6 +1141,11 @@ for anything else, it is advised to use the more powerful `query_raw` API.
 - flt.operation_ids is enforced to the provided `operation_id`.
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
 - if `q_options.preview_mode` is set, this API returns the data (a chunk) itself, without using the websocket.
+
+## tracking progress
+
+same as for `query_raw` API.
+
 """,
 )
 async def query_gulp_handler(
@@ -1226,6 +1212,7 @@ async def query_gulp_handler(
                 raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.post(
     "/query_external",
@@ -1347,6 +1334,7 @@ async def query_external_handler(
                     )
 
                 # run a background task to process the query
+                # we use process_query_batch (but we have a single query only)
                 queries: list[GulpQuery] = [GulpQuery(name=q_options.name, q=q)]
                 coro = process_query_batch(
                     user_id,
@@ -1354,7 +1342,7 @@ async def query_external_handler(
                     operation_id,
                     ws_id,
                     queries,
-                    len(queries)
+                    len(queries),
                     q_options,
                     index=index,
                     plugin=plugin,
@@ -1413,25 +1401,25 @@ async def query_external_handler(
 query using [sigma rules](https://github.com/SigmaHQ/sigma).
 
 - sigma rules in `sigmas` are batched and runs in parallel in concurrent tasks into worker processes.
-- this API returns `pending` and results are streamed to the `ws_id` websocket.
+- this API returns `pending` and results are streamed to the `ws_id` websocket (unless `q_options.preview_mode` is set, read later).
 
 ### q_options
 
-- `create_notes` is set to `True` to create notes on match (if not set explicitly to False).
-- if more than one query is provided, `q_options.group` must be set.
-- if `q_options.preview_mode` is set, this API only accepts a single query in the `sigmas` array and the data is returned directly without using the websocket.
+- `create_notes` is set to `True` to create notes on match
+- if `q_options.preview_mode` is set, only the first sigma rule in `sigmas` is converted and run, and the data is returned directly without using the websocket.
+- if `q_options.group` is set, and all sigma rules match, notes created will include the group in their tags.
 
 ### src_ids
 
-if not provided, `all sources in the operation` are used (not advised).
+if not provided, **all sources** in the `operation_id` are used.
 
 ### pre-filtering sigma rules
 
 sigma rules may be filtered using `levels`, `products`, `categories`, `services` and `tags` parameters.
 
-### tracking query progresses
+## tracking progress
 
-look at `query_raw` API for details about progress packets sent to the `ws_id` websocket.
+same as for `query_raw` API.
 
 """,
 )

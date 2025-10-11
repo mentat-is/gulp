@@ -172,6 +172,52 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         )
         return d
 
+    async def add_query_history_entry_batch(
+        self,
+        sess: AsyncSession,
+        entries: list[GulpUserDataQueryHistoryEntry],
+    ) -> None:
+        """
+        Adds multiple query history entries for the user in a batch operation.
+
+        Args:
+            sess (AsyncSession): The database session.
+            entries (list[GulpUserDataQueryHistoryEntry]): The list of query history entries to add.
+        """
+        await GulpUser.acquire_advisory_lock(sess, self.id)
+        try:
+            ud: dict = self.user_data if self.user_data else {}
+            if "query_history" not in ud:
+                ud["query_history"] = []
+
+            q_history: list[dict] = ud["query_history"]
+            # append all entries at once
+            for entry in entries:
+                q_history.append(entry.model_dump(exclude_none=True))
+
+            # trim if the history is too long
+            max_history_size: int = GulpConfig.get_instance().query_history_max_size()
+            if len(q_history) > max_history_size:
+                # keep only the last `max_history_size` entries
+                MutyLogger.get_instance().warning(
+                    "trimming query history for user %s, size=%d, max_size=%d",
+                    self.id,
+                    len(q_history),
+                    max_history_size,
+                )
+                q_history = q_history[-max_history_size:]
+
+            self.user_data = ud  # trigger update
+            MutyLogger.get_instance().debug(
+                "added %d query history entries for user %s, total size=%d",
+                len(entries),
+                self.id,
+                len(q_history),
+            )
+        finally:
+            # unlock and commit
+            await sess.commit()
+
     async def add_query_history_entry(
         self,
         sess: AsyncSession,

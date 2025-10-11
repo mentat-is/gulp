@@ -119,21 +119,22 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         return d
 
     @staticmethod
-    async def bulk_create_from_documents(
+    async def bulk_create_from_documents_and_send_to_ws(
         sess: AsyncSession,
         user_id: str,
         ws_id: str,
         req_id: str,
         docs: list[dict],
         name: str,
+        q: str = None,
+        sigma_yml: str = None,
         tags: list[str] = None,
         color: str = None,
         glyph_id: str = None,
-        q: str = None,
         last: bool = False,
     ) -> int:
         """
-        creates a note for each document in the list, using bulk insert
+        creates a note on collab for each document in the list, using bulk insert, then streams the chunk of notes to the websocket
 
         Args:
             sess (AsyncSession): the database session
@@ -142,24 +143,27 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             req_id (str): the request id
             docs (list[dict]): the list of GulpDocument dictionaries to create notes for
             name (str): the name of the notes
-            tags (list[str], optional): the tags to add to the notes. Defaults to None (set to ["auto"]).
+            q (str): the original query to be set as text, if any. Defaults to None.
+            sigma_yml (str, optional): the originating sigma rule in yml format, if any. Defaults to None.
+            tags (list[str], optional): the tags to add to the notes. Defaults to None (will set tags=["auto"]).
             color (str, optional): the color of the notes. Defaults to None (use default).
             glyph_id (str, optional): the glyph id of the notes. Defaults to None (use default).
-            source_q (str, optional): the original query to be set as text, if any. Defaults to None.
             last (bool, optional): whether this is the last batch of notes to be created. Defaults to False.
         Returns:
             the number of notes created
         """
+        if not docs:
+            MutyLogger.get_instance().warning("no documents provided, no notes created")
+            return 0
+
         tt: list[str] = tags
         if not tt:
+            # empty tags
             tt = []
 
         if "auto" not in tt:
             # add "auto" tag if not present
             tt.append("auto")
-        if not docs:
-            MutyLogger.get_instance().warning("no documents provided, no notes created")
-            return 0
 
         # creates a list of notes, one for each document
         notes: list[dict] = []
@@ -196,13 +200,16 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                     + "\n````"
                 )
 
+            if sigma_yml:
+                # if a sigma rule is provided, add it to the text
+                text += "\n\n### sigma rule:\n\n"
+                text += f"````yaml\n{sigma_yml}````"
+
+            # always add the query
             text += "\n\n### query:\n\n"
-            text += f"````text\n{str(q)}````"
+            text += f"````json\n{str(q)}````"
 
-            if doc:
-                # if a document is provided, convert it to a dictionary
-                doc = doc.model_dump(by_alias=True, exclude_none=True)
-
+            # build the object for the bulk
             object_data: dict = GulpNote.build_object_dict(
                 user_id,
                 name=name,
@@ -211,7 +218,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 tags=tt,
                 color=color,
                 private=False,
-                obj_id=muty.crypto.hash_xxh128(str(associated_doc) + text),
+                obj_id=muty.crypto.hash_xxh128(str(associated_doc)),
                 doc=associated_doc,
                 text=text,
                 context_id=associated_doc["gulp.context_id"],
