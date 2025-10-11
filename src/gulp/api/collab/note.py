@@ -121,6 +121,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
     @staticmethod
     async def bulk_create_from_documents_and_send_to_ws(
         sess: AsyncSession,
+        operation_id: str,
         user_id: str,
         ws_id: str,
         req_id: str,
@@ -136,12 +137,15 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         """
         creates a note on collab for each document in the list, using bulk insert, then streams the chunk of notes to the websocket
 
+        NOTE: this is meant for internal usage, access checks should be done before calling this method
+
         Args:
             sess (AsyncSession): the database session
+            operation_id (str): the operation id the notes belong to
             user_id (str): the user id creating the notes
             ws_id (str): the websocket id
             req_id (str): the request id
-            docs (list[dict]): the list of GulpDocument dictionaries to create notes for
+            docs (list[dict]): the list of GulpDocument dictionaries to create notes for (must belong to the operation_id, no checks!)
             name (str): the name of the notes
             q (str): the original query to be set as text, if any. Defaults to None.
             sigma_yml (str, optional): the originating sigma rule in yml format, if any. Defaults to None.
@@ -209,7 +213,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             text += "\n\n### query:\n\n"
             text += f"````json\n{str(q)}````"
 
-            # build the object for the bulk
+            # build the object for the note
             object_data: dict = GulpNote.build_object_dict(
                 user_id,
                 name=name,
@@ -242,8 +246,6 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             note for note in notes if note["id"] in inserted_ids
         ]
         if inserted_notes or last:
-            # operation is always the same
-            operation_id = notes[0].get("operation_id")
             p: GulpCollabCreatePacket = GulpCollabCreatePacket(
                 obj=inserted_notes,
                 bulk=True,
@@ -269,23 +271,25 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
     @staticmethod
     async def bulk_update_tags(
         sess: AsyncSession,
+        operation_id: str,
         tags: list[str],
         new_tags: list[str],
-        operation_id: str = None,
         user_id: str = None,
     ) -> None:
         """
-        get tags from notes and update them with new tags
+        update all notes matching "tags" to add "new_tags"
+
+        NOTE: this is meant for internal usage, access checks should be done before calling this method
 
         Args:
             sess (AsyncSession): the database session
+            operation_id (str): the operation id the notes belong to
             tags (list[str]): the tags to match
             new_tags (list[str]): the new tags to add
-            operation_id (str, optional): the operation id to restrict to. Defaults to None (all operations).
-            user_id (str, optional): the user id requesting the update. Defaults to None (admin, see all notes).
+            user_id (str, optional): the user id to perform the update with. Defaults to None (no access check).
         """
         MutyLogger.get_instance().debug(
-            f"updating notes tags from {tags} to {new_tags} ..."
+            "updating notes with %s tags to also include %s ...", tags, new_tags
         )
         offset = 0
         chunk_size = 1000
@@ -295,7 +299,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             tags=tags,
             limit=chunk_size,
             offset=offset,
-            operation_ids=[operation_id] if operation_id else None,
+            operation_ids=[operation_id],
         )
 
         updated = 0
@@ -320,11 +324,11 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
 
             await sess.commit()
             rows_updated = len(notes)
-            MutyLogger.get_instance().debug(f"updated {rows_updated} notes")
+            MutyLogger.get_instance().debug("updated %d notes tags", rows_updated)
 
             # next chunk
             offset += rows_updated
             flt.offset = offset
             updated += rows_updated
 
-        MutyLogger.get_instance().info("updated %d notes tags" % (updated))
+        MutyLogger.get_instance().info("updated %d notes tags (total)", updated)

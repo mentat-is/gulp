@@ -466,6 +466,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         """
         update the ingestion stats
 
+        once all sources are marked as finished (source_finished=True), the request is marked as DONE/FAILED (if all sources failed)
+
         Args:
             sess(AsyncSession): collab database session
             user_id(str, optional): the user id issuing the request (ignored if ws_id is not set)
@@ -584,7 +586,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         errors: list[str] = None,
     ) -> dict:
         """
-        update the rebase/enrich stats
+        update the rebase/enrich stats counters
+
+        to finalize the stats in the end and set status to DONE/FAILED, use set_finished()
 
         Args:
             sess(AsyncSession): collab database session
@@ -638,6 +642,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         """
         update the query stats
 
+        once the number of completed queries is equal to num_queries, the request is marked as DONE (or FAILED if there are errors)
+
         Args:
             sess(AsyncSession): collab database session
             user_id(str, optional): the user id issuing the request (ignored if ws_id is not set)
@@ -668,7 +674,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 # some queries completed
                 d.completed_queries += inc_completed
                 MutyLogger.get_instance().info(
-                    "**QUERY REQ=%s completed=%d/%d**, current hits=%d",
+                    "**QUERY REQ=%s num queries completed=%d/%d**, current hits=%d",
                     self.id,
                     d.completed_queries,
                     d.num_queries,

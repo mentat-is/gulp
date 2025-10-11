@@ -1765,6 +1765,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
         helper to set the granted_user_ids and granted_user_group_ids on the filter based on the user_id provided (if any)
 
+        with grants set, the filter will return only objects that the user has access to (or all objects if user is admin)
+
         Args:
 
             sess (AsyncSession): the database session to use
