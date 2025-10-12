@@ -243,6 +243,9 @@ async def _ingest_file_internal(
 
     Returns:
     tuple[GulpRequestStatus, list[dict]]: the ingestion return status and the preview chunk (empty if not preview_mode)
+
+    Raises:
+        any exception raised by the underlying plugin.ingest_file method.
     """
     # MutyLogger.get_instance().debug("---> _ingest_file_internal")
     mod: GulpPluginBase = None
@@ -258,14 +261,16 @@ async def _ingest_file_internal(
 
             if not payload.plugin_params.preview_mode:
                 # create stats
-                stats, _ = await GulpRequestStats.create_or_get_existing_stats(
+                stats, _ = await GulpRequestStats.create_or_get_existing(
                     sess,
                     req_id,
                     user_id,
                     operation_id,
                     req_type=RequestStatsType.REQUEST_TYPE_INGESTION,
                     ws_id=ws_id,
-                    data=GulpIngestionStats(source_total=file_total).model_dump(),
+                    data=GulpIngestionStats(source_total=file_total).model_dump(
+                        exclude_none=True
+                    ),
                 )
 
             # run plugin
@@ -284,6 +289,7 @@ async def _ingest_file_internal(
                 original_file_path=payload.original_file_path,
                 plugin_params=payload.plugin_params,
                 flt=payload.flt,
+                **kwargs,
             )
             if payload.plugin_params.preview_mode:
                 # get the accumulated preview chunk and we're done
@@ -295,7 +301,6 @@ async def _ingest_file_internal(
             return status, []
         except:
             await sess.rollback()
-            status = GulpRequestStatus.FAILED
             raise
         finally:
             if mod:
@@ -1107,8 +1112,13 @@ the json payload may contain the following fields:
 
 ### plugin
 
-by default, the `raw` plugin is used (and it is the recommended one): the data `chunk` is expected as a JSON text with a list of `GulpDocument` dictionaries.
-it is possible, however, to implement another plugin which sends raw data (i.e. bytes), as long as it can process the `chunk` data.
+by default, the `raw` plugin is used: the data `chunk` is expected as a JSON text with a list of `GulpDocument` dictionaries.
+it is possible, however, to implement another plugin which takes a chunk of raw bytes as input.
+
+### tracking progress
+
+the flow is the same as `ingest_file`.
+
 """,
     summary="ingest raw documents.",
 )
@@ -1177,23 +1187,15 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
                     )
                 )
 
-                # create (or update existing) stats
-                if last:
-                    # on last chunk, we will let the stats expire
-                    object_data = None
-                else:
-                    # create a stats that never expire
-                    object_data = {
-                        "never_expire": True,
-                    }
-                stats: GulpRequestStats = await GulpRequestStats.create(
-                    token=None,
+                # create (or get existing) stats
+                stats: GulpRequestStats = await GulpRequestStats.create_or_get_existing(
+                    sess,
+                    req_id,
+                    user_id,
+                    operation_id,
                     ws_id=ws_id,
-                    req_id=req_id,
-                    object_data=object_data,
-                    operation_id=operation_id,
-                    sess=sess,
-                    user_id=user_id,
+                    never_expire=True,
+                    data=GulpIngestionStats().model_dump(exclude_none=True),
                 )
 
                 # run plugin
@@ -1201,13 +1203,13 @@ the plugin to be used, must be able to process the raw documents in `chunk`. """
                 mod = await GulpPluginBase.load(plugin)
                 await mod.ingest_raw(
                     sess,
-                    user_id=user_id,
-                    req_id=req_id,
-                    ws_id=ws_id,
-                    index=index,
-                    operation_id=operation_id,
-                    chunk=chunk,
-                    stats=stats,
+                    stats,
+                    user_id,
+                    req_id,
+                    ws_id,
+                    index,
+                    operation_id,
+                    chunk,
                     flt=flt,
                     plugin_params=plugin_params,
                     last=last,

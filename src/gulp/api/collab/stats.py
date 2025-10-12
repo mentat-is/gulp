@@ -238,10 +238,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         *args,
         **kwargs,
     ) -> dict:
-        raise TypeError("use GulpRequestStats.create_or_get_existing_stats() instead")
+        raise TypeError("use GulpRequestStats.create_or_get_existing() instead")
 
     @classmethod
-    async def create_or_get_existing_stats(
+    async def create_or_get_existing(
         cls,
         sess: AsyncSession,
         req_id: str,
@@ -263,7 +263,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             req_type (RequestStatsType, optional): The type of request stats. Defaults to RequestStatsType.REQUEST_TYPE_INGESTION.
             ws_id (str, optional): The websocket ID to notify WSDATA_STATS_CREATE to. Defaults to None.
             never_expire (bool, optional): If True, the stats will never expire. Defaults to False.
-            data (dict, optional): Additional data to store in the stats. Defaults to None.
+            data (dict, optional): Additional data to store and initialize the stats, depending on req_type, i.e. GulpIngestionStats.model_dump(). Defaults to None.
         Returns:
             tuple[GulpRequestStats, bool]: The created or existing stats object and a boolean indicating if it was created (True) or already existed (False).
         """

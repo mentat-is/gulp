@@ -416,7 +416,6 @@ the query filter, to filter for common fields, including:
         q_options: Annotated[
             GulpQueryParameters,
             Body(
-                default=GulpQueryParameters(),
                 description="""
 additional parameters for querying, including:
 

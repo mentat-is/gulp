@@ -101,7 +101,6 @@ class Plugin(GulpPluginBase):
         index: str,
         operation_id: str,
         chunk: bytes,
-        stats: GulpRequestStats,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
         last: bool = False,
@@ -111,25 +110,32 @@ class Plugin(GulpPluginBase):
         js: list[dict] = []
         try:
             # initialize plugin
-            plugin_params=self._ensure_plugin_params(plugin_params, mappings={
-                "raw_doc": GulpMapping(
-                    fields={
-                        # as default, treats these fields as GulpContext and GulpSource ids (creates them if not existing)
-                        "gulp.context_id": GulpMappingField(is_gulp_type="context_id"),
-                        "gulp.source_id": GulpMappingField(is_gulp_type="source_id",),
-                    }
-                ),
-            })
+            plugin_params = self._ensure_plugin_params(
+                plugin_params,
+                mappings={
+                    "raw_doc": GulpMapping(
+                        fields={
+                            # as default, treats these fields as GulpContext and GulpSource ids (creates them if not existing)
+                            "gulp.context_id": GulpMappingField(
+                                is_gulp_type="context_id"
+                            ),
+                            "gulp.source_id": GulpMappingField(
+                                is_gulp_type="source_id",
+                            ),
+                        }
+                    ),
+                },
+            )
 
             await super().ingest_raw(
-                sess=sess,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                chunk=chunk,
-                stats=stats,
+                sess,
+                stats,
+                user_id,
+                req_id,
+                ws_id,
+                index,
+                operation_id,
+                chunk,
                 flt=flt,
                 plugin_params=plugin_params,
                 last=last,
@@ -140,25 +146,17 @@ class Plugin(GulpPluginBase):
             js = orjson.loads(chunk.decode("utf-8"))
 
         except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+            await self._source_done(flt, ex)
+            raise
 
-        doc_idx = 0
+        # walk each document in the chunk
+        doc_idx: int = 0
         try:
             for rr in js:
+                if not await self.process_record(rr, doc_idx, flt=flt):
+                    break
                 doc_idx += 1
-
-                try:
-                    await self.process_record(rr, doc_idx, flt=flt)
-                except RequestCanceledError as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    break
-                except SourceCanceledError as ex:
-                    await self._source_failed(ex)
-                    break
+            return stats.status
         except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+            await self._source_done(flt, ex)
+            raise

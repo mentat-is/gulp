@@ -358,6 +358,13 @@ the new user id.
     ],
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    user_data: Annotated[
+        dict,
+        Body(
+            description="user data to set.",
+            examples=[{"data1": "abcd", "data2": 1234, "data3": [1, 2, 3]}],
+        ),
+    ] = {},
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -501,11 +508,10 @@ async def user_update_handler(
     user_data: Annotated[
         dict,
         Body(
-            default={},
             description="user data to set.",
             examples=[{"data1": "abcd", "data2": 1234, "data3": [1, 2, 3]}],
         ),
-    ] = None,
+    ] = {},
     merge_user_data: Annotated[
         bool,
         Query(

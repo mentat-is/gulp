@@ -245,6 +245,6 @@ class Plugin(GulpPluginBase):
                 doc_idx += 1
             return await self._source_done(flt)
         except Exception as ex:
-            # i.e. parser exception, cannot continue
+            # i.e. parser exception, canceled, etc.
             await self._source_done(flt, ex)
             raise

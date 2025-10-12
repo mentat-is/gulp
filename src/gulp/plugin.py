@@ -976,47 +976,52 @@ class GulpPluginBase(ABC):
             data=ev.model_dump(),
         )
 
-    async def _ingest_chunk_and_or_send_to_ws(
+    async def flush_buffer_and_send_to_ws(
         self,
-        data: list[dict],
-        flt: GulpIngestionFilter | None = None,
+        flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
         all_fields_on_ws: bool = False,
     ) -> tuple[int, int]:
         """
-        processes a chunk of GulpDocument dictionaries
-
-        the chunk is sent to the websocket, and if ingestion is enabled (default) the documents are ingested in the opensearch index.
+        flush the internal doc buffer: send documents to opensearch and to the websocket.
 
         Args:
-            data (list[dict]): the documents to process
             flt (GulpIngestionFilter, optional): the ingestion filter to apply. Defaults to None.
             wait_for_refresh (bool, optional): whether to wait for refresh after ingestion. Defaults to False.
             all_fields_on_ws (bool, optional): whether to send all fields to the websocket. Defaults to False (only default fields)
         Returns:
             tuple[int, int]: the number of ingested documents and the number of skipped documents
         """
-        if not data:
+        if not self._docs_buffer:
             return 0, 0
 
+        if self._external_query:
+            # for external queries, always send all fields to the websocket
+            all_fields_on_ws = True
+
         MutyLogger.get_instance().debug(
-            "processing chunk of %d documents with plugin=%s", len(data), self.name
+            "processing chunk of %d documents with plugin=%s",
+            len(self._docs_buffer),
+            self.name,
         )
 
         el = GulpOpenSearch.get_instance()
         skipped: int = 0
         ingested_docs: list[dict] = []
         if self._raw_ingestion:
-            # disable refresh for raw ingestion
-            wait_for_refresh = False
+            # disable refresh for raw ingestion, unless it is the last chunk
+            if self._last_raw_chunk:
+                wait_for_refresh = True
+            else:
+                wait_for_refresh = False
 
-        # MutyLogger.get_instance().debug(orjson.dumps(data, option=orjson.OPT_INDENT_2).decode())
+        # MutyLogger.get_instance().debug(orjson.dumps(self._docs_buffer, option=orjson.OPT_INDENT_2).decode())
         # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d',len(self.buffer))
 
-        # perform ingestion, ingested_docs may be different from data in the end due to skipped documents
+        # perform ingestion, ingested_docs may be different from self._docs_buffer in the end due to skipped documents
         skipped, ingestion_errors, ingested_docs = await el.bulk_ingest(
             self._index,
-            data,
+            self._docs_buffer,
             flt=flt,
             wait_for_refresh=wait_for_refresh,
         )
@@ -1030,6 +1035,18 @@ class GulpPluginBase(ABC):
                     "opensearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
                 )
 
+        def __select_ws_doc_fields(doc: dict) -> dict:
+            """
+            patch document to send to ws, either all fields or only default fields
+            """
+            return (
+                doc
+                if all_fields_on_ws
+                else {
+                    field: doc[field] for field in QUERY_DEFAULT_FIELDS if field in doc
+                }
+            )
+
         # send ingested docs to websocket
         if flt:
             # copy filter to avoid changing the original, if any,
@@ -1038,21 +1055,16 @@ class GulpPluginBase(ABC):
             # ensure data on ws is filtered
             flt.storage_ignore_filter = False
 
-        ws_docs: list[dict] = [
-            (  # use all fields on ws if requested
-                doc
-                if all_fields_on_ws
-                else {
-                    # either use only a minimal fields set
-                    field: doc[field]
-                    for field in QUERY_DEFAULT_FIELDS
-                    if field in doc
-                }
-            )
-            for doc in ingested_docs
-            if GulpIngestionFilter.filter_doc_for_ingestion(doc, flt)
-            == GulpDocumentFilterResult.ACCEPT
-        ]
+            ws_docs = [
+                __select_ws_doc_fields(doc)
+                for doc in ingested_docs
+                if GulpIngestionFilter.filter_doc_for_ingestion(doc, flt)
+                == GulpDocumentFilterResult.ACCEPT
+            ]
+        else:
+            # no filter, send all ingested docs to ws
+            ws_docs = [__select_ws_doc_fields(doc) for doc in ingested_docs]
+
         if ws_docs:
             # MutyLogger.get_instance().debug("ws_docs:\n%s", orjson.dumps(ws_docs, option=orjson.OPT_INDENT_2).decode())
             # send documents to the websocket
@@ -1086,7 +1098,10 @@ class GulpPluginBase(ABC):
             )
 
         # MutyLogger.get_instance().debug("returning %d ingested, %d skipped",l, skipped)
-        return len(ingested_docs), skipped
+        ingested: int = len(ingested_docs)
+        self._records_skipped_total += skipped
+        self._records_ingested_total += ingested
+        return ingested, skipped
 
     async def _context_id_from_doc_value(
         self, k: str, v: str, force_v_as_context_id: bool = False
@@ -1281,9 +1296,8 @@ class GulpPluginBase(ABC):
         ingest a chunk of arbitrary data
 
         - it is the responsibility of the plugin to process the chunk and convert it to GulpDocuments ready to be ingested
-        - it is the responsibility of the plugin to create context and source, i.e. from each document data.
+        - it is the responsibility of the plugin to create context and source, i.e. from each document's data.
 
-        NOTE: guaranteed to be called by the engine in a worker process.
         NOTE: to ingest pre-processed GulpDocuments, use the raw plugin which implements ingest_raw.
 
         Args:
@@ -2275,8 +2289,10 @@ class GulpPluginBase(ABC):
             wait_for_refresh (bool, optional): whether to wait for refresh
             kwargs: additional keyword arguments
         """
-        # flush buffer and get stats
-        ingested, skipped = await self._flush_buffer(flt, wait_for_refresh)
+        # flush buffer
+        ingested, skipped = await self._flush_buffer_and_send_to_ws(
+            flt, wait_for_refresh
+        )
 
         # check if request was canceled
         if self._req_canceled:
@@ -2329,7 +2345,9 @@ class GulpPluginBase(ABC):
         in preview mode, documents are accumulated in self._preview_chunk until the configured number of documents is reached,
         at which point process_record returns False to indicate that no further records should be processed.
 
-        Args:
+        NOTE: this function shouldn't generate exception unless the request is canceled or the source must be canceled due to failure threshold.
+
+                Args:
             record (any): The record to process.
             record_idx (int): The index of the record.
             flt (GulpIngestionFilter, optional): The filter to apply during ingestion. Defaults to None.
@@ -2347,7 +2365,7 @@ class GulpPluginBase(ABC):
             flt = None
 
         # get buffer size from config or override
-        ingestion_buffer_size = (
+        ingestion_buffer_size: int = (
             self._plugin_params.override_chunk_size
             or GulpConfig.get_instance().documents_chunk_size()
         )
@@ -2360,8 +2378,12 @@ class GulpPluginBase(ABC):
                 record, record_idx, **kwargs
             )
         except Exception as ex:
-            # report failure
-            self._record_failed(ex)
+            # increment records failed counters
+            self._records_failed_per_chunk += 1
+            self._records_failed_total += 1
+            MutyLogger.get_instance().exception(ex)
+
+            # continue processing anyway
             return True
 
         self._records_processed_per_chunk += 1
@@ -2392,6 +2414,7 @@ class GulpPluginBase(ABC):
         for d in docs:
             self._docs_buffer.append(d)
             if len(self._docs_buffer) >= ingestion_buffer_size:
+                # flush
                 await self._flush_and_check_thresholds(flt, wait_for_refresh)
         return True
 
@@ -2762,57 +2785,6 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug("returning %s:%s" % (k, v))
         return k, v
 
-    async def _flush_buffer(
-        self,
-        flt: GulpIngestionFilter = None,
-        wait_for_refresh: bool = False,
-    ) -> tuple[int, int]:
-        """
-        flushes the ingestion buffer to opensearch, updating the ingestion stats on the collab db.
-
-        once updated, the ingestion stats are sent to the websocket.
-
-        Args:
-            flt (GulpIngestionFilter, optional): The ingestion filter. Defaults to None.
-            wait_for_refresh (bool, optional): Tell opensearch to wait for index refresh. Defaults to False (faster).
-            **kwargs: additional keyword arguments.
-        Returns:
-            tuple[int,int]: ingested, skipped records
-        """
-
-        # then finally ingest the chunk, use all_fields_on_ws if external query or preview mode
-        all_fields_on_ws: bool = self._external_query
-        ingested, skipped = await self._ingest_chunk_and_or_send_to_ws(
-            self._docs_buffer,
-            flt,
-            wait_for_refresh,
-            all_fields_on_ws=all_fields_on_ws,
-        )
-
-        self._records_skipped_total += skipped
-        self._records_ingested_total += ingested
-
-        # if wait_for_refresh:
-        #     # update index type mapping too
-        #     el = GulpOpenSearch.get_instance()
-        #     self._index_type_mapping = await el.datastream_get_key_value_mapping(
-        #         self._index
-        #     )
-        #     MutyLogger.get_instance().debug(
-        #         "got index type mappings with %d entries"
-        #         % (len(self._index_type_mapping))
-        #     )
-        return ingested, skipped
-
-    def _record_failed(self, ex: Exception | str = None) -> None:
-        """
-        handles a single record failure during ingestion.
-        """
-        self._records_failed_per_chunk += 1
-        self._records_failed_total += 1
-        if ex:
-            MutyLogger.get_instance().exception(ex)
-
     async def _update_source_mapping_parameters(self) -> None:
         """
         add mapping parameters to source, to keep track of which mappings has been used for this source
@@ -2869,17 +2841,16 @@ class GulpPluginBase(ABC):
         skipped: int = 0
         errors: list[str] = []
         status: GulpRequestStatus = None
-        source_failed: bool = False
         if ex:
             if isinstance(ex, SourceCanceledError):
+                # also SourceCanceled counts as request canceled
                 self._req_canceled = True
             else:
-                source_failed = True
                 errors.append(muty.log.exception_to_string(ex))
 
         try:
             # flush the last chunk
-            ingested, skipped = await self._flush_buffer(
+            ingested, skipped = await self._flush_buffer_and_send_to_ws(
                 flt,
                 wait_for_refresh=True,
             )
@@ -2888,8 +2859,6 @@ class GulpPluginBase(ABC):
             s: str = muty.log.exception_to_string(e)
             if s not in errors:
                 errors.append(s)
-            ingested = 0
-            skipped = 0
 
         source_finished: bool = True
         if self._raw_ingestion:
@@ -2903,7 +2872,7 @@ class GulpPluginBase(ABC):
                 status = GulpRequestStatus.CANCELED
         else:
             # standard ingestion or query external, send WSDATA_INGEST_SOURCE_DONE on the ws
-            if errors or source_failed:
+            if errors:
                 status = GulpRequestStatus.FAILED
             else:
                 status = GulpRequestStatus.DONE

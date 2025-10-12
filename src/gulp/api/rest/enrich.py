@@ -66,14 +66,14 @@ async def _enrich_documents_internal(
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
-            stats, _ = await GulpRequestStats.create_or_get_existing_stats(
+            stats, _ = await GulpRequestStats.create_or_get_existing(
                 sess,
                 req_id,
                 user_id,
                 operation_id,
                 req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
                 ws_id=ws_id,
-                data=GulpUpdateDocumentsStats(),
+                data=GulpUpdateDocumentsStats().model_dump(exclude_none=True),
             )
 
             # call plugin
@@ -405,14 +405,14 @@ async def _tag_documents_internal(
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
-            stats, _ = await GulpRequestStats.create_or_get_existing_stats(
+            stats, _ = await GulpRequestStats.create_or_get_existing(
                 sess,
                 req_id,
                 user_id,
                 operation_id,
                 req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
                 ws_id=ws_id,
-                data=GulpUpdateDocumentsStats(),
+                data=GulpUpdateDocumentsStats().model_dump(exclude_none=True),
             )
             cb_context["stats"] = stats
             enriched, total_hits = await GulpOpenSearch.get_instance().search_dsl(

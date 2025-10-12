@@ -323,7 +323,7 @@ async def process_queries(
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, or get it if it doesn't exist yet
-            stats, created = await GulpRequestStats.create_or_get_existing_stats(
+            stats, created = await GulpRequestStats.create_or_get_existing(
                 sess,
                 req_id,
                 user_id,

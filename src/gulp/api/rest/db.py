@@ -138,19 +138,20 @@ async def _rebase_by_query_internal(
         "errors": errors,
         "ws_id": ws_id,
     }
+    p: GulpUpdateDocumentsStats = GulpUpdateDocumentsStats()
 
     try:
         # rebase
         async with GulpCollab.get_instance().session() as sess:
             try:
-                stats, _ = await GulpRequestStats.create_or_get_existing_stats(
+                stats, _ = await GulpRequestStats.create_or_get_existing(
                     sess,
                     req_id,
                     user_id,
                     operation_id,
                     req_type=RequestStatsType.REQUEST_TYPE_REBASE,
                     ws_id=ws_id,
-                    data=p.model_dump(),
+                    data=p.model_dump(exclude_none=True),
                 )
                 cb_context["stats"] = stats
 
@@ -186,7 +187,6 @@ async def _rebase_by_query_internal(
                     )
 
                     # update stats and set finished
-                    p: GulpUpdateDocumentsStats = GulpUpdateDocumentsStats()
                     p.total_hits = total_hits
                     p.updated = cb_context["total_updated"]
                     p.errors = errors

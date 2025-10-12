@@ -565,6 +565,12 @@ class GulpWsIngestPacket(BaseModel):
             description="optional plugin parameters",
         ),
     ] = None
+    last: Annotated[
+        bool,
+        Field(
+            description="set to True to indicate the last packet of a stream.",
+        ),
+    ] = False
 
 
 class GulpWsAuthPacket(BaseModel):
