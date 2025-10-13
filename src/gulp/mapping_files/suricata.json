@@ -5,7 +5,7 @@
     ]
   },
   "mappings": {
-    "record": {
+    "eve": {
       "event_code": "record_create",
       "agent_type": "suricata",
       "fields": {
@@ -102,6 +102,22 @@
             "event.reason"
           ]
         },
+        "alert.gid": {
+          "ecs": [
+            "rule.gid"
+          ]
+        },
+        "alert.signature_id": {
+          "ecs": [
+            "rule.sid"
+          ]
+        },
+        "alert.rev": {
+          "ecs": [
+            "rule.version"
+          ]
+        },
+
         "anomaly": {
           "flatten_json": true
         },

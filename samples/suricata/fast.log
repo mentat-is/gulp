@@ -1,0 +1,9 @@
+10/05/10-10:08:59.667372  [**] [1:2009187:4] ET WEB_CLIENT ACTIVEX iDefense COMRaider ActiveX Control Arbitrary File Deletion [**] [Classification: Web Application Attack] [Priority: 3] {TCP} xx.xx.232.144:80 -> 192.168.1.4:56068
+11/23/2022-12:38:34.624866  [**] [1:12345:3] GET on wire [**] [Classification: (null)] [Priority: 3] {TCP} 172.21.224.2:49652 -> 142.250.1.139:80
+11/23/2022-12:38:58.958203  [**] [1:12345:3] GET on wire [**] [Classification: (null)] [Priority: 3] {TCP} 172.21.224.2:58494 -> 142.250.1.102:80
+02/10/2025-15:16:05.148075  [**] [1:1000001:1] ICMP Echo Request detected [**] [Classification: (null)] [Priority: 3] {ICMP} 192.168.29.79:8 -> 23.192.228.84:0
+02/10/2025-15:16:05.148075  [**] [1:1000001:1] ICMP Echo Request detected [**] [Classification: (null)] [Priority: 3] {ICMP} 192.168.29.79:8 -> 23.192.228.84:0
+02/10/2025-15:16:05.412339  [**] [1:1000002:1] ICMP Echo Reply detected [**] [Classification: (null)] [Priority: 3] {ICMP} 23.192.228.84:0 -> 192.168.29.79:0
+02/10/2025-15:16:48.363157  [**] [1:2100498:7] GPL ATTACK_RESPONSE id check returned root [**] [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 108.158.61.48:80 -> 192.168.29.79:51733
+02/10/2025-15:18:09.494544  [**] [1:100001:0] Nmap Stealth Scan Detected [**] [Classification: (null)] [Priority: 3] {TCP} 192.168.29.79:53256 -> 192.168.79.29:23
+02/10/2025-15:18:09.494568  [**] [1:100001:0] Nmap Stealth Scan Detected [**] [Classification: (null)] [Priority: 3] {TCP} 192.168.29.79:53256 -> 192.168.79.29:22

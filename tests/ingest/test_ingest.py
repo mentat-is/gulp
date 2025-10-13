@@ -1083,10 +1083,25 @@ async def test_suricata_ingest():
     plugin_params = GulpPluginParameters(
         custom_parameters={"mode": "line"},
         mapping_parameters=GulpMappingParameters(
-            mapping_file="suricata.json", mapping_id="record"
+            mapping_file="suricata.json", mapping_id="eve"
         ),
     )
     await _test_ingest_generic(files, "json", 7775, plugin_params=plugin_params)
+    MutyLogger.get_instance().info(
+        test_memprocfs_timeline_ingest.__name__ + " succeeded!"
+    )
+
+
+@pytest.mark.asyncio
+async def test_suricata_fast_log_ingest():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+
+    files = [os.path.join(current_dir, "../../samples/suricata/fast.log")]
+
+    plugin_params = GulpPluginParameters()
+    await _test_ingest_generic(
+        files, "suricata_fast_log", 9, plugin_params=plugin_params
+    )
     MutyLogger.get_instance().info(
         test_memprocfs_timeline_ingest.__name__ + " succeeded!"
     )
