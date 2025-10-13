@@ -1,0 +1,447 @@
+{
+  "metadata": {
+    "plugin": [
+      "json.py"
+    ]
+  },
+  "mappings": {
+    "record": {
+      "event_code": "record_create",
+      "agent_type": "suricata",
+      "fields": {
+        "timestamp": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "flow_id": {
+          "ecs": [
+            "gulp.suricata.flow_id"
+          ]
+        },
+        "pcap_cnt": {
+          "ecs": [
+            "gulp.suricata.pcap_cnt"
+          ]
+        },
+        "pcap_filename": {
+          "ecs": [
+            "gulp.suricata.pcap_filename"
+          ]
+        },
+        "event_type": {
+          "ecs": [
+            "event.type"
+          ]
+        },
+        "src_ip": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "src_port": {
+          "ecs": [
+            "source.port"
+          ],
+          "force_type": "int"
+        },
+        "dest_ip": {
+          "ecs": [
+            "destination.address"
+          ]
+        },
+        "dest_port": {
+          "ecs": [
+            "destination.port"
+          ],
+          "force_type": "int"
+        },
+        "proto": {
+          "ecs": [
+            "network.transport"
+          ]
+        },
+        "pkt_src": {
+          "ecs": [
+            "gulp.suricata.pkt_src"
+          ]
+        },
+        "ether": {
+          "flatten_json": true
+        },
+        "ether.src_mac": {
+          "ecs": [
+            "source.mac"
+          ]
+        },
+        "ether.dest_mac": {
+          "ecs": [
+            "destination.mac"
+          ]
+        },
+        "tx_id": {
+          "ecs": [
+            "gulp.suricata.tx_id"
+          ]
+        },
+        "alert": {
+          "flatten_json": true
+        },
+        "alert.action": {
+          "ecs": [
+            "gulp.suricata.alert.action"
+          ]
+        },
+        "alert.category": {
+          "ecs": [
+            "event.category"
+          ]
+        },
+        "alert.signature": {
+          "ecs": [
+            "event.reason"
+          ]
+        },
+        "anomaly": {
+          "flatten_json": true
+        },
+        "anomaly.type": {
+          "ecs": [
+            "event.category"
+          ]
+        },
+        "anomaly.event": {
+          "ecs": [
+            "event.reason"
+          ]
+        },
+        "anomaly.code": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "app_proto": {
+          "ecs": [
+            "network.protocol"
+          ]
+        },
+        "flow": {
+          "flatten_json": true
+        },
+        "flow.pkts_toserver": {
+          "ecs": [
+            "source.packets"
+          ]
+        },
+        "flow.pkts_toclient": {
+          "ecs": [
+            "destination.packets"
+          ]
+        },
+        "flow.bytes_toserver": {
+          "ecs": [
+            "source.bytes"
+          ]
+        },
+        "flow.bytes_toclient": {
+          "ecs": [
+            "destination.bytes"
+          ]
+        },
+        "tcp": {
+          "flatten_json": true
+        },
+        "fileinfo": {
+          "flatten_json": true
+        },
+        "http": {
+          "flatten_json": true
+        },
+        "http.hostname": {
+          "ecs": [
+            "host.hostname"
+          ]
+        },
+        "http.url": {
+          "ecs": [
+            "url.original"
+          ]
+        },
+        "http.http_user_agent": {
+          "ecs": [
+            "user_agent.original"
+          ]
+        },
+        "http.http_method": {
+          "ecs": [
+            "http.request.method"
+          ]
+        },
+        "http.protocol": {
+          "ecs": [
+            "http.version"
+          ]
+        },
+        "http.status": {
+          "ecs": [
+            "http.response.status_code"
+          ]
+        },
+        "http.length": {
+          "ecs": [
+            "http.response.bytes"
+          ]
+        },
+        "dns": {
+          "flatten_json": true
+        },
+        "dns.type": {
+          "ecs": [
+            "dns.type"
+          ]
+        },
+        "dns.rcode": {
+          "ecs": [
+            "dns.response_code"
+          ]
+        },
+        "dns.queries": {
+          "ecs": [
+            "gulp.sucircata.dns.queries"
+          ]
+        },
+        "dns.answers": {
+          "ecs": [
+            "dns.answers"
+          ]          
+        },
+        "ftp": {
+          "flatten_json": true
+        },
+        "ftp.command": {
+          "ecs": [
+            "event.action"
+          ]
+        },
+        "ftp.completion_code": {
+          "ecs": [
+            "event.outcome"
+          ]
+        },
+        "ftp_data": {
+          "flatten_json": true
+        },
+        "ftp_data.command": {
+          "ecs": [
+            "event.action"
+          ]
+        },
+        "ftp_data.filename": {
+          "ecs": [
+            "file.name"
+          ]
+        },
+        "tls": {
+          "flatten_json": true
+        },
+        "tls.subject": {
+          "ecs": [
+            "tls.server.subject"
+          ]
+        },
+        "tls.issuerdn": {
+          "ecs": [
+            "tls.server.issuer"
+          ]
+        },
+        "tls.serial": {
+          "ecs": [
+            "tls.client.x509.serial_number"
+          ]
+        },
+        "tls.sni": {
+          "ecs": [
+            "tls.client.server_name"
+          ]
+        },
+        "tls.certificate": {
+          "ecs": [
+            "tls.client.certificate"
+          ]
+        },
+        "tls.version": {
+          "ecs": [
+            "tls.version_protocol"
+          ]
+        },
+        "tls.notbefore": {
+          "ecs": [
+            "tls.client.not_before"
+          ]
+        },
+        "tls.notafter": {
+          "ecs": [
+            "tls.client.not_after"
+          ]
+        },
+        "tls.ja3": {
+          "ecs": [
+            "tls.client.ja3"
+          ]
+        },
+        "tls.ja3s": {
+          "ecs": [
+            "tls.client.ja3s"
+          ]
+        },
+        "tftp": {
+          "flatten_json": true
+        },
+        "tftp.file": {
+          "ecs": [
+            "file.name"
+          ]
+        },
+        "krb5": {
+          "flatten_json": true
+        },
+        "smb": {
+          "flatten_json": true
+        },
+        "bittorrent_dht": {
+          "flatten_json": true
+        },
+        "ssh": {
+          "flatten_json": true
+        },
+        "rdp": {
+          "flatten_json": true
+        },
+        "rfb": {
+          "flatten_json": true
+        },
+        "mqtt": {
+          "flatten_json": true
+        },
+        "http2": {
+          "flatten_json": true
+        },
+        "pgsql": {
+          "flatten_json": true
+        },
+        "ike": {
+          "flatten_json": true
+        },
+        "modbus": {
+          "flatten_json": true
+        },
+        "quic": {
+          "flatten_json": true
+        },
+        "quic.ja3.hash": {
+          "ecs": [
+            "tls.client.ja3"
+          ]
+        },
+        "quic.ja3s.hash": {
+          "ecs": [
+            "tls.server.ja3s"
+          ]
+        },
+        "dhcp": {
+          "flatten_json": true
+        },
+        "dhcp.type": {
+          "ecs": [
+            "gulp.suricata.dhcp.type"
+          ]
+        },
+        "dhcp.client_mac": {
+          "ecs": [
+            "host.mac"
+          ]
+        },
+        "dhcp.assigned_ip": {
+          "ecs": [
+            "gulp.suricata.dhcp.assigned_ip"
+          ]
+        },
+        "dhcp.relay_ip": {
+          "ecs": [
+            "gulp.suricata.dhcp.relay_ip"
+          ]
+        },
+        "dhcp.next_server_ip": {
+          "ecs": [
+            "gulp.suricata.dhcp.next_server_ip"
+          ]
+        },
+        "dhcp.dhcp_type": {
+          "ecs": [
+            "gulp.suricata.dhcp.dhcp_type"
+          ]
+        },
+        "dhcp.subnet_mask": {
+          "ecs": [
+            "gulp.suricata.dhcp.subnet_mask"
+          ]
+        },
+        "dhcp.hostname": {
+          "ecs": [
+            "host.name"
+          ]
+        },
+        "dhcp.dns_servers": {
+          "ecs": [
+            "gulp.suricata.dhcp.dns_servers"
+          ],
+          "force_type": "str"
+        },
+        "arp": {
+          "flatten_json": true
+        },
+        "arp.hw_type": {
+          "ecs": [
+            "gulp.suricata.arp.hw_type"
+          ]
+        },
+        "arp.proto_type": {
+          "ecs": [
+            "network.type"
+          ]
+        },
+        "arp.opcode": {
+          "ecs": [
+            "gulp.suricata.arp.hw_type"
+          ]
+        },
+        "arp.src_mac": {
+          "ecs": [
+            "source.mac"
+          ]
+        },
+        "arp.src_ip": {
+          "ecs": [
+            "gulp.suricata.arp.src_ip"
+          ]
+        },
+        "arp.dest_mac": {
+          "ecs": [
+            "destination.mac"
+          ]
+        },
+        "arp.dest_ip": {
+          "ecs": [
+            "gulp.suricata.arp.dest_ip"
+          ]
+        },
+        "pop3": {
+          "flatten_json": true
+        },
+        "netflow": {
+          "flatten_json": true
+        }
+      }
+    }
+  }
+}
