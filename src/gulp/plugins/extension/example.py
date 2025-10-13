@@ -186,7 +186,7 @@ class Plugin(GulpPluginBase):
                 coro = self._example_task(
                     s.user.id, operation_id, context_id, ws_id, req_id
                 )
-                await GulpRestServer.get_instance().spawn_bg_task(coro)
+                await GulpRestServer.spawn_bg_task(coro)
                 return JSendResponse.pending(req_id=req_id)
         except Exception as ex:
             raise JSendException(req_id=req_id) from ex

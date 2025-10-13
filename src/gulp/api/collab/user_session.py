@@ -215,7 +215,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
                     )
                 return None
 
-            # check if the user has access
+            # check if the user has access (the user, or the user's groups, have access to the object, or the object is public (no grants set))
             if self.user.check_object_access(
                 obj,
                 throw_on_no_permission=throw_on_no_permission,

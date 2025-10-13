@@ -171,15 +171,14 @@ the plugins must implement:
 
 following are basic rules to use multiprocessing and concurrency effectively in gulp plugins:
 
-- both `main` and `worker` processes are guaranteed to have a dedicated `coroutine pool`:
-
-  the coroutines pool makes sure no more than n (`concurrency_max_tasks` in the configuration) coroutines are executed concurrently in the process, efficiently queueing them if needed.
+- both `main` and `worker` processes can spawn `background async tasks` which runs in the current process without blocking the process event loop.
 
   ```python
-  # submit a coroutine to the coroutines pool to be executed asap
-  await GulpProcess.get_instance().coro_pool.spawn(coroutine)
+  async def fun(param1, param2):
+      ...
+  coro = fun()
+  await GulpApiRestServer.spawn_bg_task(coro)
   ```
-
 - moreover, a dedicated `thread pool` is also available for both `main` and `worker` processes.
 
   ```python
@@ -200,10 +199,11 @@ following are basic rules to use multiprocessing and concurrency effectively in 
 - **in the main process only**, a plugin may also run a coroutine in one of the worker processes using the `process` pool.
 
   ```python
-    # run the _ingest_file_internal coroutines with `kwds` parameters in one of the worker processes
-    await GulpProcess.get_instance().process_pool.apply(
-        _ingest_file_internal, kwds=kwds
-    )
+    async def fun(param1, param2, param3):
+        ...
+    
+    # run fun in an async task in a worker process, thanks to aiomultiprocess
+    await GulpRestServer.get_instance().spawn_worker_task(fun, param1, param2, param3)
   ```
 
 - in `external`, `ingestion`, `enrich` plugins a `collab` session is guaranteed to exist when `ingest_file`, `ingest_raw`, `query_external`, `enrich_documents` are called: **this session is valid in the `current running` task only**.

@@ -51,7 +51,7 @@ from gulp.api.rest.structs import (
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 
 class GulpBaseIngestPayload(BaseModel):
@@ -228,8 +228,8 @@ async def _ingest_file_internal(
     req_id: str,
     ws_id: str,
     operation_id: str,
-    context_id: str,
-    source_id: str,
+    context_name: str,
+    source_name: str,
     index: str,
     plugin: str,
     file_path: str,
@@ -273,6 +273,26 @@ async def _ingest_file_internal(
                     ),
                 )
 
+                # create (and associate) context and source on the collab db, if they do not exist
+                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+                ctx, _ = await op.add_context(
+                    sess,
+                    user_id=user_id,
+                    name=context_name,
+                    ws_id=ws_id,
+                    req_id=req_id,
+                )
+                # MutyLogger.get_instance().debug("context in operation %s: %s", operation_id, ctx)
+                src, _ = await ctx.add_source(
+                    sess,
+                    user_id=user_id,
+                    name=source_name,
+                    ws_id=ws_id,
+                    req_id=req_id,
+                )
+                ctx_id = ctx.id
+                src_id = src.id
+
             # run plugin
             mod = await GulpPluginBase.load(plugin)
             status = await mod.ingest_file(
@@ -283,8 +303,8 @@ async def _ingest_file_internal(
                 user_id=user_id,
                 index=index,
                 operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
+                context_id=ctx_id,
+                source_id=src_id,
                 file_path=file_path,
                 original_file_path=payload.original_file_path,
                 plugin_params=payload.plugin_params,
@@ -312,7 +332,7 @@ async def _ingest_file_internal(
 
 async def run_ingest_file_task(t: GulpTask):
     """
-    runs the ingest file task in a task into a worker process
+    runs in a task in a worker process and calls _ingest_file_internal
 
     :param t: a GulpTask dict to run
     """
@@ -337,8 +357,8 @@ async def _preview_or_enqueue_ingest_task(
     req_id: str,
     ws_id: str,
     operation_id: str,
-    ctx_id: str,
-    src_id: str,
+    context_name: str,
+    source_name: str,
     index: str,
     plugin: str,
     file_path: str,
@@ -347,17 +367,19 @@ async def _preview_or_enqueue_ingest_task(
     delete_after: bool = True,
 ) -> JSONResponse:
     """
-    Handles preview mode or enqueues an ingestion task, returning the appropriate JSONResponse
+    runs preview or enqueue a file ingestion task (will run in a worker process then, returning data through websocket at ws_id)
 
     Returns:
-    JSONResponse: a pending response if enqueuing, or a success/error response in preview mode
+
+    if plugin_params.preview_mode, a succesful response.
+    if not plugin_params.preview_mode, returns a pending response
 
     Raises:
     any exception raised by the underlying _ingest_file_internal or enqueue methods.
     """
     kwds = dict(
-        context_id=ctx_id,
-        source_id=src_id,
+        context_name=context_name,
+        source_name=source_name,
         req_id=req_id,
         ws_id=ws_id,
         index=index,
@@ -370,6 +392,15 @@ async def _preview_or_enqueue_ingest_task(
 
     # handle preview mode: run ingestion synchronously and return preview chunk
     if payload.plugin_params.preview_mode:
+        MutyLogger.get_instance().warning(
+            "PREVIEW MODE (context_name=%s, source_name=%s), no context and source are created on the collab database.",
+            context_name,
+            source_name,
+        )
+
+        # use "preview" as context and source
+        context_name = "preview"
+        source_name = "preview"
         status, preview_chunk = await _ingest_file_internal(
             **kwds, user_id=user_id, operation_id=operation_id
         )
@@ -594,38 +625,6 @@ async def ingest_file_handler(
                 payload = GulpIngestPayload.model_validate(payload)
 
                 # proceed with the ingestion
-                ctx_id: str = None
-                src_id: str = None
-
-                if payload.plugin_params.preview_mode:
-                    MutyLogger.get_instance().warning(
-                        "PREVIEW MODE, no context and source are created on the collab database."
-                    )
-                    ctx_id = "preview"
-                    src_id = "preview"
-                else:
-                    ctx: GulpContext
-                    src: GulpSource
-
-                    # create (and associate) context and source on the collab db, if they do not exist
-                    ctx, _ = await operation.add_context(
-                        sess,
-                        user_id=user_id,
-                        name=context_name,
-                        ws_id=ws_id,
-                        req_id=req_id,
-                    )
-                    # MutyLogger.get_instance().debug( f"context in operation {operation.id}:  {ctx}")
-                    src, _ = await ctx.add_source(
-                        sess,
-                        user_id=user_id,
-                        name=payload.original_file_path or os.path.basename(file_path),
-                        ws_id=ws_id,
-                        req_id=req_id,
-                    )
-                    ctx_id = ctx.id
-                    src_id = src.id
-
                 # we have all we need, proceed with ingestion outside the session
                 return await _preview_or_enqueue_ingest_task(
                     sess,
@@ -633,8 +632,9 @@ async def ingest_file_handler(
                     req_id=req_id,
                     ws_id=ws_id,
                     operation_id=operation_id,
-                    ctx_id=ctx_id,
-                    src_id=src_id,
+                    context_name=context_name,
+                    source_name=payload.original_file_path
+                    or os.path.basename(file_path),
                     index=index,
                     plugin=plugin,
                     file_path=file_path,
@@ -701,43 +701,29 @@ if set, this function is **synchronous** and returns the preview chunk of docume
     params = locals()
     params.pop("r")
     ServerUtils.dump_params(params)
-    file_path: str = None
-
-    ctx_id: str = None
-    operation_id: str = None
-    src_id: str = source_id
-    context_name: str = None
-    user_id: str = None
-    index: str = None
 
     try:
-        # get source, context, operation info first, since we assume source already exist (if not, we fail.... just use normal ingest_file api)
         async with GulpCollab.get_instance().session() as sess:
             try:
-                src: GulpSource = await GulpSource.get_by_id(sess, source_id)
-                operation_id = src.operation_id
-                operation: GulpOperation = await GulpOperation.get_by_id(
-                    sess, operation_id
+                # get source by id and check acl
+                s: GulpUserSession
+                src: GulpSource
+                op: GulpOperation
+                s, src, op = await GulpSource.get_by_id_wrapper(
+                    sess, token, source_id, GulpUserPermission.INGEST
                 )
+                user_id: str = s.user.id
 
-                # check token permission
-                s = await GulpUserSession.check_token(
-                    sess, token, obj=operation, permission=GulpUserPermission.INGEST
-                )
-
-                # ok, fill the other info we need
-                ctx_id = src.context_id
+                # get context
                 ctx: GulpContext = await GulpContext.get_by_id(sess, ctx_id)
-                context_name = ctx.name
-                index = operation.index
-                user_id = s.user.id
-                plugin = plugin or src.plugin
+                context_name: str = ctx.name
 
                 # handle multipart request manually
+                file_path: str
                 file_path, payload, result = (
                     await ServerUtils.handle_multipart_chunked_upload(
                         r=r,
-                        operation_id=operation_id,
+                        operation_id=src.operation_id,
                         context_name=context_name,
                         prefix=req_id,
                     )
@@ -753,28 +739,34 @@ if set, this function is **synchronous** and returns the preview chunk of docume
                 payload = GulpIngestPayload.model_validate(payload)
 
                 # get plugin parameters either from payload or from the existing source
-                plugin_params = payload.plugin_params or GulpPluginParameters(
-                    src.mapping_parameters
-                )
+                plugin_params = payload.plugin_params
+                if plugin_params.is_empty():
+                    plugin_params = GulpPluginParameters(
+                        mapping_parameters=GulpMappingParameters.model_validate(
+                            src.mapping_parameters
+                        )
+                    )
                 MutyLogger.get_instance().debug(
-                    f"ingesting to existing source {src.id}: context_name={context_name}, operation_id={operation_id}, index={index}, user_id={user_id}, plugin={plugin}, plugin_params={plugin_params}"
+                    "ingesting to existing source %s: context_name=%s, operation_id=%s, index=%s, user_id=%s, plugin=%s, plugin_params=%s",
+                    src.id,
+                    context_name,
+                    src.operation_id,
+                    op.index,
+                    user_id,
+                    plugin or src.plugin,
+                    plugin_params,
                 )
-
-                if preview_mode:
-                    MutyLogger.get_instance().warning("PREVIEW MODE.")
-                    ctx_id = "preview"
-                    src_id = "preview"
 
                 return await _preview_or_enqueue_ingest_task(
                     sess,
                     user_id=user_id,
                     req_id=req_id,
                     ws_id=ws_id,
-                    operation_id=operation_id,
-                    ctx_id=ctx_id,
-                    src_id=src_id,
-                    index=index,
-                    plugin=plugin,
+                    operation_id=src.operation_id,
+                    context_name=ctx.name,
+                    source_name=src.name,
+                    index=op.index,
+                    plugin=plugin or src.plugin,
                     file_path=file_path,
                     payload=payload,
                     preview_mode=preview_mode,
@@ -1269,6 +1261,81 @@ async def _process_metadata_json(
         raise ValueError("metadata.json is empty")
 
     return files
+
+
+async def _ingest_zip_internal(
+    path: str,
+    context_name: str,
+    operation_id: str,
+    user_id: str,
+    ws_id: str,
+    req_id: str,
+    payload: GulpZipIngestPayload,
+    delete_after: bool = True,
+) -> None:
+    async with GulpCollab.get_instance().session() as sess:
+        try:
+            # create a stats object
+            stats: GulpRequestStats = await GulpRequestStats.create_or_get_existing(
+                sess,
+                req_id,
+                user_id,
+                operation_id,
+                ws_id=ws_id,
+                data=GulpIngestionStats().model_dump(exclude_none=True),
+            )
+
+            # unzip in a temporary directory
+            unzipped = await muty.file.unzip(path)
+
+            # get file list and read metadata json
+            files: list[GulpIngestPayload] = await _process_metadata_json(
+                unzipped, payload
+            )
+
+            # get operation
+            operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            index = operation.index
+
+            # create (and associate) context on the collab db, if it does not exists
+            ctx: GulpContext
+            ctx, _ = await operation.add_context(
+                sess, user_id=user_id, name=context_name, ws_id=ws_id, req_id=req_id
+            )
+
+            #
+            for f in files:
+                # add each source
+                src: GulpSource
+                src, _ = await ctx.add_source(
+                    sess,
+                    user_id=user_id,
+                    name=f.original_file_path,
+                    ws_id=ws_id,
+                    req_id=req_id,
+                )
+
+                # and enqueue task on collab
+                kwds = dict(
+                    context_id=ctx.id,
+                    source_id=src.id,
+                    index=index,
+                    plugin=f.model_extra.get("plugin"),
+                    file_path=f.model_extra.get("local_file_path"),
+                    payload=f.model_dump(exclude_none=True),
+                )
+                await GulpTask.enqueue(
+                    sess,
+                    task_type=TASK_TYPE_INGEST,
+                    operation_id=operation_id,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                    req_id=req_id,
+                    params=kwds,
+                )
+        except:
+            await sess.rollback()
+            raise
 
 
 @router.post(

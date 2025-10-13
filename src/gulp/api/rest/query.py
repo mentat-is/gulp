@@ -665,7 +665,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 coro = process_queries(
                     user_id, req_id, operation_id, ws_id, queries, len(queries)
                 )
-                GulpRestServer.get_instance().spawn_bg_task(coro)
+                GulpRestServer.spawn_bg_task(coro)
 
                 # and return pending
                 return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -784,7 +784,7 @@ async def query_gulp_handler(
                     len(queries),
                     q_options,
                 )
-                GulpRestServer.get_instance().spawn_bg_task(coro)
+                GulpRestServer.spawn_bg_task(coro)
 
                 # and return pending
                 return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -929,7 +929,7 @@ async def query_external_handler(
                     plugin=plugin,
                     plugin_params=plugin_params,
                 )
-                GulpRestServer.get_instance().spawn_bg_task(coro)
+                GulpRestServer.spawn_bg_task(coro)
 
                 # and return pending
                 return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1115,7 +1115,7 @@ async def query_sigma_handler(
                 coro = process_queries(
                     user_id, req_id, operation_id, ws_id, queries, len(queries)
                 )
-                GulpRestServer.get_instance().spawn_bg_task(coro)
+                GulpRestServer.spawn_bg_task(coro)
 
                 # and return pending
                 return JSONResponse(JSendResponse.pending(req_id=req_id))

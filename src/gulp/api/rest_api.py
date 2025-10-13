@@ -62,7 +62,6 @@ class GulpRestServer:
         self._lifespan_task: asyncio.Task = None
         self._poll_tasks_task: asyncio.Task = None
         self._shutdown: bool = False
-        self._running_tasks: int = 0  # in the main process
         self._extension_plugins: list[GulpPluginBase] = []
 
     def __new__(cls):
@@ -491,13 +490,14 @@ class GulpRestServer:
 
         MutyLogger.get_instance().info("EXITING poll task...")
 
-    def spawn_bg_task(self, coro: Coroutine, name: str = None) -> bool:
+    @staticmethod
+    def spawn_bg_task(coro: Coroutine, name: str = None) -> bool:
         """
         spawns a background task without awaiting it
 
         Args:
             coro (Coroutine): the coroutine to spawn
-            name (str, optional): the name of the task: if a task with the same name already exists, it will not spawn another one.
+            name (str, optional): the name of the task: if a task with the same name already exists in the current process, it will not spawn another one.
 
         Returns:
             bool: True if the task was spawned, False otherwise (e.g. a task with the same name already exists).
@@ -512,11 +512,10 @@ class GulpRestServer:
                     "***ERROR*** in background task: %s", ex
                 )
             finally:
-                self._running_tasks -= 1
                 MutyLogger.get_instance().debug("background task completed!")
 
         if name:
-            # check if a task with the same name already exists
+            # check if a task with the same name already exists in the current process
             for t in asyncio.all_tasks():
                 if t.get_name() == name and not t.done():
                     MutyLogger.get_instance().warning(
@@ -524,7 +523,6 @@ class GulpRestServer:
                         name,
                     )
                     return False
-        self._running_tasks += 1
         _ = asyncio.create_task(_run_and_await(), name=name)
         return True
 
@@ -539,6 +537,8 @@ class GulpRestServer:
         """
         spawns a task in the process pool of a worker process
 
+        NOTE: can only be called from the main process!
+
         Args:
             func (Callable[..., Awaitable[Any]]): the function to call
             *args: the arguments to pass to the function
@@ -548,7 +548,13 @@ class GulpRestServer:
 
         Returns:
             Any|None: the result of the function if wait is True, None otherwise
+        Raises:
+            RuntimeError: if called from a worker process
+            Exception: any exception raised by the function
         """
+        if not GulpProcess.get_instance().is_main_process():
+            raise RuntimeError("cannot spawn worker task from a worker process!")
+
         MutyLogger.get_instance().debug(
             "spawning worker task, func=%s, args=%s, kwargs=%s, wait=%r",
             func,
@@ -571,7 +577,7 @@ class GulpRestServer:
                 raise ex
 
         # fire and forget (just use spawn_bg_task to schedule the coro)
-        self.spawn_bg_task(coro, task_name)
+        GulpRestServer.spawn_bg_task(coro, task_name)
         return None
 
     async def _cleanup(self):

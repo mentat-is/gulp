@@ -2923,7 +2923,7 @@ class GulpPluginBase(ABC):
                 source_id=self._source_id,
             )
             bg_task_name = f"update_source_field_types_{self._operation_id}_{self._context_id}_{self._source_id}"
-            GulpRestServer.get_instance().spawn_bg_task(coro, bg_task_name)
+            GulpRestServer.spawn_bg_task(coro, bg_task_name)
 
             return d["status"]
         except:

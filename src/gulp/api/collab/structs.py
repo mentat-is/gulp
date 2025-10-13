@@ -1720,11 +1720,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The database session to use.
             token (str): The user token.
             obj_id (str): The ID of the object to get.
-            permission (list[GulpUserPermission]|GulpUserPermission, optional): The permission required to read the object.
+            permission (list[GulpUserPermission]|GulpUserPermission, optional): The permission required to access `obj_id`. Defaults to GulpUserPermission.READ.
             enforce_owner (bool, optional): If True, enforce that the token belongs to the owner of the object (or the user is admin). Defaults to False.
             recursive (bool, optional): If True, loads nested relationships recursively. Defaults to False.
         Returns:
-            tuple[GulpUserSession, T, GulpOperation]: The user session, the object, and the operation (if any) associated with the object.
+            tuple[GulpUserSession, T, GulpOperation]: The user session, the object, and the operation (if any, and ensuring token can access it) associated with the object.
         Raises:
             MissingPermission: If the user does not have permission to read the object.
             ObjectNotFound: If the object is not found.
@@ -1746,7 +1746,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         op: GulpOperation = None
         if obj.operation_id:
             # get operation and check read access on it
-
             op: GulpOperation = await GulpOperation.get_by_id(sess, obj.operation_id)
             await s.check_permissions(sess, permission=GulpUserPermission.READ, obj=op)
 
