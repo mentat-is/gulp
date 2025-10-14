@@ -111,12 +111,12 @@ async def user_group_create_handler(
     description: Annotated[
         str,
         Depends(APIDependencies.param_description_optional),
-    ],
+    ] = None,
     glyph_id: Annotated[
         str,
         Depends(APIDependencies.param_glyph_id_optional),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     sess: AsyncSession = None
@@ -183,12 +183,12 @@ async def user_group_update_handler(
     description: Annotated[
         str,
         Depends(APIDependencies.param_description_optional),
-    ],
+    ] = None,
     glyph_id: Annotated[
         str,
         Depends(APIDependencies.param_glyph_id_optional),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -250,7 +250,7 @@ async def user_group_update_handler(
 async def user_group_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     group_id: Annotated[str, Depends(APIDependencies.param_group_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -294,7 +294,7 @@ async def user_group_delete_handler(
 async def user_group_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     group_id: Annotated[str, Depends(APIDependencies.param_group_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -347,8 +347,8 @@ async def user_group_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     flt: Annotated[
         GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
@@ -403,7 +403,7 @@ async def user_group_add_user_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     group_id: Annotated[str, Depends(APIDependencies.param_group_id)],
     user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:

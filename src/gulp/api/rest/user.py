@@ -148,7 +148,7 @@ NOTE: the `gulp` login method is always available, `extension` plugins may overr
 """,
 )
 async def get_available_login_api_handler(
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
@@ -214,7 +214,7 @@ async def login_handler(
         str, Body(description="password for authentication.", examples=["admin"])
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ip: str = r.client.host if r.client else "unknown"
     params = locals()
@@ -280,7 +280,7 @@ async def logout_handler(
     r: Request,
     token: Annotated[str, Depends(APIDependencies.param_token)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ip: str = r.client.host if r.client else "unknown"
     params = locals()
@@ -356,15 +356,15 @@ the new user id.
         str,
         Depends(APIDependencies.param_email),
     ],
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     user_data: Annotated[
         dict,
         Body(
             description="user data to set.",
             examples=[{"data1": "abcd", "data2": 1234, "data3": [1, 2, 3]}],
         ),
-    ] = {},
+    ] = None,
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -387,6 +387,7 @@ the new user id.
                     permission=permission,
                     email=email,
                     glyph_id=glyph_id,
+                    user_data=user_data or {},
                 )
                 return JSONResponse(
                     JSendResponse.success(
@@ -433,7 +434,7 @@ async def user_delete_handler(
         str,
         Depends(APIDependencies.param_user_id),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -487,31 +488,30 @@ async def user_update_handler(
         str,
         Depends(APIDependencies.param_token),
     ],
-    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     user_id: Annotated[
         str,
         Depends(APIDependencies.param_user_id_optional),
-    ],
+    ] = None,
     password: Annotated[
         str,
         Depends(APIDependencies.param_password_optional),
-    ],
+    ] = None,
     permission: Annotated[
         Optional[list[GulpUserPermission]],
         Depends(APIDependencies.param_permission_optional),
-    ],
+    ] = None,
     email: Annotated[
         str,
         Depends(APIDependencies.param_email_optional),
-    ],
+    ] = None,
     user_data: Annotated[
         dict,
         Body(
             description="user data to set.",
             examples=[{"data1": "abcd", "data2": 1234, "data3": [1, 2, 3]}],
         ),
-    ] = {},
+    ] = None,
     merge_user_data: Annotated[
         bool,
         Query(
@@ -519,6 +519,7 @@ async def user_update_handler(
             example=True,
         ),
     ] = True,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:

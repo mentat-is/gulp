@@ -259,7 +259,6 @@ async def opensearch_rebase_by_query_handler(
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     offset_msec: Annotated[
         int,
         Query(
@@ -280,6 +279,7 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
 """
         ),
     ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     """
     rebases documents in-place on the same index using update_by_query, shifting timestamps.
@@ -371,13 +371,13 @@ async def opensearch_delete_index_handler(
             example="test_operation",
         ),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     delete_operation: Annotated[
         bool,
         Query(
             description="if set, the corresponding operation (if any) on the collab database is deleted as well (default: true)."
         ),
     ] = True,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
@@ -476,7 +476,7 @@ lists all the available datastreams and their backing indexes
 )
 async def opensearch_list_index_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)

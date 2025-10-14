@@ -621,8 +621,8 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options_optional),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["q_options"] = q_options.model_dump(exclude_none=True)
@@ -737,8 +737,8 @@ async def query_gulp_handler(
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options_optional),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
@@ -871,8 +871,8 @@ async def query_external_handler(
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options_optional),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["q_options"] = q_options.model_dump(exclude_none=True)
@@ -1019,42 +1019,42 @@ async def query_sigma_handler(
         list[str],
         Body(description="ids of the source to apply the query/ies to."),
     ],
-    q_options: Annotated[
-        GulpQueryParameters,
-        Depends(APIDependencies.param_q_options_optional),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     levels: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.level` to restrict the applied sigma rules (`high`, `low`, `medium`, `critical`, `informational`)",
             examples=[["high", "critical"]],
         ),
-    ] = [],
+    ] = None,
     products: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.logsource.product` to restrict the applied sigma rules.",
             examples=[["windows"]],
         ),
-    ] = [],
+    ] = None,
     categories: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.logsource.category` to restrict the applied sigma rules."
         ),
-    ] = [],
+    ] = None,
     services: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.logsource.service` to restrict the applied sigma rules.",
             examples=[["windefend"]],
         ),
-    ] = [],
+    ] = None,
     tags: Annotated[
         Optional[list[str]],
         Body(description="optional `sigma.tags` to restrict the applied sigma rules."),
-    ] = [],
+    ] = None,
+    q_options: Annotated[
+        GulpQueryParameters,
+        Depends(APIDependencies.param_q_options_optional),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["q_options"] = q_options.model_dump(exclude_none=True)

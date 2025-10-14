@@ -17,6 +17,7 @@ from os import name
 import re
 from typing import Annotated, Optional
 
+from fastapi.exceptions import RequestValidationError
 from llvmlite.tests.test_ir import flt
 import muty.string
 from fastapi import Body, Header, Query, UploadFile, File
@@ -193,66 +194,74 @@ id of the websocket to use during a request.
     ) -> str:
         return obj_id.lower().strip()
 
+    _USER_ID_QUERY_PARAM = Query(
+        description="id of an user in the collab database.",
+        example="admin",
+    )
+
     @staticmethod
-    def _param_user_id(
-        user_id: Annotated[
-            str,
-            Query(
-                description="id of an user in the collab database.",
-                example="admin",
-            ),
-        ] = None,
+    def param_user_id(user_id: Annotated[str, _USER_ID_QUERY_PARAM]) -> str:
+        if not user_id:
+            raise RequestValidationError(
+                [
+                    {
+                        "loc": ["query", "user_id"],
+                        "msg": "field required",
+                        "type": "value_error.missing",
+                        "input": user_id,
+                    }
+                ]
+            )
+        return user_id.lower().strip()
+
+    @staticmethod
+    def param_user_id_optional(
+        user_id: Annotated[str, _USER_ID_QUERY_PARAM] = None,
     ) -> str:
         return user_id.lower().strip() if user_id else None
 
-    @staticmethod
-    def param_user_id() -> str:
-        user_id: str = (APIDependencies._param_user_id(),)
-        if not user_id:
-            raise ValueError("user_id is required")
-        return user_id
-
-    @staticmethod
-    def param_user_id_optional() -> str:
-        return APIDependencies._param_user_id()
-
-    @staticmethod
-    def _param_password(
-        password: Annotated[
-            str,
-            Query(
-                description="""
+    _PASSWORD_QUERY_PARAM = Query(
+        description="""
 the user password.
 
 - 8-64 characters, at least one uppercase, one lowercase, one number, one special character.
 """,
-                example="Password1!",
-            ),
-            AfterValidator(_pwd_regex_validator),
-        ] = None,
-    ) -> str:
-        """
-        NOTE: use config `debug_allow_insecure_passwords` to disable validation (not recommended).
-        """
-        return password.strip() if password else None
+        example="Password1!",
+    )
 
     @staticmethod
-    def param_password() -> str:
-        password: str = APIDependencies._param_password()
+    def param_password(
+        password: Annotated[
+            str,
+            _PASSWORD_QUERY_PARAM,
+            AfterValidator(_pwd_regex_validator),
+        ],
+    ) -> str:
         if not password:
-            raise ValueError("password is required")
+            raise RequestValidationError(
+                [
+                    {
+                        "loc": ["query", "password"],
+                        "msg": "field required",
+                        "type": "value_error.missing",
+                        "input": password,
+                    }
+                ]
+            )
         return password
 
     @staticmethod
-    def param_password_optional() -> str | None:
-        return APIDependencies._param_password()
+    def param_password_optional(
+        password: Annotated[
+            str,
+            _PASSWORD_QUERY_PARAM,
+            AfterValidator(_pwd_regex_validator),
+        ] = None,
+    ) -> str:
+        return password
 
-    @staticmethod
-    def _param_permission(
-        permission: Annotated[
-            list[GulpUserPermission],
-            Body(
-                description="""
+    _PERMISSION_BODY_PARAM = Body(
+        description="""
 one or more user/group permission.
 
 - read: read the object.
@@ -261,46 +270,71 @@ one or more user/group permission.
 - ingest: ingest data.
 - **admin: every permission.**
 """,
-                example='["read","edit"]',
-            ),
-        ] = [],
+        example='["read","edit"]',
+    )
+
+    @staticmethod
+    def param_permission(
+        permission: Annotated[list[GulpUserPermission], _PERMISSION_BODY_PARAM],
     ) -> list[GulpUserPermission]:
-        return permission
-
-    @staticmethod
-    def param_permission() -> list[GulpUserPermission]:
-        permission = APIDependencies._param_permission()
         if not permission:
-            raise ValueError("permission is required")
+            raise RequestValidationError(
+                [
+                    {
+                        "loc": ["body", "permission"],
+                        "msg": "field required",
+                        "type": "value_error.missing",
+                        "input": permission,
+                    }
+                ]
+            )
         return permission
 
     @staticmethod
-    def param_permission_optional() -> list[GulpUserPermission]:
-        return APIDependencies._param_permission()
+    def param_permission_optional(
+        permission: Annotated[list[GulpUserPermission], _PERMISSION_BODY_PARAM] = None,
+    ) -> list[GulpUserPermission]:
+        return permission or []
+
+    _EMAIL_QUERY_PARAM = Query(description="the user email.", example="user@mail.com")
 
     @staticmethod
-    def _param_email(
+    def param_email(
         email: Annotated[
             str,
-            Query(description="the user email.", example="user@mail.com"),
+            _EMAIL_QUERY_PARAM,
+            AfterValidator(_email_regex_validator),
+        ],
+    ) -> str:
+        if not email:
+            raise RequestValidationError(
+                [
+                    {
+                        "loc": ["query", "email"],
+                        "msg": "field required",
+                        "type": "value_error.missing",
+                        "input": email,
+                    }
+                ]
+            )
+        return email.strip()
+
+    @staticmethod
+    def param_email_optional(
+        email: Annotated[
+            str,
+            _EMAIL_QUERY_PARAM,
             AfterValidator(_email_regex_validator),
         ] = None,
     ) -> str:
         return email.strip() if email else None
 
     @staticmethod
-    def param_email() -> str:
-        email: str = APIDependencies._param_email()
-        if not email:
-            raise ValueError("email is required")
-        return email
-
-    @staticmethod
     def param_email_optional() -> str:
         return APIDependencies._param_email()
 
     @staticmethod
-    def param_private(
+    def param_private_optional(
         private: Annotated[
             bool,
             Query(
@@ -338,25 +372,20 @@ id of a request, will be replicated in the response `req_id`.
     ) -> str:
         return req_id.lower().strip() if req_id else muty.string.generate_unique()
 
+    _NAME_QUERY_PARAM = Query(description="the object name", example="my object")
+
     @staticmethod
-    def _param_name(
+    def param_name(
         name: Annotated[
             str,
-            Query(description="the object name", example="my object"),
-        ] = None,
+            _NAME_QUERY_PARAM,
+        ],
     ) -> str:
+        return name.strip()
+
+    @staticmethod
+    def param_name_optional(name: Annotated[str, _NAME_QUERY_PARAM] = None) -> str:
         return name.strip() if name else None
-
-    @staticmethod
-    def param_name_optional() -> str:
-        return APIDependencies._param_name()
-
-    @staticmethod
-    def param_name() -> str:
-        name = APIDependencies._param_name()
-        if not name:
-            raise ValueError("name is required")
-        return name
 
     @staticmethod
     def param_collab_flt_optional(
@@ -382,12 +411,8 @@ to filter documents by `time_range` during ingestion.
     ) -> GulpIngestionFilter:
         return flt or GulpIngestionFilter()
 
-    @staticmethod
-    def _param_q_flt(
-        flt: Annotated[
-            GulpQueryFilter,
-            Body(
-                description="""
+    _Q_FLT_BODY_PARAM = Body(
+        description="""
 the query filter, to filter for common fields, including:
 
 - `operation_id`, `context_id`, `source_id` to filter for specific objects.
@@ -395,21 +420,25 @@ the query filter, to filter for common fields, including:
 - `time_range` to filter by time.
 - to filter for custom keys, just add them in `flt` as `key: value` or `key: [values]` for `OR` match.
 """,
-            ),
+    )
+
+    @staticmethod
+    def param_q_flt(
+        flt: Annotated[
+            GulpQueryFilter,
+            _Q_FLT_BODY_PARAM,
+        ],
+    ) -> GulpQueryFilter:
+        return flt
+
+    @staticmethod
+    def param_q_flt_optional(
+        flt: Annotated[
+            GulpQueryFilter,
+            _Q_FLT_BODY_PARAM,
         ] = None,
     ) -> GulpQueryFilter:
         return flt or GulpQueryFilter()
-
-    @staticmethod
-    def param_q_flt_optional() -> GulpQueryFilter:
-        return APIDependencies._param_q_flt()
-
-    @staticmethod
-    def param_q_flt() -> GulpQueryFilter:
-        flt = APIDependencies._param_q_flt()
-        if not flt:
-            raise ValueError("filter is required")
-        return flt
 
     @staticmethod
     def param_q_options_optional(
@@ -468,45 +497,74 @@ id of a `GulpSource` object on the collab database.
     ) -> str:
         return plugin.strip()
 
+    _PLUGIN_PARAMS_BODY_PARAM = Body(
+        description="""
+to customize `mapping` and specific `plugin` parameters.
+"""
+    )
+
     @staticmethod
     def param_plugin_params(
         plugin_params: Annotated[
             GulpPluginParameters,
-            Body(
-                description="""
-to customize `mapping` and specific `plugin` parameters.
-"""
-            ),
+            _PLUGIN_PARAMS_BODY_PARAM,
+        ] = None,
+    ) -> GulpPluginParameters:
+        if not plugin_params:
+            raise RequestValidationError(
+                [
+                    {
+                        "loc": ["body", "plugin_params"],
+                        "msg": "field required",
+                        "type": "value_error.missing",
+                        "input": plugin_params,
+                    }
+                ]
+            )
+        return plugin_params
+
+    @staticmethod
+    def param_plugin_params_optional(
+        plugin_params: Annotated[
+            GulpPluginParameters,
+            _PLUGIN_PARAMS_BODY_PARAM,
         ] = None,
     ) -> GulpPluginParameters:
         return plugin_params or GulpPluginParameters()
 
+    _TAGS_BODY_PARAM = Body(
+        description="tags to be assigned to the object.",
+        example='["tag1","tag2"]',
+    )
+
     @staticmethod
-    def _param_tags(
+    def param_tags(
         tags: Annotated[
             list[str],
-            Body(
-                description="tags to be assigned to the object.",
-                example='["tag1","tag2"]',
-            ),
-        ] = [],
+            _TAGS_BODY_PARAM,
+        ],
     ) -> list[str]:
-        if tags:
-            # strip each tag, remove empty tags
-            tags = [tag.strip().lower() for tag in tags if tag and tag.strip()]
-
-        return tags or []
-
-    @staticmethod
-    def param_tags() -> list[str]:
-        tags = APIDependencies._param_tags()
         if not tags:
-            raise ValueError("tags is required")
+            raise RequestValidationError(
+                [
+                    {
+                        "loc": ["body", "tags"],
+                        "msg": "field required",
+                        "type": "value_error.missing",
+                        "input": tags,
+                    }
+                ]
+            )
         return tags
 
     @staticmethod
-    def param_tags_optional() -> list[str]:
-        return APIDependencies._param_tags()
+    def param_tags_optional(
+        tags: Annotated[
+            list[str],
+            _TAGS_BODY_PARAM,
+        ],
+    ) -> list[str]:
+        return tags or []
 
     @staticmethod
     def param_glyph_id_optional(
@@ -529,13 +587,4 @@ to customize `mapping` and specific `plugin` parameters.
             ),
         ] = None,
     ) -> str:
-        """
-        color to set on the object
-
-        Args:
-            color (str, Query): The color. Defaults to None.
-
-        Returns:
-            str: The color.
-        """
         return color.strip() if color else None
