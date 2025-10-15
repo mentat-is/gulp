@@ -503,7 +503,6 @@ class GulpRestServer:
             bool: True if the task was spawned, False otherwise (e.g. a task with the same name already exists).
         """
 
-        # f = await GulpProcess.get_instance().coro_pool.spawn(coro)
         async def _run_and_await():
             try:
                 await coro
@@ -611,8 +610,7 @@ class GulpRestServer:
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
 
-            # close coro and thread pool in the main process
-            await GulpProcess.get_instance().close_coro_pool()
+            # close coro pool in the main process
             await GulpProcess.get_instance().close_thread_pool()
 
         except Exception as ex:

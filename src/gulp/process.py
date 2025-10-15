@@ -57,8 +57,7 @@ class GulpProcess:
 
         # allow main/worker processes to spawn threads
         self.thread_pool: ThreadPoolExecutor = None
-        # allow main/worker processes to spawn coroutines
-        self.coro_pool: AioCoroPool = None
+
         # allow the main process to spawn worker processes
         self.process_pool: AioProcessPool = None
         self._log_level: int = None
@@ -182,16 +181,6 @@ class GulpProcess:
             )
         )
 
-    async def close_coro_pool(self):
-        """
-        closes the coroutine pool
-        """
-        if self.coro_pool:
-            MutyLogger.get_instance().debug("closing coro pool...")
-            await self.coro_pool.cancel()
-            await self.coro_pool.join()
-            MutyLogger.get_instance().debug("coro pool closed!")
-
     async def close_thread_pool(self, wait: bool = True):
         """
         closes the thread pool
@@ -289,8 +278,7 @@ class GulpProcess:
         if lock:
             lock.release()
 
-        # initializes coroutine and thread pools for the main or worker process
-        self.coro_pool = AioCoroPool()
+        # initializes thread pool for the main or worker process
         self.thread_pool = ThreadPoolExecutor()
 
         if self._main_process:
@@ -506,8 +494,7 @@ class GulpProcess:
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
 
-            # close coro and thread pool
-            await GulpProcess.get_instance().close_coro_pool()
+            # close thread pool
             await GulpProcess.get_instance().close_thread_pool(wait=False)
 
         except Exception as ex:

@@ -124,7 +124,7 @@ class Plugin(GulpPluginBase):
         try:
             # spawn coroutine in the main process, will run asap
             coro = self._handle_wazuh_events(events)
-            await GulpProcess.get_instance().coro_pool.spawn(coro)
+            GulpRestServer.spawn_bg_task(coro)
             return JSendResponse.pending(req_id=req_id)
         except Exception as ex:
             raise JSendException(req_id=req_id, ex=ex) from ex

@@ -309,6 +309,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         permission: list[GulpUserPermission] = None,
         email: str = None,
         glyph_id: str = None,
+        user_data: dict = None,
     ) -> T:
         """
         Create a new user object on the collab database (can only be called by an admin).
@@ -320,7 +321,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             permission (list[GulpUserPermission], optional): permissions to be assigned to the user being created. Defaults to [GulpUserPermission.READ] if not specified.
             email (str, optional): The email of the user to create. Defaults to None.
             glyph_id (str, optional): The glyph ID of the user to create. Defaults to None.
-
+            user_data (dict, optional): Arbitrary user data to store with the user. Defaults to None.
         Returns:
             The created user object.
         """
@@ -341,7 +342,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             pwd_hash=muty.crypto.hash_sha256(password) if password else "-",
             permission=permission,
             email=email,
-            user_data={},
+            user_data=user_data or {},
         )
 
         # # if the default administrators group exists, and the user is administrator, add

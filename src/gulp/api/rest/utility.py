@@ -73,7 +73,7 @@ async def request_get_by_id_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             try:
-                obj: GulpRequestStats = await GulpRequestStats.get_by_id_wrapper(
+                _,obj,_: GulpRequestStats = await GulpRequestStats.get_by_id_wrapper(
                     sess,
                     token,
                     obj_id,
@@ -139,7 +139,7 @@ async def request_cancel_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             try:
-                obj: GulpRequestStats = await GulpRequestStats.get_by_id_wrapper(
+                _,obj,_: GulpRequestStats = await GulpRequestStats.get_by_id_wrapper(
                     sess,
                     token,
                     req_id_to_cancel,

@@ -299,27 +299,6 @@ one or more user/group permission.
     _EMAIL_QUERY_PARAM = Query(description="the user email.", example="user@mail.com")
 
     @staticmethod
-    def param_email(
-        email: Annotated[
-            str,
-            _EMAIL_QUERY_PARAM,
-            AfterValidator(_email_regex_validator),
-        ],
-    ) -> str:
-        if not email:
-            raise RequestValidationError(
-                [
-                    {
-                        "loc": ["query", "email"],
-                        "msg": "field required",
-                        "type": "value_error.missing",
-                        "input": email,
-                    }
-                ]
-            )
-        return email.strip()
-
-    @staticmethod
     def param_email_optional(
         email: Annotated[
             str,
@@ -328,10 +307,6 @@ one or more user/group permission.
         ] = None,
     ) -> str:
         return email.strip() if email else None
-
-    @staticmethod
-    def param_email_optional() -> str:
-        return APIDependencies._param_email()
 
     @staticmethod
     def param_private_optional(

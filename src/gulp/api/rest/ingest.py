@@ -250,10 +250,15 @@ async def _ingest_file_internal(
     """
     # MutyLogger.get_instance().debug("---> _ingest_file_internal")
     mod: GulpPluginBase = None
+    ctx_id: str = None
+    src_id: str = None
     if payload.plugin_params.preview_mode:
         MutyLogger.get_instance().warning(
             "***PREVIEW MODE*** ingestion for file=%s", file_path
         )
+        # these are set to "preview"
+        ctx_id = context_name
+        src_id = source_name
 
     async with GulpCollab.get_instance().session() as sess:
         try:
@@ -1094,7 +1099,7 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
                 # get operation and check acl
                 op: GulpOperation
                 s: GulpUserSession
-                op, s, _ = await GulpOperation.get_by_id_wrapper(
+                s, op, _ = await GulpOperation.get_by_id_wrapper(
                     sess,
                     token,
                     operation_id,

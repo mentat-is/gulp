@@ -177,7 +177,7 @@ following are basic rules to use multiprocessing and concurrency effectively in 
   async def fun(param1, param2):
       ...
   coro = fun()
-  await GulpApiRestServer.spawn_bg_task(coro)
+  GulpApiRestServer.spawn_bg_task(coro)
   ```
 - moreover, a dedicated `thread pool` is also available for both `main` and `worker` processes.
 

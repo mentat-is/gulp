@@ -354,8 +354,8 @@ the new user id.
     ],
     email: Annotated[
         str,
-        Depends(APIDependencies.param_email),
-    ],
+        Depends(APIDependencies.param_email_optional),
+    ] = None,
     user_data: Annotated[
         dict,
         Body(

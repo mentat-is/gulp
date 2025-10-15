@@ -2290,7 +2290,7 @@ class GulpPluginBase(ABC):
             kwargs: additional keyword arguments
         """
         # flush buffer
-        ingested, skipped = await self._flush_buffer_and_send_to_ws(
+        ingested, skipped = await self.flush_buffer_and_send_to_ws(
             flt, wait_for_refresh
         )
 
@@ -2850,7 +2850,7 @@ class GulpPluginBase(ABC):
 
         try:
             # flush the last chunk
-            ingested, skipped = await self._flush_buffer_and_send_to_ws(
+            ingested, skipped = await self.flush_buffer_and_send_to_ws(
                 flt,
                 wait_for_refresh=True,
             )

@@ -79,7 +79,6 @@ class GulpOpenSearch:
     UNMAPPED_PREFIX: str = "gulp.unmapped"
 
     def __init__(self):
-        self._initialized: bool = True
         self._opensearch: AsyncOpenSearch = self._get_client()
 
     def __new__(cls):
@@ -101,15 +100,6 @@ class GulpOpenSearch:
         if not cls._instance:
             cls._instance = cls()
         return cls._instance
-
-    async def reinit(self):
-        """
-        reinitializes the OpenSearch client in the singleton instance.
-        """
-        if self._opensearch is not None:
-            await self._opensearch.close()
-
-        self._opensearch = self._get_client()
 
     def _get_client(self) -> AsyncOpenSearch:
         """
@@ -185,7 +175,6 @@ class GulpOpenSearch:
         )
         await self._opensearch.close()
         MutyLogger.get_instance().debug("opensearch client shutdown")
-        self._opensearch = None
 
     async def check_alive(self) -> None:
         """
