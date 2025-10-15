@@ -67,7 +67,7 @@ async def request_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
     try:
@@ -120,7 +120,7 @@ async def request_cancel_handler(
         str, Query(description="request id to cancel.", example="test_req")
     ],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     status: Annotated[
         Literal["canceled", "done", "failed"],
         Query(
@@ -204,7 +204,7 @@ async def request_set_completed_handler(
         str, Query(description="request id to set completed.", example="test_req")
     ],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     failed: Annotated[
         bool, Query(description="if set, the request is marked as failed.")
     ] = False,
@@ -250,7 +250,7 @@ get a list of all requests (identified by their `req_id`) issued by the calling 
 async def request_list_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     running_only: Annotated[
         bool, Query(description="if set, only return requests that are still running.")
     ] = False,

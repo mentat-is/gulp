@@ -621,8 +621,8 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options_optional),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["q_options"] = q_options.model_dump(exclude_none=True)
@@ -737,8 +737,8 @@ async def query_gulp_handler(
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options_optional),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
@@ -871,8 +871,8 @@ async def query_external_handler(
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options_optional),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["q_options"] = q_options.model_dump(exclude_none=True)
@@ -1019,42 +1019,42 @@ async def query_sigma_handler(
         list[str],
         Body(description="ids of the source to apply the query/ies to."),
     ],
-    q_options: Annotated[
-        GulpQueryParameters,
-        Depends(APIDependencies.param_q_options_optional),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
     levels: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.level` to restrict the applied sigma rules (`high`, `low`, `medium`, `critical`, `informational`)",
             examples=[["high", "critical"]],
         ),
-    ] = [],
+    ] = None,
     products: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.logsource.product` to restrict the applied sigma rules.",
             examples=[["windows"]],
         ),
-    ] = [],
+    ] = None,
     categories: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.logsource.category` to restrict the applied sigma rules."
         ),
-    ] = [],
+    ] = None,
     services: Annotated[
         Optional[list[str]],
         Body(
             description="optional `sigma.logsource.service` to restrict the applied sigma rules.",
             examples=[["windefend"]],
         ),
-    ] = [],
+    ] = None,
     tags: Annotated[
         Optional[list[str]],
         Body(description="optional `sigma.tags` to restrict the applied sigma rules."),
-    ] = [],
+    ] = None,
+    q_options: Annotated[
+        GulpQueryParameters,
+        Depends(APIDependencies.param_q_options_optional),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["q_options"] = q_options.model_dump(exclude_none=True)
@@ -1157,7 +1157,7 @@ async def query_single_id_handler(
         str,
         Query(description="the `_id` of the document on Gulp `index`."),
     ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
@@ -1210,7 +1210,7 @@ if `query_history_max_size` is not set in the configuration, it defaults to 20.
 )
 async def query_history_get_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
 
@@ -1267,12 +1267,12 @@ async def query_history_get_handler(
 async def query_max_min_per_field(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)] = None,
     group_by: Annotated[
         Optional[str],
         Query(description="group by field (i.e. `event.code`), default=no grouping"),
     ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
@@ -1364,7 +1364,7 @@ for each `operation` returns `sources` and `contexts` with their max/min `event.
 )
 async def query_operations(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
@@ -1453,7 +1453,7 @@ async def query_fields_by_source_handler(
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
@@ -1612,12 +1612,12 @@ async def query_gulp_export_json_handler(
     bt: BackgroundTasks,
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options_optional),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)],
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> FileResponse:
     """
     export documents as json file and stream to client.
