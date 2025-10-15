@@ -137,7 +137,7 @@ class Plugin(GulpPluginBase):
         except Exception as ex:
             await self._source_failed(ex)
         finally:
-            await self._source_done(flt)
+            await self.source_done(flt)
         return self._stats_status()
 
     def _read_file(
@@ -256,7 +256,7 @@ class Plugin(GulpPluginBase):
         except Exception as ex:
             await self._source_failed(ex)
         finally:
-            await self._source_done(flt)
+            await self.source_done(flt)
         return self._stats_status()
 
     @override
@@ -297,7 +297,7 @@ class Plugin(GulpPluginBase):
 
         except Exception as ex:
             await self._source_failed(ex)
-            await self._source_done(flt)
+            await self.source_done(flt)
             return GulpRequestStatus.FAILED
 
         encoding: str = self._plugin_params.custom_parameters.get("encoding")
@@ -311,5 +311,5 @@ class Plugin(GulpPluginBase):
 
         # failed
         await self._source_failed(ValueError(f"Unsupported mode: {mode}"))
-        await self._source_done(flt)
+        await self.source_done(flt)
         return GulpRequestStatus.FAILED

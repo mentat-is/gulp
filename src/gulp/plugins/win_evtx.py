@@ -209,42 +209,33 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            plugin_params = self._ensure_plugin_params(
-                plugin_params, mapping_file="windows.json"
-            )
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
+        plugin_params = self._ensure_plugin_params(
+            plugin_params, mapping_file="windows.json"
+        )
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
-            # init parser
-            parser = PyEvtxParser(file_path)
-        except Exception as ex:
-            await self._source_done(flt, ex)
-            raise
+        # init parser
+        parser = PyEvtxParser(file_path)
 
         doc_idx: int = 0
-        try:
-            for rr in parser.records_json():
-                if not await self.process_record(rr, doc_idx, flt=flt):
-                    # signal to stop processing (preview mode)
-                    break
-                doc_idx += 1
-            return await self._source_done(flt)
-        except Exception as ex:
-            # i.e. parser exception, canceled, etc.
-            await self._source_done(flt, ex)
-            raise
+        for rr in parser.records_json():
+            if not await self.process_record(rr, doc_idx, flt=flt):
+                # stop processing (preview mode)
+                break
+            doc_idx += 1
+        return stats.status

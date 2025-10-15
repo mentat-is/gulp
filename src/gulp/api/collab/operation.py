@@ -224,9 +224,9 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
                 sess, obj_id=ctx_id, throw_if_not_found=False
             )
             if ctx:
-                MutyLogger.get_instance().debug(
-                    "context %s already added to operation %s", name, self.id
-                )
+                # MutyLogger.get_instance().debug(
+                #     "context %s already added to operation %s", name, self.id
+                # )
                 return ctx, False
 
             # MutyLogger.get_instance().warning("creating new context: %s, id=%s", name, obj_id)

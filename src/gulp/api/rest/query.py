@@ -323,7 +323,7 @@ async def process_queries(
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, or get it if it doesn't exist yet
-            stats, created = await GulpRequestStats.create_or_get_existing(
+            stats, _ = await GulpRequestStats.create_or_get_existing(
                 sess,
                 req_id,
                 user_id,
@@ -1267,7 +1267,9 @@ async def query_history_get_handler(
 async def query_max_min_per_field(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)] = None,
+    flt: Annotated[
+        GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)
+    ] = None,
     group_by: Annotated[
         Optional[str],
         Query(description="group by field (i.e. `event.code`), default=no grouping"),
@@ -1612,7 +1614,9 @@ async def query_gulp_export_json_handler(
     bt: BackgroundTasks,
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)] = None,
+    flt: Annotated[
+        GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)
+    ] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options_optional),

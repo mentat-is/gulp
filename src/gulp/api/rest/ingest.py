@@ -322,11 +322,17 @@ async def _ingest_file_internal(
                 preview_chunk: list[dict] = deepcopy(mod.preview_chunk())
                 return status, preview_chunk
 
-            # default mode: broadcast internal event and update source field types
+            # this source is done
+            await mod.source_done(flt=payload.flt)
+
+            # broadcast internal event and update source field types
             await mod.broadcast_ingest_internal_event()
             return status, []
-        except:
+        except Exception as ex:
             await sess.rollback()
+            if mod:
+                # this source failed
+                await mod.source_done(flt=payload.flt, ex=ex)
             raise
         finally:
             if mod:
@@ -1118,7 +1124,8 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
                 )
 
                 # create (or get existing) stats
-                stats: GulpRequestStats = await GulpRequestStats.create_or_get_existing(
+                stats: GulpRequestStats
+                stats, _ = await GulpRequestStats.create_or_get_existing(
                     sess,
                     req_id,
                     s.user_id,
@@ -1143,10 +1150,14 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
                     plugin_params=plugin_params,
                     last=last,
                 )
+                await mod.source_done(flt=flt)
+
                 # done
                 return JSONResponse(JSendResponse.success(req_id=req_id))
             except Exception as ex:
                 await sess.rollback()
+                if mod:
+                    await mod.source_done(flt=flt, ex=ex)
                 raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -1222,7 +1233,8 @@ async def _ingest_zip_internal(
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats object
-            stats: GulpRequestStats = await GulpRequestStats.create_or_get_existing(
+            stats: GulpRequestStats
+            stats, _ = await GulpRequestStats.create_or_get_existing(
                 sess,
                 req_id,
                 user_id,

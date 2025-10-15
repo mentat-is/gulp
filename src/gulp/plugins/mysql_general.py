@@ -3,6 +3,7 @@ Plugin for processing MySQL general log files and ingesting their contents into 
 
 This plugin reads MySQL general log files, parses each record, and converts them into GulpDocument objects for further processing or indexing. It supports asynchronous file reading and integrates with the Gulp ingestion pipeline, handling errors and maintaining ingestion statistics.
 """
+
 import datetime, dateutil
 import os
 import re
@@ -25,6 +26,7 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
+
 
 # TODO: not working
 class Plugin(GulpPluginBase):
@@ -57,7 +59,7 @@ class Plugin(GulpPluginBase):
         event: dict = {}
         fields = record.split(",")
 
-        d={}
+        d = {}
         # map timestamp manually
         print(event)
         time_str = " ".join([event["Date"], event["Time"]])
@@ -116,17 +118,21 @@ class Plugin(GulpPluginBase):
             )
         except Exception as ex:
             await self._source_failed(ex)
-            await self._source_done(flt)
+            await self.source_done(flt)
             return GulpRequestStatus.FAILED
 
-        date_format = self._plugin_params.custom_parameters.get("date_format", "%m/%d/%y %H:%M:%S")
+        date_format = self._plugin_params.custom_parameters.get(
+            "date_format", "%m/%d/%y %H:%M:%S"
+        )
         doc_idx = 0
         try:
             async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
                 async for l in log_src:
                     # TODO: port to python https://gist.github.com/httpdss/948386
                     try:
-                        await self.process_record(l, doc_idx, flt=flt, date_format=date_format)
+                        await self.process_record(
+                            l, doc_idx, flt=flt, date_format=date_format
+                        )
                     except (RequestCanceledError, SourceCanceledError) as ex:
                         MutyLogger.get_instance().exception(ex)
                         await self._source_failed(ex)
@@ -136,5 +142,5 @@ class Plugin(GulpPluginBase):
         except Exception as ex:
             await self._source_failed(ex)
         finally:
-            await self._source_done(flt)
+            await self.source_done(flt)
             return self._stats_status()

@@ -157,7 +157,7 @@ class Plugin(GulpPluginBase):
 
         except Exception as ex:
             await self._source_failed(ex)
-            await self._source_done(flt)
+            await self.source_done(flt)
             return GulpRequestStatus.FAILED
 
         encoding = self._plugin_params.custom_parameters.get("encoding")
@@ -169,7 +169,7 @@ class Plugin(GulpPluginBase):
         # make sure we have at least 1 named group
         if regex.groups == 0:
             await self._source_failed("no named groups provided, invalid regex")
-            await self._source_done(flt)
+            await self.source_done(flt)
             return GulpRequestStatus.FAILED
 
         # make sure we have at least one field named timestamp
@@ -182,7 +182,7 @@ class Plugin(GulpPluginBase):
             await self._source_failed(
                 "no timestamp named group provided, invalid regex"
             )
-            await self._source_done(flt)
+            await self.source_done(flt)
             return GulpRequestStatus.FAILED
 
         # we can process!
@@ -211,5 +211,5 @@ class Plugin(GulpPluginBase):
         except Exception as ex:
             await self._source_failed(ex)
         finally:
-            await self._source_done(flt)
+            await self.source_done(flt)
         return self._stats_status()

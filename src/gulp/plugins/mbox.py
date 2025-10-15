@@ -121,7 +121,7 @@ class Plugin(GulpPluginBase):
 
         except Exception as ex:
             await self._source_failed(ex)
-            await self._source_done(flt)
+            await self.source_done(flt)
             return GulpRequestStatus.FAILED
 
         doc_idx = 0
@@ -143,6 +143,6 @@ class Plugin(GulpPluginBase):
         except Exception as ex:
             await self._source_failed(ex)
         finally:
-            await self._source_done(flt)
+            await self.source_done(flt)
             await self._eml_parser.unload()
         return self._stats_status()

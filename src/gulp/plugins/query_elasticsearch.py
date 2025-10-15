@@ -261,6 +261,6 @@ class Plugin(GulpPluginBase):
 
         finally:
             # last flush
-            await self._source_done()
+            await self.source_done()
             MutyLogger.get_instance().debug("closing client ...")
             await cl.close()

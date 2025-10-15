@@ -341,10 +341,9 @@ async def test_ws_raw():
                         p: GulpWsIngestPacket = GulpWsIngestPacket(
                             index=TEST_INDEX,
                             operation_id=TEST_OPERATION_ID,
-                            context_name=TEST_CONTEXT_NAME,
-                            source="test_source",
                             req_id=TEST_REQ_ID,
                             ws_id=TEST_WS_ID,
+                            last=(i == 1),
                         )
                         raw_data = json.dumps(
                             _generate_random_chunk(raw_chunk, size=1000)

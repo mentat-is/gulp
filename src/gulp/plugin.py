@@ -1295,10 +1295,9 @@ class GulpPluginBase(ABC):
         """
         ingest a chunk of arbitrary data
 
-        - it is the responsibility of the plugin to process the chunk and convert it to GulpDocuments ready to be ingested
-        - it is the responsibility of the plugin to create context and source, i.e. from each document's data.
-
-        NOTE: to ingest pre-processed GulpDocuments, use the raw plugin which implements ingest_raw.
+        NOTE: implementers must call super().ingest_raw first
+        NOTE: this is guaranteed to be called by the engine inside a try/except which reraises the generated exception.
+        NOTE: it is the responsibility of the plugin to create a GulpContext and a GulpSource from each document's data, if they're not already there (as when ingesting raw GulpDocuments with the default `raw` plugin).
 
         Args:
             sess (AsyncSession): The database session.
@@ -1318,9 +1317,9 @@ class GulpPluginBase(ABC):
         Returns:
             GulpRequestStatus: The status of the ingestion.
 
-        Notes:
-            - implementers must call super().ingest_raw first
-            - this function *MUST NOT* raise exceptions.
+        Raises:
+            any exception encountered during ingestion
+
         """
         self._sess = sess
         self._ws_id = ws_id
@@ -1632,9 +1631,11 @@ class GulpPluginBase(ABC):
         """
         ingests a file containing records in the plugin specific format.
 
-        NOTE: this is guaranteed to be called by the gulp API in a worker process (unless preview_mode is set in plugin_params)
+        NOTE: implementers must call super().ingest_file first
+        NOTE: this is guaranteed to be called by the engine inside a try/except which reraises the generated exception.
+        NOTE: this is guaranteed to be called by the engine in a worker process (unless preview_mode is set in plugin_params)
 
-        Args:
+                Args:
             sess (AsyncSession): The database session.
             stats (GulpRequestStats): The ingestion stats.
             user_id (str): The user performing the ingestion (id on collab database)
@@ -1655,8 +1656,6 @@ class GulpPluginBase(ABC):
         Raises:
             any exception encountered during ingestion
 
-        Notes:
-            - implementers must call super().ingest_file first
         """
         self._sess = sess
         self._stats = stats
@@ -2811,7 +2810,7 @@ class GulpPluginBase(ABC):
                 ),
             )
 
-    async def _source_done(
+    async def source_done(
         self, flt: GulpIngestionFilter = None, ex: Exception = None
     ) -> GulpRequestStatus:
         """
@@ -2863,11 +2862,12 @@ class GulpPluginBase(ABC):
         source_finished: bool = True
         if self._raw_ingestion:
             # on raw ingestion, source is never done unless last chunk or canceled
-            source_finished = False
             if self._last_raw_chunk:
                 status = GulpRequestStatus.DONE
             else:
+                # keep the raw ingestion ongoing if its not the last chunk
                 status = GulpRequestStatus.ONGOING
+                source_finished = False
             if self._req_canceled:
                 status = GulpRequestStatus.CANCELED
         else:

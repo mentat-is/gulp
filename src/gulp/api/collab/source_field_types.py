@@ -26,11 +26,13 @@ class GulpSourceFieldTypes(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELD_TYPES):
     )
     context_id: Mapped[str] = mapped_column(
         ForeignKey("context.id", ondelete="CASCADE"),
-        doc="The associated context.",
+        doc="The associated GulpContext, if any.",
+        nullable=True,
     )
     source_id: Mapped[str] = mapped_column(
         ForeignKey("source.id", ondelete="CASCADE"),
-        doc="The associated source.",
+        doc="The associated GulpSource, if any.",
+        nullable=True,
     )
     field_types: Mapped[dict] = mapped_column(
         MutableDict.as_mutable(JSONB),
