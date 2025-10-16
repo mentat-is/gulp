@@ -316,6 +316,8 @@ class GulpOpenSearch:
         """
         shortcut to datastream_update_source_field_types_by_src using a GulpQueryFilter
 
+        NOTE: only operation_ids, context_ids and source_ids are used from the filter
+
         WARNING: this call may take long time, so it is better to run it in a background task.
 
         Args:
@@ -338,8 +340,57 @@ class GulpOpenSearch:
                 and (not source_ids or (source_ids and src in source_ids))
             ):
                 await self.datastream_update_source_field_types_by_src(
-                    index, user_id, operation_id=op, context_id=ctx, source_id=src
+                    sess, index, user_id, operation_id=op, context_id=ctx, source_id=src
                 )
+
+    async def datastream_update_source_field_types_by_ctx_src_pairs(
+        self,
+        sess: AsyncSession,
+        index: str,
+        user_id: str,
+        operation_id: str,
+        ctx_src_pairs: list[tuple[str, str]],
+        el: AsyncElasticsearch = None,
+    ) -> None:
+        """
+        shortcut to datastream_update_source_field_types_by_src using a list of (context_id, source_id) pairs
+        WARNING: this call may take long time, so it is better to run it in a background task.
+
+        Args:
+            sess (AsyncSession): The database session, use None to let the function create it (will be valid only withing its scope)
+            index (str): The index/datastream name.
+            user_id (str): The user ID.
+            operation_id (str): The operation ID.
+            ctx_src_pairs (list[tuple[str, str]]): The list of (context_id, source_id) pairs.
+            el: AsyncElasticsearch, optional): The Elasticsearch client. Defaults to None (use the default OpenSearch client).
+        """
+
+        async def _internal() -> None:
+            MutyLogger.get_instance().debug(
+                "number of unique (ctx_id, src_id) pairs: %d", len(ctx_src_pairs)
+            )
+            try:
+                for ctx_id, src_id in ctx_src_pairs:
+                    await self.datastream_update_source_field_types_by_src(
+                        sess,
+                        index,
+                        user_id,
+                        operation_id=operation_id,
+                        context_id=ctx_id,
+                        source_id=src_id,
+                        el=el,
+                    )
+            except:
+                await sess.rollback()
+                raise
+
+        if not sess:
+            # no session provided, create a temporary one
+            async with GulpCollab.get_instance().session() as sess:
+                await _internal()
+        else:
+            # session provided
+            await _internal()
 
     async def datastream_update_source_field_types_by_src(
         self,
@@ -349,7 +400,6 @@ class GulpOpenSearch:
         operation_id: str = None,
         context_id: str = None,
         source_id: str = None,
-        doc_ids: list[str] = None,
         el: AsyncElasticsearch = None,
     ) -> tuple[dict, bool]:
         """
@@ -358,26 +408,24 @@ class GulpOpenSearch:
         WARNING: this call may take long time, so it is better to run it in a background task.
 
         Args:
-            sess (AsyncSession): The database session, use None to create a temporary one.
+            sess (AsyncSession): The database session, use None to let the function create it (will be valid only withing its scope)
             index (str): The index/datastream name.
             user_id (str): the requesting user ID.
             operation_id (str): The operation ID, may be None to indicate all operations.
             context_id (str, optional): The context ID, may be None to indicate all contexts.
             source_id (str, optional): The source ID, may be None to indicate all sources.
-            doc_ids (list[str], optional): limit to these document IDs. Defaults to None.
             el: AsyncElasticsearch, optional): The Elasticsearch client. Defaults to None (use the default OpenSearch client).
         Returns:
             dict: The mapping dict (same as index_get_mapping with return_raw_result=False), may be empty if no documents are found
 
         """
 
-        MutyLogger.get_instance().debug(
-            "creating/updating source->fieldtypes for source_id=%s, context_id=%s, operation_id=%s, doc_ids=%s ...",
-            source_id,
-            context_id,
-            operation_id,
-            doc_ids,
-        )
+        # MutyLogger.get_instance().debug(
+        #     "creating/updating source->fieldtypes for source_id=%s, context_id=%s, operation_id=%s ...",
+        #     source_id,
+        #     context_id,
+        #     operation_id,
+        # )
 
         from gulp.api.opensearch.structs import GulpQueryParameters
 
@@ -400,11 +448,6 @@ class GulpOpenSearch:
             if source_id:
                 q["query"]["query_string"]["query"] += " AND gulp.source_id: %s" % (
                     source_id
-                )
-            if doc_ids:
-                # limit to these document IDs
-                q["query"]["query_string"]["query"] += " AND _id: (%s)" % (
-                    " OR ".join(doc_ids)
                 )
 
         # get all the fields/types mapping for this index
@@ -454,14 +497,14 @@ class GulpOpenSearch:
         )
         if sess:
             # session provided
-            await GulpSourceFieldTypes.create_source_field_types(
+            await GulpSourceFieldTypes.create_or_update_source_field_types(
                 sess, user_id, operation_id, context_id, source_id, filtered_mapping
             )
         else:
             # no session provided, create a temporary one
             async with GulpCollab.get_instance().get_session() as sess:
                 try:
-                    await GulpSourceFieldTypes.create_source_field_types(
+                    await GulpSourceFieldTypes.create_or_update_source_field_types(
                         sess,
                         user_id,
                         operation_id,

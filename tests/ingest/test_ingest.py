@@ -336,19 +336,20 @@ async def test_ws_raw():
                 response = await ws.recv()
                 data = json.loads(response)
                 if data["type"] == "ws_connected":
-                    for i in range(2):
+                    MutyLogger.get_instance().debug("ws connected, sending data ...")
+                    n: int = 2
+                    for i in range(n):
                         # send chunk
                         p: GulpWsIngestPacket = GulpWsIngestPacket(
                             index=TEST_INDEX,
                             operation_id=TEST_OPERATION_ID,
                             req_id=TEST_REQ_ID,
                             ws_id=TEST_WS_ID,
-                            last=(i == 1),
+                            last=(i == n-1),
                         )
-                        raw_data = json.dumps(
-                            _generate_random_chunk(raw_chunk, size=1000)
-                        ).encode("utf-8")
-
+                        packet_chunk: list[dict] = _generate_random_chunk(raw_chunk, size=1000)
+                        raw_data = json.dumps(packet_chunk).encode("utf-8")
+                        MutyLogger.get_instance().debug("sending chunk %d (%d documents)", i, len(packet_chunk))
                         # send json then chunk
                         await ws.send(p.model_dump_json(exclude_none=True))
                         await ws.send(raw_data)
@@ -356,6 +357,7 @@ async def test_ws_raw():
 
                     # TODO: check data, but should be ok ....
                     test_completed = True
+                    MutyLogger.get_instance().debug("all data sent, exiting ...")
                     break
 
                 # ws delay
@@ -365,10 +367,11 @@ async def test_ws_raw():
             MutyLogger.get_instance().exception(ex)
 
     assert test_completed
-    await asyncio.sleep(10)
+    await asyncio.sleep(20)
     op = await GulpAPIOperation.operation_get_by_id(
         token=ingest_token, operation_id=TEST_OPERATION_ID
     )
+    # n=2 generates 6000 documents (3 in template chunk)
     assert op["doc_count"] == 6000
     MutyLogger.get_instance().info(test_ws_raw.__name__ + " succeeded!")
 

@@ -199,7 +199,7 @@ class Plugin(GulpPluginBase):
             )
         except Exception as ex:
             await self._source_failed(ex)
-            await self.source_done(flt)
+            await self.update_stats_and_flush(flt)
             return GulpRequestStatus.FAILED
 
         keep_files = self._plugin_params.custom_parameters.get("keep_files")
@@ -234,5 +234,5 @@ class Plugin(GulpPluginBase):
         except Exception as ex:
             await self._source_failed(ex)
         finally:
-            await self.source_done(flt)
+            await self.update_stats_and_flush(flt)
         return self._stats_status()

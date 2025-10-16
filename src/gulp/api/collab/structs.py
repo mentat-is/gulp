@@ -665,7 +665,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         exclude_none: bool = True,
     ) -> dict:
         # same as super.to_dict() but with exclude_none parameter
-        d = super().to_dict(nested, hybrid_attributes, exclude)
+        d = super().to_dict(nested=nested, hybrid_attributes=hybrid_attributes, exclude=exclude)
         if not exclude_none:
             return d
 

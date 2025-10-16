@@ -104,12 +104,20 @@ class WsIngestRawWorker:
         MutyLogger.get_instance().debug(
             "ws ingest _process_loop started, input_queue=%s" % (input_queue)
         )
-
         async with GulpCollab.get_instance().session() as sess:
             try:
                 stats: GulpRequestStats = None
+                mod: GulpPluginBase = None
                 while True:
-                    packet: InternalWsIngestPacket = input_queue.get()
+                    packet: InternalWsIngestPacket = (
+                        InternalWsIngestPacket.model_validate(input_queue.get())
+                    )
+                    if not packet:
+                        # empty packet, exit loop
+                        MutyLogger.get_instance().debug(
+                            "ws ingest _process_loop got empty packet, exiting ..."
+                        )
+                        break
 
                     if not stats:
                         # first iteration, create a stats that never expire
@@ -124,13 +132,9 @@ class WsIngestRawWorker:
                         )
 
                     try:
-                        # MutyLogger.get_instance().debug("_ws_ingest_process_internal")
-
-                        # load plugin, force caching so it will be loaded first time only
-                        mod: GulpPluginBase = await GulpPluginBase.load(
-                            packet.data.plugin,
-                            cache_mode=GulpPluginCacheMode.FORCE,
-                        )
+                        if not mod:
+                            # load plugin on first received packet
+                            mod = await GulpPluginBase.load(packet.data.plugin)
 
                         # process raw data using plugin
                         await mod.ingest_raw(
@@ -146,20 +150,23 @@ class WsIngestRawWorker:
                             plugin_params=packet.data.plugin_params,
                             last=packet.data.last,
                         )
-                        await mod.source_done(flt=packet.data.flt)
+
+                        # update stats
+                        await mod.update_stats_and_flush(flt=packet.data.flt)
                     except Exception as ex:
                         MutyLogger.get_instance().exception(ex)
                         if mod:
-                            # close the source
-                            await mod.source_done(flt=packet.data.flt, ex=ex)
+                            # update stats
+                            await mod.update_stats_and_flush(flt=packet.data.flt, ex=ex)
                     finally:
-                        if mod:
-                            await mod.unload()
                         if packet.data.last:
+                            if mod:
+                                await mod.unload()
                             # exit loop
                             break
 
             except Exception as ex:
+                MutyLogger.get_instance().exception(ex)
                 await sess.rollback()
 
         MutyLogger.get_instance().debug("ws ingest _process_loop done")
@@ -178,7 +185,7 @@ class WsIngestRawWorker:
 
     async def stop(self) -> None:
         """
-        stops the worker
+        stops the worker (puts an empty message in the queue to signal the worker to exit)
         """
         MutyLogger.get_instance().debug(
             "stopping ws ingest worker (will put an empty message in the queue) ! ..."
@@ -450,15 +457,24 @@ class GulpAPIWebsocket:
                 # raise WebSocketDisconnect when client disconnects
                 ws.validate_connection()
 
-                # regular message processing
                 try:
                     # get dict and data from websocket
                     js = await ws.ws.receive_json()
                     ingest_packet = GulpWsIngestPacket.model_validate(js)
                     raw_data: bytes = await ws.ws.receive_bytes()
-
+                    # MutyLogger.get_instance().debug(
+                    #     "ws_ingest received packet: req_id=%s, ws_id=%s, operation_id=%s, plugin=%s, flt=%s, last=%s, raw_data_len=%s",
+                    #     ingest_packet.req_id,
+                    #     ingest_packet.ws_id,
+                    #     ingest_packet.operation_id,
+                    #     ingest_packet.plugin,
+                    #     ingest_packet.flt,
+                    #     ingest_packet.last,
+                    #     len(raw_data),
+                    # )
                     # get operation if we don't have it
                     if not index:
+                        # get operation if we don't have it
                         async with GulpCollab.get_instance().session() as sess:
                             try:
                                 op = await GulpOperation.get_by_id(
@@ -483,7 +499,7 @@ class GulpAPIWebsocket:
                                         ws_id=ingest_packet.ws_id,
                                         d=p.model_dump(exclude_none=True),
                                     )
-                                    raise Exception(msg)
+                                    raise ObjectNotFound(msg)
 
                                 # got operation's index
                                 index = op.index
@@ -505,16 +521,15 @@ class GulpAPIWebsocket:
                         # last packet, break the loop
                         break
 
-                except WebSocketDisconnect as ex:
+                except WebSocketDisconnect:
                     MutyLogger.get_instance().error(
-                        f"websocket {ws.ws_id} disconnected: {ex}"
+                        "websocket %s disconnected!", ws.ws_id
                     )
                     break
 
                 except Exception as ex:
-                    MutyLogger.get_instance().error(
-                        f"Error processing ingest message: {ex}"
-                    )
+                    MutyLogger.get_instance().exception(ex)
+                    break
 
         finally:
             await worker_pool.stop()

@@ -67,8 +67,6 @@ class Plugin(GulpPluginBase):
         # get context and process it
         d: dict = record
         context_id: str = record.get("gulp.context_id")
-        self._context_id = context_id
-
         m = await self._process_key("gulp.context_id", context_id, d, **kwargs)
         d.update(m)
 
@@ -77,8 +75,6 @@ class Plugin(GulpPluginBase):
         override: str = self._plugin_params.custom_parameters.get("override_source_id")
         if override:
             source_id = override
-        self._source_id = source_id
-
         m = await self._process_key("gulp.source_id", source_id, d, **kwargs)
         d.update(m)
 

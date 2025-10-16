@@ -50,10 +50,11 @@ a dict representing the type of each field ingested in this source.
 
     @override
     def to_dict(
+        self,
         nested: bool = False,
         hybrid_attributes: bool = False,
         exclude: list[str] | None = None,
-        exclude_none: bool = False,
+        exclude_none: bool = True,
     ) -> dict:
         # override to have 'gulpesque' keys
         d = super().to_dict(
@@ -76,7 +77,7 @@ a dict representing the type of each field ingested in this source.
         raise TypeError("Use create_source_fields instead")
 
     @classmethod
-    async def create_source_field_types(
+    async def create_or_update_source_field_types(
         cls,
         sess: AsyncSession,
         user_id: str,
@@ -111,7 +112,7 @@ a dict representing the type of each field ingested in this source.
 
             # check if the the source fields entry already exists
             src_field_types: GulpSourceFieldTypes = await cls.get_by_id(
-                sess, obj_id=obj_id, throw_if_not_found=False
+                sess, obj_id, throw_if_not_found=False
             )
             if src_field_types:
                 # already exists, update it
@@ -140,13 +141,14 @@ a dict representing the type of each field ingested in this source.
                 sess,
                 user_id,
                 operation_id=operation_id,
+                obj_id=obj_id,
                 private=False,
                 context_id=context_id,
                 source_id=source_id,
                 field_types=field_types,
             )
             return obj.to_dict()
-        except Exception as e:
+        except:
             # unlock and re-raise
             await sess.rollback()
-            raise e
+            raise

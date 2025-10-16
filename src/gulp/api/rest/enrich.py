@@ -298,7 +298,6 @@ async def enrich_single_id_handler(
                     operation_id=doc["gulp.operation_id"],
                     context_id=doc["gulp.context_id"],
                     source_id=doc["gulp.source_id"],
-                    doc_ids=[doc_id],
                 )
                 return JSONResponse(JSendResponse.success(req_id, data=doc))
             except Exception as ex:
@@ -618,7 +617,6 @@ async def tag_single_id_handler(
                     operation_id=doc["gulp.operation_id"],
                     context_id=doc["gulp.context_id"],
                     source_id=doc["gulp.source_id"],
-                    doc_ids=[doc_id],
                 )
                 return JSONResponse(JSendResponse.success(req_id, data=doc))
             except Exception as ex:

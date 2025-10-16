@@ -23,7 +23,6 @@ import muty.string
 from muty.log import MutyLogger
 from opensearchpy import Field
 from pydantic import BaseModel, ConfigDict, ValidationError
-from scipy import stats
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.context import GulpContext
@@ -760,6 +759,8 @@ class GulpPluginBase(ABC):
         self._context_id: str = None
         # current gulp source id
         self._source_id: str = None
+        # used instead of _context_id and _source_id when they're generated at runtime by the mapping rules
+        self._ctx_src_pairs: list[tuple[str, str]] = []
 
         # current file being ingested
         self._file_path: str = None
@@ -817,6 +818,7 @@ class GulpPluginBase(ABC):
 
         # indicates the last chunk in a raw ingestion
         self._last_raw_chunk: bool = False
+        self._raw_flush_count: int = 0
 
     def check_license(self, throw_on_invalid: bool = True) -> bool:
         """
@@ -1120,7 +1122,7 @@ class GulpPluginBase(ABC):
         # check cache first
         cache_key: str = f"{k}-{v}"
         if cache_key in self._ctx_cache:
-            # MutyLogger.get_instance().error(f"found context {v} in cache, returning id {self._ctx_cache[cache_key]}")
+            # MutyLogger.get_instance().debug("found context %s in cache, returning id %s", v, self._ctx_cache[cache_key])
             # return cached context id
             return self._ctx_cache[cache_key]
 
@@ -1165,14 +1167,15 @@ class GulpPluginBase(ABC):
         """
         if not context_id:
             MutyLogger.get_instance().error(
-                "context_id is None, cannot create source for key %s, value %s" % (k, v)
+                "context_id is None, cannot create source for key %s, value %s", k, v
             )
+
             return None
 
         # check cache first
         cache_key: str = f"{context_id}-{k}-{v}"
         if cache_key in self._src_cache:
-            # MutyLogger.get_instance().debug(f"found source {v} in cache for context {context_id}, returning id {self._src_cache[cache_key]}")
+            # MutyLogger.get_instance().debug("found source %s in cache for context %s, returning id %s",v,context_id, self._src_cache[cache_key])
             # return cached source id
             return self._src_cache[cache_key]
 
@@ -1197,8 +1200,11 @@ class GulpPluginBase(ABC):
         # update cache
         self._src_cache[cache_key] = source.id
         MutyLogger.get_instance().debug(
-            "source name=%s, context_id=%s, id=%s added to cache, created=%r"
-            % (v, context_id, source.id, created)
+            "source name=%s, context_id=%s, id=%s added to cache, created=%r",
+            v,
+            context_id,
+            source.id,
+            created,
         )
 
         return source.id
@@ -2247,6 +2253,10 @@ class GulpPluginBase(ABC):
                 )
                 m["gulp.source_id"] = src_id
                 m["gulp.context_id"] = ctx_id
+                if [ctx_id, src_id] not in self._ctx_src_pairs:
+                    # add to the unique pairs, will be used when computing source_field_types
+                    self._ctx_src_pairs.append([ctx_id, src_id])
+
                 return m
             return m
 
@@ -2810,11 +2820,14 @@ class GulpPluginBase(ABC):
                 ),
             )
 
-    async def source_done(
+    async def update_stats_and_flush(
         self, flt: GulpIngestionFilter = None, ex: Exception = None
     ) -> GulpRequestStatus:
         """
-        Finalizes the ingestion process for a source by flushing the buffer and updating the ingestion statistics.
+        updates ingestion stats (possibly setting final status) and flushes internal buffer
+
+        for raw ingestion, the source is never set to DONE unless it's the last chunk or the request is canceled.
+        for standard ingestion or query external, a WSDATA_INGEST_SOURCE_DONE packet is sent on the websocket.
 
         Args:
             flt (GulpIngestionFilter, optional): An optional filter to apply during ingestion. Defaults to None.
@@ -2825,12 +2838,12 @@ class GulpPluginBase(ABC):
         """
         if self._preview_mode:
             MutyLogger.get_instance().debug(
-                "**SOURCE DONE**: preview mode, no ingestion!"
+                "*** preview mode, no ingestion! ***"
             )
             return GulpRequestStatus.DONE
 
         MutyLogger.get_instance().debug(
-            "**SOURCE DONE**: %s, remaining docs to flush in docs_buffer: %d, status=%s",
+            "*** %s, remaining docs to flush in docs_buffer: %d, status=%s ***",
             self._file_path or self._source_id,
             len(self._docs_buffer),
             self._stats.status,
@@ -2896,6 +2909,12 @@ class GulpPluginBase(ABC):
                 d=p.model_dump(exclude_none=True),
             )
 
+        self._raw_flush_count +=1
+        if self._raw_ingestion and status == GulpRequestStatus.ONGOING:
+            if self._raw_flush_count % 10 != 0:
+                # do not update stats and source_fields too frequently on raw
+                return status
+            
         # update stats
         try:
             d: dict = await self._stats.update_ingestion_stats(
@@ -2910,18 +2929,29 @@ class GulpPluginBase(ABC):
                 status=status,
                 source_finished=source_finished,
             )
-
+                
             # update source field types (in background)
             from gulp.api.rest_api import GulpRestServer
 
-            coro = GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
-                self._sess,
-                self._index,
-                self._user_id,
-                operation_id=self._operation_id,
-                context_id=self._context_id,
-                source_id=self._source_id,
-            )
+            if self._ctx_src_pairs:
+                # multiple context and sources generated
+                coro = GulpOpenSearch.get_instance().datastream_update_source_field_types_by_ctx_src_pairs(
+                    None, # sess=None since we're spawning a background task and cannot use the same session
+                    self._index,
+                    self._user_id,
+                    operation_id=self._operation_id,
+                    ctx_src_pairs=self._ctx_src_pairs,
+                )
+            else:
+                # use default context_id, source_id
+                coro = GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
+                    None, # sess=None since we're spawning a background task and cannot use the same session
+                    self._index,
+                    self._user_id,
+                    operation_id=self._operation_id,
+                    context_id=self._context_id,
+                    source_id=self._source_id,
+                )
             bg_task_name = f"update_source_field_types_{self._operation_id}_{self._context_id}_{self._source_id}"
             GulpRestServer.spawn_bg_task(coro, bg_task_name)
 
