@@ -95,35 +95,6 @@ async def _enrich_documents_internal(
             errors.append(str(ex))
             raise
         finally:
-            if stats:
-                # finish stats
-                p = GulpUpdateDocumentsStats(
-                    total_hits=total_hits,
-                    plugin=plugin,
-                    updated=enriched,
-                    errors=errors,
-                    flt=flt,
-                )
-                MutyLogger.get_instance().debug(
-                    "enrich_documents: finished, total_hits=%d, enriched=%d, errors=%s",
-                    p.total_hits,
-                    p.updated,
-                    p.errors,
-                )
-                status = (
-                    GulpRequestStats.CANCELED
-                    if canceled
-                    else (
-                        GulpRequestStatus.FAILED if errors else GulpRequestStatus.DONE
-                    )
-                )
-                await stats.set_finished(
-                    sess,
-                    status=status,
-                    data=p.model_dump(),
-                    user_id=user_id,
-                    ws_id=ws_id,
-                )
             # done
             if mod:
                 await mod.unload()
@@ -329,15 +300,12 @@ async def _tag_documents_chunk(
     stats: GulpRequestStats = cb_context["stats"]
     ws_id = cb_context["ws_id"]
     flt: GulpQueryFilter = cb_context["flt"]
-    if not chunk:
-        MutyLogger.get_instance().warning("empty chunk")
-        return []
 
     # tag documents
     for d in chunk:
         d.update({"gulp.tags": tags})
 
-    MutyLogger.get_instance().debug("tagged %d documents", len(chunk))
+    MutyLogger.get_instance().debug("tagged %d documents, last=%r", len(chunk), last)
 
     # update the documents on opensearch
     # also ensure no highlight field is left from the query
@@ -354,12 +322,13 @@ async def _tag_documents_chunk(
     # update running stats
     await stats.update_updatedocuments_stats(
         sess,
+        user_id=stats.user_id,
+        ws_id=ws_id,
         total_hits=total_hits,
         updated=num_updated,
         flt=flt,
         errs=errs,
-        user_id=stats.user_id,
-        ws_id=ws_id,
+        last=last,
     )
     return chunk
 
@@ -431,39 +400,11 @@ async def _tag_documents_internal(
                 canceled = True
             raise
         finally:
-            if stats:
-                # finish stats
-                p = GulpUpdateDocumentsStats(
-                    total_hits=total_hits,
-                    updated=cb_context["total_updated"],
-                    errors=errors,
-                    flt=flt,
+            if enriched:
+                # if we enriched something, update source=>fields mappings on the collab db
+                await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
+                    sess, index, user_id, flt
                 )
-                MutyLogger.get_instance().debug(
-                    "tag_documents: finished, total_hits=%d, tagged=%d, errors=%s",
-                    p.total_hits,
-                    p.updated,
-                    p.errors,
-                )
-                status: GulpRequestStatus = (
-                    GulpRequestStatus.CANCELED
-                    if canceled
-                    else (
-                        GulpRequestStatus.FAILED if errors else GulpRequestStatus.DONE
-                    )
-                )
-                await stats.set_finished(
-                    sess,
-                    status=status,
-                    data=p.model_dump(),
-                    user_id=user_id,
-                    ws_id=ws_id,
-                )
-                if enriched:
-                    # if we enriched something, update source=>fields mappings on the collab db
-                    await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
-                        sess, index, user_id, flt
-                    )
 
 
 @router.post(
@@ -611,7 +552,7 @@ async def tag_single_id_handler(
 
                 # rebuild source_fields mapping in a worker
                 await GulpRestServer.get_instance().spawn_worker_task(
-                    GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,                
+                    GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
                     None,  # sess=None to create a temporary one (a worker can't use the current one)
                     index,
                     user_id,

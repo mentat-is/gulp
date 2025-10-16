@@ -140,11 +140,14 @@ async def _query_raw_chunk_callback(
     **kwargs,
 ) -> list[dict]:
     """
-    callback called by GulpOpenSearch when a chunk of documents is available:
+    callback called by GulpOpenSearch.search_dsl when a chunk of documents is available:
     - sends the chunk to the websocket
     - creates notes if requested (and send them to the websocket as well)
     """
     cb_context: dict = kwargs["cb_context"]
+    cb_context["total_hits"] = total_hits
+    cb_context["total_processed"] = cb_context.get("total_processed", 0) + len(chunk)
+
     user_id: str = cb_context["user_id"]
     operation_id: str = cb_context["operation_id"]
     ws_id: str = cb_context["ws_id"]
@@ -191,6 +194,7 @@ async def _query_raw_chunk_callback(
             sigma_yml=sigma_yml,
             last=last,
         )
+    return chunk
 
 
 async def _run_query(
@@ -217,72 +221,76 @@ async def _run_query(
     total_processed: int = 0
     err: str = None
     mod: GulpPluginBase = None
-    sess: AsyncSession = None
     canceled: bool = False
+    stats: GulpRequestStats = None
+
     try:
-        if plugin:
-            # external query, load plugin (it is guaranteed to be the same for all queries)
-            mod = await GulpPluginBase.load(plugin)
-            stats: GulpRequestStats = None
+        async with GulpCollab.get_instance().session() as sess:
+            try:
+                if plugin:
+                    # external query, load plugin (it is guaranteed to be the same for all queries)
+                    mod = await GulpPluginBase.load(plugin)
 
-            # get the stats we previously created
-            async with GulpCollab.get_instance().session() as sess:
-                stats = await GulpRequestStats.get_by_id(sess, req_id)
+                    # get the stats we previously created
+                    stats = await GulpRequestStats.get_by_id(sess, req_id)
+                    total_processed, total_hits = await mod.query_external(
+                        sess,
+                        stats,
+                        user_id,
+                        req_id,
+                        ws_id,
+                        operation_id,
+                        index,
+                        gq.q,
+                        plugin_params,
+                        q_options,
+                    )
+                else:
+                    # raw query to gulp's opensearch
+                    cb_context: dict = {
+                        "user_id": user_id,
+                        "operation_id": operation_id,
+                        "ws_id": ws_id,
+                        "q_options": q_options,
+                        "q": gq.q,
+                        "tags": gq.tags,
+                        "sigma_yml": gq.sigma_yml,
+                        "total_hits": 0,
+                        "q_name": gq.name,
+                    }
+                    await GulpOpenSearch.get_instance().search_dsl(
+                        sess,
+                        index,
+                        gq.q,
+                        req_id=req_id,
+                        q_options=q_options,
+                        callback=_query_raw_chunk_callback,
+                        cb_context=cb_context,
+                    )
+                    total_hits = cb_context.get("total_hits", 0)
+                    total_processed = cb_context.get("total_processed", 0)
 
-                total_processed, total_hits = await mod.query_external(
-                    sess,
-                    stats,
-                    user_id,
-                    req_id,
-                    ws_id,
-                    operation_id,
-                    index,
-                    gq.q,
-                    plugin_params,
-                    q_options,
-                )
-        else:
-            # raw gulp query
-            async with GulpCollab.get_instance().session() as sess:
-                cb_context: dict = {
-                    "user_id": user_id,
-                    "operation_id": operation_id,
-                    "ws_id": ws_id,
-                    "q_options": q_options,
-                    "q": gq.q,
-                    "tags": gq.tags,
-                    "sigma_yml": gq.sigma_yml,
-                    "q_name": gq.name,
-                }
-                await GulpOpenSearch.get_instance().search_dsl(
-                    sess,
-                    index,
-                    gq.q,
-                    req_id=req_id,
-                    q_options=q_options,
-                    callback=_query_raw_chunk_callback,
-                    cb_context=cb_context,
-                )
-
-    except Exception as ex:
-        if sess:
-            await sess.rollback()
-        if isinstance(ex, RequestCanceledError):
-            # request is canceled
-            canceled = True
-        else:
-            err = muty.log.exception_to_string(ex)  # , with_full_traceback=True)
-            raise
+            except Exception as ex:
+                if sess:
+                    await sess.rollback()
+                if isinstance(ex, RequestCanceledError):
+                    # request is canceled
+                    canceled = True
+                else:
+                    err = muty.log.exception_to_string(
+                        ex
+                    )  # , with_full_traceback=True)
+                    raise
+            finally:
+                if mod:
+                    await mod.unload()
     finally:
-        if mod:
-            await mod.unload()
-
+        # signal WSDATA_QUERY_DONE on the websocket
         status: GulpRequestStatus = GulpRequestStatus.DONE
         if canceled:
             status = GulpRequestStatus.CANCELED
         elif err:
             status = GulpRequestStatus.FAILED
-        # signal done on the websocket
         p = GulpQueryDonePacket(
             name=gq.name,
             status=status.value,
@@ -320,9 +328,12 @@ async def process_queries(
     index, plugin, plugin_params are used for external queries only
     """
     stats: GulpRequestStats = None
+    batching_step_reached: bool = False
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, or get it if it doesn't exist yet
+            # for query stats, we will have a GulpQueryStats payload
+            # either, for external queries, we will have a GulpIngestionStats payload
             stats, _ = await GulpRequestStats.create_or_get_existing(
                 sess,
                 req_id,
@@ -360,7 +371,7 @@ async def process_queries(
                     history.append(h)
                     await GulpUser.add_query_history_entry_batch(sess, history)
 
-            # 2. batch queries and gather results: spawn a worker for each query and wait them all.
+            # 1. batch queries and gather results: spawn a worker for each query and wait them all.
             # NOTE: for query_external, we will always have just one query to run
             batch_size: int = len(queries)
             if len(queries) > GulpConfig.get_instance().concurrency_max_tasks():
@@ -396,16 +407,17 @@ async def process_queries(
                     )
 
                 # gather results for this batch and accumulate
+                batching_step_reached = True
                 batch_res = await asyncio.gather(*coros, return_exceptions=True)
                 results.extend(batch_res)
 
-                # check if request is canceled
+                # check results
                 for r in batch_res:
                     if isinstance(r, tuple) and len(r) == 4:
                         # we have a result
                         processed, hits, q_name, canceled = r
                         if hits > 0:
-                            # we have at one match for this query
+                            # increment matches for this query
                             if not matched_queries.get(q_name):
                                 matched_queries[q_name] = 0
                             matched_queries[q_name] += 1
@@ -421,7 +433,7 @@ async def process_queries(
                         if err not in errors:
                             errors.append(err)
 
-                # update request stats
+                # update request stats, will auto-finalize the stats when completion is detected (all queries completed or request canceled)
                 await stats.update_query_stats(
                     sess,
                     user_id=user_id,
@@ -474,8 +486,8 @@ async def process_queries(
             )
         except Exception as ex:
             await sess.rollback()
-            if stats:
-                # ensure we set the stats as failed on error
+            if stats and not batching_step_reached:
+                # ensure we set the stats as failed on error (unless we reached a batching step, in which case the stats will be auto-finalized)
                 await stats.set_finished(
                     sess,
                     GulpRequestStatus.FAILED,
@@ -1500,10 +1512,10 @@ async def query_fields_by_source_handler(
                     # return field types
                     return JSONResponse(JSendResponse.success(req_id=req_id, data=m))
 
-                # spawn a task to run fields mapping in a worker and return empty                
+                # spawn a task to run fields mapping in a worker and return empty
                 await GulpRestServer.get_instance().spawn_worker_task(
-                    GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,                    
-                    None, # sess=None to create a temporary one (a worker can't use the current one)
+                    GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
+                    None,  # sess=None to create a temporary one (a worker can't use the current one)
                     index,
                     user_id,
                     task_name="query_fields_by_source_handler_%s_%s_%s"

@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 from llvmlite.tests.test_ir import flt
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
-
+import muty.log
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import (
     GulpUpdateDocumentsStats,
@@ -107,10 +107,11 @@ async def _rebase_callback(
         sess,
         user_id=stats.user_id,
         ws_id=ws_id,
-        req_id=req_id,
-        flt=flt,
+        total_hits=total,
         updated=current,
+        flt=flt,
         errors=errors,
+        last=last
     )
 
 
@@ -138,8 +139,6 @@ async def _rebase_by_query_internal(
         "errors": errors,
         "ws_id": ws_id,
     }
-    p: GulpUpdateDocumentsStats = GulpUpdateDocumentsStats()
-
     try:
         # rebase
         async with GulpCollab.get_instance().session() as sess:
@@ -171,48 +170,21 @@ async def _rebase_by_query_internal(
                 )
             except Exception as ex:
                 await sess.rollback()
-                if isinstance(ex, RequestCanceledError):
-                    canceled = True
                 raise
             finally:
-                if stats:
-                    status: GulpRequestStatus = (
-                        GulpRequestStatus.CANCELED
-                        if canceled
-                        else (
-                            GulpRequestStatus.FAILED
-                            if errors
-                            else GulpRequestStatus.DONE
-                        )
-                    )
-
-                    # update stats and set finished
-                    p.total_hits = total_hits
-                    p.updated = cb_context["total_updated"]
-                    p.errors = errors
-                    p.flt = flt
-                    pp: dict = p.model_dump()
-                    await stats.set_finished(
-                        sess,
-                        status=status,
-                        data=pp,
-                        user_id=user_id,
-                        ws_id=ws_id,
-                    )
-
-                    # also send a WSDATA_REBASE_DONE packet to the websocket
-                    GulpWsSharedQueue.get_instance().put(
-                        WSDATA_REBASE_DONE,
-                        user_id,
-                        ws_id=ws_id,
-                        operation_id=operation_id,
-                        req_id=req_id,
-                        d=pp,
-                    )
+                # send a WSDATA_REBASE_DONE packet to the websocket
+                GulpWsSharedQueue.get_instance().put(
+                    WSDATA_REBASE_DONE,
+                    user_id,
+                    ws_id=ws_id,
+                    operation_id=operation_id,
+                    req_id=req_id,
+                    d=stats.to_dict(exclude_none=True) if stats else None,
+                )
 
     except Exception as ex:
         MutyLogger.get_instance().exception(ex)
-        errors.append(str(ex))
+        errors.append(muty.log.exception_to_string(ex))
         return
 
 
@@ -249,9 +221,9 @@ from the gulp's point of view, the rebase operation is an `enrichment`, so the f
 - `WSDATA_STATS_CREATE.payload`: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
 - `WSDATA_STATS_UPDATE.payload`: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
 
-plus, in the end of rebase:
+plus, in the end of rebase the final stats is broadcasted:
 
-- `WSDATA_REBASE_DONE.payload`: `GulpUpdateDocumentsStats` when rebase is done, broadcasted to all connected websockets
+- `WSDATA_REBASE_DONE.payload`: `GulpRequestStats` when rebase is done, broadcasted to all connected websockets
 """,
 )
 async def opensearch_rebase_by_query_handler(

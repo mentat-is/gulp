@@ -1406,10 +1406,6 @@ class GulpPluginBase(ABC):
         ws_id: str = cb_context["ws_id"]
         flt: GulpQueryFilter = cb_context["flt"]
 
-        if not chunk:
-            MutyLogger.get_instance().warning("empty chunk")
-            return []
-
         # call plugin's _enrich_documents_chunk
         chunk = await self._enrich_documents_chunk_cb(
             sess,
@@ -1425,7 +1421,7 @@ class GulpPluginBase(ABC):
         )
 
         MutyLogger.get_instance().debug(
-            "%s: enriched %d documents", self.name, len(chunk)
+            "%s: enriched %d documents, last=%r", self.name, len(chunk), last
         )
 
         # update the documents on opensearch
@@ -1449,6 +1445,7 @@ class GulpPluginBase(ABC):
             errs=errors,
             user_id=stats.user_id,
             ws_id=ws_id,
+            last=last
         )
 
         return chunk

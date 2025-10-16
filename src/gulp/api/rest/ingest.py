@@ -1258,10 +1258,10 @@ async def _ingest_zip_internal(
                 )
                 await stats.commit(sess)
             except Exception as ex:
-                # report error
+                # set finished manually (we haven't reached the ingest loop yet)
                 await stats.set_finished(
                     sess,
-                    GulpRequestStatus.failed,
+                    GulpRequestStatus.FAILED,
                     error=muty.log.exception_to_string(ex),
                 )
                 raise

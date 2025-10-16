@@ -354,7 +354,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     async def set_finished(
         self,
         sess: AsyncSession,
-        status: GulpRequestStatus = GulpRequestStatus.DONE,
+        status: GulpRequestStatus,
         data: dict = None,
         time_expire: int = 0,
         user_id: str = None,
@@ -366,8 +366,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
         Args:
             sess(AsyncSession): collab database session
-            status(GulpRequestStatus, optional): the status to set the stats to. Defaults to
-                GulpRequestStatus.DONE.
+            status(GulpRequestStatus, optional): the status to set the stats to. Defaults to None (keep current status).
             data(dict, optional): additional data to store in the stats. Defaults to None.
             time_expire(int, optional): the time when the stats will expire, in milliseconds from
                 the unix epoch. If 0, the expiration time is not updated. Defaults to 0.
@@ -380,7 +379,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         try:
             await GulpRequestStats.acquire_advisory_lock(sess, self.id)
 
-            self.status = status.value
+            if status:
+                # force this status
+                self.status = status.value
             self.time_finished = muty.time.now_msec()
 
             # get time elapsed in seconds
@@ -600,11 +601,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         updated: int = 0,
         flt: GulpQueryFilter = None,
         errors: list[str] = None,
+        last: bool = False,
     ) -> dict:
         """
         update the rebase/enrich stats counters
-
-        to finalize the stats in the end and set status to DONE/FAILED, use set_finished()
 
         Args:
             sess(AsyncSession): collab database session
@@ -614,6 +614,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             updated(int, optional): number of documents effectively updated. Defaults to 0.
             flt(GulpQueryFilter, optional): the filter used for the operation. Defaults to None.
             errors(list[str], optional): list of errors to add. Defaults to None.
+            last(bool, optional): if True, this is the last update and the stats can be finalized if needed. Defaults to False.
         Returns:
             dict: the updated stats
         """
@@ -636,7 +637,20 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             if flt:
                 d.flt = GulpQueryFilter.model_validate(flt.model_dump())
             d.errors.extend(errs)
-
+            if last:
+                # last update, finalize stats
+                if self.status != GulpRequestStatus.CANCELED.value:
+                    if d.updated < d.total_hits and d.errors:
+                        self.status = GulpRequestStatus.FAILED.value
+                    else:
+                        self.status = GulpRequestStatus.DONE.value
+                self.time_finished = muty.time.now_msec()
+                MutyLogger.get_instance().info(
+                    "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
+                    self.status,
+                    (self.time_finished - self.time_created) // 1000,
+                    self,
+                )
             self.data = d.model_dump()
             return await super().update(
                 sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE

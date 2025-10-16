@@ -282,53 +282,61 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         NOTE: this is meant for internal usage, access checks should be done before calling this method
 
         Args:
-            sess (AsyncSession): the database session
+            sess (AsyncSession): the database session, use None to create a new session internally (only valid within this function scope)
             operation_id (str): the operation id the notes belong to
             tags (list[str]): the tags to match
             new_tags (list[str]): the new tags to add
             user_id (str, optional): the user id to perform the update with. Defaults to None (no access check).
         """
-        MutyLogger.get_instance().debug(
-            "updating notes with %s tags to also include %s ...", tags, new_tags
-        )
-        offset = 0
-        chunk_size = 1000
 
-        # build filter
-        flt = GulpCollabFilter(
-            tags=tags,
-            limit=chunk_size,
-            offset=offset,
-            operation_ids=[operation_id],
-        )
-
-        updated = 0
-        while True:
-            # get all notes matching "tags"
-            notes: list[GulpNote] = await GulpNote.get_by_filter(
-                sess,
-                flt,
-                user_id=user_id,
-                throw_if_not_found=False,
+        async def _internal()-> None:  
+            MutyLogger.get_instance().debug(
+                "updating notes with %s tags to also include %s ...", tags, new_tags
             )
-            if not notes:
-                break
+            offset = 0
+            chunk_size = 1000
 
-            # for each note, update tags
-            for n in notes:
-                nt = n.tags
-                for t in new_tags:
-                    if t not in n.tags:
-                        nt.append(t)
-                n.tags = nt  # trigger ORM update
+            # build filter
+            flt = GulpCollabFilter(
+                tags=tags,
+                limit=chunk_size,
+                offset=offset,
+                operation_ids=[operation_id],
+            )
 
-            await sess.commit()
-            rows_updated = len(notes)
-            MutyLogger.get_instance().debug("updated %d notes tags", rows_updated)
+            updated = 0
+            while True:
+                # get all notes matching "tags"
+                notes: list[GulpNote] = await GulpNote.get_by_filter(
+                    sess,
+                    flt,
+                    user_id=user_id,
+                    throw_if_not_found=False,
+                )
+                if not notes:
+                    break
 
-            # next chunk
-            offset += rows_updated
-            flt.offset = offset
-            updated += rows_updated
+                # for each note, update tags
+                for n in notes:
+                    nt = n.tags
+                    for t in new_tags:
+                        if t not in n.tags:
+                            nt.append(t)
+                    n.tags = nt  # trigger ORM update
 
-        MutyLogger.get_instance().info("updated %d notes tags (total)", updated)
+                await sess.commit()
+                rows_updated = len(notes)
+                MutyLogger.get_instance().debug("updated %d notes tags", rows_updated)
+
+                # next chunk
+                offset += rows_updated
+                flt.offset = offset
+                updated += rows_updated
+
+            MutyLogger.get_instance().info("updated %d notes tags (total)", updated)
+
+        if not sess:
+            async with GulpCollab.get_instance().session() as session:
+                await _internal()
+        else:
+            await _internal()
