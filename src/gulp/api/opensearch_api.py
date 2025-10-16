@@ -392,6 +392,23 @@ class GulpOpenSearch:
             # session provided
             await _internal()
 
+    @staticmethod
+    async def datastream_update_source_field_types_by_src_wrapper(
+        sess: AsyncSession,
+        index: str,
+        user_id: str,
+        operation_id: str = None,
+        context_id: str = None,
+        source_id: str = None,
+        el: AsyncElasticsearch = None,
+    ) -> tuple[dict, bool]:
+        """
+        a wrapper to call datastream_update_source_field_types_by_src, to be used across multiprocessing via GulpRestServer.spawn_worker_task
+        """
+        return await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
+            sess, index, user_id, operation_id, context_id, source_id, el
+        )
+
     async def datastream_update_source_field_types_by_src(
         self,
         sess: AsyncSession,
@@ -502,7 +519,7 @@ class GulpOpenSearch:
             )
         else:
             # no session provided, create a temporary one
-            async with GulpCollab.get_instance().get_session() as sess:
+            async with GulpCollab.get_instance().session() as sess:
                 try:
                     await GulpSourceFieldTypes.create_or_update_source_field_types(
                         sess,

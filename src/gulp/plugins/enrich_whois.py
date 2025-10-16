@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.process import GulpProcess
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("ipwhois", ">=1.3.0")
@@ -137,9 +138,11 @@ class Plugin(GulpPluginBase):
             return self._single_entity_whois_cache[entity_key]
 
         try:
-
-            # transform to ecs fields
-            whois_info = IPWhois(entity_key).lookup_rdap(depth=1)
+            # get whois info in a thread to avoid blocking the event loop
+            def _get_info() -> dict:
+                return IPWhois(entity_key).lookup_rdap(depth=1)
+            
+            whois_info = await asyncio.get_event_loop().run_in_executor(GulpProcess.get_instance().thread_pool, _get_info)
             # MutyLogger.get_instance().debug(f"raw whois_info for entity_key='{entity_key}': {whois_info}")
 
             # remove null fields and format datetime
@@ -437,10 +440,10 @@ class Plugin(GulpPluginBase):
             if self._is_ip_field(single_target_entity):
                 final_entities_for_rdap.add(single_target_entity)
             else:
-                # it's a hostname, try to resolve
+                # it's a hostname, try to resolve (without blocking the event loop)
                 try:
                     # MutyLogger.get_instance().debug(f"resolving single entity hostname: {single_target_entity}")
-                    resolved_ip: str = socket.gethostbyname(single_target_entity)
+                    resolved_ip: str = await asyncio.get_event_loop().run_in_executor(GulpProcess.get_instance().thread_pool, socket.gethostbyname, single_target_entity)
                     final_entities_for_rdap.add(resolved_ip)
                     # MutyLogger.get_instance().debug(f"resolved single entity hostname '{single_target_entity}' to '{resolved_ip}'")
 
@@ -490,6 +493,7 @@ class Plugin(GulpPluginBase):
                 MutyLogger.get_instance().warning(
                     f"no raw whois data returned for entity: {entity_to_lookup}"
                 )
+                await asyncio.sleep(0)  # let other tasks run
                 continue  # skip to next entity
 
             # filter fields based on custom parameters ("whois_fields", "full_dump")
@@ -511,6 +515,7 @@ class Plugin(GulpPluginBase):
                 MutyLogger.get_instance().warning(
                     f"data for entity {entity_to_lookup} is empty after filtering."
                 )
+                await asyncio.sleep(0)  # let other tasks run
                 continue  # skip to next entity
 
             # MutyLogger.get_instance().debug(f"filtered data for entity {entity_to_lookup} has {len(filtered_data_for_entity)} fields.")
@@ -526,6 +531,8 @@ class Plugin(GulpPluginBase):
                 )
                 for key, value in filtered_data_for_entity.items():
                     final_combined_enriched_data[f"{entity_prefix}_{key}"] = value
+
+            await asyncio.sleep(0)  # let other tasks run
 
         # if unify_dump is true, create the 'unified_dump' field now
         if (
@@ -698,10 +705,12 @@ class Plugin(GulpPluginBase):
             for host_field in host_fields:
                 f = doc.get(host_field)
                 if not f:
+                    await asyncio.sleep(0)  # let other tasks run
                     continue
 
                 # append flattened whois data to the document
                 whois_data = await self._get_whois(f)
+                await asyncio.sleep(0)  # let other tasks run
                 if whois_data:
                     enriched = True
                     for key, value in whois_data.items():
@@ -715,7 +724,7 @@ class Plugin(GulpPluginBase):
                 # at least one host field was enriched
                 dd.append(doc)
 
-        return super()._enrich_documents_chunk(
+        return await super()._enrich_documents_chunk(
             sess,
             dd,
             chunk_num=chunk_num,

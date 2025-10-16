@@ -55,14 +55,14 @@ async def _enrich_documents_internal(
     plugin_params: GulpPluginParameters,
 ) -> None:
     """
-    called by the enrich_documents API entrypoint, runs in a worker process to enrich documents with the given plugin
+    called by the enrich_documents API entrypoint, runs in a worker to enrich documents with the given plugin
     """
     # MutyLogger.get_instance().debug("---> _enrich_documents_internal")
-    mod: GulpPluginBase = None
     errors: list[str] = []
     total_hits: int = 0
     enriched: int = 0
     stats: GulpRequestStats
+    mod: GulpPluginBase = None
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
@@ -270,8 +270,8 @@ async def enrich_single_id_handler(
         plugin_params.model_dump(exclude_none=True) if plugin_params else None
     )
     ServerUtils.dump_params(params)
-
     mod: GulpPluginBase = None
+
     try:
         async with GulpCollab.get_instance().session() as sess:
             try:
@@ -291,7 +291,7 @@ async def enrich_single_id_handler(
 
                 # rebuild source_fields mapping in a worker, to free up the API
                 await GulpRestServer.get_instance().spawn_worker_task(
-                    GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src,
+                    GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
                     None,  # sess=None to create a temporary one (a worker can't use the current one)
                     index,
                     user_id,
@@ -303,11 +303,12 @@ async def enrich_single_id_handler(
             except Exception as ex:
                 await sess.rollback()
                 raise
+            finally:
+                if mod:
+                    await mod.unload()
+
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-    finally:
-        if mod:
-            await mod.unload()
 
 
 async def _tag_documents_chunk(
@@ -610,7 +611,7 @@ async def tag_single_id_handler(
 
                 # rebuild source_fields mapping in a worker
                 await GulpRestServer.get_instance().spawn_worker_task(
-                    GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src,
+                    GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,                
                     None,  # sess=None to create a temporary one (a worker can't use the current one)
                     index,
                     user_id,

@@ -1500,9 +1500,9 @@ async def query_fields_by_source_handler(
                     # return field types
                     return JSONResponse(JSendResponse.success(req_id=req_id, data=m))
 
-                # spawn a task to run fields mapping in a worker and return empty
+                # spawn a task to run fields mapping in a worker and return empty                
                 await GulpRestServer.get_instance().spawn_worker_task(
-                    GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src,
+                    GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,                    
                     None, # sess=None to create a temporary one (a worker can't use the current one)
                     index,
                     user_id,

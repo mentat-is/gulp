@@ -232,8 +232,8 @@ async def test_raw(raw_data: list[dict] = None):
         token=ingest_token,
         raw_data=buf,
         operation_id=TEST_OPERATION_ID,
-        # if we're passing raw_data (as in the enrich_whois test, this is the onlyu chunk)
-        last=False,
+        # if we're passing raw_data (as in the enrich_whois test, this is the only chunk)
+        last=True if raw_data else False
     )
     if not raw_data:
         # ingest another (generate new random data)

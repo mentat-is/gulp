@@ -577,7 +577,7 @@ class GulpRestServer:
 
         # fire and forget (just use spawn_bg_task to schedule the coro)
         GulpRestServer.spawn_bg_task(coro, task_name)
-        return None
+        return
 
     async def _cleanup(self):
         """
