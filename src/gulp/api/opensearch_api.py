@@ -2171,13 +2171,14 @@ class GulpOpenSearch:
             )
 
             processed += len(docs)
-            # MutyLogger.get_instance().debug("retrieved chunk of %d documents, total=%d", len(docs), total_hits)
+            MutyLogger.get_instance().debug("_search_dsl_internal returned total_hits=%d, len(docs)=%d", total_hits, len(docs))
             if (
                 not total_hits
                 or processed >= total_hits
                 or (q_options.total_limit and processed >= q_options.total_limit)
             ):
                 # this is the last chunk
+                MutyLogger.get_instance().warning("this is the last chunk")
                 last = True
 
             if check_canceled_count % 10 == 0 and check_canceled and sess:
@@ -2215,7 +2216,7 @@ class GulpOpenSearch:
             parsed_options["search_after"] = search_after
 
         MutyLogger.get_instance().info(
-            "search_dsl: processed %d documents, total=%d, chunks=%d",
+            "***FINISHED search_dsl***: processed=%d, total_hits=%d, chunk_num=%d",
             processed,
             total_hits,
             chunk_num,

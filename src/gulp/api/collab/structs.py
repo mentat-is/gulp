@@ -670,6 +670,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # same as super().from_dict() but handles exclude_none parameter
         cols = {c.key for c in cls.__table__.columns}
         kwargs = {k: data.get(k) for k in cols}  # missing values set to None
+        # print("********* from_dict() kwargs: ", kwargs)
         return cls(**kwargs)
 
     @override

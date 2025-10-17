@@ -81,6 +81,18 @@ class GulpCollab:
             cls._instance = cls()
         return cls._instance
 
+    @staticmethod
+    def init_mappers() -> None:
+        """
+        initializes all the collab mappers by importing all the modules in the gulp.api.collab package.
+
+        NOTE: this fixes sqlalchemy errors i.e. when constructing ORM objects outside of gulp (i.e. in tests)
+        """
+        package_name = "gulp.api.collab"
+        package = import_module(package_name)
+        for _, module_name, _ in pkgutil.iter_modules(package.__path__):
+            import_module(f"{package_name}.{module_name}")
+
     async def init(
         self,
         force_recreate: bool = False,
@@ -100,10 +112,7 @@ class GulpCollab:
         url = GulpConfig.get_instance().postgres_url()
 
         # NOTE: i am not quite sure why this is needed, seems like sqlalchemy needs all the classes to be loaded before accessing the tables.
-        package_name = "gulp.api.collab"
-        package = import_module(package_name)
-        for _, module_name, _ in pkgutil.iter_modules(package.__path__):
-            import_module(f"{package_name}.{module_name}")
+        GulpCollab.init_mappers()
 
         # ensure no engine is already running, either shutdown it before reinit
         if main_process:

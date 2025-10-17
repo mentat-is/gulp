@@ -177,9 +177,6 @@ class GulpUpdateDocumentsStats(BaseModel):
     updated: Annotated[
         int, Field(description="Number of documents effectively updated.")
     ] = 0
-    errors: Annotated[
-        list[str], Field(description="List of errors encountered during the operation.")
-    ] = []
     flt: Annotated[
         Optional[GulpQueryFilter],
         Field(description="The filter used for the operation."),
@@ -636,11 +633,11 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             d.total_hits = total_hits
             if flt:
                 d.flt = GulpQueryFilter.model_validate(flt.model_dump())
-            d.errors.extend(errs)
+            self.errors.extend(errs)
             if last:
                 # last update, finalize stats
                 if self.status != GulpRequestStatus.CANCELED.value:
-                    if d.updated < d.total_hits and d.errors:
+                    if d.updated < d.total_hits and self.errors:
                         self.status = GulpRequestStatus.FAILED.value
                     else:
                         self.status = GulpRequestStatus.DONE.value
@@ -699,7 +696,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             )
 
             d.total_hits += hits
-            d.errors.extend(errs)
+            self.errors.extend(errs)
             if inc_completed:
                 # some queries completed
                 d.completed_queries += inc_completed

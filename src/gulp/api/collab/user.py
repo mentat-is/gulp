@@ -81,11 +81,11 @@ class GulpUserDataQueryHistoryEntry(BaseModel):
         Optional[str], Field(description="Only set for external queries.")
     ] = None
     plugin_params: Annotated[
-        GulpPluginParameters,
+        Optional[GulpPluginParameters],
         Field(
             description="Only set for external queries, the parameters for the external query plugin.",
         ),
-    ] = GulpPluginParameters()
+    ] = None
     sigma_yml: Annotated[
         Optional[str],
         Field(

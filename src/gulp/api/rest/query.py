@@ -145,6 +145,10 @@ async def _query_raw_chunk_callback(
     - creates notes if requested (and send them to the websocket as well)
     """
     cb_context: dict = kwargs["cb_context"]
+    MutyLogger.get_instance().debug(
+        "query chunk callback, chunk_num=%d, cb_context=%s", chunk_num, cb_context
+    )
+
     cb_context["total_hits"] = total_hits
     cb_context["total_processed"] = cb_context.get("total_processed", 0) + len(chunk)
 
@@ -267,10 +271,11 @@ async def _run_query(
                         callback=_query_raw_chunk_callback,
                         cb_context=cb_context,
                     )
+                    MutyLogger.get_instance().debug("after search_dsl, cb_context=%s", cb_context)
                     total_hits = cb_context.get("total_hits", 0)
                     total_processed = cb_context.get("total_processed", 0)
-
             except Exception as ex:
+                MutyLogger.get_instance().exception(ex)
                 if sess:
                     await sess.rollback()
                 if isinstance(ex, RequestCanceledError):
@@ -292,9 +297,9 @@ async def _run_query(
         elif err:
             status = GulpRequestStatus.FAILED
         p = GulpQueryDonePacket(
-            name=gq.name,
+            q_name=gq.name,
             status=status.value,
-            errors=[err] if err else None,
+            errors=[err] if err else [],
             total_hits=total_hits,
             q_group=q_options.group,
         )
@@ -309,7 +314,7 @@ async def _run_query(
     return total_hits, total_processed, q_options.name, canceled
 
 
-async def process_queries(    
+async def process_queries(
     user_id: str,
     req_id: str,
     operation_id: str,
@@ -321,13 +326,14 @@ async def process_queries(
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
     write_history: bool = True,
-    sess: AsyncSession = None
+    sess: AsyncSession = None,
 ) -> None:
     """
     runs in a background task and spawns workers to process queries, batching them if needed.
 
     index, plugin, plugin_params are used for external queries only
     """
+
     async def _internal() -> None:
         stats: GulpRequestStats = None
         batching_step_reached: bool = False
@@ -370,7 +376,8 @@ async def process_queries(
                     )
 
                     history.append(h)
-                    await GulpUser.add_query_history_entry_batch(sess, history)
+                    u: GulpUser = await GulpUser.get_by_id(sess, user_id)
+                    await u.add_query_history_entry_batch(sess, history)
 
             # 1. batch queries and gather results: spawn a worker for each query and wait them all.
             # NOTE: for query_external, we will always have just one query to run
@@ -403,12 +410,13 @@ async def process_queries(
                     )
                     coros.append(
                         GulpProcess.get_instance().process_pool.apply(
-                            _run_query, kwargs=run_query_args
+                            _run_query, kwds=run_query_args
                         )
                     )
 
                 # gather results for this batch and accumulate
                 batching_step_reached = True
+                MutyLogger.get_instance().debug("gathering results for %d queries ...", len(coros))
                 batch_res = await asyncio.gather(*coros, return_exceptions=True)
                 results.extend(batch_res)
 
@@ -439,6 +447,7 @@ async def process_queries(
                     sess,
                     user_id=user_id,
                     ws_id=ws_id,
+                    hits=total_hits,
                     inc_completed=len(coros),
                     errors=errors,
                 )
@@ -498,7 +507,7 @@ async def process_queries(
                 )
 
             raise
-    
+
     if not sess:
         # create the session
         async with GulpCollab.get_instance().session() as sess:
@@ -506,6 +515,7 @@ async def process_queries(
     else:
         # use provided session
         await _internal()
+
 
 async def _preview_query(
     sess: AsyncSession,

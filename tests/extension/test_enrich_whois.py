@@ -10,6 +10,7 @@ from scipy import stats
 import websockets
 from muty.log import MutyLogger
 from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp_client.common import GulpAPICommon, _ensure_test_operation
 from gulp_client.enrich import GulpAPIEnrich
