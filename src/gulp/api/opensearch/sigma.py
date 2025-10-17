@@ -572,22 +572,24 @@ async def sigmas_to_queries(
                 ):
                     use_sigma_mapping = False
 
-            # transform the sigma rule considering source mappings: i.e. if the sigma rule have EventId in the conditions, we want it
-            # to be "event.code" in ECS, so we need to apply the mapping first
-            final_sigma_yml: str = _map_sigma_fields_to_ecs(yml, mappings[mapping_id])
-            # MutyLogger.get_instance().debug(
-            #     "sigma_convert_default, final sigma rule yml:\n%s", final_sigma_yml
-            # )
             try:
+                # transform the sigma rule considering source mappings: i.e. if the sigma rule have EventId in the conditions, we want it
+                # to be "event.code" in ECS, so we need to apply the mapping first
+                final_sigma_yml: str = _map_sigma_fields_to_ecs(yml, mappings[mapping_id])
+                # MutyLogger.get_instance().debug(
+                #     "sigma_convert_default, final sigma rule yml:\n%s", final_sigma_yml
+                # )
                 qs: list[dict] = backend.convert_rule(
                     SigmaRule.from_yaml(final_sigma_yml), output_format=output_format
                 )
-            except Exception as ex:
+            except:
+                # skip this rule
                 MutyLogger.get_instance().exception(
                     "failed to convert sigma %s ***ORIGINAL***:\n\n%s\n***PATCHED***:%s"
                     % (rule.title or rule.name, yml, final_sigma_yml)
                 )
-                raise ex
+                continue
+            
             for q in qs:
                 q_should_query_part: list[dict] = []
 

@@ -1164,7 +1164,7 @@ class GulpOpenSearch:
 
         # Filter documents if needed
         filtered_docs = docs
-        if flt:
+        if flt and flt.time_range:
             filtered_docs = [
                 doc
                 for doc in docs
@@ -1231,7 +1231,7 @@ class GulpOpenSearch:
                     )
                     await asyncio.sleep(retry_delay)
                 else:
-                    raise ex  # all retries failed
+                    raise  # all retries failed
 
         # process results
         skipped: int = 0
@@ -2188,7 +2188,7 @@ class GulpOpenSearch:
 
             if callback:
                 # call the callback at every chunk
-                callback(
+                await callback(
                     sess,
                     docs,
                     chunk_num=chunk_num,

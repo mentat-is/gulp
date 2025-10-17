@@ -89,7 +89,7 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
             )
         except Exception as ex:
             await sess.rollback()
-            raise ex
+            raise
 
     @override
     @classmethod

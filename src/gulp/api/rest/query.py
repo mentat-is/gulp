@@ -309,7 +309,7 @@ async def _run_query(
     return total_hits, total_processed, q_options.name, canceled
 
 
-async def process_queries(
+async def process_queries(    
     user_id: str,
     req_id: str,
     operation_id: str,
@@ -321,15 +321,16 @@ async def process_queries(
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
     write_history: bool = True,
+    sess: AsyncSession = None
 ) -> None:
     """
     runs in a background task and spawns workers to process queries, batching them if needed.
 
     index, plugin, plugin_params are used for external queries only
     """
-    stats: GulpRequestStats = None
-    batching_step_reached: bool = False
-    async with GulpCollab.get_instance().session() as sess:
+    async def _internal() -> None:
+        stats: GulpRequestStats = None
+        batching_step_reached: bool = False
         try:
             # create a stats, or get it if it doesn't exist yet
             # for query stats, we will have a GulpQueryStats payload
@@ -497,7 +498,14 @@ async def process_queries(
                 )
 
             raise
-
+    
+    if not sess:
+        # create the session
+        async with GulpCollab.get_instance().session() as sess:
+            await _internal()
+    else:
+        # use provided session
+        await _internal()
 
 async def _preview_query(
     sess: AsyncSession,
@@ -1527,7 +1535,7 @@ async def query_fields_by_source_handler(
                 return JSONResponse(JSendResponse.success(req_id=req_id, data={}))
             except Exception as ex:
                 await sess.rollback()
-                raise ex
+                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

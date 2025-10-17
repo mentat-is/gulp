@@ -656,6 +656,22 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # MutyLogger.get_instance().debug("---> GulpCollabBase self in __init__=%s" % self)
         super().__init__()
 
+    @classmethod
+    def from_dict(cls, data: dict) -> T:
+        """
+        create an instance of the class from a dictionary
+
+        Args:
+            data (dict): the dictionary to create the instance from
+
+        Returns:
+            T: the created instance
+        """
+        # same as super().from_dict() but handles exclude_none parameter
+        cols = {c.key for c in cls.__table__.columns}
+        kwargs = {k: data.get(k) for k in cols}  # missing values set to None
+        return cls(**kwargs)
+
     @override
     def to_dict(
         self,
@@ -665,7 +681,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         exclude_none: bool = True,
     ) -> dict:
         # same as super.to_dict() but with exclude_none parameter
-        d = super().to_dict(nested=nested, hybrid_attributes=hybrid_attributes, exclude=exclude)
+        d = super().to_dict(
+            nested=nested, hybrid_attributes=hybrid_attributes, exclude=exclude
+        )
         if not exclude_none:
             return d
 

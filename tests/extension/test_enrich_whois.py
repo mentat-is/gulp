@@ -6,8 +6,10 @@ import os
 import muty.file
 import pytest
 import pytest_asyncio
+from scipy import stats
 import websockets
 from muty.log import MutyLogger
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp_client.common import GulpAPICommon, _ensure_test_operation
 from gulp_client.enrich import GulpAPIEnrich
@@ -24,6 +26,7 @@ from gulp.api.ws_api import (
     GulpQueryDonePacket,
     GulpWsAuthPacket,
 )
+from gulp.plugin import GulpUpdateDocumentsStats
 from gulp.structs import GulpPluginParameters
 
 
@@ -143,6 +146,7 @@ async def test_enrich_whois_documents():
             while True:
                 response = await ws.recv()
                 data = json.loads(response)
+                payload = data.get("payload", {})
                 if data["type"] == "ws_connected":
                     # run test
                     plugin_params: GulpPluginParameters = GulpPluginParameters()
@@ -156,24 +160,25 @@ async def test_enrich_whois_documents():
                         plugin_params=plugin_params,
                         req_id="req_enrich_whois",
                     )
-                elif data["type"] == "enrich_done":
+                elif (
+                    data["type"] == "stats_update"
+                    and payload
+                    and payload["obj"]["req_type"] == "enrich"
+                ):
+                    stats: GulpRequestStats = GulpRequestStats.from_dict(payload["obj"])
+                    stats_data: GulpUpdateDocumentsStats = (
+                        GulpUpdateDocumentsStats.model_validate(payload["obj"]["data"])
+                    )
+                    MutyLogger.get_instance().info("stats: %s", stats)
+
                     # query done
-                    q_done_packet: GulpQueryDonePacket = (
-                        GulpQueryDonePacket.model_validate(data["data"])
-                    )
-                    MutyLogger.get_instance().debug(
-                        "GulpQueryDonePacket=%s" % (q_done_packet)
-                    )
-                    MutyLogger.get_instance().debug(
-                        "enrich done, req_id=%s, total_enriched=%d"
-                        % (data["req_id"], q_done_packet.total_enriched)
-                    )
-                    if q_done_packet.total_enriched == 7:
+                    if stats.status == "done" and stats_data.updated == 7:
                         test_completed = True
                     else:
                         assert False, (
-                            "enrich done, req_id=%s, total_enriched expected=7 but received total_enriched=%d"
-                            % (data["req_id"], q_done_packet.total_enriched)
+                            "enrich done, req_id=%s, expected updated=7 but received updated=%d",
+                            stats.id,
+                            stats_data.updated,
                         )
                     break
 

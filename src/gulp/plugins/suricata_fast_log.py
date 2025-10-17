@@ -77,7 +77,7 @@ class Plugin(GulpPluginBase):
             MutyLogger.get_instance().error(
                 f"cannot parse timestamp for line {event_original}, error: {ex}"
             )
-            raise ex
+            raise
         record["@timestamp"] = ts
         d["@timestamp"] = ts
         d["agent.type"] = self.display_name()

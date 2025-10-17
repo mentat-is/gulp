@@ -138,7 +138,7 @@ uses an `enrichment` plugin to augment data in multiple documents.
 during enrichment, the following is sent on the websocket `ws_id`:
 
 - `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
-- `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
+- `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents and in the end)
 
 """,
 )
@@ -147,10 +147,10 @@ async def enrich_documents_handler(
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
     plugin_params: Annotated[
         GulpPluginParameters,
-        Depends(APIDependencies.param_plugin_params),
+        Depends(APIDependencies.param_plugin_params_optional),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
@@ -182,13 +182,13 @@ async def enrich_documents_handler(
             await GulpRestServer.get_instance().spawn_worker_task(
                 _enrich_documents_internal,
                 user_id,
-                ws_id,
                 req_id,
+                ws_id,
+                flt,
                 operation_id,
                 index,
                 plugin,
                 plugin_params,
-                flt,
             )
             return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
@@ -445,7 +445,7 @@ Tagging is an `enrichment`, from gulp's point of view: so, the flow on `ws_id` i
 async def tag_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
     tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,

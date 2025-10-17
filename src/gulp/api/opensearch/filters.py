@@ -59,26 +59,26 @@ class GulpBaseDocumentFilter(BaseModel):
     )
 
     time_range: Annotated[
-        tuple[int, int],
+        Optional[tuple[int, int]],
         Field(
-            default=None,
             description="""
 a tuple representing a `gulp.timestamp` range `[ start, end ]`.
 
 - `start` and `end` are nanoseconds from the unix epoch.
+- to set only start (or end), use 0 for end (or start), e.g. `[ start, 0 ]` or `[ 0, end ]`.
 """,
         ),
     ] = None
 
     query_string_parameters: Annotated[
-        Optional[dict],
+        dict,
         Field(
             description="""
 additional parameters to be applied to the resulting `query_string` query, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/full-text/query-string)
 
 """,
         ),
-    ] = None
+    ] = {}
 
     @override
     def __str__(self) -> str:
@@ -121,7 +121,7 @@ default is False (both OpenSearch and websocket receives the filtered results).
 """,
         ),
     ] = False
-
+    
     @override
     def __str__(self) -> str:
         return super().__str__()
@@ -144,21 +144,25 @@ default is False (both OpenSearch and websocket receives the filtered results).
         if not flt or flt.storage_ignore_filter:
             # empty filter or ignore
             return GulpDocumentFilterResult.ACCEPT
-        if not flt.time_range:
+        if not flt.time_range or len (flt.time_range) != 2:
             # no time range, accept all
             return GulpDocumentFilterResult.ACCEPT
-
+        if flt.time_range[0] == 0 and flt.time_range[1] == 0:
+            # empty time range, accept all
+            return GulpDocumentFilterResult.ACCEPT
+        
         # filter based on time range
         # check if ts is within the range. either start or end can be None
         # if both are None, the filter is empty and all events are accepted
         ts = doc["gulp.timestamp"]
-        if flt.time_range[0] and flt.time_range[1]:
+
+        if flt.time_range[0] > 0 and flt.time_range[1] > 0:
             if ts >= flt.time_range[0] and ts <= flt.time_range[1]:
                 return GulpDocumentFilterResult.ACCEPT
-        if flt.time_range[0]:
+        if flt.time_range[0] > 0:
             if ts >= flt.time_range[0]:
                 return GulpDocumentFilterResult.ACCEPT
-        if flt.time_range[1]:
+        if flt.time_range[1] > 0:
             if ts <= flt.time_range[1]:
                 return GulpDocumentFilterResult.ACCEPT
 
@@ -200,19 +204,19 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
         Field(
             description="include documents matching the given `agent.type`/s.",
         ),
-    ] = None
+    ] = []
     doc_ids: Annotated[
         list[str],
         Field(
             description="include documents matching the given `_id`/s.",
         ),
-    ] = None
+    ] = []
     operation_ids: Annotated[
         list[str],
         Field(
             description="include documents  matching the given `gulp.operation_id`/s",
         ),
-    ] = None
+    ] = []
     context_ids: Annotated[
         list[str],
         Field(
@@ -222,7 +226,7 @@ include documents matching the given `gulp.context_id`/s.
 - this must be set to the *real context_id* as on the collab database, calculated as *SHA1(operation_id+context_id)*.
 """,
         ),
-    ] = None
+    ] = []
     source_ids: Annotated[
         list[str],
         Field(
@@ -231,13 +235,13 @@ include documents matching the given `gulp.source_id`/s.
 - this must be set to the *real source_id* as on the collab database, calculated as *SHA1(operation_id+context_id+source_id)*.
 """,
         ),
-    ] = None
+    ] = []
     event_codes: Annotated[
         list[str],
         Field(
             description="include documents matching the given `event.code`/s.",
         ),
-    ] = None
+    ] = []
 
     @override
     def __str__(self) -> str:
@@ -334,14 +338,14 @@ include documents matching the given `gulp.source_id`/s.
                 clauses.append(
                     self._query_string_build_or_clauses("event.code", self.event_codes)
                 )
-            if self.time_range:
+            if self.time_range and len(self.time_range) == 2:
                 # simple >=, <= clauses
                 field = "gulp.timestamp"
-                if self.time_range[0]:
+                if self.time_range[0] > 0:
                     clauses.append(
                         self._query_string_build_gte_clause(field, self.time_range[0])
                     )
-                if self.time_range[1]:
+                if self.time_range[1] > 0:
                     clauses.append(
                         self._query_string_build_lte_clause(field, self.time_range[1])
                     )

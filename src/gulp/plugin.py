@@ -1440,9 +1440,9 @@ class GulpPluginBase(ABC):
         await stats.update_updatedocuments_stats(
             sess,
             total_hits=total_hits,
-            updated=len(updated),
+            updated=updated,
             flt=flt,
-            errs=errors,
+            errors=errors,
             user_id=stats.user_id,
             ws_id=ws_id,
             last=last
@@ -1534,6 +1534,7 @@ class GulpPluginBase(ABC):
         q_options = GulpQueryParameters(fields="*")
         errors: list[str] = []
         cb_context = {
+            "total_hits": 0,
             "total_updated": 0,
             "flt": flt,
             "errors": errors,

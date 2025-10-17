@@ -573,7 +573,7 @@ class GulpRestServer:
                 MutyLogger.get_instance().exception(
                     "***ERROR*** in (awaited) worker task: %s", ex
                 )
-                raise ex
+                raise
 
         # fire and forget (just use spawn_bg_task to schedule the coro)
         GulpRestServer.spawn_bg_task(coro, task_name)
@@ -698,7 +698,7 @@ class GulpRestServer:
             if first_run:
                 # allow restart on first run
                 self._reset_first_run()
-            raise ex
+            raise
 
         # finish initializing main process, will spawn workers as well
         await main_process.finish_initialization(

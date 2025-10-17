@@ -229,7 +229,7 @@ plus, in the end of rebase the final stats is broadcasted:
 async def opensearch_rebase_by_query_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     offset_msec: Annotated[
         int,
