@@ -2008,12 +2008,6 @@ class GulpOpenSearch:
         for k, v in parsed_options.items():
             if v:
                 body[k] = v
-        # MutyLogger.get_instance().debug(
-        #     "index=%s, query_raw body=%s, parsed_options=%s",
-        #         index,
-        #         orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(),
-        #         orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode(),
-        # )
 
         headers = {
             "content-type": "application/json",
@@ -2023,6 +2017,13 @@ class GulpOpenSearch:
         if timeout > 0:
             # set timeout in seconds
             params["timeout"] = timeout
+
+        MutyLogger.get_instance().debug(
+            "about to run this query: index=%s,\nbody=\n%s,\nparsed q_options=\n%s",
+            index,
+            orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(),
+            orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode(),
+        )
 
         if el:
             # use provided client
@@ -2171,7 +2172,11 @@ class GulpOpenSearch:
             )
 
             processed += len(docs)
-            MutyLogger.get_instance().debug("_search_dsl_internal returned total_hits=%d, len(docs)=%d", total_hits, len(docs))
+            MutyLogger.get_instance().debug(
+                "_search_dsl_internal returned total_hits=%d, len(docs)=%d",
+                total_hits,
+                len(docs),
+            )
             if (
                 not total_hits
                 or processed >= total_hits

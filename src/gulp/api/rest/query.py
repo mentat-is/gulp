@@ -658,7 +658,6 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    ##### WIP
     try:
         async with GulpCollab.get_instance().session() as sess:
             try:
@@ -683,17 +682,23 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 # build queries
                 queries: list[GulpQuery] = []
                 count: int = 0
-                for qq in q:
-                    gq = GulpQuery(
-                        name="%s-%d" % (q_options.name, count),
-                        q=qq,
-                    )
-                    count += 1
+                if len(q) == 1:
+                    # single query, use the provided name
+                    gq = GulpQuery(name=q_options.name, q=q[0])
                     queries.append(gq)
+                else:
+                    # we build names for each query
+                    for qq in q:
+                        gq = GulpQuery(
+                            name="%s-%d" % (q_options.name, count),
+                            q=qq,
+                        )
+                        count += 1
+                        queries.append(gq)
 
                 # run a background task (will batch queries, spawn workers, gather results)
                 coro = process_queries(
-                    user_id, req_id, operation_id, ws_id, queries, len(queries)
+                    user_id, req_id, operation_id, ws_id, queries, len(queries), q_options
                 )
                 GulpRestServer.spawn_bg_task(coro)
 

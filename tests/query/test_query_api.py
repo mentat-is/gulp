@@ -60,8 +60,7 @@ async def _setup():
         await _ensure_test_operation(delete_data=False)
 
 
-@pytest.mark.asyncio
-async def test_query_gulp():
+async def _test_query_internal(q_type: str):
     # login
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
@@ -84,6 +83,7 @@ async def test_query_gulp():
         await ws.send(p.model_dump_json(exclude_none=True))
 
         # receive responses
+        q_name: str = None
         try:
             while True:
                 response = await ws.recv()
@@ -92,17 +92,39 @@ async def test_query_gulp():
                 if data["type"] == "ws_connected":
                     # run test
                     q_options = GulpQueryParameters(limit=2)
-                    q_options.name = "test_gulp_query"
-                    await GulpAPIQuery.query_gulp(
-                        guest_token,
-                        TEST_OPERATION_ID,
-                        flt=GulpQueryFilter(
-                            operation_ids=[TEST_OPERATION_ID],
-                            context_ids=[TEST_CONTEXT_ID],
-                        ),
-                        q_options=q_options,
-                        req_id="req_test_gulp_query",
-                    )
+                    if q_type == "gulp":
+                        # query_gulp
+                        q_name = "test_gulp_query"
+                        q_options.name = q_name
+                        await GulpAPIQuery.query_gulp(
+                            guest_token,
+                            TEST_OPERATION_ID,
+                            flt=GulpQueryFilter(
+                                operation_ids=[TEST_OPERATION_ID],
+                                context_ids=[TEST_CONTEXT_ID],
+                            ),
+                            q_options=q_options,
+                            req_id="req_test_gulp_query",
+                        )
+                    elif q_type == "raw":
+                        q_name = "test_raw_query"
+                        q_options.name = q_name
+                        await GulpAPIQuery.query_raw(
+                            guest_token,
+                            TEST_OPERATION_ID,
+                            [
+                                {
+                                    "query": {
+                                        "query_string": {
+                                            "query": "gulp.context_id: %s AND gulp.operation_id: %s"
+                                            % (TEST_CONTEXT_ID, TEST_OPERATION_ID),
+                                        }
+                                    }
+                                }
+                            ],
+                            q_options=q_options,
+                            req_id="req_test_raw_query",
+                        )
                 elif data["type"] == "query_done":
                     # query done
                     q_done_packet: GulpQueryDonePacket = (
@@ -111,12 +133,14 @@ async def test_query_gulp():
                     MutyLogger.get_instance().debug(
                         "query done, name=%s", q_done_packet.q_name
                     )
-                    if q_done_packet.q_name == "test_gulp_query":
+                    if q_done_packet.q_name == q_name:
                         hits_to_check = 7  # 98633
                         assert q_done_packet.total_hits == hits_to_check
                         test_completed = True
                     else:
-                        raise ValueError(f"unexpected query name: {q_done_packet.name}")
+                        raise ValueError(
+                            f"unexpected query name: {q_done_packet.q_name}, expected={q_name}"
+                        )
                     break
 
                 # ws delay
@@ -124,9 +148,21 @@ async def test_query_gulp():
 
         except websockets.exceptions.ConnectionClosed as ex:
             MutyLogger.get_instance().exception(ex)
+            raise
 
     assert test_completed
+
+
+@pytest.mark.asyncio
+async def test_query_gulp():
+    await _test_query_internal("gulp")
     MutyLogger.get_instance().info(test_query_gulp.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_query_raw():
+    await _test_query_internal("raw")
+    MutyLogger.get_instance().info(test_query_raw.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio
@@ -136,58 +172,6 @@ async def test_queries():
 
     and the gulp server running on http://localhost:8080
     """
-
-    async def _test_query_raw(token: str):
-        _, host = TEST_HOST.split("://")
-        ws_url = f"ws://{host}/ws"
-        test_completed = False
-
-        async with websockets.connect(ws_url) as ws:
-            # connect websocket
-            p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
-            await ws.send(p.model_dump_json(exclude_none=True))
-
-            # receive responses
-            try:
-                while True:
-                    response = await ws.recv()
-                    data = json.loads(response)
-
-                    if data["type"] == "ws_connected":
-                        # run test
-                        q_options = GulpQueryParameters()
-                        q_options.name = "test_raw_query"
-                        await GulpAPIQuery.query_raw(
-                            token,
-                            TEST_OPERATION_ID,
-                            [TEST_QUERY_RAW],
-                            q_options=q_options,
-                        )
-                    elif data["type"] == "query_done":
-                        # query done
-                        q_done_packet: GulpQueryDonePacket = (
-                            GulpQueryDonePacket.model_validate(data["data"])
-                        )
-                        MutyLogger.get_instance().debug(
-                            "query done, name=%s", q_done_packet.name
-                        )
-                        if q_done_packet.name == "test_raw_query":
-                            assert q_done_packet.total_hits == 1
-                            test_completed = True
-                        else:
-                            raise ValueError(
-                                f"unexpected query name: {q_done_packet.name}"
-                            )
-                        break
-
-                    # ws delay
-                    await asyncio.sleep(0.1)
-
-            except websockets.exceptions.ConnectionClosed as ex:
-                MutyLogger.get_instance().exception(ex)
-
-        assert test_completed
-        MutyLogger.get_instance().info(_test_query_raw.__name__ + " succeeded!")
 
     async def _test_query_single_id(token: str):
         """

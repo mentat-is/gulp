@@ -485,7 +485,7 @@ how to sort results, default=sort by ascending `@timestamp`.
 
 - for `external` queries, its the plugin responsibility to handle this.""",
         ),
-    ] = []
+    ] = {}
     fields: Annotated[
         list[str] | str,
         Field(
