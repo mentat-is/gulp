@@ -53,24 +53,36 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    ingest = os.getenv("SKIP_RESET", "1")
-    if ingest == "1":
+    skip_reset = os.getenv("SKIP_RESET", "0")
+    if skip_reset == "0":
         await _ensure_test_operation()
     else:
-        await _ensure_test_operation(delete_data=False)
+        GulpAPICommon.get_instance().init(
+            host=TEST_HOST,
+            ws_id=TEST_WS_ID,
+            req_id=TEST_REQ_ID,
+            index=TEST_INDEX,
+            # log_request=log_request,
+            # log_response=log_response,
+        )
 
 
-async def _test_query_internal(q_type: str):
+async def _login_and_ingest():
     # login
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
 
-    ingest = os.getenv("SKIP_RESET", "1")
-    if ingest == "1":
+    skip_reset = os.getenv("SKIP_RESET", "0")
+    if skip_reset == "0":
         # ingest some data
         from tests.ingest.test_ingest import test_win_evtx
 
         await test_win_evtx()
+    return guest_token
+
+
+async def _test_query_internal(q_type: str):
+    guest_token = await _login_and_ingest()
 
     MutyLogger.get_instance().info("ingested data, starting query")
     _, host = TEST_HOST.split("://")
@@ -84,6 +96,10 @@ async def _test_query_internal(q_type: str):
 
         # receive responses
         q_name: str = None
+        q_options = GulpQueryParameters(limit=2)
+        current_dir: str = os.path.dirname(os.path.realpath(__file__))
+        MutyLogger.get_instance().debug("current_dir=%s", current_dir)
+        num_matches: int = 0
         try:
             while True:
                 response = await ws.recv()
@@ -91,11 +107,11 @@ async def _test_query_internal(q_type: str):
                 payload = data.get("payload", {})
                 if data["type"] == "ws_connected":
                     # run test
-                    q_options = GulpQueryParameters(limit=2)
                     if q_type == "gulp":
                         # query_gulp
                         q_name = "test_gulp_query"
                         q_options.name = q_name
+                        num_matches = 7
                         await GulpAPIQuery.query_gulp(
                             guest_token,
                             TEST_OPERATION_ID,
@@ -109,6 +125,7 @@ async def _test_query_internal(q_type: str):
                     elif q_type == "raw":
                         q_name = "test_raw_query"
                         q_options.name = q_name
+                        num_matches = 7
                         await GulpAPIQuery.query_raw(
                             guest_token,
                             TEST_OPERATION_ID,
@@ -125,6 +142,23 @@ async def _test_query_internal(q_type: str):
                             q_options=q_options,
                             req_id="req_test_raw_query",
                         )
+                    elif q_type == "sigma":
+                        sigma_yml: str = await muty.file.read_file_async(
+                            os.path.join(current_dir, "sigma/match_all.yaml")
+                        )
+
+                        ids: list[str] = ["64e7c3a4013ae243aa13151b5449aac884e36081"]
+                        num_matches = 7
+                        q_name = "Match All Events"
+                        q_options.create_notes = True
+                        await GulpAPIQuery.query_sigma(
+                            guest_token,
+                            TEST_OPERATION_ID,
+                            [sigma_yml.decode("utf-8")],
+                            src_ids=ids,
+                            q_options=q_options,
+                            req_id="req_test_sigma",
+                        )
                 elif data["type"] == "query_done":
                     # query done
                     q_done_packet: GulpQueryDonePacket = (
@@ -134,8 +168,7 @@ async def _test_query_internal(q_type: str):
                         "query done, name=%s", q_done_packet.q_name
                     )
                     if q_done_packet.q_name == q_name:
-                        hits_to_check = 7  # 98633
-                        assert q_done_packet.total_hits == hits_to_check
+                        assert q_done_packet.total_hits == num_matches
                         test_completed = True
                     else:
                         raise ValueError(
@@ -166,48 +199,80 @@ async def test_query_raw():
 
 
 @pytest.mark.asyncio
+async def test_query_raw_preview():
+    guest_token = await _login_and_ingest()
+
+    q_name = "test_raw_query"
+    q_options = GulpQueryParameters(preview_mode=True)
+    q_options.name = q_name
+    d = await GulpAPIQuery.query_raw(
+        guest_token,
+        TEST_OPERATION_ID,
+        [
+            {
+                "query": {
+                    "query_string": {
+                        "query": "gulp.context_id: %s AND gulp.operation_id: %s"
+                        % (TEST_CONTEXT_ID, TEST_OPERATION_ID),
+                    }
+                }
+            }
+        ],
+        q_options=q_options,
+    )
+
+    assert len(d["docs"]) == 7
+    MutyLogger.get_instance().info(test_query_raw_preview.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_query_sigma():
+    await _test_query_internal("sigma")
+    MutyLogger.get_instance().info(test_query_sigma.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_query_sigma_preview():
+    guest_token = await _login_and_ingest()
+
+    current_dir: str = os.path.dirname(os.path.realpath(__file__))
+    sigma_yml: str = await muty.file.read_file_async(
+        os.path.join(current_dir, "sigma/match_all.yaml")
+    )
+
+    # q_name and create_notes are ignored
+    q_name = "Match All Events"
+    q_options = GulpQueryParameters(preview_mode=True)
+    q_options.name = q_name
+    q_options.create_notes = True
+    d = await GulpAPIQuery.query_sigma(
+        guest_token,
+        TEST_OPERATION_ID,
+        [sigma_yml.decode("utf-8")],
+        q_options=q_options,
+        req_id="req_test_sigma",
+    )
+    assert len(d["docs"]) == 7
+    MutyLogger.get_instance().info(test_query_sigma_preview.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_query_single_id():
+    guest_token = await _login_and_ingest()
+
+    target_id = "c738546e9210da9189950d5682e8f001"
+    d = await GulpAPIQuery.query_single_id(guest_token, TEST_OPERATION_ID, target_id)
+    assert d["_id"] == target_id
+    MutyLogger.get_instance().info(test_query_single_id.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
 async def test_queries():
     """
     NOTE: assumes the test windows samples in ./samples/win_evtx are ingested
 
     and the gulp server running on http://localhost:8080
     """
-
-    async def _test_query_single_id(token: str):
-        """
-        {
-            "@timestamp": "2016-06-29T15:24:36.686000+00:00",
-            "gulp.timestamp": 1467213876686000128,
-            "gulp.operation_id": "test_operation",
-            "gulp.context_id": "66d98ed55d92b6b7382ffc77df70eda37a6efaa1",
-            "gulp.source_id": "64e7c3a4013ae243aa13151b5449aac884e36081",
-            "log.file.path": "/Users/valerino/repos/gulp/tests/ingest/../../samples/win_evtx/Security_short_selected.evtx",
-            "agent.type": "win_evtx",
-            "event.original": "{\n  \"Event\": {\n    \"#attributes\": {\n      \"xmlns\": \"http://schemas.microsoft.com/win/2004/08/events/event\"\n    },\n    \"System\": {\n      \"Provider\": {\n        \"#attributes\": {\n          \"Name\": \"Microsoft-Windows-Security-Auditing\",\n          \"Guid\": \"54849625-5478-4994-A5BA-3E3B0328C30D\"\n        }\n      },\n      \"EventID\": 4611,\n      \"Version\": 0,\n      \"Level\": 0,\n      \"Task\": 12289,\n      \"Opcode\": 0,\n      \"Keywords\": \"0x8020000000000000\",\n      \"TimeCreated\": {\n        \"#attributes\": {\n          \"SystemTime\": \"2016-06-29T15:24:36.686000Z\"\n        }\n      },\n      \"EventRecordID\": 319457830,\n      \"Correlation\": null,\n      \"Execution\": {\n        \"#attributes\": {\n          \"ProcessID\": 768,\n          \"ThreadID\": 2764\n        }\n      },\n      \"Channel\": \"Security\",\n      \"Computer\": \"temporal\",\n      \"Security\": null\n    },\n    \"EventData\": {\n      \"SubjectUserSid\": \"S-1-5-18\",\n      \"SubjectUserName\": \"TEMPORAL$\",\n      \"SubjectDomainName\": \"WORKGROUP\",\n      \"SubjectLogonId\": \"0x3e7\",\n      \"LogonProcessName\": \"Winlogon\"\n    }\n  }\n}",
-            "event.sequence": 1,
-            "event.code": "4611",
-            "gulp.event_code": 4611,
-            "event.duration": 1,
-            "gulp.unmapped.Guid": "54849625-5478-4994-A5BA-3E3B0328C30D",
-            "gulp.unmapped.Task": 12289,
-            "gulp.unmapped.Keywords": "0x8020000000000000",
-            "gulp.unmapped.SystemTime": "2016-06-29T15:24:36.686000Z",
-            "winlog.record_id": "319457830",
-            "process.pid": 768,
-            "process.thread.id": 2764,
-            "winlog.channel": "Security",
-            "winlog.computer_name": "temporal",
-            "user.id": "S-1-5-18",
-            "user.name": "TEMPORAL$",
-            "user.domain": "WORKGROUP",
-            "winlog.logon.id": "0x3e7",
-            "gulp.unmapped.LogonProcessName": "Winlogon"
-        }
-        """
-        target_id = "172511ceb3c6c0ef9f6cbf1a10fcffc3"
-        d = await GulpAPIQuery.query_single_id(token, TEST_OPERATION_ID, target_id)
-        assert d["_id"] == target_id
-        MutyLogger.get_instance().info(_test_query_single_id.__name__ + " succeeded!")
 
     async def _test_query_operations():
         guest_token = await GulpAPIUser.login("guest", "guest")

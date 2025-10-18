@@ -244,9 +244,9 @@ async def note_update_handler(
                 p = GulpNoteEdit(
                     user_id=s.user.id, text=text, timestamp=muty.time.now_msec()
                 )
-                current_edits: list[dict] = obj.edits or []
-                current_edits.append(p.model_dump(exclude_none=True))
-                obj.edits = current_edits  # trigger ORM update
+                if not obj.edits:
+                    obj.edits = []
+                obj.edits.append(p.model_dump(exclude_none=True)) # trigger ORM update
                 obj.last_editor_id = s.user.id
 
                 dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)

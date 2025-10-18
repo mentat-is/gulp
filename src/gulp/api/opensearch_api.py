@@ -365,32 +365,32 @@ class GulpOpenSearch:
             el: AsyncElasticsearch, optional): The Elasticsearch client. Defaults to None (use the default OpenSearch client).
         """
 
-        async def _internal() -> None:
+        async def _internal(sess: AsyncSession) -> None:
             MutyLogger.get_instance().debug(
                 "number of unique (ctx_id, src_id) pairs: %d", len(ctx_src_pairs)
             )
-            try:
-                for ctx_id, src_id in ctx_src_pairs:
-                    await self.datastream_update_source_field_types_by_src(
-                        sess,
-                        index,
-                        user_id,
-                        operation_id=operation_id,
-                        context_id=ctx_id,
-                        source_id=src_id,
-                        el=el,
-                    )
-            except:
-                await sess.rollback()
-                raise
+            for ctx_id, src_id in ctx_src_pairs:
+                await self.datastream_update_source_field_types_by_src(
+                    sess,
+                    index,
+                    user_id,
+                    operation_id=operation_id,
+                    context_id=ctx_id,
+                    source_id=src_id,
+                    el=el,
+                )
 
         if not sess:
             # no session provided, create a temporary one
             async with GulpCollab.get_instance().session() as sess:
-                await _internal()
+                try:
+                    await _internal(sess)
+                except:
+                    await sess.rollback()
+                    raise
         else:
             # session provided
-            await _internal()
+            await _internal(sess)
 
     @staticmethod
     async def datastream_update_source_field_types_by_src_wrapper(
@@ -2018,12 +2018,12 @@ class GulpOpenSearch:
             # set timeout in seconds
             params["timeout"] = timeout
 
-        MutyLogger.get_instance().debug(
-            "about to run this query: index=%s,\nbody=\n%s,\nparsed q_options=\n%s",
-            index,
-            orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(),
-            orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode(),
-        )
+        # MutyLogger.get_instance().debug(
+        #     "---> about to run this query: index=%s,\nbody=\n%s,\nparsed q_options=\n%s",
+        #     index,
+        #     orjson.dumps(body, option=orjson.OPT_INDENT_2).decode(),
+        #     orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode(),
+        # )
 
         if el:
             # use provided client

@@ -186,11 +186,13 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         """
         await GulpUser.acquire_advisory_lock(sess, self.id)
         try:
-            ud: dict = self.user_data if self.user_data else {}
-            if "query_history" not in ud:
-                ud["query_history"] = []
+            if not self.user_data:
+                self.user_data = {}
 
-            q_history: list[dict] = ud["query_history"]
+            if "query_history" not in self.user_data:
+                self.user_data["query_history"] = []
+
+            q_history: list[dict] = self.user_data["query_history"]
             # append all entries at once
             for entry in entries:
                 q_history.append(entry.model_dump(exclude_none=True))
@@ -198,81 +200,20 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             # trim if the history is too long
             max_history_size: int = GulpConfig.get_instance().query_history_max_size()
             if len(q_history) > max_history_size:
-                # keep only the last `max_history_size` entries
+                # remove oldest entries                
+                over: int = len(q_history) - max_history_size
                 MutyLogger.get_instance().warning(
                     "trimming query history for user %s, size=%d, max_size=%d",
                     self.id,
                     len(q_history),
                     max_history_size,
                 )
-                q_history = q_history[-max_history_size:]
-
-            self.user_data = ud  # trigger update
+                q_history = q_history[over:]
+                
+            self.user_data["query_history"] = q_history
             MutyLogger.get_instance().debug(
                 "added %d query history entries for user %s, total size=%d",
                 len(entries),
-                self.id,
-                len(q_history),
-            )
-        finally:
-            # unlock and commit
-            await sess.commit()
-
-    async def add_query_history_entry(
-        self,
-        sess: AsyncSession,
-        q: Any,
-        q_options: GulpQueryParameters = None,
-        sigma_yml: str = None,
-        external: bool = False,
-        plugin: str = None,
-        plugin_params: GulpPluginParameters = None,
-    ) -> None:
-        """
-        Adds a query history entry for the user.
-
-        Args:
-            sess (AsyncSession): The database session
-            q (Any): The query to store in the history.
-            q_options (GulpQueryParameters, optional): Additional query options. Defaults to None.
-            sigma_yml (str, optional): Original YML if the query originates from a sigma rule. Defaults to None.
-            external (bool, optional): Whether the query is external. Defaults to False.
-            plugin (str, optional): The plugin used for the external query, if external is set. Defaults to None.
-            plugin_params (GulpPluginParameters, optional): Parameters for the plugin used in the external query, if external is set. Defaults to None.
-        """
-        await GulpUser.acquire_advisory_lock(sess, self.id)
-        try:
-            ud: dict = self.user_data if self.user_data else {}
-            if "query_history" not in self.ud:
-                ud["query_history"] = []
-
-            q_history: list[dict] = ud["query_history"]
-            entry: GulpUserDataQueryHistoryEntry = GulpUserDataQueryHistoryEntry(
-                q=q,
-                external=external,
-                q_options=q_options,
-                plugin=plugin,
-                plugin_params=plugin_params,
-                sigma_yml=sigma_yml,
-                timestamp_msec=muty.time.now_msec(),
-            )
-            q_history.append(entry.model_dump(exclude_none=True))
-
-            # trim if the history is too long
-            max_history_size: int = GulpConfig.get_instance().query_history_max_size()
-            if len(q_history) > max_history_size:
-                # keep only the last `max_history_size` entries
-                MutyLogger.get_instance().warning(
-                    "trimming query history for user %s, size=%d, max_size=%d",
-                    self.id,
-                    len(q_history),
-                    max_history_size,
-                )
-                q_history = q_history[-max_history_size:]
-
-            self.user_data = ud  # trigger update
-            MutyLogger.get_instance().debug(
-                "added query history entry for user %s, total size=%d",
                 self.id,
                 len(q_history),
             )

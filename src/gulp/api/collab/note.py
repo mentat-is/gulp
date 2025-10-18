@@ -30,7 +30,7 @@ from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter, GulpCollabBase
-from gulp.api.opensearch.structs import GulpBasicDocument
+from gulp.api.opensearch.structs import GulpBasicDocument, GulpQueryParameters
 from gulp.api.ws_api import (
     WSDATA_COLLAB_CREATE,
     GulpCollabCreatePacket,
@@ -119,7 +119,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         return d
 
     @staticmethod
-    async def bulk_create_from_documents_and_send_to_ws(
+    async def bulk_create_for_documents_and_send_to_ws(
         sess: AsyncSession,
         operation_id: str,
         user_id: str,
@@ -127,7 +127,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         req_id: str,
         docs: list[dict],
         name: str,
-        q: str = None,
+        q: str,
         sigma_yml: str = None,
         tags: list[str] = None,
         color: str = None,
@@ -146,8 +146,8 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             ws_id (str): the websocket id
             req_id (str): the request id
             docs (list[dict]): the list of GulpDocument dictionaries to create notes for (must belong to the operation_id, no checks!)
-            name (str): the name of the notes
-            q (str): the original query to be set as text, if any. Defaults to None.
+            name (str): the name (title) to set on the notes
+            q (str): the original query to be set as text
             sigma_yml (str, optional): the originating sigma rule in yml format, if any. Defaults to None.
             tags (list[str], optional): the tags to add to the notes. Defaults to None (will set tags=["auto"]).
             color (str, optional): the color of the notes. Defaults to None (use default).
@@ -168,6 +168,9 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         if "auto" not in tt:
             # add "auto" tag if not present
             tt.append("auto")
+        if not name in tt:
+            # add the name as tag if not present
+            tt.append(name)
 
         # creates a list of notes, one for each document
         notes: list[dict] = []
@@ -263,36 +266,34 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 d=p.model_dump(exclude_none=True),
             )
             MutyLogger.get_instance().debug(
-                "sent %d notes on the websocket %s (notes=%d, inserted=%d)"
-                % (len(notes), len(inserted_notes), ws_id)
+                "sent (inserted) notes on the websocket %s: notes=%d,inserted=%d (if 'notes' > 'inserted', duplicate notes were skipped!)"
+                % (ws_id, len(inserted_notes), len(notes))
             )
         return len(inserted_notes)
 
     @staticmethod
-    async def bulk_update_tags(
+    async def bulk_update_for_group_match(
         sess: AsyncSession,
         operation_id: str,
         tags: list[str],
-        new_tags: list[str],
+        q_options: GulpQueryParameters,
         user_id: str = None,
     ) -> None:
         """
-        update all notes matching "tags" to add "new_tags"
+        update all notes matching "tags" to also include q_options.group as tag, and also update color and glyph_id with group_color and group_glyph_id if any
 
         NOTE: this is meant for internal usage, access checks should be done before calling this method
 
         Args:
             sess (AsyncSession): the database session, use None to create a new session internally (only valid within this function scope)
             operation_id (str): the operation id the notes belong to
-            tags (list[str]): the tags to match
-            new_tags (list[str]): the new tags to add
+            tags (list[str]): the list of tags to match to trigger update: if a note have any of these tags, it will be updated
+            q_options (GulpQueryParameters): the query options containing group, group_color, group_glyph_id to update the notes with
             user_id (str, optional): the user id to perform the update with. Defaults to None (no access check).
         """
 
-        async def _internal()-> None:  
-            MutyLogger.get_instance().debug(
-                "updating notes with %s tags to also include %s ...", tags, new_tags
-            )
+        async def _internal(sess: AsyncSession) -> None:
+            MutyLogger.get_instance().debug("updating notes with %s tags ...", tags)
             offset = 0
             chunk_size = 1000
 
@@ -316,27 +317,36 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 if not notes:
                     break
 
-                # for each note, update tags
+                # for each note, add the group tag, color and glyph_id
                 for n in notes:
-                    nt = n.tags
-                    for t in new_tags:
-                        if t not in n.tags:
-                            nt.append(t)
-                    n.tags = nt  # trigger ORM update
+                    if q_options.group and q_options.group not in n.tags:
+                        n.tags.append(q_options.group)
+                    if q_options.group_color:
+                        n.color = q_options.group_color
+                    if q_options.group_glyph_id:
+                        n.glyph_id = q_options.group_glyph_id
 
                 await sess.commit()
                 rows_updated = len(notes)
-                MutyLogger.get_instance().debug("updated %d notes tags", rows_updated)
+                MutyLogger.get_instance().debug(
+                    "updated %d notes tags/colors/glyphs", rows_updated
+                )
 
                 # next chunk
                 offset += rows_updated
                 flt.offset = offset
                 updated += rows_updated
 
-            MutyLogger.get_instance().info("updated %d notes tags (total)", updated)
+            MutyLogger.get_instance().info(
+                "updated %d notes tags/colors/glyphs (total)", updated
+            )
 
         if not sess:
-            async with GulpCollab.get_instance().session() as session:
-                await _internal()
+            async with GulpCollab.get_instance().session() as sess:
+                try:
+                    await _internal(sess)
+                except:
+                    await sess.rollback()
+                    raise
         else:
-            await _internal()
+            await _internal(sess)

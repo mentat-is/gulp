@@ -149,7 +149,7 @@ class GulpCollabCreatePacket(BaseModel):
     obj: Annotated[
         list[dict] | dict,
         Field(
-            description="The created object (or bulk of objects): the object `type` is `obj.type` or `obj[0].type` for bulk objects.",
+            description="The created GulpCollabObject (or bulk of objects): the object `type` is `obj.type` or `obj[0].type` for bulk objects.",
         ),
     ]
     bulk: Annotated[
@@ -199,7 +199,7 @@ class GulpCollabUpdatePacket(BaseModel):
         },
     )
     obj: Annotated[
-        dict, Field(description="The updated object: the object `type` is `obj.type`.")
+        dict, Field(description="The updated GulpCollabObject: the object `type` is `obj.type`.")
     ]
 
 
@@ -324,6 +324,7 @@ class GulpQueryGroupMatchPacket(BaseModel):
         }
     )
     group: Annotated[str, Field(description="The query group name.")]
+    matches: Annotated[dict, Field(description="The matched queries.")]
     color: Annotated[
         Optional[str],
         Field(

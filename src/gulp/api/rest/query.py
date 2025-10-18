@@ -155,7 +155,6 @@ async def _query_raw_chunk_callback(
     user_id: str = cb_context["user_id"]
     operation_id: str = cb_context["operation_id"]
     ws_id: str = cb_context["ws_id"]
-    q_name: str = cb_context["q_name"]
     q_options: GulpQueryParameters = cb_context["q_options"]
     q: dict = cb_context["q"]
 
@@ -183,19 +182,19 @@ async def _query_raw_chunk_callback(
 
     if q_options.create_notes:
         # create notes for this chunk and send them to the websocket as well
-        await GulpNote.bulk_create_from_documents_and_send_to_ws(
+        await GulpNote.bulk_create_for_documents_and_send_to_ws(
             sess,
             operation_id,
             user_id,
-            ws_id=ws_id,
-            req_id=req_id,
-            docs=chunk,
-            name=q_name,
-            tags=tags,
-            color=q_options.color,
-            glyph_id=q_options.glyph_id,
-            source_q=orjson.dumps(q, option=orjson.OPT_INDENT_2).decode(),
+            ws_id,
+            req_id,
+            chunk,
+            q_name,
+            orjson.dumps(q, option=orjson.OPT_INDENT_2).decode(),
             sigma_yml=sigma_yml,
+            tags=tags,
+            color=q_options.notes_color,
+            glyph_id=q_options.notes_glyph_id,
             last=last,
         )
     return chunk
@@ -227,6 +226,19 @@ async def _run_query(
     mod: GulpPluginBase = None
     canceled: bool = False
     stats: GulpRequestStats = None
+
+    MutyLogger.get_instance().debug(
+        "---> _run_query: user_id=%s, req_id=%s, operation_id=%s, ws_id=%s, gq=%s, q_options=%s, index=%s, plugin=%s, plugin_params=%s",
+        user_id,
+        req_id,
+        operation_id,
+        ws_id,
+        gq,
+        q_options,
+        index,
+        plugin,
+        plugin_params,
+    )
 
     try:
         async with GulpCollab.get_instance().session() as sess:
@@ -260,7 +272,7 @@ async def _run_query(
                         "tags": gq.tags,
                         "sigma_yml": gq.sigma_yml,
                         "total_hits": 0,
-                        "q_name": gq.name,
+                        "q_name": gq.q_name,
                     }
                     await GulpOpenSearch.get_instance().search_dsl(
                         sess,
@@ -271,7 +283,9 @@ async def _run_query(
                         callback=_query_raw_chunk_callback,
                         cb_context=cb_context,
                     )
-                    MutyLogger.get_instance().debug("after search_dsl, cb_context=%s", cb_context)
+                    MutyLogger.get_instance().debug(
+                        "after search_dsl, cb_context=%s", cb_context
+                    )
                     total_hits = cb_context.get("total_hits", 0)
                     total_processed = cb_context.get("total_processed", 0)
             except Exception as ex:
@@ -297,11 +311,11 @@ async def _run_query(
         elif err:
             status = GulpRequestStatus.FAILED
         p = GulpQueryDonePacket(
-            q_name=gq.name,
+            q_name=gq.q_name,
             status=status.value,
             errors=[err] if err else [],
             total_hits=total_hits,
-            q_group=q_options.group,
+            q_group=gq.q_group,
         )
         await GulpWsSharedQueue.get_instance().put(
             t=WSDATA_QUERY_DONE,
@@ -334,7 +348,7 @@ async def process_queries(
     index, plugin, plugin_params are used for external queries only
     """
 
-    async def _internal() -> None:
+    async def _internal(sess: AsyncSession) -> None:
         stats: GulpRequestStats = None
         batching_step_reached: bool = False
         try:
@@ -365,6 +379,7 @@ async def process_queries(
             if write_history:
                 history: list[GulpUserDataQueryHistoryEntry] = []
                 for gq in queries:
+                    q_options.name = gq.q_name
                     h: GulpUserDataQueryHistoryEntry = GulpUserDataQueryHistoryEntry(
                         q=gq.q,
                         timestamp_msec=muty.time.now_msec(),
@@ -397,6 +412,7 @@ async def process_queries(
                 batch: list[GulpQuery] = queries[i : i + batch_size]
                 coros = []
                 for gq in batch:
+                    q_options.name = gq.q_name # no deepcopy needed since q_options will be copied by aiomultiprocess anyway
                     run_query_args = dict(
                         user_id=user_id,
                         req_id=req_id,
@@ -416,7 +432,9 @@ async def process_queries(
 
                 # gather results for this batch and accumulate
                 batching_step_reached = True
-                MutyLogger.get_instance().debug("gathering results for %d queries ...", len(coros))
+                MutyLogger.get_instance().debug(
+                    "gathering results for %d queries ...", len(coros)
+                )
                 batch_res = await asyncio.gather(*coros, return_exceptions=True)
                 results.extend(batch_res)
 
@@ -476,13 +494,14 @@ async def process_queries(
 
             # now, get all the keys in matched_queries and retag each note having the key as tag also with the group name
             query_names = list(matched_queries.keys())
-            await GulpNote.bulk_update_tags(
-                sess, operation_id, query_names, [q_options.group]
+            await GulpNote.bulk_update_for_group_match(
+                sess, operation_id, query_names, q_options
             )
 
             # finally send the group match to the websocket
             p = GulpQueryGroupMatchPacket(
                 group=q_options.group,
+                matches=matched_queries,
                 color=q_options.color,
                 glyph_id=q_options.glyph_id,
             )
@@ -495,7 +514,6 @@ async def process_queries(
                 d=p.model_dump(exclude_none=True),
             )
         except Exception as ex:
-            await sess.rollback()
             if stats and not batching_step_reached:
                 # ensure we set the stats as failed on error (unless we reached a batching step, in which case the stats will be auto-finalized)
                 await stats.set_finished(
@@ -511,10 +529,14 @@ async def process_queries(
     if not sess:
         # create the session
         async with GulpCollab.get_instance().session() as sess:
-            await _internal()
+            try:
+                await _internal(sess)
+            except:
+                await sess.rollback()
+                raise
     else:
         # use provided session
-        await _internal()
+        await _internal(sess)
 
 
 async def _preview_query(
@@ -528,7 +550,7 @@ async def _preview_query(
     """
     runs a preview query (no ingestion) and returns the results directly.
 
-    plugin and plugin_params are meant for external querie only, index is ignored in that case.
+    plugin and plugin_params are meant for external queries only, index is ignored for external queries.
 
     Returns:
         tuple[int, list[dict]]: total hits, list of documents
@@ -620,7 +642,8 @@ query Gulp with a raw OpenSearch DSL query.
 - this API returns `pending` and results are streamed to the `ws_id` websocket (unless `q_options.preview_mode` is set, read later).
 - `q` must be one or more queries with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
 - if `q_options.create_notes` is set, notes are created for each query match: each note `tags` will include `q_options.name` and, if set, `q_options.group` if all queries in `q` matches.
-- if `q_options.preview_mode` is set, this API takes the first query in the `q` array and the data is returned directly without using the websocket.
+- if `q_options.preview_mode` is set, this API takes the first query in the `q` array and the data is returned directly as `{ "total_hits": <total_hits>, "docs": <docs> }` in the response.
+  size of `docs` in preview mode is limited to `gulp.config.preview_mode_num_docs` (default=10).
 
 ## tracking progress
 
@@ -669,8 +692,8 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                     # preview mode, run the first query and return sync
                     total_hits, docs = await _preview_query(
                         sess,
-                        q=q[0],
-                        q_options=q_options,
+                        q[0],
+                        q_options,
                         index=op.index,
                     )
                     return JSONResponse(
@@ -684,21 +707,28 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 count: int = 0
                 if len(q) == 1:
                     # single query, use the provided name
-                    gq = GulpQuery(name=q_options.name, q=q[0])
+                    gq = GulpQuery(q_name=q_options.name, q=q[0])
                     queries.append(gq)
                 else:
                     # we build names for each query
                     for qq in q:
                         gq = GulpQuery(
-                            name="%s-%d" % (q_options.name, count),
+                            q_name="%s-%d" % (q_options.name, count),
                             q=qq,
+                            q_group=q_options.group,
                         )
                         count += 1
                         queries.append(gq)
 
                 # run a background task (will batch queries, spawn workers, gather results)
                 coro = process_queries(
-                    user_id, req_id, operation_id, ws_id, queries, len(queries), q_options
+                    user_id,
+                    req_id,
+                    operation_id,
+                    ws_id,
+                    queries,
+                    len(queries),
+                    q_options,
                 )
                 GulpRestServer.spawn_bg_task(coro)
 
@@ -790,7 +820,6 @@ async def query_gulp_handler(
                 op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
                 s = await GulpUserSession.check_token(sess, token, obj=op)
                 user_id = s.user.id
-                index = op.index
 
                 # convert gulp query to raw query
                 q: dict = flt.to_opensearch_dsl()
@@ -1021,7 +1050,7 @@ query using [sigma rules](https://github.com/SigmaHQ/sigma).
 
 ### q_options
 
-- `create_notes` is set to `True` to create notes on match
+- `create_notes` may be set to `True` to create notes on match (as in `query_raw`)
 - if `q_options.preview_mode` is set, only the first sigma rule in `sigmas` is converted and run, and the data is returned directly without using the websocket.
 - if `q_options.group` is set, and all sigma rules match, notes created will include the group in their tags.
 
@@ -1103,41 +1132,14 @@ async def query_sigma_handler(
                 s = await GulpUserSession.check_token(sess, token, obj=op)
                 user_id = s.user.id
 
-                if q_options.preview_mode:
-                    # preview mode, run the first query and return sync
-                    queries: list[GulpQuery] = await sigmas_to_queries(
-                        sess,
-                        user_id,
-                        operation_id,
-                        sigmas[:1],
-                        src_ids=src_ids,
-                        levels=levels,
-                        products=products,
-                        services=services,
-                        categories=categories,
-                        tags=tags,
-                    )
-
-                    total_hits, docs = await _preview_query(
-                        operation_id=operation_id,
-                        user_id=user_id,
-                        req_id=req_id,
-                        q=queries[0],
-                        query_index=op.index,
-                        q_options=q_options,
-                    )
-                    return JSONResponse(
-                        JSendResponse.success(
-                            req_id=req_id, data={"total_hits": total_hits, "docs": docs}
-                        )
-                    )
-
                 # convert sigma rule/s using pysigma
                 queries: list[GulpQuery] = await sigmas_to_queries(
                     sess,
                     user_id,
                     operation_id,
-                    sigmas,
+                    (
+                        sigmas[:1] if q_options.preview_mode else sigmas
+                    ),  # use only first sigma in preview mode
                     src_ids=src_ids,
                     levels=levels,
                     products=products,
@@ -1146,9 +1148,29 @@ async def query_sigma_handler(
                     tags=tags,
                 )
 
+                if q_options.preview_mode:
+                    # preview mode, return sync
+                    total_hits, docs = await _preview_query(
+                        sess,
+                        queries[0].q,
+                        q_options,
+                        index=op.index
+                    )
+                    return JSONResponse(
+                        JSendResponse.success(
+                            req_id=req_id, data={"total_hits": total_hits, "docs": docs}
+                        )
+                    )
+
                 # run a background task (will batch queries, spawn workers, gather results)
                 coro = process_queries(
-                    user_id, req_id, operation_id, ws_id, queries, len(queries)
+                    user_id,
+                    req_id,
+                    operation_id,
+                    ws_id,
+                    queries,
+                    len(queries),
+                    q_options,
                 )
                 GulpRestServer.spawn_bg_task(coro)
 

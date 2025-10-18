@@ -22,8 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
-from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
+from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.ws_api import GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -201,10 +201,10 @@ def _sigma_rule_to_gulp_query(
                 rule_tags.append(t)
 
     qq: GulpQuery = GulpQuery(
-        name=rule_name,
+        q_name=rule_name,
         sigma_yml=sigma_yml,
         sigma_id=rule_id,
-        tags=rule_tags,
+        sigma_tags=rule_tags,
         q=q,
     )
     MutyLogger.get_instance().debug(
@@ -279,6 +279,8 @@ def _map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
         elif field_name in gulp_document_default_fields:
             # if the field is one of the default fields, return it as is with modifier
             return [f"{field_name}{modifier_suffix}"]
+        elif field_name == "*":
+            return ["*"]
         else:
             # return "gulp.unmapped" field
             return [f"{GulpPluginBase.build_unmapped_key(field_name)}{modifier_suffix}"]
@@ -496,14 +498,14 @@ async def sigmas_to_queries(
         )
     else:
         # get the given sources
-        srcs = await GulpSource.get_by_ids(sess, src_ids)
+        srcs = await GulpSource.get_by_ids_ordered(sess, src_ids)
         found_ids = {s.id for s in srcs if s}
         for src_id in src_ids:
             if src_id not in found_ids:
                 MutyLogger.get_instance().warning(
                     "source %s not found for user %s, skipping", src_id, user_id
                 )
-    src_ids = [s.id for s in srcs]
+    src_ids: list[str] = [s.id for s in srcs]
     MutyLogger.get_instance().debug(f"src_ids= {src_ids}")
     # precompute source_id->mapping_parameters map
     mp_by_source_id: list = []
@@ -575,7 +577,9 @@ async def sigmas_to_queries(
             try:
                 # transform the sigma rule considering source mappings: i.e. if the sigma rule have EventId in the conditions, we want it
                 # to be "event.code" in ECS, so we need to apply the mapping first
-                final_sigma_yml: str = _map_sigma_fields_to_ecs(yml, mappings[mapping_id])
+                final_sigma_yml: str = _map_sigma_fields_to_ecs(
+                    yml, mappings[mapping_id]
+                )
                 # MutyLogger.get_instance().debug(
                 #     "sigma_convert_default, final sigma rule yml:\n%s", final_sigma_yml
                 # )
@@ -589,7 +593,7 @@ async def sigmas_to_queries(
                     % (rule.title or rule.name, yml, final_sigma_yml)
                 )
                 continue
-            
+
             for q in qs:
                 q_should_query_part: list[dict] = []
 
@@ -627,15 +631,19 @@ async def sigmas_to_queries(
 
         # mapping loop done, build the final query
         if len(should_part) == 1:
-            mapping_should_query: dict = {"query": should_part[0]}
+            final_query_dict: dict = {"query": should_part[0]}
         elif len(should_part) > 1:
-            mapping_should_query: dict = {"query": {"bool": {"should": should_part}}}
+            final_query_dict: dict = {"query": {"bool": {"should": should_part}}}
 
+        # add source ids part
+        flt: GulpQueryFilter = GulpQueryFilter(source_ids=src_ids)
+        final_query_dict = flt.merge_to_opensearch_dsl(final_query_dict)
+        
         # build the final GulpQuery
-        final_query: GulpQuery = _sigma_rule_to_gulp_query(
-            rule, yml, mapping_should_query, tags=tags
+        final_gq: GulpQuery = _sigma_rule_to_gulp_query(
+            rule, yml, final_query_dict, tags=tags
         )
-        gulp_queries.append(final_query)
+        gulp_queries.append(final_gq)
         MutyLogger.get_instance().info(
             '******* converted sigma rule "%s": current=%d, total=%d *******'
             % (rule.name or rule.title, len(gulp_queries), total)
