@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 
 import pytest
 import pytest_asyncio
@@ -26,6 +27,7 @@ from gulp_client.test_values import (
     TEST_OPERATION_ID,
     TEST_REQ_ID,
     TEST_WS_ID,
+    
 )
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 
@@ -76,8 +78,12 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _ensure_test_operation()
-
+    if os.getenv("SKIP_RESET") == "1":
+        GulpAPICommon.get_instance().init(
+            host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
+        )
+    else:
+        await _ensure_test_operation()
 
 @pytest.mark.asyncio
 async def test_operation_api():

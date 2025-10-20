@@ -2,6 +2,7 @@
 gulp operations rest api
 """
 
+import asyncio
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Body, Depends, Query
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
-from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
@@ -274,6 +275,84 @@ async def operation_delete_handler(
                 await op.delete(sess, ws_id=ws_id, req_id=req_id, user_id=user_id)
 
                 return JSendResponse.success(req_id=req_id, data={"id": operation_id})
+            except Exception as ex:
+                await sess.rollback()
+                raise
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.post(
+    "/operation_cleanup",
+    tags=["operation"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "deleted": 123,
+                    }
+                }
+            }
+        }
+    },
+    summary="cleanup operation of collab objects and stats.",
+    description="""
+used to clear the operation of collab objects (i.e. `note`, `link`, ...) without deleting it, not touching tables like `source`, `context`, `user`, etc.
+- `token` needs `admin` permission.
+""",
+)
+async def operation_cleanup_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    additional_tables: Annotated[
+        list[str],
+        Body(
+            description="list of additional database tables to clear.",
+            example=["custom_table"],
+        ),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            try:
+                # check operation access
+                s: GulpUserSession
+                s, _, _ = await GulpOperation.get_by_id_wrapper(
+                    sess, token, operation_id, permission=GulpUserPermission.ADMIN
+                )
+
+                # these are the tables to cleanup
+                to_clear: list[str] = ["highlight", "note", "link", "request_stats"]
+                if additional_tables:
+                    to_clear.extend(additional_tables)
+
+                # cleanup
+                deleted: int = 0
+                for t in to_clear:
+                    obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(t)
+                    flt: GulpCollabFilter = GulpCollabFilter(
+                        operation_ids=[operation_id]
+                    )
+                    deleted += await obj_class.delete_by_filter(
+                        sess, flt=flt, user_id=s.user_id, throw_if_not_found=False
+                    )
+                    MutyLogger.get_instance().info(
+                        "deleted %d objects from table=%s for operation_id=%s, user_id=%s.",
+                        deleted,
+                        t,
+                        operation_id,
+                        s.user_id,
+                    )
+                    await asyncio.sleep(0.1)  # yield to event loop
+                return JSendResponse.success(req_id=req_id, data={"deleted": deleted})
             except Exception as ex:
                 await sess.rollback()
                 raise

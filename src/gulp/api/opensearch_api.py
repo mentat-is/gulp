@@ -496,7 +496,7 @@ class GulpOpenSearch:
                 break
 
             # allow other tasks to run
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.1)
 
         if not filtered_mapping:
             MutyLogger.get_instance().warning(

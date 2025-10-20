@@ -494,7 +494,7 @@ class Plugin(GulpPluginBase):
                 MutyLogger.get_instance().warning(
                     f"no raw whois data returned for entity: {entity_to_lookup}"
                 )
-                await asyncio.sleep(0)  # let other tasks run
+                await asyncio.sleep(0.1)  # let other tasks run
                 continue  # skip to next entity
 
             # filter fields based on custom parameters ("whois_fields", "full_dump")
@@ -516,7 +516,7 @@ class Plugin(GulpPluginBase):
                 MutyLogger.get_instance().warning(
                     f"data for entity {entity_to_lookup} is empty after filtering."
                 )
-                await asyncio.sleep(0)  # let other tasks run
+                await asyncio.sleep(0.1)  # let other tasks run
                 continue  # skip to next entity
 
             # MutyLogger.get_instance().debug(f"filtered data for entity {entity_to_lookup} has {len(filtered_data_for_entity)} fields.")
@@ -533,7 +533,7 @@ class Plugin(GulpPluginBase):
                 for key, value in filtered_data_for_entity.items():
                     final_combined_enriched_data[f"{entity_prefix}_{key}"] = value
 
-            await asyncio.sleep(0)  # let other tasks run
+            await asyncio.sleep(0.1)  # let other tasks run
 
         # if unify_dump is true, create the 'unified_dump' field now
         if (
@@ -706,12 +706,12 @@ class Plugin(GulpPluginBase):
             for host_field in host_fields:
                 f = doc.get(host_field)
                 if not f:
-                    await asyncio.sleep(0)  # let other tasks run
+                    await asyncio.sleep(0.1)  # let other tasks run
                     continue
 
                 # append flattened whois data to the document
                 whois_data = await self._get_whois(f)
-                await asyncio.sleep(0)  # let other tasks run
+                await asyncio.sleep(0.1)  # let other tasks run
                 if whois_data:
                     enriched = True
                     for key, value in whois_data.items():

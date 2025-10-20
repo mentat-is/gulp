@@ -395,32 +395,35 @@ class GulpCollab:
             await conn.run_sync(GulpCollabBase.metadata.create_all)
         await self._setup_collab_expirations()
 
-    async def get_table_names(self) -> list[str]:
+    async def get_table_names(self, sess: AsyncEngine) -> list[str]:
         """
         retrieves all table names from the database (public schema) using raw sql query.
+
+        Args:
+            sess (AsyncEngine): The database session to use.
 
         Returns:
             list[str]: list of table names in the public schema.
         """
-        async with self._engine.begin() as conn:
-            # query to get all table names from public schema
-            result = await conn.execute(
-                text(
-                    "SELECT table_name FROM information_schema.tables "
-                    "WHERE table_schema = 'public' AND table_type = 'BASE TABLE';"
-                )
+        # query to get all table names from public schema
+        result = await sess.execute(
+            text(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_type = 'BASE TABLE';"
             )
-            # extract table names from result
-            tables = [row[0] for row in result.fetchall()]
+        )
+        # extract table names from result
+        tables = [row[0] for row in result.fetchall()]
         return tables
 
     async def clear_tables(
-        self, tables: list[str] = None, exclude: list[str] = None
+        self, sess: AsyncSession, tables: list[str] = None, exclude: list[str] = None
     ) -> None:
         """
         clears (delete data without dropping the table) the database tables
 
         Args:
+            sess (AsyncSession): The database session to use.
             tables (list[str], optional): The list of tables to clear. Defaults to None (meaning all tables will be cleared).
             exclude (list[str], optional): The list of tables to exclude from clearing. Defaults to None.
         """
@@ -428,18 +431,17 @@ class GulpCollab:
             # clear all tables
             tables = await self.get_table_names()
 
-        async with self._engine.begin() as conn:
-            for t in tables:
-                if exclude and t in exclude:
-                    MutyLogger.get_instance().debug(
-                        "---> skipping clearing table: %s (excluded)" % (t)
-                    )
-                    continue
-
-                MutyLogger.get_instance().debug("clearing table: %s ..." % (t))
-                await conn.execute(
-                    text('TRUNCATE TABLE "%s" RESTART IDENTITY CASCADE;' % (t))
+        for t in tables:
+            if exclude and t in exclude:
+                MutyLogger.get_instance().debug(
+                    "---> skipping clearing table: %s (excluded)" % (t)
                 )
+                continue
+
+            MutyLogger.get_instance().debug("clearing table: %s ..." % (t))
+            await sess.execute(
+                text('TRUNCATE TABLE "%s" RESTART IDENTITY CASCADE;' % (t))
+            )
 
     async def create_default_users(self) -> None:
         """

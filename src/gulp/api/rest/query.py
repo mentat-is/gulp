@@ -283,9 +283,9 @@ async def _run_query(
                         callback=_query_raw_chunk_callback,
                         cb_context=cb_context,
                     )
-                    MutyLogger.get_instance().debug(
-                        "after search_dsl, cb_context=%s", cb_context
-                    )
+                    # MutyLogger.get_instance().debug(
+                    #     "after search_dsl, cb_context=%s", cb_context
+                    # )
                     total_hits = cb_context.get("total_hits", 0)
                     total_processed = cb_context.get("total_processed", 0)
             except Exception as ex:
@@ -341,6 +341,7 @@ async def process_queries(
     plugin_params: GulpPluginParameters = None,
     write_history: bool = True,
     sess: AsyncSession = None,
+    auto_finalize_stats: bool = True,
 ) -> None:
     """
     runs in a background task and spawns workers to process queries, batching them if needed.
@@ -379,12 +380,15 @@ async def process_queries(
             if write_history:
                 history: list[GulpUserDataQueryHistoryEntry] = []
                 for gq in queries:
-                    q_options.name = gq.q_name
+                    q_opts = deepcopy(
+                        q_options
+                    )  # we must copy and put the query name, the rest of the structure is unchanged for every query
+                    q_opts.name = gq.q_name
                     h: GulpUserDataQueryHistoryEntry = GulpUserDataQueryHistoryEntry(
                         q=gq.q,
                         timestamp_msec=muty.time.now_msec(),
                         external=True if plugin else False,
-                        q_options=q_options,
+                        q_options=q_opts,
                         plugin=plugin,
                         plugin_params=plugin_params,
                         sigma_yml=gq.sigma_yml,
@@ -394,36 +398,42 @@ async def process_queries(
                     u: GulpUser = await GulpUser.get_by_id(sess, user_id)
                     await u.add_query_history_entry_batch(sess, history)
 
-            # 1. batch queries and gather results: spawn a worker for each query and wait them all.
+            # 2. batch queries and gather results: spawn a worker for each query and wait them all.
             # NOTE: for query_external, we will always have just one query to run
             batch_size: int = len(queries)
             if len(queries) > GulpConfig.get_instance().concurrency_max_tasks():
                 batch_size = GulpConfig.get_instance().concurrency_max_tasks()
 
+            MutyLogger.get_instance().debug(
+                "processing %d queries in batches of %d ...",
+                len(queries),
+                batch_size,
+            )
+
             results: list[tuple[int, int, str, bool] | Exception] = []
             req_canceled: bool = False
-            total_processed: int = 0
-            total_hits: int = 0
             matched_queries: dict[str, int] = {}
-            errors: list[str] = []
-            l: int = len(queries)
-            for i in range(0, l, batch_size):
+            for i in range(0, len(queries), batch_size):
                 # run one batch
                 batch: list[GulpQuery] = queries[i : i + batch_size]
                 coros = []
                 for gq in batch:
-                    q_options.name = gq.q_name # no deepcopy needed since q_options will be copied by aiomultiprocess anyway
+                    q_opts = deepcopy(
+                        q_options
+                    )  # we must copy and put the query name, the rest of the structure is unchanged for every query
+                    q_opts.name = gq.q_name
                     run_query_args = dict(
                         user_id=user_id,
                         req_id=req_id,
                         operation_id=operation_id,
                         ws_id=ws_id,
                         gq=gq,
-                        q_options=q_options,
+                        q_options=q_opts,
                         index=index,
                         plugin=plugin,
                         plugin_params=plugin_params,
                     )
+                    # MutyLogger.get_instance().debug("about to run _run_query with: %s", run_query_args)
                     coros.append(
                         GulpProcess.get_instance().process_pool.apply(
                             _run_query, kwds=run_query_args
@@ -439,6 +449,9 @@ async def process_queries(
                 results.extend(batch_res)
 
                 # check results
+                total_hits: int = 0
+                total_processed: int = 0
+                errors: list[str] = []
                 for r in batch_res:
                     if isinstance(r, tuple) and len(r) == 4:
                         # we have a result
@@ -447,6 +460,9 @@ async def process_queries(
                             # increment matches for this query
                             if not matched_queries.get(q_name):
                                 matched_queries[q_name] = 0
+                            MutyLogger.get_instance().debug(
+                                "query group, adding match for query %s", q_name
+                            )
                             matched_queries[q_name] += 1
 
                         total_processed += processed
@@ -466,7 +482,7 @@ async def process_queries(
                     user_id=user_id,
                     ws_id=ws_id,
                     hits=total_hits,
-                    inc_completed=len(coros),
+                    inc_completed=len(coros) if auto_finalize_stats else 0,
                     errors=errors,
                 )
                 if req_canceled:
@@ -502,8 +518,8 @@ async def process_queries(
             p = GulpQueryGroupMatchPacket(
                 group=q_options.group,
                 matches=matched_queries,
-                color=q_options.color,
-                glyph_id=q_options.glyph_id,
+                color=q_options.group_color,
+                glyph_id=q_options.group_glyph_id,
             )
             await GulpWsSharedQueue.get_instance().put(
                 WSDATA_QUERY_GROUP_MATCH,
@@ -525,6 +541,10 @@ async def process_queries(
                 )
 
             raise
+
+    if not queries:
+        MutyLogger.get_instance().warning("process_queries called with no queries!")
+        return
 
     if not sess:
         # create the session
@@ -1151,10 +1171,7 @@ async def query_sigma_handler(
                 if q_options.preview_mode:
                     # preview mode, return sync
                     total_hits, docs = await _preview_query(
-                        sess,
-                        queries[0].q,
-                        q_options,
-                        index=op.index
+                        sess, queries[0].q, q_options, index=op.index
                     )
                     return JSONResponse(
                         JSendResponse.success(

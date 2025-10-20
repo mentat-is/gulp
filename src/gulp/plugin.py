@@ -313,6 +313,11 @@ class GulpPluginEntry(BaseModel):
         Field(description="A list of custom parameters this plugin supports."),
     ] = []
 
+    # tables created by the plugin
+    tables: Annotated[Optional[list[str]],
+        Field(description="A list of collab tables created by the plugin, if any.")
+    ] = []
+
     # list of plugins this plugin depends on
     depends_on: Annotated[
         Optional[list[str]],
@@ -858,6 +863,12 @@ class GulpPluginBase(ABC):
         Returns plugin version.
         """
         return ""
+    
+    def tables(self) -> list[str]:
+        """
+        Returns a list of collab tables created by the plugin, if any.
+        """
+        return []
 
     def desc(self) -> str:
         """

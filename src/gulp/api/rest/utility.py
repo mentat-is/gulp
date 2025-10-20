@@ -25,8 +25,10 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.gulptask import GulpTask
+from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import (
+    GulpCollabBase,
     GulpCollabFilter,
     GulpRequestStatus,
     GulpUserPermission,
@@ -222,6 +224,56 @@ async def request_set_completed_handler(
         req_id=req_id,
     )
 
+@router.delete(
+    "/request_delete",
+    tags=["stats"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"deleted": 123},
+                    }
+                }
+            }
+        }
+    },
+    summary="deletes one or more requests on the collab database.",
+    description="""
+- `token` needs `admin` permission or to be the owner of the request/s.
+""",
+)
+async def request_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    obj_id: Annotated[
+        str, Query(description="the request id to delete: if not set, all the requests are deleted for the given `operation_id`.", example="obj_id")
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            try:                
+                s: GulpUserSession
+                s, _, _ = await GulpOperation.get_by_id_wrapper(sess, token, operation_id)
+                flt = GulpCollabFilter()
+                flt.operation_ids = [operation_id]
+                if obj_id:
+                    flt.ids = [obj_id]
+                deleted = await GulpRequestStats.delete_by_filter(sess, flt, s.user_id)
+                return JSendResponse.success(req_id=req_id, data={"deleted": deleted})
+            except:
+                await sess.rollback()
+                raise
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
 
 @router.get(
     "/request_list",

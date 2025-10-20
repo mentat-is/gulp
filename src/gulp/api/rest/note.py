@@ -285,10 +285,6 @@ async def note_update_handler(
 async def note_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    operation_id: Annotated[
-        str,
-        Depends(APIDependencies.param_operation_id),
-    ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
@@ -297,7 +293,6 @@ async def note_delete_handler(
         await GulpNote.delete_by_id_wrapper(
             token,
             obj_id,
-            operation_id=operation_id,
             ws_id=ws_id,
             req_id=req_id,
         )

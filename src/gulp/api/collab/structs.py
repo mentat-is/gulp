@@ -345,6 +345,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         if self.types:
             # match if equal to any in the list
             q = q.filter(obj_type.type.in_(self.types))
+
         if self.operation_ids and "operation_id" in obj_type.columns:
             q = q.filter(
                 self._case_insensitive_or_ilike(
@@ -1271,7 +1272,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             Exception: If there is an error during the query execution or result processing.
         """
         # build filter for the user
-        flt: GulpCollabFilter = await GulpCollabBase._set_flt_grants_for_user(
+        flt: GulpCollabFilter = await GulpCollabBase._restrict_flt_to_user(
             sess, user_id, flt
         )
         q = flt.to_delete_query(cls)
@@ -1299,7 +1300,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         cls,
         token: str,
         obj_id: str,
-        operation_id: str = None,
         permission: list[GulpUserPermission] | GulpUserPermission = None,
         ws_id: str = None,
         req_id: str = None,
@@ -1312,8 +1312,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         Args:
             token (str): The user token
-            obj_id (str): The ID of the object to delete.
-            operation_id (str, optional): The ID of the operation associated with the object: if set, it will be checked for READ permission. Defaults to None.
+            obj_id (str): The ID of the object to delete: if an `operation_id` is associated with the object, it will be checked for READ access by the user's token
             permission (list[GulpUserPermission]|GulpUserPermission, optional): The permission required to delete the object. Defaults to GulpUserPermission.DELETE.
             ws_id (str, optional): id of the websocket to send WS_COLLAB_DELETE notification to. Defaults to None (no websocket notification).
             req_id (str, optional): The ID of the request to include in the websocket notification. Defaults to None (ignored if ws_id is None).
@@ -1335,11 +1334,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 s: GulpUserSession
                 obj: GulpCollabBase = await cls.get_by_id(sess, obj_id)
                 if obj.operation_id:
-                    # check operation access
+                    # check operation access first
                     from gulp.api.collab.operation import GulpOperation
 
                     s, _, _ = await GulpOperation.get_by_id_wrapper(
-                        sess, token, operation_id, permission=GulpUserPermission.READ
+                        sess, token, obj.operation_id, permission=GulpUserPermission.READ
                     )
                     # and object access
                     await s.check_permissions(
@@ -1777,11 +1776,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         return s, obj, op
 
     @staticmethod
-    async def _set_flt_grants_for_user(
+    async def _restrict_flt_to_user(
         sess: AsyncSession, user_id: str = None, flt: GulpCollabFilter = None
     ) -> GulpCollabFilter:
         """
-        helper to set the granted_user_ids and granted_user_group_ids on the filter based on the user_id provided (if any)
+        helper to restrict (set the granted_user_ids and granted_user_group_ids on) the filter based on the user_id provided (if any)
 
         with grants set, the filter will return only objects that the user has access to (or all objects if user is admin)
 
@@ -1849,7 +1848,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             Exception: If there is an error during the query execution or result processing.
         """
         # build filter for the user
-        flt: GulpCollabFilter = await GulpCollabBase._set_flt_grants_for_user(
+        flt: GulpCollabFilter = await GulpCollabBase._restrict_flt_to_user(
             sess, user_id, flt
         )
 

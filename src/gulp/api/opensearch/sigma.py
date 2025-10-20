@@ -638,7 +638,7 @@ async def sigmas_to_queries(
         # add source ids part
         flt: GulpQueryFilter = GulpQueryFilter(source_ids=src_ids)
         final_query_dict = flt.merge_to_opensearch_dsl(final_query_dict)
-        
+
         # build the final GulpQuery
         final_gq: GulpQuery = _sigma_rule_to_gulp_query(
             rule, yml, final_query_dict, tags=tags
@@ -652,4 +652,8 @@ async def sigmas_to_queries(
         # for query in gulp_queries:
         #     print(query)
 
+    if not len(gulp_queries):
+        MutyLogger.get_instance().warning(
+            "no sigma rules converted to queries (all filtered out?)"
+        )
     return gulp_queries

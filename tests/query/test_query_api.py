@@ -111,7 +111,7 @@ async def _test_query_internal(q_type: str):
                         # query_gulp
                         q_name = "test_gulp_query"
                         q_options.name = q_name
-                        num_matches = 7
+                        num_matches: int = 7
                         await GulpAPIQuery.query_gulp(
                             guest_token,
                             TEST_OPERATION_ID,
@@ -125,7 +125,7 @@ async def _test_query_internal(q_type: str):
                     elif q_type == "raw":
                         q_name = "test_raw_query"
                         q_options.name = q_name
-                        num_matches = 7
+                        num_matches: int = 7
                         await GulpAPIQuery.query_raw(
                             guest_token,
                             TEST_OPERATION_ID,
@@ -149,7 +149,7 @@ async def _test_query_internal(q_type: str):
 
                         ids: list[str] = ["64e7c3a4013ae243aa13151b5449aac884e36081"]
                         num_matches = 7
-                        q_name = "Match All Events"
+                        q_name = "test_sigma"
                         q_options.create_notes = True
                         await GulpAPIQuery.query_sigma(
                             guest_token,
@@ -159,22 +159,58 @@ async def _test_query_internal(q_type: str):
                             q_options=q_options,
                             req_id="req_test_sigma",
                         )
+                    elif q_type == "query_sigma_group":
+                        sigma_1_yml: str = await muty.file.read_file_async(
+                            os.path.join(current_dir, "sigma/match_some.yaml")
+                        )
+                        sigma_2_yml: str = await muty.file.read_file_async(
+                            os.path.join(current_dir, "sigma/match_some_more.yaml")
+                        )
+
+                        ids: list[str] = ["64e7c3a4013ae243aa13151b5449aac884e36081"]
+                        num_matches: int = 5
+                        q_name = "test_sigma_group"
+                        q_options.create_notes = True
+                        q_options.group = "sigma_group"
+                        await GulpAPIQuery.query_sigma(
+                            guest_token,
+                            TEST_OPERATION_ID,
+                            [sigma_1_yml.decode("utf-8"), sigma_2_yml.decode("utf-8")],
+                            src_ids=ids,
+                            q_options=q_options,
+                            req_id="req_test_sigma_group",
+                        )
+                elif data["type"] == "query_group_match":
+                    # query group match!
+                    q_match_packet: GulpQueryGroupMatchPacket = (
+                        GulpQueryGroupMatchPacket.model_validate(payload)
+                    )
+                    MutyLogger.get_instance().debug(
+                        "query_group_match, group=%s, matches=%s",
+                        q_match_packet.group,
+                        q_match_packet.matches,
+                    )
+                    assert q_match_packet.group == "sigma_group"
+                    test_completed = True
+                    break
                 elif data["type"] == "query_done":
-                    # query done
+                    # a single query is done
+                    # query sigma group waits for query_group_match packets
                     q_done_packet: GulpQueryDonePacket = (
                         GulpQueryDonePacket.model_validate(payload)
                     )
                     MutyLogger.get_instance().debug(
                         "query done, name=%s", q_done_packet.q_name
                     )
-                    if q_done_packet.q_name == q_name:
-                        assert q_done_packet.total_hits == num_matches
-                        test_completed = True
-                    else:
-                        raise ValueError(
-                            f"unexpected query name: {q_done_packet.q_name}, expected={q_name}"
-                        )
-                    break
+                    if q_name != "test_sigma_group":
+                        if q_done_packet.q_name == q_name:
+                            assert q_done_packet.total_hits == num_matches
+                            test_completed = True
+                        else:
+                            raise ValueError(
+                                f"unexpected query name: {q_done_packet.q_name}, expected={q_name}"
+                            )
+                        break
 
                 # ws delay
                 await asyncio.sleep(0.1)
@@ -229,6 +265,12 @@ async def test_query_raw_preview():
 async def test_query_sigma():
     await _test_query_internal("sigma")
     MutyLogger.get_instance().info(test_query_sigma.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_query_sigma_group():
+    await _test_query_internal("query_sigma_group")
+    MutyLogger.get_instance().info(test_query_sigma_group.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio

@@ -185,14 +185,22 @@ id of the websocket to use during a request.
     ) -> str:
         return group_id.strip()
 
+    _OBJ_ID_QUERY_PARAM = Query(
+        description="the object id",
+        example="obj_id",
+    )
     @staticmethod
     def param_obj_id(
         obj_id: Annotated[
             str,
-            Query(description="the object id", example="obj_id"),
+            _OBJ_ID_QUERY_PARAM,
         ],
     ) -> str:
         return obj_id.lower().strip()
+
+    @staticmethod
+    def param_obj_id_optional(obj_id: Annotated[str, _OBJ_ID_QUERY_PARAM] = None) -> str:
+        return obj_id.strip() if obj_id else None
 
     _USER_ID_QUERY_PARAM = Query(
         description="id of an user in the collab database.",

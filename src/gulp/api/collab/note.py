@@ -225,12 +225,13 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 tags=tt,
                 color=color,
                 private=False,
-                obj_id=muty.crypto.hash_xxh128(str(associated_doc)),
                 doc=associated_doc,
                 text=text,
                 context_id=associated_doc["gulp.context_id"],
                 source_id=associated_doc["gulp.source_id"],
             )
+            obj_id=muty.crypto.hash_xxh128(str(object_data))
+            object_data["id"]=obj_id
             notes.append(object_data)
 
         # bulk insert (handles duplicates)
@@ -241,7 +242,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         await sess.commit()
         inserted_ids = [row[0] for row in res]
         MutyLogger.get_instance().info(
-            "written %d notes on collab db" % len(inserted_ids)
+            "written %d notes on collab db", len(inserted_ids)
         )
 
         # send on ws, only keep the ones inserted (to avoid sending duplicates, but we always send something if "last" is set)
@@ -266,8 +267,8 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 d=p.model_dump(exclude_none=True),
             )
             MutyLogger.get_instance().debug(
-                "sent (inserted) notes on the websocket %s: notes=%d,inserted=%d (if 'notes' > 'inserted', duplicate notes were skipped!)"
-                % (ws_id, len(inserted_notes), len(notes))
+                "sent (inserted) notes on the websocket %s: notes=%d,inserted=%d,last=%r (if 'notes' > 'inserted', duplicate notes were skipped!)"
+                % (ws_id, len(notes), len(inserted_notes),last)
             )
         return len(inserted_notes)
 
