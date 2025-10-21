@@ -109,6 +109,7 @@ class WsIngestRawWorker:
                 stats: GulpRequestStats = None
                 mod: GulpPluginBase = None
                 while True:
+                    exx: Exception = None
                     packet: InternalWsIngestPacket = (
                         InternalWsIngestPacket.model_validate(input_queue.get())
                     )
@@ -150,20 +151,19 @@ class WsIngestRawWorker:
                             plugin_params=packet.data.plugin_params,
                             last=packet.data.last,
                         )
-
-                        # update stats
-                        await mod.update_stats_and_flush(flt=packet.data.flt)
                     except Exception as ex:
                         MutyLogger.get_instance().exception(ex)
+                        exx = ex
+                    finally:
                         if mod:
                             # update stats
-                            await mod.update_stats_and_flush(flt=packet.data.flt, ex=ex)
-                    finally:
-                        if packet.data.last:
-                            if mod:
+                            await mod.update_stats_and_flush(
+                                flt=packet.data.flt, ex=exx
+                            )
+                            if packet.data.last:
+                                # exit loop
                                 await mod.unload()
-                            # exit loop
-                            break
+                                break
 
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)

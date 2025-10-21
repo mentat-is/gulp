@@ -133,7 +133,7 @@ uses an `enrichment` plugin to augment data in multiple documents.
 - `flt.operation_ids` is ignored and set to `[operation_id]`
 - `flt` is provided as a `GulpQueryFilter` to select the documents to enrich.
 
-## tracking progress
+### tracking progress
 
 during enrichment, the following is sent on the websocket `ws_id`:
 
@@ -433,7 +433,7 @@ Tag important documents, so they can be queried back via `gulp.tags` provided vi
 - this funciton returns `pending` and the enriched documents are updated in the Gulp `operation_id.index` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
 - `flt.operation_ids` is ignored and set to `[operation_id]`
 
-## tracking progress
+### tracking progress
 
 Tagging is an `enrichment`, from gulp's point of view: so, the flow on `ws_id` is the same as the `enrich_documents` API.
 

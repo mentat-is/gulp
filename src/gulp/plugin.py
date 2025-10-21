@@ -1492,7 +1492,7 @@ class GulpPluginBase(ABC):
             flt(GulpQueryFilter, optional): a filter to restrict the documents to enrich. Defaults to None.
             plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
             kwargs: additional keyword arguments:
-                - rq (dict): a raw query to be used, additionally to the filter
+                - rq (dict): the raw query used by the engine to select the documents to enrich (will be merged with flt, if any)
 
         Returns:
             tuple[int, int, list[str], bool]: total hits for the query, total enriched documents (may be less than total hits if errors), list of unique errors encountered (if any), and whether the request was canceled
@@ -1520,6 +1520,9 @@ class GulpPluginBase(ABC):
 
         # check if the caller provided a raw query to be used
         rq = kwargs.get("rq", None)
+        if not rq:
+            raise ValueError("enrich_documents: raw query missing, 'rq' must be provided by plugin to core via kwargs")
+        
         q: dict = {}
         if not flt:
             flt = GulpQueryFilter()
@@ -2408,6 +2411,7 @@ class GulpPluginBase(ABC):
         self._records_processed_total += 1
 
         if self._preview_mode:
+            # MutyLogger.get_instance().debug("***PREVIEW MODE*** got %d docs", len(docs))
             # preview, accumulate docs
             for d in docs:
                 # remove highlight if present
@@ -2857,7 +2861,6 @@ class GulpPluginBase(ABC):
             len(self._docs_buffer),
             self._stats.status,
         )
-
         ingested: int = 0
         skipped: int = 0
         errors: list[str] = []

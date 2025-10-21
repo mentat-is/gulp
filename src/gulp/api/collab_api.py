@@ -563,12 +563,9 @@ class GulpCollab:
                 glyphs.append(d)
                 if len(glyphs) == chunk_size:
                     # insert bulk
-                    MutyLogger.get_instance().debug(
-                        "inserting bulk of %d glyphs ..." % (len(glyphs))
-                    )
                     await sess.execute(insert(GulpGlyph).values(glyphs))
                     MutyLogger.get_instance().debug(
-                        "inserted bulk %d glyphs ..." % (len(glyphs))
+                        "inserted bulk of %d glyphs ..." % (len(glyphs))
                     )
                     glyphs = []
 

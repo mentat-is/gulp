@@ -214,7 +214,7 @@ rebases documents `in-place` using `update_by_query`, shifting timestamps.
 - `token` needs `ingest` permission.
 - `flt` may be used to filter the documents to rebase.
 
-## tracking progress
+### tracking progress
 
 from the gulp's point of view, the rebase operation is an `enrichment`, so the flow of data on `ws_id` is the same:
 

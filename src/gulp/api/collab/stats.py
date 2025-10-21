@@ -352,7 +352,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
     async def set_finished(
         self,
         sess: AsyncSession,
-        status: GulpRequestStatus=None,
+        status: GulpRequestStatus = None,
         data: dict = None,
         time_expire: int = 0,
         user_id: str = None,
@@ -392,7 +392,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             MutyLogger.get_instance().info(
                 "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
                 self.status,
-                (self.time_finished - self.time_created) // 1000, # time elapsed in seconds
+                (self.time_finished - self.time_created)
+                // 1000,  # time elapsed in seconds
                 self,
             )
             return await self.update(
@@ -527,11 +528,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             if source_finished or set_expiration:
                 # this request is done, compute status value
                 d.source_processed += 1
-                if status and (
-                    status == GulpRequestStatus.CANCELED.value
-                    or status == GulpRequestStatus.FAILED.value
-                ):
-                    # if the request was canceled or failed, mark one more source as failed
+                if status and status in [GulpRequestStatus.FAILED.value, GulpRequestStatus.CANCELED.value,]:
+                    # if the request w as canceled or failed, mark one more source as failed
                     d.source_failed += 1
 
                 if d.source_processed >= d.source_total:

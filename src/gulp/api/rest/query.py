@@ -83,7 +83,7 @@ from gulp.api.ws_api import (
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpPluginParameters, ObjectNotFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router: APIRouter = APIRouter()
@@ -226,7 +226,7 @@ async def _run_query(
     mod: GulpPluginBase = None
     canceled: bool = False
     stats: GulpRequestStats = None
-
+    exx: Exception = None
     MutyLogger.get_instance().debug(
         "---> _run_query: user_id=%s, req_id=%s, operation_id=%s, ws_id=%s, gq=%s, q_options=%s, index=%s, plugin=%s, plugin_params=%s",
         user_id,
@@ -256,8 +256,8 @@ async def _run_query(
                         req_id,
                         ws_id,
                         operation_id,
-                        index,
                         gq.q,
+                        index,
                         plugin_params,
                         q_options,
                     )
@@ -288,22 +288,28 @@ async def _run_query(
                     # )
                     total_hits = cb_context.get("total_hits", 0)
                     total_processed = cb_context.get("total_processed", 0)
+
+                if total_hits == 0:
+                    raise ObjectNotFound("no results found!")
+
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
-                if sess:
-                    await sess.rollback()
-                if isinstance(ex, RequestCanceledError):
-                    # request is canceled
-                    canceled = True
-                else:
-                    err = muty.log.exception_to_string(
-                        ex
-                    )  # , with_full_traceback=True)
-                    raise
+                await sess.rollback()
+                exx = ex
+                raise
             finally:
                 if mod:
+                    # finalize external query stats
+                    await mod.update_stats_and_flush(ex=exx)
                     await mod.unload()
     finally:
+        if isinstance(ex, RequestCanceledError):
+            # request is canceled
+            canceled = True
+        else:
+            # reraise exception
+            err = muty.log.exception_to_string(exx)  # , with_full_traceback=True)
+
         # signal WSDATA_QUERY_DONE on the websocket
         status: GulpRequestStatus = GulpRequestStatus.DONE
         if canceled:
@@ -324,6 +330,8 @@ async def _run_query(
             req_id=req_id,
             d=p.model_dump(exclude_none=True),
         )
+
+
 
     return total_hits, total_processed, q_options.name, canceled
 
@@ -376,8 +384,8 @@ async def process_queries(
                 ),
             )
 
-            # 1. add query history entries
-            if write_history:
+            # 1. add query history entries, only if group is not set: we want this only for manual queries
+            if write_history and not q_options.group:
                 history: list[GulpUserDataQueryHistoryEntry] = []
                 for gq in queries:
                     q_opts = deepcopy(
@@ -476,15 +484,17 @@ async def process_queries(
                         if err not in errors:
                             errors.append(err)
 
-                # update request stats, will auto-finalize the stats when completion is detected (all queries completed or request canceled)
-                await stats.update_query_stats(
-                    sess,
-                    user_id=user_id,
-                    ws_id=ws_id,
-                    hits=total_hits,
-                    inc_completed=len(coros) if auto_finalize_stats else 0,
-                    errors=errors,
-                )
+                if not plugin:
+                    # for default (non-external queries), update request stats, will auto-finalize the stats when completion is detected (all queries completed or request canceled)
+                    # in external queries, stats is updated by the ingestion loop
+                    await stats.update_query_stats(
+                        sess,
+                        user_id=user_id,
+                        ws_id=ws_id,
+                        hits=total_hits,
+                        inc_completed=len(coros) if auto_finalize_stats else 0,
+                        errors=errors,
+                    )
                 if req_canceled:
                     # request is canceled, stop processing more batches
                     MutyLogger.get_instance().warning(
@@ -507,6 +517,9 @@ async def process_queries(
                     num_queries_in_group,
                 )
                 return
+            MutyLogger.get_instance().info(
+                "we have a query_group match for group %s !", q_options.group
+            )
 
             # now, get all the keys in matched_queries and retag each note having the key as tag also with the group name
             query_names = list(matched_queries.keys())
@@ -531,7 +544,7 @@ async def process_queries(
             )
         except Exception as ex:
             if stats and not batching_step_reached:
-                # ensure we set the stats as failed on error (unless we reached a batching step, in which case the stats will be auto-finalized)
+                # ensure we set the stats as failed on error (unless we reached batching code, in which case the stats will be auto-finalized)
                 await stats.set_finished(
                     sess,
                     GulpRequestStatus.FAILED,
@@ -595,7 +608,7 @@ async def _preview_query(
                 user_id=None,
                 req_id=None,
                 ws_id=None,
-                operation_id=None,
+                operation_id="preview",
                 q=q,
                 index=None,
                 plugin_params=plugin_params,
@@ -665,7 +678,7 @@ query Gulp with a raw OpenSearch DSL query.
 - if `q_options.preview_mode` is set, this API takes the first query in the `q` array and the data is returned directly as `{ "total_hits": <total_hits>, "docs": <docs> }` in the response.
   size of `docs` in preview mode is limited to `gulp.config.preview_mode_num_docs` (default=10).
 
-## tracking progress
+### tracking progress
 
 during `raw_query, the flow of data on `ws_id` is the following:
 
@@ -808,7 +821,7 @@ for anything else, it is advised to use the more powerful `query_raw` API.
 - this API returns `pending` and results are streamed to the `ws_id` websocket.
 - if `q_options.preview_mode` is set, this API returns the data (a chunk) itself, without using the websocket.
 
-## tracking progress
+### tracking progress
 
 same as for `query_raw` API.
 
@@ -924,10 +937,14 @@ queries an external source using the target source query language, ingesting dat
 - `plugin` must implement `query_external` method.
 - `plugin_params.custom_parameters` must include all the parameters needed to connect to the external source.
 - token must have `ingest` permission (unless `q_options.preview_mode` is set).
+
+### q_options
+
+- `group` and `create_notes` are ignored for this API: notes are never created for external queries, and grouping is not supported.
 - if `q_options.preview_mode` is set, this API only accepts a single query in the `q` array and the data is returned directly without using the websocket.
 - `q` runs in a task in one of the worker processes, unless `preview_mode` is set.
 
-## tracking progress
+### tracking progress
 
 during `external query` (which, from the gulp's side, is an `ingestion`), the flow of data on `ws_id` is the same as for `ingest_file` API.
 
@@ -942,10 +959,10 @@ async def query_external_handler(
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     q: Annotated[
-        str,
+        Any,
         Body(
             description="""a query according to the source language specifications.""",
-            examples=[[{"query": {"match_all": {}}}]],
+            examples=[{"query": {"match_all": {}}}],
         ),
     ],
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
@@ -963,6 +980,9 @@ async def query_external_handler(
     params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
+    # ensure these are not set
+    q_options.group = None
+    q_options.create_notes = False
     try:
         async with GulpCollab.get_instance().session() as sess:
             try:
@@ -999,8 +1019,8 @@ async def query_external_handler(
                     )
 
                 # run a background task to process the query
-                # we use process_query_batch (but we have a single query only)
-                queries: list[GulpQuery] = [GulpQuery(name=q_options.name, q=q)]
+                # we use process_query_batch to reuse code (but we have a single query only)
+                queries: list[GulpQuery] = [GulpQuery(q_name=q_options.name, q=q)]
                 coro = process_queries(
                     user_id,
                     req_id,
@@ -1082,7 +1102,7 @@ if not provided, **all sources** in the `operation_id` are used.
 
 sigma rules may be filtered using `levels`, `products`, `categories`, `services` and `tags` parameters.
 
-## tracking progress
+### tracking progress
 
 same as for `query_raw` API.
 

@@ -497,7 +497,7 @@ this function returns the following:
 - `status=pending, http status code `200` if the upload is complete and the ingestion task has been enqueued
 - `status=success`, http status code `200` if the upload is complete and `preview_mode` is set, with `data` set to the preview chunk of documents
 
-#### tracking progress
+### tracking progress
 
 during ingesstion, the following is the flow on data on the websocket `ws_id`:
 
@@ -1051,7 +1051,7 @@ the json payload may contain the following fields:
 by default, the `raw` plugin is used: the data `chunk` is expected as a JSON text with a list of `GulpDocument` dictionaries.
 it is possible, however, to implement another plugin which takes a chunk of raw bytes as input.
 
-#### tracking progress
+### tracking progress
 
 the flow is the same as `ingest_file`.
 
