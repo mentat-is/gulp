@@ -233,7 +233,7 @@ async def test_raw(raw_data: list[dict] = None):
         raw_data=buf,
         operation_id=TEST_OPERATION_ID,
         # if we're passing raw_data (as in the enrich_whois test, this is the only chunk)
-        last=True if raw_data else False
+        last=True if raw_data else False,
     )
     if not raw_data:
         # ingest another (generate new random data)
@@ -345,11 +345,15 @@ async def test_ws_raw():
                             operation_id=TEST_OPERATION_ID,
                             req_id=TEST_REQ_ID,
                             ws_id=TEST_WS_ID,
-                            last=(i == n-1),
+                            last=(i == n - 1),
                         )
-                        packet_chunk: list[dict] = _generate_random_chunk(raw_chunk, size=1000)
+                        packet_chunk: list[dict] = _generate_random_chunk(
+                            raw_chunk, size=1000
+                        )
                         raw_data = json.dumps(packet_chunk).encode("utf-8")
-                        MutyLogger.get_instance().debug("sending chunk %d (%d documents)", i, len(packet_chunk))
+                        MutyLogger.get_instance().debug(
+                            "sending chunk %d (%d documents)", i, len(packet_chunk)
+                        )
                         # send json then chunk
                         await ws.send(p.model_dump_json(exclude_none=True))
                         await ws.send(raw_data)
@@ -524,27 +528,6 @@ async def test_csv_stacked():
     assert doc["event.duration"] == 9999
     assert doc["enriched"]
     MutyLogger.get_instance().info(test_csv_stacked.__name__ + " succeeded!")
-
-
-@pytest.mark.asyncio
-async def test_ingest_zip():
-    ingest_token = await GulpAPIUser.login("ingest", "ingest")
-    assert ingest_token
-
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    test_zip = os.path.join(current_dir, "test_ingest_zip.zip")
-
-    # ingest raw chunk
-    await GulpAPIIngest.ingest_zip(
-        token=ingest_token,
-        file_path=test_zip,
-        operation_id=TEST_OPERATION_ID,
-        context_name=TEST_CONTEXT_NAME,
-    )
-
-    # wait ws
-    await _test_ingest_ws_loop(check_ingested=13779, check_processed=13745)
-    MutyLogger.get_instance().info(test_ingest_zip.__name__ + " succeeded!")
 
 
 @pytest.mark.skipif(
@@ -924,7 +907,7 @@ async def test_mysql_general():
 
 
 @pytest.mark.asyncio
-async def test_ingest_to_source(file_path: str = None, skip_checks: bool = False):
+async def test_ingest_file_to_source(file_path: str = None, skip_checks: bool = False):
     # ingest first evtx first
     await test_win_evtx(file_path=file_path, skip_checks=skip_checks)
     source_id: str = "64e7c3a4013ae243aa13151b5449aac884e36081"
@@ -949,7 +932,7 @@ async def test_ingest_to_source(file_path: str = None, skip_checks: bool = False
     # now check operation total
     op = await GulpAPIOperation.operation_get_by_id(ingest_token, TEST_OPERATION_ID)
     assert op["doc_count"] == 6426
-    MutyLogger.get_instance().info(test_ingest_to_source.__name__ + " succeeded!")
+    MutyLogger.get_instance().info(test_ingest_file_to_source.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio
@@ -981,10 +964,65 @@ async def test_ingest_file_local():
         operation_id=TEST_OPERATION_ID,
         context_name=TEST_CONTEXT_NAME,
         plugin="win_evtx",
+        delete_after=True
     )
 
     await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
     MutyLogger.get_instance().info(test_ingest_file_local.__name__ + " succeeded!")
+
+@pytest.mark.asyncio
+async def test_ingest_zip():
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    test_zip = os.path.join(current_dir, "test_ingest_zip.zip")
+
+    # ingest raw chunk
+    await GulpAPIIngest.ingest_zip(
+        token=ingest_token,
+        file_path=test_zip,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+    )
+
+    # wait ws
+    await _test_ingest_ws_loop(check_ingested=13779, check_processed=13745)
+    MutyLogger.get_instance().info(test_ingest_zip.__name__ + " succeeded!")
+
+@pytest.mark.asyncio
+async def test_ingest_zip_local():
+    # get working directory
+    wrk_dir = os.getenv("GULP_WORKING_DIR", None)
+    if not wrk_dir:
+        home_path = os.path.expanduser("~")
+        wrk_dir = os.path.join(home_path, ".config/gulp")
+    ingest_local_dir = os.path.join(wrk_dir, "ingest_local")
+
+    # get zip file path
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    src_path = os.path.join(current_dir, "test_ingest_zip.zip")
+
+    # copy to ingest_local
+    dest_path = os.path.join(ingest_local_dir, "test_ingest_zip.zip")
+    await muty.file.copy_file_async(src_path, dest_path)
+    MutyLogger.get_instance().info(f"copied {src_path} to {dest_path}")
+
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    # ingest the file
+    await GulpAPIIngest.ingest_zip_local(
+        token=ingest_token,
+        file_path=dest_path,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+        delete_after=True
+    )
+
+    # wait ws
+    await _test_ingest_ws_loop(check_ingested=13779, check_processed=13745)
+    MutyLogger.get_instance().info(test_ingest_zip_local.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio

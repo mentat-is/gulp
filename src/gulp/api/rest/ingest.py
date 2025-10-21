@@ -606,9 +606,7 @@ async def ingest_file_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
-            operation: GulpOperation = await GulpOperation.get_by_id(
-                sess, operation_id
-            )
+            operation: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
             s = await GulpUserSession.check_token(
                 sess, token, obj=operation, permission=GulpUserPermission.INGEST
             )
@@ -643,8 +641,7 @@ async def ingest_file_handler(
                 ws_id=ws_id,
                 operation_id=operation_id,
                 context_name=context_name,
-                source_name=payload.original_file_path
-                or os.path.basename(file_path),
+                source_name=payload.original_file_path or os.path.basename(file_path),
                 index=index,
                 plugin=plugin,
                 file_path=file_path,
@@ -989,7 +986,7 @@ async def ingest_file_local_to_source_handler(
                 user_id=s.user_id,
                 req_id=req_id,
                 ws_id=ws_id,
-                operation_id=op.operation_id,
+                operation_id=op.id,
                 context_name=ctx.name,
                 source_name=src.name,
                 index=op.index,
@@ -1237,13 +1234,13 @@ async def _ingest_zip_internal(
                 stats.data = GulpIngestionStats(source_total=len(files)).model_dump(
                     exclude_none=True
                 )
-                await stats.commit(sess)
+                await sess.commit()
             except Exception as ex:
                 # set finished manually (we haven't reached the ingest loop yet)
                 await stats.set_finished(
                     sess,
                     GulpRequestStatus.FAILED,
-                    error=muty.log.exception_to_string(ex),
+                    errors=muty.log.exception_to_string(ex),
                 )
                 raise
 
@@ -1252,6 +1249,8 @@ async def _ingest_zip_internal(
                 kwds = dict(
                     context_name=context_name,
                     source_name=f.original_file_path,
+                    req_id=req_id,
+                    ws_id=ws_id,
                     index=index,
                     plugin=f.model_extra.get("plugin"),
                     file_path=f.model_extra.get("local_file_path"),
