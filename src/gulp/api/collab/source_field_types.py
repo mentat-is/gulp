@@ -107,48 +107,43 @@ a dict representing the type of each field ingested in this source.
         """
         obj_id = muty.crypto.hash_xxh128(f"{operation_id}{context_id}{source_id}")
 
-        try:
-            await GulpSourceFieldTypes.acquire_advisory_lock(sess, obj_id)
+        await GulpSourceFieldTypes.acquire_advisory_lock(sess, obj_id)
 
-            # check if the the source fields entry already exists
-            src_field_types: GulpSourceFieldTypes = await cls.get_by_id(
-                sess, obj_id, throw_if_not_found=False
-            )
-            if src_field_types:
-                # already exists, update it
-                MutyLogger.get_instance().debug(
-                    "---> updating source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
-                    obj_id,
-                    operation_id,
-                    context_id,
-                    source_id,
-                    len(field_types),
-                )
-                src_field_types.field_types = field_types
-                return await src_field_types.update(sess)
-
+        # check if the the source fields entry already exists
+        src_field_types: GulpSourceFieldTypes = await cls.get_by_id(
+            sess, obj_id, throw_if_not_found=False
+        )
+        if src_field_types:
+            # already exists, update it
             MutyLogger.get_instance().debug(
-                "---> create source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fieldtypes=%d",
+                "---> updating source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
                 obj_id,
                 operation_id,
                 context_id,
                 source_id,
                 len(field_types),
             )
+            src_field_types.field_types = field_types
+            return await src_field_types.update(sess)
 
-            # create new
-            obj: GulpSourceFieldTypes = await cls.create_internal(
-                sess,
-                user_id,
-                operation_id=operation_id,
-                obj_id=obj_id,
-                private=False,
-                context_id=context_id,
-                source_id=source_id,
-                field_types=field_types,
-            )
-            return obj.to_dict()
-        except:
-            # unlock and re-raise
-            await sess.rollback()
-            raise
+        MutyLogger.get_instance().debug(
+            "---> create source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fieldtypes=%d",
+            obj_id,
+            operation_id,
+            context_id,
+            source_id,
+            len(field_types),
+        )
+
+        # create new
+        obj: GulpSourceFieldTypes = await cls.create_internal(
+            sess,
+            user_id,
+            operation_id=operation_id,
+            obj_id=obj_id,
+            private=False,
+            context_id=context_id,
+            source_id=source_id,
+            field_types=field_types,
+        )
+        return obj.to_dict()

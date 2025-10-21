@@ -123,26 +123,22 @@ async def user_group_create_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # just check token permission
-                s: GulpUserSession = await GulpUserSession.check_token(
-                    sess, token, permission=[GulpUserPermission.ADMIN]
-                )
-                obj: GulpUserGroup = await GulpUserGroup.create_internal(
-                    sess,
-                    user_id=s.user_id,
-                    name=name,
-                    description=description,
-                    glyph_id=glyph_id,
-                    obj_id=muty.string.ensure_no_space_no_special(name.lower()),
-                    permission=permission,
-                )
-                return JSONResponse(
-                    JSendResponse.success(req_id=req_id, data=obj.to_dict())
-                )
-            except:
-                await sess.rollback()
-                raise
+            # just check token permission
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, permission=[GulpUserPermission.ADMIN]
+            )
+            obj: GulpUserGroup = await GulpUserGroup.create_internal(
+                sess,
+                user_id=s.user_id,
+                name=name,
+                description=description,
+                glyph_id=glyph_id,
+                obj_id=muty.string.ensure_no_space_no_special(name.lower()),
+                permission=permission,
+            )
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data=obj.to_dict())
+            )
 
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -197,27 +193,23 @@ async def user_group_update_handler(
                 "At least one of description, glyph_id, or permission must be provided."
             )
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj: GulpUserGroup
-                _, obj, _ = await GulpUserGroup.get_by_id_wrapper(
-                    sess,
-                    token,
-                    group_id,
-                    permission=[GulpUserPermission.ADMIN],
-                )
-                # update
-                if permission:
-                    obj.permission = permission
-                if description:
-                    obj.description = description
-                if glyph_id:
-                    obj.glyph_id = glyph_id
+            obj: GulpUserGroup
+            _, obj, _ = await GulpUserGroup.get_by_id_wrapper(
+                sess,
+                token,
+                group_id,
+                permission=[GulpUserPermission.ADMIN],
+            )
+            # update
+            if permission:
+                obj.permission = permission
+            if description:
+                obj.description = description
+            if glyph_id:
+                obj.glyph_id = glyph_id
 
-                dd: dict = await obj.update(sess)
-                return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
-            except:
-                await sess.rollback()
-                raise
+            dd: dict = await obj.update(sess)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -299,20 +291,16 @@ async def user_group_get_by_id_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                _, obj, _ = await GulpUserGroup.get_by_id_wrapper(
-                    sess,
-                    token,
-                    group_id,
-                    recursive=True,
-                    permission=[GulpUserPermission.ADMIN],
-                )
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
-                )
-            except:
-                await sess.rollback()
-                raise
+            _, obj, _ = await GulpUserGroup.get_by_id_wrapper(
+                sess,
+                token,
+                group_id,
+                recursive=True,
+                permission=[GulpUserPermission.ADMIN],
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -355,20 +343,16 @@ async def user_group_list_handler(
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                _, obj = await GulpUserGroup.get_by_filter_wrapper(
-                    sess,
-                    token,
-                    flt,
-                    recursive=True,
-                    permission=[GulpUserPermission.ADMIN],
-                )
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
-                )
-            except:
-                await sess.rollback()
-                raise
+            _, obj = await GulpUserGroup.get_by_filter_wrapper(
+                sess,
+                token,
+                flt,
+                recursive=True,
+                permission=[GulpUserPermission.ADMIN],
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -408,14 +392,10 @@ async def user_group_add_user_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj = await _add_remove_user(sess, token, group_id, user_id, add=True)
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
-                )
-            except:
-                await sess.rollback()
-                raise
+            obj = await _add_remove_user(sess, token, group_id, user_id, add=True)
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -455,13 +435,9 @@ async def user_group_remove_user_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj = await _add_remove_user(sess, token, group_id, user_id, add=False)
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
-                )
-            except:
-                await sess.rollback()
-                raise
+            obj = await _add_remove_user(sess, token, group_id, user_id, add=False)
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

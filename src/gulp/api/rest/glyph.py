@@ -141,27 +141,23 @@ async def glyph_update_handler(
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session as sess:
-            try:
-                if not any([name, img]):
-                    raise ValueError("At least one of name or img must be provided.")
-                obj: GulpGlyph
-                _, obj, _ = await GulpGlyph.get_by_id_wrapper(
-                    sess,
-                    token,
-                    obj_id,
-                    permission=GulpUserPermission.EDIT,
-                )
-                if name:
-                    obj.name = name
-                if img and isinstance(img, UploadFile):
-                    data = _read_img_file(img)
-                    obj.img = data
+            if not any([name, img]):
+                raise ValueError("At least one of name or img must be provided.")
+            obj: GulpGlyph
+            _, obj, _ = await GulpGlyph.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                permission=GulpUserPermission.EDIT,
+            )
+            if name:
+                obj.name = name
+            if img and isinstance(img, UploadFile):
+                data = _read_img_file(img)
+                obj.img = data
 
-                dd: dict = await obj.update(sess)
-                return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
-            except Exception as e:
-                await sess.rollback()
-                raise e
+            dd: dict = await obj.update(sess)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -235,19 +231,15 @@ async def glyph_get_by_id_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj: GulpGlyph
-                _, obj, _ = await GulpGlyph.get_by_id_wrapper(
-                    sess,
-                    token,
-                    obj_id,
-                )
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(exclude_none=True)
-                )
-            except:
-                await sess.rollback()
-                raise
+            obj: GulpGlyph
+            _, obj, _ = await GulpGlyph.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

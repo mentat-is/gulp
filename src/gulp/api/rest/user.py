@@ -222,28 +222,24 @@ async def login_handler(
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                s = await GulpUser.login(
-                    sess,
-                    user_id=user_id,
-                    password=password,
-                    ws_id=ws_id,
+            s = await GulpUser.login(
+                sess,
+                user_id=user_id,
+                password=password,
+                ws_id=ws_id,
+                req_id=req_id,
+                user_ip=ip,
+            )
+            return JSONResponse(
+                JSendResponse.success(
                     req_id=req_id,
-                    user_ip=ip,
+                    data={
+                        "token": s.id,
+                        "id": s.user.id,
+                        "time_expire": s.time_expire,
+                    },
                 )
-                return JSONResponse(
-                    JSendResponse.success(
-                        req_id=req_id,
-                        data={
-                            "token": s.id,
-                            "id": s.user.id,
-                            "time_expire": s.time_expire,
-                        },
-                    )
-                )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -288,20 +284,16 @@ async def logout_handler(
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # check permission and get user id
-                s: GulpUserSession = await GulpUserSession.check_token(sess, token)
-                await GulpUser.logout(sess, s, ws_id=ws_id, req_id=req_id, user_ip=ip)
+            # check permission and get user id
+            s: GulpUserSession = await GulpUserSession.check_token(sess, token)
+            await GulpUser.logout(sess, s, ws_id=ws_id, req_id=req_id, user_ip=ip)
 
-                return JSONResponse(
-                    JSendResponse.success(
-                        req_id=req_id,
-                        data={"id": s.user.id, "token": token},
-                    )
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={"id": s.user.id, "token": token},
                 )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -369,35 +361,31 @@ the new user id.
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # only admin can create users
-                await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+            # only admin can create users
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
 
-                # check if the user already exists
-                u: Optional[GulpUser] = await GulpUser.get_by_id(
-                    sess, user_id, throw_if_not_found=False
-                )
-                if u:
-                    raise ObjectAlreadyExists("user %s already exists." % user_id)
+            # check if the user already exists
+            u: Optional[GulpUser] = await GulpUser.get_by_id(
+                sess, user_id, throw_if_not_found=False
+            )
+            if u:
+                raise ObjectAlreadyExists("user %s already exists." % user_id)
 
-                user: GulpUser = await GulpUser.create_user(
-                    sess,
-                    user_id,
-                    password,
-                    permission=permission,
-                    email=email,
-                    glyph_id=glyph_id,
-                    user_data=user_data or {},
+            user: GulpUser = await GulpUser.create_user(
+                sess,
+                user_id,
+                password,
+                permission=permission,
+                email=email,
+                glyph_id=glyph_id,
+                user_data=user_data or {},
+            )
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data=user.to_dict(),
                 )
-                return JSONResponse(
-                    JSendResponse.success(
-                        req_id=req_id,
-                        data=user.to_dict(),
-                    )
-                )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -535,80 +523,76 @@ async def user_update_handler(
             )
 
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                s: GulpUserSession
-                u: GulpUser
-                if user_id:
-                    # get the requested user using the given token: it will work if the token is admin or it's the same user
-                    s, u, _ = await GulpUser.get_by_id_wrapper(
-                        sess, token, user_id, enforce_owner=True
+            s: GulpUserSession
+            u: GulpUser
+            if user_id:
+                # get the requested user using the given token: it will work if the token is admin or it's the same user
+                s, u, _ = await GulpUser.get_by_id_wrapper(
+                    sess, token, user_id, enforce_owner=True
+                )
+            else:
+                # no user_id specified, use the token user
+                s = await GulpUserSession.check_token(sess, token)
+                u = s.user
+
+            delete_existing_user_session: bool = False
+            if permission:
+                if not s.user.is_admin():
+                    # only admin can change permission
+                    raise MissingPermission(
+                        "only admin can change permission, session_user_id=%s"
+                        % (s.user.id)
+                    )
+
+                # ensure that all users have read permission
+                if GulpUserPermission.READ not in permission:
+                    permission.append(GulpUserPermission.READ)
+                delete_existing_user_session = True
+
+            pwd_hash: str = None
+            if password:
+                if not s.is_admin() and s.user.id != u.id:
+                    # only admin can change password to other users
+                    raise MissingPermission(
+                        "only admin can change password to other users, user_id=%s, session_user_id=%s"
+                        % (u.id, s.user.id)
+                    )
+                pwd_hash = muty.crypto.hash_sha256(password)
+                delete_existing_user_session = True
+
+            ud: dict = u.user_data if u.user_data else {}
+            if user_data:
+                if merge_user_data:
+                    # merge with existing user data
+                    MutyLogger.get_instance().debug("existing user data=%s" % (ud))
+                    ud.update(user_data)
+                    MutyLogger.get_instance().debug(
+                        "provided user_data=%s, updated user data=%s"
+                        % (user_data, ud)
                     )
                 else:
-                    # no user_id specified, use the token user
-                    s = await GulpUserSession.check_token(sess, token)
-                    u = s.user
+                    # replace existing user data
+                    ud = user_data
 
-                delete_existing_user_session: bool = False
-                if permission:
-                    if not s.user.is_admin():
-                        # only admin can change permission
-                        raise MissingPermission(
-                            "only admin can change permission, session_user_id=%s"
-                            % (s.user.id)
-                        )
-
-                    # ensure that all users have read permission
-                    if GulpUserPermission.READ not in permission:
-                        permission.append(GulpUserPermission.READ)
-                    delete_existing_user_session = True
-
-                pwd_hash: str = None
-                if password:
-                    if not s.is_admin() and s.user.id != u.id:
-                        # only admin can change password to other users
-                        raise MissingPermission(
-                            "only admin can change password to other users, user_id=%s, session_user_id=%s"
-                            % (u.id, s.user.id)
-                        )
-                    pwd_hash = muty.crypto.hash_sha256(password)
-                    delete_existing_user_session = True
-
-                ud: dict = u.user_data if u.user_data else {}
-                if user_data:
-                    if merge_user_data:
-                        # merge with existing user data
-                        MutyLogger.get_instance().debug("existing user data=%s" % (ud))
-                        ud.update(user_data)
-                        MutyLogger.get_instance().debug(
-                            "provided user_data=%s, updated user data=%s"
-                            % (user_data, ud)
-                        )
-                    else:
-                        # replace existing user data
-                        ud = user_data
-
-                if delete_existing_user_session and u.session:
-                    # invalidate session for the user being updated (user must login again then)
-                    MutyLogger.get_instance().warning(
-                        "updated user password or permission, invalidating session for user_id=%s"
-                        % (u.id)
-                    )
-                    await u.session.delete(sess)
-                    u.session = None
-
-                dd: dict = await u.update(
-                    sess,
-                    password=pwd_hash,
-                    permission=permission,
-                    email=email,
-                    glyph_id=glyph_id,
-                    user_data=ud,
+            if delete_existing_user_session and u.session:
+                # invalidate session for the user being updated (user must login again then)
+                MutyLogger.get_instance().warning(
+                    "updated user password or permission, invalidating session for user_id=%s"
+                    % (u.id)
                 )
+                await u.session.delete(sess)
+                u.session = None
 
-                return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            dd: dict = await u.update(
+                sess,
+                password=pwd_hash,
+                permission=permission,
+                email=email,
+                glyph_id=glyph_id,
+                user_data=ud,
+            )
+
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -687,17 +671,12 @@ async def user_session_keepalive_handler(
     sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # check acl
-                s: GulpUserSession = await GulpUserSession.check_token(
-                    sess,
-                    token,
-                )
-                return JSendResponse.success(req_id=req_id, data=s.time_expire)
-            except Exception as ex:
-                if sess:
-                    await sess.rollback()
-                raise
+            # check acl
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess,
+                token,
+            )
+            return JSendResponse.success(req_id=req_id, data=s.time_expire)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -740,24 +719,19 @@ async def user_get_by_id_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                s: GulpUserSession
-                u: GulpUser
-                if user_id:
-                    # get the requested user using the given token: it will work if the token is admin or it's the same user
-                    s, u, _ = await GulpUser.get_by_id_wrapper(
-                        sess, token, user_id, enforce_owner=True
-                    )
-                else:
-                    # no user_id specified, use the token user
-                    s = await GulpUserSession.check_token(sess, token)
-                    u = s.user
+            s: GulpUserSession
+            u: GulpUser
+            if user_id:
+                # get the requested user using the given token: it will work if the token is admin or it's the same user
+                s, u, _ = await GulpUser.get_by_id_wrapper(
+                    sess, token, user_id, enforce_owner=True
+                )
+            else:
+                # no user_id specified, use the token user
+                s = await GulpUserSession.check_token(sess, token)
+                u = s.user
 
-                return JSendResponse.success(req_id=req_id, data=u.to_dict())
-            except Exception as ex:
-                if sess:
-                    await sess.rollback()
-                raise
+            return JSendResponse.success(req_id=req_id, data=u.to_dict())
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -814,38 +788,33 @@ async def user_set_data_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                s: GulpUserSession
-                u: GulpUser
-                if user_id:
-                    # get the requested user using the given token: it will work if the token is admin or it's the same user
-                    s, u, _ = await GulpUser.get_by_id_wrapper(
-                        sess, token, user_id, enforce_owner=True
-                    )
-                else:
-                    # no user_id specified, use the token user
-                    s = await GulpUserSession.check_token(sess, token)
-                    u = s.user
-
-                # get data
-                ud: dict = u.user_data if u.user_data else {}
-                MutyLogger.get_instance().debug(
-                    "existing user data=%s"
-                    % (orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
+            s: GulpUserSession
+            u: GulpUser
+            if user_id:
+                # get the requested user using the given token: it will work if the token is admin or it's the same user
+                s, u, _ = await GulpUser.get_by_id_wrapper(
+                    sess, token, user_id, enforce_owner=True
                 )
+            else:
+                # no user_id specified, use the token user
+                s = await GulpUserSession.check_token(sess, token)
+                u = s.user
 
-                # update
-                ud[key] = value
-                MutyLogger.get_instance().debug(
-                    "new user data=%s"
-                    % (orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
-                )
-                await u.update(sess, user_data=ud)
-                return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
-            except Exception as ex:
-                if sess:
-                    await sess.rollback()
-                raise
+            # get data
+            ud: dict = u.user_data if u.user_data else {}
+            MutyLogger.get_instance().debug(
+                "existing user data=%s"
+                % (orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
+            )
+
+            # update
+            ud[key] = value
+            MutyLogger.get_instance().debug(
+                "new user data=%s"
+                % (orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
+            )
+            await u.update(sess, user_data=ud)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -900,43 +869,38 @@ async def user_get_data_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                s: GulpUserSession
-                u: GulpUser
-                if user_id:
-                    # get the requested user using the given token: it will work if the token is admin or it's the same user
-                    s, u, _ = await GulpUser.get_by_id_wrapper(
-                        sess, token, user_id, enforce_owner=True
-                    )
-                else:
-                    # no user_id specified, use the token user
-                    s = await GulpUserSession.check_token(sess, token)
-                    u = s.user
-
-                # get data
-                user_data: dict = u.user_data if u.user_data else {}
-                MutyLogger.get_instance().debug(
-                    "existing user data=%s"
-                    % (orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode())
+            s: GulpUserSession
+            u: GulpUser
+            if user_id:
+                # get the requested user using the given token: it will work if the token is admin or it's the same user
+                s, u, _ = await GulpUser.get_by_id_wrapper(
+                    sess, token, user_id, enforce_owner=True
                 )
-                if key:
-                    # get only the requested key
-                    if key not in user_data:
-                        raise ObjectNotFound(
-                            "key %s not found in user_data for user %s" % (key, u.id)
-                        )
-                    return JSONResponse(
-                        JSendResponse.success(req_id=req_id, data={key: user_data[key]})
-                    )
+            else:
+                # no user_id specified, use the token user
+                s = await GulpUserSession.check_token(sess, token)
+                u = s.user
 
-                # all
+            # get data
+            user_data: dict = u.user_data if u.user_data else {}
+            MutyLogger.get_instance().debug(
+                "existing user data=%s"
+                % (orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode())
+            )
+            if key:
+                # get only the requested key
+                if key not in user_data:
+                    raise ObjectNotFound(
+                        "key %s not found in user_data for user %s" % (key, u.id)
+                    )
                 return JSONResponse(
-                    JSendResponse.success(req_id=req_id, data=user_data)
+                    JSendResponse.success(req_id=req_id, data={key: user_data[key]})
                 )
-            except Exception as ex:
-                if sess:
-                    await sess.rollback()
-                raise
+
+            # all
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data=user_data)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -989,44 +953,39 @@ async def user_delete_data_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                s: GulpUserSession
-                u: GulpUser
-                if user_id:
-                    # get the requested user using the given token: it will work if the token is admin or it's the same user
-                    s, u, _ = await GulpUser.get_by_id_wrapper(
-                        sess, token, user_id, enforce_owner=True
-                    )
-                else:
-                    # no user_id specified, use the token user
-                    s = await GulpUserSession.check_token(sess, token)
-                    u = s.user
-
-                # get data
-                ud: dict = u.user_data if u.user_data else {}
-                MutyLogger.get_instance().debug(
-                    "existing user data=%s"
-                    % (orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
+            s: GulpUserSession
+            u: GulpUser
+            if user_id:
+                # get the requested user using the given token: it will work if the token is admin or it's the same user
+                s, u, _ = await GulpUser.get_by_id_wrapper(
+                    sess, token, user_id, enforce_owner=True
                 )
-                if key:
-                    # delete only the requested key
-                    if key not in ud:
-                        raise ObjectNotFound(
-                            "key %s not found in user_data for user %s" % (key, u.id)
-                        )
+            else:
+                # no user_id specified, use the token user
+                s = await GulpUserSession.check_token(sess, token)
+                u = s.user
 
-                    del ud[key]
-                    u.user_data = ud
-                    await u.update(sess)
-                    return JSONResponse(JSendResponse.success(req_id=req_id, data=ud))
+            # get data
+            ud: dict = u.user_data if u.user_data else {}
+            MutyLogger.get_instance().debug(
+                "existing user data=%s"
+                % (orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
+            )
+            if key:
+                # delete only the requested key
+                if key not in ud:
+                    raise ObjectNotFound(
+                        "key %s not found in user_data for user %s" % (key, u.id)
+                    )
 
-                # delete all
-                u.user_data = {}
+                del ud[key]
+                u.user_data = ud
                 await u.update(sess)
-                return JSONResponse(JSendResponse.success(req_id=req_id, data={}))
-            except Exception as ex:
-                if sess:
-                    await sess.rollback()
-                raise
+                return JSONResponse(JSendResponse.success(req_id=req_id, data=ud))
+
+            # delete all
+            u.user_data = {}
+            await u.update(sess)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data={}))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

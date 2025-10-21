@@ -472,6 +472,7 @@ class GulpRestServer:
                     # commit to release the lock
                     await sess.commit()
                 except Exception as e:
+                    # swallow exception and retry (we must rollback manually so)
                     await sess.rollback()
                     MutyLogger.get_instance().exception(e)
                     await asyncio.sleep(5)
@@ -677,7 +678,6 @@ class GulpRestServer:
         GulpOpenSearch.get_instance()
 
         # initialize collab database and create operation if needed
-        sess: AsyncSession = None
         try:
             if self._reset_collab:
                 from gulp.api.rest.db import db_reset
@@ -693,8 +693,6 @@ class GulpRestServer:
                         sess, self._create_operation, "admin", set_default_grants=True
                     )
         except Exception as ex:
-            if sess:
-                await sess.rollback()
             if first_run:
                 # allow restart on first run
                 self._reset_first_run()

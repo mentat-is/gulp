@@ -17,6 +17,7 @@ from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from llvmlite.tests.test_ir import flt
 from muty.jsend import JSendException, JSendResponse
+import muty.log
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from scipy import stats
@@ -59,10 +60,10 @@ async def _enrich_documents_internal(
     """
     # MutyLogger.get_instance().debug("---> _enrich_documents_internal")
     errors: list[str] = []
-    total_hits: int = 0
     enriched: int = 0
     stats: GulpRequestStats
     mod: GulpPluginBase = None
+    canceled: bool = False
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
@@ -76,9 +77,9 @@ async def _enrich_documents_internal(
                 data=GulpUpdateDocumentsStats().model_dump(exclude_none=True),
             )
 
-            # call plugin
+            # call plugin, the engine will update stats internally
             mod = await GulpPluginBase.load(plugin)
-            total_hits, enriched, errs, canceled = await mod.enrich_documents(
+            _, enriched, errs, canceled = await mod.enrich_documents(
                 sess,
                 stats,
                 user_id,
@@ -91,8 +92,17 @@ async def _enrich_documents_internal(
             )
             errors.extend(errs)
         except Exception as ex:
-            await sess.rollback()
-            errors.append(str(ex))
+            if stats:
+                if not mod:
+                    # close the stats as failed (module load failed)
+                    errors.append(muty.log.exception_to_string(ex))
+                    await stats.set_finished(
+                        sess,
+                        status=GulpRequestStatus.STATUS_FAILED,
+                        errors=errors,
+                        user_id=user_id,
+                        ws_id=ws_id,
+                    )
             raise
         finally:
             # done
@@ -163,20 +173,16 @@ async def enrich_documents_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # enforce operation_id
-                flt.operation_ids = [operation_id]
+            # enforce operation_id
+            flt.operation_ids = [operation_id]
 
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                s = await GulpUserSession.check_token(
-                    sess, token, obj=op, permission=GulpUserPermission.EDIT
-                )
-                user_id = s.user.id
-                index = op.index
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.EDIT
+            )
+            user_id = s.user.id
+            index = op.index
 
             # offload to a worker process and return pending
             await GulpRestServer.get_instance().spawn_worker_task(
@@ -271,9 +277,6 @@ async def enrich_single_id_handler(
                     source_id=doc["gulp.source_id"],
                 )
                 return JSONResponse(JSendResponse.success(req_id, data=doc))
-            except Exception as ex:
-                await sess.rollback()
-                raise
             finally:
                 if mod:
                     await mod.unload()
@@ -394,10 +397,17 @@ async def _tag_documents_internal(
                 cb_context=cb_context,
             )
         except Exception as ex:
-            await sess.rollback()
-            errors.append(str(ex))
-            if isinstance(ex, RequestCanceledError):
-                canceled = True
+            if stats and not total_hits:
+                if not isinstance(ex, RequestCanceledError):
+                    # close the stats as failed
+                    errors.append(muty.log.exception_to_string(ex))
+                    await stats.set_finished(
+                        sess,
+                        status=GulpRequestStatus.STATUS_FAILED,
+                        errors=errors,
+                        user_id=user_id,
+                        ws_id=ws_id,
+                    )
             raise
         finally:
             if enriched:
@@ -456,21 +466,16 @@ async def tag_documents_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # enforce operation_id
-                flt.operation_ids = [operation_id]
+            # enforce operation_id
+            flt.operation_ids = [operation_id]
 
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                s = await GulpUserSession.check_token(
-                    sess, token, obj=op, permission=GulpUserPermission.EDIT
-                )
-                user_id = s.user.id
-                index = op.index
-
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.EDIT
+            )
+            user_id = s.user.id
+            index = op.index
 
             # offload to a worker process and return pending
             await GulpRestServer.get_instance().spawn_worker_task(
@@ -530,40 +535,36 @@ async def tag_single_id_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                s: GulpUserSession = await GulpUserSession.check_token(
-                    sess, token, obj=op, permission=GulpUserPermission.EDIT
-                )
-                index = op.index
-                user_id = s.user.id
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.EDIT
+            )
+            index = op.index
+            user_id = s.user.id
 
-                # get the document
-                doc: dict = await GulpOpenSearch.get_instance().query_single_document(
-                    index, doc_id
-                )
+            # get the document
+            doc: dict = await GulpOpenSearch.get_instance().query_single_document(
+                index, doc_id
+            )
 
-                # update the document
-                doc["gulp.tags"] = tags
-                await GulpOpenSearch.get_instance().update_documents(
-                    index, [doc], wait_for_refresh=True
-                )
+            # update the document
+            doc["gulp.tags"] = tags
+            await GulpOpenSearch.get_instance().update_documents(
+                index, [doc], wait_for_refresh=True
+            )
 
-                # rebuild source_fields mapping in a worker
-                await GulpRestServer.get_instance().spawn_worker_task(
-                    GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
-                    None,  # sess=None to create a temporary one (a worker can't use the current one)
-                    index,
-                    user_id,
-                    operation_id=doc["gulp.operation_id"],
-                    context_id=doc["gulp.context_id"],
-                    source_id=doc["gulp.source_id"],
-                )
-                return JSONResponse(JSendResponse.success(req_id, data=doc))
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            # rebuild source_fields mapping in a worker
+            await GulpRestServer.get_instance().spawn_worker_task(
+                GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
+                None,  # sess=None to create a temporary one (a worker can't use the current one)
+                index,
+                user_id,
+                operation_id=doc["gulp.operation_id"],
+                context_id=doc["gulp.context_id"],
+                source_id=doc["gulp.source_id"],
+            )
+            return JSONResponse(JSendResponse.success(req_id, data=doc))
 
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

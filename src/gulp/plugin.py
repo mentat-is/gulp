@@ -1572,7 +1572,7 @@ class GulpPluginBase(ABC):
             if isinstance(ex, RequestCanceledError):
                 # flag canceled
                 canceled = True
-
+        
         return cb_context["total_hits"], cb_context["total_updated"], errors, canceled
 
     async def enrich_single_document(

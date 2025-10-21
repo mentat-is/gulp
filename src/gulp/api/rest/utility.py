@@ -74,18 +74,14 @@ async def request_get_by_id_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj: GulpRequestStats
-                _, obj, _ = await GulpRequestStats.get_by_id_wrapper(
-                    sess,
-                    token,
-                    obj_id,
-                    operation_id=operation_id,
-                )
-                return JSendResponse.success(req_id=req_id, data=obj.to_dict())
-            except:
-                await sess.rollback()
-                raise
+            obj: GulpRequestStats
+            _, obj, _ = await GulpRequestStats.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                operation_id=operation_id,
+            )
+            return JSendResponse.success(req_id=req_id, data=obj.to_dict())
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -141,36 +137,32 @@ async def request_cancel_handler(
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj: GulpRequestStats
-                _, obj, _ = await GulpRequestStats.get_by_id_wrapper(
-                    sess,
-                    token,
-                    req_id_to_cancel,
-                    operation_id=operation_id,
-                    enforce_owner=True,
-                )
-                await obj.cancel(sess, status=status, expire_now=expire_now)
+            obj: GulpRequestStats
+            _, obj, _ = await GulpRequestStats.get_by_id_wrapper(
+                sess,
+                token,
+                req_id_to_cancel,
+                operation_id=operation_id,
+                enforce_owner=True,
+            )
+            await obj.cancel(sess, status=status, expire_now=expire_now)
 
-                # also delete related tasks if any
-                d: int = await GulpTask.delete_by_filter(
-                    sess,
-                    GulpCollabFilter(
-                        operation_ids=[operation_id], req_id=[req_id_to_cancel]
-                    ),
-                    throw_if_not_found=False,
-                )
-                MutyLogger.get_instance().debug(
-                    "also deleted %d pending tasks for request %s"
-                    % (d, req_id_to_cancel)
-                )
+            # also delete related tasks if any
+            d: int = await GulpTask.delete_by_filter(
+                sess,
+                GulpCollabFilter(
+                    operation_ids=[operation_id], req_id=[req_id_to_cancel]
+                ),
+                throw_if_not_found=False,
+            )
+            MutyLogger.get_instance().debug(
+                "also deleted %d pending tasks for request %s"
+                % (d, req_id_to_cancel)
+            )
 
-                return JSendResponse.success(
-                    req_id=req_id, data={"id": req_id_to_cancel}
-                )
-            except:
-                await sess.rollback()
-                raise
+            return JSendResponse.success(
+                req_id=req_id, data={"id": req_id_to_cancel}
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -260,18 +252,14 @@ async def request_delete_handler(
     ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:                
-                s: GulpUserSession
-                s, _, _ = await GulpOperation.get_by_id_wrapper(sess, token, operation_id)
-                flt = GulpCollabFilter()
-                flt.operation_ids = [operation_id]
-                if obj_id:
-                    flt.ids = [obj_id]
-                deleted = await GulpRequestStats.delete_by_filter(sess, flt, s.user_id)
-                return JSendResponse.success(req_id=req_id, data={"deleted": deleted})
-            except:
-                await sess.rollback()
-                raise
+            s: GulpUserSession
+            s, _, _ = await GulpOperation.get_by_id_wrapper(sess, token, operation_id)
+            flt = GulpCollabFilter()
+            flt.operation_ids = [operation_id]
+            if obj_id:
+                flt.ids = [obj_id]
+            deleted = await GulpRequestStats.delete_by_filter(sess, flt, s.user_id)
+            return JSendResponse.success(req_id=req_id, data={"deleted": deleted})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

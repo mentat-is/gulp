@@ -383,11 +383,7 @@ class GulpOpenSearch:
         if not sess:
             # no session provided, create a temporary one
             async with GulpCollab.get_instance().session() as sess:
-                try:
-                    await _internal(sess)
-                except:
-                    await sess.rollback()
-                    raise
+                await _internal(sess)
         else:
             # session provided
             await _internal(sess)
@@ -520,18 +516,14 @@ class GulpOpenSearch:
         else:
             # no session provided, create a temporary one
             async with GulpCollab.get_instance().session() as sess:
-                try:
-                    await GulpSourceFieldTypes.create_or_update_source_field_types(
-                        sess,
-                        user_id,
-                        operation_id,
-                        context_id,
-                        source_id,
-                        filtered_mapping,
-                    )
-                except Exception as e:
-                    await sess.rollback()
-                    raise e
+                await GulpSourceFieldTypes.create_or_update_source_field_types(
+                    sess,
+                    user_id,
+                    operation_id,
+                    context_id,
+                    source_id,
+                    filtered_mapping,
+                )
 
         return filtered_mapping
 

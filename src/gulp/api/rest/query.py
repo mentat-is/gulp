@@ -294,7 +294,6 @@ async def _run_query(
 
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
-                await sess.rollback()
                 exx = ex
                 raise
             finally:
@@ -303,12 +302,12 @@ async def _run_query(
                     await mod.update_stats_and_flush(ex=exx)
                     await mod.unload()
     finally:
-        if isinstance(ex, RequestCanceledError):
+        if isinstance(exx, RequestCanceledError):
             # request is canceled
             canceled = True
         else:
             # reraise exception
-            err = muty.log.exception_to_string(exx)  # , with_full_traceback=True)
+            err = muty.log.exception_to_string(exx)
 
         # signal WSDATA_QUERY_DONE on the websocket
         status: GulpRequestStatus = GulpRequestStatus.DONE
@@ -330,8 +329,6 @@ async def _run_query(
             req_id=req_id,
             d=p.model_dump(exclude_none=True),
         )
-
-
 
     return total_hits, total_processed, q_options.name, canceled
 
@@ -562,11 +559,7 @@ async def process_queries(
     if not sess:
         # create the session
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                await _internal(sess)
-            except:
-                await sess.rollback()
-                raise
+            await _internal(sess)
     else:
         # use provided session
         await _internal(sess)
@@ -716,60 +709,56 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                s = await GulpUserSession.check_token(sess, token, obj=op)
-                user_id = s.user.id
-                if q_options.preview_mode:
-                    # preview mode, run the first query and return sync
-                    total_hits, docs = await _preview_query(
-                        sess,
-                        q[0],
-                        q_options,
-                        index=op.index,
-                    )
-                    return JSONResponse(
-                        JSendResponse.success(
-                            req_id=req_id, data={"total_hits": total_hits, "docs": docs}
-                        )
-                    )
-
-                # build queries
-                queries: list[GulpQuery] = []
-                count: int = 0
-                if len(q) == 1:
-                    # single query, use the provided name
-                    gq = GulpQuery(q_name=q_options.name, q=q[0])
-                    queries.append(gq)
-                else:
-                    # we build names for each query
-                    for qq in q:
-                        gq = GulpQuery(
-                            q_name="%s-%d" % (q_options.name, count),
-                            q=qq,
-                            q_group=q_options.group,
-                        )
-                        count += 1
-                        queries.append(gq)
-
-                # run a background task (will batch queries, spawn workers, gather results)
-                coro = process_queries(
-                    user_id,
-                    req_id,
-                    operation_id,
-                    ws_id,
-                    queries,
-                    len(queries),
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(sess, token, obj=op)
+            user_id = s.user.id
+            if q_options.preview_mode:
+                # preview mode, run the first query and return sync
+                total_hits, docs = await _preview_query(
+                    sess,
+                    q[0],
                     q_options,
+                    index=op.index,
                 )
-                GulpRestServer.spawn_bg_task(coro)
+                return JSONResponse(
+                    JSendResponse.success(
+                        req_id=req_id, data={"total_hits": total_hits, "docs": docs}
+                    )
+                )
 
-                # and return pending
-                return JSONResponse(JSendResponse.pending(req_id=req_id))
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            # build queries
+            queries: list[GulpQuery] = []
+            count: int = 0
+            if len(q) == 1:
+                # single query, use the provided name
+                gq = GulpQuery(q_name=q_options.name, q=q[0])
+                queries.append(gq)
+            else:
+                # we build names for each query
+                for qq in q:
+                    gq = GulpQuery(
+                        q_name="%s-%d" % (q_options.name, count),
+                        q=qq,
+                        q_group=q_options.group,
+                    )
+                    count += 1
+                    queries.append(gq)
+
+            # run a background task (will batch queries, spawn workers, gather results)
+            coro = process_queries(
+                user_id,
+                req_id,
+                operation_id,
+                ws_id,
+                queries,
+                len(queries),
+                q_options,
+            )
+            GulpRestServer.spawn_bg_task(coro)
+
+            # and return pending
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -848,46 +837,42 @@ async def query_gulp_handler(
         flt.operation_ids = [operation_id]
 
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                s = await GulpUserSession.check_token(sess, token, obj=op)
-                user_id = s.user.id
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(sess, token, obj=op)
+            user_id = s.user.id
 
-                # convert gulp query to raw query
-                q: dict = flt.to_opensearch_dsl()
-                if q_options.preview_mode:
-                    # preview mode, run the query and return the data
-                    total_hits, docs = await _preview_query(
-                        sess,
-                        q=q,
-                        q_options=q_options,
-                        index=op.index,
-                    )
-                    return JSONResponse(
-                        JSendResponse.success(
-                            req_id=req_id, data={"total_hits": total_hits, "docs": docs}
-                        )
-                    )
-
-                # run a background task to process the query
-                queries: list[GulpQuery] = [GulpQuery(name=q_options.name, q=q)]
-                coro = process_queries(
-                    user_id,
-                    req_id,
-                    operation_id,
-                    ws_id,
-                    queries,
-                    len(queries),
-                    q_options,
+            # convert gulp query to raw query
+            q: dict = flt.to_opensearch_dsl()
+            if q_options.preview_mode:
+                # preview mode, run the query and return the data
+                total_hits, docs = await _preview_query(
+                    sess,
+                    q=q,
+                    q_options=q_options,
+                    index=op.index,
                 )
-                GulpRestServer.spawn_bg_task(coro)
+                return JSONResponse(
+                    JSendResponse.success(
+                        req_id=req_id, data={"total_hits": total_hits, "docs": docs}
+                    )
+                )
 
-                # and return pending
-                return JSONResponse(JSendResponse.pending(req_id=req_id))
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            # run a background task to process the query
+            queries: list[GulpQuery] = [GulpQuery(name=q_options.name, q=q)]
+            coro = process_queries(
+                user_id,
+                req_id,
+                operation_id,
+                ws_id,
+                queries,
+                len(queries),
+                q_options,
+            )
+            GulpRestServer.spawn_bg_task(coro)
+
+            # and return pending
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -985,61 +970,57 @@ async def query_external_handler(
     q_options.create_notes = False
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # check token and get caller user id
-                if q_options.preview_mode:
-                    # preview mode, no ingest needed
-                    permission = GulpUserPermission.READ
+            # check token and get caller user id
+            if q_options.preview_mode:
+                # preview mode, no ingest needed
+                permission = GulpUserPermission.READ
 
-                else:
-                    # external query with ingest, needs ingest permission
-                    permission = GulpUserPermission.INGEST
+            else:
+                # external query with ingest, needs ingest permission
+                permission = GulpUserPermission.INGEST
 
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                s = await GulpUserSession.check_token(
-                    sess, token, permission=permission, obj=op
-                )
-                user_id = s.user.id
-                index = op.index
-                if q_options.preview_mode:
-                    # preview, query and return synchronously
-                    total_hits, docs = await _preview_query(
-                        sess,
-                        q,
-                        q_options,
-                        index=index,
-                        plugin=plugin,
-                        plugin_params=plugin_params,
-                    )
-                    return JSONResponse(
-                        JSendResponse.success(
-                            req_id=req_id, data={"total_hits": total_hits, "docs": docs}
-                        )
-                    )
-
-                # run a background task to process the query
-                # we use process_query_batch to reuse code (but we have a single query only)
-                queries: list[GulpQuery] = [GulpQuery(q_name=q_options.name, q=q)]
-                coro = process_queries(
-                    user_id,
-                    req_id,
-                    operation_id,
-                    ws_id,
-                    queries,
-                    len(queries),
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(
+                sess, token, permission=permission, obj=op
+            )
+            user_id = s.user.id
+            index = op.index
+            if q_options.preview_mode:
+                # preview, query and return synchronously
+                total_hits, docs = await _preview_query(
+                    sess,
+                    q,
                     q_options,
                     index=index,
                     plugin=plugin,
                     plugin_params=plugin_params,
                 )
-                GulpRestServer.spawn_bg_task(coro)
+                return JSONResponse(
+                    JSendResponse.success(
+                        req_id=req_id, data={"total_hits": total_hits, "docs": docs}
+                    )
+                )
 
-                # and return pending
-                return JSONResponse(JSendResponse.pending(req_id=req_id))
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            # run a background task to process the query
+            # we use process_query_batch to reuse code (but we have a single query only)
+            queries: list[GulpQuery] = [GulpQuery(q_name=q_options.name, q=q)]
+            coro = process_queries(
+                user_id,
+                req_id,
+                operation_id,
+                ws_id,
+                queries,
+                len(queries),
+                q_options,
+                index=index,
+                plugin=plugin,
+                plugin_params=plugin_params,
+            )
+            GulpRestServer.spawn_bg_task(coro)
+
+            # and return pending
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1166,56 +1147,52 @@ async def query_sigma_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                s = await GulpUserSession.check_token(sess, token, obj=op)
-                user_id = s.user.id
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(sess, token, obj=op)
+            user_id = s.user.id
 
-                # convert sigma rule/s using pysigma
-                queries: list[GulpQuery] = await sigmas_to_queries(
-                    sess,
-                    user_id,
-                    operation_id,
-                    (
-                        sigmas[:1] if q_options.preview_mode else sigmas
-                    ),  # use only first sigma in preview mode
-                    src_ids=src_ids,
-                    levels=levels,
-                    products=products,
-                    services=services,
-                    categories=categories,
-                    tags=tags,
+            # convert sigma rule/s using pysigma
+            queries: list[GulpQuery] = await sigmas_to_queries(
+                sess,
+                user_id,
+                operation_id,
+                (
+                    sigmas[:1] if q_options.preview_mode else sigmas
+                ),  # use only first sigma in preview mode
+                src_ids=src_ids,
+                levels=levels,
+                products=products,
+                services=services,
+                categories=categories,
+                tags=tags,
+            )
+
+            if q_options.preview_mode:
+                # preview mode, return sync
+                total_hits, docs = await _preview_query(
+                    sess, queries[0].q, q_options, index=op.index
+                )
+                return JSONResponse(
+                    JSendResponse.success(
+                        req_id=req_id, data={"total_hits": total_hits, "docs": docs}
+                    )
                 )
 
-                if q_options.preview_mode:
-                    # preview mode, return sync
-                    total_hits, docs = await _preview_query(
-                        sess, queries[0].q, q_options, index=op.index
-                    )
-                    return JSONResponse(
-                        JSendResponse.success(
-                            req_id=req_id, data={"total_hits": total_hits, "docs": docs}
-                        )
-                    )
+            # run a background task (will batch queries, spawn workers, gather results)
+            coro = process_queries(
+                user_id,
+                req_id,
+                operation_id,
+                ws_id,
+                queries,
+                len(queries),
+                q_options,
+            )
+            GulpRestServer.spawn_bg_task(coro)
 
-                # run a background task (will batch queries, spawn workers, gather results)
-                coro = process_queries(
-                    user_id,
-                    req_id,
-                    operation_id,
-                    ws_id,
-                    queries,
-                    len(queries),
-                    q_options,
-                )
-                GulpRestServer.spawn_bg_task(coro)
-
-                # and return pending
-                return JSONResponse(JSendResponse.pending(req_id=req_id))
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            # and return pending
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1257,19 +1234,15 @@ async def query_single_id_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                await GulpUserSession.check_token(sess, token, obj=op)
-                index = op.index
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            await GulpUserSession.check_token(sess, token, obj=op)
+            index = op.index
 
-                d = await GulpOpenSearch.get_instance().query_single_document(
-                    index, doc_id
-                )
-                return JSONResponse(JSendResponse.success(req_id, data=d))
-            except:
-                await sess.rollback()
-                raise
+            d = await GulpOpenSearch.get_instance().query_single_document(
+                index, doc_id
+            )
+            return JSONResponse(JSendResponse.success(req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1310,13 +1283,9 @@ async def query_history_get_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                s: GulpUserSession = await GulpUserSession.check_token(sess, token)
-                d = await s.user.get_query_history()
-                return JSONResponse(JSendResponse.success(req_id, data=d))
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            s: GulpUserSession = await GulpUserSession.check_token(sess, token)
+            d = await s.user.get_query_history()
+            return JSONResponse(JSendResponse.success(req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1379,19 +1348,15 @@ async def query_max_min_per_field(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                await GulpUserSession.check_token(sess, token, obj=op)
-                index = op.index
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            await GulpUserSession.check_token(sess, token, obj=op)
+            index = op.index
 
-                d = await GulpOpenSearch.get_instance().query_max_min_per_field(
-                    index, group_by=group_by, flt=flt
-                )
-                return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
-            except:
-                await sess.rollback()
-                raise
+            d = await GulpOpenSearch.get_instance().query_max_min_per_field(
+                index, group_by=group_by, flt=flt
+            )
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1467,29 +1432,25 @@ async def query_operations(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                s: GulpUserSession = await GulpUserSession.check_token(sess, token)
-                user_id = s.user.id
+            s: GulpUserSession = await GulpUserSession.check_token(sess, token)
+            user_id = s.user.id
 
-                # check token and get its accessible operations
-                ops: list[dict] = await GulpOperation.get_by_filter_wrapper(
-                    token,
-                    GulpCollabFilter(),
+            # check token and get its accessible operations
+            ops: list[dict] = await GulpOperation.get_by_filter_wrapper(
+                token,
+                GulpCollabFilter(),
+            )
+            operations: list[dict] = []
+            for o in ops:
+                # get each op details by querying the associated index
+                d = await GulpOpenSearch.get_instance().query_operations(
+                    o["index"], user_id
                 )
-                operations: list[dict] = []
-                for o in ops:
-                    # get each op details by querying the associated index
-                    d = await GulpOpenSearch.get_instance().query_operations(
-                        o["index"], user_id
-                    )
-                    operations.extend(d)
+                operations.extend(d)
 
-                return JSONResponse(
-                    JSendResponse.success(req_id=req_id, data=operations)
-                )
-            except:
-                await sess.rollback()
-                raise
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data=operations)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1556,60 +1517,56 @@ async def query_fields_by_source_handler(
     # TODO: make it return pending and send the result to websocket ?
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                s: GulpUserSession = await GulpUserSession.check_token(
-                    sess, token, obj=op
-                )
-                index = op.index
-                user_id = s.user.id
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, obj=op
+            )
+            index = op.index
+            user_id = s.user.id
 
-                # check if there is at least one document with operation_id, context_id and source_id
-                await GulpOpenSearch.get_instance().search_dsl_sync(
-                    index=index,
-                    q={
-                        "query": {
-                            "bool": {
-                                "must": [
-                                    {"term": {"gulp.operation_id": operation_id}},
-                                    {"term": {"gulp.context_id": context_id}},
-                                    {"term": {"gulp.source_id": source_id}},
-                                ]
-                            }
+            # check if there is at least one document with operation_id, context_id and source_id
+            await GulpOpenSearch.get_instance().search_dsl_sync(
+                index=index,
+                q={
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {"term": {"gulp.operation_id": operation_id}},
+                                {"term": {"gulp.context_id": context_id}},
+                                {"term": {"gulp.source_id": source_id}},
+                            ]
                         }
-                    },
-                    q_options=GulpQueryParameters(limit=1),
-                    raise_on_error=True,
-                )
+                    }
+                },
+                q_options=GulpQueryParameters(limit=1),
+                raise_on_error=True,
+            )
 
-                m = await GulpOpenSearch.get_instance().datastream_get_field_types_by_src(
-                    sess,
-                    operation_id,
-                    context_id,
-                    source_id,
-                    user_id,
-                )
-                if m:
-                    # return field types
-                    return JSONResponse(JSendResponse.success(req_id=req_id, data=m))
+            m = await GulpOpenSearch.get_instance().datastream_get_field_types_by_src(
+                sess,
+                operation_id,
+                context_id,
+                source_id,
+                user_id,
+            )
+            if m:
+                # return field types
+                return JSONResponse(JSendResponse.success(req_id=req_id, data=m))
 
-                # spawn a task to run fields mapping in a worker and return empty
-                await GulpRestServer.get_instance().spawn_worker_task(
-                    GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
-                    None,  # sess=None to create a temporary one (a worker can't use the current one)
-                    index,
-                    user_id,
-                    task_name="query_fields_by_source_handler_%s_%s_%s"
-                    % (operation_id, context_id, source_id),
-                    operation_id=operation_id,
-                    context_id=context_id,
-                    source_id=source_id,
-                )
-                return JSONResponse(JSendResponse.success(req_id=req_id, data={}))
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            # spawn a task to run fields mapping in a worker and return empty
+            await GulpRestServer.get_instance().spawn_worker_task(
+                GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
+                None,  # sess=None to create a temporary one (a worker can't use the current one)
+                index,
+                user_id,
+                task_name="query_fields_by_source_handler_%s_%s_%s"
+                % (operation_id, context_id, source_id),
+                operation_id=operation_id,
+                context_id=context_id,
+                source_id=source_id,
+            )
+            return JSONResponse(JSendResponse.success(req_id=req_id, data={}))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1755,14 +1712,10 @@ async def query_gulp_export_json_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-                _ = await GulpUserSession.check_token(sess, token, obj=op)
-                index = op.index
-            except:
-                await sess.rollback()
-                raise
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            _ = await GulpUserSession.check_token(sess, token, obj=op)
+            index = op.index
 
             # convert gulp query to opensearch dsl
             dsl: dict = flt.to_opensearch_dsl()

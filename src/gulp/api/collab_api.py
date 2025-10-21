@@ -596,30 +596,26 @@ class GulpCollab:
         from gulp.api.collab.glyph import GulpGlyph
         from gulp.api.collab.user import GulpUser
 
-        try:
-            async with self._collab_sessionmaker() as sess:
-                sess: AsyncSession
+        async with self._collab_sessionmaker() as sess:
+            sess: AsyncSession
 
-                # get users
-                admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
-                guest_user: GulpUser = await GulpUser.get_by_id(sess, "guest")
+            # get users
+            admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
+            guest_user: GulpUser = await GulpUser.get_by_id(sess, "guest")
 
-                # create glyphs from files
-                await self._load_icons(sess, admin_user.id)
+            # create glyphs from files
+            await self._load_icons(sess, admin_user.id)
 
-                # get user glyph
-                user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "user-round")
+            # get user glyph
+            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "user-round")
 
-                # pylint: disable=protected-access
+            # pylint: disable=protected-access
 
-                # assign glyphs
-                admin_user.glyph_id = user_glyph.id
-                if guest_user:
-                    guest_user.glyph_id = user_glyph.id
-                await sess.commit()
-        except Exception as e:
-            await sess.rollback()
-            raise e
+            # assign glyphs
+            admin_user.glyph_id = user_glyph.id
+            if guest_user:
+                guest_user.glyph_id = user_glyph.id
+            await sess.commit()
 
     async def _check_all_tables_exist(self, sess: AsyncSession) -> bool:
         """

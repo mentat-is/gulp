@@ -29,6 +29,7 @@ from typing import Awaitable, Callable, Optional, Annotated
 
 import muty.string
 import muty.time
+import muty.log
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 from muty.log import MutyLogger
@@ -105,14 +106,16 @@ class WsIngestRawWorker:
             "ws ingest _process_loop started, input_queue=%s" % (input_queue)
         )
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                stats: GulpRequestStats = None
-                mod: GulpPluginBase = None
-                while True:
-                    exx: Exception = None
+            stats: GulpRequestStats = None
+            mod: GulpPluginBase = None
+            
+            while True:
+                exx: Exception = None
+                try:
                     packet: InternalWsIngestPacket = (
                         InternalWsIngestPacket.model_validate(input_queue.get())
                     )
+                    
                     if not packet:
                         # empty packet, exit loop
                         MutyLogger.get_instance().debug(
@@ -132,42 +135,49 @@ class WsIngestRawWorker:
                             data=GulpIngestionStats().model_dump(exclude_none=True),
                         )
 
-                    try:
-                        if not mod:
-                            # load plugin on first received packet
-                            mod = await GulpPluginBase.load(packet.data.plugin)
+                    if not mod:
+                        # load plugin on first received packet
+                        mod = await GulpPluginBase.load(packet.data.plugin)
 
-                        # process raw data using plugin
-                        await mod.ingest_raw(
-                            sess,
-                            stats,
-                            packet.user_id,
-                            packet.data.req_id,
-                            packet.data.ws_id,
-                            packet.index,
-                            packet.data.operation_id,
-                            packet.raw_data,
-                            flt=packet.data.flt,
-                            plugin_params=packet.data.plugin_params,
-                            last=packet.data.last,
+                    # process raw data using plugin
+                    await mod.ingest_raw(
+                        sess,
+                        stats,
+                        packet.user_id,
+                        packet.data.req_id,
+                        packet.data.ws_id,
+                        packet.index,
+                        packet.data.operation_id,
+                        packet.raw_data,
+                        flt=packet.data.flt,
+                        plugin_params=packet.data.plugin_params,
+                        last=packet.data.last,
+                    )
+                except Exception as ex:
+                    # swallow, manual rollback
+                    await sess.rollback()
+                    MutyLogger.get_instance().exception(ex)
+                    exx = ex
+                finally:
+                    if mod:
+                        # update stats
+                        await mod.update_stats_and_flush(
+                            flt=packet.data.flt, ex=exx
                         )
-                    except Exception as ex:
-                        MutyLogger.get_instance().exception(ex)
-                        exx = ex
-                    finally:
-                        if mod:
-                            # update stats
-                            await mod.update_stats_and_flush(
-                                flt=packet.data.flt, ex=exx
+                        if packet.data.last:
+                            # last packet, exit loop
+                            await mod.unload()
+                            break
+                    else:
+                        # no plugin loaded, finalize stats with error and exit loop
+                        if stats:
+                            # finalize stats with error
+                            await stats.set_finished(
+                                sess,
+                                GulpRequestStatus.FAILED,
+                                errors=[muty.log.exception_to_string(exx)] if exx else None,
                             )
-                            if packet.data.last:
-                                # exit loop
-                                await mod.unload()
-                                break
-
-            except Exception as ex:
-                MutyLogger.get_instance().exception(ex)
-                await sess.rollback()
+                        break
 
         MutyLogger.get_instance().debug("ws ingest _process_loop done")
 
@@ -476,36 +486,32 @@ class GulpAPIWebsocket:
                     if not index:
                         # get operation if we don't have it
                         async with GulpCollab.get_instance().session() as sess:
-                            try:
-                                op = await GulpOperation.get_by_id(
-                                    sess,
-                                    ingest_packet.operation_id,
-                                    throw_if_not_found=False,
+                            op = await GulpOperation.get_by_id(
+                                sess,
+                                ingest_packet.operation_id,
+                                throw_if_not_found=False,
+                            )
+                            if not op or op.id != ingest_packet.operation_id:
+                                # missing or wrong operation, abort
+                                msg = (
+                                    "operation not found or operation_id mismatch! (packet.operation_id=%s)"
+                                    % (ingest_packet.operation_id)
                                 )
-                                if not op or op.id != ingest_packet.operation_id:
-                                    # missing or wrong operation, abort
-                                    msg = (
-                                        "operation not found or operation_id mismatch! (packet.operation_id=%s)"
-                                        % (ingest_packet.operation_id)
-                                    )
-                                    MutyLogger.get_instance().error(msg)
-                                    p = GulpWsErrorPacket(
-                                        error=msg,
-                                        error_code=GulpWsError.OBJECT_NOT_FOUND.name,
-                                    )
-                                    await GulpWsSharedQueue.get_instance().put(
-                                        WSDATA_ERROR,
-                                        user_id,
-                                        ws_id=ingest_packet.ws_id,
-                                        d=p.model_dump(exclude_none=True),
-                                    )
-                                    raise ObjectNotFound(msg)
+                                MutyLogger.get_instance().error(msg)
+                                p = GulpWsErrorPacket(
+                                    error=msg,
+                                    error_code=GulpWsError.OBJECT_NOT_FOUND.name,
+                                )
+                                await GulpWsSharedQueue.get_instance().put(
+                                    WSDATA_ERROR,
+                                    user_id,
+                                    ws_id=ingest_packet.ws_id,
+                                    d=p.model_dump(exclude_none=True),
+                                )
+                                raise ObjectNotFound(msg)
 
-                                # got operation's index
-                                index = op.index
-                            except:
-                                await sess.rollback()
-                                raise
+                            # got operation's index
+                            index = op.index
 
                     # package data for worker
                     packet = InternalWsIngestPacket(

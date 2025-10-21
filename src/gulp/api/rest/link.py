@@ -82,37 +82,33 @@ async def link_create_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # check token on operation
-                s: GulpUserSession
-                s, _, _ = await GulpOperation.get_by_id_wrapper(
-                    sess, token, operation_id, GulpUserPermission.EDIT
-                )
-                user_id: str = s.user.id
+            # check token on operation
+            s: GulpUserSession
+            s, _, _ = await GulpOperation.get_by_id_wrapper(
+                sess, token, operation_id, GulpUserPermission.EDIT
+            )
+            user_id: str = s.user.id
 
-                l: GulpLink = await GulpLink.create_internal(
-                    sess,
-                    user_id,
-                    ws_id=ws_id,
-                    private=private,
-                    req_id=req_id,
-                    operation_id=operation_id,
-                    glyph_id=glyph_id,
-                    tags=tags,
-                    color=color,
-                    description=description,
-                    name=name,
-                    doc_id_from=doc_id_from,
-                    doc_ids=doc_ids,
+            l: GulpLink = await GulpLink.create_internal(
+                sess,
+                user_id,
+                ws_id=ws_id,
+                private=private,
+                req_id=req_id,
+                operation_id=operation_id,
+                glyph_id=glyph_id,
+                tags=tags,
+                color=color,
+                description=description,
+                name=name,
+                doc_id_from=doc_id_from,
+                doc_ids=doc_ids,
+            )
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id, data=l.to_dict(exclude_none=True)
                 )
-                return JSONResponse(
-                    JSendResponse.success(
-                        req_id=req_id, data=l.to_dict(exclude_none=True)
-                    )
-                )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -165,36 +161,32 @@ async def link_update_handler(
                 "At least one of doc_ids, name, description, tags, glyph_id, color must be provided."
             )
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # check permissions on both operation and object
-                s: GulpUserSession
-                obj: GulpLink
-                s, obj, _ = await GulpLink.get_by_id_wrapper(
-                    sess,
-                    token,
-                    obj_id,
-                    permission=GulpUserPermission.EDIT,
-                )
+            # check permissions on both operation and object
+            s: GulpUserSession
+            obj: GulpLink
+            s, obj, _ = await GulpLink.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                permission=GulpUserPermission.EDIT,
+            )
 
-                # update
-                if doc_ids:
-                    obj.doc_ids = doc_ids
-                if name:
-                    obj.name = name
-                if description:
-                    obj.description = description
-                if tags:
-                    obj.tags = tags
-                if glyph_id:
-                    obj.glyph_id = glyph_id
-                if color:
-                    obj.color = color
+            # update
+            if doc_ids:
+                obj.doc_ids = doc_ids
+            if name:
+                obj.name = name
+            if description:
+                obj.description = description
+            if tags:
+                obj.tags = tags
+            if glyph_id:
+                obj.glyph_id = glyph_id
+            if color:
+                obj.color = color
 
-                dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
-                return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -271,19 +263,15 @@ async def link_get_by_id_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj: GulpLink
-                _, obj, _ = await GulpLink.get_by_id_wrapper(
-                    sess,
-                    token,
-                    obj_id,
-                )
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(exclude_none=True)
-                )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            obj: GulpLink
+            _, obj, _ = await GulpLink.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

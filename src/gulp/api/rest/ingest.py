@@ -329,7 +329,6 @@ async def _ingest_file_internal(
             await mod.broadcast_ingest_internal_event()
             return status, []
         except Exception as ex:
-            await sess.rollback()
             if mod:
                 # this source failed
                 await mod.update_stats_and_flush(flt=payload.flt, ex=ex)
@@ -606,56 +605,52 @@ async def ingest_file_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                operation: GulpOperation = await GulpOperation.get_by_id(
-                    sess, operation_id
-                )
-                s = await GulpUserSession.check_token(
-                    sess, token, obj=operation, permission=GulpUserPermission.INGEST
-                )
-                index = operation.index
-                user_id = s.user.id
+            # get operation and check acl
+            operation: GulpOperation = await GulpOperation.get_by_id(
+                sess, operation_id
+            )
+            s = await GulpUserSession.check_token(
+                sess, token, obj=operation, permission=GulpUserPermission.INGEST
+            )
+            index = operation.index
+            user_id = s.user.id
 
-                # handle multipart request manually
-                file_path, payload, result = (
-                    await ServerUtils.handle_multipart_chunked_upload(
-                        r=r,
-                        operation_id=operation_id,
-                        context_name=context_name,
-                        prefix=req_id,
-                    )
-                )
-                if not result.done:
-                    # upload not done yet, must continue upload with a new chunk
-                    d = JSendResponse.error(
-                        req_id=req_id, data=result.model_dump(exclude_none=True)
-                    )
-                    return JSONResponse(d, status_code=206)
-
-                # ensure payload is valid
-                payload = GulpIngestPayload.model_validate(payload)
-
-                # proceed with the ingestion
-                # we have all we need, proceed with ingestion outside the session
-                return await _preview_or_enqueue_ingest_task(
-                    sess,
-                    user_id=user_id,
-                    req_id=req_id,
-                    ws_id=ws_id,
+            # handle multipart request manually
+            file_path, payload, result = (
+                await ServerUtils.handle_multipart_chunked_upload(
+                    r=r,
                     operation_id=operation_id,
                     context_name=context_name,
-                    source_name=payload.original_file_path
-                    or os.path.basename(file_path),
-                    index=index,
-                    plugin=plugin,
-                    file_path=file_path,
-                    payload=payload,
-                    file_total=file_total,
+                    prefix=req_id,
                 )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            )
+            if not result.done:
+                # upload not done yet, must continue upload with a new chunk
+                d = JSendResponse.error(
+                    req_id=req_id, data=result.model_dump(exclude_none=True)
+                )
+                return JSONResponse(d, status_code=206)
+
+            # ensure payload is valid
+            payload = GulpIngestPayload.model_validate(payload)
+
+            # proceed with the ingestion
+            # we have all we need, proceed with ingestion outside the session
+            return await _preview_or_enqueue_ingest_task(
+                sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                context_name=context_name,
+                source_name=payload.original_file_path
+                or os.path.basename(file_path),
+                index=index,
+                plugin=plugin,
+                file_path=file_path,
+                payload=payload,
+                file_total=file_total,
+            )
     except Exception as ex:
         # cleanup
         if file_path:
@@ -707,75 +702,71 @@ async def ingest_file_to_source_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get source by id and check acl
-                s: GulpUserSession
-                src: GulpSource
-                op: GulpOperation
-                s, src, op = await GulpSource.get_by_id_wrapper(
-                    sess, token, source_id, GulpUserPermission.INGEST
-                )
-                user_id: str = s.user.id
+            # get source by id and check acl
+            s: GulpUserSession
+            src: GulpSource
+            op: GulpOperation
+            s, src, op = await GulpSource.get_by_id_wrapper(
+                sess, token, source_id, GulpUserPermission.INGEST
+            )
+            user_id: str = s.user.id
 
-                # get context
-                ctx: GulpContext = await GulpContext.get_by_id(sess, src.context_id)
-                context_name: str = ctx.name
+            # get context
+            ctx: GulpContext = await GulpContext.get_by_id(sess, src.context_id)
+            context_name: str = ctx.name
 
-                # handle multipart request manually
-                file_path: str
-                file_path, payload, result = (
-                    await ServerUtils.handle_multipart_chunked_upload(
-                        r=r,
-                        operation_id=src.operation_id,
-                        context_name=context_name,
-                        prefix=req_id,
-                    )
-                )
-                if not result.done:
-                    # upload not done yet, must continue upload with a new chunk
-                    d = JSendResponse.error(
-                        req_id=req_id, data=result.model_dump(exclude_none=True)
-                    )
-                    return JSONResponse(d, status_code=206)
-
-                # ensure payload is valid
-                payload = GulpIngestPayload.model_validate(payload)
-
-                # get plugin parameters either from payload or from the existing source
-                plugin_params = payload.plugin_params
-                if plugin_params.is_empty():
-                    plugin_params = GulpPluginParameters(
-                        mapping_parameters=GulpMappingParameters.model_validate(
-                            src.mapping_parameters
-                        )
-                    )
-                MutyLogger.get_instance().debug(
-                    "ingesting to existing source %s: context_name=%s, operation_id=%s, index=%s, user_id=%s, plugin=%s, plugin_params=%s",
-                    src.id,
-                    context_name,
-                    src.operation_id,
-                    op.index,
-                    user_id,
-                    src.plugin,
-                    plugin_params,
-                )
-
-                return await _preview_or_enqueue_ingest_task(
-                    sess,
-                    user_id=user_id,
-                    req_id=req_id,
-                    ws_id=ws_id,
+            # handle multipart request manually
+            file_path: str
+            file_path, payload, result = (
+                await ServerUtils.handle_multipart_chunked_upload(
+                    r=r,
                     operation_id=src.operation_id,
-                    context_name=ctx.name,
-                    source_name=src.name,
-                    index=op.index,
-                    plugin=src.plugin,
-                    file_path=file_path,
-                    payload=payload,
+                    context_name=context_name,
+                    prefix=req_id,
                 )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            )
+            if not result.done:
+                # upload not done yet, must continue upload with a new chunk
+                d = JSendResponse.error(
+                    req_id=req_id, data=result.model_dump(exclude_none=True)
+                )
+                return JSONResponse(d, status_code=206)
+
+            # ensure payload is valid
+            payload = GulpIngestPayload.model_validate(payload)
+
+            # get plugin parameters either from payload or from the existing source
+            plugin_params = payload.plugin_params
+            if plugin_params.is_empty():
+                plugin_params = GulpPluginParameters(
+                    mapping_parameters=GulpMappingParameters.model_validate(
+                        src.mapping_parameters
+                    )
+                )
+            MutyLogger.get_instance().debug(
+                "ingesting to existing source %s: context_name=%s, operation_id=%s, index=%s, user_id=%s, plugin=%s, plugin_params=%s",
+                src.id,
+                context_name,
+                src.operation_id,
+                op.index,
+                user_id,
+                src.plugin,
+                plugin_params,
+            )
+
+            return await _preview_or_enqueue_ingest_task(
+                sess,
+                user_id=user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=src.operation_id,
+                context_name=ctx.name,
+                source_name=src.name,
+                index=op.index,
+                plugin=src.plugin,
+                file_path=file_path,
+                payload=payload,
+            )
     except Exception as ex:
         # cleanup
         if file_path:
@@ -860,38 +851,33 @@ async def ingest_file_local_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation
-                s: GulpUserSession
-                s, op, _ = await GulpOperation.get_by_id_wrapper(
-                    sess, token, operation_id, permission=GulpUserPermission.INGEST
-                )
+            # get operation and check acl
+            op: GulpOperation
+            s: GulpUserSession
+            s, op, _ = await GulpOperation.get_by_id_wrapper(
+                sess, token, operation_id, permission=GulpUserPermission.INGEST
+            )
 
-                payload = GulpIngestPayload(
-                    flt=flt,
-                    plugin_params=plugin_params,
-                    original_file_path=path,
-                    file_sha1=None,  # not needed
-                )
-                return await _preview_or_enqueue_ingest_task(
-                    sess,
-                    user_id=s.user_id,
-                    req_id=req_id,
-                    ws_id=ws_id,
-                    operation_id=operation_id,
-                    context_name=context_name,
-                    source_name=path,
-                    index=op.index,
-                    plugin=plugin,
-                    file_path=path,
-                    payload=payload,
-                    delete_after=delete_after,
-                )
-
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            payload = GulpIngestPayload(
+                flt=flt,
+                plugin_params=plugin_params,
+                original_file_path=path,
+                file_sha1=None,  # not needed
+            )
+            return await _preview_or_enqueue_ingest_task(
+                sess,
+                user_id=s.user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=operation_id,
+                context_name=context_name,
+                source_name=path,
+                index=op.index,
+                plugin=plugin,
+                file_path=path,
+                payload=payload,
+                delete_after=delete_after,
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -973,49 +959,45 @@ async def ingest_file_local_to_source_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get source by id and check acl
-                s: GulpUserSession
-                src: GulpSource
-                op: GulpOperation
-                s, src, op = await GulpSource.get_by_id_wrapper(
-                    sess, token, source_id, GulpUserPermission.INGEST
-                )
+            # get source by id and check acl
+            s: GulpUserSession
+            src: GulpSource
+            op: GulpOperation
+            s, src, op = await GulpSource.get_by_id_wrapper(
+                sess, token, source_id, GulpUserPermission.INGEST
+            )
 
-                # get context
-                ctx: GulpContext = await GulpContext.get_by_id(sess, src.context_id)
+            # get context
+            ctx: GulpContext = await GulpContext.get_by_id(sess, src.context_id)
 
-                # use existing plugin parameters if not overridden
-                if plugin_params.is_empty():
-                    plugin_params = GulpPluginParameters(
-                        mapping_parameters=GulpMappingParameters.model_validate(
-                            src.mapping_parameters
-                        )
+            # use existing plugin parameters if not overridden
+            if plugin_params.is_empty():
+                plugin_params = GulpPluginParameters(
+                    mapping_parameters=GulpMappingParameters.model_validate(
+                        src.mapping_parameters
                     )
-                payload = GulpIngestPayload(
-                    flt=flt,
-                    plugin_params=plugin_params,
-                    original_file_path=path,
-                    file_sha1=None,  # not needed
                 )
+            payload = GulpIngestPayload(
+                flt=flt,
+                plugin_params=plugin_params,
+                original_file_path=path,
+                file_sha1=None,  # not needed
+            )
 
-                return await _preview_or_enqueue_ingest_task(
-                    sess,
-                    user_id=s.user_id,
-                    req_id=req_id,
-                    ws_id=ws_id,
-                    operation_id=op.operation_id,
-                    context_name=ctx.name,
-                    source_name=src.name,
-                    index=op.index,
-                    plugin=src.plugin,
-                    file_path=path,
-                    payload=payload,
-                    delete_after=delete_after,
-                )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            return await _preview_or_enqueue_ingest_task(
+                sess,
+                user_id=s.user_id,
+                req_id=req_id,
+                ws_id=ws_id,
+                operation_id=op.operation_id,
+                context_name=ctx.name,
+                source_name=src.name,
+                index=op.index,
+                plugin=src.plugin,
+                file_path=path,
+                payload=payload,
+                delete_after=delete_after,
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1155,7 +1137,6 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
                 # done
                 return JSONResponse(JSendResponse.success(req_id=req_id))
             except Exception as ex:
-                await sess.rollback()
                 if mod:
                     await mod.update_stats_and_flush(flt=flt, ex=ex)
                 raise
@@ -1286,9 +1267,6 @@ async def _ingest_zip_internal(
                     req_id=req_id,
                     params=kwds,
                 )
-        except:
-            await sess.rollback()
-            raise
         finally:
             # delete the zip file
             await muty.file.delete_file_or_dir_async(path)
@@ -1453,7 +1431,6 @@ async def ingest_zip_handler(
                 return JSONResponse(JSendResponse.pending(req_id=req_id))
 
             except Exception as ex:
-                await sess.rollback()
                 await muty.file.delete_file_or_dir_async(file_path)
                 raise
     except Exception as ex:
@@ -1559,7 +1536,6 @@ async def ingest_zip_local_handler(
                 # and return pending
                 return JSONResponse(JSendResponse.pending(req_id=req_id))
             except Exception as ex:
-                await sess.rollback()
                 if delete_after:
                     # delete the zip file
                     await muty.file.delete_file_or_dir_async(path)
@@ -1605,28 +1581,24 @@ async def ingest_local_list_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                await GulpUserSession.check_token(
-                    sess, token, permission=GulpUserPermission.INGEST
-                )
+            await GulpUserSession.check_token(
+                sess, token, permission=GulpUserPermission.INGEST
+            )
 
-                local_dir: str = GulpConfig.get_instance().path_ingest_local()
-                MutyLogger.get_instance().info(
-                    "listing local ingestion directory: %s", local_dir
-                )
-                l = await muty.file.list_directory_async(
-                    local_dir, files_only=True, recursive=True
-                )
+            local_dir: str = GulpConfig.get_instance().path_ingest_local()
+            MutyLogger.get_instance().info(
+                "listing local ingestion directory: %s", local_dir
+            )
+            l = await muty.file.list_directory_async(
+                local_dir, files_only=True, recursive=True
+            )
 
-                # remove the local_dir prefix from the path
-                d = []
-                for f in l:
-                    f = os.path.relpath(f, local_dir)
-                    d.append(f)
+            # remove the local_dir prefix from the path
+            d = []
+            for f in l:
+                f = os.path.relpath(f, local_dir)
+                d.append(f)
 
-                return JSendResponse.success(req_id=req_id, data=d)
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

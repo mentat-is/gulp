@@ -77,19 +77,15 @@ class GulpTask(GulpCollabBase, type=COLLABTYPE_TASK):
             "queueing task_type=%s, ws_id=%s, req_id=%s, params=%s"
             % (task_type, ws_id, req_id, muty.string.make_shorter(str(params), 100))
         )
-        try:
-            await GulpTask.create_internal(
-                sess,
-                user_id,
-                operation_id=operation_id,
-                req_id=req_id,
-                task_type=task_type,
-                pid=os.getpid(),
-                params=params,
-            )
-        except Exception as ex:
-            await sess.rollback()
-            raise
+        await GulpTask.create_internal(
+            sess,
+            user_id,
+            operation_id=operation_id,
+            req_id=req_id,
+            task_type=task_type,
+            pid=os.getpid(),
+            params=params,
+        )
 
     @override
     @classmethod

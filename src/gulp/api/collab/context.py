@@ -118,71 +118,67 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 self.operation_id, self.id, bare_name
             )
 
-        try:
-            await GulpSource.acquire_advisory_lock(sess, src_id)
+        await GulpSource.acquire_advisory_lock(sess, src_id)
 
-            # check if source already exists
-            src: GulpSource = await GulpSource.get_by_id(
-                sess, obj_id=src_id, throw_if_not_found=False
-            )
-            if src:
-                # MutyLogger.get_instance().debug(f"source {src.id}, name={name} already exists in context {self.id}.")
-                return src, False
+        # check if source already exists
+        src: GulpSource = await GulpSource.get_by_id(
+            sess, obj_id=src_id, throw_if_not_found=False
+        )
+        if src:
+            # MutyLogger.get_instance().debug(f"source {src.id}, name={name} already exists in context {self.id}.")
+            return src, False
 
-            # MutyLogger.get_instance().warning("creating new source: %s, id=%s", name, src_id)
+        # MutyLogger.get_instance().warning("creating new source: %s, id=%s", name, src_id)
 
-            # create new source and link it to context
-            object_data = {
-                "context_id": self.id,
-            }
-            if plugin and mapping_parameters:
-                object_data["plugin"] = plugin
+        # create new source and link it to context
+        object_data = {
+            "context_id": self.id,
+        }
+        if plugin and mapping_parameters:
+            object_data["plugin"] = plugin
 
-                # ensure sigma mappings are stored in the mapping parameters if set, to avoid having to reload them from file
-                from gulp.api.opensearch.sigma import get_sigma_mappings
+            # ensure sigma mappings are stored in the mapping parameters if set, to avoid having to reload them from file
+            from gulp.api.opensearch.sigma import get_sigma_mappings
 
-                sigma_mappings = await get_sigma_mappings(mapping_parameters)
-                if sigma_mappings:
-                    mapping_parameters.sigma_mappings = sigma_mappings
+            sigma_mappings = await get_sigma_mappings(mapping_parameters)
+            if sigma_mappings:
+                mapping_parameters.sigma_mappings = sigma_mappings
 
-                object_data["mapping_parameters"] = mapping_parameters.model_dump(
-                    exclude_none=True
-                )
-
-            src = await GulpSource.create_internal(
-                sess,
-                user_id,
-                operation_id=self.operation_id,
-                name=name,
-                glyph_id=glyph_id or "file",
-                color=color,
-                private=False,
-                ws_id=ws_id,
-                req_id=req_id,
-                obj_id=src_id,
-                **object_data,
+            object_data["mapping_parameters"] = mapping_parameters.model_dump(
+                exclude_none=True
             )
 
-            MutyLogger.get_instance().debug(
-                "context %s granted_user_ids=%s, granted_group_ids=%s"
-                % (
-                    self.id,
-                    self.granted_user_ids,
-                    self.granted_user_group_ids,
-                )
-            )
-            # TODO: at the moment, keep sources public (ACL checks are only done operation-wide)
-            # add same grants to the source as the context
-            # for u in self.granted_user_ids:
-            #     await src.add_user_grant(sess, u, commit=False)
-            # for g in self.granted_user_group_ids:
-            #     await src.add_group_grant(sess, g, commit=False)
+        src = await GulpSource.create_internal(
+            sess,
+            user_id,
+            operation_id=self.operation_id,
+            name=name,
+            glyph_id=glyph_id or "file",
+            color=color,
+            private=False,
+            ws_id=ws_id,
+            req_id=req_id,
+            obj_id=src_id,
+            **object_data,
+        )
 
-            await sess.refresh(self)
-            MutyLogger.get_instance().debug(
-                f"source {src.id}, name={name} added to context {self.id}, src={src}"
+        MutyLogger.get_instance().debug(
+            "context %s granted_user_ids=%s, granted_group_ids=%s"
+            % (
+                self.id,
+                self.granted_user_ids,
+                self.granted_user_group_ids,
             )
-            return src, True
-        except Exception as e:
-            await sess.rollback()
-            raise e
+        )
+        # TODO: at the moment, keep sources public (ACL checks are only done operation-wide)
+        # add same grants to the source as the context
+        # for u in self.granted_user_ids:
+        #     await src.add_user_grant(sess, u, commit=False)
+        # for g in self.granted_user_group_ids:
+        #     await src.add_group_grant(sess, g, commit=False)
+
+        await sess.refresh(self)
+        MutyLogger.get_instance().debug(
+            f"source {src.id}, name={name} added to context {self.id}, src={src}"
+        )
+        return src, True

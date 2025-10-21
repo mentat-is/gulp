@@ -147,16 +147,12 @@ async def object_add_granted_user_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj = await _modify_grants(
-                    sess, obj_id, obj_type, token, user_id, add=True, group=False
-                )
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
-                )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            obj = await _modify_grants(
+                sess, obj_id, obj_type, token, user_id, add=True, group=False
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -200,16 +196,12 @@ async def object_remove_granted_user_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj = await _modify_grants(
-                    sess, obj_id, obj_type, token, user_id, add=False, group=False
-                )
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
-                )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            obj = await _modify_grants(
+                sess, obj_id, obj_type, token, user_id, add=False, group=False
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -253,16 +245,12 @@ async def object_add_granted_group_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj = await _modify_grants(
-                    sess, obj_id, obj_type, token, group_id, add=True, group=True
-                )
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
-                )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            obj = await _modify_grants(
+                sess, obj_id, obj_type, token, group_id, add=True, group=True
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -306,16 +294,12 @@ async def object_remove_granted_group_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj = await _modify_grants(
-                    sess, obj_id, obj_type, token, group_id, add=False, group=True
-                )
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
-                )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            obj = await _modify_grants(
+                sess, obj_id, obj_type, token, group_id, add=False, group=True
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -360,20 +344,16 @@ async def object_make_private_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj = await _make_public_or_private(
-                    sess,
-                    obj_id=obj_id,
-                    obj_type=obj_type,
-                    token=token,
-                    private=True,
-                )
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
-                )
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            obj = await _make_public_or_private(
+                sess,
+                obj_id=obj_id,
+                obj_type=obj_type,
+                token=token,
+                private=True,
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -420,20 +400,15 @@ async def object_make_public_handler(
     sess: AsyncSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                obj = await _make_public_or_private(
-                    sess,
-                    obj_id=obj_id,
-                    obj_type=obj_type,
-                    token=token,
-                    private=False,
-                )
-                return JSendResponse.success(
-                    req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
-                )
-
-            except Exception as ex:
-                await sess.rollback()
-                raise
+            obj = await _make_public_or_private(
+                sess,
+                obj_id=obj_id,
+                obj_type=obj_type,
+                token=token,
+                private=False,
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

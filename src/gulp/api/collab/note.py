@@ -344,10 +344,6 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
 
         if not sess:
             async with GulpCollab.get_instance().session() as sess:
-                try:
-                    await _internal(sess)
-                except:
-                    await sess.rollback()
-                    raise
+                await _internal(sess)
         else:
             await _internal(sess)
