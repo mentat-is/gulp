@@ -7,8 +7,13 @@ import websockets
 import os
 from muty.log import MutyLogger
 
+from gulp.api.collab.stats import GulpRequestStats, GulpUpdateDocumentsStats
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp_client.common import _ensure_test_operation, GulpAPICommon
+from gulp_client.common import (
+    _ensure_test_operation,
+    GulpAPICommon,
+    _cleanup_test_operation,
+)
 from gulp_client.db import GulpAPIDb
 from gulp_client.operation import GulpAPIOperation
 from gulp_client.query import GulpAPIQuery
@@ -25,13 +30,10 @@ from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
-    skip_reset = os.getenv("SKIP_RESET", "0")
-    if skip_reset != "1":
-        await _ensure_test_operation()
+    if os.getenv("SKIP_RESET") == "1":
+        await _cleanup_test_operation()
     else:
-        GulpAPICommon.get_instance().init(
-            host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-        )
+        await _ensure_test_operation()
 
 
 async def _ws_loop_rebase_by_query(total: int = None):
@@ -47,27 +49,26 @@ async def _ws_loop_rebase_by_query(total: int = None):
         try:
             while True:
                 response = await ws.recv()
-                pkt = json.loads(response)
-                if pkt["type"] == "progress":
-                    # progress update
-                    MutyLogger.get_instance().debug(f"progress packet received: {pkt}")
-                    progress_packet = pkt["data"]
-                    done = progress_packet.get("done", None)
-                    if done == True:
-                        test_completed = True
-                        break
-                    else:
-                        raise ValueError(
-                            f"unexpected packet content: {progress_packet}"
-                        )
-                    break
-                elif pkt["type"] == "ws_connected":
-                    # ws connected
-                    MutyLogger.get_instance().debug("ws connected: %s", pkt)
+                data = json.loads(response)
+                payload = data.get("payload", {})
 
-                elif pkt["type"] == "stats_update":
+                if data["type"] == "ws_connected":
+                    # ws connected
+                    MutyLogger.get_instance().debug("ws connected: %s", data)
+                elif (
+                    payload
+                    and data["type"] == "stats_update"
+                    and payload["obj"]["req_type"] == "rebase"
+                ):
                     # stats update
-                    print("**** stats update ***: %s" % (pkt))
+                    stats: GulpRequestStats = GulpRequestStats.from_dict(payload["obj"])
+                    stats_data: GulpUpdateDocumentsStats = (
+                        GulpUpdateDocumentsStats.model_validate(payload["obj"]["data"])
+                    )
+                    MutyLogger.get_instance().info("stats: %s", stats)
+                elif data["type"] == "rebase_done":
+                    test_completed = True
+                    break
 
                 # ws delay
                 await asyncio.sleep(0.1)
@@ -111,21 +112,23 @@ async def test_db_api():
 
 @pytest.mark.asyncio
 async def test_rebase_by_query():
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx  # test_win_evtx_multiple
+    skip_reset = os.getenv("SKIP_RESET") == "1"
+    if not skip_reset:
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx  # test_win_evtx_multiple
+
+        # ingest some data
+        await test_win_evtx()  # test_win_evtx_multiple()
 
     # login users
     ingest_token = await GulpAPIUser.login("admin", "admin")
     assert ingest_token
 
-    # ingest some data
-    await test_win_evtx()  # test_win_evtx_multiple()
-
     # get doc by id
     source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
-    target_id = "50edff98db7773ef04378ec20a47f622"
-    d = await GulpAPIQuery.query_single_id(ingest_token, TEST_OPERATION_ID, target_id)
-    assert d["_id"] == target_id
+    doc_id = "4905967cfcaf2abe0e28322ff085619d"
+    d = await GulpAPIQuery.query_single_id(ingest_token, TEST_OPERATION_ID, doc_id)
+    assert d["_id"] == doc_id
     assert d["@timestamp"] == "2016-06-29T15:24:34.346000+00:00"
     assert d["gulp.timestamp"] == 1467213874345999872
 
@@ -140,8 +143,8 @@ async def test_rebase_by_query():
     await _ws_loop_rebase_by_query()
 
     # check same document again (should be 1 day ahead)
-    doc = await GulpAPIQuery.query_single_id(ingest_token, TEST_OPERATION_ID, target_id)
-    assert doc["_id"] == target_id
+    doc = await GulpAPIQuery.query_single_id(ingest_token, TEST_OPERATION_ID, doc_id)
+    assert doc["_id"] == doc_id
     assert doc["@timestamp"] == "2016-06-30T15:24:34.346000000Z"
     assert doc["gulp.timestamp"] == 1467300274345999872  # 1467213874345999872 + 1 day
     MutyLogger.get_instance().info(test_rebase_by_query.__name__ + " passed")

@@ -1464,13 +1464,12 @@ class GulpOpenSearch:
 
             if check_canceled_count % 10 == 0:
                 # every 10 chunk, call callback and check for request cancelation
-                canceled = (
-                    await GulpRequestStats.is_canceled(sess, req_id) if sess else False
-                )
+                canceled = await GulpRequestStats.is_canceled(sess, req_id)
 
             if callback:
-                # call the callback with progress update
+                # GulpProgressCallback
                 await callback(
+                    sess,
                     total_hits,
                     num_updated,
                     req_id=req_id,

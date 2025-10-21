@@ -65,9 +65,7 @@ async def db_reset() -> None:
             MutyLogger.get_instance().debug(
                 "found operation: %s, index=%s" % (op.id, op.index)
             )
-            MutyLogger.get_instance().info(
-                "deleting data for operation %s" % (op.id)
-            )
+            MutyLogger.get_instance().info("deleting data for operation %s" % (op.id))
 
             # delete the whole datastream
             await GulpOpenSearch.get_instance().datastream_delete(op.index)
@@ -94,10 +92,11 @@ async def _rebase_callback(
     """
     GulpProgressCallback to report progress during rebase.
     """
-    flt: GulpQueryFilter = kwargs["flt"]
-    errors: list[str] = kwargs["errors"]
-    stats: GulpRequestStats = kwargs["stats"]
-    ws_id: str = kwargs["ws_id"]
+    cb_context = kwargs["cb_context"]
+    flt: GulpQueryFilter = cb_context["flt"]
+    errors: list[str] = cb_context["errors"]
+    stats: GulpRequestStats = cb_context["stats"]
+    ws_id: str = cb_context["ws_id"]
     await stats.update_updatedocuments_stats(
         sess,
         user_id=stats.user_id,
@@ -106,7 +105,7 @@ async def _rebase_callback(
         updated=current,
         flt=flt,
         errors=errors,
-        last=last
+        last=last,
     )
 
 
@@ -125,11 +124,11 @@ async def _rebase_by_query_internal(
     """
     stats: GulpRequestStats = None
     total_hits: int = 0
-    canceled: bool = False
     errors: list[str] = []
-    status = GulpRequestStatus.DONE
+    total_hits: int = 0
+    total_updated: int = 0
+    errors: list[str] = []
     cb_context = {
-        "total_updated": 0,
         "flt": flt,
         "errors": errors,
         "ws_id": ws_id,
@@ -145,13 +144,13 @@ async def _rebase_by_query_internal(
                     operation_id,
                     req_type=RequestStatsType.REQUEST_TYPE_REBASE,
                     ws_id=ws_id,
-                    data=p.model_dump(exclude_none=True),
+                    data=GulpUpdateDocumentsStats(flt=flt).model_dump(exclude_none=True)
                 )
                 cb_context["stats"] = stats
 
                 (
                     total_hits,
-                    _,
+                    total_updated,
                     errors,
                 ) = await GulpOpenSearch.get_instance().opensearch_rebase_by_query(
                     sess,
@@ -163,16 +162,30 @@ async def _rebase_by_query_internal(
                     callback=_rebase_callback,
                     cb_context=cb_context,
                 )
+            except Exception as ex:
+                if stats and not total_hits:
+                    if not isinstance(ex, RequestCanceledError):
+                        # close the stats as failed
+                        errors.append(muty.log.exception_to_string(ex))
+                        await stats.set_finished(
+                            sess,
+                            status=GulpRequestStatus.STATUS_FAILED,
+                            errors=errors,
+                            user_id=user_id,
+                            ws_id=ws_id,
+                        )
+                raise
             finally:
-                # send a WSDATA_REBASE_DONE packet to the websocket
-                GulpWsSharedQueue.get_instance().put(
-                    WSDATA_REBASE_DONE,
-                    user_id,
-                    ws_id=ws_id,
-                    operation_id=operation_id,
-                    req_id=req_id,
-                    d=stats.to_dict(exclude_none=True) if stats else None,
-                )
+                if stats and total_updated >= 0:
+                    # send a WSDATA_REBASE_DONE packet to the websocket
+                    await GulpWsSharedQueue.get_instance().put(
+                        WSDATA_REBASE_DONE,
+                        user_id,
+                        ws_id=ws_id,
+                        operation_id=operation_id,
+                        req_id=req_id,
+                        d=stats.to_dict(exclude_none=True) if stats else None,
+                    )
 
     except Exception as ex:
         MutyLogger.get_instance().exception(ex)
@@ -215,7 +228,7 @@ from the gulp's point of view, the rebase operation is an `enrichment`, so the f
 
 plus, in the end of rebase the final stats is broadcasted:
 
-- `WSDATA_REBASE_DONE.payload`: `GulpRequestStats` when rebase is done, broadcasted to all connected websockets
+- `WSDATA_REBASE_DONE.payload`: `GulpRequestStats` when rebase is done (with at least one document updated), broadcasted to all connected websockets
 """,
 )
 async def opensearch_rebase_by_query_handler(
@@ -359,9 +372,7 @@ async def opensearch_delete_index_handler(
                 )
                 if op:
                     # delete the operation on collab
-                    await op.delete(
-                        sess, ws_id=None, user_id=s.user.id, req_id=req_id
-                    )
+                    await op.delete(sess, ws_id=None, user_id=s.user.id, req_id=req_id)
                 else:
                     MutyLogger.get_instance().warning(
                         f"operation with index={index} not found, skipping deletion..."
