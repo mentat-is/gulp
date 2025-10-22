@@ -40,8 +40,8 @@ class Plugin(GulpPluginBase):
         super().__init__(path, module_name, pickled=pickled, **kwargs)
         self._whois_cache = {}
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.ENRICHMENT]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.ENRICHMENT
 
     def display_name(self) -> str:
         return "enrich_circl_hash"

@@ -24,8 +24,8 @@ class Plugin(GulpPluginBase):
     example enrichment plugin.
     """
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.ENRICHMENT]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.ENRICHMENT
 
     def display_name(self) -> str:
         return "enrich_example"

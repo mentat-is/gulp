@@ -15,11 +15,7 @@ import string
 from typing import Any, override
 
 import aiosqlite
-import muty.crypto
-import muty.dict
 import muty.os
-import muty.string
-import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,8 +34,8 @@ muty.os.check_and_install_package("aiosqlite", ">=0.20.0")
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -173,140 +169,120 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                flt=flt,
-                plugin_params=plugin_params,
-                **kwargs,
+
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            flt=flt,
+            plugin_params=plugin_params,
+            **kwargs,
+        )
+
+        # get tables to map
+        tables_to_map: list[str] = []
+        d = list(str(key) for key in self._mappings.keys())
+        for m in d:
+            tables_to_map.append(m)
+
+        # get custom parameters
+        encryption_key: str = self._plugin_params.custom_parameters.get(
+            "encryption_key"
+        )
+        key_type: str = self._plugin_params.custom_parameters.get("key_type")
+        queries: dict = self._plugin_params.custom_parameters.get("queries")
+
+        # check if key_type is supported
+        if key_type.lower() not in ["key", "textkey", "hexkey"]:
+            MutyLogger.get_instance().warning(
+                "unsupported key type %s, defaulting to 'key'" % (key_type,)
             )
-
-            # get tables to map
-            tables_to_map: list[str] = []
-            d = list(str(key) for key in self._mappings.keys())
-            for m in d:
-                tables_to_map.append(m)
-
-            # get custom parameters
-            encryption_key: str = self._plugin_params.custom_parameters.get(
-                "encryption_key"
-            )
-            key_type: str = self._plugin_params.custom_parameters.get("key_type")
-            queries: dict = self._plugin_params.custom_parameters.get("queries")
-
-            # check if key_type is supported
-            if key_type.lower() not in ["key", "textkey", "hexkey"]:
-                MutyLogger.get_instance().warning(
-                    "unsupported key type %s, defaulting to 'key'" % (key_type,)
-                )
-                key_type = "key"
-
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self.update_stats_and_flush(flt)
-            return GulpRequestStatus.FAILED
+            key_type = "key"
 
         doc_idx = 0
 
         # these are the tables we are going to map, table names are our mapping_ids
         mapping_ids = list(str(key) for key in self._mappings.keys())
 
-        try:
-            async with aiosqlite.connect(file_path) as db:
-                db.row_factory = Plugin._dict_factory
-                if encryption_key is not None:
-                    # unlock the database
-                    async with db.execute(
-                        "PRAGMA ?='?'", (key_type, encryption_key)
-                    ) as cur:
-                        MutyLogger.get_instance().info(
-                            "attempting database decryption with provided key: %s"
-                            % (await cur.fetchall())
-                        )
-
-                # these are the tables found effectively matching the mapping_ids
-                tables_to_process = []
-
-                # get tables from both sqlite_master and sqlite_temp_master
-                # (TODO: should we 'split' tables and tmp_tables instead?)
+        async with aiosqlite.connect(file_path) as db:
+            db.row_factory = Plugin._dict_factory
+            if encryption_key is not None:
+                # unlock the database
                 async with db.execute(
-                    """SELECT name FROM sqlite_master WHERE type='table'
-                                        UNION
-                                        SELECT name FROM sqlite_temp_master WHERE type='table'"""
+                    "PRAGMA ?='?'", (key_type, encryption_key)
                 ) as cur:
-                    for table in await cur.fetchall():
-                        if (
-                            table["name"] in mapping_ids
-                        ):  # only map tables that have a mapping
-                            tables_to_process.append(table["name"])
-
-                for table in tables_to_process:
-                    # parametrized queries are not supported for "FROM {}",
-                    table = self._sanitize_value(table)
-
-                    data_query: str = queries.get(table, None)
-                    metadata_query = (
-                        None  # TODO: which metadata to get and what to map it to
+                    MutyLogger.get_instance().info(
+                        "attempting database decryption with provided key: %s"
+                        % (await cur.fetchall())
                     )
 
-                    if data_query is None:
-                        data_query = f"SELECT * FROM {table}"
-                    if metadata_query is None:
-                        metadata_query = (
-                            f'SELECT name FROM pragma_table_info("{table}") WHERE pk=1'
-                        )
+            # these are the tables found effectively matching the mapping_ids
+            tables_to_process = []
 
-                    data_query = str(data_query).format(table=table)
+            # get tables from both sqlite_master and sqlite_temp_master
+            # (TODO: should we 'split' tables and tmp_tables instead?)
+            async with db.execute(
+                """SELECT name FROM sqlite_master WHERE type='table'
+                                    UNION
+                                    SELECT name FROM sqlite_temp_master WHERE type='table'"""
+            ) as cur:
+                for table in await cur.fetchall():
+                    if (
+                        table["name"] in mapping_ids
+                    ):  # only map tables that have a mapping
+                        tables_to_process.append(table["name"])
 
-                    # process this table
-                    async with db.execute(data_query) as cur:
-                        for row in await cur.fetchall():
-                            # print(f"gulp.sqlite.{db_name}.{table}.{column} = {value}")
-                            d: dict = {}
-                            d["gulp.sqlite.db.name"] = os.path.basename(file_path)
-                            d["gulp.sqlite.db.table.name"] = table
+            for table in tables_to_process:
+                # parametrized queries are not supported for "FROM {}",
+                table = self._sanitize_value(table)
 
-                            # use this mapping id
-                            self._mapping_id = table
+                data_query: str = queries.get(table, None)
+                metadata_query = (
+                    None  # TODO: which metadata to get and what to map it to
+                )
 
-                            # # get record's original id
-                            # original_id = None
-                            # async with db.execute(metadata_query) as cur_tmp:
-                            #     r = await cur_tmp.fetchone()
-                            #     for _, v in r.items():
-                            #         if v:
-                            #             original_id = v
-                            #             break
-                            # d["original_id"] = row[original_id]
+                if data_query is None:
+                    data_query = f"SELECT * FROM {table}"
+                if metadata_query is None:
+                    metadata_query = (
+                        f'SELECT name FROM pragma_table_info("{table}") WHERE pk=1'
+                    )
 
-                            try:
-                                await self.process_record(row, doc_idx, flt=flt, data=d)
-                            except (RequestCanceledError, SourceCanceledError) as ex:
-                                MutyLogger.get_instance().exception(ex)
-                                await self._source_failed(ex)
-                                break
-                            except PreviewDone:
-                                # preview done, stop processing
-                                pass
-                            doc_idx += 1
+                data_query = str(data_query).format(table=table)
 
-                    if self._is_source_failed:
-                        break
+                # process this table
+                async with db.execute(data_query) as cur:
+                    for row in await cur.fetchall():
+                        # print(f"gulp.sqlite.{db_name}.{table}.{column} = {value}")
+                        d: dict = {}
+                        d["gulp.sqlite.db.name"] = os.path.basename(file_path)
+                        d["gulp.sqlite.db.table.name"] = table
 
-        except Exception as ex:
-            await self._source_failed(ex)
+                        # use this mapping id
+                        self._mapping_id = table
 
-        finally:
-            await self.update_stats_and_flush(flt)
+                        # # get record's original id
+                        # original_id = None
+                        # async with db.execute(metadata_query) as cur_tmp:
+                        #     r = await cur_tmp.fetchone()
+                        #     for _, v in r.items():
+                        #         if v:
+                        #             original_id = v
+                        #             break
+                        # d["original_id"] = row[original_id]
 
-        return self._stats_status()
+                        try:
+                            await self.process_record(row, doc_idx, flt=flt, data=d)
+                        except (RequestCanceledError, SourceCanceledError) as ex:
+                            MutyLogger.get_instance().exception(ex)
+                            break
+                        doc_idx += 1
+        return stats.status

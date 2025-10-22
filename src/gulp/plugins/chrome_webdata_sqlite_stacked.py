@@ -35,8 +35,8 @@ from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -48,7 +48,7 @@ class Plugin(GulpPluginBase):
     def regex(self) -> str:
         """regex to identify this format"""
         return None
-    
+
     @override
     def depends_on(self) -> list[str]:
         return ["sqlite"]
@@ -142,7 +142,6 @@ class Plugin(GulpPluginBase):
         try:
             lower = await self.setup_stacked_plugin("sqlite")
         except Exception as ex:
-            await self._source_failed(ex)
             return GulpRequestStatus.FAILED
 
         # call lower plugin, which in turn will call our record_to_gulp_document after its own processing

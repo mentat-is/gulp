@@ -25,12 +25,9 @@ CSV plugin support the following custom parameters in the plugin_params.extra di
 import os
 from typing import override
 from datetime import datetime
-import orjson
 import aiofiles
-import muty.dict
 import muty.os
 import muty.string
-import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,7 +47,7 @@ from aiocsv import AsyncDictReader
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
+    def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
     @override

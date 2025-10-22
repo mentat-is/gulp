@@ -61,8 +61,8 @@ class Plugin(GulpPluginBase):
         # stores raw whois data for individual resolved entities (ip/hostname)
         self._single_entity_whois_cache: dict[str, Optional[dict[str, Any]]] = {}
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.ENRICHMENT]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.ENRICHMENT
 
     def display_name(self) -> str:
         return "enrich_whois"
@@ -142,8 +142,10 @@ class Plugin(GulpPluginBase):
             # get whois info in a thread to avoid blocking the event loop
             def _get_info() -> dict:
                 return IPWhois(entity_key).lookup_rdap(depth=1)
-            
-            whois_info = await asyncio.get_event_loop().run_in_executor(GulpProcess.get_instance().thread_pool, _get_info)
+
+            whois_info = await asyncio.get_event_loop().run_in_executor(
+                GulpProcess.get_instance().thread_pool, _get_info
+            )
             # MutyLogger.get_instance().debug(f"raw whois_info for entity_key='{entity_key}': {whois_info}")
 
             # remove null fields and format datetime
@@ -444,7 +446,11 @@ class Plugin(GulpPluginBase):
                 # it's a hostname, try to resolve (without blocking the event loop)
                 try:
                     # MutyLogger.get_instance().debug(f"resolving single entity hostname: {single_target_entity}")
-                    resolved_ip: str = await asyncio.get_event_loop().run_in_executor(GulpProcess.get_instance().thread_pool, socket.gethostbyname, single_target_entity)
+                    resolved_ip: str = await asyncio.get_event_loop().run_in_executor(
+                        GulpProcess.get_instance().thread_pool,
+                        socket.gethostbyname,
+                        single_target_entity,
+                    )
                     final_entities_for_rdap.add(resolved_ip)
                     # MutyLogger.get_instance().debug(f"resolved single entity hostname '{single_target_entity}' to '{resolved_ip}'")
 
@@ -770,7 +776,16 @@ class Plugin(GulpPluginBase):
 
         # MutyLogger.get_instance().debug("query: %s" % qq)
         return await super().enrich_documents(
-            sess, stats, user_id, req_id, ws_id, operation_id, index, flt, plugin_params, rq=qq
+            sess,
+            stats,
+            user_id,
+            req_id,
+            ws_id,
+            operation_id,
+            index,
+            flt,
+            plugin_params,
+            rq=qq,
         )
 
     @override
