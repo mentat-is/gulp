@@ -1,9 +1,9 @@
 import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
-
+import os
 from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter
-from gulp_client.common import _ensure_test_operation
+from gulp_client.common import _ensure_test_operation, _cleanup_test_operation
 from gulp_client.note import GulpAPINote
 from gulp_client.object_acl import GulpAPIObjectACL
 from gulp_client.user import GulpAPIUser
@@ -15,7 +15,10 @@ from gulp_client.test_values import (
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
-    await _ensure_test_operation()
+    if os.getenv("SKIP_RESET") == "1":
+        await _cleanup_test_operation()
+    else:
+        await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -23,11 +26,12 @@ async def test_note():
     """
     test notes and ACL
     """
+    if os.getenv("SKIP_RESET") != "1":
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx
 
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
+        await test_win_evtx()
 
-    await test_win_evtx()
     source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
     doc_id = "c8869c95f8e92be5e86d6b1f03a50252"
 
@@ -97,6 +101,7 @@ async def test_note():
     # doc filter
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             doc_ids=[doc_id],
             operation_ids=[TEST_OPERATION_ID],
@@ -110,6 +115,7 @@ async def test_note():
     # doc time range filter
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             doc_time_range=(1609459100000000000, 1609459300000000000),
             operation_ids=[TEST_OPERATION_ID],
@@ -123,6 +129,7 @@ async def test_note():
     # time pin filter
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
             context_ids=[TEST_CONTEXT_ID],
@@ -144,6 +151,7 @@ async def test_note():
     # list without filter, 2 notes (was 3, 1 deleted)
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
             context_ids=[TEST_CONTEXT_ID],
@@ -163,6 +171,7 @@ async def test_note():
     )
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
             context_ids=[TEST_CONTEXT_ID],
@@ -182,6 +191,7 @@ async def test_note():
     )
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
             context_ids=[TEST_CONTEXT_ID],
@@ -197,14 +207,14 @@ async def test_note_many():
     """
     test notes and ACL
     """
+    if os.getenv("SKIP_RESET") != "1":
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx
 
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
+        await test_win_evtx()
 
-    await test_win_evtx()
     source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
-    doc_id = "c8869c95f8e92be5e86d6b1f03a50252"
-
+    
     # create note
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
@@ -231,6 +241,7 @@ async def test_note_many():
     while True:
         l = await GulpAPINote.note_list(
             guest_token,
+            TEST_OPERATION_ID,
             GulpCollabFilter(
                 operation_ids=[TEST_OPERATION_ID],
                 context_ids=[TEST_CONTEXT_ID],

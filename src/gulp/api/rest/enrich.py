@@ -147,7 +147,7 @@ uses an `enrichment` plugin to augment data in multiple documents.
 
 during enrichment, the following is sent on the websocket `ws_id`:
 
-- `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
+- `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpUpdateDocumentsStats`, data.req_type=`enrich` (at start)
 - `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents and in the end)
 
 """,
@@ -299,7 +299,7 @@ async def _tag_documents_chunk(
 ) -> list[dict]:
     """GulpDocumentsChunkCallback to tag each chunk of documents"""
     cb_context = kwargs["cb_context"]
-    tags = kwargs["tags"]
+    tags = cb_context["tags"]
     stats: GulpRequestStats = cb_context["stats"]
     ws_id = cb_context["ws_id"]
     flt: GulpQueryFilter = cb_context["flt"]
@@ -318,7 +318,7 @@ async def _tag_documents_chunk(
     updated, _, errs = await GulpOpenSearch.get_instance().update_documents(
         index, chunk, wait_for_refresh=last
     )
-    num_updated = len(updated)
+    num_updated = updated
     cb_context["total_updated"] += num_updated
     cb_context["errors"].extend(errs)
 
@@ -330,7 +330,7 @@ async def _tag_documents_chunk(
         total_hits=total_hits,
         updated=num_updated,
         flt=flt,
-        errs=errs,
+        errors=errs,
         last=last,
     )
     return chunk
@@ -403,7 +403,7 @@ async def _tag_documents_internal(
                     errors.append(muty.log.exception_to_string(ex))
                     await stats.set_finished(
                         sess,
-                        status=GulpRequestStatus.STATUS_FAILED,
+                        status=GulpRequestStatus.FAILED,
                         errors=errors,
                         user_id=user_id,
                         ws_id=ws_id,
@@ -447,7 +447,7 @@ Tag important documents, so they can be queried back via `gulp.tags` provided vi
 
 Tagging is an `enrichment`, from gulp's point of view: so, the flow on `ws_id` is the same as the `enrich_documents` API.
 
-- `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpUpdateDocumentsStats` (at start)
+- `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpUpdateDocumentsStats`, data.req_type=`enrich` (at start)
 - `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
 
 """,

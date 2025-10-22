@@ -16,7 +16,7 @@ from gulp_client.common import (
     GulpAPICommon,
     _ensure_test_operation,
     _test_ingest_ws_loop,
-    _cleanup_test_operation
+    _cleanup_test_operation,
 )
 from gulp_client.ingest import GulpAPIIngest
 from gulp_client.note import GulpAPINote
@@ -55,26 +55,36 @@ async def _setup():
     this is called before any test, to initialize the environment
     """
     if os.getenv("SKIP_RESET") == "1":
-        await _cleanup_test_operation()    
+        await _cleanup_test_operation()
     else:
         await _ensure_test_operation()
 
-async def _login_and_ingest(user: str = "guest", password: str = "guest") -> str:
-    # login
+
+async def _login_and_ingest(
+    user: str = "guest", password: str = "guest"
+) -> tuple[str, str]:
+    """
+    login and (if SKIP_RESET not set) ingest some data
+
+    Returns:
+        tuple[str, str]: the token corresponding to (user,password), the ingest token
+    """
     guest_token = await GulpAPIUser.login(user, password)
     assert guest_token
-
     skip_reset = os.getenv("SKIP_RESET", "0")
     if skip_reset == "0":
         # ingest some data
         from tests.ingest.test_ingest import test_win_evtx
 
         await test_win_evtx()
-    return guest_token
+
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+    return guest_token, ingest_token
 
 
 async def _test_query_internal(q_type: str):
-    guest_token = await _login_and_ingest()
+    guest_token, _ = await _login_and_ingest()
 
     MutyLogger.get_instance().info("ingested data, starting query")
     _, host = TEST_HOST.split("://")
@@ -99,7 +109,7 @@ async def _test_query_internal(q_type: str):
                     % (TEST_CONTEXT_ID, TEST_OPERATION_ID),
                 }
             }
-                                }
+        }
 
         try:
             while True:
@@ -129,9 +139,7 @@ async def _test_query_internal(q_type: str):
                         await GulpAPIQuery.query_raw(
                             guest_token,
                             TEST_OPERATION_ID,
-                            [
-                                query_raw_dict
-                            ],
+                            [query_raw_dict],
                             q_options=q_options,
                             req_id="req_test_raw_query",
                         )
@@ -248,7 +256,7 @@ async def test_query_raw():
 
 @pytest.mark.asyncio
 async def test_query_raw_preview():
-    guest_token = await _login_and_ingest()
+    guest_token, _ = await _login_and_ingest()
 
     q_name = "test_raw_query"
     q_options = GulpQueryParameters(preview_mode=True)
@@ -290,9 +298,10 @@ async def test_query_raw_group():
     await _test_query_internal("query_raw_group")
     MutyLogger.get_instance().info(test_query_raw_group.__name__ + " succeeded!")
 
+
 @pytest.mark.asyncio
 async def test_query_sigma_preview():
-    guest_token = await _login_and_ingest()
+    guest_token, _ = await _login_and_ingest()
 
     current_dir: str = os.path.dirname(os.path.realpath(__file__))
     sigma_yml: str = await muty.file.read_file_async(
@@ -317,7 +326,7 @@ async def test_query_sigma_preview():
 
 @pytest.mark.asyncio
 async def test_query_single_id():
-    guest_token = await _login_and_ingest()
+    guest_token, _ = await _login_and_ingest()
 
     target_id = "4905967cfcaf2abe0e28322ff085619d"
     d = await GulpAPIQuery.query_single_id(guest_token, TEST_OPERATION_ID, target_id)
@@ -327,12 +336,8 @@ async def test_query_single_id():
 
 @pytest.mark.asyncio
 async def test_query_operations():
-    guest_token = await GulpAPIUser.login("guest", "guest")
-    assert guest_token
-
     # ingest some data first
-    ingest_token = await _login_and_ingest("ingest", "ingest")
-    assert ingest_token
+    guest_token, ingest_token = await _login_and_ingest()
 
     operations = await GulpAPIQuery.query_operations(guest_token)
     assert operations and len(operations) == 1
@@ -378,78 +383,31 @@ async def test_query_operations():
     # delete the new operation
     await GulpAPIOperation.operation_delete(ingest_token, "new_operation")
 
+
 @pytest.mark.asyncio
-async def test_queries():
-    """
-    NOTE: assumes the test windows samples in ./samples/win_evtx are ingested
+async def test_query_gulp_export_json():
+    # ingest some data first
+    guest_token, ingest_token = await _login_and_ingest()
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    out_path = os.path.join(current_dir, "export.json")
 
-    and the gulp server running on http://localhost:8080
-    """
+    q_options: GulpQueryParameters = GulpQueryParameters()
+    # q_options.limit = 500
+    # q_options.total_limit = 500
 
-    async def _test_query_operations():
-        guest_token = await GulpAPIUser.login("guest", "guest")
-        assert guest_token
-        operations = await GulpAPIQuery.query_operations(guest_token)
-        assert operations and len(operations) == 1
+    flt: GulpQueryFilter = GulpQueryFilter(time_range=(1467213874345999999, 0))
 
-        # create another operation (with no guest grants), with the guest user cannot see it
-        admin_token = await GulpAPIUser.login("admin", "admin")
-        assert admin_token
-        try:
-            await GulpAPIOperation.operation_delete(admin_token, "new_operation")
-        except:
-            pass
-        op = await GulpAPIOperation.operation_create(admin_token, "new_operation")
-        assert op and op["id"] == "new_operation"
+    path = await GulpAPIQuery.query_gulp_export_json(
+        guest_token,
+        TEST_OPERATION_ID,
+        output_file_path=out_path,
+        flt=flt,
+        q_options=q_options,
+    )
+    assert path == out_path
 
-        # ingest some data in this operation
-        current_dir = os.path.dirname(os.path.realpath(__file__))
-        samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
-        file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
-        await GulpAPIIngest.ingest_file(
-            token=admin_token,
-            file_path=file_path,
-            operation_id="new_operation",
-            context_name="new_context",
-            plugin="win_evtx",
-            req_id="new_req_id",
-        )
-        await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
-
-        # check that the guest user cannot see the new operation
-        operations = await GulpAPIQuery.query_operations(guest_token)
-        assert operations and len(operations) == 1
-
-        # grant guest user
-        await GulpAPIObjectACL.object_add_granted_user(
-            token=admin_token,
-            obj_id="new_operation",
-            obj_type=COLLABTYPE_OPERATION,
-            user_id="guest",
-        )
-
-        # guest token can now see the operation
-        operations = await GulpAPIQuery.query_operations(guest_token)
-        assert operations and len(operations) == 2
-
-        # delete the new operation
-        await GulpAPIOperation.operation_delete(admin_token, "new_operation")
-
-    # login
-    guest_token = await GulpAPIUser.login("guest", "guest")
-    assert guest_token
-    ingest_token = await GulpAPIUser.login("ingest", "ingest")
-    assert ingest_token
-
-    ingest = os.getenv("SKIP_RESET", "1")
-    if ingest == "1":
-        # ingest some data
-        from tests.ingest.test_ingest import test_win_evtx
-
-        await test_win_evtx()
-
-    # test different queries
-    await _test_query_gulp(guest_token)
-    # await _test_query_raw(guest_token)
-    # await _test_query_single_id(guest_token)
-    # await _test_query_operations()
+    js = await muty.file.read_file_async(out_path)
+    js = json.loads(js.decode("utf-8"))
+    assert len(js["docs"]) == 6 # should match 6 entries, first is skipped by filter due to time_range
+    MutyLogger.get_instance().info(test_query_gulp_export_json.__name__ + " succeeded!")
+    

@@ -545,7 +545,7 @@ to customize `mapping` and specific `plugin` parameters.
         tags: Annotated[
             list[str],
             _TAGS_BODY_PARAM,
-        ],
+        ] = None,
     ) -> list[str]:
         return tags or []
 

@@ -1619,7 +1619,7 @@ async def _export_json_internal(
     runs in a worker process, exports the query results as json file and returns the file path (or Exception on error).
     """
 
-    file_path: str = tempfile.mkstemp(
+    file_path = tempfile.mkstemp(
         suffix=".json", prefix="gulp_export_%s" % (req_id)
     )[1]
     async with aiofiles.open(file_path, "wb") as f:
@@ -1702,9 +1702,11 @@ async def query_gulp_export_json_handler(
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    # ignore preview mode and note creation for export
+    # ignore preview mode, highlight, note creation for export
     q_options.preview_mode = False
-    q_options.note_parameters.create_notes = False
+    q_options.create_notes = False
+    q_options.highlight_results = False
+
     if not q_options.fields:
         # export all fields if not specified
         q_options.fields = "*"
@@ -1726,10 +1728,10 @@ async def query_gulp_export_json_handler(
             file_path = await GulpRestServer.get_instance().spawn_worker_task(
                 _export_json_internal,
                 index,
+                operation_id,
                 dsl,
                 wait=True,
                 req_id=req_id,
-                operation_id=operation_id,
                 q_options=q_options,
             )
             if isinstance(file_path, Exception):
@@ -1742,7 +1744,7 @@ async def query_gulp_export_json_handler(
                 """
                 if file_path:
                     MutyLogger.get_instance().debug(
-                        "cleanup file %s after response sent" % file_path
+                        "cleanup file %s after response sent", file_path
                     )
                     await muty.file.delete_file_or_dir_async(file_path)
 

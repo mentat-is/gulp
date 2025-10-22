@@ -48,7 +48,12 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
 
 5. go back in the container and develop as normal.
 
-you may also want to update/edit extensions installed in the container... just do it from vscode in the  `extensions -> dev container: gulp dev container` tab.
+  > ensure to have .venv activated in the terminal (should be automatic when opening a new terminal in vscode, if not do the following):
+  > ~~~bash
+  > source ./.venv/bin/activate
+  > ~~~
+
+  you may also want to update/edit extensions installed in the container... just do it from vscode in the  `extensions -> dev container: gulp dev container` tab.
 
 ## install manually
 

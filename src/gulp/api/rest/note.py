@@ -226,7 +226,8 @@ async def note_update_handler(
                 obj.glyph_id = glyph_id
             if color:
                 obj.color = color
-
+            if text:
+                obj.text = text
             # ensure only one in time_pin and docs is set
             if time_pin:
                 obj.doc = None

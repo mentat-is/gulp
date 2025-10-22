@@ -8,8 +8,13 @@ import pytest
 import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
+from gulp.api.collab.stats import GulpRequestStats, GulpUpdateDocumentsStats
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp_client.common import GulpAPICommon, _ensure_test_operation
+from gulp_client.common import (
+    GulpAPICommon,
+    _ensure_test_operation,
+    _cleanup_test_operation,
+)
 from gulp_client.enrich import GulpAPIEnrich
 from gulp_client.query import GulpAPIQuery
 from gulp_client.user import GulpAPIUser
@@ -32,22 +37,28 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _ensure_test_operation()
+    skip_reset = os.getenv("SKIP_RESET", "0")
+    if skip_reset == "1":
+        await _cleanup_test_operation()
+    else:
+        await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
 async def test_tag_documents():
+
+    skip_reset = os.getenv("SKIP_RESET", "0")
+    if skip_reset != "1":
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx
+
+        await test_win_evtx()
 
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert edit_token
-
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
-
-    await test_win_evtx()
 
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
@@ -63,6 +74,7 @@ async def test_tag_documents():
             while True:
                 response = await ws.recv()
                 data = json.loads(response)
+                payload = data.get("payload", {})
 
                 if data["type"] == "ws_connected":
                     # run test
@@ -73,20 +85,27 @@ async def test_tag_documents():
                         flt=GulpQueryFilter(
                             time_range=[1467213874345999870, 1467213874345999873]
                         ),
+                        req_id="req_tag_documents",
                     )
-                elif data["type"] == "enrich_done":
+                elif (
+                    data["type"] == "stats_update"
+                    and payload
+                    and payload["obj"]["req_type"] == "enrich"
+                ):
+                    stats: GulpRequestStats = GulpRequestStats.from_dict(payload["obj"])
+                    stats_data: GulpUpdateDocumentsStats = (
+                        GulpUpdateDocumentsStats.model_validate(payload["obj"]["data"])
+                    )
+                    MutyLogger.get_instance().info("stats: %s", stats)
+
                     # query done
-                    q_done_packet: GulpQueryDonePacket = (
-                        GulpQueryDonePacket.model_validate(data["data"])
-                    )
-                    MutyLogger.get_instance().debug(
-                        "GulpQueryDonePacket=%s" % (q_done_packet)
-                    )
-                    if q_done_packet.total_hits == 1:
+                    if stats.status == "done" and stats_data.updated == 1:
                         test_completed = True
                     else:
-                        assert False, "tagging done, but total_hits=%d" % (
-                            q_done_packet.total_hits
+                        assert False, (
+                            "enrich done, req_id=%s, expected updated=7 but received updated=%d",
+                            stats.id,
+                            stats_data.updated,
                         )
                     break
 
@@ -101,19 +120,21 @@ async def test_tag_documents():
 
 
 @pytest.mark.asyncio
-async def test_tag_document_single():
+async def test_tag_single_id():
 
-    doc_id: str = "50edff98db7773ef04378ec20a47f622"
+    skip_reset = os.getenv("SKIP_RESET", "0")
+    if skip_reset != "1":
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx
+
+        await test_win_evtx()
+
+    doc_id: str = "4905967cfcaf2abe0e28322ff085619d"
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert edit_token
-
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
-
-    await test_win_evtx()
 
     # guest cannot enrich, verify that
     await GulpAPIEnrich.tag_single_id(
@@ -135,4 +156,4 @@ async def test_tag_document_single():
 
     # test query by tags
 
-    MutyLogger.get_instance().info(test_tag_document_single.__name__ + " succeeded!")
+    MutyLogger.get_instance().info(test_tag_single_id.__name__ + " succeeded!")
