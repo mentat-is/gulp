@@ -75,7 +75,7 @@ async def highlight_create_handler(
             description="the time range of the highlight, in nanoseconds from unix epoch."
         ),
     ],
-    name: Annotated[str, Depends(APIDependencies.param_name)],
+    name: Annotated[str, Depends(APIDependencies.param_name_optional)] = None,
     description: Annotated[
         str, Depends(APIDependencies.param_description_optional)
     ] = None,

@@ -69,7 +69,7 @@ async def link_create_handler(
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     doc_id_from: Annotated[str, Query(description="the source document ID.")],
     doc_ids: Annotated[list[str], Body(description="One or more target document IDs.")],
-    name: Annotated[str, Depends(APIDependencies.param_name)],
+    name: Annotated[str, Depends(APIDependencies.param_name_optional)],
     description: Annotated[
         str, Depends(APIDependencies.param_description_optional)
     ] = None,
