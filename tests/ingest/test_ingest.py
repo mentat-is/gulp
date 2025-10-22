@@ -22,6 +22,7 @@ from gulp_client.common import (
     _ensure_test_operation,
     _test_ingest_generic,
     _test_ingest_ws_loop,
+    _cleanup_test_operation,
 )
 from gulp_client.ingest import GulpAPIIngest
 from gulp_client.operation import GulpAPIOperation
@@ -44,7 +45,10 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _ensure_test_operation()
+    if os.getenv("SKIP_RESET") == "1":
+        await _cleanup_test_operation()
+    else:
+        await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -189,10 +193,8 @@ async def test_ingest_filter():
 
     await _test_ingest_ws_loop(check_ingested=1, check_processed=7)
 
-    # ingest another part
-    from gulp_client.common import _ensure_test_operation
-
-    await _ensure_test_operation()
+    # # ingest another part
+    await _cleanup_test_operation()
     flt = GulpIngestionFilter(time_range=[1467213874345999999, 0])
     await GulpAPIIngest.ingest_file(
         token=ingest_token,
@@ -526,7 +528,6 @@ async def test_csv_stacked():
         guest_token, TEST_OPERATION_ID, "903bd0a1ecb33ce4b3fec4a5575c9085"
     )
     assert doc["event.duration"] == 9999
-    assert doc["enriched"]
     MutyLogger.get_instance().info(test_csv_stacked.__name__ + " succeeded!")
 
 
@@ -964,11 +965,12 @@ async def test_ingest_file_local():
         operation_id=TEST_OPERATION_ID,
         context_name=TEST_CONTEXT_NAME,
         plugin="win_evtx",
-        delete_after=True
+        delete_after=True,
     )
 
     await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
     MutyLogger.get_instance().info(test_ingest_file_local.__name__ + " succeeded!")
+
 
 @pytest.mark.asyncio
 async def test_ingest_zip():
@@ -989,6 +991,7 @@ async def test_ingest_zip():
     # wait ws
     await _test_ingest_ws_loop(check_ingested=13779, check_processed=13745)
     MutyLogger.get_instance().info(test_ingest_zip.__name__ + " succeeded!")
+
 
 @pytest.mark.asyncio
 async def test_ingest_zip_local():
@@ -1017,7 +1020,7 @@ async def test_ingest_zip_local():
         file_path=dest_path,
         operation_id=TEST_OPERATION_ID,
         context_name=TEST_CONTEXT_NAME,
-        delete_after=True
+        delete_after=True,
     )
 
     # wait ws

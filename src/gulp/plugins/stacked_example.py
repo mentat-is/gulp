@@ -4,6 +4,7 @@ the records before ingestion
 """
 
 from typing import override
+from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
@@ -14,7 +15,7 @@ from gulp.structs import GulpPluginParameters
 
 class Plugin(GulpPluginBase):
     def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+        return GulpPluginType.INGESTION
 
     def display_name(self) -> str:
         return "stacked_example"
@@ -28,9 +29,9 @@ class Plugin(GulpPluginBase):
         self, record: dict, record_idx: int, **kwargs
     ) -> dict:
 
-        # MutyLogger.get_instance().debug("record: %s" % record)
         # tweak event duration ...
         record["event.duration"] = 9999
+        #MutyLogger.get_instance().debug("record processed by stacked plugin: %s", record)
         return record
 
     @override
@@ -70,11 +71,7 @@ class Plugin(GulpPluginBase):
         )
 
         # set as stacked
-        try:
-            lower = await self.setup_stacked_plugin("csv")
-        except Exception as ex:
-            await self._source_failed(ex)
-            return GulpRequestStatus.FAILED
+        lower = await self.setup_stacked_plugin("csv")
 
         # call lower plugin, which in turn will call our record_to_gulp_document after its own processing
         res = await lower.ingest_file(

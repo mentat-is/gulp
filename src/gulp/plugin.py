@@ -788,6 +788,7 @@ class GulpPluginBase(ABC):
         self._upper_record_to_gulp_document_fun: Callable | None = None
         self._upper_enrich_documents_chunk_fun: Callable | None = None
         self._upper_instance: GulpPluginBase | None = None
+        self._lower_instance: GulpPluginBase | None = None
 
         # to bufferize gulpdocuments
         self._docs_buffer: list[dict] = []
@@ -1808,13 +1809,18 @@ class GulpPluginBase(ABC):
         lower._upper_record_to_gulp_document_fun = self._record_to_gulp_document
         lower._upper_enrich_documents_chunk_fun = self._enrich_documents_chunk
         lower._upper_instance = self
-
+        self._lower_instance = lower
+        self._docs_buffer = lower._docs_buffer
+        
         # set the lower plugin as stacked
         lower._stacked = True
 
         # set mapping in lower plugin
         lower._mapping_id = self._mapping_id
         lower._mappings = self._mappings
+        MutyLogger.get_instance().debug(
+            "plugin %s stacked over %s", self.name, lower.name
+        )
         return lower
 
     def _finalize_process_record(self, doc: GulpDocument) -> list[dict]:
@@ -2310,6 +2316,7 @@ class GulpPluginBase(ABC):
             wait_for_refresh (bool, optional): whether to wait for refresh
             kwargs: additional keyword arguments
         """
+        MutyLogger.get_instance().debug("_flush_and_check_thresholds called, plugin=%s", self.name)
         # flush buffer
         ingested, skipped = await self.flush_buffer_and_send_to_ws(
             flt, wait_for_refresh
@@ -2433,6 +2440,7 @@ class GulpPluginBase(ABC):
             return True
 
         # add documents to buffer and check if we need to flush
+        # MutyLogger.get_instance().debug("adding %d docs to buffer", len(docs))
         for d in docs:
             self._docs_buffer.append(d)
             if len(self._docs_buffer) >= ingestion_buffer_size:
@@ -2856,7 +2864,8 @@ class GulpPluginBase(ABC):
             return GulpRequestStatus.DONE
 
         MutyLogger.get_instance().debug(
-            "*** %s, remaining docs to flush in docs_buffer: %d, status=%s ***",
+            "*** plugin=%s, %s, remaining docs to flush in docs_buffer: %d, status=%s ***",
+            self.name,
             self._file_path or self._source_id,
             len(self._docs_buffer),
             self._stats.status,
