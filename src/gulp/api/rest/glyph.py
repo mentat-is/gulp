@@ -140,7 +140,7 @@ async def glyph_update_handler(
     params["img"] = img.filename if img else None
     ServerUtils.dump_params(params)
     try:
-        async with GulpCollab.get_instance().session as sess:
+        async with GulpCollab.get_instance().session() as sess:
             if not any([name, img]):
                 raise ValueError("At least one of name or img must be provided.")
             obj: GulpGlyph

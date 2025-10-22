@@ -1,9 +1,9 @@
 import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
-
+import os
 from gulp.api.collab.structs import COLLABTYPE_HIGHLIGHT, GulpCollabFilter
-from gulp_client.common import _ensure_test_operation
+from gulp_client.common import _ensure_test_operation, _cleanup_test_operation
 from gulp_client.highlight import GulpAPIHighlight
 from gulp_client.object_acl import GulpAPIObjectACL
 from gulp_client.user import GulpAPIUser
@@ -15,17 +15,21 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _ensure_test_operation()
+    if os.getenv("SKIP_RESET", "0") == "1":
+        await _cleanup_test_operation()
+    else:
+        await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
 async def test_highlight():
     # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
+    if os.getenv("SKIP_RESET", "0") != "1":
+        from tests.ingest.test_ingest import test_win_evtx
 
-    await test_win_evtx()
+        await test_win_evtx()
+
     source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
-    doc_id = "c8869c95f8e92be5e86d6b1f03a50252"
 
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
@@ -52,6 +56,7 @@ async def test_highlight():
     # doc filter
     l = await GulpAPIHighlight.highlight_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(source_ids=[source_id], operation_ids=[TEST_OPERATION_ID]),
     )
     assert len(l) == 1
@@ -59,6 +64,7 @@ async def test_highlight():
 
     l = await GulpAPIHighlight.highlight_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(operation_ids=[TEST_OPERATION_ID], source_ids=["aaaa"]),
     )
     assert not l  # 0 len
@@ -81,6 +87,7 @@ async def test_highlight():
     )
     l = await GulpAPIHighlight.highlight_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
         ),
@@ -95,6 +102,7 @@ async def test_highlight():
     await GulpAPIHighlight.highlight_delete(edit_token, h_id)
     l = await GulpAPIHighlight.highlight_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
         ),
