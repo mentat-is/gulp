@@ -1828,20 +1828,31 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         #     "get_by_filter, user_id=%s, is_admin=%r, flt=%s, query:\n%s"
         #     % (user_id, is_admin, flt, q)
         # )
-        res = await sess.execute(q)
         objects: list[T] = []
-        if first_only:
-            obj = res.scalars().first()
-            objects.append(obj)  # will get None if no object found
-        else:
-            objects = res.scalars().all()
-        if not objects:
+        try:
+            res = await sess.execute(q)
+            if first_only:
+                obj = res.scalars().first()
+                objects.append(obj)  # will get None if no object found
+            else:
+                objects = res.scalars().all()
+            if not objects:
+                if throw_if_not_found:
+                    raise ObjectNotFound(f"No {cls.__name__} found with filter {str(flt)}")
+
+            # MutyLogger.get_instance().debug("user_id=%s, POST-filtered objects: %s", user_id, objects)
+            return objects
+        except Exception as e:
+            MutyLogger.get_instance().error(
+                "error in get_by_filter, user_id=%s, flt=%s: %s",
+                user_id,
+                str(flt),
+                e,
+            )
             if throw_if_not_found:
-                raise ObjectNotFound(f"No {cls.__name__} found with filter {str(flt)}")
-
-        # MutyLogger.get_instance().debug("user_id=%s, POST-filtered objects: %s", user_id, objects)
-        return objects
-
+                raise e
+            return objects
+        
     @classmethod
     async def get_first_by_filter(
         cls,

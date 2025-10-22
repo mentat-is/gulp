@@ -1797,12 +1797,12 @@ class GulpPluginBase(ABC):
         )
         if (
             self.type() != lower.type()
-            or self.type() not in [GulpPluginType.INGESTION, GulpPluginType.ENRICHMENT]
-            or lower.type() not in [GulpPluginType.INGESTION, GulpPluginType.ENRICHMENT]
+            or self.type() not in [GulpPluginType.INGESTION, GulpPluginType.ENRICHMENT, GulpPluginType.EXTERNAL]
+            or lower.type() not in [GulpPluginType.INGESTION, GulpPluginType.ENRICHMENT, GulpPluginType.EXTERNAL]
         ):
             await lower.unload()
             raise ValueError(
-                "cannot stack plugin %s (type %s) over %s (type %s), types must match and be INGESTION or ENRICHMENT"
+                "cannot stack plugin %s (type %s) over %s (type %s), types must match and be INGESTION, ENRICHMENT or EXTERNAL"
                 % (self.name, self.type(), lower.name, lower.type())
             )
         # set upper plugin functions in lower, so it can call them after processing data itself
@@ -1819,7 +1819,7 @@ class GulpPluginBase(ABC):
         lower._mapping_id = self._mapping_id
         lower._mappings = self._mappings
         MutyLogger.get_instance().debug(
-            "plugin %s stacked over %s", self.name, lower.name
+            "---> plugin %s stacked over %s", self.name, lower.name
         )
         return lower
 

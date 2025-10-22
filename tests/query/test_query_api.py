@@ -59,9 +59,9 @@ async def _setup():
     else:
         await _ensure_test_operation()
 
-async def _login_and_ingest():
+async def _login_and_ingest(user: str = "guest", password: str = "guest") -> str:
     # login
-    guest_token = await GulpAPIUser.login("guest", "guest")
+    guest_token = await GulpAPIUser.login(user, password)
     assert guest_token
 
     skip_reset = os.getenv("SKIP_RESET", "0")
@@ -319,11 +319,64 @@ async def test_query_sigma_preview():
 async def test_query_single_id():
     guest_token = await _login_and_ingest()
 
-    target_id = "c738546e9210da9189950d5682e8f001"
+    target_id = "4905967cfcaf2abe0e28322ff085619d"
     d = await GulpAPIQuery.query_single_id(guest_token, TEST_OPERATION_ID, target_id)
     assert d["_id"] == target_id
     MutyLogger.get_instance().info(test_query_single_id.__name__ + " succeeded!")
 
+
+@pytest.mark.asyncio
+async def test_query_operations():
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+
+    # ingest some data first
+    ingest_token = await _login_and_ingest("ingest", "ingest")
+    assert ingest_token
+
+    operations = await GulpAPIQuery.query_operations(guest_token)
+    assert operations and len(operations) == 1
+
+    # create another operation (with no guest grants), with the guest user cannot see it
+    try:
+        await GulpAPIOperation.operation_delete(ingest_token, "new_operation")
+    except:
+        pass
+    op = await GulpAPIOperation.operation_create(ingest_token, "new_operation")
+    assert op and op["id"] == "new_operation"
+
+    # ingest some data in this operation
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
+    file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
+    await GulpAPIIngest.ingest_file(
+        token=ingest_token,
+        file_path=file_path,
+        operation_id="new_operation",
+        context_name="new_context",
+        plugin="win_evtx",
+        req_id="new_req_id",
+    )
+    await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+
+    # check that the guest user cannot see the new operation
+    operations = await GulpAPIQuery.query_operations(guest_token)
+    assert operations and len(operations) == 1
+
+    # grant guest user
+    await GulpAPIObjectACL.object_add_granted_user(
+        token=ingest_token,
+        obj_id="new_operation",
+        obj_type=COLLABTYPE_OPERATION,
+        user_id="guest",
+    )
+
+    # guest token can now see the operation
+    operations = await GulpAPIQuery.query_operations(guest_token)
+    assert operations and len(operations) == 2
+
+    # delete the new operation
+    await GulpAPIOperation.operation_delete(ingest_token, "new_operation")
 
 @pytest.mark.asyncio
 async def test_queries():

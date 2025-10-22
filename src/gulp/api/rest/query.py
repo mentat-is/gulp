@@ -1421,6 +1421,8 @@ async def query_max_min_per_field(
     summary="query operations with aggregations.",
     description="""
 for each `operation` returns `sources` and `contexts` with their max/min `event.code` and `gulp.timestamp`.
+
+NOTE: if there is no data in any operation, this function returns an empty array.
 """,
 )
 async def query_operations(
