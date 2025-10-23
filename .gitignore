@@ -13,7 +13,7 @@ venv
 # symlinks
 gulp-paid-plugins
 slurp
-gulp-sdk-python
+# gulp-sdk-python
 
 #auto generated docs
 docs/html
