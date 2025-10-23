@@ -135,6 +135,7 @@ async def _test_query_internal(q_type: str):
                         )
                     elif q_type == "raw":
                         q_name = "test_raw_query"
+                        q_options.name = q_name
                         num_matches: int = 7
                         await GulpAPIQuery.query_raw(
                             guest_token,
@@ -167,7 +168,7 @@ async def _test_query_internal(q_type: str):
 
                         ids: list[str] = ["64e7c3a4013ae243aa13151b5449aac884e36081"]
                         num_matches = 7
-                        q_name = "test_sigma"
+                        q_name = "Match All Events"
                         q_options.create_notes = True
                         await GulpAPIQuery.query_sigma(
                             guest_token,
@@ -408,6 +409,7 @@ async def test_query_gulp_export_json():
 
     js = await muty.file.read_file_async(out_path)
     js = json.loads(js.decode("utf-8"))
-    assert len(js["docs"]) == 6 # should match 6 entries, first is skipped by filter due to time_range
+    assert (
+        len(js["docs"]) == 6
+    )  # should match 6 entries, first is skipped by filter due to time_range
     MutyLogger.get_instance().info(test_query_gulp_export_json.__name__ + " succeeded!")
-    
