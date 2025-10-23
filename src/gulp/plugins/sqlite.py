@@ -279,10 +279,6 @@ class Plugin(GulpPluginBase):
                         #             break
                         # d["original_id"] = row[original_id]
 
-                        try:
-                            await self.process_record(row, doc_idx, flt=flt, data=d)
-                        except (RequestCanceledError, SourceCanceledError) as ex:
-                            MutyLogger.get_instance().exception(ex)
-                            break
+                        await self.process_record(row, doc_idx, flt=flt, data=d)
                         doc_idx += 1
         return stats.status

@@ -28,8 +28,8 @@ from gulp.structs import GulpPluginParameters
 
 class Plugin(GulpPluginBase):
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -235,68 +235,54 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-            # taken from pfsense' parse_firewall_log_line function, these leve out some info (e.g. the pid of the filterlog process)
-            rfc5424_pattern = r"<[0-9]{1,3}>[0-9]*\ (\S+?)\ (\S+?)\ filterlog\ \S+?\ \S+?\ \S+?\ (.*)$"
-            rfc3164_pattern = r"(.*)\s(.*)\sfilterlog\[[0-9]+\]:\s(.*)$"
 
-            rfc5424_regex: re.Pattern = re.compile(rfc5424_pattern)
-            rfc3164_regex: re.Pattern = re.compile(rfc3164_pattern)
-            regex: re.Pattern = None
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
+        # taken from pfsense' parse_firewall_log_line function, these leve out some info (e.g. the pid of the filterlog process)
+        rfc5424_pattern = (
+            r"<[0-9]{1,3}>[0-9]*\ (\S+?)\ (\S+?)\ filterlog\ \S+?\ \S+?\ \S+?\ (.*)$"
+        )
+        rfc3164_pattern = r"(.*)\s(.*)\sfilterlog\[[0-9]+\]:\s(.*)$"
 
-            doc_idx = 0
+        rfc5424_regex: re.Pattern = re.compile(rfc5424_pattern)
+        rfc3164_regex: re.Pattern = re.compile(rfc3164_pattern)
+        regex: re.Pattern = None
 
-            with open(file_path, "r", encoding="utf-8") as log_file:
-                # SNIPPET: peek first line and decide pattern to use
-                # peek=log_file.readline()
-                # self.pattern = self.rfc3164
-                # if peek.startswith("<"):
-                #    self.pattern = self.rfc5424
-                # log_file.seek(0)
+        doc_idx = 0
 
-                for rr in log_file:
-                    # pfsense does this check for every line in the log, we do too...
-                    # is it because they expect mixed logs-formats? else we should just decide based
-                    # on log's first line (see snippet above).
-                    regex = rfc3164_regex
-                    if rr.startswith("<"):
-                        regex = rfc5424_regex
+        with open(file_path, "r", encoding="utf-8") as log_file:
+            # SNIPPET: peek first line and decide pattern to use
+            # peek=log_file.readline()
+            # self.pattern = self.rfc3164
+            # if peek.startswith("<"):
+            #    self.pattern = self.rfc5424
+            # log_file.seek(0)
 
-                    m: re.Match[str] = regex.match(rr)
-                    if m:
-                        try:
-                            await self.process_record(rr, doc_idx, flt=flt, match=m)
-                        except (RequestCanceledError, SourceCanceledError) as ex:
-                            MutyLogger.get_instance().exception(ex)
-                            await self._source_failed(ex)
-                        except PreviewDone:
-                            # preview done, stop processing
-                            pass
-                    else:
-                        # no match
-                        self._record_failed(
-                            f"Regex ({self.pattern}) did not match line ({rr})"
-                        )
+            for rr in log_file:
+                # pfsense does this check for every line in the log, we do too...
+                # is it because they expect mixed logs-formats? else we should just decide based
+                # on log's first line (see snippet above).
+                regex = rfc3164_regex
+                if rr.startswith("<"):
+                    regex = rfc5424_regex
+
+                m: re.Match[str] = regex.match(rr)
+                if m:
+                    await self.process_record(rr, doc_idx, flt=flt, match=m)
                     doc_idx += 1
 
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self.update_stats_and_flush(flt)
-        return self._stats_status()
+        return stats.status

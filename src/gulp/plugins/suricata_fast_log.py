@@ -47,8 +47,8 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "suricata"
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
@@ -130,47 +130,37 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            plugin_params = self._ensure_plugin_params(plugin_params)
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
 
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self.update_stats_and_flush(flt)
-            return GulpRequestStatus.FAILED
+        plugin_params = self._ensure_plugin_params(plugin_params)
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
-        try:
-            doc_idx = 0
-            encoding = self._plugin_params.custom_parameters.get("encoding")
-            async with aiofiles.open(
-                file_path, mode="r", encoding=encoding, newline=""
-            ) as f:
-                async for row in f:
-                    if not row:
-                        continue
-                    row = row.strip()
-                    record = await self._parse_line(row, doc_idx)
-                    if record:
-                        await self.process_record(record, doc_idx, flt)
-                        doc_idx += 1
+        doc_idx = 0
+        encoding = self._plugin_params.custom_parameters.get("encoding")
+        async with aiofiles.open(
+            file_path, mode="r", encoding=encoding, newline=""
+        ) as f:
+            async for row in f:
+                if not row:
+                    continue
+                row = row.strip()
+                record = await self._parse_line(row, doc_idx)
+                if record:
+                    await self.process_record(record, doc_idx, flt)
+                    doc_idx += 1
 
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self.update_stats_and_flush(flt)
-        return self._stats_status()
+        return stats.status

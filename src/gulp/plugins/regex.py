@@ -46,8 +46,8 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "regex"
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
@@ -129,36 +129,30 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            plugin_params = self._ensure_plugin_params(
-                plugin_params,
-                mappings={
-                    "default": GulpMapping(
-                        fields={"@timestamp": GulpMappingField(ecs="@timestamp")}
-                    )
-                },
-            )
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self.update_stats_and_flush(flt)
-            return GulpRequestStatus.FAILED
+        plugin_params = self._ensure_plugin_params(
+            plugin_params,
+            mappings={
+                "default": GulpMapping(
+                    fields={"@timestamp": GulpMappingField(ecs="@timestamp")}
+                )
+            },
+        )
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         encoding = self._plugin_params.custom_parameters.get("encoding")
         date_format = self._plugin_params.custom_parameters.get("date_format")
@@ -168,7 +162,6 @@ class Plugin(GulpPluginBase):
 
         # make sure we have at least 1 named group
         if regex.groups == 0:
-            await self._source_failed("no named groups provided, invalid regex")
             await self.update_stats_and_flush(flt)
             return GulpRequestStatus.FAILED
 
@@ -179,37 +172,21 @@ class Plugin(GulpPluginBase):
                 valid = True
 
         if not valid:
-            await self._source_failed(
-                "no timestamp named group provided, invalid regex"
-            )
             await self.update_stats_and_flush(flt)
             return GulpRequestStatus.FAILED
 
         # we can process!
         doc_idx = 0
-        try:
-            async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
-                async for line in file:
-                    m = regex.match(line)
-                    if m:
-                        try:
-                            await self.process_record(m, doc_idx, flt=flt, line=line)
-                        except (RequestCanceledError, SourceCanceledError) as ex:
-                            MutyLogger.get_instance().exception(ex)
-                            await self._source_failed(ex)
-                        except PreviewDone:
-                            # preview done, stop processing
-                            pass
-                    else:
-                        # no match
-                        MutyLogger.get_instance().warning(
-                            f"regex did not match: {line}"
-                        )
-                        self._record_failed()
-                    doc_idx += 1
-
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self.update_stats_and_flush(flt)
-        return self._stats_status()
+        async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
+            async for line in file:
+                m = regex.match(line)
+                if m:
+                    await self.process_record(m, doc_idx, flt=flt, line=line)
+                else:
+                    # no match
+                    MutyLogger.get_instance().warning(f"regex did not match: {line}")
+                doc_idx += 1
+            MutyLogger.get_instance().warning(
+                f"exit from the loop with {doc_idx} readed and status {stats.status}"
+            )
+            return stats.status

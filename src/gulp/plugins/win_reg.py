@@ -34,8 +34,8 @@ muty.os.check_and_install_package("regipy", ">=5.1.0,<6")
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -149,58 +149,42 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self.update_stats_and_flush(flt)
-            return GulpRequestStatus.FAILED
+
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         doc_idx = 0
-        try:
-            hive = RegistryHive(
-                file_path,
-                hive_type=self._plugin_params.custom_parameters.get(
-                    "partial_hive_type"
-                ),
-                partial_hive_path=self._plugin_params.custom_parameters.get(
-                    "partial_hive_path"
-                ),
-            )
-            for entry in hive.recurse_subkeys(
-                as_json=True,
-                path_root=self._plugin_params.custom_parameters.get("path"),
-            ):
 
-                if len(entry.values) < 1:
-                    continue
-                try:
-                    await self.process_record(entry, doc_idx, flt=flt)
-                except (RequestCanceledError, SourceCanceledError) as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    await self._source_failed(ex)
-                    break
-                except PreviewDone:
-                    break
-                doc_idx += 1
+        hive = RegistryHive(
+            file_path,
+            hive_type=self._plugin_params.custom_parameters.get("partial_hive_type"),
+            partial_hive_path=self._plugin_params.custom_parameters.get(
+                "partial_hive_path"
+            ),
+        )
+        for entry in hive.recurse_subkeys(
+            as_json=True,
+            path_root=self._plugin_params.custom_parameters.get("path"),
+        ):
 
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self.update_stats_and_flush(flt)
-        return self._stats_status()
+            if len(entry.values) < 1:
+                continue
+
+            await self.process_record(entry, doc_idx, flt=flt)
+            doc_idx += 1
+
+        return stats.status
