@@ -1,7 +1,7 @@
 
 - [troubleshooting](#troubleshooting)
-  - [devcontainer](#devcontainer)
   - [docker](#docker)
+    - [devcontainer](#devcontainer)
   - [general](#general)
   - [os](#os)
   - [opensearch / elasticsearch](#opensearch--elasticsearch)
@@ -18,7 +18,25 @@
 
 **before opening issues**, please check the following:
 
-## devcontainer
+## docker
+
+- **never** use docker as root (i.e. with `sudo), ensure your user has proper permissions to run docker commands.
+- 
+  ~~~
+  sudo groupadd docker
+  sudo usermod -aG docker $USER
+
+  # also, you may set proper permissions on the docker socket
+  sudo chmod 666 /var/run/docker.sock
+
+  # then logout/login or restart your system
+  ~~~
+
+- if you want to be able to run the docker CLI command as a non-root user, add your user to the `docker` user group, re-login, and restart `docker.service` [check here](https://wiki.archlinux.org/title/Users_and_groups#Group_management)
+
+- if you get any issue starting gulp, try to reset gulp's docker volumes with [this](../reset_docker.sh) script.
+
+### devcontainer
 
 if you see an error like the following:
 
@@ -28,11 +46,6 @@ Error response from daemon: Conflict. The container name "/elasticvue" is alread
 
 remove the container with `docker container rm some_container_id` and retry.
 
-## docker
-
-- if you want to be able to run the docker CLI command as a non-root user, add your user to the `docker` user group, re-login, and restart `docker.service` [check here](https://wiki.archlinux.org/title/Users_and_groups#Group_management)
-
-- if you get any issue starting container/s as [per docs](./Install%20Docker.md), try to reset gulp's docker volumes with [this](../reset_docker.sh) script.
 
 ## general
 

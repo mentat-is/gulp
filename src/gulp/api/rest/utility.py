@@ -13,6 +13,7 @@ the Gulp platform through plugin and mapping management.
 
 """
 
+import base64
 import orjson
 import os
 from typing import Annotated, Literal
@@ -40,6 +41,7 @@ from gulp.api.rest.structs import APIDependencies
 from gulp.api.rest_api import GulpRestServer
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
+from gulp.structs import ObjectNotFound
 
 router: APIRouter = APIRouter()
 
@@ -156,13 +158,10 @@ async def request_cancel_handler(
                 throw_if_not_found=False,
             )
             MutyLogger.get_instance().debug(
-                "also deleted %d pending tasks for request %s"
-                % (d, req_id_to_cancel)
+                "also deleted %d pending tasks for request %s" % (d, req_id_to_cancel)
             )
 
-            return JSendResponse.success(
-                req_id=req_id, data={"id": req_id_to_cancel}
-            )
+            return JSendResponse.success(req_id=req_id, data={"id": req_id_to_cancel})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -216,6 +215,7 @@ async def request_set_completed_handler(
         req_id=req_id,
     )
 
+
 @router.delete(
     "/request_delete",
     tags=["stats"],
@@ -244,7 +244,11 @@ async def request_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     obj_id: Annotated[
-        str, Query(description="the request id to delete: if not set, all the requests are deleted for the given `operation_id`.", example="obj_id")
+        str,
+        Query(
+            description="the request id to delete: if not set, all the requests are deleted for the given `operation_id`.",
+            example="obj_id",
+        ),
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
@@ -262,6 +266,7 @@ async def request_delete_handler(
             return JSendResponse.success(req_id=req_id, data={"deleted": deleted})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.get(
     "/request_list",
@@ -784,6 +789,82 @@ async def ui_plugin_list_handler(
                 d: dict = p.model_dump(exclude_none=True)
                 ll.append(d)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=ll))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.get(
+    "/ui_plugin_get",
+    tags=["plugin"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701546711919,
+                        "req_id": "ddfc094f-4a5b-4a23-ad1c-5d1428b57706",
+                        "data": {
+                            "filename": "win_evtx.py",
+                            "path": "/opt/gulp/plugins/win_evtx.py",
+                            "content": "base64 file content here",
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="download UI plugin",
+    description="""
+- file is read from `GULP_WORKING_DIR/plugins/ui` directory if found, either from the main installation directory in `plugins/ui`.
+- file content is returned as base64.
+""",
+)
+async def ui_plugin_get_handler(
+    plugin: Annotated[
+        str,
+        Query(
+            description='filename of the plugin to retrieve content for, i.e. "plugin.tsx"'
+        ),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+
+    try:
+        extra_path = GulpConfig.get_instance().path_plugins_extra()
+        default_path = GulpConfig.get_instance().path_plugins_default()
+        plugin_path: str = None
+        if extra_path:
+            # build the extra path
+            plugin_path = os.path.join(extra_path, "ui", plugin.lower())
+            if not os.path.exists(plugin_path):
+                # if not found in extra_path, try default path
+                plugin_path = None
+        if not plugin_path:
+            # use default path
+            plugin_path = os.path.join(default_path, "ui", plugin.lower())
+            if not os.path.exists(plugin_path):
+                raise ObjectNotFound(
+                    "%s not found both in %s or %s" % (plugin, extra_path, default_path)
+                )
+
+        # read file content
+        f = await muty.file.read_file_async(plugin_path)
+        filename = os.path.basename(plugin_path)
+
+        return JSONResponse(
+            JSendResponse.success(
+                req_id=req_id,
+                data={
+                    "filename": filename,
+                    "path": plugin_path,
+                    "content": base64.b64encode(f).decode(),
+                },
+            )
+        )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

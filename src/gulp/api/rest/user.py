@@ -527,11 +527,12 @@ async def user_update_handler(
             u: GulpUser
             if user_id:
                 # get the requested user using the given token: it will work if the token is admin or it's the same user
+                MutyLogger.get_instance().debug("user_id specified, getting user %s", user_id)
                 s, u, _ = await GulpUser.get_by_id_wrapper(
                     sess, token, user_id, enforce_owner=True
                 )
             else:
-                # no user_id specified, use the token user
+                # no user_id specified, use the token's user
                 s = await GulpUserSession.check_token(sess, token)
                 u = s.user
 
@@ -551,7 +552,7 @@ async def user_update_handler(
 
             pwd_hash: str = None
             if password:
-                if not s.is_admin() and s.user.id != u.id:
+                if not u.is_admin() and s.user.id != u.id:
                     # only admin can change password to other users
                     raise MissingPermission(
                         "only admin can change password to other users, user_id=%s, session_user_id=%s"
@@ -567,9 +568,7 @@ async def user_update_handler(
                     MutyLogger.get_instance().debug("existing user data=%s" % (ud))
                     ud.update(user_data)
                     MutyLogger.get_instance().debug(
-                        "provided user_data=%s, updated user data=%s"
-                        % (user_data, ud)
-                    )
+                        "provided user_data=%s, updated user data=%s", user_data, ud)                    
                 else:
                     # replace existing user data
                     ud = user_data
@@ -577,9 +576,8 @@ async def user_update_handler(
             if delete_existing_user_session and u.session:
                 # invalidate session for the user being updated (user must login again then)
                 MutyLogger.get_instance().warning(
-                    "updated user password or permission, invalidating session for user_id=%s"
-                    % (u.id)
-                )
+                    "updated user password or permission, invalidating session for user_id=%s", u.id)
+                
                 await u.session.delete(sess)
                 u.session = None
 
@@ -803,18 +801,14 @@ async def user_set_data_handler(
             # get data
             ud: dict = u.user_data if u.user_data else {}
             MutyLogger.get_instance().debug(
-                "existing user data=%s"
-                % (orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
-            )
+                "existing user data=%s", orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
 
             # update
             ud[key] = value
             MutyLogger.get_instance().debug(
-                "new user data=%s"
-                % (orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
-            )
+                "new user data=%s", orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
             await u.update(sess, user_data=ud)
-            return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=ud))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -884,9 +878,8 @@ async def user_get_data_handler(
             # get data
             user_data: dict = u.user_data if u.user_data else {}
             MutyLogger.get_instance().debug(
-                "existing user data=%s"
-                % (orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode())
-            )
+                "existing user data=%s", orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode())
+            
             if key:
                 # get only the requested key
                 if key not in user_data:
@@ -968,9 +961,7 @@ async def user_delete_data_handler(
             # get data
             ud: dict = u.user_data if u.user_data else {}
             MutyLogger.get_instance().debug(
-                "existing user data=%s"
-                % (orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
-            )
+                "existing user data=%s", orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
             if key:
                 # delete only the requested key
                 if key not in ud:

@@ -12,7 +12,11 @@ from muty.log import MutyLogger
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp_client.common import GulpAPICommon, _ensure_test_operation
+from gulp_client.common import (
+    GulpAPICommon,
+    _ensure_test_operation,
+    _cleanup_test_operation,
+)
 from gulp_client.enrich import GulpAPIEnrich
 from gulp_client.query import GulpAPIQuery
 from gulp_client.user import GulpAPIUser
@@ -114,9 +118,7 @@ async def _setup():
     this is called before any test, to initialize the environment
     """
     if os.getenv("SKIP_RESET", "0") == "1":
-        GulpAPICommon.get_instance().init(
-            host=TEST_HOST, ws_id=TEST_WS_ID, req_id=TEST_REQ_ID, index=TEST_INDEX
-        )
+        await _cleanup_test_operation()
     else:
         await _ensure_test_operation()
 
@@ -124,14 +126,14 @@ async def _setup():
 @pytest.mark.asyncio
 async def test_enrich_whois_documents():
 
-    edit_token = await GulpAPIUser.login("editor", "editor")
-    assert edit_token
-
     if os.getenv("SKIP_RESET", "0") == "0":
         # ingest some data
         from tests.ingest.test_ingest import test_raw
 
         await test_raw(RAW_DATA)
+
+    edit_token = await GulpAPIUser.login("editor", "editor")
+    assert edit_token
 
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
@@ -194,7 +196,13 @@ async def test_enrich_whois_documents():
 
 
 @pytest.mark.asyncio
-async def test_enrich_whois_single():
+async def test_enrich_whois_single_id():
+
+    if os.getenv("SKIP_RESET", "0") == "0":
+        # ingest some data
+        from tests.ingest.test_ingest import test_raw
+
+        await test_raw(RAW_DATA)
 
     doc_id: str = "d1a00fb20c52958e0b69b63182c89bfa"
     edit_token = await GulpAPIUser.login("editor", "editor")
@@ -202,11 +210,6 @@ async def test_enrich_whois_single():
 
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert edit_token
-
-    # ingest some data
-    from tests.ingest.test_ingest import test_raw
-
-    await test_raw(RAW_DATA)
 
     plugin_params: GulpPluginParameters = GulpPluginParameters()
     plugin_params.custom_parameters = {
@@ -233,4 +236,4 @@ async def test_enrich_whois_single():
 
     assert doc.get("gulp.enrich_whois.source_ip.unified_dump") != None
     assert doc.get("gulp.enrich_whois.event_original.unified_dump") != None
-    MutyLogger.get_instance().info(test_enrich_whois_single.__name__ + " succeeded!")
+    MutyLogger.get_instance().info(test_enrich_whois_single_id.__name__ + " succeeded!")

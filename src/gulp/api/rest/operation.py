@@ -147,9 +147,9 @@ async def operation_update_handler(
     index: Annotated[
         Optional[str],
         Query(
-            description="the new index to be set for the operation (must exist on OpenSearch)."
+            description="a new index to be set for the operation (must exist on OpenSearch)."
         ),
-    ],
+    ] = None,
     description: Annotated[
         str, Depends(APIDependencies.param_description_optional)
     ] = None,
@@ -719,7 +719,7 @@ async def context_update_handler(
         async with GulpCollab.get_instance().session() as sess:
             s: GulpUserSession
             obj: GulpContext
-            s, obj, _ = await GulpOperation.get_by_id_wrapper(
+            s, obj, _ = await GulpContext.get_by_id_wrapper(
                 sess, token, context_id, permission=GulpUserPermission.EDIT
             )
 
@@ -1024,7 +1024,7 @@ async def source_delete_handler(
             op: GulpOperation
             s: GulpUserSession
             src: GulpSource
-            s, src, op = await GulpOperation.get_by_id_wrapper(
+            s, src, op = await GulpSource.get_by_id_wrapper(
                 sess, token, source_id, permission=GulpUserPermission.INGEST
             )
 

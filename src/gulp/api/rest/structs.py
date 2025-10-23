@@ -302,7 +302,7 @@ one or more user/group permission.
     def param_permission_optional(
         permission: Annotated[list[GulpUserPermission], _PERMISSION_BODY_PARAM] = None,
     ) -> list[GulpUserPermission]:
-        return permission or []
+        return permission or None
 
     _EMAIL_QUERY_PARAM = Query(description="the user email.", example="user@mail.com")
 

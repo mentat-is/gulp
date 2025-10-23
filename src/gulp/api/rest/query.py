@@ -820,7 +820,7 @@ async def query_gulp_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options_optional),
@@ -859,7 +859,7 @@ async def query_gulp_handler(
                 )
 
             # run a background task to process the query
-            queries: list[GulpQuery] = [GulpQuery(name=q_options.name, q=q)]
+            queries: list[GulpQuery] = [GulpQuery(q_name=q_options.name, q=q)]
             coro = process_queries(
                 user_id,
                 req_id,

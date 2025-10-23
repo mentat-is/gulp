@@ -342,17 +342,14 @@ async def user_group_list_handler(
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
     ServerUtils.dump_params(params)
     try:
-        async with GulpCollab.get_instance().session() as sess:
-            _, obj = await GulpUserGroup.get_by_filter_wrapper(
-                sess,
-                token,
-                flt,
-                recursive=True,
-                permission=[GulpUserPermission.ADMIN],
-            )
-            return JSendResponse.success(
-                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
-            )
+        d = await GulpUserGroup.get_by_filter_wrapper(
+            token,
+            flt,
+            recursive=True,
+            permission=[GulpUserPermission.ADMIN],
+        )
+        return JSendResponse.success(req_id=req_id, data=d)
+
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

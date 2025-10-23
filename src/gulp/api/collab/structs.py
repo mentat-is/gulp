@@ -830,18 +830,26 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         obj["time_created"] = time_created
         obj["time_updated"] = time_created
         obj["user_id"] = user_id
+
+        # by default, the object is public (no user/group grants)
         obj["granted_user_ids"] = []
         obj["granted_user_group_ids"] = []
 
-        # set user and group grants
-        if private:
-            # private object, ignore granted_user_ids and granted_user_group_ids
-            obj["granted_user_ids"] = [user_id]
-        else:
+        if granted_user_ids or granted_user_group_ids:
+            # if grants are specified, private is overridden
+            if private:
+                MutyLogger.get_instance().warning(
+                    "granted_user_ids or granted_user_group_ids set for object type=%s, private set but overridden!", cls.__gulp_collab_type__
+                )
+
             if granted_user_ids:
                 obj["granted_user_ids"] = granted_user_ids
             if granted_user_group_ids:
                 obj["granted_user_group_ids"] = granted_user_group_ids
+        else:
+            # no grants specified, make the object private if asked
+            if private:
+                obj["granted_user_ids"] = [user_id]
 
         # add object from kwargs if not None and not already set
         for k, v in kwargs.items():
@@ -923,20 +931,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # add extra data to the object dictionary, overriding existing keys
             d.update(extra_object_data)
 
-        # # create and stage the ORM instance
-        # instance: T = cls(**d)
-        # sess.add(instance)
-        # await sess.flush()
-
-        # # build eager loading options and re-query the instance to load relationships
-        # loading_options = cls._build_eager_loading_options()
-        # instance = (
-        #     await sess.execute(
-        #         select(cls).options(*loading_options).where(cls.id == instance.id)
-        #     )
-        # ).scalar_one()
-        # # MutyLogger.get_instance().debug(f"created instance: {instance.to_dict(nested=True, exclude_none=True)}")
-        # await sess.commit()
+        MutyLogger.get_instance().debug(
+            "creating object in table=%s, dict=%s", cls.__tablename__, d
+        )
 
         # insert the row using core insert so we don't instantiate the mapped class for persistence
         insert_stmt = insert(cls).values(**d).returning(*cls.__table__.c)
@@ -1702,7 +1699,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     ) -> tuple["GulpUserSession", T, "GulpOperation":None]:
         """
         helper to get an object by ID and the GulpUserSession, after checking if the token has the required permission
-
+        
+        if `obj_id` have an `operation_id` set, the token will be checked for READ access on the operation first.
+        
         Args:
             sess (AsyncSession): The database session to use.
             token (str): The user token.
@@ -1838,7 +1837,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 objects = res.scalars().all()
             if not objects:
                 if throw_if_not_found:
-                    raise ObjectNotFound(f"No {cls.__name__} found with filter {str(flt)}")
+                    raise ObjectNotFound(
+                        f"No {cls.__name__} found with filter {str(flt)}"
+                    )
 
             # MutyLogger.get_instance().debug("user_id=%s, POST-filtered objects: %s", user_id, objects)
             return objects
@@ -1852,7 +1853,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             if throw_if_not_found:
                 raise e
             return objects
-        
+
     @classmethod
     async def get_first_by_filter(
         cls,
