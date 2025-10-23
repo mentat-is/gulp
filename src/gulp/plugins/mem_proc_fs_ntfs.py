@@ -50,8 +50,8 @@ class Plugin(GulpPluginBase):
             ),
         ]
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     def display_name(self) -> str:
         return "MemProcFS"
@@ -121,79 +121,62 @@ class Plugin(GulpPluginBase):
         plugin_params=None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            # initialize plugin
-            if not plugin_params:
-                plugin_params = GulpPluginParameters()
+        # initialize plugin
+        if not plugin_params:
+            plugin_params = GulpPluginParameters()
 
-            plugin_params = self._ensure_plugin_params(
-                plugin_params, mapping_file="mem_proc_fs.json", mapping_id="ntfs"
-            )
+        plugin_params = self._ensure_plugin_params(
+            plugin_params, mapping_file="mem_proc_fs.json", mapping_id="ntfs"
+        )
 
-            await super().ingest_file(
-                sess,
-                stats,
-                user_id,
-                req_id,
-                ws_id,
-                index,
-                operation_id,
-                context_id,
-                source_id,
-                file_path,
-                original_file_path,
-                flt,
-                plugin_params,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self.update_stats_and_flush(flt)
-            return GulpRequestStatus.FAILED
-        try:
-            doc_idx = 0
-            encoding = self._plugin_params.custom_parameters.get("encoding")
-            async with aiofiles.open(
-                file_path, mode="r", encoding=encoding, newline=""
-            ) as f:
-                async for row in f:
-                    if not row:
+        await super().ingest_file(
+            sess,
+            stats,
+            user_id,
+            req_id,
+            ws_id,
+            index,
+            operation_id,
+            context_id,
+            source_id,
+            file_path,
+            original_file_path,
+            flt,
+            plugin_params,
+            **kwargs,
+        )
+        doc_idx = 0
+        encoding = self._plugin_params.custom_parameters.get("encoding")
+        async with aiofiles.open(
+            file_path, mode="r", encoding=encoding, newline=""
+        ) as f:
+            async for row in f:
+                if not row:
+                    continue
+                row = row.strip()
+                try:
+                    record = await self._parse_line(row, doc_idx)
+                    if not record or (
+                        "date_created" not in record and "date_modified" not in record
+                    ):
                         continue
-                    row = row.strip()
-                    try:
-                        record = await self._parse_line(row, doc_idx)
-                        if not record or (
-                            "date_created" not in record
-                            and "date_modified" not in record
-                        ):
-                            continue
-                        if "date_created" in record and record["date_created"]:
-                            ts = muty.time.datetime_to_nanos_from_unix_epoch(
-                                datetime.strptime(
-                                    record.pop("date_created"), DATE_FORMAT
-                                )
-                            )
-                            record["timestamp"] = ts
-                        elif "date_modified" in record and record["date_modified"]:
-                            ts_modified = ts = (
-                                muty.time.datetime_to_nanos_from_unix_epoch(
-                                    datetime.strptime(
-                                        record.pop("date_modified"), DATE_FORMAT
-                                    )
-                                )
-                            )
-                            if "timestamp" in record and not record["timestamp"]:
-                                record["timestamp"] = ts_modified
-                            else:
-                                record["date_modified"] = ts_modified
-                        await self.process_record(record, doc_idx, flt)
-                        doc_idx += 1
-                    except:
-                        MutyLogger.get_instance().warning(f"cannot ingest row: {row}")
-                        continue
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self.update_stats_and_flush(flt)
+                    if "date_created" in record and record["date_created"]:
+                        ts = muty.time.datetime_to_nanos_from_unix_epoch(
+                            datetime.strptime(record.pop("date_created"), DATE_FORMAT)
+                        )
+                        record["timestamp"] = ts
+                    elif "date_modified" in record and record["date_modified"]:
+                        ts_modified = ts = muty.time.datetime_to_nanos_from_unix_epoch(
+                            datetime.strptime(record.pop("date_modified"), DATE_FORMAT)
+                        )
+                        if "timestamp" in record and not record["timestamp"]:
+                            record["timestamp"] = ts_modified
+                        else:
+                            record["date_modified"] = ts_modified
+                    await self.process_record(record, doc_idx, flt)
+                    doc_idx += 1
+                except:
+                    MutyLogger.get_instance().warning(f"cannot ingest row: {row}")
+                    continue
 
-        return self._stats_status()
+        return stats.status

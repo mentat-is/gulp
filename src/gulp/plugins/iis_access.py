@@ -44,8 +44,8 @@ class Plugin(GulpPluginBase):
     IIS access logs file processor.
     """
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -143,54 +143,36 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self.update_stats_and_flush(flt)
-            return GulpRequestStatus.FAILED
+
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         date_format = self._plugin_params.custom_parameters.get(
             "date_format", "%m/%d/%y %H:%M:%S"
         )
         doc_idx = 0
-        try:
-            async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
-                async for l in log_src:
-                    # if log_format == "w3c" and l.startswith("#"):
-                    # TODO: parse header, skip other comments, is this needed/useful info, other than the fields part?
-                    # continue
 
-                    try:
-                        await self.process_record(
-                            l, doc_idx, flt=flt, date_format=date_format
-                        )
-                    except (RequestCanceledError, SourceCanceledError) as ex:
-                        MutyLogger.get_instance().exception(ex)
-                        await self._source_failed(ex)
-                        break
-                    except PreviewDone:
-                        # preview done, stop processing
-                        pass
-                    doc_idx += 1
+        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
+            async for l in log_src:
+                # if log_format == "w3c" and l.startswith("#"):
+                # TODO: parse header, skip other comments, is this needed/useful info, other than the fields part?
+                # continue
 
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self.update_stats_and_flush(flt)
-        return self._stats_status()
+                await self.process_record(l, doc_idx, flt=flt, date_format=date_format)
+
+                doc_idx += 1
+            return stats.status

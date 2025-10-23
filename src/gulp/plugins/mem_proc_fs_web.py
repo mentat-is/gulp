@@ -46,8 +46,8 @@ class Plugin(GulpPluginBase):
             ),
         ]
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     def display_name(self) -> str:
         return "MemProcFS"
@@ -117,48 +117,39 @@ class Plugin(GulpPluginBase):
         plugin_params=None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            # initialize plugin
-            if not plugin_params:
-                plugin_params = GulpPluginParameters()
+        # initialize plugin
+        if not plugin_params:
+            plugin_params = GulpPluginParameters()
 
-            await super().ingest_file(
-                sess,
-                stats,
-                user_id,
-                req_id,
-                ws_id,
-                index,
-                operation_id,
-                context_id,
-                source_id,
-                file_path,
-                original_file_path,
-                flt,
-                plugin_params,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self.update_stats_and_flush(flt)
-            return GulpRequestStatus.FAILED
-        try:
-            doc_idx = 0
-            encoding = self._plugin_params.custom_parameters.get("encoding")
-            async with aiofiles.open(
-                file_path, mode="r", encoding=encoding, newline=""
-            ) as f:
-                async for row in f:
-                    if not row:
-                        continue
-                    row = row.strip()
-                    record = await self._parse_line(row, doc_idx)
-                    if record:
-                        await self.process_record(record, doc_idx, flt)
-                        doc_idx += 1
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self.update_stats_and_flush(flt)
+        await super().ingest_file(
+            sess,
+            stats,
+            user_id,
+            req_id,
+            ws_id,
+            index,
+            operation_id,
+            context_id,
+            source_id,
+            file_path,
+            original_file_path,
+            flt,
+            plugin_params,
+            **kwargs,
+        )
 
-        return self._stats_status()
+        doc_idx = 0
+        encoding = self._plugin_params.custom_parameters.get("encoding")
+        async with aiofiles.open(
+            file_path, mode="r", encoding=encoding, newline=""
+        ) as f:
+            async for row in f:
+                if not row:
+                    continue
+                row = row.strip()
+                record = await self._parse_line(row, doc_idx)
+                if record:
+                    await self.process_record(record, doc_idx, flt)
+                    doc_idx += 1
+
+        return stats.status

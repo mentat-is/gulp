@@ -208,12 +208,6 @@ class Plugin(GulpPluginBase):
                 l = l.strip()
                 if not l:
                     continue
-
-                try:
-                    await self.process_record(l, doc_idx, flt=flt, regex=pattern)
-                except (RequestCanceledError, SourceCanceledError) as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    break
-
+                await self.process_record(l, doc_idx, flt=flt, regex=pattern)
                 doc_idx += 1
         return stats.status

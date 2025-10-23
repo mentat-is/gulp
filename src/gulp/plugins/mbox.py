@@ -52,8 +52,8 @@ class Plugin(GulpPluginBase):
             )
         ]
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     async def _record_to_gulp_document(
@@ -84,65 +84,44 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
 
-            # load eml plugin
-            eml_parser = await self.load_plugin_direct(
-                "eml",
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-            )
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self.update_stats_and_flush(flt)
-            return GulpRequestStatus.FAILED
+        # load eml plugin
+        eml_parser = await self.load_plugin_direct(
+            "eml",
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+        )
 
         doc_idx = 0
-        try:
-            mbox = mailbox.mbox(file_path)
-            for message in mbox.itervalues():
-                try:
-                    await self.process_record(
-                        message, doc_idx, flt=flt, eml_parser=eml_parser
-                    )
-                except (RequestCanceledError, SourceCanceledError) as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    await self._source_failed(ex)
-                except PreviewDone:
-                    # preview done, stop processing
-                    pass
-                doc_idx += 1
-
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self.update_stats_and_flush(flt)
-            await self._eml_parser.unload()
-        return self._stats_status()
+        mbox = mailbox.mbox(file_path)
+        for message in mbox.itervalues():
+            await self.process_record(message, doc_idx, flt=flt, eml_parser=eml_parser)
+            doc_idx += 1
+        return stats.status

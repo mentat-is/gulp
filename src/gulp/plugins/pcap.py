@@ -42,8 +42,8 @@ from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -195,81 +195,58 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self.update_stats_and_flush(flt)
-            return GulpRequestStatus.FAILED
 
-        try:
-            file_format = self._plugin_params.custom_parameters.get("format")
-            if file_format is None:
-                # attempt to get format from source name (TODO: do it by checking bytes header instead?)
-                file_format = pathlib.Path(file_path).suffix.lower()[1:]
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
-            # check if a valid input was received/inferred
-            if file_format in ["cap", "pcap"]:
-                file_format = "pcap"
-            elif file_format in ["pcapng"]:
-                file_format = "pcapng"
-            else:
-                # fallback to pcap
-                file_format = "pcap"
+        file_format = self._plugin_params.custom_parameters.get("format")
+        if file_format is None:
+            # attempt to get format from source name (TODO: do it by checking bytes header instead?)
+            file_format = pathlib.Path(file_path).suffix.lower()[1:]
 
+        # check if a valid input was received/inferred
+        if file_format in ["cap", "pcap"]:
+            file_format = "pcap"
+        elif file_format in ["pcapng"]:
+            file_format = "pcapng"
+        else:
+            # fallback to pcap
+            file_format = "pcap"
+
+        MutyLogger.get_instance().debug(
+            "detected file format: %s for file %s" % (file_format, file_path)
+        )
+
+        MutyLogger.get_instance().debug("parsing file: %s" % (file_path))
+        if file_format == "pcapng":
             MutyLogger.get_instance().debug(
-                "detected file format: %s for file %s" % (file_format, file_path)
+                "using PcapNgReader reader on file: %s" % (file_path)
             )
-
-            MutyLogger.get_instance().debug("parsing file: %s" % (file_path))
-            if file_format == "pcapng":
-                MutyLogger.get_instance().debug(
-                    "using PcapNgReader reader on file: %s" % (file_path)
-                )
-                parser = PcapNgReader(file_path)
-            else:
-                MutyLogger.get_instance().debug(
-                    "using PcapReader reader on file: %s" % (file_path)
-                )
-                parser = PcapReader(file_path)
-            # TODO: support other scapy file readers like ERF?
-        except Exception as ex:
-            # cannot parse this file at all
-            await self._source_failed(ex)
-            await self.update_stats_and_flush(flt)
-            return GulpRequestStatus.FAILED
+            parser = PcapNgReader(file_path)
+        else:
+            MutyLogger.get_instance().debug(
+                "using PcapReader reader on file: %s" % (file_path)
+            )
+            parser = PcapReader(file_path)
+        # TODO: support other scapy file readers like ERF?
 
         doc_idx = 0
-        try:
-            for pkt in parser:
-                try:
-                    await self.process_record(pkt, doc_idx, flt=flt)
-                except (RequestCanceledError, SourceCanceledError) as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    await self._source_failed(ex)
-                    break
-                except PreviewDone:
-                    # preview done, stop processing
-                    pass
-                doc_idx += 1
+        for pkt in parser:
+            await self.process_record(pkt, doc_idx, flt=flt)
+            doc_idx += 1
 
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self.update_stats_and_flush(flt)
-        return self._stats_status()
+        return stats.status
