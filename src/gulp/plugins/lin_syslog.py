@@ -19,18 +19,20 @@ import muty.os
 import muty.string
 import muty.time
 import muty.xml
+from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.mapping.models import GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -38,11 +40,11 @@ class Plugin(GulpPluginBase):
 
     def display_name(self) -> str:
         return "lin_syslog"
-    
+
     def regex(self) -> str:
         """regex to identify this format"""
         return None
-    
+
     @override
     def depends_on(self) -> list[str]:
         return ["regex"]
@@ -106,8 +108,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        **kwargs,
+    ) -> GulpRequestStatus:
         await super().ingest_file(
             sess=sess,
             stats=stats,
@@ -124,13 +126,8 @@ class Plugin(GulpPluginBase):
             flt=flt,
             **kwargs,
         )
-
         # set as stacked
-        try:
-            lower = await self.setup_stacked_plugin("regex")
-        except Exception as ex:
-            await self._source_failed(ex)
-            return GulpRequestStatus.FAILED
+        lower = await self.setup_stacked_plugin("regex")
 
         regex = r"".join(
             [
