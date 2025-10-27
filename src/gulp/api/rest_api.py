@@ -440,7 +440,7 @@ class GulpRestServer:
         poll tasks queue on collab database and dispatch them to the process pool for processing.
         """
         from gulp.api.rest.ingest import run_ingest_file_task
-
+        
         limit: int = GulpConfig.get_instance().concurrency_max_tasks()
         offset: int = 0
         MutyLogger.get_instance().info(

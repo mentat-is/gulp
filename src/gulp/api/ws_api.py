@@ -199,7 +199,10 @@ class GulpCollabUpdatePacket(BaseModel):
         },
     )
     obj: Annotated[
-        dict, Field(description="The updated GulpCollabObject: the object `type` is `obj.type`.")
+        dict,
+        Field(
+            description="The updated GulpCollabObject: the object `type` is `obj.type`."
+        ),
     ]
 
 
@@ -360,7 +363,9 @@ class GulpQueryDonePacket(BaseModel):
         },
     )
     q_name: Annotated[str, Field(description="The query name.")]
-    q_group: Annotated[Optional[str], Field(description="The query group name, if any.")] = None
+    q_group: Annotated[
+        Optional[str], Field(description="The query group name, if any.")
+    ] = None
     status: Annotated[
         str, Field(description="The status of the query operation (done/failed).")
     ]
@@ -689,46 +694,6 @@ class GulpDocumentsChunkPacket(BaseModel):
     ] = False
 
 
-class WsQueueMessagePool:
-    """
-    message pool for the ws to reduce memory pressure and gc
-    """
-
-    def __init__(self, maxsize: int = 1000):
-        # preallocate message pool
-        self._pool = collections.deque(maxlen=maxsize)
-
-    def clear(self):
-        """
-        clear the message pool
-        """
-        self._pool.clear()
-
-    def get(self) -> dict:
-        """
-        get a preallocated message from the pool
-
-        Returns:
-            dict: the message
-        """
-        try:
-            msg = self._pool.popleft()
-            return msg
-        except IndexError:
-            return {}
-
-    def put(self, msg: dict):
-        """
-        put a message back into the pool
-
-        Args:
-            msg (dict): the message to put back
-        """
-        # clear and put back
-        msg.clear()
-        self._pool.append(msg)
-
-
 class GulpConnectedSocket:
     """
     represents a connected websocket.
@@ -764,7 +729,6 @@ class GulpConnectedSocket:
         """
         self.ws = ws
         self.ws_id = ws_id
-        self._msg_pool = WsQueueMessagePool()
         self.types = types
         self.operation_ids = operation_ids
         self.send_task = None
@@ -824,9 +788,6 @@ class GulpConnectedSocket:
 
         # empty the queue
         await self._flush_queue()
-
-        # clear the msg pool
-        self._msg_pool.clear()
 
         if tasks:
             # clear tasks
@@ -1365,9 +1326,7 @@ class GulpWsSharedQueue:
     MAX_QUEUE_SIZE = 1000
     QUEUE_TIMEOUT = 30
     MAX_RETRIES = 3
-    BATCH_SIZE = 100
-    PROCESSING_YIELD_INTERVAL = 0.1
-    PROCESSING_YIELD_CONTROL_DELAY = 0.01
+    YIELD_CONTROL_DELAY = 0.1
 
     def __init__(self):
         # these are the fixed broadcast types that are always sent to all connected websockets
@@ -1454,10 +1413,6 @@ class GulpWsSharedQueue:
         if not GulpProcess.get_instance().is_main_process():
             raise RuntimeError("init_queue() must be called in the main process")
 
-        if self._shared_q:
-            # close first
-            await self.close()
-
         MutyLogger.get_instance().debug("initializing shared ws queue ...")
         self._shared_q = mgr.Queue(GulpWsSharedQueue.MAX_QUEUE_SIZE)
         self._fill_task = asyncio.create_task(self._fill_ws_queues_from_shared_queue())
@@ -1472,44 +1427,21 @@ class GulpWsSharedQueue:
 
         MutyLogger.get_instance().debug("starting shared queue processing task...")
 
-        messages: list[GulpWsData] = []
-        last_yield_time: GulpWsIngestPacket = time.monotonic()
         try:
-
             while not GulpRestServer.get_instance().is_shutdown():
                 # collect batch of messages
-                messages.clear()
-                while len(messages) < GulpWsSharedQueue.BATCH_SIZE:
-                    try:
-                        entry = self._shared_q.get_nowait()
-                        messages.append(entry)
-                        self._shared_q.task_done()
-                    except Empty:
-                        break
+                try:
+                    msg = self._shared_q.get_nowait()
+                    self._shared_q.task_done()
+                except Empty:
+                    await asyncio.sleep(GulpWsSharedQueue.YIELD_CONTROL_DELAY)
+                    continue
 
-                # dispatch
-                for msg in messages:
-                    # MutyLogger.get_instance().debug(
-                    #     "shared queue processing message: type=%s, ws_id=%s, user_id=%s, operation_id=%s, internal=%s",
-                    #     msg.type,
-                    #     msg.ws_id,
-                    #     msg.user_id,
-                    #     msg.operation_id,
-                    #     msg.internal,
-                    # )
-                    cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
-                    if cws or msg.internal:
-                        await GulpConnectedSockets.get_instance().broadcast_message(msg)
+                cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
+                if cws or msg.internal:
+                    await GulpConnectedSockets.get_instance().broadcast_message(msg)
 
-                # yield control between batches
-                if (
-                    time.monotonic() - last_yield_time
-                    > GulpWsSharedQueue.PROCESSING_YIELD_INTERVAL
-                ):
-                    await asyncio.sleep(
-                        GulpWsSharedQueue.PROCESSING_YIELD_CONTROL_DELAY
-                    )
-                    last_yield_time = time.monotonic()
+                await asyncio.sleep(GulpWsSharedQueue.YIELD_CONTROL_DELAY)
 
         except asyncio.CancelledError:
             MutyLogger.get_instance().warning("queue processing cancelled")
@@ -1517,15 +1449,6 @@ class GulpWsSharedQueue:
             MutyLogger.get_instance().error("queue processing error: %s", e)
             raise
         finally:
-            # process remaining messages
-            for msg in messages:
-                try:
-                    cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
-                    if cws or msg.internal:
-                        await GulpConnectedSockets.get_instance().broadcast_message(msg)
-                except Exception as e:
-                    MutyLogger.get_instance().error("shared queue cleanup error: %s", e)
-
             MutyLogger.get_instance().info("shared queue processing task completed")
 
     async def close(self) -> None:

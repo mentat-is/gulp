@@ -296,7 +296,14 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 "---> create_stats: req_id=%s, already existing, updating...",
                 req_id,
             )
-
+            if stats.status != GulpRequestStatus.ONGOING.value:
+                MutyLogger.get_instance().warning(
+                    "existing stats %s is already finished with status=%s, not updating status or expiration time",
+                    req_id,
+                    stats.status,
+                )
+                return stats, False
+            
             # update existing stats as ongoing, and update time_expire if needed
             stats.status = GulpRequestStatus.ONGOING.value
             stats.time_updated = time_updated

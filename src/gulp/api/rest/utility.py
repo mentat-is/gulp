@@ -70,7 +70,6 @@ router: APIRouter = APIRouter()
 async def request_get_by_id_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
     ServerUtils.dump_params(locals())
@@ -81,7 +80,6 @@ async def request_get_by_id_handler(
                 sess,
                 token,
                 obj_id,
-                operation_id=operation_id,
             )
             return JSendResponse.success(req_id=req_id, data=obj.to_dict())
     except Exception as ex:
@@ -120,14 +118,7 @@ async def request_cancel_handler(
     req_id_to_cancel: Annotated[
         str, Query(description="request id to cancel.", example="test_req")
     ],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
-    status: Annotated[
-        Literal["canceled", "done", "failed"],
-        Query(
-            description="the status to set the request to. default is `canceled`, other accepted values are `failed` or `done`."
-        ),
-    ] = GulpRequestStatus.CANCELED,
     expire_now: Annotated[
         bool,
         Query(
@@ -140,20 +131,19 @@ async def request_cancel_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             obj: GulpRequestStats
-            _, obj, _ = await GulpRequestStats.get_by_id_wrapper(
+            _, obj, op = await GulpRequestStats.get_by_id_wrapper(
                 sess,
                 token,
                 req_id_to_cancel,
-                operation_id=operation_id,
                 enforce_owner=True,
             )
-            await obj.cancel(sess, status=status, expire_now=expire_now)
+            await obj.set_canceled(sess, expire_now=expire_now)
 
             # also delete related tasks if any
             d: int = await GulpTask.delete_by_filter(
                 sess,
                 GulpCollabFilter(
-                    operation_ids=[operation_id], req_id=[req_id_to_cancel]
+                    operation_ids=[op.id], req_id=[req_id_to_cancel]
                 ),
                 throw_if_not_found=False,
             )
@@ -187,7 +177,7 @@ async def request_cancel_handler(
     },
     summary="complete the request.",
     description="""
-just a wrapper for `request_cancel` to set the request as completed (either `done` or `failed`).
+sets the request either as `done` or `failed`.
 
 - `token` needs `admin` permission or to be the owner of the request.
 - any scheduled task for the request is deleted as well.
@@ -198,7 +188,6 @@ async def request_set_completed_handler(
     req_id_to_complete: Annotated[
         str, Query(description="request id to set completed.", example="test_req")
     ],
-    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     failed: Annotated[
         bool, Query(description="if set, the request is marked as failed.")
@@ -206,15 +195,23 @@ async def request_set_completed_handler(
 ) -> JSONResponse:
     params = locals()
     ServerUtils.dump_params(params)
-    return request_cancel_handler(
-        token=token,
-        req_id_to_cancel=req_id_to_complete,
-        operation_id=operation_id,
-        status=GulpRequestStatus.FAILED if failed else GulpRequestStatus.DONE,
-        expire_now=True,
-        req_id=req_id,
-    )
 
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            obj: GulpRequestStats
+            _, obj, op = await GulpRequestStats.get_by_id_wrapper(
+                sess,
+                token,
+                req_id_to_complete,
+                enforce_owner=True,
+            )
+            await obj.set_finished(sess, status=GulpRequestStatus.FAILED if failed else GulpRequestStatus.DONE)
+
+            return JSendResponse.success(req_id=req_id, data={"id": req_id_to_complete})
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
 
 @router.delete(
     "/request_delete",
@@ -257,10 +254,12 @@ async def request_delete_handler(
     try:
         async with GulpCollab.get_instance().session() as sess:
             s: GulpUserSession
-            s, _, _ = await GulpOperation.get_by_id_wrapper(sess, token, operation_id)
+            op: GulpOperation
+            s, op, _ = await GulpOperation.get_by_id_wrapper(sess, token, operation_id)
             flt = GulpCollabFilter()
-            flt.operation_ids = [operation_id]
+            flt.operation_ids = [op.id]
             if obj_id:
+                # delete only the given request id
                 flt.ids = [obj_id]
             deleted = await GulpRequestStats.delete_by_filter(sess, flt, s.user_id)
             return JSendResponse.success(req_id=req_id, data={"deleted": deleted})

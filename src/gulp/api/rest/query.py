@@ -291,22 +291,22 @@ async def _run_query(
 
                 if total_hits == 0:
                     raise ObjectNotFound("no results found!")
+                return total_hits, total_processed, q_options.name, canceled
 
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
+                if isinstance(ex, RequestCanceledError):
+                    # request is canceled
+                    canceled = True
                 exx = ex
                 raise
             finally:
                 if mod:
                     # finalize external query stats
-                    await mod.update_stats_and_flush(ex=exx)
+                    await mod.update_final_stats_and_flush(ex=exx)
                     await mod.unload()
     finally:
-        if isinstance(exx, RequestCanceledError):
-            # request is canceled
-            canceled = True
-        else:
-            # reraise exception
+        if not isinstance(exx, RequestCanceledError):
             err = muty.log.exception_to_string(exx)
 
         # signal WSDATA_QUERY_DONE on the websocket
@@ -330,7 +330,6 @@ async def _run_query(
             d=p.model_dump(exclude_none=True),
         )
 
-    return total_hits, total_processed, q_options.name, canceled
 
 
 async def process_queries(
@@ -347,16 +346,20 @@ async def process_queries(
     write_history: bool = True,
     sess: AsyncSession = None,
     auto_finalize_stats: bool = True,
-) -> None:
+) -> bool:
     """
     runs in a background task and spawns workers to process queries, batching them if needed.
 
     index, plugin, plugin_params are used for external queries only
+
+    Returns:
+        bool: True if the request was canceled, False otherwise.
     """
 
-    async def _internal(sess: AsyncSession) -> None:
+    async def _internal(sess: AsyncSession) -> bool:
         stats: GulpRequestStats = None
         batching_step_reached: bool = False
+        req_canceled: bool = False
         try:
             # create a stats, or get it if it doesn't exist yet
             # for query stats, we will have a GulpQueryStats payload
@@ -416,7 +419,6 @@ async def process_queries(
             )
 
             results: list[tuple[int, int, str, bool] | Exception] = []
-            req_canceled: bool = False
             matched_queries: dict[str, int] = {}
             for i in range(0, len(queries), batch_size):
                 # run one batch
@@ -461,7 +463,7 @@ async def process_queries(
                     if isinstance(r, tuple) and len(r) == 4:
                         # we have a result
                         processed, hits, q_name, canceled = r
-                        if hits > 0:
+                        if hits > 0 and q_options.group:
                             # increment matches for this query
                             if not matched_queries.get(q_name):
                                 matched_queries[q_name] = 0
@@ -477,6 +479,10 @@ async def process_queries(
                             req_canceled = True
                     elif isinstance(r, Exception):
                         # we have an error
+                        if 'RequestCanceledError' in str(r):
+                            # request is canceled
+                            req_canceled = True
+                            
                         err = muty.log.exception_to_string(r)
                         if err not in errors:
                             errors.append(err)
@@ -503,7 +509,7 @@ async def process_queries(
             if not q_options.group:
                 # we're done
                 MutyLogger.get_instance().debug("no query group set, we're done!")
-                return
+                return req_canceled
 
             num_queries_in_group = len(queries)
             if len(matched_queries) < num_queries_in_group:
@@ -513,7 +519,7 @@ async def process_queries(
                     len(matched_queries),
                     num_queries_in_group,
                 )
-                return
+                return req_canceled
             MutyLogger.get_instance().info(
                 "we have a query_group match for group %s !", q_options.group
             )
@@ -554,15 +560,15 @@ async def process_queries(
 
     if not queries:
         MutyLogger.get_instance().warning("process_queries called with no queries!")
-        return
+        return False
 
     if not sess:
         # create the session
         async with GulpCollab.get_instance().session() as sess:
-            await _internal(sess)
-    else:
-        # use provided session
-        await _internal(sess)
+            return await _internal(sess)
+
+    # use provided session
+    return await _internal(sess)
 
 
 async def _preview_query(
@@ -820,7 +826,9 @@ async def query_gulp_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)] = None,
+    flt: Annotated[
+        GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)
+    ] = None,
     q_options: Annotated[
         GulpQueryParameters,
         Depends(APIDependencies.param_q_options_optional),
@@ -1239,9 +1247,7 @@ async def query_single_id_handler(
             await GulpUserSession.check_token(sess, token, obj=op)
             index = op.index
 
-            d = await GulpOpenSearch.get_instance().query_single_document(
-                index, doc_id
-            )
+            d = await GulpOpenSearch.get_instance().query_single_document(index, doc_id)
             return JSONResponse(JSendResponse.success(req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -1450,9 +1456,7 @@ async def query_operations(
                 )
                 operations.extend(d)
 
-            return JSONResponse(
-                JSendResponse.success(req_id=req_id, data=operations)
-            )
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=operations))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1521,9 +1525,7 @@ async def query_fields_by_source_handler(
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s: GulpUserSession = await GulpUserSession.check_token(
-                sess, token, obj=op
-            )
+            s: GulpUserSession = await GulpUserSession.check_token(sess, token, obj=op)
             index = op.index
             user_id = s.user.id
 
@@ -1619,9 +1621,7 @@ async def _export_json_internal(
     runs in a worker process, exports the query results as json file and returns the file path (or Exception on error).
     """
 
-    file_path = tempfile.mkstemp(
-        suffix=".json", prefix="gulp_export_%s" % (req_id)
-    )[1]
+    file_path = tempfile.mkstemp(suffix=".json", prefix="gulp_export_%s" % (req_id))[1]
     async with aiofiles.open(file_path, "wb") as f:
         try:
             await GulpOpenSearch.get_instance().search_dsl(
