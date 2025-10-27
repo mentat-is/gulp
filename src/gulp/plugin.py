@@ -2362,8 +2362,8 @@ class GulpPluginBase(ABC):
             records_processed=self._records_processed_per_chunk,
             records_failed=self._records_failed_per_chunk,
         )
-
         # reset buffers and counters
+        # self._docs_buffer.clear()
         self._docs_buffer = []
         self._records_processed_per_chunk = 0
         self._records_failed_per_chunk = 0
@@ -3176,7 +3176,6 @@ class GulpPluginBase(ABC):
         Returns:
             None
         """
-
         # clear stuff
         MutyLogger.get_instance().debug("unload() called for plugin: %s" % (self.name))
 

@@ -19,18 +19,20 @@ import muty.os
 import muty.string
 import muty.time
 import muty.xml
+from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.mapping.models import GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -38,11 +40,11 @@ class Plugin(GulpPluginBase):
 
     def display_name(self) -> str:
         return "lin_syslog"
-    
+
     def regex(self) -> str:
         """regex to identify this format"""
         return None
-    
+
     @override
     def depends_on(self) -> list[str]:
         return ["regex"]
@@ -73,19 +75,8 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: dict, record_idx: int, **kwargs
     ) -> dict:
-        # ts = muty.time.string_to_nanos_from_unix_epoch(record["gulp.unmapped.timestamp"])
-        timestamp = dateutil.parser.parse(record.get("gulp.unmapped.timestamp"))
         record["agent.type"] = self.display_name()  # override agent.type
-        record["@timestamp"] = timestamp.astimezone(
-            tz=datetime.timezone.utc
-        ).isoformat()
-
-        ts = muty.time.datetime_to_nanos_from_unix_epoch(timestamp)
-        record["gulp.timestamp"] = ts
-
-        del record["gulp.unmapped.timestamp"]
-        # record["event.code"] = muty.crypto.hash_xxh64(record["gulp.unmapped.process"])
-
+        record["event.code"] = muty.crypto.hash_xxh64(record["gulp.unmapped.process"])
         # parse known message types (e.g. sshd)
         record = self._extra_parse(record)
 
@@ -106,8 +97,8 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-         **kwargs
-   ) -> GulpRequestStatus:
+        **kwargs,
+    ) -> GulpRequestStatus:
         await super().ingest_file(
             sess=sess,
             stats=stats,
@@ -124,20 +115,20 @@ class Plugin(GulpPluginBase):
             flt=flt,
             **kwargs,
         )
-
+        mappings = self.selected_mapping()
+        if not "timestamp" in mappings.fields:
+            mappings.fields["timestamp"] = GulpMappingField(ecs="@timestamp")
         # set as stacked
-        try:
-            lower = await self.setup_stacked_plugin("regex")
-        except Exception as ex:
-            await self._source_failed(ex)
-            return GulpRequestStatus.FAILED
+        lower = await self.setup_stacked_plugin("regex")
 
         regex = r"".join(
             [
-                r"^(?P<timestamp>.+?)\s",
-                r"(?P<hostname>\S+)\s",
-                r"(?P<process>.+?(?=\[)|.+?(?=))[^a-zA-Z0-9]",
-                r"(?P<pid>\d{1,7}|)[^a-zA-Z0-9]{1,3}(?P<info>.*)$",
+                r"^(?P<timestamp>.+?)\s",  # Timestamp
+                r"(?P<hostname>\S+)\s",  # Hostname
+                r"(?P<process>[^\[:]+)",  # Process
+                r"(?:\[(?P<pid>\d+)\])?",  # PID optional (es. [797])
+                r":?\s*",  # Separator
+                r"(?P<info>.*)$",  # info message
             ]
         )
 
@@ -158,7 +149,6 @@ class Plugin(GulpPluginBase):
             original_file_path=original_file_path,
             plugin_params=plugin_params,
             flt=flt,
-            **kwargs,
         )
         await lower.unload()
         return res
