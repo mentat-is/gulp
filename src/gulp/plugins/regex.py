@@ -162,7 +162,7 @@ class Plugin(GulpPluginBase):
 
         # make sure we have at least 1 named group
         if regex.groups == 0:
-            await self.update_stats_and_flush(flt)
+            await self.update_final_stats_and_flush(flt)
             return GulpRequestStatus.FAILED
 
         # make sure we have at least one field named timestamp
@@ -172,7 +172,7 @@ class Plugin(GulpPluginBase):
                 valid = True
 
         if not valid:
-            await self.update_stats_and_flush(flt)
+            await self.update_final_stats_and_flush(flt)
             return GulpRequestStatus.FAILED
 
         # we can process!

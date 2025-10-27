@@ -323,7 +323,7 @@ async def _ingest_file_internal(
                 return status, preview_chunk
 
             # this source is done
-            await mod.update_stats_and_flush(flt=payload.flt)
+            await mod.update_final_stats_and_flush(flt=payload.flt)
 
             # broadcast internal event and update source field types
             await mod.broadcast_ingest_internal_event()
@@ -331,7 +331,7 @@ async def _ingest_file_internal(
         except Exception as ex:
             if mod:
                 # this source failed
-                await mod.update_stats_and_flush(flt=payload.flt, ex=ex)
+                await mod.update_final_stats_and_flush(flt=payload.flt, ex=ex)
             raise
         finally:
             if mod:
@@ -1129,13 +1129,13 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
                     plugin_params=plugin_params,
                     last=last,
                 )
-                await mod.update_stats_and_flush(flt=flt)
+                await mod.update_final_stats_and_flush(flt=flt)
 
                 # done
                 return JSONResponse(JSendResponse.success(req_id=req_id))
             except Exception as ex:
                 if mod:
-                    await mod.update_stats_and_flush(flt=flt, ex=ex)
+                    await mod.update_final_stats_and_flush(flt=flt, ex=ex)
                 raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

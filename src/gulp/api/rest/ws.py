@@ -108,14 +108,14 @@ class WsIngestRawWorker:
         async with GulpCollab.get_instance().session() as sess:
             stats: GulpRequestStats = None
             mod: GulpPluginBase = None
-            
+
             while True:
                 exx: Exception = None
                 try:
                     packet: InternalWsIngestPacket = (
                         InternalWsIngestPacket.model_validate(input_queue.get())
                     )
-                    
+
                     if not packet:
                         # empty packet, exit loop
                         MutyLogger.get_instance().debug(
@@ -161,7 +161,7 @@ class WsIngestRawWorker:
                 finally:
                     if mod:
                         # update stats
-                        await mod.update_stats_and_flush(
+                        await mod.update_final_stats_and_flush(
                             flt=packet.data.flt, ex=exx
                         )
                         if packet.data.last:
@@ -175,7 +175,9 @@ class WsIngestRawWorker:
                             await stats.set_finished(
                                 sess,
                                 GulpRequestStatus.FAILED,
-                                errors=[muty.log.exception_to_string(exx)] if exx else None,
+                                errors=(
+                                    [muty.log.exception_to_string(exx)] if exx else None
+                                ),
                             )
                         break
 

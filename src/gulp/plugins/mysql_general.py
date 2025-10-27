@@ -118,7 +118,7 @@ class Plugin(GulpPluginBase):
             )
         except Exception as ex:
             await self._source_failed(ex)
-            await self.update_stats_and_flush(flt)
+            await self.update_final_stats_and_flush(flt)
             return GulpRequestStatus.FAILED
 
         date_format = self._plugin_params.custom_parameters.get(
@@ -142,5 +142,5 @@ class Plugin(GulpPluginBase):
         except Exception as ex:
             await self._source_failed(ex)
         finally:
-            await self.update_stats_and_flush(flt)
+            await self.update_final_stats_and_flush(flt)
             return self._stats_status()
