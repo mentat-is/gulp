@@ -314,8 +314,9 @@ class GulpPluginEntry(BaseModel):
     ] = []
 
     # tables created by the plugin
-    tables: Annotated[Optional[list[str]],
-        Field(description="A list of collab tables created by the plugin, if any.")
+    tables: Annotated[
+        Optional[list[str]],
+        Field(description="A list of collab tables created by the plugin, if any."),
     ] = []
 
     # list of plugins this plugin depends on
@@ -864,7 +865,7 @@ class GulpPluginBase(ABC):
         Returns plugin version.
         """
         return ""
-    
+
     def tables(self) -> list[str]:
         """
         Returns a list of collab tables created by the plugin, if any.
@@ -1457,7 +1458,7 @@ class GulpPluginBase(ABC):
             errors=errors,
             user_id=stats.user_id,
             ws_id=ws_id,
-            last=last
+            last=last,
         )
 
         return chunk
@@ -1522,8 +1523,10 @@ class GulpPluginBase(ABC):
         # check if the caller provided a raw query to be used
         rq = kwargs.get("rq", None)
         if not rq:
-            raise ValueError("enrich_documents: raw query missing, 'rq' must be provided by plugin to core via kwargs")
-        
+            raise ValueError(
+                "enrich_documents: raw query missing, 'rq' must be provided by plugin to core via kwargs"
+            )
+
         q: dict = {}
         if not flt:
             flt = GulpQueryFilter()
@@ -1573,7 +1576,7 @@ class GulpPluginBase(ABC):
             if isinstance(ex, RequestCanceledError):
                 # flag canceled
                 canceled = True
-        
+
         return cb_context["total_hits"], cb_context["total_updated"], errors, canceled
 
     async def enrich_single_document(
@@ -1797,8 +1800,18 @@ class GulpPluginBase(ABC):
         )
         if (
             self.type() != lower.type()
-            or self.type() not in [GulpPluginType.INGESTION, GulpPluginType.ENRICHMENT, GulpPluginType.EXTERNAL]
-            or lower.type() not in [GulpPluginType.INGESTION, GulpPluginType.ENRICHMENT, GulpPluginType.EXTERNAL]
+            or self.type()
+            not in [
+                GulpPluginType.INGESTION,
+                GulpPluginType.ENRICHMENT,
+                GulpPluginType.EXTERNAL,
+            ]
+            or lower.type()
+            not in [
+                GulpPluginType.INGESTION,
+                GulpPluginType.ENRICHMENT,
+                GulpPluginType.EXTERNAL,
+            ]
         ):
             await lower.unload()
             raise ValueError(
@@ -1811,7 +1824,7 @@ class GulpPluginBase(ABC):
         lower._upper_instance = self
         self._lower_instance = lower
         self._docs_buffer = lower._docs_buffer
-        
+
         # set the lower plugin as stacked
         lower._stacked = True
 
@@ -2316,7 +2329,9 @@ class GulpPluginBase(ABC):
             wait_for_refresh (bool, optional): whether to wait for refresh
             kwargs: additional keyword arguments
         """
-        MutyLogger.get_instance().debug("_flush_and_check_thresholds called, plugin=%s", self.name)
+        MutyLogger.get_instance().debug(
+            "_flush_and_check_thresholds called, plugin=%s", self.name
+        )
         # flush buffer
         ingested, skipped = await self.flush_buffer_and_send_to_ws(
             flt, wait_for_refresh
@@ -2348,8 +2363,8 @@ class GulpPluginBase(ABC):
             records_processed=self._records_processed_per_chunk,
             records_failed=self._records_failed_per_chunk,
         )
-
         # reset buffers and counters
+        # self._docs_buffer.clear()
         self._docs_buffer = []
         self._records_processed_per_chunk = 0
         self._records_failed_per_chunk = 0
@@ -2858,9 +2873,7 @@ class GulpPluginBase(ABC):
             GulpRequestStatus: The final status of the ingestion process.
         """
         if self._preview_mode:
-            MutyLogger.get_instance().debug(
-                "*** preview mode, no ingestion! ***"
-            )
+            MutyLogger.get_instance().debug("*** preview mode, no ingestion! ***")
             return GulpRequestStatus.DONE
 
         MutyLogger.get_instance().debug(
@@ -2930,12 +2943,12 @@ class GulpPluginBase(ABC):
                 d=p.model_dump(exclude_none=True),
             )
 
-        self._raw_flush_count +=1
+        self._raw_flush_count += 1
         if self._raw_ingestion and status == GulpRequestStatus.ONGOING:
             if self._raw_flush_count % 10 != 0:
                 # do not update stats and source_fields too frequently on raw
                 return status
-            
+
         # update stats
         try:
             d: dict = await self._stats.update_ingestion_stats(
@@ -2950,14 +2963,14 @@ class GulpPluginBase(ABC):
                 status=status,
                 source_finished=source_finished,
             )
-                
+
             # update source field types (in background)
             from gulp.api.rest_api import GulpRestServer
 
             if self._ctx_src_pairs:
                 # multiple context and sources generated
                 coro = GulpOpenSearch.get_instance().datastream_update_source_field_types_by_ctx_src_pairs(
-                    None, # sess=None since we're spawning a background task and cannot use the same session
+                    None,  # sess=None since we're spawning a background task and cannot use the same session
                     self._index,
                     self._user_id,
                     operation_id=self._operation_id,
@@ -2966,7 +2979,7 @@ class GulpPluginBase(ABC):
             else:
                 # use default context_id, source_id
                 coro = GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
-                    None, # sess=None since we're spawning a background task and cannot use the same session
+                    None,  # sess=None since we're spawning a background task and cannot use the same session
                     self._index,
                     self._user_id,
                     operation_id=self._operation_id,
@@ -3160,7 +3173,6 @@ class GulpPluginBase(ABC):
         Returns:
             None
         """
-
         # clear stuff
         MutyLogger.get_instance().debug("unload() called for plugin: %s" % (self.name))
 
