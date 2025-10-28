@@ -16,7 +16,10 @@
   // prevent token expiration for debugging purposes, ignored if debug_allow_any_token_as_admin is set to true (default=false)
   "debug_no_token_expiration": false,
   // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
+  // on file ingestion only, this is ignored if "adaptive_documents_chunk_size" is set.
   "documents_chunk_size": 1000,
+  // if set, ingestion chunk depends on the source file size (applies to file ingestion only)
+  "documents_adaptive_chunk_size": false,
   // enforce https
   "https_enforce": false,
   // enforce client certificates signed by gulp-ca for https
@@ -51,6 +54,8 @@
   "plugin_cache_enabled": true,
   // how many documents to return in preview mode (default=100)
   "preview_mode_num_docs": 100,
+  // if set, adapts postgresql connection pool size to concurrency (max tasks/num workers)
+  "postgres_adaptive_pool_size": false,
   // client certificate password (if any)
   "postgres_client_cert_password": null,
   // set to use SSL to connect to postgresql
@@ -70,5 +75,8 @@
   // login token (except admin) expiration time, default=1week (604800 seconds)
   "token_ttl": 604800,
   // rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected clients: increment if you get clients disconnections, and also check client code if this happens too often.
-  "ws_rate_limit_delay": 0.01
+  // this is ignored if "adaptive_ws_rate_limit_delay" is set.
+  "ws_rate_limit_delay": 0.01,
+  // if set, websocket delay depends on the number of connected websockets
+  "ws_adaptive_rate_limit_delay": false
 }

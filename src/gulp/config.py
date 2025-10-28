@@ -319,6 +319,13 @@ class GulpConfig:
             # MutyLogger.get_instance().debug("using default documents_chunk_size=%d" % (n))
         return n
 
+    def documents_adaptive_chunk_size(self) -> bool:
+        """
+        whether to enable adaptive documents chunk size
+        """
+        n = self._config.get("documents_adaptive_chunk_size", False)
+        return n
+    
     def ingestion_evt_failure_threshold(self) -> int:
         """
         Returns the number of events that can fail before the ingestion of the current file is marked as FAILED (0=never abort an ingestion even with multiple failures).
@@ -328,6 +335,13 @@ class GulpConfig:
             return 0
         return n
 
+    def ws_adaptive_rate_limit() -> bool:
+        """
+        Returns whether to enable adaptive rate limiting for websockets (default: False).
+        """
+        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit", False)
+        return n
+        
     def debug_collab(self) -> bool:
         """
         Returns whether to enable the collaborative API debug mode (prints SQL queries, etc...), default is False.
@@ -527,7 +541,14 @@ class GulpConfig:
                 "!!!WARNING!!! debug_allow_insecure_passwords is set to True !"
             )
         return n
-
+    
+    def postgres_adaptive_pool_size(self) -> bool:
+        """
+        whether to adapt the postgres connection pool size to concurrency (max tasks/num workers)
+        """
+        n = self._config.get("postgres_adaptive_pool_size", False)
+        return n
+    
     def postgres_url(self) -> str:
         """
         Returns the postgres url (i.e. postgresql://user:password@localhost:5432)
@@ -820,6 +841,14 @@ class GulpConfig:
             return 999
 
         return n
+
+    def ws_adaptive_rate_limit_delay() -> bool:
+        """
+        Returns whether to enable adaptive rate limiting for websockets (default: False).
+        """
+        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit_delay", False)
+        return n
+        
 
     def ws_rate_limit_delay(self) -> float:
         """

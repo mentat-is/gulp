@@ -440,7 +440,11 @@ class GulpRestServer:
         poll tasks queue on collab database and dispatch them to the process pool for processing.
         """
         from gulp.api.server.ingest import run_ingest_file_task
-        
+
+        min_interval: int = 1  # minimum poll interval seconds
+        max_interval: int = 5  # maximum poll interval seconds
+        current_interval = min_interval
+
         limit: int = GulpConfig.get_instance().concurrency_max_tasks()
         offset: int = 0
         MutyLogger.get_instance().info(
@@ -452,8 +456,6 @@ class GulpRestServer:
             async with GulpCollab.get_instance().session() as sess:
                 # get a batch of tasks, use advisory lock to prevent concurrent dequeueing
                 try:
-                    # TODO: for multiple gulp processes, we should use a database (not application) lock
-                    await GulpTask.acquire_advisory_lock(sess, "dequeue")
                     objs: list[GulpTask] = await GulpTask.get_by_filter(
                         sess,
                         flt=GulpCollabFilter(limit=limit, offset=offset),
@@ -462,8 +464,12 @@ class GulpRestServer:
                     if not objs:
                         # no tasks to process, wait before next poll
                         await sess.commit()
-                        await asyncio.sleep(5)
+                        current_interval = min(max_interval, current_interval * 1.2)
+                        await asyncio.sleep(current_interval)
                         continue
+                    else:
+                        # tasks found, poll more frequently
+                        current_interval = max(min_interval, current_interval * 0.8)
 
                     # delete all tasks in this batch first to prevent reprocessing
                     for obj in objs:
@@ -475,7 +481,7 @@ class GulpRestServer:
                     # swallow exception and retry (we must rollback manually so)
                     await sess.rollback()
                     MutyLogger.get_instance().exception(e)
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(current_interval)
                     continue
 
                 MutyLogger.get_instance().debug("found %d tasks to process", len(objs))
@@ -488,6 +494,9 @@ class GulpRestServer:
                         # spawn background task to process the ingest task
                         # print("*************** spawning ingest task for: %s", obj)
                         await self.spawn_worker_task(run_ingest_file_task, obj)
+
+                # wait before next iteration
+                await asyncio.sleep(current_interval)
 
         MutyLogger.get_instance().info("EXITING poll task...")
 

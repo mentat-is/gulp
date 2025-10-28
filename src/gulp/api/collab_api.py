@@ -202,6 +202,18 @@ class GulpCollab:
             # no SSL
             connect_args = {}
 
+        pool_size = None
+        max_overflow = 10
+        if GulpConfig.get_instance().postgres_adaptive_pool_size():
+            max_tasks = GulpConfig.get_instance().concurrency_max_tasks()
+            num_workers = GulpConfig.get_instance().parallel_processes_max()
+            total_concurrency = max_tasks * num_workers
+            pool_size = min(50, max(10, total_concurrency // 4))
+            max_overflow = min(50, max(10, total_concurrency // 3))
+            MutyLogger.get_instance().debug(
+                "using postgres adaptive pool size, calculated pool_size=%d, max_overflow=%d (max_tasks=%d, num_workers=%d, total_concurrency=%d) ..."
+                % (pool_size, max_overflow, max_tasks, num_workers, total_concurrency)
+            )
         # create engine
         _engine = create_async_engine(
             url,

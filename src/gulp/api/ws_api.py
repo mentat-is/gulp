@@ -887,6 +887,27 @@ class GulpConnectedSocket:
         """
         if self.ws.client_state != WebSocketState.CONNECTED:
             raise WebSocketDisconnect("client disconnected")
+    
+    async def _ws_rate_limit_delay(self) -> float:
+        """
+        get the rate limit delay for the websocket
+
+        returns:
+            float: the rate limit delay in seconds
+        """
+        adaptive_rate_limit = GulpConfig.get_instance().ws_adaptive_rate_limit()
+        if not adaptive_rate_limit:
+            return GulpConfig.get_instance().ws_rate_limit_delay()
+        base_delay: float = 0.01
+        connected_sockets: int = GulpConnectedSockets.get_instance().num_connected_sockets()
+        
+        # reduce delay for fewer sockets, increase for many
+        if connected_sockets < 10:
+            return base_delay * 0.5
+        elif connected_sockets > 50:
+            return base_delay * 2
+        return base_delay
+        
 
     async def _process_queue_message(self) -> bool:
         """

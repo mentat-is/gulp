@@ -770,6 +770,8 @@ class GulpPluginBase(ABC):
 
         # current file being ingested
         self._file_path: str = None
+        self._adaptive_chunk_size: int = 0
+
         # original file path, if any
         self._original_file_path: str = None
         # opensearch index to operate to
@@ -1691,6 +1693,19 @@ class GulpPluginBase(ABC):
         self._original_file_path = original_file_path
         self._source_id = source_id
 
+        if GulpConfig.get_instance().documents_adaptive_chunk_size():
+            # calculate adaptive chunk size based on file size
+            file_size: int = await muty.file.get_size(file_path)
+            file_size_mb: int = file_size / (1024 * 1024)
+            if file_size_mb < 10:
+                self._adaptive_chunk_size = 500
+            elif file_size_mb < 100:
+                self._adaptive_chunk_size = 1000
+            elif file_size_mb < 500:
+                self._adaptive_chunk_size = 1500
+            else:
+                self._adaptive_chunk_size = 2000
+
         # initialize
         await self._initialize(plugin_params=plugin_params)
         if self._plugin_params.preview_mode:
@@ -1823,7 +1838,7 @@ class GulpPluginBase(ABC):
         lower._upper_enrich_documents_chunk_fun = self._enrich_documents_chunk
         lower._upper_instance = self
         self._lower_instance = lower
-        
+
         # set this plugin as stacked
         self._stacked = True
 
@@ -2406,11 +2421,13 @@ class GulpPluginBase(ABC):
             # external query, documents have been already filtered by the query
             flt = None
 
-        # get buffer size from config or override
+        # get ingestion chunk size, either adaptive or fixed
         ingestion_buffer_size: int = (
-            self._plugin_params.override_chunk_size
-            or GulpConfig.get_instance().documents_chunk_size()
+            self._adaptive_chunk_size if self._adaptive_chunk_size else GulpConfig.get_instance().documents_chunk_size()
         )
+        if self._plugin_params.override_chunk_size:
+            # override
+            ingestion_buffer_size = self._plugin_params.override_chunk_size
 
         self._extra_docs = []
 
