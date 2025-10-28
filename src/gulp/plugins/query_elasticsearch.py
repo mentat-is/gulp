@@ -33,13 +33,12 @@ from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import GulpRequestStats, PreviewDone
+from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.mapping.models import GulpMappingField
-from gulp.api.opensearch.structs import GulpQueryHelpers
 from gulp.api.opensearch.structs import GulpDocument, GulpQueryParameters
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import (
-    GulpMappingParameters,
     GulpPluginCustomParameter,
     GulpPluginParameters,
 )
@@ -57,7 +56,7 @@ class Plugin(GulpPluginBase):
     """
 
     def type(self) -> GulpPluginType:
-        return [GulpPluginType.EXTERNAL]
+        return GulpPluginType.EXTERNAL
 
     @override
     def desc(self) -> str:
@@ -144,6 +143,22 @@ class Plugin(GulpPluginBase):
         # MutyLogger.get_instance().debug(d)
         return d
 
+    async def _process_record_callback(
+        self,
+        sess: AsyncSession,
+        chunk: list[dict],
+        chunk_num: int = 0,
+        total_hits: int = 0,
+        index: str = None,
+        last: bool = False,
+        req_id: str = None,
+        q_name: str = None,
+        q_group: str = None,
+        **kwargs,
+    ) -> list[dict]:
+        for iter in range(len(chunk)):
+            await self.process_record(chunk[iter], iter, kwargs=kwargs)
+
     @override
     async def query_external(
         self,
@@ -218,17 +233,25 @@ class Plugin(GulpPluginBase):
         # query
         q_options.fields = "*"
         total_hits = 0
+        processed = 0
         try:
-            total_hits, processed, _ = await GulpQueryHelpers.query_raw(
+            cb_context: dict = {
+                "user_id": user_id,
+                "operation_id": operation_id,
+                "ws_id": ws_id,
+                "q_options": q_options,
+                "q": q,
+                "total_hits": 0,
+            }
+            processed, total_hits = await GulpOpenSearch.get_instance().search_dsl(
                 sess=sess,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                q=q,
                 index=query_index,
+                q=q,
+                req_id=req_id,
                 q_options=q_options,
                 el=cl,
-                callback=self.process_record,
+                callback=self._process_record_callback,
+                cb_context=cb_context,
             )
             if total_hits == 0:
                 MutyLogger.get_instance().warning("no results!")
@@ -246,11 +269,6 @@ class Plugin(GulpPluginBase):
 
             return processed, total_hits
 
-        except PreviewDone:
-            # preview done before finishing current chunk processing
-            pr: list[dict] = self.preview_chunk()
-            return len(pr), pr
-
         except Exception as ex:
             # error during query
             MutyLogger.get_instance().exception(ex)
@@ -261,6 +279,5 @@ class Plugin(GulpPluginBase):
 
         finally:
             # last flush
-            await self.update_final_stats_and_flush()
             MutyLogger.get_instance().debug("closing client ...")
             await cl.close()
