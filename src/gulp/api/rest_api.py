@@ -262,20 +262,20 @@ class GulpRestServer:
         return JSONResponse(js, status_code=status_code)
 
     def _add_routers(self):
-        from gulp.api.rest.db import router as db_router
-        from gulp.api.rest.enrich import router as enrich_router
-        from gulp.api.rest.glyph import router as glyph_router
-        from gulp.api.rest.highlight import router as highlight_router
-        from gulp.api.rest.ingest import router as ingest_router
-        from gulp.api.rest.link import router as link_router
-        from gulp.api.rest.note import router as note_router
-        from gulp.api.rest.object_acl import router as object_acl_router
-        from gulp.api.rest.operation import router as operation_router
-        from gulp.api.rest.query import router as query_router
-        from gulp.api.rest.user import router as user_router
-        from gulp.api.rest.user_group import router as user_group_router
-        from gulp.api.rest.utility import router as utility_router
-        from gulp.api.rest.ws import router as ws_router
+        from gulp.api.server.db import router as db_router
+        from gulp.api.server.enrich import router as enrich_router
+        from gulp.api.server.glyph import router as glyph_router
+        from gulp.api.server.highlight import router as highlight_router
+        from gulp.api.server.ingest import router as ingest_router
+        from gulp.api.server.link import router as link_router
+        from gulp.api.server.note import router as note_router
+        from gulp.api.server.object_acl import router as object_acl_router
+        from gulp.api.server.operation import router as operation_router
+        from gulp.api.server.query import router as query_router
+        from gulp.api.server.user import router as user_router
+        from gulp.api.server.user_group import router as user_group_router
+        from gulp.api.server.utility import router as utility_router
+        from gulp.api.server.ws import router as ws_router
 
         self._app.include_router(db_router)
         self._app.include_router(operation_router)
@@ -439,7 +439,7 @@ class GulpRestServer:
         """
         poll tasks queue on collab database and dispatch them to the process pool for processing.
         """
-        from gulp.api.rest.ingest import run_ingest_file_task
+        from gulp.api.server.ingest import run_ingest_file_task
         
         limit: int = GulpConfig.get_instance().concurrency_max_tasks()
         offset: int = 0
@@ -680,7 +680,7 @@ class GulpRestServer:
         # initialize collab database and create operation if needed
         try:
             if self._reset_collab:
-                from gulp.api.rest.db import db_reset
+                from gulp.api.server.db import db_reset
 
                 # reset the collab database and recreate tables from scratch (also deletes all data in operations)
                 await db_reset()

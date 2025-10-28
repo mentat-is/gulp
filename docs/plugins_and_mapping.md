@@ -31,7 +31,7 @@ gulp is made of plugins, each serving different purposes:
 
 - `ingestion` plugins for ingesting data from local sources (i.e. log files)
 - `external` plugins to query external sources (i.e. a SIEM), and possibly ingest data into gulp at the same time
-- `extension` plugins to extend the gulp [REST api](../src/gulp/api/rest/)
+- `extension` plugins to extend the gulp [server API](../src/gulp/api/server/)
 - `ui` plugins to extend the [frontend](https://github.com/mentat-is/gulpui-web) (*just served, not used by the backend*)
 
 ## loading plugins
