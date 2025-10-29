@@ -112,7 +112,7 @@ remove the container with `docker container rm some_container_id` and retry.
 
 - error `elastic_transport.ConnectionTimeout: Connection timed out` usually means your opensearch istance is not keeping up with ingestion:
   - increase `ingestion_request_timeout` (**almost always this is the easiest solution**) **OR**
-  - scale up OpenSearch nodes **OR**
+  - scale up OpenSearch nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration **OR**
   - reduce parallelism with `parallel_processes_max` **AND/OR** `concurrency_num_tasks` **OR**
   - tune `documents_chunk_size` configuration parameter (i.e. default is 1000, try with 2000 to reduce parallel chunks)
     - keep in mind, though, that a too big `documents_chunk_size` may cause client websocket disconnections (`PayloadTooBig`)
@@ -153,7 +153,7 @@ remove the container with `docker container rm some_container_id` and retry.
 
   either, this may mean that Opensearch is not keeping up with the query rate from gulp: this may be solved in the following way, similar to ingestion issues:
 
-  - scale up opensearch nodes **OR**
+  - scale up opensearch nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration **OR**
   - also reducing `parallel_processes_max` **AND/OR** `concurrency_num_tasks` as for ingestion may help
 
 ## postgreSQL
@@ -162,10 +162,9 @@ remove the container with `docker container rm some_container_id` and retry.
   - for developers, an example [migration script](../example_migrate_collab.py) is provided to show how to migrate existing data (i.e. `notes`) to a new database schema.
 
 - error `too many connections already` from postgres usually happens when ingesting too many files at once, and should be handled by tuning the configuration parameters:
-  - in gulp configuration, check `multiprocessing_batch_size`: it is advised to keep it 0 to perform operation in batches of *number of cores*, raising this value may speed up ingestion a lot but it is more prone to errors.
   - in postgres configuration, increase `max_connections`
-  - **better solution is to scale up (increase cores and/or postgres cluster size)**
-
+  - scale up postgreSQL nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration
+  
 ## websocket
 
 - if too big messages on websocket causes the client to disconnect with something like the following:

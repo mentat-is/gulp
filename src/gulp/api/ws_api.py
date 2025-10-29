@@ -1627,7 +1627,7 @@ class GulpWsSharedQueue:
                 return
             except queue.Full:
                 # exponential backoff
-                backoff_time: int = retry
+                backoff_time: int = retry+1
 
                 # log the attempt
                 MutyLogger.get_instance().error(
