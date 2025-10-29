@@ -38,7 +38,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
-from gulp.api.rest_api import GulpRestServer
+from gulp.api.server_api import GulpRestServer
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import ObjectNotFound

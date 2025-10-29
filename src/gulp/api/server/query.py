@@ -68,7 +68,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.server.ingest import GulpIngestionStats
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
-from gulp.api.rest_api import GulpRestServer
+from gulp.api.server_api import GulpRestServer
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
     WSDATA_QUERY_DONE,
@@ -331,7 +331,6 @@ async def _run_query(
         )
 
 
-
 async def process_queries(
     user_id: str,
     req_id: str,
@@ -409,8 +408,8 @@ async def process_queries(
             # 2. batch queries and gather results: spawn a worker for each query and wait them all.
             # NOTE: for query_external, we will always have just one query to run
             batch_size: int = len(queries)
-            if len(queries) > GulpConfig.get_instance().concurrency_max_tasks():
-                batch_size = GulpConfig.get_instance().concurrency_max_tasks()
+            if len(queries) > GulpConfig.get_instance().concurrency_num_tasks():
+                batch_size = GulpConfig.get_instance().concurrency_num_tasks()
 
             MutyLogger.get_instance().debug(
                 "processing %d queries in batches of %d ...",
@@ -479,7 +478,7 @@ async def process_queries(
                             req_canceled = True
                     elif isinstance(r, Exception):
                         # we have an error
-                        if 'RequestCanceledError' in str(r):
+                        if "RequestCanceledError" in str(r):
                             # request is canceled
                             req_canceled = True
 

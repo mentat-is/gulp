@@ -33,6 +33,7 @@ class GulpConfig:
         self._path_mapping_files_extra: str = None
         self._path_plugins_extra: str = None
         self._config: dict = None
+        self._concurrency_num_tasks: int = None # avoid to recalculate every time
 
         # read configuration on init
         self._read_config()
@@ -325,7 +326,7 @@ class GulpConfig:
         """
         n = self._config.get("documents_adaptive_chunk_size", False)
         return n
-    
+
     def ingestion_evt_failure_threshold(self) -> int:
         """
         Returns the number of events that can fail before the ingestion of the current file is marked as FAILED (0=never abort an ingestion even with multiple failures).
@@ -341,7 +342,7 @@ class GulpConfig:
         """
         n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit", False)
         return n
-        
+
     def debug_collab(self) -> bool:
         """
         Returns whether to enable the collaborative API debug mode (prints SQL queries, etc...), default is False.
@@ -458,8 +459,19 @@ class GulpConfig:
 
         # MutyLogger.get_instance().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
         return n
+    
+    def concurrency_tasks_cap_per_process(self) -> int:
+        """
+        maximum number of concurrent coroutines per process which can be spawned by the API server when adaptive concurrency is enabled
 
-    def concurrency_max_tasks(self) -> int:
+        default: 64
+
+        @return the maximum number of tasks executing concurrently in a process
+        """
+        n = self._config.get("concurrency_tasks_cap_per_process", 64)
+        return n
+    
+    def concurrency_num_tasks(self) -> int:
         """
         maximum number of concurrent coroutines per process which can be spawned by the API server
 
@@ -467,12 +479,53 @@ class GulpConfig:
 
         @return the maximum number of tasks executing concurrently in a process
         """
-        n = self._config.get("concurrency_max_tasks", 0)
-        if not n:
-            n = 16
-            MutyLogger.get_instance().debug(
-                "using default number of tasks per process=%d" % (n)
-            )
+        if self._concurrency_num_tasks is not None:
+            # already calculated
+            return self._concurrency_num_tasks
+        
+        adaptive: bool = self.concurrency_adaptive_num_tasks()
+        num_tasks: int = self._config.get("concurrency_num_tasks", 0)
+        if not adaptive:
+            if not num_tasks:
+                num_tasks = 16
+                MutyLogger.get_instance().debug(
+                    "using default number of tasks per process=%d" % (num_tasks)
+                )
+            return num_tasks
+
+        # adaptive, calculate
+        opensearch_num_nodes: int = self.concurrency_opensearch_num_nodes()
+        postgres_num_nodes: int = self.concurrency_postgres_num_nodes()
+        base_num_tasks: int = num_tasks if num_tasks > 0 else 16
+        cap_per_process: int = self.concurrency_tasks_cap_per_process()
+
+        # scale linearly with OS nodes and clamp to cap_per_process
+        scaled = base_num_tasks * max(1, opensearch_num_nodes) * max(1, postgres_num_nodes)
+        self._concurrency_num_tasks = max(8, min(cap_per_process, scaled))
+        MutyLogger.get_instance().debug("calculated adaptive concurrency_num_tasks=%d (base=%d, os_nodes=%d, pg_nodes=%d, cap_per_process=%d)"
+            % (self._concurrency_num_tasks, base_num_tasks, opensearch_num_nodes, postgres_num_nodes, cap_per_process)
+        )
+        return self._concurrency_num_tasks
+
+    def concurrency_adaptive_num_tasks(self) -> bool:
+        """
+        whether to enable adaptive concurrency max tasks per process
+        """
+        n = self._config.get("concurrency_adaptive_num_tasks", False)
+        return n
+
+    def concurrency_opensearch_num_nodes(self) -> int:
+        """
+        number of opensearch nodes used to determine concurrency max tasks when adaptive concurrency is enabled
+        """
+        n = self._config.get("concurrency_opensearch_num_nodes", 1)
+        return n
+
+    def concurrency_postgres_num_nodes(self) -> int:
+        """
+        number of postgres nodes used to determine concurrency max tasks when adaptive concurrency is enabled
+        """
+        n = self._config.get("concurrency_postgres_num_nodes", 1)
         return n
 
     def opensearch_client_cert_password(self) -> str:
@@ -480,13 +533,6 @@ class GulpConfig:
         Returns the password for the opensearch client certificate.
         """
         n = self._config.get("opensearch_client_cert_password", None)
-        return n
-
-    def opensearch_multiple_nodes(self) -> bool:
-        """
-        Returns whether to use multiple nodes for opensearch.
-        """
-        n = self._config.get("opensearch_multiple_nodes", False)
         return n
 
     def parallel_processes_max(self) -> int:
@@ -541,14 +587,14 @@ class GulpConfig:
                 "!!!WARNING!!! debug_allow_insecure_passwords is set to True !"
             )
         return n
-    
+
     def postgres_adaptive_pool_size(self) -> bool:
         """
         whether to adapt the postgres connection pool size to concurrency (max tasks/num workers)
         """
         n = self._config.get("postgres_adaptive_pool_size", False)
         return n
-    
+
     def postgres_url(self) -> str:
         """
         Returns the postgres url (i.e. postgresql://user:password@localhost:5432)
@@ -848,7 +894,6 @@ class GulpConfig:
         """
         n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit_delay", False)
         return n
-        
 
     def ws_rate_limit_delay(self) -> float:
         """

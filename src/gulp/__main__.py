@@ -8,7 +8,7 @@ from multiprocessing import freeze_support
 import art
 from muty.log import MutyLogger
 
-from gulp.api.rest_api import GulpRestServer
+from gulp.api.server_api import GulpRestServer
 from gulp.config import GulpConfig
 
 # just for quick testing from the command line

@@ -445,7 +445,7 @@ class GulpRestServer:
         max_interval: int = 5  # maximum poll interval seconds
         current_interval = min_interval
 
-        limit: int = GulpConfig.get_instance().concurrency_max_tasks()
+        limit: int = GulpConfig.get_instance().concurrency_num_tasks()
         offset: int = 0
         MutyLogger.get_instance().info(
             "STARTING poll task, max task concurrency=%d ...", limit

@@ -2985,7 +2985,7 @@ class GulpPluginBase(ABC):
             )
 
             # update source field types (in background)
-            from gulp.api.rest_api import GulpRestServer
+            from gulp.api.server_api import GulpRestServer
 
             if self._ctx_src_pairs:
                 # multiple context and sources generated

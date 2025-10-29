@@ -1422,7 +1422,7 @@ async def ingest_zip_handler(
                     payload,
                     delete_after=True,
                 )
-                from gulp.api.rest_api import GulpRestServer
+                from gulp.api.server_api import GulpRestServer
 
                 GulpRestServer.get_instance().spawn_bg_task(coro)
 
@@ -1528,7 +1528,7 @@ async def ingest_zip_local_handler(
                     payload,
                     delete_after=delete_after,
                 )
-                from gulp.api.rest_api import GulpRestServer
+                from gulp.api.server_api import GulpRestServer
 
                 GulpRestServer.get_instance().spawn_bg_task(coro)
 

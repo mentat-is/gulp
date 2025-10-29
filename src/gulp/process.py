@@ -308,10 +308,9 @@ class GulpProcess:
             self.process_pool = AioProcessPool(
                 exception_handler=GulpProcess._worker_exception_handler,
                 processes=num_workers,
-                childconcurrency=GulpConfig.get_instance().concurrency_max_tasks(),
+                childconcurrency=GulpConfig.get_instance().concurrency_num_tasks(),
                 maxtasksperchild=GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
                 initializer=GulpProcess._worker_initializer,
-                queuecount=num_workers // 2,
                 initargs=(
                     spawned_processes,
                     lock,
@@ -340,7 +339,7 @@ class GulpProcess:
             )
 
             # load extension plugins
-            from gulp.api.rest_api import GulpRestServer
+            from gulp.api.server_api import GulpRestServer
 
             await GulpRestServer.get_instance()._load_extension_plugins()
         else:

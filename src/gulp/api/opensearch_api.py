@@ -798,7 +798,7 @@ class GulpOpenSearch:
                 "refresh_interval"
             ] = GulpConfig.get_instance().index_template_default_refresh_interval()
 
-            if not GulpConfig.get_instance().opensearch_multiple_nodes():
+            if GulpConfig.get_instance().concurrency_opensearch_num_nodes() == 1:
                 # optimize for single node
                 # this also removes "yellow" node in single node mode
                 # this also removes "yellow" node in single node mode

@@ -40,7 +40,7 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
-from gulp.api.rest_api import GulpRestServer
+from gulp.api.server_api import GulpRestServer
 from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.process import GulpProcess

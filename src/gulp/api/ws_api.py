@@ -1444,7 +1444,7 @@ class GulpWsSharedQueue:
         """
         process shared queue and dispatch messages to the target websockets
         """
-        from gulp.api.rest_api import GulpRestServer
+        from gulp.api.server_api import GulpRestServer
 
         MutyLogger.get_instance().debug("starting shared queue processing task...")
 

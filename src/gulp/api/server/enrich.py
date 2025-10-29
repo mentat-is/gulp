@@ -38,7 +38,7 @@ from gulp.api.opensearch.structs import GulpDocument, GulpQueryParameters
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
-from gulp.api.rest_api import GulpRestServer
+from gulp.api.server_api import GulpRestServer
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpPluginParameters
 

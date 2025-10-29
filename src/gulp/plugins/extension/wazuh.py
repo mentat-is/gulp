@@ -1,7 +1,7 @@
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
-from gulp.api.rest_api import GulpRestServer
+from gulp.api.server_api import GulpRestServer
 
 from gulp.api.ws_api import WSDATA_COLLAB_UPDATE, GulpWsSharedQueue
 from gulp.plugin import GulpPluginBase, GulpPluginType

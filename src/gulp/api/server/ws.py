@@ -44,7 +44,7 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from gulp.api.rest_api import GulpRestServer
+from gulp.api.server_api import GulpRestServer
 from gulp.api.ws_api import (
     WSDATA_CLIENT_DATA,
     WSDATA_CONNECTED,

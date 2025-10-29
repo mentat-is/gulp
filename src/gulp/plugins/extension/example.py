@@ -32,7 +32,7 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.server.structs import APIDependencies
-from gulp.api.rest_api import GulpRestServer
+from gulp.api.server_api import GulpRestServer
 from gulp.api.ws_api import WSDATA_COLLAB_UPDATE, GulpWsSharedQueue
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.process import GulpProcess

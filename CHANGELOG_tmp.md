@@ -13,18 +13,18 @@
 - plugins/enrich_whois: made really asyncio compatible (before it was blocking the event loop!)
 
 - rest_api: generic audit of all parameters (mandatory/optional)
-- rest_api/operation: removed "context_id", "operation_id" in source_delete (not needed, source object has it)
-- rest_api/operation: context_list,source_list returns 404 when operation is not found
-- rest_api/operation: context_delete, context_update: added ws_id
-- rest_api/operation: source_delete, source_update: added_ws_id
-- rest_api/operation: operation_delete, operation_update: added ws_id
-- rest_api/operation: operation_create, removed index (index is always derived by name), added "operation_data" (forgot before)
-- rest_api/operation: added operation_cleanup to delete collab objects (i.e. requests, notes, ...) without deleting/recreating the operation
-- rest_api/collab: "list" API for note/highlight/link/story (and generally all collab objects related to an operation) have "operation_id" parameter added
-- rest_api/query: query_external, "q" is no more a list (just a plain string)
-- rest_api/query: query_sigma, q_options.create_notes must be set to True manually by the caller (as in every other query api, by default it is False)
-- rest_api/user: user_create "email" is mandatory, added "user_data", "glyph_id" (as in user_update)
-- rest_api/utility: gulp_reset, plugin_get (ui_plugin_get remains, for the ui), trigger_gc: REMOVED
-- rest_api/utility: request_get_by_id, request_cancel, request_set_completed: operation_id arg removed (not needed)
+- server_api/operation: removed "context_id", "operation_id" in source_delete (not needed, source object has it)
+- server_api/operation: context_list,source_list returns 404 when operation is not found
+- server_api/operation: context_delete, context_update: added ws_id
+- server_api/operation: source_delete, source_update: added_ws_id
+- server_api/operation: operation_delete, operation_update: added ws_id
+- server_api/operation: operation_create, removed index (index is always derived by name), added "operation_data" (forgot before)
+- server_api/operation: added operation_cleanup to delete collab objects (i.e. requests, notes, ...) without deleting/recreating the operation
+- server_api/collab: "list" API for note/highlight/link/story (and generally all collab objects related to an operation) have "operation_id" parameter added
+- server_api/query: query_external, "q" is no more a list (just a plain string)
+- server_api/query: query_sigma, q_options.create_notes must be set to True manually by the caller (as in every other query api, by default it is False)
+- server_api/user: user_create "email" is mandatory, added "user_data", "glyph_id" (as in user_update)
+- server_api/utility: gulp_reset, plugin_get (ui_plugin_get remains, for the ui), trigger_gc: REMOVED
+- server_api/utility: request_get_by_id, request_cancel, request_set_completed: operation_id arg removed (not needed)
 
 - removed setup.sh/bootstrap.sh (installation should be made manually or with docker, following the docs)
