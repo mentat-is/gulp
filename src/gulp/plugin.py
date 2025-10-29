@@ -3110,7 +3110,7 @@ class GulpPluginBase(ABC):
             )
             force_load_from_disk = True
         elif cache_mode == GulpPluginCacheMode.FORCE:
-            # force load from disk
+            # force cache use
             MutyLogger.get_instance().warning(
                 "force cache for plugin %s" % (internal_plugin_name)
             )
@@ -3137,7 +3137,7 @@ class GulpPluginBase(ABC):
 
         p: GulpPluginBase = None
         if not force_load_from_disk:
-            # use cache
+            # use module from cache
             m: ModuleType = GulpPluginCache.get_instance().get(internal_plugin_name)
             if m:
                 p = m.Plugin(path, module_name, pickled=pickled, **kwargs)
@@ -3185,8 +3185,6 @@ class GulpPluginBase(ABC):
         """
         unload the plugin and remove it from sys.modules.
 
-        NOTE: the plugin module is **no more valid** after this function returns.
-
         - if plugin cache is enabled, this method does nothing.
         - implementers must call super().unload() at the end of their unload method.
 
@@ -3194,13 +3192,23 @@ class GulpPluginBase(ABC):
             None
         """
         # clear stuff
-        MutyLogger.get_instance().debug("unload() called for plugin: %s" % (self.name))
+        MutyLogger.get_instance().debug("unload() called for plugin: %s", self.name)
 
         # empty internal events queue
         self.deregister_internal_events_callback()
 
-        if not GulpConfig.get_instance().plugin_cache_enabled():
-            # delete the loaded module from sys.modules
+        # delete the loaded module from sys.modules
+        if self._raw_ingestion:
+            if self._last_raw_chunk:
+                MutyLogger.get_instance().debug(
+                    "deleting plugin module after last chunk!"
+                )
+            del sys.modules[self.module_name]
+        else:
+            # standard ingestion or other modes
+            MutyLogger.get_instance().debug(
+                "deleting plugin module!"
+            )
             del sys.modules[self.module_name]
 
     @staticmethod

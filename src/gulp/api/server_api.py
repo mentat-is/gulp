@@ -463,7 +463,6 @@ class GulpRestServer:
                     )
                     if not objs:
                         # no tasks to process, wait before next poll
-                        await sess.commit()
                         current_interval = min(max_interval, current_interval * 1.2)
                         await asyncio.sleep(current_interval)
                         continue
@@ -475,8 +474,6 @@ class GulpRestServer:
                     for obj in objs:
                         await obj.delete(sess)
 
-                    # commit to release the lock
-                    await sess.commit()
                 except Exception as e:
                     # swallow exception and retry (we must rollback manually so)
                     await sess.rollback()
@@ -495,8 +492,8 @@ class GulpRestServer:
                         # print("*************** spawning ingest task for: %s", obj)
                         await self.spawn_worker_task(run_ingest_file_task, obj)
 
-                # wait before next iteration
-                await asyncio.sleep(current_interval)
+            # wait before next iteration
+            await asyncio.sleep(current_interval)
 
         MutyLogger.get_instance().info("EXITING poll task...")
 

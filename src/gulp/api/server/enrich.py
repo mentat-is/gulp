@@ -63,7 +63,6 @@ async def _enrich_documents_internal(
     enriched: int = 0
     stats: GulpRequestStats
     mod: GulpPluginBase = None
-    canceled: bool = False
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
@@ -79,7 +78,7 @@ async def _enrich_documents_internal(
 
             # call plugin, the engine will update stats internally
             mod = await GulpPluginBase.load(plugin)
-            _, enriched, errs, canceled = await mod.enrich_documents(
+            _, enriched, errs, _ = await mod.enrich_documents(
                 sess,
                 stats,
                 user_id,
