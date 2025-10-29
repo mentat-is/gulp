@@ -722,7 +722,6 @@ class GulpPluginBase(ABC):
         """
         # print("********************************** INIT *************************************************")
         super().__init__()
-
         # enforce callback type
         self._enrich_documents_chunk_cb: GulpDocumentsChunkCallback = (
             self._enrich_documents_chunk
@@ -731,6 +730,7 @@ class GulpPluginBase(ABC):
         # plugin file path
         self.path: str = path
         self.module_name: str = module_name
+
         # print("*** GulpPluginBase.__init__ (%s, %s, %s) called!!!! ***" % (path, module_name, self.display_name()))
 
         # to have faster access to plugin filename and internal name
@@ -2423,7 +2423,9 @@ class GulpPluginBase(ABC):
 
         # get ingestion chunk size, either adaptive or fixed
         ingestion_buffer_size: int = (
-            self._adaptive_chunk_size if self._adaptive_chunk_size else GulpConfig.get_instance().documents_chunk_size()
+            self._adaptive_chunk_size
+            if self._adaptive_chunk_size
+            else GulpConfig.get_instance().documents_chunk_size()
         )
         if self._plugin_params.override_chunk_size:
             # override
@@ -2893,7 +2895,7 @@ class GulpPluginBase(ABC):
             return GulpRequestStatus.DONE
 
         MutyLogger.get_instance().debug(
-            "*** plugin=%s, %s, remaining docs to flush in docs_buffer: %d, status=%s ***",
+            "*** plugin=%s, file_path/source_id=%s, remaining docs to flush in docs_buffer: %d, status=%s ***",
             self.name,
             self._file_path or self._source_id,
             len(self._docs_buffer),
@@ -3137,13 +3139,14 @@ class GulpPluginBase(ABC):
 
         p: GulpPluginBase = None
         if not force_load_from_disk:
-            # use module from cache
             m: ModuleType = GulpPluginCache.get_instance().get(internal_plugin_name)
             if m:
+                # use already loaded object from cache
                 p = m.Plugin(path, module_name, pickled=pickled, **kwargs)
+                sys.modules[module_name] = m
 
         if not p:
-            # load from file (will be added to sys.modules)
+            # load from file and add to sys.modules
             m: ModuleType = muty.dynload.load_dynamic_module_from_file(
                 module_name, path
             )
@@ -3177,7 +3180,7 @@ class GulpPluginBase(ABC):
             cache_mode != GulpPluginCacheMode.IGNORE
             and GulpConfig.get_instance().plugin_cache_enabled()
         ):
-            # add module to the cache so next Plugin() instantiation is faster (no file load)
+            # add loaded object to the cache so next Plugin() instantiation is faster (no file load)
             GulpPluginCache.get_instance().add(m, internal_plugin_name)
         return p
 
@@ -3196,20 +3199,7 @@ class GulpPluginBase(ABC):
 
         # empty internal events queue
         self.deregister_internal_events_callback()
-
-        # delete the loaded module from sys.modules
-        if self._raw_ingestion:
-            if self._last_raw_chunk:
-                MutyLogger.get_instance().debug(
-                    "deleting plugin module after last chunk!"
-                )
-            del sys.modules[self.module_name]
-        else:
-            # standard ingestion or other modes
-            MutyLogger.get_instance().debug(
-                "deleting plugin module!"
-            )
-            del sys.modules[self.module_name]
+        del sys.modules[self.module_name]
 
     @staticmethod
     def path_from_plugin(
