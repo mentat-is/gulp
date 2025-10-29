@@ -209,23 +209,27 @@ class GulpCollab:
             num_tasks_per_worker: int = GulpConfig.get_instance().concurrency_num_tasks()
             num_workers: int = GulpConfig.get_instance().parallel_processes_max()
             total_concurrency: int = num_tasks_per_worker * num_workers
-            pool_size: int = min(50, max(10, total_concurrency // 4))
-            max_overflow: int = min(50, max(10, total_concurrency // 3))
+            pool_size: int = min(200, max(10, total_concurrency // 4))
+            max_overflow: int = min(100, max(10, total_concurrency // 3))
             MutyLogger.get_instance().debug(
                 "using postgres adaptive pool size, calculated pool_size=%d, max_overflow=%d (num_tasks_per_worker=%d, num_workers=%d, total_concurrency=%d) ..."
                 % (pool_size, max_overflow, num_tasks_per_worker, num_workers, total_concurrency)
             )
 
         # create engine
-        _engine = create_async_engine(
-            url,
+        kw = dict(
             echo=GulpConfig.get_instance().debug_collab(),
             connect_args=connect_args,
             pool_pre_ping=True,  # Enables connection health checks
             pool_recycle=3600,  # Recycle connections after 1 hour
             max_overflow=max_overflow,
-            pool_size=pool_size,
             pool_timeout=30,  # Wait up to 30 seconds for available connection
+        )
+        if pool_size:
+            kw["pool_size"] = pool_size
+        _engine = create_async_engine(
+            url,
+            **kw
         )
 
         MutyLogger.get_instance().info(

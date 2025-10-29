@@ -81,8 +81,8 @@
   "token_admin_ttl": 600,
   // login token (except admin) expiration time, default=1week (604800 seconds)
   "token_ttl": 604800,
-  // rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected clients: increment if you get clients disconnections, and also check client code if this happens too often.
-  // this is ignored if "adaptive_ws_rate_limit_delay" is set.
+  // rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected sockets: increment if you get clients disconnections, and also check client code if this happens too often.
+  // if `ws_adaptive_rate_limit_delay` is set, this is the base delay used to calculate the real delay depending on the number of connected sockets.
   "ws_rate_limit_delay": 0.01,
   // if set, websocket delay depends on the number of connected websockets
   "ws_adaptive_rate_limit_delay": false

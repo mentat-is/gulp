@@ -898,7 +898,8 @@ class GulpConnectedSocket:
         adaptive_rate_limit = GulpConfig.get_instance().ws_adaptive_rate_limit()
         if not adaptive_rate_limit:
             return GulpConfig.get_instance().ws_rate_limit_delay()
-        base_delay: float = 0.01
+        
+        base_delay: float = GulpConfig.get_instance().ws_rate_limit_delay()
         connected_sockets: int = GulpConnectedSockets.get_instance().num_connected_sockets()
         
         # reduce delay for fewer sockets, increase for many
@@ -1344,7 +1345,7 @@ class GulpWsSharedQueue:
 
     _instance: "GulpWsSharedQueue" = None
 
-    MAX_QUEUE_SIZE = 1000
+    MAX_QUEUE_SIZE = 5000
     QUEUE_TIMEOUT = 30
     MAX_RETRIES = 3
     YIELD_CONTROL_DELAY = 0.1
