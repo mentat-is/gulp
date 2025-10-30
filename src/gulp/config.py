@@ -33,7 +33,7 @@ class GulpConfig:
         self._path_mapping_files_extra: str = None
         self._path_plugins_extra: str = None
         self._config: dict = None
-        self._concurrency_num_tasks: int = None # avoid to recalculate every time
+        self._concurrency_num_tasks: int = None  # avoid to recalculate every time
 
         # read configuration on init
         self._read_config()
@@ -459,7 +459,7 @@ class GulpConfig:
 
         # MutyLogger.get_instance().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
         return n
-    
+
     def concurrency_tasks_cap_per_process(self) -> int:
         """
         maximum number of concurrent coroutines per process which can be spawned by the API server when adaptive concurrency is enabled
@@ -470,7 +470,7 @@ class GulpConfig:
         """
         n = self._config.get("concurrency_tasks_cap_per_process", 64)
         return n
-    
+
     def concurrency_num_tasks(self) -> int:
         """
         maximum number of concurrent coroutines per process which can be spawned by the API server
@@ -482,7 +482,7 @@ class GulpConfig:
         if self._concurrency_num_tasks is not None:
             # already calculated
             return self._concurrency_num_tasks
-        
+
         adaptive: bool = self.concurrency_adaptive_num_tasks()
         num_tasks: int = self._config.get("concurrency_num_tasks", 0)
         if not adaptive:
@@ -500,10 +500,19 @@ class GulpConfig:
         cap_per_process: int = self.concurrency_tasks_cap_per_process()
 
         # scale linearly with OS nodes and clamp to cap_per_process
-        scaled = base_num_tasks * max(1, opensearch_num_nodes) * max(1, postgres_num_nodes)
+        scaled = (
+            base_num_tasks * max(1, opensearch_num_nodes) * max(1, postgres_num_nodes)
+        )
         self._concurrency_num_tasks = max(8, min(cap_per_process, scaled))
-        MutyLogger.get_instance().debug("calculated adaptive concurrency_num_tasks=%d (base=%d, os_nodes=%d, pg_nodes=%d, cap_per_process=%d)"
-            % (self._concurrency_num_tasks, base_num_tasks, opensearch_num_nodes, postgres_num_nodes, cap_per_process)
+        MutyLogger.get_instance().debug(
+            "calculated adaptive concurrency_num_tasks=%d (base=%d, os_nodes=%d, pg_nodes=%d, cap_per_process=%d)"
+            % (
+                self._concurrency_num_tasks,
+                base_num_tasks,
+                opensearch_num_nodes,
+                postgres_num_nodes,
+                cap_per_process,
+            )
         )
         return self._concurrency_num_tasks
 
@@ -900,6 +909,27 @@ class GulpConfig:
         Returns the delay in seconds to wait in between sending messages to connected clients.
         """
         n = self._config.get("ws_rate_limit_delay", 0.01)
+        return n
+
+    def ws_queue_batch_size(self) -> int:
+        """
+        Returns the batch size for processing websocket queue messages.
+        """
+        n = self._config.get("ws_queue_batch_size", 50)
+        return n
+
+    def ws_queue_max_retries(self) -> int:
+        """
+        Returns the maximum number of retries for websocket queue put operations.
+        """
+        n = self._config.get("ws_queue_max_retries", 5)
+        return n
+
+    def ws_queue_backoff_cap(self) -> float:
+        """
+        Returns the maximum backoff time in seconds for websocket queue put operations.
+        """
+        n = self._config.get("ws_queue_backoff_cap", 10.0)
         return n
 
     def plugin_cache_enabled(self) -> bool:

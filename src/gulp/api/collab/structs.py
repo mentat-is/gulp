@@ -252,7 +252,7 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
     limit: Annotated[
         int,
         Field(
-            description='to be used together with "offset", maximum number of results to return. default=return all.',
+            description='to be used together with "offset", maximum number of results to return per call. default=return all.',
         ),
     ] = 0
     offset: Annotated[

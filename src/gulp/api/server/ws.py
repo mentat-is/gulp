@@ -381,9 +381,11 @@ class GulpAPIWebsocket:
             # cleanup
             if ws:
                 try:
+                    wws: GulpConnectedSocket = GulpConnectedSockets.get_instance().find(ws.ws_id)
                     await GulpConnectedSockets.get_instance().remove(websocket)
+                    await wws.cleanup()
                 except Exception as ex:
-                    MutyLogger.get_instance().error(f"error during ws cleanup: {ex}")
+                    MutyLogger.get_instance().exception("error during ws cleanup: %s",ex)
                 del ws
 
             # close websocket gracefully if still connected
@@ -639,33 +641,23 @@ class GulpAPIWebsocket:
             WebSocketDisconnect: when the client disconnects
             Exception: for any unexpected errors during processing
         """
-        tasks: list[asyncio.Task[None]] = []
+        # create tasks with names for better debugging
+        receive_task: asyncio.Task = asyncio.create_task(
+            GulpAPIWebsocket.ws_client_data_receive_loop(ws, user_id),
+            name=f"client_data-receive_loop-{ws.ws_id}",
+        )
+        ws._tasks.append(receive_task)
+
+        # wait for first task to complete
+        done, _ = await asyncio.wait(ws._tasks, return_when=asyncio.FIRST_EXCEPTION)
+        task = done.pop()
         try:
-            # create tasks with names for better debugging
-            ws.receive_task = asyncio.create_task(
-                GulpAPIWebsocket.ws_client_data_receive_loop(ws, user_id),
-                name=f"receive_loop_{ws.ws_id}",
+            await task
+        except WebSocketDisconnect as ex:
+            MutyLogger.get_instance().error(
+                f"websocket {ws.ws_id} disconnected: {ex}"
             )
-            tasks.append(ws.receive_task)
-
-            # wait for first task to complete
-            done_set: set[asyncio.Task[None]]
-            done_set, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
-
-            # process completed task
-            if done_set:
-                task = done_set.pop()
-                try:
-                    await task
-                except WebSocketDisconnect as ex:
-                    MutyLogger.get_instance().error(
-                        f"websocket {ws.ws_id} disconnected: {ex}"
-                    )
-                    raise
-                except Exception as ex:
-                    MutyLogger.get_instance().error(f"error in {task.get_name()}: {ex}")
-                    raise
-
-        finally:
-            # ensure cleanup happens even if cancelled
-            await ws.cleanup(tasks)
+            raise
+        except Exception as ex:
+            MutyLogger.get_instance().error(f"error in {task.get_name()}: {ex}")
+            raise
