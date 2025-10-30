@@ -113,7 +113,7 @@ class GulpProcess:
         return
 
     @staticmethod
-    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_memory: DictProxy, log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str, str] = None):  # type: ignore
+    def _worker_initializer(spawned_processes: Value, lock: Lock, q: list[Queue], shared_memory: DictProxy, log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str, str] = None):  # type: ignore
         """
         initializes a worker process
 
@@ -122,7 +122,7 @@ class GulpProcess:
         Args:
             spawned_processes (Value): shared counter for the number of spawned processes (for ordered initialization)
             lock (Lock): shared lock for spawned_processes (for ordered initialization)
-            q (Queue): the shared websocket queue created by the main process
+            q (list[Queue]): the list of shared websocket queues created by the main process
             shared_memory (dict, optional): a dictionary to be used as shared memory between main and worker processes.
             log_level (int, optional): the log level. Defaults to None.
             logger_file_path (str, optional): the logger file path to log to file. Defaults to None, cannot be used with log_to_syslog.
@@ -169,7 +169,7 @@ class GulpProcess:
         spawned_processes.value += 1
         lock.release()
         MutyLogger.get_instance().warning(
-            "_worker_initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d, ws_queue=%s, shared_memory(%s)=%s"
+            "_worker_initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d, q=%s, shared_memory(%s)=%s"
             % (
                 sys.path,
                 MutyLogger.get_instance().level,
@@ -233,7 +233,7 @@ class GulpProcess:
         lock: Lock = None,  # type: ignore
         log_level: int = None,
         logger_file_path: str = None,
-        q: Queue = None,
+        q: list[Queue] = None,
         shared_memory: dict = None,
         log_to_syslog: tuple[str, str] = None,
     ) -> None:
@@ -244,7 +244,7 @@ class GulpProcess:
             lock (Lock, optional): if set, will be acquired (and then released) during getting configuration instance in worker processes
             log_level (int, optional): the log level for the logger. Defaults to None.
             logger_file_path (str, optional): the log file path for the logger. Defaults to None, cannot be used with log_to_syslog.
-            q: (Queue, optional): the shared websocket queue created by the main process(we are called in a worker process).
+            q: (list[Queue], optional): the list of shared websocket queues created by the main process(we are called in a worker process).
                 Defaults to None (we are called in the main process)
             shared_memory (dict, optional): a dictionary to be used as shared memory between main and worker processes (set to None the in main process when called in the main process on startup, will be created by this function)
             log_to_syslog (bool, optional): whether to log to syslog. Defaults to (None, None).

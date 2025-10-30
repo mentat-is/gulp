@@ -2,6 +2,8 @@ import asyncio
 import collections
 from datetime import time
 import queue
+from threading import Lock
+import os
 from enum import StrEnum
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
@@ -15,7 +17,6 @@ from fastapi.websockets import WebSocketState
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
-
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
@@ -801,19 +802,69 @@ class GulpConnectedSocket:
         )
 
         try:
-            # drain queue
+            # drain any currently enqueued items without blocking
+            drained: int = 0
             while True:
                 try:
                     self.q.get_nowait()
-                    self.q.task_done()
+                    try:
+                        self.q.task_done()
+                    except Exception:
+                        # defensive: task tracking may misbehave; continue
+                        pass
+                    drained += 1
                 except asyncio.QueueEmpty:
                     break
 
-            self.q.shutdown(immediate=True)
-            await self.q.join()
             MutyLogger.get_instance().debug(
-                "---> queue flushed for ws=%s, ws_id=%s", self.ws, self.ws_id
+                "---> drained %d queued items for ws=%s, ws_id=%s",
+                drained,
+                self.ws,
+                self.ws_id,
             )
+
+            # attempt a bounded wait for any remaining in-flight tasks to complete
+            try:
+                await asyncio.wait_for(self.q.join(), timeout=2.0)
+                MutyLogger.get_instance().debug(
+                    "---> queue.join() completed for ws=%s, ws_id=%s",
+                    self.ws,
+                    self.ws_id,
+                )
+            except asyncio.TimeoutError:
+                # gather diagnostics to help root-cause the hang
+                unfinished = getattr(self.q, "_unfinished_tasks", None)
+                try:
+                    qsize = self.q.qsize()
+                except Exception:
+                    qsize = -1
+                MutyLogger.get_instance().warning(
+                    "queue.join() timed out for ws=%s, ws_id=%s: unfinished=%r, qsize=%d",
+                    self.ws,
+                    self.ws_id,
+                    unfinished,
+                    qsize,
+                )
+
+                # force-drain remaining items to ensure we don't hang indefinitely
+                forced = 0
+                while True:
+                    try:
+                        self.q.get_nowait()
+                        try:
+                            self.q.task_done()
+                        except Exception:
+                            pass
+                        forced += 1
+                    except asyncio.QueueEmpty:
+                        break
+
+                MutyLogger.get_instance().warning(
+                    "forced-drained %d items for ws=%s, ws_id=%s",
+                    forced,
+                    self.ws,
+                    self.ws_id,
+                )
         except Exception as ex:
             MutyLogger.get_instance().exception(
                 "error flushing queue for ws=%s, ws_id=%s: %s", self.ws, self.ws_id, ex
@@ -847,22 +898,21 @@ class GulpConnectedSocket:
         clean up tasks with proper cancellation handling
         """
         for task in self._tasks:
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    MutyLogger.get_instance().debug(
-                        "task %s cancelled successfully", task.get_name()
-                    )
-                except WebSocketDisconnect:
-                    MutyLogger.get_instance().debug(
-                        "task %s disconnected during cleanup", task.get_name()
-                    )
-                except Exception as ex:
-                    MutyLogger.get_instance().error(
-                        "error cleaning up %s: %s", task.get_name(), str(ex)
-                    )
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                MutyLogger.get_instance().debug(
+                    "task %s cancelled successfully", task.get_name()
+                )
+            except WebSocketDisconnect:
+                MutyLogger.get_instance().debug(
+                    "task %s disconnected during cleanup", task.get_name()
+                )
+            except Exception as ex:
+                MutyLogger.get_instance().error(
+                    "error cleaning up %s: %s", task.get_name(), str(ex)
+                )
 
         # remove from global ws list
         from gulp.process import GulpProcess
@@ -914,6 +964,7 @@ class GulpConnectedSocket:
         returns:
             bool: true if message was processed, false if timeout occurred
         """
+        item = None
         try:
             # get message with timeout
             item = await asyncio.wait_for(self.q.get(), timeout=0.1)
@@ -929,16 +980,16 @@ class GulpConnectedSocket:
             # connection is verified, send the message
             await self.ws.send_json(item)
             await asyncio.sleep(GulpConfig.get_instance().ws_rate_limit_delay())
-
-            self.q.task_done()
             return True
-
         except asyncio.TimeoutError:
             # no messages, check for cancellation during timeout
             current_task = asyncio.current_task()
             if current_task and current_task.cancelled():
                 raise asyncio.CancelledError()
             return False
+        finally:
+            if item:
+                self.q.task_done()
 
     async def _receive_loop(self) -> None:
         """
@@ -954,8 +1005,13 @@ class GulpConnectedSocket:
             except asyncio.TimeoutError:
                 # no message received
                 continue
-            finally:
-                await asyncio.sleep(GulpConnectedSocket.YIELD_CONTROL_DELAY)
+            except asyncio.CancelledError:
+                self._logger.warning(
+                    "---> _receivesend loop canceled for ws_id=%s", self.ws_id
+                )
+                raise
+            except WebSocketDisconnect:
+                raise
 
     async def _send_loop(self) -> None:
         """
@@ -1341,7 +1397,7 @@ class GulpConnectedSockets:
 
 class GulpWsSharedQueue:
     """
-    Singleton class to manage a shared websocket queue between processes.
+    Singleton class to manage shared queues shards for receiving data through workers and broadcasting across connected websockets.
     Provides methods for adding data to the queue and processing messages.
     """
 
@@ -1353,7 +1409,8 @@ class GulpWsSharedQueue:
 
     def __init__(self):
         # these are the fixed broadcast types that are always sent to all connected websockets
-        self.broadcast_types: list[str] = {
+        # keep as a set for fast membership checks
+        self.broadcast_types: set[str] = {
             WSDATA_COLLAB_CREATE,
             WSDATA_COLLAB_UPDATE,
             WSDATA_COLLAB_DELETE,
@@ -1362,10 +1419,16 @@ class GulpWsSharedQueue:
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,
         }
+
+        # internal state
         self._initialized: bool = True
-        self._shared_q: Queue = None
-        self._fill_task: asyncio.Task = None
-        self._last_queue_warning: int = 0  # just for metrics...
+        # _shared_q is a list of multiprocessing.Queue instances (shards)
+        self._shared_q: list[Queue] = None
+        # when sharded, store a list of asyncio tasks processing each shard
+        self._fill_tasks: list[asyncio.Task] | None = None
+        # round-robin counter + lock for shard selection
+        self._rr_counter: int = 0
+        self._rr_lock: Lock = Lock()
 
     def __new__(cls):
         """
@@ -1394,8 +1457,9 @@ class GulpWsSharedQueue:
         Args:
             type (str): The type to add.
         """
-        if t not in self._broadcast_types:
-            self._broadcast_types.append(t)
+        # ensure we operate on the broadcast_types set
+        if t not in self.broadcast_types:
+            self.broadcast_types.add(t)
 
     def remove_broadcast_type(self, t: str) -> None:
         """
@@ -1404,15 +1468,15 @@ class GulpWsSharedQueue:
         Args:
             type (str): The type to remove.
         """
-        if t in self._broadcast_types:
-            self._broadcast_types.remove(t)
+        if t in self.broadcast_types:
+            self.broadcast_types.remove(t)
 
-    def set_queue(self, q: Queue) -> None:
+    def set_queue(self, q: list[Queue]) -> None:
         """
-        Sets the shared queue.
+        to be called by workers to set the shared queues
 
         Args:
-            q (Queue): The shared queue.
+            q (list[Queue]): The shared queue(s) created by the multiprocessing manager in the main process
         """
         from gulp.process import GulpProcess
 
@@ -1420,11 +1484,11 @@ class GulpWsSharedQueue:
             raise RuntimeError("set_queue() must be called in a worker process")
 
         MutyLogger.get_instance().debug(
-            "setting shared ws queue in worker process: q=%s(%s)" % (q, type(q))
+            "setting shared ws queues in worker process: q=%s", q
         )
         self._shared_q = q
 
-    async def init_queue(self, mgr: SyncManager) -> Queue:
+    async def init_queue(self, mgr: SyncManager) -> list[Queue]:
         """
         to be called by the MAIN PROCESS, initializes the shared multiprocessing queue: the same queue must then be passed to the worker processes
 
@@ -1436,44 +1500,89 @@ class GulpWsSharedQueue:
         if not GulpProcess.get_instance().is_main_process():
             raise RuntimeError("init_queue() must be called in the main process")
 
-        MutyLogger.get_instance().debug("initializing shared ws queue ...")
-        self._shared_q = mgr.Queue(GulpWsSharedQueue.MAX_QUEUE_SIZE)
-        self._fill_task = asyncio.create_task(self._fill_ws_queues_from_shared_queue())
+        MutyLogger.get_instance().debug("initializing shared ws queue(s) ...")
 
-        return self._shared_q
+        # decide on number of shards; prefer config if available
+        num_shards = GulpConfig.get_instance().ws_queue_num_shards()
+        auto: bool = False
+        if not num_shards or num_shards < 1:
+            auto = True
+            # dynamic calculation based on cpu count (2x cores) with a sensible cap
+            cpu_count = os.cpu_count() or 1
+            num_shards = max(1, min(cpu_count * 2, 32))
 
-    async def _fill_ws_queues_from_shared_queue(self):
+        # create multiple queues (shards) to reduce contention; even single-shard becomes a list
+        queues: list[Queue] = [
+            mgr.Queue(GulpWsSharedQueue.MAX_QUEUE_SIZE) for _ in range(num_shards)
+        ]
+        self._shared_q = queues
+
+        # create a processing task per shard
+        self._fill_tasks = [
+            asyncio.create_task(self._process_shared_queue(q)) for q in queues
+        ]
+        MutyLogger.get_instance().debug(
+            "initialized %d shared ws queues (auto=%r)", num_shards, auto
+        )
+        return queues
+
+    async def _process_shared_queue(self, q: Queue):
         """
-        process shared queue and dispatch messages to the target websockets
+        process a single shared queue (a shard) and dispatch messages to the target websockets
+
+        This method runs one processing loop for the given queue, continuously retrieving messages and broadcasting them to connected websockets.
+
         """
         from gulp.api.server_api import GulpRestServer
+        from gulp.process import GulpProcess
 
-        MutyLogger.get_instance().debug("starting shared queue processing task...")
+        MutyLogger.get_instance().debug(
+            "starting shared queue processing task for shard %s...", q
+        )
 
         try:
-            batch_counter = 0
+            batch_counter: int = 0
+
+            # use the event loop executor to block on manager.Queue.get() without busy-polling
+            loop = asyncio.get_running_loop()
             while not GulpRestServer.get_instance().is_shutdown():
                 # get batch size
                 base_batch_size = GulpConfig.get_instance().ws_queue_batch_size()
-                queue_size = self._shared_q.qsize()
+
+                try:
+                    # blockingly wait for the first message in a thread to avoid busy-wait
+                    first_msg = await loop.run_in_executor(
+                        GulpProcess.get_instance().thread_pool, q.get
+                    )
+                    q.task_done()
+
+                except Exception as e:
+                    # if something unexpected happens while blocking, log and continue
+                    MutyLogger.get_instance().error(
+                        "error getting message from shard %s: %s", q, e
+                    )
+                    await asyncio.sleep(GulpWsSharedQueue.YIELD_CONTROL_DELAY)
+                    continue
+
+                # decide batch size, use a small multiplier when backlog is large
+                queue_size = q.qsize()
                 if queue_size > 1000:
                     batch_size = base_batch_size * 2
                 else:
                     batch_size = base_batch_size
 
-                # collect batch of messages
-                messages = []
-                for _ in range(batch_size):
+                # start with the first item and try to drain additional items without blocking
+                messages = [first_msg]
+                for _ in range(batch_size - 1):
                     try:
-                        msg = self._shared_q.get_nowait()
-                        self._shared_q.task_done()
+                        msg = q.get_nowait()
+                        try:
+                            q.task_done()
+                        except Exception:
+                            pass
                         messages.append(msg)
                     except Empty:
                         break
-
-                if not messages:
-                    await asyncio.sleep(GulpWsSharedQueue.YIELD_CONTROL_DELAY)
-                    continue
 
                 # process batch concurrently
                 start_time: float = time.time()
@@ -1493,23 +1602,31 @@ class GulpWsSharedQueue:
 
                 # log queue size periodically
                 if batch_counter % 100 == 0:
-                    MutyLogger.get_instance().debug(
-                        "processed %d batches, current queue size: %d",
-                        batch_counter,
-                        self._shared_q.qsize(),
-                    )
-
-                await asyncio.sleep(GulpWsSharedQueue.YIELD_CONTROL_DELAY)
+                    try:
+                        MutyLogger.get_instance().debug(
+                            "processed %d batches for shard %s, current queue size: %d",
+                            batch_counter,
+                            q,
+                            queue_size,
+                        )
+                    except Exception:
+                        pass
 
         except asyncio.CancelledError:
-            MutyLogger.get_instance().warning("queue processing cancelled")
+            MutyLogger.get_instance().warning(
+                "queue processing cancelled for shard %s", q
+            )
         except Exception as e:
-            MutyLogger.get_instance().error("queue processing error: %s", e)
+            MutyLogger.get_instance().error(
+                "queue processing error for shard %s: %s", q, e
+            )
             raise
         finally:
-            MutyLogger.get_instance().info("shared queue processing task completed")
+            MutyLogger.get_instance().info(
+                "shared queue processing task completed for shard %s", q
+            )
 
-    async def _process_message(self, msg):
+    async def _process_message(self, msg: GulpWsData) -> None:
         """
         process a single message from the queue.
         """
@@ -1519,66 +1636,113 @@ class GulpWsSharedQueue:
 
     async def close(self) -> None:
         """
-        closes the shared multiprocessing queue (flushes it first).
+        closes the shared multiprocessing queues, flushing first
 
         Returns:
             None
         """
-        if not self._shared_q:
-            return
-
         logger = MutyLogger.get_instance()
-        logger.debug("closing shared WS queue...")
-        success: bool = False
+        logger.debug("closing shared WS queue(s)...")
 
         try:
-            # flush queue with timeout protection
+            # flush queues with timeout protection
             try:
                 await asyncio.wait_for(self._flush_queue(), timeout=10.0)
             except asyncio.TimeoutError:
-                logger.warning("Queue flush operation timed out")
+                logger.warning("queue flush operation timed out")
 
-            # cancel processing task with proper handling
-            if self._fill_task:
-                try:
-                    cancelled = self._fill_task.cancel()
-                    if cancelled:
-                        # wait for task with timeout
-                        await asyncio.wait_for(self._fill_task, timeout=5.0)
-                        logger.debug("Queue processing task cancelled successfully")
-                    else:
-                        logger.debug("Queue processing task was already completed")
-                except asyncio.TimeoutError:
-                    logger.warning("Task cancellation timed out")
-                except Exception as e:
-                    logger.error(f"Error during task cancellation: {e}")
+            # cancel processing tasks with proper handling
+            if self._fill_tasks:
+                for t in list(self._fill_tasks):
+                    try:
+                        cancelled = t.cancel()
+                        if cancelled:
+                            await asyncio.wait_for(t, timeout=5.0)
+                            logger.debug("Queue processing task cancelled successfully")
+                        else:
+                            logger.debug("Queue processing task was already completed")
+                    except asyncio.TimeoutError:
+                        logger.warning("Task cancellation timed out")
+                    except Exception as e:
+                        logger.error("Error during task cancellation: %s", e)
 
             # release resources
             self._shared_q = None
-            success = True
-            logger.debug(f"Shared WS queue closed (success={success})")
+            self._fill_tasks = None
+            logger.debug("Shared WS queue(s) closed")
 
         except Exception as e:
-            logger.error(f"Failed to close shared queue: {e}")
+            logger.error("Failed to close shared queue(s): %s", e)
 
     async def _flush_queue(self) -> None:
-        """Flush all items from the queue"""
-        if not self._shared_q:
-            return
-
+        """Flush all items from the queue(s)"""
         counter = 0
-        while True:
+
+        for q in self._shared_q:
+            while True:
+                try:
+                    q.get_nowait()
+                    try:
+                        q.task_done()
+                    except Exception:
+                        pass
+                    counter += 1
+                except Empty:
+                    break
             try:
-                self._shared_q.get_nowait()
-                self._shared_q.task_done()
-                counter += 1
-            except Empty:
-                break
+                q.join()
+            except Exception:
+                # some manager queue implementations may not implement join
+                pass
 
-        self._shared_q.join()
-        MutyLogger.get_instance().debug(f"Flushed {counter} messages from shared queue")
+        MutyLogger.get_instance().debug(
+            f"flushed {counter} messages from shared queue(s)"
+        )
 
-    def put_internal_event(
+    async def _put_internal(self, wsd: GulpWsData) -> None:
+        """
+        put gulp-internal message in the shared queues
+        """
+
+        # choose the target queue (round robin)
+        with self._rr_lock:
+            shard_index = self._rr_counter
+            self._rr_counter = (self._rr_counter + 1) % len(self._shared_q)
+        target_queue = self._shared_q[shard_index]
+
+        # attempt to add with exponential backoff
+        max_retries = GulpConfig.get_instance().ws_queue_max_retries()
+        backoff_cap = GulpConfig.get_instance().ws_queue_backoff_cap()
+        for retry in range(max_retries):
+            try:
+                target_queue.put(wsd, block=False)
+                return
+            except queue.Full:
+                # exponential backoff with cap
+                backoff_time: float = min(backoff_cap, 2**retry)
+
+                # log the attempt
+                qsize = target_queue.qsize()
+                MutyLogger.get_instance().error(
+                    "***** queue %s full (size=%d) for ws_id=%s, attempt %d/%d, backoff_time=%.1fs",
+                    target_queue,
+                    qsize,
+                    wsd.ws_id,
+                    retry + 1,
+                    max_retries,
+                    backoff_time,
+                )
+
+                # wait before retrying
+                await asyncio.sleep(backoff_time)
+
+        # all retries failed
+        final_size = target_queue.qsize()
+        raise WsQueueFullException(
+            f"queue {target_queue} full, size={final_size}, for ws_id={wsd.ws_id} after {max_retries} attempts!"
+        )
+
+    async def put_internal_event(
         self,
         t: str,
         user_id: str = None,
@@ -1607,7 +1771,7 @@ class GulpWsSharedQueue:
             payload=data,
             internal=True,
         )
-        self._shared_q.put(wsd)
+        await self._put_internal(wsd)
 
     async def put(
         self,
@@ -1621,9 +1785,6 @@ class GulpWsSharedQueue:
     ) -> None:
         """
         adds data to the shared queue
-
-        this method attempts to put a message into the queue and will retry if the
-        queue is full, with progressive backoff between retries.
 
         args:
             type (str): the type of data being queued
@@ -1640,7 +1801,6 @@ class GulpWsSharedQueue:
         """
 
         # verify websocket is alive
-        # if t == WSDATA_DOCUMENTS_CHUNK:
         if not ws_id or not GulpConnectedSocket.is_alive(ws_id):
             raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
 
@@ -1655,38 +1815,4 @@ class GulpWsSharedQueue:
             private=private,
             payload=d,
         )
-
-        # attempt to add with exponential backoff
-        max_retries = GulpConfig.get_instance().ws_queue_max_retries()
-        backoff_cap = GulpConfig.get_instance().ws_queue_backoff_cap()
-        for retry in range(max_retries):
-            try:
-                self._shared_q.put(wsd, block=False)
-                # MutyLogger.get_instance().debug(
-                #     "added type=%s message to queue for ws=%s", t, ws_id
-                # )
-                # MutyLogger.get_instance().debug(
-                #     "queued message in the shared_q: %s", wsd
-                # )
-                return
-            except queue.Full:
-                # exponential backoff with cap
-                backoff_time: float = min(backoff_cap, 2**retry)
-
-                # log the attempt
-                MutyLogger.get_instance().error(
-                    "***** queue full (size=%d) for ws_id=%s, attempt %d/%d, backoff_time=%.1fs",
-                    self._shared_q.qsize(),
-                    ws_id,
-                    retry + 1,
-                    max_retries,
-                    backoff_time,
-                )
-
-                # wait before retrying
-                await asyncio.sleep(backoff_time)
-
-        # all retries failed
-        raise WsQueueFullException(
-            f"queue full, size={self._shared_q.qsize()}, for ws_id={ws_id} after {max_retries} attempts!"
-        )
+        await self._put_internal(wsd)

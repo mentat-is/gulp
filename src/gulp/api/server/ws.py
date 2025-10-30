@@ -381,11 +381,15 @@ class GulpAPIWebsocket:
             # cleanup
             if ws:
                 try:
-                    wws: GulpConnectedSocket = GulpConnectedSockets.get_instance().find(ws.ws_id)
+                    wws: GulpConnectedSocket = GulpConnectedSockets.get_instance().find(
+                        ws.ws_id
+                    )
                     await GulpConnectedSockets.get_instance().remove(websocket)
                     await wws.cleanup()
                 except Exception as ex:
-                    MutyLogger.get_instance().exception("error during ws cleanup: %s",ex)
+                    MutyLogger.get_instance().exception(
+                        "error during ws cleanup: %s", ex
+                    )
                 del ws
 
             # close websocket gracefully if still connected
@@ -394,6 +398,9 @@ class GulpAPIWebsocket:
                     await websocket.close()
                 except:
                     pass
+            MutyLogger.get_instance().debug(
+                f"{socket_type} closed, ws_id={params.ws_id}"
+            )
 
     @router.websocket("/ws")
     @staticmethod
@@ -654,9 +661,7 @@ class GulpAPIWebsocket:
         try:
             await task
         except WebSocketDisconnect as ex:
-            MutyLogger.get_instance().error(
-                f"websocket {ws.ws_id} disconnected: {ex}"
-            )
+            MutyLogger.get_instance().error(f"websocket {ws.ws_id} disconnected: {ex}")
             raise
         except Exception as ex:
             MutyLogger.get_instance().error(f"error in {task.get_name()}: {ex}")

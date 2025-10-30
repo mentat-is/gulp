@@ -324,7 +324,7 @@ class GulpConfig:
         """
         whether to enable adaptive documents chunk size
         """
-        n = self._config.get("documents_adaptive_chunk_size", False)
+        n = self._config.get("documents_adaptive_chunk_size", True)
         return n
 
     def ingestion_evt_failure_threshold(self) -> int:
@@ -340,7 +340,7 @@ class GulpConfig:
         """
         Returns whether to enable adaptive rate limiting for websockets (default: False).
         """
-        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit", False)
+        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit", True)
         return n
 
     def debug_collab(self) -> bool:
@@ -601,7 +601,7 @@ class GulpConfig:
         """
         whether to adapt the postgres connection pool size to concurrency (max tasks/num workers)
         """
-        n = self._config.get("postgres_adaptive_pool_size", False)
+        n = self._config.get("postgres_adaptive_pool_size", True)
         return n
 
     def postgres_url(self) -> str:
@@ -901,7 +901,7 @@ class GulpConfig:
         """
         Returns whether to enable adaptive rate limiting for websockets (default: False).
         """
-        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit_delay", False)
+        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit_delay", True)
         return n
 
     def ws_rate_limit_delay(self) -> float:
@@ -909,6 +909,13 @@ class GulpConfig:
         Returns the delay in seconds to wait in between sending messages to connected clients.
         """
         n = self._config.get("ws_rate_limit_delay", 0.01)
+        return n
+
+    def ws_queue_num_shards(self) -> int:
+        """
+        Returns the number of shards for the websocket queue.
+        """
+        n = self._config.get("ws_queue_num_shards", 4)
         return n
 
     def ws_queue_batch_size(self) -> int:

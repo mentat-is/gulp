@@ -985,7 +985,7 @@ class GulpPluginBase(ABC):
         #     "***************************** broadcasting internal ingest event: %s", ev
         # )
         wsq = GulpWsSharedQueue.get_instance()
-        wsq.put_internal_event(
+        await wsq.put_internal_event(
             GulpInternalEventsManager.EVENT_INGEST,
             user_id=self._user_id,
             operation_id=self._operation_id,
