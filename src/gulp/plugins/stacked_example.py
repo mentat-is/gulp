@@ -14,7 +14,7 @@ from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
+    def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
     def display_name(self) -> str:
@@ -31,7 +31,7 @@ class Plugin(GulpPluginBase):
 
         # tweak event duration ...
         record["event.duration"] = 9999
-        #MutyLogger.get_instance().debug("record processed by stacked plugin: %s", record)
+        # MutyLogger.get_instance().debug("record processed by stacked plugin: %s", record)
         return record
 
     @override
