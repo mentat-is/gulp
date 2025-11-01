@@ -648,6 +648,23 @@ class GulpConfig:
         n = self._config.get("postgres_client_cert_password", None)
         return n
 
+    def redis_url(self) -> str:
+        """
+        Returns the redis URL
+
+        Raises:
+            Exception if neither redis_url or GULP_REDIS_URL is set
+        """
+        n = os.getenv("GULP_REDIS_URL", None)
+        if not n:
+            n = self._config.get("redis_url", None)
+            if not n:
+                raise Exception(
+                    "redis_url not set (tried configuration and GULP_REDIS_URL environment_variable)."
+                )
+
+        return n
+
     def opensearch_url(self) -> str:
         """
         Returns the opensearch url

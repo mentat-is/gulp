@@ -37,6 +37,7 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.redis_api import GulpRedis
 from gulp.api.ws_api import GulpConnectedSockets, GulpWsSharedQueue
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -616,6 +617,7 @@ class GulpRestServer:
             # close clients in the main process
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
+            await GulpRedis.get_instance().close()
 
             # close coro pool in the main process
             await GulpProcess.get_instance().close_thread_pool()
@@ -682,7 +684,10 @@ class GulpRestServer:
 
         # initialize the opensearch client
         GulpOpenSearch.get_instance()
-
+        
+        # initialize the redis client
+        GulpRedis.get_instance().client()
+        
         # initialize collab database and create operation if needed
         try:
             if self._reset_collab:

@@ -34,6 +34,7 @@ from muty.log import MutyLogger
 
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.redis_api import GulpRedis
 from gulp.api.ws_api import GulpWsSharedQueue
 from gulp.config import GulpConfig
 
@@ -190,7 +191,7 @@ class GulpProcess:
         """
         if self.thread_pool:
             MutyLogger.get_instance().debug("closing thread pool...")
-            self.thread_pool.shutdown(wait=wait)
+            self.thread_pool.shutdxown(wait=wait)
             MutyLogger.get_instance().debug("thread pool closed!")
 
     async def close_process_pool(self):
@@ -346,9 +347,10 @@ class GulpProcess:
             ###############################
             # worker process initialization
             ###############################
-            # in the worker process, initialize opensearch and collab clients (main process already did it)
+            # in the worker process, initialize redis, opensearch and collab clients (main process already did it)
             GulpOpenSearch.get_instance()
             await GulpCollab.get_instance().init()
+            GulpRedis.get_instance().client()
 
             # worker process, set the queue and shared memory
             MutyLogger.get_instance().info(
@@ -492,6 +494,7 @@ class GulpProcess:
             # close clients
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
+            await GulpRedis.get_instance().close()
 
             # close thread pool
             await GulpProcess.get_instance().close_thread_pool(wait=False)
