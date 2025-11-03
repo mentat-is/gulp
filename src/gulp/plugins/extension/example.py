@@ -32,8 +32,8 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.server.structs import APIDependencies
-from gulp.api.server_api import GulpRestServer
-from gulp.api.ws_api import WSDATA_COLLAB_UPDATE, GulpWsSharedQueue
+from gulp.api.server_api import GulpServer
+from gulp.api.ws_api import WSDATA_COLLAB_UPDATE, GulpRedisBroker
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.process import GulpProcess
 
@@ -80,7 +80,7 @@ class Plugin(GulpPluginBase):
             "IN WORKER PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, ws_id, req_id)
         )
-        wsq = GulpWsSharedQueue.get_instance()
+        wsq = GulpRedisBroker.get_instance()
         await wsq.put(
             WSDATA_COLLAB_UPDATE,
             req_id=req_id,
@@ -146,7 +146,7 @@ class Plugin(GulpPluginBase):
 
     def _add_api_routes(self):
         # add /example_extension API
-        GulpRestServer.get_instance().add_api_route(
+        GulpServer.get_instance().add_api_route(
             "/example_extension",
             self.example_extension_handler,
             methods=["PUT"],
@@ -186,7 +186,7 @@ class Plugin(GulpPluginBase):
                 coro = self._example_task(
                     s.user.id, operation_id, context_id, ws_id, req_id
                 )
-                GulpRestServer.spawn_bg_task(coro)
+                GulpServer.spawn_bg_task(coro)
                 return JSendResponse.pending(req_id=req_id)
         except Exception as ex:
             raise JSendException(req_id=req_id) from ex

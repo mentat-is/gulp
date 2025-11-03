@@ -50,7 +50,7 @@ from gulp.api.opensearch.filters import (
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
     GulpDocumentsChunkPacket,
-    GulpWsSharedQueue,
+    GulpRedisBroker,
 )
 from gulp.config import GulpConfig
 from gulp.structs import (

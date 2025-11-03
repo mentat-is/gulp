@@ -928,34 +928,6 @@ class GulpConfig:
         n = self._config.get("ws_rate_limit_delay", 0.01)
         return n
 
-    def ws_queue_num_shards(self) -> int:
-        """
-        Returns the number of shards for the websocket queue.
-        """
-        n = self._config.get("ws_queue_num_shards", 4)
-        return n
-
-    def ws_queue_batch_size(self) -> int:
-        """
-        Returns the batch size for processing websocket queue messages.
-        """
-        n = self._config.get("ws_queue_batch_size", 50)
-        return n
-
-    def ws_queue_max_retries(self) -> int:
-        """
-        Returns the maximum number of retries for websocket queue put operations.
-        """
-        n = self._config.get("ws_queue_max_retries", 5)
-        return n
-
-    def ws_queue_backoff_cap(self) -> float:
-        """
-        Returns the maximum backoff time in seconds for websocket queue put operations.
-        """
-        n = self._config.get("ws_queue_backoff_cap", 10.0)
-        return n
-
     def plugin_cache_enabled(self) -> bool:
         """
         Returns whether to enable the plugin cache (default: True).

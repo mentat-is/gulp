@@ -13,11 +13,12 @@ websocket communication for asynchronous operations.
 """
 
 from typing import Annotated
+
+import muty.log
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from llvmlite.tests.test_ir import flt
 from muty.jsend import JSendException, JSendResponse
-import muty.log
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from scipy import stats
@@ -38,7 +39,7 @@ from gulp.api.opensearch.structs import GulpDocument, GulpQueryParameters
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
-from gulp.api.server_api import GulpRestServer
+from gulp.api.server_api import GulpServer
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpPluginParameters
 
@@ -184,7 +185,7 @@ async def enrich_documents_handler(
             index = op.index
 
             # offload to a worker process and return pending
-            await GulpRestServer.get_instance().spawn_worker_task(
+            await GulpServer.get_instance().spawn_worker_task(
                 _enrich_documents_internal,
                 user_id,
                 req_id,
@@ -266,7 +267,7 @@ async def enrich_single_id_handler(
                 )
 
                 # rebuild source_fields mapping in a worker, to free up the API
-                await GulpRestServer.get_instance().spawn_worker_task(
+                await GulpServer.get_instance().spawn_worker_task(
                     GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
                     None,  # sess=None to create a temporary one (a worker can't use the current one)
                     index,
@@ -477,7 +478,7 @@ async def tag_documents_handler(
             index = op.index
 
             # offload to a worker process and return pending
-            await GulpRestServer.get_instance().spawn_worker_task(
+            await GulpServer.get_instance().spawn_worker_task(
                 _tag_documents_internal,
                 user_id,
                 ws_id,
@@ -554,7 +555,7 @@ async def tag_single_id_handler(
             )
 
             # rebuild source_fields mapping in a worker
-            await GulpRestServer.get_instance().spawn_worker_task(
+            await GulpServer.get_instance().spawn_worker_task(
                 GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
                 None,  # sess=None to create a temporary one (a worker can't use the current one)
                 index,
@@ -566,4 +567,5 @@ async def tag_single_id_handler(
             return JSONResponse(JSendResponse.success(req_id, data=doc))
 
     except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
         raise JSendException(req_id=req_id) from ex

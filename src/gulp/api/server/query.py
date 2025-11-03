@@ -17,32 +17,27 @@ and asynchronous processing with results streamed to websockets.
 # pylint: disable=too-many-lines
 
 import asyncio
-from copy import deepcopy
 import json
 import os
 import tempfile
-from typing import Annotated, Any, Optional
 from asyncio import gather
+from copy import deepcopy
+from typing import Annotated, Any, Optional
+
 import aiofiles
-from click import group
 import muty.file
 import muty.log
 import muty.pydantic
 import muty.string
 import muty.time
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Body,
-    Depends,
-    Query,
-)
-from sqlalchemy.ext.asyncio import AsyncSession
+import orjson
+from click import group
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query
 from fastapi.responses import FileResponse, JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
-import orjson
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
@@ -62,13 +57,17 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.sigma import sigmas_to_queries
-from gulp.api.opensearch.structs import GulpQueryHelpers
-from gulp.api.opensearch.structs import GulpDocument, GulpQuery, GulpQueryParameters
+from gulp.api.opensearch.structs import (
+    GulpDocument,
+    GulpQuery,
+    GulpQueryHelpers,
+    GulpQueryParameters,
+)
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.server.ingest import GulpIngestionStats
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
-from gulp.api.server_api import GulpRestServer
+from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
     WSDATA_QUERY_DONE,
@@ -77,14 +76,13 @@ from gulp.api.ws_api import (
     GulpDocumentsChunkPacket,
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
-    GulpWsSharedQueue,
+    GulpRedisBroker,
     WsQueueFullException,
 )
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters, ObjectNotFound
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router: APIRouter = APIRouter()
 
@@ -171,7 +169,7 @@ async def _query_raw_chunk_callback(
         name=q_name,
         last=last,
     )
-    await GulpWsSharedQueue.get_instance().put(
+    await GulpRedisBroker.get_instance().put(
         t=WSDATA_DOCUMENTS_CHUNK,
         ws_id=ws_id,
         user_id=user_id,
@@ -322,7 +320,7 @@ async def _run_query(
             total_hits=total_hits,
             q_group=gq.q_group,
         )
-        await GulpWsSharedQueue.get_instance().put(
+        await GulpRedisBroker.get_instance().put(
             t=WSDATA_QUERY_DONE,
             ws_id=ws_id,
             user_id=user_id,
@@ -536,7 +534,7 @@ async def process_queries(
                 color=q_options.group_color,
                 glyph_id=q_options.group_glyph_id,
             )
-            await GulpWsSharedQueue.get_instance().put(
+            await GulpRedisBroker.get_instance().put(
                 WSDATA_QUERY_GROUP_MATCH,
                 user_id,
                 ws_id=ws_id,
@@ -760,7 +758,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 len(queries),
                 q_options,
             )
-            GulpRestServer.spawn_bg_task(coro)
+            GulpServer.spawn_bg_task(coro)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -876,7 +874,7 @@ async def query_gulp_handler(
                 len(queries),
                 q_options,
             )
-            GulpRestServer.spawn_bg_task(coro)
+            GulpServer.spawn_bg_task(coro)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1024,7 +1022,7 @@ async def query_external_handler(
                 plugin=plugin,
                 plugin_params=plugin_params,
             )
-            GulpRestServer.spawn_bg_task(coro)
+            GulpServer.spawn_bg_task(coro)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1196,7 +1194,7 @@ async def query_sigma_handler(
                 len(queries),
                 q_options,
             )
-            GulpRestServer.spawn_bg_task(coro)
+            GulpServer.spawn_bg_task(coro)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1558,7 +1556,7 @@ async def query_fields_by_source_handler(
                 return JSONResponse(JSendResponse.success(req_id=req_id, data=m))
 
             # spawn a task to run fields mapping in a worker and return empty
-            await GulpRestServer.get_instance().spawn_worker_task(
+            await GulpServer.get_instance().spawn_worker_task(
                 GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
                 None,  # sess=None to create a temporary one (a worker can't use the current one)
                 index,
@@ -1724,7 +1722,7 @@ async def query_gulp_export_json_handler(
             dsl: dict = flt.to_opensearch_dsl()
 
             # execute export operation in worker process (non-blocking)
-            file_path = await GulpRestServer.get_instance().spawn_worker_task(
+            file_path = await GulpServer.get_instance().spawn_worker_task(
                 _export_json_internal,
                 index,
                 operation_id,

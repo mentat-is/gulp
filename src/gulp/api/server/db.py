@@ -16,16 +16,18 @@ Most operations require admin-level permissions, as they can potentially delete 
 import asyncio
 from typing import Annotated
 
+import muty.log
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from llvmlite.tests.test_ir import flt
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
-import muty.log
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import (
-    GulpUpdateDocumentsStats,
     GulpRequestStats,
+    GulpUpdateDocumentsStats,
     RequestCanceledError,
     RequestStatsType,
 )
@@ -40,11 +42,10 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
-from gulp.api.server_api import GulpRestServer
-from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpWsSharedQueue
+from gulp.api.server_api import GulpServer
+from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.process import GulpProcess
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router: APIRouter = APIRouter()
 
@@ -144,7 +145,9 @@ async def _rebase_by_query_internal(
                     operation_id,
                     req_type=RequestStatsType.REQUEST_TYPE_REBASE,
                     ws_id=ws_id,
-                    data=GulpUpdateDocumentsStats(flt=flt).model_dump(exclude_none=True)
+                    data=GulpUpdateDocumentsStats(flt=flt).model_dump(
+                        exclude_none=True
+                    ),
                 )
                 cb_context["stats"] = stats
 
@@ -178,7 +181,7 @@ async def _rebase_by_query_internal(
             finally:
                 if stats and total_updated >= 0:
                     # send a WSDATA_REBASE_DONE packet to the websocket
-                    await GulpWsSharedQueue.get_instance().put(
+                    await GulpRedisBroker.get_instance().put(
                         WSDATA_REBASE_DONE,
                         user_id,
                         ws_id=ws_id,
@@ -288,7 +291,7 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
             index = op.index
 
             # offload to a worker process and return pending
-            await GulpRestServer.get_instance().spawn_worker_task(
+            await GulpServer.get_instance().spawn_worker_task(
                 _rebase_by_query_internal,
                 req_id,
                 ws_id,
@@ -456,4 +459,5 @@ async def opensearch_list_index_handler(
             l = await GulpOpenSearch.get_instance().datastream_list()
             return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
     except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
         raise JSendException(req_id=req_id) from ex

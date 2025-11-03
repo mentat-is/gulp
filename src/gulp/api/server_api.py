@@ -30,31 +30,32 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from opensearchpy import RequestError
-from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.sessions import SessionMiddleware
+
 from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.redis_api import GulpRedis
-from gulp.api.ws_api import GulpConnectedSockets, GulpWsSharedQueue
+from gulp.api.ws_api import GulpConnectedSockets, GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
 
-class GulpRestServer:
+class GulpServer:
     """
     manages the gULP REST server.
     """
 
-    _instance: "GulpRestServer" = None
+    _instance: "GulpServer" = None
 
     def __init__(self):
         self._initialized: bool = True
         self._app: FastAPI = None
+        self._server_id: str = muty.string.generate_unique()
         self._logger_file_path: str = None
         self._log_to_syslog: tuple[str, str] = None
         self._log_level: int = None
@@ -74,7 +75,7 @@ class GulpRestServer:
         return cls._instance
 
     @classmethod
-    def get_instance(cls) -> "GulpRestServer":
+    def get_instance(cls) -> "GulpServer":
         """
         returns the singleton instance
 
@@ -84,6 +85,15 @@ class GulpRestServer:
         if not cls._instance:
             cls._instance = cls()
         return cls._instance
+
+    def server_id(self) -> str:
+        """
+        returns the server unique ID
+
+        Returns:
+            str: server unique ID
+        """
+        return self._server_id
 
     def running_tasks(self) -> int:
         """
@@ -453,7 +463,7 @@ class GulpRestServer:
         )
 
         # loop until the server exits
-        while not GulpRestServer.get_instance().is_shutdown():
+        while not GulpServer.get_instance().is_shutdown():
             async with GulpCollab.get_instance().session() as sess:
                 # get a batch of tasks, use advisory lock to prevent concurrent dequeueing
                 try:
@@ -584,7 +594,7 @@ class GulpRestServer:
                 raise
 
         # fire and forget (just use spawn_bg_task to schedule the coro)
-        GulpRestServer.spawn_bg_task(coro, task_name)
+        GulpServer.spawn_bg_task(coro, task_name)
         return
 
     async def _cleanup(self):
@@ -593,11 +603,9 @@ class GulpRestServer:
         """
         MutyLogger.get_instance().debug("MAIN process cleanup initiated!")
 
-        # close shared ws and process pool
+        # close process pool and clients
         try:
             await GulpConnectedSockets.get_instance().cancel_all()
-            wsq = GulpWsSharedQueue.get_instance()
-            await wsq.close()
 
             # cancel dequeue task
             if self._poll_tasks_task:
@@ -617,6 +625,8 @@ class GulpRestServer:
             # close clients in the main process
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
+            from gulp.api.redis_api import GulpRedis
+
             await GulpRedis.get_instance().close()
 
             # close coro pool in the main process
@@ -684,10 +694,15 @@ class GulpRestServer:
 
         # initialize the opensearch client
         GulpOpenSearch.get_instance()
-        
-        # initialize the redis client
-        GulpRedis.get_instance().client()
-        
+
+        # initialize the redis client and pub/sub
+        from gulp.api.redis_api import GulpRedis
+        GulpRedis.get_instance().initialize(self._server_id)
+
+        # initialize websocket shared queue with Redis pub/sub
+        wsq = GulpRedisBroker.get_instance()
+        await wsq.init(is_main_process=True)
+
         # initialize collab database and create operation if needed
         try:
             if self._reset_collab:
@@ -711,6 +726,7 @@ class GulpRestServer:
 
         # finish initializing main process, will spawn workers as well
         await main_process.finish_initialization(
+            self._server_id,
             log_level=self._log_level,
             logger_file_path=self._logger_file_path,
             log_to_syslog=self._log_to_syslog,
@@ -778,4 +794,5 @@ class GulpRestServer:
         )
         with open(check_first_run_file, "w", encoding="utf-8") as f:
             f.write("gulp!")
+        return True
         return True

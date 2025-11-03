@@ -1,29 +1,26 @@
 import asyncio
 import collections
-from datetime import time
-import queue
-from threading import Lock
 import os
+import time
+from datetime import time
 from enum import StrEnum
-from multiprocessing.managers import SyncManager
-from queue import Empty, Queue
-from typing import Any, Optional, Annotated
+from typing import Annotated, Any, Optional
 
-from gitdb.fun import chunk_size
 import muty
 import muty.time
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
+from gitdb.fun import chunk_size
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
+
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.api.redis_api import GulpRedis
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
-import time
-
 
 class GulpWsType(StrEnum):
     # the type of the websocket
@@ -63,8 +60,6 @@ WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the q
 
 # special token used to monitor also logins
 WSTOKEN_MONITOR = "monitor"
-
-SHARED_MEMORY_KEY_ACTIVE_SOCKETS = "active_sockets"
 
 
 class GulpWsData(BaseModel):
@@ -728,12 +723,14 @@ class GulpConnectedSocket:
             operation_ids (list[str], optional): The operation/s this websocket is interested in. Defaults to None (all).
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
         """
+        from gulp.api.server_api import GulpServer
         self.ws = ws
         self.ws_id = ws_id
         self.types = types
         self.operation_ids = operation_ids
         self.socket_type = socket_type
         self._cleaned_up = False
+        self._server_id = GulpServer.get_instance().server_id()
         self._tasks: list[asyncio.Task] = []
         # each socket has its own asyncio queue, consumed by its own task
         self.q = asyncio.Queue()
@@ -871,9 +868,9 @@ class GulpConnectedSocket:
             )
 
     @staticmethod
-    def is_alive(ws_id: str) -> bool:
+    async def is_alive(ws_id: str) -> bool:
         """
-        check if a websocket is alive
+        check if a websocket is alive by querying Redis
 
         Args:
             ws_id (str): The WebSocket ID.
@@ -881,17 +878,12 @@ class GulpConnectedSocket:
         Returns:
             bool: True if the websocket is alive, False otherwise.
         """
-        from gulp.process import GulpProcess
-
         if GulpConfig.get_instance().debug_ignore_missing_ws():
             return True
 
-        active_sockets: list[str] = GulpProcess.get_instance().shared_memory_get(
-            SHARED_MEMORY_KEY_ACTIVE_SOCKETS
-        )
-        if not active_sockets:
-            return False
-        return ws_id in active_sockets
+        redis_client = GulpRedis.get_instance()
+        server_id = await redis_client.ws_get_server(ws_id)
+        return server_id is not None
 
     async def _cleanup_tasks(self) -> None:
         """
@@ -914,15 +906,18 @@ class GulpConnectedSocket:
                     "error cleaning up %s: %s", task.get_name(), str(ex)
                 )
 
-        # remove from global ws list
-        from gulp.process import GulpProcess
+        # unregister from Redis
+        from gulp.api.redis_api import GulpRedis
 
         MutyLogger.get_instance().debug(
-            "removing ws_id=%s from active sockets shared list ...", self.ws_id
+            "unregistering ws_id=%s from Redis ...", self.ws_id
         )
-        GulpProcess.get_instance().shared_memory_remove_from_list(
-            SHARED_MEMORY_KEY_ACTIVE_SOCKETS, self.ws_id
-        )
+        try:
+            await GulpRedis.get_instance().ws_unregister(self.ws_id)
+        except Exception as ex:
+            MutyLogger.get_instance().error(
+                "error unregistering ws_id=%s: %s", self.ws_id, ex
+            )
 
     def validate_connection(self) -> None:
         """
@@ -1105,7 +1100,7 @@ class GulpConnectedSockets:
         socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
     ) -> GulpConnectedSocket:
         """
-        Adds a websocket to the connected sockets list.
+        Adds a websocket to the connected sockets list and registers in Redis.
 
         Args:
             ws (WebSocket): The WebSocket object.
@@ -1130,12 +1125,18 @@ class GulpConnectedSockets:
         self._sockets[socket_id] = connected_socket
         self._ws_id_map[ws_id] = socket_id
 
-        # add to global shared list
-        from gulp.process import GulpProcess
-
-        GulpProcess.get_instance().shared_memory_add_to_list(
-            SHARED_MEMORY_KEY_ACTIVE_SOCKETS, ws_id
+        # register in Redis (sync wrapper for async call - will be called from async context)
+        # NOTE: This should be called from async context, we'll use asyncio.create_task
+        redis_client = GulpRedis.get_instance()
+        asyncio.create_task(
+            redis_client.ws_register(
+                ws_id=ws_id,
+                types=types,
+                operation_ids=operation_ids,
+                socket_type=socket_type.value,
+            )
         )
+
         self._logger.debug(
             "---> added connected ws: %s, id_str=%s, ws_id=%s, len=%d",
             ws,
@@ -1148,11 +1149,10 @@ class GulpConnectedSockets:
 
     async def remove(self, ws: WebSocket) -> None:
         """
-        Removes a websocket from the connected sockets list
+        Removes a websocket from the connected sockets list and unregisters from Redis
 
         Args:
             ws (WebSocket): The WebSocket object.
-            flush (bool, optional): If the queue should be flushed. Defaults to True.
 
         """
         socket_id = str(id(ws))
@@ -1176,24 +1176,9 @@ class GulpConnectedSockets:
         if ws_id in self._ws_id_map:
             del self._ws_id_map[ws_id]
 
-        # remove from global ws list
-        from gulp.process import GulpProcess
-
-        ws_list: list[str] = GulpProcess.get_instance().shared_memory_get(
-            SHARED_MEMORY_KEY_ACTIVE_SOCKETS
-        )
-        while True:
-            if ws_id in ws_list:
-                GulpProcess.get_instance().shared_memory_remove_from_list(
-                    SHARED_MEMORY_KEY_ACTIVE_SOCKETS, ws_id
-                )
-            else:
-                break
-
-            # next
-            ws_list = GulpProcess.get_instance().shared_memory_get(
-                SHARED_MEMORY_KEY_ACTIVE_SOCKETS
-            )
+        # unregister from Redis
+        redis_client = GulpRedis.get_instance()
+        await redis_client.ws_unregister(ws_id)
 
         self._logger.debug(
             "---> removed connected ws=%s, id=%s, ws_id=%s, len=%d",
@@ -1300,7 +1285,7 @@ class GulpConnectedSockets:
                 return False
 
         # check message distribution rules (broadcast only the specified types or if ws_id matches)
-        if data.type not in GulpWsSharedQueue.get_instance().broadcast_types and (
+        if data.type not in GulpRedisBroker.get_instance().broadcast_types and (
             data.ws_id and target_ws.ws_id != data.ws_id
         ):
             return False
@@ -1344,30 +1329,25 @@ class GulpConnectedSockets:
         self, data: GulpWsData, skip_list: list[str] = None
     ) -> None:
         """
-        broadcasts message to appropriate connected websockets
+        Broadcasts message to appropriate connected websockets (local and cross-instance).
 
         Args:
             data (GulpWsData): The message to broadcast.
             skip_list (list[str], optional): The list of websocket IDs to skip. Defaults to None.
         """
-        # MutyLogger.get_instance().debug(
-        #     "******************* broadcasting message: type=%s, data=%s, skip_list=%s",
-        #     data.type,
-        #     data.payload,
-        #     skip_list,
-        # )
-
         if data.internal:
             # this is an internal message, route to plugins
-            # MutyLogger.get_instance().debug(
-            #     "broadcast_message(): routing internal message: type=%s, data=%s",
-            #     data.type,
-            #     data.payload,
-            # )
             await self._route_internal_message(data)
             return
 
-        # create copy to avoid modification during iteration
+        # for broadcast types, publish to Redis so all instances receive it
+        if data.type in GulpRedisBroker.get_instance().broadcast_types:
+            redis_client = GulpRedis.get_instance()
+            message_dict = data.model_dump(exclude_none=True)
+            await redis_client.publish_broadcast(message_dict)
+            # NOTE: we'll still process locally below, the broadcast ensures other instances get it
+
+        # route to local connected websockets
         socket_items = list(self._sockets.items())
 
         # collect routing tasks
@@ -1395,17 +1375,13 @@ class GulpConnectedSockets:
                     self._sockets.pop(socket_id, None)
 
 
-class GulpWsSharedQueue:
+class GulpRedisBroker:
     """
-    Singleton class to manage shared queues shards for receiving data through workers and broadcasting across connected websockets.
-    Provides methods for adding data to the queue and processing messages.
+    Singleton class to manage Redis pub/sub for worker->main and instance<->instance communication.
+    Provides methods for publishing data and handling broadcast messages.
     """
 
-    _instance: "GulpWsSharedQueue" = None
-
-    MAX_QUEUE_SIZE = 20000
-    QUEUE_TIMEOUT = 30
-    YIELD_CONTROL_DELAY = 0.01
+    _instance: "GulpRedisBroker" = None
 
     def __init__(self):
         # these are the fixed broadcast types that are always sent to all connected websockets
@@ -1422,13 +1398,7 @@ class GulpWsSharedQueue:
 
         # internal state
         self._initialized: bool = True
-        # _shared_q is a list of multiprocessing.Queue instances (shards)
-        self._shared_q: list[Queue] = None
-        # when sharded, store a list of asyncio tasks processing each shard
-        self._fill_tasks: list[asyncio.Task] | None = None
-        # round-robin counter + lock for shard selection
-        self._rr_counter: int = 0
-        self._rr_lock: Lock = Lock()
+        self._is_main_process: bool = False
 
     def __new__(cls):
         """
@@ -1439,7 +1409,7 @@ class GulpWsSharedQueue:
         return cls._instance
 
     @classmethod
-    def get_instance(cls) -> "GulpWsSharedQueue":
+    def get_instance(cls) -> "GulpRedisBroker":
         """
         Returns the singleton instance.
 
@@ -1471,276 +1441,103 @@ class GulpWsSharedQueue:
         if t in self.broadcast_types:
             self.broadcast_types.remove(t)
 
-    def set_queue(self, q: list[Queue]) -> None:
+    async def init(self, is_main_process: bool = False) -> None:
         """
-        to be called by workers to set the shared queues
-
+        Initialize Redis pub/sub subscriptions.
+        
         Args:
-            q (list[Queue]): The shared queue(s) created by the multiprocessing manager in the main process
+            is_main_process (bool): If True, subscribe to worker channel
         """
-        from gulp.process import GulpProcess
-
-        if GulpProcess.get_instance().is_main_process():
-            raise RuntimeError("set_queue() must be called in a worker process")
-
-        MutyLogger.get_instance().debug(
-            "setting shared ws queues in worker process: q=%s", q
-        )
-        self._shared_q = q
-
-    async def init_queue(self, mgr: SyncManager) -> list[Queue]:
-        """
-        to be called by the MAIN PROCESS, initializes the shared multiprocessing queue: the same queue must then be passed to the worker processes
-
-        Args:
-            q (Queue): The shared queue created by the multiprocessing manager in the main process
-        """
-        from gulp.process import GulpProcess
-
-        if not GulpProcess.get_instance().is_main_process():
-            raise RuntimeError("init_queue() must be called in the main process")
-
-        MutyLogger.get_instance().debug("initializing shared ws queue(s) ...")
-
-        # decide on number of shards; prefer config if available
-        num_shards = GulpConfig.get_instance().ws_queue_num_shards()
-        auto: bool = False
-        if not num_shards or num_shards < 1:
-            auto = True
-            # dynamic calculation based on cpu count (2x cores) with a sensible cap
-            cpu_count = os.cpu_count() or 1
-            num_shards = max(1, min(cpu_count * 2, 32))
-
-        # create multiple queues (shards) to reduce contention; even single-shard becomes a list
-        queues: list[Queue] = [
-            mgr.Queue(GulpWsSharedQueue.MAX_QUEUE_SIZE) for _ in range(num_shards)
-        ]
-        self._shared_q = queues
-
-        # create a processing task per shard
-        self._fill_tasks = [
-            asyncio.create_task(self._process_shared_queue(q)) for q in queues
-        ]
-        MutyLogger.get_instance().debug(
-            "initialized %d shared ws queues (auto=%r)", num_shards, auto
-        )
-        return queues
-
-    async def _process_shared_queue(self, q: Queue):
-        """
-        process a single shared queue (a shard) and dispatch messages to the target websockets
-
-        This method runs one processing loop for the given queue, continuously retrieving messages and broadcasting them to connected websockets.
-
-        """
-        from gulp.api.server_api import GulpRestServer
-        from gulp.process import GulpProcess
-
-        MutyLogger.get_instance().debug(
-            "starting shared queue processing task for shard %s...", q
-        )
-
-        try:
-            batch_counter: int = 0
-
-            # use the event loop executor to block on manager.Queue.get() without busy-polling
-            loop = asyncio.get_running_loop()
-            while not GulpRestServer.get_instance().is_shutdown():
-                # get batch size
-                base_batch_size = GulpConfig.get_instance().ws_queue_batch_size()
-
-                try:
-                    # blockingly wait for the first message in a thread to avoid busy-wait
-                    first_msg = await loop.run_in_executor(
-                        GulpProcess.get_instance().thread_pool, q.get
-                    )
-                    q.task_done()
-
-                except Exception as e:
-                    # if something unexpected happens while blocking, log and continue
-                    MutyLogger.get_instance().error(
-                        "error getting message from shard %s: %s", q, e
-                    )
-                    await asyncio.sleep(GulpWsSharedQueue.YIELD_CONTROL_DELAY)
-                    continue
-
-                # decide batch size, use a small multiplier when backlog is large
-                queue_size = q.qsize()
-                if queue_size > 1000:
-                    batch_size = base_batch_size * 2
-                else:
-                    batch_size = base_batch_size
-
-                # start with the first item and try to drain additional items without blocking
-                messages = [first_msg]
-                for _ in range(batch_size - 1):
-                    try:
-                        msg = q.get_nowait()
-                        try:
-                            q.task_done()
-                        except Exception:
-                            pass
-                        messages.append(msg)
-                    except Empty:
-                        break
-
-                # process batch concurrently
-                start_time: float = time.time()
-                await asyncio.gather(
-                    *[self._process_message(msg) for msg in messages],
-                    return_exceptions=True,
-                )
-                elapsed: float = time.time() - start_time
-
-                batch_counter += 1
-                if elapsed > 0.1:
-                    MutyLogger.get_instance().warning(
-                        "batch processing took %.3f seconds for %d messages",
-                        elapsed,
-                        len(messages),
-                    )
-
-                # log queue size periodically
-                if batch_counter % 100 == 0:
-                    try:
-                        MutyLogger.get_instance().debug(
-                            "processed %d batches for shard %s, current queue size: %d",
-                            batch_counter,
-                            q,
-                            queue_size,
-                        )
-                    except Exception:
-                        pass
-
-        except asyncio.CancelledError:
-            MutyLogger.get_instance().warning(
-                "queue processing cancelled for shard %s", q
+        self._is_main_process = is_main_process
+        redis_client = GulpRedis.get_instance()
+        
+        if is_main_process:
+            # main process: subscribe to worker->main channel
+            await redis_client.subscribe_worker_channel(
+                self._handle_worker_message
             )
-        except Exception as e:
-            MutyLogger.get_instance().error(
-                "queue processing error for shard %s: %s", q, e
-            )
-            raise
-        finally:
             MutyLogger.get_instance().info(
-                "shared queue processing task completed for shard %s", q
+                "GulpWsSharedQueue initialized for MAIN process (subscribed to worker channel)"
+            )
+        
+        # all processes: subscribe to broadcast channel for cross-instance communication
+        await redis_client.subscribe_broadcast_channel(
+            self._handle_broadcast_message
+        )
+        MutyLogger.get_instance().info(
+            "GulpWsSharedQueue subscribed to broadcast channel"
+        )
+
+    async def _handle_worker_message(self, message: dict) -> None:
+        """
+        Handle a message from a worker process (worker->main communication).
+        
+        Args:
+            message (dict): The message dictionary (GulpWsData)
+        """
+        try:
+            wsd = GulpWsData.model_validate(message)
+            await self._process_message(wsd)
+        except Exception as ex:
+            MutyLogger.get_instance().error(
+                "error processing worker message: %s", ex
+            )
+    
+    async def _handle_broadcast_message(self, message: dict) -> None:
+        """
+        Handle a broadcast message from another instance (instance<->instance communication).
+        
+        Args:
+            message (dict): The message dictionary (GulpWsData)
+        """
+        try:
+            wsd = GulpWsData.model_validate(message)
+            
+            # only process if we have this websocket or it's a broadcast type
+            redis_client = GulpRedis.get_instance()
+            server_id = await redis_client.ws_get_server(wsd.ws_id)
+            
+            # check if this message is for this instance
+            if server_id == redis_client._server_id or wsd.type in self.broadcast_types:
+                await self._process_message(wsd)
+        except Exception as ex:
+            MutyLogger.get_instance().error(
+                "error processing broadcast message: %s", ex
             )
 
     async def _process_message(self, msg: GulpWsData) -> None:
         """
-        process a single message from the queue.
+        Process a single message and route to appropriate websockets.
+        
+        Args:
+            msg (GulpWsData): The message to process
         """
         cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
         if cws or msg.internal:
             await GulpConnectedSockets.get_instance().broadcast_message(msg)
 
-    async def close(self) -> None:
+    async def _put_common(self, wsd: GulpWsData) -> None:
         """
-        closes the shared multiprocessing queues, flushing first
-
-        Returns:
-            None
+        Publish message to Redis.
+        
+        Args:
+            wsd (GulpWsData): The message to publish
         """
-        logger = MutyLogger.get_instance()
-        logger.debug("closing shared WS queue(s)...")
-
-        try:
-            # flush queues with timeout protection
-            try:
-                await asyncio.wait_for(self._flush_queue(), timeout=10.0)
-            except asyncio.TimeoutError:
-                logger.warning("queue flush operation timed out")
-
-            # cancel processing tasks with proper handling
-            if self._fill_tasks:
-                for t in list(self._fill_tasks):
-                    try:
-                        cancelled = t.cancel()
-                        if cancelled:
-                            await asyncio.wait_for(t, timeout=5.0)
-                            logger.debug("Queue processing task cancelled successfully")
-                        else:
-                            logger.debug("Queue processing task was already completed")
-                    except asyncio.TimeoutError:
-                        logger.warning("Task cancellation timed out")
-                    except Exception as e:
-                        logger.error("Error during task cancellation: %s", e)
-
-            # release resources
-            self._shared_q = None
-            self._fill_tasks = None
-            logger.debug("Shared WS queue(s) closed")
-
-        except Exception as e:
-            logger.error("Failed to close shared queue(s): %s", e)
-
-    async def _flush_queue(self) -> None:
-        """Flush all items from the queue(s)"""
-        counter = 0
-
-        for q in self._shared_q:
-            while True:
-                try:
-                    q.get_nowait()
-                    try:
-                        q.task_done()
-                    except Exception:
-                        pass
-                    counter += 1
-                except Empty:
-                    break
-            try:
-                q.join()
-            except Exception:
-                # some manager queue implementations may not implement join
-                pass
-
-        MutyLogger.get_instance().debug(
-            f"flushed {counter} messages from shared queue(s)"
-        )
-
-    async def _put_internal(self, wsd: GulpWsData) -> None:
-        """
-        put gulp-internal message in the shared queues
-        """
-
-        # choose the target queue (round robin)
-        with self._rr_lock:
-            shard_index = self._rr_counter
-            self._rr_counter = (self._rr_counter + 1) % len(self._shared_q)
-        target_queue = self._shared_q[shard_index]
-
-        # attempt to add with exponential backoff
-        max_retries = GulpConfig.get_instance().ws_queue_max_retries()
-        backoff_cap = GulpConfig.get_instance().ws_queue_backoff_cap()
-        for retry in range(max_retries):
-            try:
-                target_queue.put(wsd, block=False)
-                return
-            except queue.Full:
-                # exponential backoff with cap
-                backoff_time: float = min(backoff_cap, 2**retry)
-
-                # log the attempt
-                qsize = target_queue.qsize()
-                MutyLogger.get_instance().error(
-                    "***** queue %s full (size=%d) for ws_id=%s, attempt %d/%d, backoff_time=%.1fs",
-                    target_queue,
-                    qsize,
-                    wsd.ws_id,
-                    retry + 1,
-                    max_retries,
-                    backoff_time,
-                )
-
-                # wait before retrying
-                await asyncio.sleep(backoff_time)
-
-        # all retries failed
-        final_size = target_queue.qsize()
-        raise WsQueueFullException(
-            f"queue {target_queue} full, size={final_size}, for ws_id={wsd.ws_id} after {max_retries} attempts!"
-        )
+        from gulp.process import GulpProcess
+        
+        redis_client = GulpRedis.get_instance()
+        message_dict = wsd.model_dump(exclude_none=True)
+        
+        # determine if this should be broadcast to all instances or just local
+        if wsd.type in self.broadcast_types or wsd.internal:
+            # broadcast to all instances
+            await redis_client.publish_broadcast(message_dict)
+        elif GulpProcess.get_instance().is_main_process():
+            # main process: directly process locally
+            await self._process_message(wsd)
+        else:
+            # worker process: publish to main process of this instance
+            await redis_client.publish_from_worker(message_dict)
 
     async def put_internal_event(
         self,
@@ -1771,7 +1568,7 @@ class GulpWsSharedQueue:
             payload=data,
             internal=True,
         )
-        await self._put_internal(wsd)
+        await self._put_common(wsd)
 
     async def put(
         self,
@@ -1784,10 +1581,10 @@ class GulpWsSharedQueue:
         private: bool = False,
     ) -> None:
         """
-        adds data to the shared queue
+        Publishes data via Redis pub/sub.
 
         args:
-            type (str): the type of data being queued
+            t (str): the type of data being published
             user_id (str): the user id associated with this message
             ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
             operation_id (Optional[str]): the operation id if applicable
@@ -1796,13 +1593,15 @@ class GulpWsSharedQueue:
             private (bool): whether this message is private to the specified ws_id
 
         raises:
-            WebSocketDisconnect: if websocket is not connected for DOCUMENTS_CHUNK type
-            WsQueueFullException: if queue is full after all retries
+            WebSocketDisconnect: if websocket is not connected
         """
 
-        # verify websocket is alive
-        if not ws_id or not GulpConnectedSocket.is_alive(ws_id):
-            raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
+        # verify websocket is alive (check Redis registry)
+        if ws_id:
+            redis_client = GulpRedis.get_instance()
+            server_id = await redis_client.ws_get_server(ws_id)
+            if not server_id:
+                raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
 
         # create the message
         wsd = GulpWsData(
@@ -1815,4 +1614,4 @@ class GulpWsSharedQueue:
             private=private,
             payload=d,
         )
-        await self._put_internal(wsd)
+        await self._put_common(wsd)

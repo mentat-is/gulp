@@ -42,7 +42,7 @@ from gulp.api.ws_api import (
     WSDATA_USER_LOGIN,
     WSDATA_USER_LOGOUT,
     GulpUserAccessPacket,
-    GulpWsSharedQueue,
+    GulpRedisBroker,
 )
 from gulp.config import GulpConfig
 from gulp.plugin import GulpUserInfoInternalEvent

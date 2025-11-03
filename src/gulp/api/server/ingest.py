@@ -21,8 +21,8 @@ from copy import deepcopy
 from typing import Annotated, Any, Optional
 
 import muty.file
-import muty.pydantic
 import muty.log
+import muty.pydantic
 import orjson
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -31,6 +31,7 @@ from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.operation import GulpOperation
@@ -1422,9 +1423,9 @@ async def ingest_zip_handler(
                     payload,
                     delete_after=True,
                 )
-                from gulp.api.server_api import GulpRestServer
+                from gulp.api.server_api import GulpServer
 
-                GulpRestServer.get_instance().spawn_bg_task(coro)
+                GulpServer.get_instance().spawn_bg_task(coro)
 
                 # and return pending
                 return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1528,9 +1529,9 @@ async def ingest_zip_local_handler(
                     payload,
                     delete_after=delete_after,
                 )
-                from gulp.api.server_api import GulpRestServer
+                from gulp.api.server_api import GulpServer
 
-                GulpRestServer.get_instance().spawn_bg_task(coro)
+                GulpServer.get_instance().spawn_bg_task(coro)
 
                 # and return pending
                 return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1600,4 +1601,5 @@ async def ingest_local_list_handler(
 
             return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
         raise JSendException(req_id=req_id) from ex

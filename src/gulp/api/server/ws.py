@@ -25,11 +25,11 @@ during ingestion operations, collaboration features, and inter-client communicat
 import asyncio
 import time
 from multiprocessing import Queue
-from typing import Awaitable, Callable, Optional, Annotated
+from typing import Annotated, Awaitable, Callable, Optional
 
+import muty.log
 import muty.string
 import muty.time
-import muty.log
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 from muty.log import MutyLogger
@@ -44,7 +44,7 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from gulp.api.server_api import GulpRestServer
+from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import (
     WSDATA_CLIENT_DATA,
     WSDATA_CONNECTED,
@@ -59,7 +59,7 @@ from gulp.api.ws_api import (
     GulpWsError,
     GulpWsErrorPacket,
     GulpWsIngestPacket,
-    GulpWsSharedQueue,
+    GulpRedisBroker,
     GulpWsType,
 )
 from gulp.config import GulpConfig
@@ -191,7 +191,7 @@ class WsIngestRawWorker:
         MutyLogger.get_instance().debug("starting ws ingest worker ...")
 
         # run _process_loop in a separate process
-        await GulpRestServer.get_instance().spawn_worker_task(
+        await GulpServer.get_instance().spawn_worker_task(
             WsIngestRawWorker._process_loop, self._input_queue
         )
 
@@ -513,7 +513,7 @@ class GulpAPIWebsocket:
                                     error=msg,
                                     error_code=GulpWsError.OBJECT_NOT_FOUND.name,
                                 )
-                                await GulpWsSharedQueue.get_instance().put(
+                                await GulpRedisBroker.get_instance().put(
                                     WSDATA_ERROR,
                                     user_id,
                                     ws_id=ingest_packet.ws_id,

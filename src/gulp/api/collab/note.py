@@ -34,7 +34,7 @@ from gulp.api.opensearch.structs import GulpBasicDocument, GulpQueryParameters
 from gulp.api.ws_api import (
     WSDATA_COLLAB_CREATE,
     GulpCollabCreatePacket,
-    GulpWsSharedQueue,
+    GulpRedisBroker,
 )
 
 
@@ -257,7 +257,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 bulk_size=len(inserted_notes),
                 total_size=len(notes),
             )
-            wsq = GulpWsSharedQueue.get_instance()
+            wsq = GulpRedisBroker.get_instance()
             await wsq.put(
                 WSDATA_COLLAB_CREATE,
                 user_id,
