@@ -699,7 +699,7 @@ class GulpServer:
         from gulp.api.redis_api import GulpRedis
         GulpRedis.get_instance().initialize(self._server_id)
 
-        # initialize websocket shared queue with Redis pub/sub
+        # initialize Redis pub/sub for worker->main process and instance<->instance communication
         wsq = GulpRedisBroker.get_instance()
         await wsq.init(is_main_process=True)
 
