@@ -27,7 +27,8 @@ import signal
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Lock, Manager, Queue, Value
-from multiprocessing.managers import SyncManager, DictProxy
+from multiprocessing.managers import DictProxy, SyncManager
+
 from aiomultiprocess import Pool as AioProcessPool
 from asyncio_pool import AioPool as AioCoroPool
 from muty.log import MutyLogger
@@ -254,29 +255,6 @@ class GulpProcess:
 
         # only in a worker process we're passed the queue and shared_memory by the process pool initializer
         self._main_process = q is None and shared_memory is None
-        if self._main_process:
-            MutyLogger.get_instance().info("initializing MAIN process...")
-            self._log_level = log_level
-            self._logger_file_path = logger_file_path
-            self._log_to_syslog = log_to_syslog
-        else:
-            # we must initialize mutylogger here
-            MutyLogger.get_instance(
-                "gulp-worker-%d" % (os.getpid()),
-                logger_file_path=logger_file_path,
-                log_to_syslog=log_to_syslog,
-                level=log_level,
-            )
-            MutyLogger.get_instance().info(
-                "initializing WORKER process, q=%s ..." % (q)
-            )
-
-        # read configuration (needs lock in worker processes)
-        if lock:
-            lock.acquire()
-        GulpConfig.get_instance()
-        if lock:
-            lock.release()
 
         # initializes thread pool for the main or worker process
         self.thread_pool = ThreadPoolExecutor()
@@ -285,6 +263,11 @@ class GulpProcess:
             ###############################
             # main process initialization
             ###############################
+            MutyLogger.get_instance().info("initializing MAIN process...")
+            self._log_level = log_level
+            self._logger_file_path = logger_file_path
+            self._log_to_syslog = log_to_syslog
+
             # creates the process pool and shared queue
             MutyLogger.get_instance().debug(
                 "creating process pool and shared queue (respawn after %d tasks)..."
@@ -340,12 +323,26 @@ class GulpProcess:
 
             # load extension plugins
             from gulp.api.server_api import GulpRestServer
-
             await GulpRestServer.get_instance()._load_extension_plugins()
+
         else:
             ###############################
             # worker process initialization
             ###############################
+
+            # we must initialize mutylogger here
+            MutyLogger.get_instance(
+                "gulp-worker-%d" % (os.getpid()),
+                logger_file_path=logger_file_path,
+                log_to_syslog=log_to_syslog,
+                level=log_level,
+            )
+            MutyLogger.get_instance().info(
+                "initializing WORKER process, q=%s ..." % (q)
+            )
+            # read configuration in worker
+            GulpConfig.get_instance()
+
             # in the worker process, initialize opensearch and collab clients (main process already did it)
             GulpOpenSearch.get_instance()
             await GulpCollab.get_instance().init()
@@ -525,4 +522,5 @@ class GulpProcess:
         returns whether this is the main gulp process.
         either, it is a worker process.
         """
+        return self._main_process
         return self._main_process
