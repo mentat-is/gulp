@@ -627,7 +627,7 @@ class GulpServer:
             await GulpOpenSearch.get_instance().shutdown()
             from gulp.api.redis_api import GulpRedis
 
-            await GulpRedis.get_instance().close()
+            await GulpRedis.get_instance().shutdown()
 
             # close coro pool in the main process
             await GulpProcess.get_instance().close_thread_pool()

@@ -246,27 +246,8 @@ class GulpProcess:
             is_worker (bool): True if this is a worker process, False if main process
         """
 
-        # determine if this is main or worker process
+        # only in a worker process we're passed the queue and shared_memory by the process pool initializer
         self._main_process = not is_worker
-        if self._main_process:
-            MutyLogger.get_instance().info("initializing MAIN process...")
-            self._log_level = log_level
-            self._logger_file_path = logger_file_path
-            self._log_to_syslog = log_to_syslog
-        else:
-            # we must initialize mutylogger here
-            MutyLogger.get_instance(
-                "gulp-worker-%d" % (os.getpid()),
-                logger_file_path=logger_file_path,
-                log_to_syslog=log_to_syslog,
-                level=log_level,
-            )
-            MutyLogger.get_instance().info(
-                "initializing WORKER process..."
-            )
-
-            # read configuration
-            GulpConfig.get_instance()
 
         # initializes thread pool for the main or worker process
         self.thread_pool = ThreadPoolExecutor()
@@ -275,7 +256,12 @@ class GulpProcess:
             ###############################
             # main process initialization
             ###############################
-            # creates the process pool
+            MutyLogger.get_instance().info("initializing MAIN process...")
+            self._log_level = log_level
+            self._logger_file_path = logger_file_path
+            self._log_to_syslog = log_to_syslog
+
+            # creates the process pool and shared queue
             MutyLogger.get_instance().debug(
                 "creating process pool (respawn after %d tasks)..."
                 % (GulpConfig.get_instance().parallel_processes_respawn_after_tasks())
@@ -329,6 +315,21 @@ class GulpProcess:
             # worker process initialization
             ###############################
             # in the worker process, initialize redis, opensearch and collab clients (main process already did it)
+
+            # we must initialize mutylogger here
+            MutyLogger.get_instance(
+                "gulp-worker-%d" % (os.getpid()),
+                logger_file_path=logger_file_path,
+                log_to_syslog=log_to_syslog,
+                level=log_level,
+            )
+            MutyLogger.get_instance().info(
+                "initializing WORKER process, q=%s ..." % (q)
+            )
+            # read configuration in worker
+            GulpConfig.get_instance()
+
+            # in the worker process, initialize opensearch and collab clients (main process already did it)
             GulpOpenSearch.get_instance()
             await GulpCollab.get_instance().init()
             GulpRedis.get_instance().initialize(server_id)
@@ -356,7 +357,7 @@ class GulpProcess:
             # close clients
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
-            await GulpRedis.get_instance().close()
+            await GulpRedis.get_instance().shutdown()
 
             # close thread pool
             await GulpProcess.get_instance().close_thread_pool(wait=False)
@@ -390,5 +391,4 @@ class GulpProcess:
         returns whether this is the main gulp process.
         either, it is a worker process.
         """
-        return self._main_process
         return self._main_process

@@ -22,6 +22,7 @@ from gulp.api.redis_api import GulpRedis
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
 
+
 class GulpWsType(StrEnum):
     # the type of the websocket
     WS_DEFAULT = "default"
@@ -1054,7 +1055,7 @@ class GulpConnectedSocket:
 
 class GulpConnectedSockets:
     """
-    singleton class to hold all connected sockets
+    singleton class to hold all connected sockets for an instance of the Gulp server (NOT cluster-wide).
     """
 
     _instance: "GulpConnectedSockets" = None
@@ -1086,12 +1087,9 @@ class GulpConnectedSockets:
     def _initialize(self):
         self._initialized: bool = True
         self._sockets: dict[str, GulpConnectedSocket] = {}
-
-        # for faster lookup, maintain a mapping from ws_id to socket id
-        self._ws_id_map: dict[str, str] = {}
         self._logger = MutyLogger.get_instance()
 
-    def add(
+    async def add(
         self,
         ws: WebSocket,
         ws_id: str,
@@ -1111,6 +1109,16 @@ class GulpConnectedSockets:
         Returns:
             ConnectedSocket: The ConnectedSocket object.
         """
+        if ws_id in self._sockets:
+            # disconnect the existing socket with the same ID
+            self._logger.warning(
+                "add(): websocket with ws_id=%s already exists, disconnecting existing socket",
+                ws_id,
+            )
+            existing_socket = self._sockets[ws_id]
+            await existing_socket.cleanup()
+            del self._sockets[ws_id]
+            
         # create connected socket instance
         connected_socket = GulpConnectedSocket(
             ws=ws,
@@ -1121,26 +1129,20 @@ class GulpConnectedSockets:
         )
 
         # store socket reference
-        socket_id = str(id(ws))
-        self._sockets[socket_id] = connected_socket
-        self._ws_id_map[ws_id] = socket_id
-
-        # register in Redis (sync wrapper for async call - will be called from async context)
-        # NOTE: This should be called from async context, we'll use asyncio.create_task
+        self._sockets[ws_id] = connected_socket
+        
+        # register in Redis
         redis_client = GulpRedis.get_instance()
-        asyncio.create_task(
-            redis_client.ws_register(
+        await redis_client.ws_register(
                 ws_id=ws_id,
                 types=types,
                 operation_ids=operation_ids,
                 socket_type=socket_type.value,
             )
-        )
 
         self._logger.debug(
-            "---> added connected ws: %s, id_str=%s, ws_id=%s, len=%d",
+            "---> added connected ws: %s, ws_id=%s, len=%d",
             ws,
-            socket_id,
             ws_id,
             len(self._sockets),
         )
@@ -1169,12 +1171,9 @@ class GulpConnectedSockets:
 
             return
 
+        # remove from internal map
         ws_id = connected_socket.ws_id
-
-        # remove from internal map FIRST to prevent new messages during cleanup
-        del self._sockets[socket_id]
-        if ws_id in self._ws_id_map:
-            del self._ws_id_map[ws_id]
+        del self._sockets[ws_id]
 
         # unregister from Redis
         redis_client = GulpRedis.get_instance()
@@ -1188,9 +1187,9 @@ class GulpConnectedSockets:
             len(self._sockets),
         )
 
-    def find(self, ws_id: str) -> GulpConnectedSocket:
+    def get(self, ws_id: str) -> GulpConnectedSocket:
         """
-        Finds a ConnectedSocket object by its ID.
+        gets a ConnectedSocket object by its ID.
 
         Args:
             ws_id (str): The WebSocket ID.
@@ -1198,12 +1197,7 @@ class GulpConnectedSockets:
         Returns:
             GulpConnectedSocket: The ConnectedSocket object or None if not found.
         """
-        # use fast lookup via mapping
-        socket_id = self._ws_id_map.get(ws_id)
-        if socket_id:
-            return self._sockets.get(socket_id)
-
-        return None
+        return self._sockets.get(ws_id)
 
     async def cancel_all(self) -> None:
         """
@@ -1512,7 +1506,7 @@ class GulpRedisBroker:
         Args:
             msg (GulpWsData): The message to process
         """
-        cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
+        cws = GulpConnectedSockets.get_instance().get(msg.ws_id)
         if cws or msg.internal:
             await GulpConnectedSockets.get_instance().broadcast_message(msg)
 
@@ -1548,9 +1542,9 @@ class GulpRedisBroker:
         data: dict = None,
     ) -> None:
         """
-        Puts a GulpInternalEvent (not websocket related) into the shared queue.
+        called by internal components and plugins to publish internal events.
 
-        this is used to broadcast internal events to plugins via the GulpInternalEventsManager
+        this is used to broadcast internal events via the GulpInternalEventsManager
 
         Args:
             t (str): The message type (i.e. GulpInternalEventsManager.EVENT_INGEST)
@@ -1581,7 +1575,7 @@ class GulpRedisBroker:
         private: bool = False,
     ) -> None:
         """
-        Publishes data via Redis pub/sub.
+        called by workers, publishes data to the main process via Redis pub/sub.
 
         args:
             t (str): the type of data being published

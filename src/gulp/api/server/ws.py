@@ -53,13 +53,13 @@ from gulp.api.ws_api import (
     GulpClientDataPacket,
     GulpConnectedSocket,
     GulpConnectedSockets,
+    GulpRedisBroker,
     GulpWsAcknowledgedPacket,
     GulpWsAuthPacket,
     GulpWsData,
     GulpWsError,
     GulpWsErrorPacket,
     GulpWsIngestPacket,
-    GulpRedisBroker,
     GulpWsType,
 )
 from gulp.config import GulpConfig
@@ -347,7 +347,7 @@ class GulpAPIWebsocket:
             logger = MutyLogger.get_instance()
             logger.debug(f"{socket_type} accepted for ws_id={ws_id}")
 
-            ws = GulpConnectedSockets.get_instance().add(
+            ws = await GulpConnectedSockets.get_instance().add(
                 websocket,
                 ws_id,
                 types=params.types,
@@ -381,7 +381,7 @@ class GulpAPIWebsocket:
             # cleanup
             if ws:
                 try:
-                    wws: GulpConnectedSocket = GulpConnectedSockets.get_instance().find(
+                    wws: GulpConnectedSocket = GulpConnectedSockets.get_instance().get(
                         ws.ws_id
                     )
                     await GulpConnectedSockets.get_instance().remove(websocket)

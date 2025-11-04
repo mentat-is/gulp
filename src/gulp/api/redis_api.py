@@ -1,13 +1,14 @@
-from urllib.parse import urlparse
 import asyncio
-import orjson
 from typing import Annotated, Any, Callable, Optional
+from urllib.parse import urlparse
 
+import orjson
+import redis.asyncio as redis
 from fastapi import WebSocket, WebSocketDisconnect
 from muty.log import MutyLogger
 from pydantic import BaseModel, Field
-import redis.asyncio as redis
 from redis.asyncio.client import PubSub
+
 from gulp.config import GulpConfig
 
 
@@ -34,7 +35,6 @@ class GulpRedis:
         self._pubsub: PubSub = None
         self._subscriber_tasks: dict[str, asyncio.Task] = {}
         self._server_id: str = None
-        self._initialized: bool = False
 
     def __new__(cls):
         """
@@ -63,44 +63,27 @@ class GulpRedis:
         Args:
             server_id (str): The unique server instance ID
         """
-        if self._initialized:
-            return
-        
         self._server_id = server_id
         
-        # ensure redis client exists
-        self.client()
+        # create redis client
+        url: str = GulpConfig.get_instance().redis_url()
+        self._redis = redis.Redis.from_url(url, decode_responses=False)
+        url_parts = urlparse(url)
+        MutyLogger.get_instance().info(
+            "client %s connected to Redis at %s:%d",
+            self._redis,
+            url_parts.hostname,
+            url_parts.port,
+        )
         
         # create pub/sub connection
         self._pubsub = self._redis.pubsub()
-        self._initialized = True
         
         MutyLogger.get_instance().info(
             "initialized Redis pub/sub for server_id=%s", server_id
         )
     
-    def client(self) -> redis.Redis:
-        """
-        gets the redis client, to be called once per process.
-        calling it repeatedly in the same process always return the same instance.
-
-        Returns:
-            redis.Redis: The underlying Redis client.
-        """
-        if not self._redis:
-            # first instantiation
-            url: str = GulpConfig.get_instance().redis_url()
-            self._redis = redis.Redis.from_url(url, decode_responses=False)
-            url_parts = urlparse(url)
-            MutyLogger.get_instance().info(
-                "client %s connected to Redis at %s:%d",
-                self._redis,
-                url_parts.hostname,
-                url_parts.port,
-            )
-        return self._redis
-    
-    async def close(self) -> None:
+    async def shutdown(self) -> None:
         """
         Close Redis connections and cleanup.
         """
@@ -137,7 +120,6 @@ class GulpRedis:
                 logger.error("error closing redis client: %s", ex)
         
         self._initialized = False
-    # ==================== WebSocket Registry Methods ====================
     
     def _get_ws_metadata_key(self, ws_id: str) -> str:
         """Get Redis key for websocket metadata."""
@@ -153,7 +135,6 @@ class GulpRedis:
         types: list[str] = None,
         operation_ids: list[str] = None,
         socket_type: str = "default",
-        ttl: int = 3600,
     ) -> bool:
         """
         Register a websocket in Redis.
@@ -178,9 +159,8 @@ class GulpRedis:
         
         # store metadata
         metadata_key = self._get_ws_metadata_key(ws_id)
-        await self._redis.setex(
+        await self._redis.set(
             metadata_key,
-            ttl,
             orjson.dumps(metadata.model_dump()),
         )
         
