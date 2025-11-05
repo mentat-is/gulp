@@ -728,6 +728,7 @@ class GulpConnectedSocket:
         self.ws = ws
         self.ws_id = ws_id
         self.types = types
+        self._terminated: bool=False
         self.operation_ids = operation_ids
         self.socket_type = socket_type
         self._tasks: list[asyncio.Task] = []
@@ -747,21 +748,15 @@ class GulpConnectedSocket:
         )
         self._tasks.extend([send_task, receive_task])
 
-        # Wait for first task to complete
-        done, _ = await asyncio.wait(self._tasks, return_when=asyncio.FIRST_EXCEPTION)
-
-        # process completed task
-        task = done.pop()
-        try:
-            await task
-        except WebSocketDisconnect as ex:
-            MutyLogger.get_instance().debug(
-                "websocket %s disconnected: %s", self.ws_id, ex
-            )
-            raise
-        except Exception as ex:
-            MutyLogger.get_instance().error("error in %s: %s", task.get_name(), ex)
-            raise
+        # wait for first task to complete
+        done, pending = await asyncio.wait(self._tasks, return_when=asyncio.FIRST_EXCEPTION)
+        # MutyLogger.get_instance().debug("---> wait returned for ws_id=%s, done=%s, pending=%s", self.ws_id, done, pending)
+        for d in done:
+            MutyLogger.get_instance().debug("---> completed task %s for ws_id=%s", d.get_name(), self.ws_id)
+        if pending:
+            for t in pending:
+                MutyLogger.get_instance().debug("---> cancelling pending task %s for ws_id=%s", t.get_name(), self.ws_id)
+                t.cancel()
 
     async def cleanup(self) -> None:
         """
@@ -771,12 +766,12 @@ class GulpConnectedSocket:
             "---> cleanup, ensuring ws cleanup for ws=%s, ws_id=%s", self.ws, self.ws_id
         )
 
+        # empty the queue
+        await self._flush_queue_and_terminate()
+
         if self._tasks:
             # clear tasks
-            await asyncio.shield(self._cleanup_tasks())
-
-        # empty the queue
-        await self._flush_queue()
+            await asyncio.shield(self.cleanup_tasks())
 
         MutyLogger.get_instance().debug(
             "---> GulpConnectedSocket.cleanup() DONE, ws=%s, ws_id=%s",
@@ -784,9 +779,9 @@ class GulpConnectedSocket:
             self.ws_id,
         )
 
-    async def _flush_queue(self) -> None:
+    async def _flush_queue_and_terminate(self) -> None:
         """
-        flushes the websocket queue.
+        flushes the websocket queue and send the terminator message.
         """
         MutyLogger.get_instance().debug(
             "---> flushing queue for ws=%s, ws_id=%s", self.ws, self.ws_id
@@ -814,48 +809,8 @@ class GulpConnectedSocket:
                 self.ws_id,
             )
 
-            # attempt a bounded wait for any remaining in-flight tasks to complete
-            try:
-                await asyncio.wait_for(self.q.join(), timeout=2.0)
-                MutyLogger.get_instance().debug(
-                    "---> queue.join() completed for ws=%s, ws_id=%s",
-                    self.ws,
-                    self.ws_id,
-                )
-            except asyncio.TimeoutError:
-                # gather diagnostics to help root-cause the hang
-                unfinished = getattr(self.q, "_unfinished_tasks", None)
-                try:
-                    qsize = self.q.qsize()
-                except Exception:
-                    qsize = -1
-                MutyLogger.get_instance().warning(
-                    "queue.join() timed out for ws=%s, ws_id=%s: unfinished=%r, qsize=%d",
-                    self.ws,
-                    self.ws_id,
-                    unfinished,
-                    qsize,
-                )
-
-                # force-drain remaining items to ensure we don't hang indefinitely
-                forced = 0
-                while True:
-                    try:
-                        self.q.get_nowait()
-                        try:
-                            self.q.task_done()
-                        except Exception:
-                            pass
-                        forced += 1
-                    except asyncio.QueueEmpty:
-                        break
-
-                MutyLogger.get_instance().warning(
-                    "forced-drained %d items for ws=%s, ws_id=%s",
-                    forced,
-                    self.ws,
-                    self.ws_id,
-                )
+            # put terminator
+            await self.q.put(None)
         except Exception as ex:
             MutyLogger.get_instance().exception(
                 "error flushing queue for ws=%s, ws_id=%s: %s", self.ws, self.ws_id, ex
@@ -887,7 +842,7 @@ class GulpConnectedSocket:
         
         return ws_id in active_sockets
 
-    async def _cleanup_tasks(self) -> None:
+    async def cleanup_tasks(self) -> None:
         """
         clean up tasks with proper cancellation handling
         """
@@ -962,7 +917,10 @@ class GulpConnectedSocket:
         try:
             # get message with timeout
             item = await asyncio.wait_for(self.q.get(), timeout=0.1)
-
+            if not item:
+                self._terminated = True
+                return True
+            
             # check state before sending
             current_task = asyncio.current_task()
             if current_task and current_task.cancelled():
@@ -995,6 +953,11 @@ class GulpConnectedSocket:
         while True:
             # raise exception if websocket is disconnected
             self.validate_connection()
+            if self._terminated:
+                self._logger.debug(
+                    "---> _receive loop terminator found, terminating ws_id=%s", self.ws_id
+                )
+                break
 
             try:
                 # use a shorter timeout to ensure we can yield control regularly
@@ -1014,10 +977,8 @@ class GulpConnectedSocket:
         """
         processes outgoing messages (filled by the shared queue) and sends them to the websocket
         """
-        logger = MutyLogger.get_instance()
-
         try:
-            logger.debug(f"---> starting send loop for ws_id={self.ws_id}")
+            MutyLogger.get_instance().debug(f"---> starting send loop for ws_id={self.ws_id}")
 
             # tracking variables for metrics
             message_count: int = 0
@@ -1026,6 +987,11 @@ class GulpConnectedSocket:
             while True:
                 # process message from the websocket queue (filled by the shared queue)
                 message_processed = await self._process_queue_message()
+                if self._terminated:
+                    MutyLogger.get_instance().debug(
+                        "---> _send loop terminator found, terminating ws_id=%s", self.ws_id
+                    )
+                    break
 
                 if message_processed:
                     message_count += 1
@@ -1037,17 +1003,17 @@ class GulpConnectedSocket:
                         await asyncio.sleep(self.YIELD_CONTROL_DELAY)
 
         except asyncio.CancelledError:
-            logger.warning("---> send loop canceled for ws_id=%s", self.ws_id)
+            MutyLogger.get_instance().warning("---> send loop canceled for ws_id=%s", self.ws_id)
             raise
 
         except WebSocketDisconnect as ex:
-            logger.warning("---> websocket disconnected: ws_id=%s", self.ws_id)
-            logger.exception(ex)
+            MutyLogger.get_instance().warning("---> websocket disconnected: ws_id=%s", self.ws_id)
+            MutyLogger.get_instance().exception(ex)
             raise
 
         except Exception as ex:
-            logger.error("---> error in send loop: ws_id=%s", self.ws_id)
-            logger.exception(ex)
+            MutyLogger.get_instance().error("---> error in send loop: ws_id=%s", self.ws_id)
+            MutyLogger.get_instance().exception(ex)
             raise
 
     def __str__(self):
@@ -1209,10 +1175,7 @@ class GulpConnectedSockets:
                 connected_socket.ws,
                 connected_socket.ws_id,
             )
-            if connected_socket.receive_task:
-                connected_socket.receive_task.cancel()
-            if connected_socket.send_task:
-                connected_socket.send_task.cancel()
+            await connected_socket.cleanup_tasks()
 
         self._logger.debug(
             "---> all active websockets cancelled, count=%d", len(sockets_to_cancel)
@@ -1653,21 +1616,21 @@ class GulpWsSharedQueue:
                         cancelled = t.cancel()
                         if cancelled:
                             await asyncio.wait_for(t, timeout=5.0)
-                            MutyLogger.get_instance().debug("Queue processing task cancelled successfully")
+                            MutyLogger.get_instance().debug("queue processing task %s cancelled successfully", t.get_name())
                         else:
-                            MutyLogger.get_instance().debug("Queue processing task was already completed")
+                            MutyLogger.get_instance().debug("queue processing task %s was already completed", t.get_name())
                     except asyncio.TimeoutError:
-                        MutyLogger.get_instance().warning("Task cancellation timed out")
+                        MutyLogger.get_instance().warning("queue processing task %s cancellation timed out", t.get_name())
                     except Exception as e:
-                        MutyLogger.get_instance().error("Error during task cancellation: %s", e)
+                        MutyLogger.get_instance().exception("error cancelling queue processing task %s", t.get_name())
 
             # release resources
             self._shared_q = None
             self._fill_tasks = None
-            MutyLogger.get_instance().debug("Shared WS queue(s) closed")
+            MutyLogger.get_instance().debug("shared WS queue(s) closed")
 
         except Exception as e:
-            MutyLogger.get_instance().error("Failed to close shared queue(s): %s", e)
+            MutyLogger.get_instance().exception("failed to close shared queue(s)")
 
     async def _flush_queue(self) -> None:
         """Flush all items from the queue(s)"""
