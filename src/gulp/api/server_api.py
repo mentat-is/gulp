@@ -594,6 +594,7 @@ class GulpServer:
             # cancel dequeue task
             if self._poll_tasks_task:
                 try:
+                    MutyLogger.get_instance().debug("cancelling poll_tasks task ...")
                     self._poll_tasks_task.cancel()
                     await asyncio.wait_for(self._poll_tasks_task, timeout=5.0)
                     MutyLogger.get_instance().debug(

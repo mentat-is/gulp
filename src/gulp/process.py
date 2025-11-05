@@ -185,7 +185,7 @@ class GulpProcess:
         """
         if self.thread_pool:
             MutyLogger.get_instance().debug("closing thread pool...")
-            self.thread_pool.shutdown(wait=wait)
+            self.thread_pool.shutdown(wait)
             MutyLogger.get_instance().debug("thread pool closed!")
 
     async def close_process_pool(self):
@@ -360,7 +360,7 @@ class GulpProcess:
             await GulpRedis.get_instance().shutdown()
 
             # close thread pool
-            await GulpProcess.get_instance().close_thread_pool(wait=False)
+            await GulpProcess.get_instance().close_thread_pool()
 
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
