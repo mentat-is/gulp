@@ -700,8 +700,8 @@ class GulpServer:
         GulpRedis.get_instance().initialize(self._server_id)
 
         # initialize Redis pub/sub for worker->main process and instance<->instance communication
-        wsq = GulpRedisBroker.get_instance()
-        await wsq.init_broker()
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.init_broker()
 
         # initialize collab database and create operation if needed
         try:

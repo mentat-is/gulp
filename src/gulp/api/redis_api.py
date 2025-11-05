@@ -34,7 +34,7 @@ class GulpRedis:
     def __init__(self):
         self._redis: redis.Redis = None
         self._pubsub: PubSub = None
-        self._subscriber_task: asyncio.Task = {}
+        self._subscriber_task: asyncio.Task = None
         self.server_id: str = None
 
     def __new__(cls):
@@ -87,14 +87,14 @@ class GulpRedis:
     async def shutdown(self) -> None:
         """
         Close Redis connections and cleanup.
-        """
-        logger = MutyLogger.get_instance()
-        
+        """        
         # cancel all subscriber tasks
         try:
-            self._subscriber_task.cancel()
-            await asyncio.wait_for(self._subscriber_task, timeout=5.0)
-            MutyLogger.get_instance().debug("cancelled subscriber task!")
+            if self._subscriber_task:
+                # only main process have subscriber task
+                self._subscriber_task.cancel()
+                await asyncio.wait_for(self._subscriber_task, timeout=5.0)
+                MutyLogger.get_instance().debug("cancelled subscriber task!")
         except asyncio.TimeoutError:
             MutyLogger.get_instance().warning("timeout cancelling subscriber task!")
         except Exception as ex:
@@ -111,9 +111,9 @@ class GulpRedis:
         if self._redis:
             try:
                 await self._redis.close()
-                logger.info("Redis client %s connection closed", self._redis)
+                MutyLogger.get_instance().info("Redis client %s connection closed", self._redis)
             except Exception as ex:
-                logger.error("error closing redis client: %s", ex)
+                MutyLogger.get_instance().error("error closing redis client: %s", ex)
         
     
     def _get_ws_metadata_key(self, ws_id: str) -> str:
@@ -242,7 +242,7 @@ class GulpRedis:
         subscribe to the redis pubsub channel
         
         Args:
-            callback: Async function to call with each message dict
+            callback: Async function fun(d: dict) to call with each message dict
         """
         await self._pubsub.subscribe(GulpRedis.CHANNEL)
         

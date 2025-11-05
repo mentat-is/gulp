@@ -975,8 +975,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # notify websocket
         p = GulpCollabCreatePacket(obj=data)
-        wsq = GulpRedisBroker.get_instance()
-        await wsq.put(
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put(
             ws_data_type,
             user_id=user_id,
             ws_id=ws_id,
@@ -1153,8 +1153,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             data = updated_dict
 
         p = GulpCollabUpdatePacket(obj=data)
-        wsq = GulpRedisBroker.get_instance()
-        await wsq.put(
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put(
             t=ws_data_type,
             ws_id=ws_id,
             user_id=user_id,
@@ -1228,8 +1228,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=obj_id)
             data = p.model_dump()
 
-        wsq = GulpRedisBroker.get_instance()
-        await wsq.put(
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put(
             t=ws_data_type,
             ws_id=ws_id,
             user_id=user_id,

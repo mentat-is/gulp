@@ -79,8 +79,8 @@ class Plugin(GulpPluginBase):
             "IN WORKER PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, ws_id, req_id)
         )
-        wsq = GulpRedisBroker.get_instance()
-        await wsq.put(
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put(
             WSDATA_COLLAB_UPDATE,
             req_id=req_id,
             ws_id=ws_id,

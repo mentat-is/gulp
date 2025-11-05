@@ -964,8 +964,8 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug(
         #     "***************************** broadcasting internal ingest event: %s", ev
         # )
-        wsq = GulpRedisBroker.get_instance()
-        await wsq.put_internal_event(
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put_internal_event(
             GulpInternalEventsManager.EVENT_INGEST,
             user_id=self._user_id,
             operation_id=self._operation_id,
@@ -1075,8 +1075,8 @@ class GulpPluginBase(ABC):
             # MutyLogger.get_instance().debug(
             #     "sending chunk of %d documents to ws_id=%s", len(ws_docs), self._ws_id
             # )
-            wsq = GulpRedisBroker.get_instance()
-            await wsq.put(
+            redis_broker = GulpRedisBroker.get_instance()
+            await redis_broker.put(
                 t=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 operation_id=self._operation_id,

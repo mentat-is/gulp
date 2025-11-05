@@ -78,7 +78,7 @@ from gulp.api.ws_api import (
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
     GulpRedisBroker,
-    WsQueueFullException,
+    redis_brokerueueFullException,
 )
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase

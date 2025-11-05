@@ -225,7 +225,7 @@ class GulpCollabDeletePacket(BaseModel):
     id: Annotated[str, Field(description="The deleted collab object ID.")]
 
 
-class WsQueueFullException(Exception):
+class redis_brokerueueFullException(Exception):
     """Exception raised when queue is full after retries"""
 
 
@@ -1345,7 +1345,7 @@ class GulpConnectedSockets:
         if data.type in GulpRedisBroker.get_instance().broadcast_types:
             redis_client = GulpRedis.get_instance()
             message_dict = data.model_dump(exclude_none=True)
-            await redis_client.publish_broadcast(message_dict)
+            await redis_client.publish(message_dict)
             # NOTE: we'll still process locally below, the broadcast ensures other instances get it
 
         # route to local connected websockets
@@ -1507,7 +1507,7 @@ class GulpRedisBroker:
             # broadcast to all instances
             wsd.redis_pubsub_channel = GulpRedisChannel.BROADCAST.value
             message_dict = wsd.model_dump(exclude_none=True)
-            await redis_client.publish_broadcast(message_dict)
+            await redis_client.publish(message_dict)
         elif GulpProcess.get_instance().is_main_process():
             # main process: directly process locally
             message_dict = wsd.model_dump(exclude_none=True)
@@ -1516,7 +1516,7 @@ class GulpRedisBroker:
             # worker process: publish to main process of this instance
             wsd.redis_pubsub_channel = GulpRedisChannel.WORKER_TO_MAIN.value
             message_dict = wsd.model_dump(exclude_none=True)
-            await redis_client.publish_from_worker_to_main(message_dict)
+            await redis_client.publish(message_dict)
 
     async def put_internal_event(
         self,
