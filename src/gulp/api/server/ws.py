@@ -364,8 +364,8 @@ class GulpAPIWebsocket:
             if notify_login and user_id:
                 # notify login event
                 p = GulpUserAccessPacket(user_id=user_id, login=True, ip=websocket.client.host, req_id=req_id)
-                wsq = GulpWsSharedQueue.get_instance()
-                await wsq.put(
+                redis = GulpRedisBroker.get_instance()
+                await redis.put(
                     WSDATA_USER_LOGIN,
                     user_id=user_id,
                     ws_id=ws_id,
