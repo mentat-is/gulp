@@ -23,7 +23,7 @@ while inheriting common persistence and access control capabilities.
 # pylint: disable=too-many-lines
 import re
 from enum import StrEnum
-from typing import List, Optional, TypeVar, override, Annotated
+from typing import Annotated, List, Optional, TypeVar, override
 
 import muty.crypto
 import muty.string
@@ -1128,7 +1128,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         MutyLogger.get_instance().debug(
             "---> updated (type=%s): %s",
             self.type,
-            muty.string.make_shorter(str(updated_dict), max_len=260),
+            updated_dictq,
         )
 
         if not ws_id:
