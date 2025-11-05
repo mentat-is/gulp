@@ -1509,7 +1509,7 @@ class GulpWsSharedQueue:
         This method runs one processing loop for the given queue, continuously retrieving messages and broadcasting them to connected websockets.
 
         """
-        from gulp.api.server_api import GulpRestServer
+        from gulp.api.server_api import GulpServer
         from gulp.process import GulpProcess
 
         async def _process_message(msg: GulpWsData) -> None:
@@ -1530,7 +1530,7 @@ class GulpWsSharedQueue:
 
             # use the event loop executor to block on manager.Queue.get() without busy-polling
             loop = asyncio.get_running_loop()
-            while not GulpRestServer.get_instance().is_shutdown():
+            while not GulpServer.get_instance().is_shutdown():
                 # get batch size
                 base_batch_size = GulpConfig.get_instance().ws_queue_batch_size()
 

@@ -44,7 +44,7 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from gulp.api.server_api import GulpRestServer
+from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import (
     WSDATA_CLIENT_DATA,
     WSDATA_CONNECTED,
@@ -192,7 +192,7 @@ class WsIngestRawWorker:
         MutyLogger.get_instance().debug("starting ws ingest worker ...")
 
         # run _process_loop in a separate process
-        await GulpRestServer.get_instance().spawn_worker_task(
+        await GulpServer.get_instance().spawn_worker_task(
             WsIngestRawWorker._process_loop, self._input_queue
         )
 

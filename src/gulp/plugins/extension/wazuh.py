@@ -1,8 +1,7 @@
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
-from gulp.api.server_api import GulpRestServer
-
+from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import WSDATA_COLLAB_UPDATE, GulpWsSharedQueue
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.process import GulpProcess
@@ -16,7 +15,7 @@ extension plugins are automatically loaded at startup from `PLUGIN_DIR/extension
 
 ## internals
 
-- they may extend api through `GulpRestServer.get_instance().add_api_route()`.
+- they may extend api through `GulpServer.get_instance().add_api_route()`.
 - `their init runs in the MAIN process context`
 """
 
@@ -99,7 +98,7 @@ class Plugin(GulpPluginBase):
         return EventsResponse
 
     def _add_api_routes(self):
-        GulpRestServer.get_instance().add_api_route(
+        GulpServer.get_instance().add_api_route(
             "/wazuh/events",
             self.wazuh_extension_handler,
             methods=["POST"],
@@ -124,7 +123,7 @@ class Plugin(GulpPluginBase):
         try:
             # spawn coroutine in the main process, will run asap
             coro = self._handle_wazuh_events(events)
-            GulpRestServer.spawn_bg_task(coro)
+            GulpServer.spawn_bg_task(coro)
             return JSendResponse.pending(req_id=req_id)
         except Exception as ex:
             raise JSendException(req_id=req_id, ex=ex) from ex

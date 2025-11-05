@@ -204,7 +204,7 @@ following are basic rules to use multiprocessing and concurrency effectively in 
         ...
     
     # run fun in an async task in a worker process, thanks to aiomultiprocess
-    await GulpRestServer.get_instance().spawn_worker_task(fun, param1, param2, param3)
+    await GulpServer.get_instance().spawn_worker_task(fun, param1, param2, param3)
   ```
 
 - in `external`, `ingestion`, `enrich` plugins a `collab` session is guaranteed to exist when `ingest_file`, `ingest_raw`, `query_external`, `enrich_documents` are called: **this session is valid in the `current running` task only**.

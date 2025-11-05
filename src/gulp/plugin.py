@@ -2987,7 +2987,7 @@ class GulpPluginBase(ABC):
             )
 
             # update source field types (in background)
-            from gulp.api.server_api import GulpRestServer
+            from gulp.api.server_api import GulpServer
 
             if self._ctx_src_pairs:
                 # multiple context and sources generated
@@ -3009,7 +3009,7 @@ class GulpPluginBase(ABC):
                     source_id=self._source_id,
                 )
             bg_task_name = f"update_source_field_types_{self._operation_id}_{self._context_id}_{self._source_id}"
-            GulpRestServer.spawn_bg_task(coro, bg_task_name)
+            GulpServer.spawn_bg_task(coro, bg_task_name)
 
             return d["status"]
         except:

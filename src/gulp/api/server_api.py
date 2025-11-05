@@ -30,8 +30,9 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from opensearchpy import RequestError
-from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.sessions import SessionMiddleware
+
 from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
@@ -44,12 +45,12 @@ from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
 
-class GulpRestServer:
+class GulpServer:
     """
     manages the gULP REST server.
     """
 
-    _instance: "GulpRestServer" = None
+    _instance: "GulpServer" = None
 
     def __init__(self):
         self._initialized: bool = True
@@ -73,12 +74,12 @@ class GulpRestServer:
         return cls._instance
 
     @classmethod
-    def get_instance(cls) -> "GulpRestServer":
+    def get_instance(cls) -> "GulpServer":
         """
         returns the singleton instance
 
         Returns:
-            GulpRestServer: the singleton instance
+            GulpServer: the singleton instance
         """
         if not cls._instance:
             cls._instance = cls()
@@ -452,7 +453,7 @@ class GulpRestServer:
         )
 
         # loop until the server exits
-        while not GulpRestServer.get_instance().is_shutdown():
+        while not GulpServer.get_instance().is_shutdown():
             async with GulpCollab.get_instance().session() as sess:
                 # get a batch of tasks, use advisory lock to prevent concurrent dequeueing
                 try:
@@ -583,7 +584,7 @@ class GulpRestServer:
                 raise
 
         # fire and forget (just use spawn_bg_task to schedule the coro)
-        GulpRestServer.spawn_bg_task(coro, task_name)
+        GulpServer.spawn_bg_task(coro, task_name)
         return
 
     async def _cleanup(self):
@@ -773,4 +774,5 @@ class GulpRestServer:
         )
         with open(check_first_run_file, "w", encoding="utf-8") as f:
             f.write("gulp!")
+        return True
         return True

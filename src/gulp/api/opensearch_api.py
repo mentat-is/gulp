@@ -18,11 +18,10 @@ operations (like bulk ingestion) and high-level functionality (like querying ope
 # pylint: disable=too-many-lines
 
 import asyncio
-import orjson
 import json
-from importlib import resources as impresources
 import os
 import tempfile
+from importlib import resources as impresources
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -31,14 +30,15 @@ import muty.dict
 import muty.file
 import muty.string
 import muty.time
-import asyncio
+import orjson
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch, NotFoundError
 from sqlalchemy.ext.asyncio import AsyncSession
-from gulp.api.collab.source_field_types import GulpSourceFieldTypes
+
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.source_field_types import GulpSourceFieldTypes
 from gulp.api.collab.stats import GulpRequestStats, RequestCanceledError
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab_api import GulpCollab
@@ -399,7 +399,7 @@ class GulpOpenSearch:
         el: AsyncElasticsearch = None,
     ) -> tuple[dict, bool]:
         """
-        a wrapper to call datastream_update_source_field_types_by_src, to be used across multiprocessing via GulpRestServer.spawn_worker_task
+        a wrapper to call datastream_update_source_field_types_by_src, to be used across multiprocessing via GulpServer.spawn_worker_task
         """
         return await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_src(
             sess, index, user_id, operation_id, context_id, source_id, el

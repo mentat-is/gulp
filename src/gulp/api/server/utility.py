@@ -14,17 +14,18 @@ the Gulp platform through plugin and mapping management.
 """
 
 import base64
-import orjson
 import os
 from typing import Annotated, Literal
 
 import muty.file
+import orjson
 import psutil
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
@@ -38,7 +39,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
-from gulp.api.server_api import GulpRestServer
+from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import ObjectNotFound
@@ -902,7 +903,7 @@ async def get_version_handler(
             return JSONResponse(
                 JSendResponse.success(
                     req_id=req_id,
-                    data={"version": GulpRestServer.get_instance().version_string()},
+                    data={"version": GulpServer.get_instance().version_string()},
                 )
             )
     except Exception as ex:
@@ -1019,4 +1020,5 @@ async def mapping_file_list_handler(
 
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
         raise JSendException(req_id=req_id) from ex

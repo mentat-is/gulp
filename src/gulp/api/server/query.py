@@ -67,7 +67,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.server.ingest import GulpIngestionStats
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
-from gulp.api.server_api import GulpRestServer
+from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
     WSDATA_QUERY_DONE,
@@ -759,7 +759,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 len(queries),
                 q_options,
             )
-            GulpRestServer.spawn_bg_task(coro)
+            GulpServer.spawn_bg_task(coro)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -875,7 +875,7 @@ async def query_gulp_handler(
                 len(queries),
                 q_options,
             )
-            GulpRestServer.spawn_bg_task(coro)
+            GulpServer.spawn_bg_task(coro)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1023,7 +1023,7 @@ async def query_external_handler(
                 plugin=plugin,
                 plugin_params=plugin_params,
             )
-            GulpRestServer.spawn_bg_task(coro)
+            GulpServer.spawn_bg_task(coro)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1195,7 +1195,7 @@ async def query_sigma_handler(
                 len(queries),
                 q_options,
             )
-            GulpRestServer.spawn_bg_task(coro)
+            GulpServer.spawn_bg_task(coro)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1557,7 +1557,7 @@ async def query_fields_by_source_handler(
                 return JSONResponse(JSendResponse.success(req_id=req_id, data=m))
 
             # spawn a task to run fields mapping in a worker and return empty
-            await GulpRestServer.get_instance().spawn_worker_task(
+            await GulpServer.get_instance().spawn_worker_task(
                 GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
                 None,  # sess=None to create a temporary one (a worker can't use the current one)
                 index,
@@ -1723,7 +1723,7 @@ async def query_gulp_export_json_handler(
             dsl: dict = flt.to_opensearch_dsl()
 
             # execute export operation in worker process (non-blocking)
-            file_path = await GulpRestServer.get_instance().spawn_worker_task(
+            file_path = await GulpServer.get_instance().spawn_worker_task(
                 _export_json_internal,
                 index,
                 operation_id,
