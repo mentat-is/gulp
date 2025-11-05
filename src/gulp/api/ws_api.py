@@ -1128,7 +1128,7 @@ class GulpConnectedSockets:
             socket_type=socket_type,
         )
 
-        # store socket reference
+        # store local socket reference
         self._sockets[ws_id] = connected_socket
         
         # register in Redis

@@ -166,7 +166,7 @@ class GulpRedis:
         
         # store lookup mapping
         lookup_key = self._get_ws_lookup_key(ws_id)
-        await self._redis.setex(lookup_key, ttl, self._server_id.encode())
+        await self._redis.set(lookup_key, self._server_id.encode())
         
         MutyLogger.get_instance().debug(
             "registered websocket: ws_id=%s, server_id=%s",
