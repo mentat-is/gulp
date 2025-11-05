@@ -1340,12 +1340,12 @@ class GulpConnectedSockets:
 
         # collect routing tasks
         tasks = []
-        socket_ids = []
-        for socket_id, connected_socket in socket_items:
-            if skip_list and socket_id in skip_list:
+        ws_ids = []
+        for ws_id, connected_socket in socket_items:
+            if skip_list and ws_id in skip_list:
                 continue
             tasks.append(self._route_message(data, connected_socket))
-            socket_ids.append(socket_id)
+            ws_ids.append(ws_id)
 
         if tasks:
             # execute concurrently
@@ -1354,13 +1354,13 @@ class GulpConnectedSockets:
             # check for exceptions
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
-                    socket_id = socket_ids[i]
+                    ws_id = ws_ids[i]
                     self._logger.warning(
-                        "failed to broadcast to socket socket_id=%s: %s, removing dead socket",
-                        socket_id,
+                        "failed to broadcast to (local) ws_id=%s: %s, removing dead socket",
+                        ws_id,
                         result,
                     )
-                    self._sockets.pop(socket_id, None)
+                    self._sockets.pop(ws_id, None)
 
 
 class GulpRedisBroker:
