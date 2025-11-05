@@ -182,12 +182,12 @@ class GulpProcess:
             )
         )
 
-    async def close_thread_pool(self, wait: bool = True):
+    async def close_thread_pool(self, wait: bool = False):
         """
         closes the thread pool
 
         Args:
-            wait (bool, optional): whether to wait for all threads to finish. Defaults to True
+            wait (bool, optional): whether to wait for all threads to finish. Defaults to False
         """
         if self.thread_pool:
             MutyLogger.get_instance().debug("closing thread pool...")
