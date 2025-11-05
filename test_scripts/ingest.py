@@ -26,6 +26,7 @@ from gulp_client.test_values import (
     TEST_REQ_ID,
     TEST_WS_ID,
 )
+from gulp.api.collab.stats import GulpIngestionStats, GulpRequestStats
 from gulp.api.ws_api import GulpWsAuthPacket
 
 
@@ -296,11 +297,16 @@ def _ws_loop(host: str, token: str, ws_id: str):
                 while True:
                     response = await ws.recv()
                     data = json.loads(response)
-                    if data["type"] == "stats_update":
+                    payload = data.get("payload", {})
+                    if (
+                        payload
+                        and data["type"] == "stats_update"
+                        and payload["obj"]["req_type"] == "ingest"
+                    ):
                         # MutyLogger.get_instance().error(f"data: {data}")
-                        d = data["data"]["data"]
-                        if d["status"] != "ongoing":
-                            MutyLogger.get_instance().info(f"stats: {d}")
+                        stats: GulpRequestStats = GulpRequestStats.from_dict(payload["obj"])
+                        if stats.status != "ongoing":
+                            MutyLogger.get_instance().info(f"stats: {stats}")
                             break
 
                     # ws delay
