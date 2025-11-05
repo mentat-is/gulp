@@ -20,6 +20,7 @@ import muty.pydantic
 import muty.string
 import muty.time
 import orjson
+from fastapi import WebSocketDisconnect
 from muty.log import MutyLogger
 from opensearchpy import Field
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -160,26 +161,6 @@ class GulpIngestInternalEvent(BaseModel):
     records_processed: Annotated[
         int, Field(description="The total number of records processed.")
     ] = 0
-
-
-class GulpUserInfoInternalEvent(BaseModel):
-    """
-    this is sent by core when a user logs in, in GulpInternalEvent.data to plugins registered to the GulpInternalEventsManager.EVENT_LOGIN/GulpInternalEventsManager.EVENT_LOGOUT events
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        json_schema_extra={"examples": [{"ip": "192.168.3.12"}]},
-    )
-    user_id: Annotated[str, Field(description="The user id.")]
-    ip: Annotated[
-        Optional[str],
-        Field(description="The IP address of the user that logged in, if available."),
-    ] = None
-    req_id: Annotated[
-        Optional[str],
-        Field(description="The request id associated with this event, if applicable."),
-    ] = None
 
 
 class GulpInternalEvent(BaseModel):
@@ -529,8 +510,8 @@ class GulpInternalEventsManager:
     _instance: "GulpInternalEventsManager" = None
 
     # these events are broadcasted by core itself to registered plugins
-    EVENT_LOGIN: str = WSDATA_USER_LOGIN  # data={ "user_id": str, "ip": str }
-    EVENT_LOGOUT: str = WSDATA_USER_LOGOUT  # data={ "user_id": str, "ip": str }
+    EVENT_LOGIN: str = WSDATA_USER_LOGIN  # data=GulpUserAccessPacket
+    EVENT_LOGOUT: str = WSDATA_USER_LOGOUT  # data=GulpUserAccessPacket
     EVENT_INGEST: str = "ingestion"
 
     def __init__(self):
@@ -1082,7 +1063,7 @@ class GulpPluginBase(ABC):
             ws_docs = [__select_ws_doc_fields(doc) for doc in ingested_docs]
 
         if ws_docs:
-            # MutyLogger.get_instance().debug("ws_docs:\n%s", orjson.dumps(ws_docs, option=orjson.OPT_INDENT_2).decode())
+            MutyLogger.get_instance().debug("adding %d docs to ws", len(ws_docs))
             # send documents to the websocket
             chunk: GulpDocumentsChunkPacket = GulpDocumentsChunkPacket(
                 docs=ws_docs,
@@ -1105,7 +1086,7 @@ class GulpPluginBase(ABC):
             )
             self._chunks_ingested += 1
 
-        # check if the request is cancelled
+        # check if the request is canceled
         canceled: bool = await GulpRequestStats.is_canceled(self._sess, self._req_id)
         if canceled:
             self._req_canceled = True
@@ -2377,7 +2358,6 @@ class GulpPluginBase(ABC):
             records_failed=self._records_failed_per_chunk,
         )
         # reset buffers and counters
-        # self._docs_buffer.clear()
         self._docs_buffer = []
         self._records_processed_per_chunk = 0
         self._records_failed_per_chunk = 0
@@ -2889,6 +2869,7 @@ class GulpPluginBase(ABC):
         Returns:
             GulpRequestStatus: The final status of the ingestion process.
         """
+        MutyLogger.get_instance().debug("update_final_stats_and_flush called for plugin=%s", self.name)
         if self._preview_mode:
             MutyLogger.get_instance().debug("*** preview mode, no ingestion! ***")
             return GulpRequestStatus.DONE
@@ -2955,23 +2936,44 @@ class GulpPluginBase(ABC):
                 records_failed=self._records_failed_total,
                 status=status.value,
             )
-            await GulpRedisBroker.get_instance().put(
-                WSDATA_INGEST_SOURCE_DONE,
-                self._user_id,
-                ws_id=self._ws_id,
-                operation_id=self._operation_id,
-                req_id=self._req_id,
-                d=p.model_dump(exclude_none=True),
-            )
+
+            disconnected: bool =False
+            try:
+                await GulpRedisBroker.get_instance().put(
+                    WSDATA_INGEST_SOURCE_DONE,
+                    self._user_id,
+                    ws_id=self._ws_id,
+                    operation_id=self._operation_id,
+                    req_id=self._req_id,
+                    d=p.model_dump(exclude_none=True),
+                )
+            except WebSocketDisconnect as ex:
+                # may fail in case socket disconnected
+                disconnected=True
+                errors.append(str(ex))
+                source_finished = True
+                status = GulpRequestStatus.FAILED
+
 
         self._raw_flush_count += 1
-        if self._raw_ingestion and status == GulpRequestStatus.ONGOING:
+        # "and not disconnected" since if the websocket is disconnected, we want to update stats
+        if self._raw_ingestion and status == GulpRequestStatus.ONGOING and not disconnected:
             if self._raw_flush_count % 10 != 0:
                 # do not update stats and source_fields too frequently on raw
                 return status
 
         # update stats
         try:
+            MutyLogger.get_instance().debug("updating ingestion stats with: ingested=%d, skipped=%d, processed=%d, failed=%d, errors=%s, status=%s, source_finished=%r, ws_disconnected=%r",
+                ingested,
+                skipped,
+                self._records_processed_per_chunk,
+                self._records_failed_per_chunk,
+                errors,
+                status,
+                source_finished,
+                disconnected,
+            )
             d: dict = await self._stats.update_ingestion_stats(
                 self._sess,
                 user_id=self._user_id,
@@ -2983,6 +2985,7 @@ class GulpPluginBase(ABC):
                 errors=errors,
                 status=status,
                 source_finished=source_finished,
+                ws_disconnected=disconnected,
             )
 
             # update source field types (in background)

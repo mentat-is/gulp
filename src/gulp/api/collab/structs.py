@@ -23,7 +23,7 @@ while inheriting common persistence and access control capabilities.
 # pylint: disable=too-many-lines
 import re
 from enum import StrEnum
-from typing import List, Optional, TypeVar, override, Annotated
+from typing import Annotated, List, Optional, TypeVar, override
 
 import muty.crypto
 import muty.string
@@ -1128,7 +1128,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         MutyLogger.get_instance().debug(
             "---> updated (type=%s): %s",
             self.type,
-            muty.string.make_shorter(str(updated_dict), max_len=260),
+            updated_dict,
         )
 
         if not ws_id:
@@ -1281,6 +1281,30 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             "user_id=%s, deleted %d objects (optimized)", user_id, deleted_count
         )
         return deleted_count
+
+    @classmethod
+    async def delete_by_id_internal(
+        cls,
+        sess: AsyncSession,
+        obj_id: str,
+        throw_on_error: bool=True
+    ) -> None:
+        """
+        to delete an object by ID, without permission checks or websocket notification
+
+        NOTE: internal usage only
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            obj_id (str): The ID of the object to delete.
+            throw_on_error (bool): If True, raise an exception if the object is not found or deletion fails. Defaults to True.
+        Raises:
+            ObjectNotFoundError: If the object is not found.
+            Exception: If there is an error during deletion.
+        """
+        obj: GulpCollabBase = await cls.get_by_id(sess, obj_id, throw_if_not_found=throw_on_error)
+        if obj:
+            await obj.delete(sess, raise_on_error=throw_on_error)
 
     @classmethod
     async def delete_by_id_wrapper(

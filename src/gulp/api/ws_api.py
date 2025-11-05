@@ -1,9 +1,11 @@
 import asyncio
-import collections
 import os
+import queue
 import time
-from datetime import time
 from enum import StrEnum
+from multiprocessing.managers import SyncManager
+from queue import Empty, Queue
+from threading import Lock
 from typing import Annotated, Any, Optional
 
 import muty
@@ -59,9 +61,7 @@ WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
 WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
 WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
 
-# special token used to monitor also logins
-WSTOKEN_MONITOR = "monitor"
-
+SHARED_MEMORY_KEY_ACTIVE_SOCKETS = "active_sockets"
 
 class GulpWsData(BaseModel):
     """
@@ -227,7 +227,8 @@ class GulpUserAccessPacket(BaseModel):
     user_id: Annotated[str, Field(description="The user ID.")]
     login: Annotated[
         bool, Field(description="If the event is a login event, either it is a logout.")
-    ]
+    ]=True
+    req_id: Annotated[Optional[str], Field(description="The request ID, if any.")] = None
     ip: Annotated[
         Optional[str],
         Field(
@@ -235,7 +236,6 @@ class GulpUserAccessPacket(BaseModel):
             description="The IP address of the user, if available.",
         ),
     ] = None
-
 
 class GulpWsAcknowledgedPacket(BaseModel):
     """
@@ -618,6 +618,9 @@ class GulpWsAuthPacket(BaseModel):
             description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
         ),
     ] = None
+    req_id: Annotated[
+        Optional[str], Field(description="the request ID, if any.")
+    ] = None
 
 
 class GulpDocumentsChunkPacket(BaseModel):
@@ -769,10 +772,6 @@ class GulpConnectedSocket:
         """
         ensure websocket is cleaned up when canceled/closing
         """
-        if self._cleaned_up:
-            # already cleaned up
-            return
-
         MutyLogger.get_instance().debug(
             "---> cleanup, ensuring ws cleanup for ws=%s, ws_id=%s", self.ws, self.ws_id
         )
@@ -784,7 +783,6 @@ class GulpConnectedSocket:
         # empty the queue
         await self._flush_queue()
 
-        self._cleaned_up = True
         MutyLogger.get_instance().debug(
             "---> GulpConnectedSocket.cleanup() DONE, ws=%s, ws_id=%s",
             self.ws,
@@ -973,8 +971,11 @@ class GulpConnectedSocket:
             # raise exception if websocket is disconnected
             self.validate_connection()
 
-            # connection is verified, send the message
+            # connection is verified, send the message            
             await self.ws.send_json(item)
+            # MutyLogger.get_instance().debug(
+            #     "---> SENT message to ws_id=%s, type=%s, content=%s", self.ws_id, item.get("type"), item
+            # )
             await asyncio.sleep(GulpConfig.get_instance().ws_rate_limit_delay())
             return True
         except asyncio.TimeoutError:
@@ -1003,7 +1004,7 @@ class GulpConnectedSocket:
                 continue
             except asyncio.CancelledError:
                 self._logger.warning(
-                    "---> _receivesend loop canceled for ws_id=%s", self.ws_id
+                    "---> _receive loop canceled for ws_id=%s", self.ws_id
                 )
                 raise
             except WebSocketDisconnect:
@@ -1085,7 +1086,6 @@ class GulpConnectedSockets:
         return cls._instance
 
     def _initialize(self):
-        self._initialized: bool = True
         self._sockets: dict[str, GulpConnectedSocket] = {}
         self._logger = MutyLogger.get_instance()
 
@@ -1146,29 +1146,24 @@ class GulpConnectedSockets:
             ws_id,
             len(self._sockets),
         )
-
         return connected_socket
 
-    async def remove(self, ws: WebSocket) -> None:
+    async def remove(self, ws_id: str) -> None:
         """
         Removes a websocket from the connected sockets list and unregisters from Redis
 
         Args:
-            ws (WebSocket): The WebSocket object.
-
+            ws_id (str): The WebSocket ID.
         """
-        socket_id = str(id(ws))
-        self._logger.debug("---> remove, ws=%s, id_str=%s", ws, socket_id)
+        self._logger.debug("---> remove, ws_id=%s", ws_id)
 
-        connected_socket = self._sockets.get(socket_id)
+        connected_socket = self._sockets.get(ws_id)
         if not connected_socket:
             self._logger.warning(
-                "remove(): no websocket found for ws=%s, id_str=%s, len=%d",
-                ws,
-                socket_id,
+                "remove(): no websocket ws_id=%s found, num connected sockets=%d",
+                ws_id,
                 len(self._sockets),
             )
-
             return
 
         # remove from internal map
@@ -1180,9 +1175,8 @@ class GulpConnectedSockets:
         await redis_client.ws_unregister(ws_id)
 
         self._logger.debug(
-            "---> removed connected ws=%s, id=%s, ws_id=%s, len=%d",
-            ws,
-            socket_id,
+            "---> removed connected ws=%s, ws_id=%s, num connected sockets=%d",
+            connected_socket.ws,
             ws_id,
             len(self._sockets),
         )
@@ -1585,7 +1579,6 @@ class GulpRedisBroker:
             req_id (Optional[str]): the request id if applicable
             d (Optional[Any]): the payload data
             private (bool): whether this message is private to the specified ws_id
-
         raises:
             WebSocketDisconnect: if websocket is not connected
         """
