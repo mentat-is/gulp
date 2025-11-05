@@ -29,12 +29,13 @@ class GulpRedis:
     """
 
     _instance: "GulpRedis" = None
+    CHANNEL = "gulpredis"
 
     def __init__(self):
         self._redis: redis.Redis = None
         self._pubsub: PubSub = None
-        self._subscriber_tasks: dict[str, asyncio.Task] = {}
-        self._server_id: str = None
+        self._subscriber_task: asyncio.Task = {}
+        self.server_id: str = None
 
     def __new__(cls):
         """
@@ -63,7 +64,7 @@ class GulpRedis:
         Args:
             server_id (str): The unique server instance ID
         """
-        self._server_id = server_id
+        self.server_id = server_id
         
         # create redis client
         url: str = GulpConfig.get_instance().redis_url()
@@ -90,40 +91,34 @@ class GulpRedis:
         logger = MutyLogger.get_instance()
         
         # cancel all subscriber tasks
-        for channel, task in list(self._subscriber_tasks.items()):
-            try:
-                task.cancel()
-                await asyncio.wait_for(task, timeout=5.0)
-                logger.debug("cancelled subscriber task for %s", channel)
-            except asyncio.TimeoutError:
-                logger.warning("timeout cancelling subscriber for %s", channel)
-            except Exception as ex:
-                logger.error("error cancelling subscriber for %s: %s", channel, ex)
-        
-        self._subscriber_tasks.clear()
-        
+        try:
+            self._subscriber_task.cancel()
+            await asyncio.wait_for(self._subscriber_task, timeout=5.0)
+            MutyLogger.get_instance().debug("cancelled subscriber task!")
+        except asyncio.TimeoutError:
+            MutyLogger.get_instance().warning("timeout cancelling subscriber task!")
+        except Exception as ex:
+            MutyLogger.get_instance().error("error cancelling subscriber task: %s", ex)
+    
         # close pubsub
         if self._pubsub:
             try:
                 await self._pubsub.close()
-                self._pubsub = None
             except Exception as ex:
-                logger.error("error closing pubsub: %s", ex)
+                MutyLogger.get_instance().error("error closing pubsub: %s", ex)
         
         # close redis client
         if self._redis:
             try:
                 await self._redis.close()
                 logger.info("Redis client %s connection closed", self._redis)
-                self._redis = None
             except Exception as ex:
                 logger.error("error closing redis client: %s", ex)
         
-        self._initialized = False
     
     def _get_ws_metadata_key(self, ws_id: str) -> str:
         """Get Redis key for websocket metadata."""
-        return f"gulp:ws:metadata:{self._server_id}:{ws_id}"
+        return f"gulp:ws:metadata:{self.server_id}:{ws_id}"
     
     def _get_ws_lookup_key(self, ws_id: str) -> str:
         """Get Redis key for quick ws_id to server_id lookup."""
@@ -151,7 +146,7 @@ class GulpRedis:
         """
         metadata = GulpWsMetadata(
             ws_id=ws_id,
-            server_id=self._server_id,
+            server_id=self.server_id,
             types=types or [],
             operation_ids=operation_ids or [],
             socket_type=socket_type,
@@ -164,14 +159,14 @@ class GulpRedis:
             orjson.dumps(metadata.model_dump()),
         )
         
-        # store lookup mapping
+        # store ws_id -> server_id lookup mapping
         lookup_key = self._get_ws_lookup_key(ws_id)
-        await self._redis.set(lookup_key, self._server_id.encode())
+        await self._redis.set(lookup_key, self.server_id.encode())
         
         MutyLogger.get_instance().debug(
             "registered websocket: ws_id=%s, server_id=%s",
             ws_id,
-            self._server_id,
+            self.server_id,
         )
         return True
     
@@ -197,7 +192,7 @@ class GulpRedis:
         )
         return deleted > 0
     
-    async def ws_get_server(self, ws_id: str) -> Optional[str]:
+    async def ws_get_server(self, ws_id: str) -> str:
         """
         Get the server_id that owns a websocket.
         
@@ -205,10 +200,10 @@ class GulpRedis:
             ws_id (str): The websocket id
             
         Returns:
-            Optional[str]: The server_id or None if not found
+            str: The server_id or None if not found
         """
         lookup_key = self._get_ws_lookup_key(ws_id)
-        server_id = await self._redis.get(lookup_key)
+        server_id: bytes = await self._redis.get(lookup_key)
         return server_id.decode() if server_id else None
     
     async def ws_get_metadata(self, ws_id: str) -> Optional[GulpWsMetadata]:
@@ -221,110 +216,44 @@ class GulpRedis:
         Returns:
             Optional[GulpWsMetadata]: The metadata or None if not found
         """
-        server_id = await self.ws_get_server(ws_id)
-        if not server_id:
-            return None
-        
-        metadata_key = f"gulp:ws:metadata:{server_id}:{ws_id}"
+        metadata_key = self._get_ws_metadata_key(ws_id)
         data = await self._redis.get(metadata_key)
         
         if data:
             return GulpWsMetadata.model_validate(orjson.loads(data))
         return None
     
-    async def ws_keepalive(self, ws_id: str, ttl: int = 3600) -> bool:
-        """
-        Refresh TTL for a websocket registration.
-        
-        Args:
-            ws_id (str): The websocket id
-            ttl (int): Time to live in seconds
-            
-        Returns:
-            bool: True if refreshed successfully
-        """
-        metadata_key = self._get_ws_metadata_key(ws_id)
-        lookup_key = self._get_ws_lookup_key(ws_id)
-        
-        # refresh both keys
-        await self._redis.expire(metadata_key, ttl)
-        await self._redis.expire(lookup_key, ttl)
-        return True
 
-    def _get_worker_channel(self) -> str:
-        """Get the Redis channel for worker->main communication."""
-        return f"gulp:ws:worker:{self._server_id}"
-    
-    def _get_broadcast_channel(self) -> str:
-        """Get the Redis channel for instance<->instance broadcast."""
-        return "gulp:ws:broadcast"
-    
-    async def publish_from_worker(self, message: dict) -> None:
+    async def publish(self, message: dict) -> None:
         """
-        Publish a message from worker to main process (same instance).
+        Publish a message on redis pubsub.
         
         Args:
             message (dict): The message to publish (must be a GulpWsData dict)
         """
-        channel = self._get_worker_channel()
         payload = orjson.dumps(message)
-        await self._redis.publish(channel, payload)
+        await self._redis.publish(GulpRedis.CHANNEL, payload)
         
-    async def publish_broadcast(self, message: dict) -> None:
-        """
-        Publish a message to all server instances (cross-instance broadcast).
-        
-        Args:
-            message (dict): The message to publish (must be a GulpWsData dict)
-        """
-        channel = self._get_broadcast_channel()
-        payload = orjson.dumps(message)
-        await self._redis.publish(channel, payload)
-    
-    async def subscribe_worker_channel(
+    async def subscribe(
         self,
         callback: Callable[[dict], Any],
     ) -> None:
         """
-        Subscribe to worker->main messages (main process only).
+        subscribe to the redis pubsub channel
         
         Args:
             callback: Async function to call with each message dict
         """
-        channel = self._get_worker_channel()
-        await self._pubsub.subscribe(channel)
+        await self._pubsub.subscribe(GulpRedis.CHANNEL)
         
         task = asyncio.create_task(
-            self._subscriber_loop(channel, callback),
-            name=f"redis-sub-worker-{self._server_id}"
+            self._subscriber_loop(GulpRedis.CHANNEL, callback),
+            name=f"gulpredis-sub-{self.server_id}"
         )
-        self._subscriber_tasks[channel] = task
+        self._subscriber_task = task
         
         MutyLogger.get_instance().info(
-            "subscribed to worker channel: %s", channel
-        )
-    
-    async def subscribe_broadcast_channel(
-        self,
-        callback: Callable[[dict], Any],
-    ) -> None:
-        """
-        Subscribe to broadcast messages from all instances (all processes).
-        
-        Args:
-            callback: Async function to call with each message dict
-        """
-        channel = self._get_broadcast_channel()
-        await self._pubsub.subscribe(channel)
-        
-        task = asyncio.create_task(
-            self._subscriber_loop(channel, callback),
-            name="redis-sub-broadcast"
-        )
-        self._subscriber_tasks[channel] = task
-        
-        MutyLogger.get_instance().info(
-            "subscribed to broadcast channel: %s", channel
+            "subscribed to channel: %s, server_id=%s", GulpRedis.CHANNEL, self.server_id
         )
     
     async def _subscriber_loop(
@@ -345,24 +274,19 @@ class GulpRedis:
         try:
             while True:
                 try:
-                    message = await self._pubsub.get_message(
+                    # get message and call callback
+                    message: dict = await self._pubsub.get_message(
                         ignore_subscribe_messages=True,
                         timeout=1.0
-                    )
-                    
-                    if message and message["type"] == "message":
-                        try:
-                            data = orjson.loads(message["data"])
-                            # call callback (which might be async)
-                            result = callback(data)
-                            if asyncio.iscoroutine(result):
-                                await result
-                        except Exception as ex:
-                            logger.error(
-                                "error processing message from %s: %s",
-                                channel,
-                                ex
-                            )
+                    )                    
+                    if message:
+                        MutyLogger.get_instance().debug(
+                            "---> received message on channel %s: %s",
+                            channel,
+                            message,
+                        )
+                        d: dict = orjson.loads(message["data"])                        
+                        await callback(d)
                     
                     # yield control
                     await asyncio.sleep(0.001)

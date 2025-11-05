@@ -597,7 +597,7 @@ class GulpInternalEventsManager:
         Broadcast an event to all plugins registered to receive it.
 
         NOTE: this can be used by the main process only.
-        in workers, plugins should call GulpWsSharedQueue.put_local_event() to broadcast an event.
+        in workers, plugins should call GulpRedisBroker.put() to broadcast an event.
 
         Args:
             t: str: the event (must be previously registered with GulpInternalEventsManager.register)

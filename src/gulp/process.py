@@ -324,7 +324,7 @@ class GulpProcess:
                 level=log_level,
             )
             MutyLogger.get_instance().info(
-                "initializing WORKER process, q=%s ..." % (q)
+                "initializing WORKER process ...."
             )
             # read configuration in worker
             GulpConfig.get_instance()

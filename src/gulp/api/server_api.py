@@ -695,13 +695,13 @@ class GulpServer:
         # initialize the opensearch client
         GulpOpenSearch.get_instance()
 
-        # initialize the redis client and pub/sub
+        # initialize the redis client
         from gulp.api.redis_api import GulpRedis
         GulpRedis.get_instance().initialize(self._server_id)
 
         # initialize Redis pub/sub for worker->main process and instance<->instance communication
         wsq = GulpRedisBroker.get_instance()
-        await wsq.init(is_main_process=True)
+        await wsq.init_broker()
 
         # initialize collab database and create operation if needed
         try:
