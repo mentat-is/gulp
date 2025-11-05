@@ -1530,7 +1530,7 @@ class GulpWsSharedQueue:
 
             # use the event loop executor to block on manager.Queue.get() without busy-polling
             loop = asyncio.get_running_loop()
-            while not GulpServer.get_instance().is_shutdown():
+            while True:
                 # get batch size
                 base_batch_size = GulpConfig.get_instance().ws_queue_batch_size()
 
@@ -1540,6 +1540,11 @@ class GulpWsSharedQueue:
                         GulpProcess.get_instance().thread_pool, q.get
                     )
                     q.task_done()
+                    if not first_msg:
+                        MutyLogger.get_instance().info(
+                            "received shutdown signal on shard %s", q
+                        )
+                        break  # shutdown signal
 
                 except Exception as e:
                     # if something unexpected happens while blocking, log and continue
@@ -1558,6 +1563,7 @@ class GulpWsSharedQueue:
 
                 # start with the first item and try to drain additional items without blocking
                 messages = [first_msg]
+                termination: bool = False
                 for _ in range(batch_size - 1):
                     try:
                         msg = q.get_nowait()
@@ -1565,9 +1571,18 @@ class GulpWsSharedQueue:
                             q.task_done()
                         except Exception:
                             pass
+                        if msg is None:
+                            MutyLogger.get_instance().info(
+                                "received shutdown signal on shard %s", q
+                            )
+                            termination = True
+                            break
                         messages.append(msg)
                     except Empty:
                         break
+                
+                if termination:
+                    break
 
                 # process batch concurrently
                 start_time: float = time.time()
@@ -1618,15 +1633,18 @@ class GulpWsSharedQueue:
         Returns:
             None
         """
-        logger = MutyLogger.get_instance()
-        logger.debug("closing shared WS queue(s)...")
+        
+        # let queues exit by putting a None item
+        MutyLogger.get_instance().debug("closing shared WS queue(s)...")
+        
+        # flush queues
+        await self._flush_queue()
 
+        # and send termination messages
+        for q in self._shared_q:
+            q.put(None)
+        MutyLogger.get_instance().debug("sent shared WS queue(s) termination message ...")
         try:
-            # flush queues with timeout protection
-            try:
-                await asyncio.wait_for(self._flush_queue(), timeout=10.0)
-            except asyncio.TimeoutError:
-                logger.warning("queue flush operation timed out")
 
             # cancel processing tasks with proper handling
             if self._fill_tasks:
@@ -1635,26 +1653,26 @@ class GulpWsSharedQueue:
                         cancelled = t.cancel()
                         if cancelled:
                             await asyncio.wait_for(t, timeout=5.0)
-                            logger.debug("Queue processing task cancelled successfully")
+                            MutyLogger.get_instance().debug("Queue processing task cancelled successfully")
                         else:
-                            logger.debug("Queue processing task was already completed")
+                            MutyLogger.get_instance().debug("Queue processing task was already completed")
                     except asyncio.TimeoutError:
-                        logger.warning("Task cancellation timed out")
+                        MutyLogger.get_instance().warning("Task cancellation timed out")
                     except Exception as e:
-                        logger.error("Error during task cancellation: %s", e)
+                        MutyLogger.get_instance().error("Error during task cancellation: %s", e)
 
             # release resources
             self._shared_q = None
             self._fill_tasks = None
-            logger.debug("Shared WS queue(s) closed")
+            MutyLogger.get_instance().debug("Shared WS queue(s) closed")
 
         except Exception as e:
-            logger.error("Failed to close shared queue(s): %s", e)
+            MutyLogger.get_instance().error("Failed to close shared queue(s): %s", e)
 
     async def _flush_queue(self) -> None:
         """Flush all items from the queue(s)"""
         counter = 0
-
+        MutyLogger.get_instance().debug("flushing shared WS queue(s)...")
         for q in self._shared_q:
             while True:
                 try:
@@ -1666,12 +1684,8 @@ class GulpWsSharedQueue:
                     counter += 1
                 except Empty:
                     break
-            try:
-                q.join()
-            except Exception:
-                # some manager queue implementations may not implement join
-                pass
-
+            q.join()
+            
         MutyLogger.get_instance().debug(
             f"flushed {counter} messages from shared queue(s)"
         )

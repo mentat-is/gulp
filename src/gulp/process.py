@@ -182,16 +182,16 @@ class GulpProcess:
             )
         )
 
-    async def close_thread_pool(self, wait: bool = False):
+    async def close_thread_pool(self, wait: bool = True):
         """
         closes the thread pool
 
         Args:
-            wait (bool, optional): whether to wait for all threads to finish. Defaults to False
+            wait (bool, optional): whether to wait for all threads to finish. Defaults to True
         """
         if self.thread_pool:
             MutyLogger.get_instance().debug("closing thread pool...")
-            self.thread_pool.shutdown(wait=wait)
+            self.thread_pool.shutdown(wait)
             MutyLogger.get_instance().debug("thread pool closed!")
 
     async def close_process_pool(self):
@@ -491,7 +491,7 @@ class GulpProcess:
             await GulpOpenSearch.get_instance().shutdown()
 
             # close thread pool
-            await GulpProcess.get_instance().close_thread_pool(wait=False)
+            await GulpProcess.get_instance().close_thread_pool()
 
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
