@@ -89,12 +89,6 @@ class GulpWsData(BaseModel):
             description="The type of data carried by the websocket, see WSDATA_* constants.",
         ),
     ]
-    redis_pubsub_channel: Annotated[
-        Optional[Literal[GulpRedisChannel.BROADCAST, GulpRedisChannel.WORKER_TO_MAIN]],
-        Field(
-            description="the Redis pubsub channel type this message was published on.",
-        ),
-    ] = None
     private: Annotated[
         bool,
         Field(
@@ -1441,11 +1435,12 @@ class GulpRedisBroker:
         if t in self.broadcast_types:
             self.broadcast_types.remove(t)
 
-    async def init_broker(self, is_main_process: bool = False) -> None:
+    async def initialize(self) -> None:
         """
-        Initialize Redis pub/sub subscriptions in the main process.        
+        Initialize Redis pub/sub subscriptions
+         
+        NOTE: must be called in the main process.        
         """
-        self._is_main_process = is_main_process
         redis_client = GulpRedis.get_instance()
         
         # subscribe to worker->main channel
@@ -1453,7 +1448,21 @@ class GulpRedisBroker:
             self._handle_pubsub_message
         )
         MutyLogger.get_instance().info(
-            "GulpRedisBroker initialized for MAIN process"
+            "GulpRedisBroker initialized!"
+        )
+
+    async def shutdown(self) -> None:
+        """
+        Deinitialize Redis pub/sub subscriptions
+        
+        NOTE: must be called in the main process.        
+        """
+        redis_client = GulpRedis.get_instance()
+        
+        # unsubscribe from worker->main channel
+        await redis_client.unsubscribe()
+        MutyLogger.get_instance().info(
+            "GulpRedisBroker uninitialized!"
         )
 
     async def _handle_pubsub_message(self, message: dict) -> None:
@@ -1463,13 +1472,20 @@ class GulpRedisBroker:
         Args:
             message (dict): The message dictionary (GulpWsData)
         """
+        channel: str = message.pop("__channel__", None)
+        server_id: str = message.pop("__server_id__", None)
+        redis_client = GulpRedis.get_instance()
+
+        if server_id and server_id == redis_client.server_id and channel == GulpRedisChannel.BROADCAST.value:
+            # avoid processing our own broadcast messages
+            return
+        
         try:
             wsd = GulpWsData.model_validate(message)
-            if wsd.redis_pubsub_channel == GulpRedisChannel.WORKER_TO_MAIN.value:
+            if channel == GulpRedisChannel.WORKER_TO_MAIN.value:
                 await self._process_message(wsd)
-            elif wsd.redis_pubsub_channel == GulpRedisChannel.BROADCAST.value:
+            elif channel == GulpRedisChannel.BROADCAST.value:
                 # only process if we have this websocket or it's a broadcast type
-                redis_client = GulpRedis.get_instance()
                 server_id = await redis_client.ws_get_server(wsd.ws_id)
                 
                 # check if this message is for this instance (we have the websocket) or if it's a broadcast type
@@ -1493,7 +1509,7 @@ class GulpRedisBroker:
 
     async def _put_common(self, wsd: GulpWsData) -> None:
         """
-        Publish message to Redis.
+        Publish message to Redis (or process directly).
         
         Args:
             wsd (GulpWsData): The message to publish
@@ -1501,21 +1517,20 @@ class GulpRedisBroker:
         from gulp.process import GulpProcess
         
         redis_client = GulpRedis.get_instance()
+        message_dict = wsd.model_dump(exclude_none=True)
         
         # determine if this should be broadcast to all instances or just local
         if wsd.type in self.broadcast_types or wsd.internal:
             # broadcast to all instances
-            wsd.redis_pubsub_channel = GulpRedisChannel.BROADCAST.value
-            message_dict = wsd.model_dump(exclude_none=True)
+            message_dict["__channel__"] = GulpRedisChannel.BROADCAST.value
+            message_dict["__server_id__"] = redis_client.server_id
             await redis_client.publish(message_dict)
         elif GulpProcess.get_instance().is_main_process():
             # main process: directly process locally
-            message_dict = wsd.model_dump(exclude_none=True)
             await self._process_message(wsd)
         else:
             # worker process: publish to main process of this instance
-            wsd.redis_pubsub_channel = GulpRedisChannel.WORKER_TO_MAIN.value
-            message_dict = wsd.model_dump(exclude_none=True)
+            message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
             await redis_client.publish(message_dict)
 
     async def put_internal_event(

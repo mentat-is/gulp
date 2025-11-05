@@ -63,7 +63,6 @@ class GulpServer:
         self._create_operation: str = None
         self._lifespan_task: asyncio.Task = None
         self._poll_tasks_task: asyncio.Task = None
-        self._shutdown: bool = False
         self._extension_plugins: list[GulpPluginBase] = []
 
     def __new__(cls):
@@ -177,24 +176,6 @@ class GulpServer:
             count += 1
 
         MutyLogger.get_instance().debug("loaded %d extension plugins" % (count))
-
-    def set_shutdown(self, *args):
-        """
-        Sets the global `_shutdown` flag to True.
-        """
-        MutyLogger.get_instance().debug("setting shutdown=True !")
-        self._shutdown = True
-
-    def is_shutdown(self) -> bool:
-        """
-        Returns the value of the global `_shutting_down` flag.
-
-        Returns:
-            bool: True if the server is shutting down, False otherwise.
-        """
-        if self._shutdown:
-            MutyLogger.get_instance().warning("_shutdown set!")
-        return self._shutdown
 
     async def _bad_request_exception_handler(
         self, r: Request, ex: Any
@@ -462,49 +443,52 @@ class GulpServer:
             "STARTING poll task, max task concurrency=%d ...", limit
         )
 
-        # loop until the server exits
-        while not GulpServer.get_instance().is_shutdown():
-            async with GulpCollab.get_instance().session() as sess:
-                # get a batch of tasks, use advisory lock to prevent concurrent dequeueing
-                try:
-                    objs: list[GulpTask] = await GulpTask.get_by_filter(
-                        sess,
-                        flt=GulpCollabFilter(limit=limit, offset=offset),
-                        throw_if_not_found=False,
-                    )
-                    if not objs:
-                        # no tasks to process, wait before next poll
-                        current_interval = min(max_interval, current_interval * 1.2)
+        try:
+            while True:
+                # loop until the server exits
+                async with GulpCollab.get_instance().session() as sess:
+                    # get a batch of tasks, use advisory lock to prevent concurrent dequeueing
+                    try:
+                        objs: list[GulpTask] = await GulpTask.get_by_filter(
+                            sess,
+                            flt=GulpCollabFilter(limit=limit, offset=offset),
+                            throw_if_not_found=False,
+                        )
+                        if not objs:
+                            # no tasks to process, wait before next poll
+                            current_interval = min(max_interval, current_interval * 1.2)
+                            await asyncio.sleep(current_interval)
+                            continue
+                        else:
+                            # tasks found, poll more frequently
+                            current_interval = max(min_interval, current_interval * 0.8)
+
+                        # delete all tasks in this batch first to prevent reprocessing
+                        for obj in objs:
+                            await obj.delete(sess)
+
+                    except Exception as e:
+                        # swallow exception and retry (we must rollback manually so)
+                        await sess.rollback()
+                        MutyLogger.get_instance().exception(e)
                         await asyncio.sleep(current_interval)
                         continue
-                    else:
-                        # tasks found, poll more frequently
-                        current_interval = max(min_interval, current_interval * 0.8)
 
-                    # delete all tasks in this batch first to prevent reprocessing
+                    MutyLogger.get_instance().debug("found %d tasks to process", len(objs))
+
+                    # process found tasks in this batch
                     for obj in objs:
-                        await obj.delete(sess)
+                        # process task
+                        obj: GulpTask
+                        if obj.task_type == "ingest":
+                            # spawn background task to process the ingest task
+                            # print("*************** spawning ingest task for: %s", obj)
+                            await self.spawn_worker_task(run_ingest_file_task, obj)
 
-                except Exception as e:
-                    # swallow exception and retry (we must rollback manually so)
-                    await sess.rollback()
-                    MutyLogger.get_instance().exception(e)
+                    # wait before next iteration
                     await asyncio.sleep(current_interval)
-                    continue
-
-                MutyLogger.get_instance().debug("found %d tasks to process", len(objs))
-
-                # process found tasks in this batch
-                for obj in objs:
-                    # process task
-                    obj: GulpTask
-                    if obj.task_type == "ingest":
-                        # spawn background task to process the ingest task
-                        # print("*************** spawning ingest task for: %s", obj)
-                        await self.spawn_worker_task(run_ingest_file_task, obj)
-
-            # wait before next iteration
-            await asyncio.sleep(current_interval)
+        except asyncio.CancelledError:
+            MutyLogger.get_instance().debug("poll task cancelled!")
 
         MutyLogger.get_instance().info("EXITING poll task...")
 
@@ -626,7 +610,7 @@ class GulpServer:
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
             from gulp.api.redis_api import GulpRedis
-
+            await GulpRedisBroker.get_instance().shutdown()
             await GulpRedis.get_instance().shutdown()
 
             # close coro pool in the main process
@@ -701,7 +685,7 @@ class GulpServer:
 
         # initialize Redis pub/sub for worker->main process and instance<->instance communication
         redis_broker = GulpRedisBroker.get_instance()
-        await redis_broker.init_broker()
+        await redis_broker.initialize()
 
         # initialize collab database and create operation if needed
         try:
@@ -750,8 +734,7 @@ class GulpServer:
 
         # cleaning up will be done through _cleanup called via atexit
         MutyLogger.get_instance().info("gulp shutting down!")
-        self.set_shutdown()
-
+        
         if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
             # delete pending stats
             await GulpRequestStats.purge_ongoing_requests()

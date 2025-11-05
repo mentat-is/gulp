@@ -86,7 +86,7 @@ class GulpRedis:
     
     async def shutdown(self) -> None:
         """
-        Close Redis connections and cleanup.
+        close Redis connections and cleanup.
         """        
         # cancel all subscriber tasks
         try:
@@ -98,14 +98,15 @@ class GulpRedis:
         except asyncio.TimeoutError:
             MutyLogger.get_instance().warning("timeout cancelling subscriber task!")
         except Exception as ex:
-            MutyLogger.get_instance().error("error cancelling subscriber task: %s", ex)
+            MutyLogger.get_instance().exception("error cancelling subscriber task!")
     
         # close pubsub
         if self._pubsub:
             try:
                 await self._pubsub.close()
+                MutyLogger.get_instance().debug("pubsub closed!")
             except Exception as ex:
-                MutyLogger.get_instance().error("error closing pubsub: %s", ex)
+                MutyLogger.get_instance().exception("error closing pubsub!")
         
         # close redis client
         if self._redis:
@@ -113,7 +114,7 @@ class GulpRedis:
                 await self._redis.close()
                 MutyLogger.get_instance().info("Redis client %s connection closed", self._redis)
             except Exception as ex:
-                MutyLogger.get_instance().error("error closing redis client: %s", ex)
+                MutyLogger.get_instance().exception("error closing redis client!")
         
     
     def _get_ws_metadata_key(self, ws_id: str) -> str:
@@ -233,7 +234,17 @@ class GulpRedis:
         """
         payload = orjson.dumps(message)
         await self._redis.publish(GulpRedis.CHANNEL, payload)
-        
+    
+    async def unsubscribe(self) -> None:
+        """
+        unsubscribe from the redis pubsub channel
+        """        
+        if self._subscriber_task:
+            await self._pubsub.unsubscribe(GulpRedis.CHANNEL)
+            MutyLogger.get_instance().info(
+                "unsubscribed from channel: %s, server_id=%s", GulpRedis.CHANNEL, self.server_id
+            )
+
     async def subscribe(
         self,
         callback: Callable[[dict], Any],
@@ -268,8 +279,7 @@ class GulpRedis:
             channel (str): The channel name
             callback: Function to call with each message
         """
-        logger = MutyLogger.get_instance()
-        logger.debug("starting subscriber loop for channel: %s", channel)
+        MutyLogger.get_instance().debug("starting subscriber loop for channel: %s", channel)
         
         try:
             while True:
@@ -292,17 +302,11 @@ class GulpRedis:
                     await asyncio.sleep(0.001)
                     
                 except asyncio.CancelledError:
-                    logger.debug("subscriber loop cancelled for %s", channel)
+                    MutyLogger.get_instance().debug("subscriber loop cancelled for %s", channel)
                     raise
                 except Exception as ex:
-                    logger.error("error in subscriber loop for %s: %s", channel, ex)
+                    MutyLogger.get_instance().error("error in subscriber loop for %s: %s", channel, ex)
                     await asyncio.sleep(1.0)
                     
         except asyncio.CancelledError:
-            logger.info("subscriber loop stopped for channel: %s", channel)
-        finally:
-            # unsubscribe on exit
-            try:
-                await self._pubsub.unsubscribe(channel)
-            except Exception:
-                pass
+            MutyLogger.get_instance().info("subscriber loop stopped for channel: %s", channel)
