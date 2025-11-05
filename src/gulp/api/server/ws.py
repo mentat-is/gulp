@@ -361,7 +361,7 @@ class GulpAPIWebsocket:
             await GulpAPIWebsocket._send_connection_ack(
                 websocket, ws_id, params.token, user_id
             )
-            if notify_login and user_id:
+            if notify_login:
                 # notify login event
                 p = GulpUserAccessPacket(user_id=user_id, login=True, ip=websocket.client.host, req_id=req_id)
                 wsq = GulpWsSharedQueue.get_instance()
@@ -369,6 +369,7 @@ class GulpAPIWebsocket:
                     WSDATA_USER_LOGIN,
                     user_id=user_id,
                     ws_id=ws_id,
+                    req_id=req_id,
                     d=p.model_dump(exclude_none=True, exclude_defaults=True),
                 )
 
