@@ -15,7 +15,7 @@ extension plugins are automatically loaded at startup from `PLUGIN_DIR/extension
 
 ## internals
 
-- they may extend api through `GulpRestServer.get_instance().add_api_route()`.
+- they may extend api through `GulpServer.get_instance().add_api_route()`.
 - `their init runs in the MAIN process context`
 """
 

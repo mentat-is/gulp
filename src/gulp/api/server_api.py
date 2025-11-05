@@ -80,7 +80,7 @@ class GulpServer:
         returns the singleton instance
 
         Returns:
-            GulpRestServer: the singleton instance
+            GulpServer: the singleton instance
         """
         if not cls._instance:
             cls._instance = cls()

@@ -14,7 +14,7 @@ The plugin adds an `/example_extension` API endpoint that:
 Extension plugins in Gulp are:
 - Automatically loaded from `PLUGIN_DIR/extension` at startup
 - Initialized in the main process context
-- Able to extend the API through `GulpRestServer.get_instance().add_api_route()`
+- Able to extend the API through `GulpServer.get_instance().add_api_route()`
 - Optionally re-initialized in worker processes if they support pickling
 
 This example serves as a template for developing custom extensions for the Gulp framework.
