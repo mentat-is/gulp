@@ -13,11 +13,12 @@ and ownership relationships.
 
 """
 
-from typing import TYPE_CHECKING, Any, Optional, override, Annotated
+from typing import TYPE_CHECKING, Annotated, Any, Optional, override
 
 import muty.crypto
 import muty.time
 from muty.log import MutyLogger
+from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import ARRAY, BIGINT, String
 from sqlalchemy.dialects.postgresql import JSONB
@@ -45,9 +46,7 @@ from gulp.api.ws_api import (
     GulpWsSharedQueue,
 )
 from gulp.config import GulpConfig
-from gulp.plugin import GulpUserInfoInternalEvent
 from gulp.structs import GulpPluginParameters
-from muty.pydantic import autogenerate_model_example_by_class
 
 if TYPE_CHECKING:
     from gulp.api.collab.user_group import GulpUserGroup
@@ -336,7 +335,6 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         sess: AsyncSession,
         user_id: str,
         password: str,
-        ws_id: str,
         req_id: str,
         skip_password_check: bool = False,
         user_ip: str = None,
@@ -347,7 +345,6 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             sess (AsyncSession): The session to use.
             user (str): The username of the user to log in.
             password (str): The password of the user to log in.
-            ws_id (str): The websocket ID to send WSDATA_USER_LOGIN notification.
             req_id (str): The request ID.
             skip_password_check (bool, optional): Whether to skip the password check, internal usage only. Defaults to False.
             user_ip (str, optional): The IP address of the user, for logging purposes. Defaults to None.
@@ -355,6 +352,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             GulpUserSession: The created session object.
         """
         from gulp.api.collab.user_session import GulpUserSession
+        from gulp.plugin import GulpInternalEventsManager
 
         # ensure atomicity of login
         await GulpUser.acquire_advisory_lock(sess, user_id)
@@ -379,10 +377,19 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 sess, is_admin=u.is_admin(), update_id=True
             )
             await sess.commit()
+
+            # also broadcast to registered plugins
+            await GulpInternalEventsManager.get_instance().broadcast_event(
+                WSDATA_USER_LOGIN,
+                data=GulpUserAccessPacket(
+                    user_id=u.id, login=True, req_id=req_id, ip=user_ip, 
+                ).model_dump(),
+                user_id=u.id,
+                req_id=req_id,
+            )
             return u.session
 
         # create new session
-        p = GulpUserAccessPacket(user_id=u.id, login=True, ip=user_ip)
         time_expire = GulpConfig.get_instance().token_expiration_time(u.is_admin())
         if GulpConfig.get_instance().is_integration_test():
             # for integration tests, this api will return a fixed token based on the user_id
@@ -400,10 +407,6 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             sess,
             u.id,
             obj_id=token_id,
-            ws_id=ws_id,
-            ws_data_type=WSDATA_USER_LOGIN,
-            ws_data=p.model_dump(),
-            req_id=req_id,
             time_expire=time_expire,
             session_user_id=u.id,
         )
@@ -421,12 +424,10 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         await sess.commit()
 
         # also broadcast to registered plugins
-        from gulp.plugin import GulpInternalEventsManager
-
         await GulpInternalEventsManager.get_instance().broadcast_event(
-            GulpInternalEventsManager.EVENT_LOGIN,
-            data=GulpUserInfoInternalEvent(
-                user_id=u.id, ip=user_ip, req_id=req_id
+            WSDATA_USER_LOGIN,
+            data=GulpUserAccessPacket(
+                user_id=u.id, login=True, req_id=req_id, ip=user_ip, 
             ).model_dump(),
             user_id=u.id,
             req_id=req_id,
@@ -456,7 +457,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             None
         """
         MutyLogger.get_instance().info("logging out token=%s, user=%s", s.id, s.user.id)
-        p = GulpUserAccessPacket(user_id=s.user.id, login=False)
+        p = GulpUserAccessPacket(user_id=s.user.id, login=False, req_id=req_id, ip=user_ip)
         await s.delete(
             sess=sess,
             user_id=s.user.id,
@@ -470,9 +471,9 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         from gulp.plugin import GulpInternalEventsManager
 
         await GulpInternalEventsManager.get_instance().broadcast_event(
-            GulpInternalEventsManager.EVENT_LOGOUT,
-            data=GulpUserInfoInternalEvent(
-                user_id=s.user.id, ip=user_ip, req_id=req_id
+            WSDATA_USER_LOGIN,
+            data=GulpUserAccessPacket(
+                user_id=u.id, login=False, req_id=req_id, ip=user_ip, 
             ).model_dump(),
             user_id=s.user.id,
             req_id=req_id,

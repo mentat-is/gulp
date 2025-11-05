@@ -40,9 +40,12 @@ async def _ws_loop():
     ws_url = f"ws://{host}/ws"
     test_completed = False
 
+    admin_token = await GulpAPIUser.login_admin()
+    assert admin_token
+
     async with websockets.connect(ws_url) as ws:
         # connect websocket
-        p: GulpWsAuthPacket = GulpWsAuthPacket(token="monitor", ws_id=TEST_WS_ID)
+        p: GulpWsAuthPacket = GulpWsAuthPacket(token=admin_token, ws_id=TEST_WS_ID)
         await ws.send(p.model_dump_json(exclude_none=True))
 
         # receive responses

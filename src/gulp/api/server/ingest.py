@@ -329,6 +329,7 @@ async def _ingest_file_internal(
             await mod.broadcast_ingest_internal_event()
             return status, []
         except Exception as ex:
+            MutyLogger.get_instance().exception(ex)
             if mod:
                 # this source failed
                 await mod.update_final_stats_and_flush(flt=payload.flt, ex=ex)

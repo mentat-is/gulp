@@ -20,8 +20,8 @@
   "debug_allow_insecure_passwords": false,
   // enable debug for collaboration engine (prints sql queries and more, default=false)
   "debug_collab": false,
-  // if set, will ignore missing websocket connections (default=true)
-  "debug_ignore_missing_ws": true,
+  // if set, will ignore missing websocket connections (default=false)
+  "debug_ignore_missing_ws": false,
   // prevent token expiration for debugging purposes, ignored if debug_allow_any_token_as_admin is set to true (default=false)
   "debug_no_token_expiration": false,
   // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size

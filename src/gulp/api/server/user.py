@@ -188,10 +188,6 @@ an `user_session` object is created on the `collab` database to represent a logg
 
 the returned `token` is then used in all other API calls to authenticate the user.
 
-### websocket
-
-a `GulpUserAccessPacket` with `login: true` is sent on the `ws_id` websocket.
-
 ### configuration
 
 related configuration parameters:
@@ -213,7 +209,6 @@ async def login_handler(
     password: Annotated[
         str, Body(description="password for authentication.", examples=["admin"])
     ],
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ip: str = r.client.host if r.client else "unknown"
@@ -226,7 +221,6 @@ async def login_handler(
                 sess,
                 user_id=user_id,
                 password=password,
-                ws_id=ws_id,
                 req_id=req_id,
                 user_ip=ip,
             )
@@ -269,7 +263,7 @@ the `user_session` object corresponding to `token` is deleted from the `collab` 
 
 ### websocket
 
-a `GulpUserAccessPacket` with `login: false` is sent on the `ws_id` websocket.
+type=WSDATA_USER_LOGOUT, data=`GulpUserAccessPacket` with `login: false` is sent on the `ws_id` websocket.
 """,
 )
 async def logout_handler(

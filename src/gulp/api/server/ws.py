@@ -25,11 +25,11 @@ during ingestion operations, collaboration features, and inter-client communicat
 import asyncio
 import time
 from multiprocessing import Queue
-from typing import Awaitable, Callable, Optional, Annotated
+from typing import Annotated, Awaitable, Callable, Optional
 
+import muty.log
 import muty.string
 import muty.time
-import muty.log
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 from muty.log import MutyLogger
@@ -49,10 +49,11 @@ from gulp.api.ws_api import (
     WSDATA_CLIENT_DATA,
     WSDATA_CONNECTED,
     WSDATA_ERROR,
-    WSTOKEN_MONITOR,
+    WSDATA_USER_LOGIN,
     GulpClientDataPacket,
     GulpConnectedSocket,
     GulpConnectedSockets,
+    GulpUserAccessPacket,
     GulpWsAcknowledgedPacket,
     GulpWsAuthPacket,
     GulpWsData,
@@ -227,7 +228,7 @@ class GulpAPIWebsocket:
         websocket: WebSocket,
         params: GulpWsAuthPacket,
         required_permission: Optional[GulpUserPermission] = None,
-    ) -> tuple[str, Optional[str]]:
+    ) -> tuple[str, str, str]:
         """
         authenticates a websocket connection
 
@@ -235,9 +236,9 @@ class GulpAPIWebsocket:
             websocket (WebSocket): the websocket to authenticate
             params (GulpWsAuthPacket): the authentication parameters
             required_permission (Optional[GulpUserPermission]): permission required for this connection
-
+            notify_login (bool): whether to notify login events on this connection
         Returns:
-            Tuple[str, Optional[str]]: ws_id and user_id (None for monitor connections)
+            Tuple[str, str, str]: ws_id, req_id, user_id
 
         Raises:
             ObjectNotFound: if user not found
@@ -247,23 +248,23 @@ class GulpAPIWebsocket:
         if not params.ws_id:
             params.ws_id = muty.string.generate_unique()
             MutyLogger.get_instance().warning(
-                f"empty ws_id, auto-generated: {params.ws_id}"
+                "empty ws_id, auto-generated: %s", params.ws_id
             )
+        if not params.req_id:
+            params.req_id = muty.string.generate_unique()
+            MutyLogger.get_instance().warning(
+                "empty req_id, auto-generated: %s", params.req_id
+            )            
+        user_id: str = None
 
-        user_id = None
-
-        # special case for monitor token
-        if params.token.lower() == WSTOKEN_MONITOR and not required_permission:
-            return params.ws_id, user_id
-
-        # authenticate normal user
+        # authenticate user
         async with GulpCollab.get_instance().session() as sess:
             s = await GulpUserSession.check_token(
                 sess, params.token, required_permission or GulpUserPermission.READ
             )
             user_id = s.user.id
-
-        return params.ws_id, user_id
+        
+        return params.ws_id, params.req_id, user_id
 
     @staticmethod
     async def _send_error_response(
@@ -317,6 +318,7 @@ class GulpAPIWebsocket:
         run_loop_fn: Callable[[GulpConnectedSocket, str], Awaitable[None]],
         socket_type: GulpWsType = None,
         permission: GulpUserPermission = None,
+        notify_login: bool = False
     ) -> None:
         """
         generic websocket handler that follows the common pattern for all ws endpoints
@@ -326,28 +328,28 @@ class GulpAPIWebsocket:
             run_loop_fn (Callable): the main loop function for this socket type
             socket_type (GulpWsType): the type of socket connection
             permission (Optional[GulpUserPermission]): required permission for this endpoint
-
+            notify_login (bool): whether to notify login events on this connection
         """
         if not socket_type:
             socket_type = GulpWsType.WS_DEFAULT
 
-        ws = None
+        gulp_ws: GulpConnectedSocket = None
+        ws_id: str = None
         try:
             # accept connection and get auth params
             await websocket.accept()
             js = await websocket.receive_json()
             params = GulpWsAuthPacket.model_validate(js)
 
-            # authenticate user
-            ws_id, user_id = await GulpAPIWebsocket._authenticate_websocket(
+            # authenticate user            
+            ws_id, req_id, user_id = await GulpAPIWebsocket._authenticate_websocket(
                 websocket, params, permission
             )
 
             # connection accepted, log and create socket
-            logger = MutyLogger.get_instance()
-            logger.debug(f"{socket_type} accepted for ws_id={ws_id}")
+            MutyLogger.get_instance().debug("socket type=%s accepted for ws_id=%s, req_id=%s", socket_type, ws_id, req_id)
 
-            ws = GulpConnectedSockets.get_instance().add(
+            gulp_ws = await GulpConnectedSockets.get_instance().add(
                 websocket,
                 ws_id,
                 types=params.types,
@@ -359,9 +361,19 @@ class GulpAPIWebsocket:
             await GulpAPIWebsocket._send_connection_ack(
                 websocket, ws_id, params.token, user_id
             )
+            if notify_login and user_id:
+                # notify login event
+                p = GulpUserAccessPacket(user_id=user_id, login=True, ip=websocket.client.host, req_id=req_id)
+                wsq = GulpWsSharedQueue.get_instance()
+                await wsq.put(
+                    WSDATA_USER_LOGIN,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                    d=p.model_dump(exclude_none=True, exclude_defaults=True),
+                )
 
             # run the appropriate loop function
-            await run_loop_fn(ws, user_id)
+            await run_loop_fn(gulp_ws, user_id)
 
         except ObjectNotFound as ex:
             # user not found
@@ -379,28 +391,23 @@ class GulpAPIWebsocket:
             MutyLogger.get_instance().exception(ex)
         finally:
             # cleanup
-            if ws:
+            if gulp_ws:
                 try:
-                    wws: GulpConnectedSocket = GulpConnectedSockets.get_instance().find(
-                        ws.ws_id
-                    )
-                    await GulpConnectedSockets.get_instance().remove(websocket)
-                    await wws.cleanup()
+                    await GulpConnectedSockets.get_instance().remove(gulp_ws.ws_id)
+                    await gulp_ws.cleanup()
                 except Exception as ex:
                     MutyLogger.get_instance().exception(
                         "error during ws cleanup: %s", ex
                     )
-                del ws
 
             # close websocket gracefully if still connected
             if websocket.client_state == WebSocketState.CONNECTED:
                 try:
                     await websocket.close()
                 except:
+                    MutyLogger.get_instance().exception("error closing websocket")
                     pass
-            MutyLogger.get_instance().debug(
-                f"{socket_type} closed, ws_id={params.ws_id}"
-            )
+            MutyLogger.get_instance().debug("socket %s, type=%s closed!", ws_id, socket_type)
 
     @router.websocket("/ws")
     @staticmethod
@@ -425,6 +432,7 @@ class GulpAPIWebsocket:
         await GulpAPIWebsocket._handle_websocket(
             websocket,
             run_loop,
+            notify_login=True
         )
 
     @router.websocket("/ws_ingest_raw")
