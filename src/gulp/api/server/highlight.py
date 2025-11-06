@@ -68,7 +68,6 @@ async def highlight_create_handler(
         Depends(APIDependencies.param_operation_id),
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
     time_range: Annotated[
         tuple[int, int],
         Body(
@@ -107,13 +106,10 @@ async def highlight_create_handler(
                 color=color,
                 description=description,
                 name=name,
-                source_id=source_id,
                 time_range=time_range,
             )
             return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id, data=l.to_dict(exclude_none=True)
-                )
+                JSendResponse.success(req_id=req_id, data=l.to_dict(exclude_none=True))
             )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

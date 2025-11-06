@@ -39,7 +39,6 @@ async def test_highlight():
     h = await GulpAPIHighlight.highlight_create(
         guest_token,
         operation_id=TEST_OPERATION_ID,
-        source_id=source_id,
         time_range=[1000000, 2000000],
         expected_status=401,
     )
@@ -47,27 +46,18 @@ async def test_highlight():
     h = await GulpAPIHighlight.highlight_create(
         edit_token,
         operation_id=TEST_OPERATION_ID,
-        source_id=source_id,
         time_range=[1000000, 2000000],
     )
     assert h
-    assert h["source_id"] == source_id
 
     # doc filter
     l = await GulpAPIHighlight.highlight_list(
         guest_token,
         TEST_OPERATION_ID,
-        GulpCollabFilter(source_ids=[source_id], operation_ids=[TEST_OPERATION_ID]),
+        GulpCollabFilter(operation_ids=[TEST_OPERATION_ID]),
     )
     assert len(l) == 1
     assert l[0]["id"] == h["id"]
-
-    l = await GulpAPIHighlight.highlight_list(
-        guest_token,
-        TEST_OPERATION_ID,
-        GulpCollabFilter(operation_ids=[TEST_OPERATION_ID], source_ids=["aaaa"]),
-    )
-    assert not l  # 0 len
 
     # update
     await GulpAPIHighlight.highlight_update(
