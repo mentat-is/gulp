@@ -143,9 +143,7 @@ async def request_cancel_handler(
             # also delete related tasks if any
             d: int = await GulpTask.delete_by_filter(
                 sess,
-                GulpCollabFilter(
-                    operation_ids=[op.id], req_id=[req_id_to_cancel]
-                ),
+                GulpCollabFilter(operation_ids=[op.id], req_id=[req_id_to_cancel]),
                 throw_if_not_found=False,
             )
             MutyLogger.get_instance().debug(
@@ -208,11 +206,15 @@ async def request_set_completed_handler(
                 req_id_to_complete,
                 enforce_owner=True,
             )
-            await obj.set_finished(sess, status=GulpRequestStatus.FAILED if failed else GulpRequestStatus.DONE)
+            await obj.set_finished(
+                sess,
+                status=GulpRequestStatus.FAILED if failed else GulpRequestStatus.DONE,
+            )
 
             return JSendResponse.success(req_id=req_id, data={"id": req_id_to_complete})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.delete(
     "/request_delete",

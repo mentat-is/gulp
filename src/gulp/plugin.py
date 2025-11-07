@@ -57,7 +57,7 @@ from gulp.api.ws_api import (
     GulpDocumentsChunkPacket,
     GulpIngestSourceDonePacket,
     GulpQueryDonePacket,
-    GulpWsSharedQueue,
+    GulpRedisBroker,
 )
 from gulp.config import GulpConfig
 from gulp.structs import (
@@ -498,11 +498,11 @@ class GulpPluginCache:
 
 class GulpInternalEventsManager:
     """
-    Singleton class to manage internal events
+    Singleton class to manage internal (local) events
 
-    internal events are broadcasted by the engine to registered plugins.
+    local events are broadcasted by the engine to registered plugins.
 
-    a plugin registers to receive internal events by calling GulpInternalEventsManager.register(plugin, types) where `types` is a list of event types the plugin is interested in.
+    a plugin registers to receive local events by calling GulpInternalEventsManager.register(plugin, types) where `types` is a list of event types the plugin is interested in.
 
     when an event is broadcasted (by core itself or by a plugin, calling GulpInternalEventsManager.broadcast_event), core calls the `internal_event_callback` method of each registered plugin that is interested in the event type.
     """
@@ -534,7 +534,7 @@ class GulpInternalEventsManager:
         get the manager instance.
 
         Returns:
-            GulpInternalEventsManager: The internal events manager instance.
+            GulpInternalEventsManager: The local events manager instance.
         """
         if not cls._instance:
             cls._instance = cls()
@@ -542,13 +542,13 @@ class GulpInternalEventsManager:
 
     def clear(self):
         """
-        Clear the internal events manager plugins list
+        Clear the local events manager plugins list
         """
         self._plugins = {}
 
     def register(self, plugin: "GulpPluginBase", types: list[str] = None) -> None:
         """
-        Register a plugin to receive internal events.
+        Register a plugin to receive local events.
 
         Args:
             plugin (GulpPluginBase): The plugin to register.
@@ -557,7 +557,7 @@ class GulpInternalEventsManager:
         name: str = plugin.name
         if name not in self._plugins.keys():
             MutyLogger.get_instance().debug(
-                "registering plugin %s to receive internal events: %s", name, types
+                "registering plugin %s to receive local events: %s", name, types
             )
             self._plugins[name] = {
                 "plugin_instance": plugin,  # the plugin instance
@@ -565,24 +565,24 @@ class GulpInternalEventsManager:
             }
         # else:
         #     MutyLogger.get_instance().warning(
-        #         "plugin %s already registered to receive internal events" % (name)
+        #         "plugin %s already registered to receive local events" % (name)
         #     )
 
     def deregister(self, plugin: str) -> None:
         """
-        Stop a plugin from receiving internal events.
+        Stop a plugin from receiving local events.
 
         Args:
             plugin (str): The name of the plugin to unregister.
         """
         if plugin in self._plugins.keys():
             MutyLogger.get_instance().debug(
-                "deregistering plugin %s from receiving internal events", plugin
+                "deregistering plugin %s from receiving local events", plugin
             )
             del self._plugins[plugin]
         else:
             MutyLogger.get_instance().debug(
-                "plugin %s not registered to receive internal events", plugin
+                "plugin %s not registered to receive local events", plugin
             )
 
     async def broadcast_event(
@@ -597,7 +597,7 @@ class GulpInternalEventsManager:
         Broadcast an event to all plugins registered to receive it.
 
         NOTE: this can be used by the main process only.
-        in workers, plugins should call GulpWsSharedQueue.put_internal_event() to broadcast an event.
+        in workers, plugins should call GulpRedisBroker.put() to broadcast an event.
 
         Args:
             t: str: the event (must be previously registered with GulpInternalEventsManager.register)
@@ -964,8 +964,8 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug(
         #     "***************************** broadcasting internal ingest event: %s", ev
         # )
-        wsq = GulpWsSharedQueue.get_instance()
-        await wsq.put_internal_event(
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put_internal_event(
             GulpInternalEventsManager.EVENT_INGEST,
             user_id=self._user_id,
             operation_id=self._operation_id,
@@ -1075,8 +1075,8 @@ class GulpPluginBase(ABC):
             # MutyLogger.get_instance().debug(
             #     "sending chunk of %d documents to ws_id=%s", len(ws_docs), self._ws_id
             # )
-            wsq = GulpWsSharedQueue.get_instance()
-            await wsq.put(
+            redis_broker = GulpRedisBroker.get_instance()
+            await redis_broker.put(
                 t=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
                 operation_id=self._operation_id,
@@ -2936,9 +2936,10 @@ class GulpPluginBase(ABC):
                 records_failed=self._records_failed_total,
                 status=status.value,
             )
+
             disconnected: bool =False
             try:
-                await GulpWsSharedQueue.get_instance().put(
+                await GulpRedisBroker.get_instance().put(
                     WSDATA_INGEST_SOURCE_DONE,
                     self._user_id,
                     ws_id=self._ws_id,
@@ -2952,6 +2953,7 @@ class GulpPluginBase(ABC):
                 errors.append(str(ex))
                 source_finished = True
                 status = GulpRequestStatus.FAILED
+
 
         self._raw_flush_count += 1
         # "and not disconnected" since if the websocket is disconnected, we want to update stats

@@ -24,7 +24,7 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.ws_api import GulpWsSharedQueue
+from gulp.api.ws_api import GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpMappingParameters, GulpProgressCallback

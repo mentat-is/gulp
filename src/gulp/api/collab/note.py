@@ -15,13 +15,13 @@ Main functionalities:
 - Associating notes with contexts, sources, and documents
 """
 
-import orjson
 from typing import Optional, override
 
+import muty.crypto
+import orjson
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from opensearchpy import Field
-import muty.crypto
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Insert, String
 from sqlalchemy.dialects.postgresql import JSONB, insert
@@ -29,12 +29,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter, GulpCollabBase
+from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabBase, GulpCollabFilter
 from gulp.api.opensearch.structs import GulpBasicDocument, GulpQueryParameters
 from gulp.api.ws_api import (
     WSDATA_COLLAB_CREATE,
     GulpCollabCreatePacket,
-    GulpWsSharedQueue,
+    GulpRedisBroker,
 )
 
 
@@ -257,8 +257,8 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 bulk_size=len(inserted_notes),
                 total_size=len(notes),
             )
-            wsq = GulpWsSharedQueue.get_instance()
-            await wsq.put(
+            redis_broker = GulpRedisBroker.get_instance()
+            await redis_broker.put(
                 WSDATA_COLLAB_CREATE,
                 user_id,
                 ws_id=ws_id,

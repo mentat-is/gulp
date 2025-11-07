@@ -958,7 +958,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # no websocket, return the instance
             return instance
 
-        from gulp.api.ws_api import GulpCollabCreatePacket, GulpWsSharedQueue
+        from gulp.api.ws_api import GulpCollabCreatePacket, GulpRedisBroker
 
         if not ws_data_type:
             # default websocket data type for object creation
@@ -975,8 +975,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # notify websocket
         p = GulpCollabCreatePacket(obj=data)
-        wsq = GulpWsSharedQueue.get_instance()
-        await wsq.put(
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put(
             ws_data_type,
             user_id=user_id,
             ws_id=ws_id,
@@ -1136,7 +1136,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             return updated_dict
 
         # send update to websocket
-        from gulp.api.ws_api import GulpCollabUpdatePacket, GulpWsSharedQueue
+        from gulp.api.ws_api import GulpCollabUpdatePacket, GulpRedisBroker
 
         if not ws_data_type:
             # default to collab update
@@ -1153,8 +1153,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             data = updated_dict
 
         p = GulpCollabUpdatePacket(obj=data)
-        wsq = GulpWsSharedQueue.get_instance()
-        await wsq.put(
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put(
             t=ws_data_type,
             ws_id=ws_id,
             user_id=user_id,
@@ -1215,7 +1215,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             return
 
         # notify the websocket of the deletion
-        from gulp.api.ws_api import GulpCollabDeletePacket, GulpWsSharedQueue
+        from gulp.api.ws_api import GulpCollabDeletePacket, GulpRedisBroker
 
         if not ws_data_type:
             from gulp.api.ws_api import WSDATA_COLLAB_DELETE
@@ -1228,8 +1228,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=obj_id)
             data = p.model_dump()
 
-        wsq = GulpWsSharedQueue.get_instance()
-        await wsq.put(
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put(
             t=ws_data_type,
             ws_id=ws_id,
             user_id=user_id,

@@ -648,6 +648,23 @@ class GulpConfig:
         n = self._config.get("postgres_client_cert_password", None)
         return n
 
+    def redis_url(self) -> str:
+        """
+        Returns the redis URL
+
+        Raises:
+            Exception if neither redis_url or GULP_REDIS_URL is set
+        """
+        n = os.getenv("GULP_REDIS_URL", None)
+        if not n:
+            n = self._config.get("redis_url", None)
+            if not n:
+                raise Exception(
+                    "redis_url not set (tried configuration and GULP_REDIS_URL environment_variable)."
+                )
+
+        return n
+
     def opensearch_url(self) -> str:
         """
         Returns the opensearch url
@@ -909,34 +926,6 @@ class GulpConfig:
         Returns the delay in seconds to wait in between sending messages to connected clients.
         """
         n = self._config.get("ws_rate_limit_delay", 0.01)
-        return n
-
-    def ws_queue_num_shards(self) -> int:
-        """
-        Returns the number of shards for the websocket queue.
-        """
-        n = self._config.get("ws_queue_num_shards", 4)
-        return n
-
-    def ws_queue_batch_size(self) -> int:
-        """
-        Returns the batch size for processing websocket queue messages.
-        """
-        n = self._config.get("ws_queue_batch_size", 50)
-        return n
-
-    def ws_queue_max_retries(self) -> int:
-        """
-        Returns the maximum number of retries for websocket queue put operations.
-        """
-        n = self._config.get("ws_queue_max_retries", 5)
-        return n
-
-    def ws_queue_backoff_cap(self) -> float:
-        """
-        Returns the maximum backoff time in seconds for websocket queue put operations.
-        """
-        n = self._config.get("ws_queue_backoff_cap", 10.0)
         return n
 
     def plugin_cache_enabled(self) -> bool:

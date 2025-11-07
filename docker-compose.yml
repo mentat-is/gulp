@@ -28,10 +28,10 @@ services:
       # fix for field expansion error - increases the maximum number of fields that can be queried with wildcards
       # indices.query.bool.max_clause_count: 8192
 
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
+    #ulimits:
+    #  memlock:
+    #    soft: -1
+    #    hard: -1
     ports:
       - 9200:9200
     volumes:
@@ -64,10 +64,19 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       #- POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS}
 
+  redis:
+    image: redis:latest
+    ports:
+      - 6379:6379
+    volumes:
+      - redis_data:/data
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    command: [ "redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}" ]
+
   elasticvue:
     profiles: [ "dev" ]
     image: cars10/elasticvue:latest
-    container_name: elasticvue
     ports:
       - 8082:8080
     depends_on:
@@ -99,6 +108,7 @@ services:
     depends_on:
       - postgres
       - os01
+      - redis
     ports:
       - ${GULP_BIND_TO_PORT:-8080}:${GULP_BIND_TO_PORT:-8080}
 
@@ -139,4 +149,6 @@ services:
 volumes:
   postgres_data:
   opensearch_data:
+  redis_data:
+
 

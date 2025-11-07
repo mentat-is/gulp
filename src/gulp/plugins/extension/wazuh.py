@@ -2,7 +2,7 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 
 from gulp.api.server_api import GulpServer
-from gulp.api.ws_api import WSDATA_COLLAB_UPDATE, GulpWsSharedQueue
+from gulp.api.ws_api import WSDATA_COLLAB_UPDATE, GulpRedisBroker
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.process import GulpProcess
 
@@ -79,8 +79,8 @@ class Plugin(GulpPluginBase):
             "IN WORKER PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, ws_id, req_id)
         )
-        wsq = GulpWsSharedQueue.get_instance()
-        await wsq.put(
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put(
             WSDATA_COLLAB_UPDATE,
             req_id=req_id,
             ws_id=ws_id,

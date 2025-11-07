@@ -43,7 +43,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
-from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpWsSharedQueue
+from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.process import GulpProcess
 
@@ -145,7 +145,9 @@ async def _rebase_by_query_internal(
                     operation_id,
                     req_type=RequestStatsType.REQUEST_TYPE_REBASE,
                     ws_id=ws_id,
-                    data=GulpUpdateDocumentsStats(flt=flt).model_dump(exclude_none=True)
+                    data=GulpUpdateDocumentsStats(flt=flt).model_dump(
+                        exclude_none=True
+                    ),
                 )
                 cb_context["stats"] = stats
 
@@ -179,7 +181,7 @@ async def _rebase_by_query_internal(
             finally:
                 if stats and total_updated >= 0:
                     # send a WSDATA_REBASE_DONE packet to the websocket
-                    await GulpWsSharedQueue.get_instance().put(
+                    await GulpRedisBroker.get_instance().put(
                         WSDATA_REBASE_DONE,
                         user_id,
                         ws_id=ws_id,

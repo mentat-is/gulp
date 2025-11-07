@@ -77,8 +77,8 @@ from gulp.api.ws_api import (
     GulpDocumentsChunkPacket,
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
-    GulpWsSharedQueue,
-    WsQueueFullException,
+    GulpRedisBroker,
+    redis_brokerueueFullException,
 )
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -170,7 +170,7 @@ async def _query_raw_chunk_callback(
         name=q_name,
         last=last,
     )
-    await GulpWsSharedQueue.get_instance().put(
+    await GulpRedisBroker.get_instance().put(
         t=WSDATA_DOCUMENTS_CHUNK,
         ws_id=ws_id,
         user_id=user_id,
@@ -321,7 +321,7 @@ async def _run_query(
             total_hits=total_hits,
             q_group=gq.q_group,
         )
-        await GulpWsSharedQueue.get_instance().put(
+        await GulpRedisBroker.get_instance().put(
             t=WSDATA_QUERY_DONE,
             ws_id=ws_id,
             user_id=user_id,
@@ -535,7 +535,7 @@ async def process_queries(
                 color=q_options.group_color,
                 glyph_id=q_options.group_glyph_id,
             )
-            await GulpWsSharedQueue.get_instance().put(
+            await GulpRedisBroker.get_instance().put(
                 WSDATA_QUERY_GROUP_MATCH,
                 user_id,
                 ws_id=ws_id,

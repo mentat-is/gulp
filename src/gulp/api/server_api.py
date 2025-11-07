@@ -38,7 +38,7 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import GulpConnectedSockets, GulpWsSharedQueue
+from gulp.api.ws_api import GulpConnectedSockets, GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
@@ -55,6 +55,7 @@ class GulpServer:
     def __init__(self):
         self._initialized: bool = True
         self._app: FastAPI = None
+        self._server_id: str = muty.string.generate_unique()
         self._logger_file_path: str = None
         self._log_to_syslog: tuple[str, str] = None
         self._log_level: int = None
@@ -62,7 +63,6 @@ class GulpServer:
         self._create_operation: str = None
         self._lifespan_task: asyncio.Task = None
         self._poll_tasks_task: asyncio.Task = None
-        self._shutdown: bool = False
         self._extension_plugins: list[GulpPluginBase] = []
 
     def __new__(cls):
@@ -84,6 +84,15 @@ class GulpServer:
         if not cls._instance:
             cls._instance = cls()
         return cls._instance
+
+    def server_id(self) -> str:
+        """
+        returns the server unique ID
+
+        Returns:
+            str: server unique ID
+        """
+        return self._server_id
 
     def running_tasks(self) -> int:
         """
@@ -167,24 +176,6 @@ class GulpServer:
             count += 1
 
         MutyLogger.get_instance().debug("loaded %d extension plugins" % (count))
-
-    def set_shutdown(self, *args):
-        """
-        Sets the global `_shutdown` flag to True.
-        """
-        MutyLogger.get_instance().debug("setting shutdown=True !")
-        self._shutdown = True
-
-    def is_shutdown(self) -> bool:
-        """
-        Returns the value of the global `_shutting_down` flag.
-
-        Returns:
-            bool: True if the server is shutting down, False otherwise.
-        """
-        if self._shutdown:
-            MutyLogger.get_instance().warning("_shutdown set!")
-        return self._shutdown
 
     async def _bad_request_exception_handler(
         self, r: Request, ex: Any
@@ -453,8 +444,8 @@ class GulpServer:
         )
 
         try:
-            # loop until the server exits
             while True:
+                # loop until the server exits
                 async with GulpCollab.get_instance().session() as sess:
                     # get a batch of tasks, use advisory lock to prevent concurrent dequeueing
                     try:
@@ -494,8 +485,8 @@ class GulpServer:
                             # print("*************** spawning ingest task for: %s", obj)
                             await self.spawn_worker_task(run_ingest_file_task, obj)
 
-                # wait before next iteration
-                await asyncio.sleep(current_interval)
+                    # wait before next iteration
+                    await asyncio.sleep(current_interval)
         except asyncio.CancelledError:
             MutyLogger.get_instance().debug("poll task cancelled!")
 
@@ -596,11 +587,9 @@ class GulpServer:
         """
         MutyLogger.get_instance().debug("MAIN process cleanup initiated!")
 
-        # close shared ws and process pool
+        # close process pool and clients
         try:
             await GulpConnectedSockets.get_instance().cancel_all()
-            wsq = GulpWsSharedQueue.get_instance()
-            await wsq.close()
 
             # cancel dequeue task
             if self._poll_tasks_task:
@@ -621,6 +610,9 @@ class GulpServer:
             # close clients in the main process
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
+            from gulp.api.redis_api import GulpRedis
+            await GulpRedisBroker.get_instance().shutdown()
+            await GulpRedis.get_instance().shutdown()
 
             # close coro pool in the main process
             await GulpProcess.get_instance().close_thread_pool()
@@ -688,6 +680,14 @@ class GulpServer:
         # initialize the opensearch client
         GulpOpenSearch.get_instance()
 
+        # initialize the redis client
+        from gulp.api.redis_api import GulpRedis
+        GulpRedis.get_instance().initialize(self._server_id)
+
+        # initialize Redis pub/sub for worker->main process and instance<->instance communication
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.initialize()
+
         # initialize collab database and create operation if needed
         try:
             if self._reset_collab:
@@ -711,6 +711,7 @@ class GulpServer:
 
         # finish initializing main process, will spawn workers as well
         await main_process.finish_initialization(
+            self._server_id,
             log_level=self._log_level,
             logger_file_path=self._logger_file_path,
             log_to_syslog=self._log_to_syslog,
@@ -734,8 +735,7 @@ class GulpServer:
 
         # cleaning up will be done through _cleanup called via atexit
         MutyLogger.get_instance().info("gulp shutting down!")
-        self.set_shutdown()
-
+        
         if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
             # delete pending stats
             await GulpRequestStats.purge_ongoing_requests()

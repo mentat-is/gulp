@@ -53,6 +53,7 @@ from gulp.api.ws_api import (
     GulpClientDataPacket,
     GulpConnectedSocket,
     GulpConnectedSockets,
+    GulpRedisBroker,
     GulpUserAccessPacket,
     GulpWsAcknowledgedPacket,
     GulpWsAuthPacket,
@@ -60,7 +61,6 @@ from gulp.api.ws_api import (
     GulpWsError,
     GulpWsErrorPacket,
     GulpWsIngestPacket,
-    GulpWsSharedQueue,
     GulpWsType,
 )
 from gulp.config import GulpConfig
@@ -364,8 +364,8 @@ class GulpAPIWebsocket:
             if notify_login:
                 # notify login event
                 p = GulpUserAccessPacket(user_id=user_id, login=True, ip=websocket.client.host, req_id=req_id)
-                wsq = GulpWsSharedQueue.get_instance()
-                await wsq.put(
+                redis = GulpRedisBroker.get_instance()
+                await redis.put(
                     WSDATA_USER_LOGIN,
                     user_id=user_id,
                     ws_id=ws_id,
@@ -522,7 +522,7 @@ class GulpAPIWebsocket:
                                     error=msg,
                                     error_code=GulpWsError.OBJECT_NOT_FOUND.name,
                                 )
-                                await GulpWsSharedQueue.get_instance().put(
+                                await GulpRedisBroker.get_instance().put(
                                     WSDATA_ERROR,
                                     user_id,
                                     ws_id=ingest_packet.ws_id,

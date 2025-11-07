@@ -73,6 +73,8 @@
   "postgres_verify_certs": false,
   // how many queries to keep in the history per user(default=20, max=50)
   "query_history_max_size": 20,
+  // redis url (may be overridden by GULP_REDIS_URL environment variable)
+  "redis_url": "redis://:Gulp1234!@localhost:6379/0",
   // delete pending request stats on the collab database on gulp shutdown (default=true)
   "stats_delete_pending_on_shutdown": true,
   // how many seconds before automatically delete non-live stats, default=1 day (86400 seconds))
@@ -86,12 +88,4 @@
   "ws_rate_limit_delay": 0.01,
   // if set, websocket delay depends on the number of connected websockets
   "ws_adaptive_rate_limit_delay": true,
-  // maximum backoff time (in seconds) when adding an item to the websocket shared queue (default=10)
-  "ws_queue_backoff_cap": 10,
-  // batch size when processing the websocket shared queue (default=50)
-  "ws_queue_batch_size": 50,
-  // maximum number of retries when adding an item to the websocket shared queue (default=5)
-  "ws_queue_max_retries": 5,
-  // number of shards for the websocket shared queue (default=4, set to 0 to compute based on system configuration)
-  "ws_queue_num_shards": 4
 }

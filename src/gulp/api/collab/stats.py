@@ -52,7 +52,7 @@ from gulp.api.ws_api import (
     WSDATA_STATS_CREATE,
     WSDATA_STATS_UPDATE,
     GulpQueryDonePacket,
-    GulpWsSharedQueue,
+    GulpRedisBroker,
 )
 from gulp.config import GulpConfig
 
