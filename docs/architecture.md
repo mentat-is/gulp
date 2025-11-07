@@ -23,6 +23,8 @@ ingestion
 
 collab[(PostgreSQL
   collaboration DB)]
+redis[(Redis
+  task queue & pub/sub)]
 
 extension_plugin[ExtensionPlugins
   i.e. extend API,
@@ -53,6 +55,7 @@ gulp <-->|users,
   stored queries,
   stats
   | collab
+gulp <-->|tasks, pubsub| redis
 
 bridges<-->|ingest| gulp
 gulp <-->|extend api| extension_plugin
@@ -64,6 +67,12 @@ external_plugin-->|ingest|opensearch
 bridges<-->|fetch| external_source
 
 ```
+
+Task queue and pub/sub:
+- gULP uses Redis for both the ingestion task queue and lightweight pub/sub.
+- Ingestion requests enqueue task dictionaries on a Redis list (key `gulp:queue:tasks`).
+- The main process polls the Redis queue and dispatches tasks to worker processes.
+- Redis pub/sub is used for WebSocket fan-out and inter-instance coordination.
 
 All components are based on the [muty utility library](https://github.com/mentat-is/muty-python)
 

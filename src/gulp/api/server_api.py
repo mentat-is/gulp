@@ -33,11 +33,10 @@ from opensearchpy import RequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
-from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.stats import GulpRequestStats
-from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.redis_api import GulpRedis
 from gulp.api.ws_api import GulpConnectedSockets, GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -427,70 +426,48 @@ class GulpServer:
             MutyLogger.get_instance().warning("HTTP!")
             uvicorn.run(self._app, host=address, port=port)
 
-    async def _poll_tasks(self):
+    async def _dispatch_tasks(self):
         """
-        poll tasks queue on collab database and dispatch them to the process pool for processing.
+        Blocking task loop using Redis BLPOP for ingestion tasks.
+        Waits for a task, then drains up to concurrency limit and dispatches to workers.
         """
         from gulp.api.server.ingest import run_ingest_file_task
 
-        min_interval: int = 1  # minimum poll interval seconds
-        max_interval: int = 5  # maximum poll interval seconds
-        current_interval = min_interval
-
         limit: int = GulpConfig.get_instance().concurrency_num_tasks()
-        offset: int = 0
         MutyLogger.get_instance().info(
-            "STARTING poll task, max task concurrency=%d ...", limit
+            "STARTING blocking task loop, max batch size=%d ...", limit
         )
 
         try:
             while True:
-                # loop until the server exits
-                async with GulpCollab.get_instance().session() as sess:
-                    # get a batch of tasks, use advisory lock to prevent concurrent dequeueing
-                    try:
-                        objs: list[GulpTask] = await GulpTask.get_by_filter(
-                            sess,
-                            flt=GulpCollabFilter(limit=limit, offset=offset),
-                            throw_if_not_found=False,
-                        )
-                        if not objs:
-                            # no tasks to process, wait before next poll
-                            current_interval = min(max_interval, current_interval * 1.2)
-                            await asyncio.sleep(current_interval)
-                            continue
-                        else:
-                            # tasks found, poll more frequently
-                            current_interval = max(min_interval, current_interval * 0.8)
+                try:
+                    # block for first task (up to 5s) to avoid busy waiting
+                    first = await GulpRedis.get_instance().task_pop_blocking(timeout=5)
+                    if first is None:
+                        continue  # timeout, loop again
 
-                        # delete all tasks in this batch first to prevent reprocessing
-                        for obj in objs:
-                            await obj.delete(sess)
+                    batch: list[dict] = [first]
+                    # drain remaining up to limit-1 non-blocking
+                    if limit > 1:
+                        rest = await GulpRedis.get_instance().task_dequeue_batch(limit - 1)
+                        batch.extend(rest)
 
-                    except Exception as e:
-                        # swallow exception and retry (we must rollback manually so)
-                        await sess.rollback()
-                        MutyLogger.get_instance().exception(e)
-                        await asyncio.sleep(current_interval)
-                        continue
+                    MutyLogger.get_instance().debug(
+                        "processing batch of %d task(s)", len(batch)
+                    )
 
-                    MutyLogger.get_instance().debug("found %d tasks to process", len(objs))
-
-                    # process found tasks in this batch
-                    for obj in objs:
-                        # process task
-                        obj: GulpTask
-                        if obj.task_type == "ingest":
-                            # spawn background task to process the ingest task
-                            # print("*************** spawning ingest task for: %s", obj)
+                    for obj in batch:
+                        if obj.get("task_type") == "ingest":
                             await self.spawn_worker_task(run_ingest_file_task, obj)
 
-                    # wait before next iteration
-                    await asyncio.sleep(current_interval)
-        except asyncio.CancelledError:
-            MutyLogger.get_instance().debug("poll task cancelled!")
-
-        MutyLogger.get_instance().info("EXITING poll task...")
+                except asyncio.CancelledError:
+                    MutyLogger.get_instance().debug("blocking task loop cancelled!")
+                    break
+                except Exception as ex:
+                    MutyLogger.get_instance().exception(ex)
+                    await asyncio.sleep(1.0)
+        finally:
+            MutyLogger.get_instance().info("EXITING blocking task loop ...")
 
     @staticmethod
     def spawn_bg_task(coro: Coroutine, name: str = None) -> bool:
@@ -526,7 +503,7 @@ class GulpServer:
                     return False
         _ = asyncio.create_task(_run_and_await(), name=name)
         return True
-
+    
     async def spawn_worker_task(
         self,
         func: Callable[..., Awaitable[Any]],
@@ -722,7 +699,7 @@ class GulpServer:
             await self._test()
 
         # start the dequeue task for long running tasks
-        self._poll_tasks_task = asyncio.create_task(self._poll_tasks())
+        self._poll_tasks_task = asyncio.create_task(self._dispatch_tasks())
 
         # wait for termination
         try:

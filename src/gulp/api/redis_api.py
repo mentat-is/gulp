@@ -36,6 +36,8 @@ class GulpRedis:
         self._pubsub: PubSub = None
         self._subscriber_task: asyncio.Task = None
         self.server_id: str = None
+        # simple task queue (list) key
+        self._task_queue_key: str = "gulp:queue:tasks"
 
     def __new__(cls):
         """
@@ -310,3 +312,123 @@ class GulpRedis:
                     
         except asyncio.CancelledError:
             MutyLogger.get_instance().info("subscriber loop stopped for channel: %s", channel)
+
+    def task_queue_key(self) -> str:
+        """Return the Redis key used for the task queue."""
+        return self._task_queue_key
+
+    async def task_enqueue(self, task: dict) -> None:
+        """
+        Enqueue a task onto the Redis list queue.
+
+        Args:
+            task (dict): JSON-serializable task with fields like
+              {"task_type": str, "operation_id": str, "user_id": str, "ws_id": str, "req_id": str, "params": dict}
+        """
+        payload: bytes = orjson.dumps(task)
+        await self._redis.rpush(self._task_queue_key, payload)
+        MutyLogger.get_instance().debug("enqueued task_type=%s on %s", task.get("task_type"), self._task_queue_key)
+
+    async def task_dequeue_batch(self, max_items: int) -> list[dict]:
+        """
+        Pop up to max_items tasks from the Redis list queue.
+
+        Args:
+            max_items (int): Maximum number of tasks to pop.
+
+        Returns:
+            list[dict]: Decoded task dicts.
+        """
+        items: list[dict] = []
+        # non-blocking LPOP up to max_items
+        for _ in range(max_items):
+            data: bytes | None = await self._redis.lpop(self._task_queue_key)
+            if not data:
+                break
+            try:
+                items.append(orjson.loads(data))
+            except Exception as ex:
+                MutyLogger.get_instance().error("invalid task payload, skipping: %s", ex)
+        if items:
+            MutyLogger.get_instance().debug("dequeued %d task(s) from %s", len(items), self._task_queue_key)
+        return items
+
+    async def task_pop_blocking(self, timeout: int = 5) -> Optional[dict]:
+        """
+        Blocking pop for a single task from the Redis list queue.
+
+        Args:
+            timeout (int): Seconds to wait before returning None if queue is empty.
+
+        Returns:
+            Optional[dict]: Decoded task dict or None if timed out.
+        """
+        try:
+            res = await self._redis.blpop(self._task_queue_key, timeout=timeout)
+            if not res:
+                return None
+            # res is (key, value)
+            _, raw = res
+            try:
+                d = orjson.loads(raw)
+                return d
+            except Exception as ex:
+                MutyLogger.get_instance().error("invalid task payload on BLPOP, skipping: %s", ex)
+                return None
+        except asyncio.CancelledError:
+            # propagate cancellations cleanly
+            raise
+        except Exception as ex:
+            MutyLogger.get_instance().exception("error in task_pop_blocking: %s", ex)
+            await asyncio.sleep(0.5)
+            return None
+
+    async def task_purge_by_filter(self, operation_id: str | None = None, req_id: str | None = None) -> int:
+        """
+        Remove queued tasks matching the provided filter from the Redis list queue.
+
+        Args:
+            operation_id (str|None): If set, only remove tasks for this operation_id.
+            req_id (str|None): If set, only remove tasks for this req_id.
+
+        Returns:
+            int: Number of removed tasks.
+        """
+        # fetch all current items
+        all_items: list[bytes] = await self._redis.lrange(self._task_queue_key, 0, -1)
+        if not all_items:
+            return 0
+
+        keep_raw: list[bytes] = []
+        removed: int = 0
+        for raw in all_items:
+            try:
+                d = orjson.loads(raw)
+            except Exception:
+                # keep malformed entries to avoid accidental data loss
+                keep_raw.append(raw)
+                continue
+
+            cond_ok = True
+            if operation_id is not None and d.get("operation_id") != operation_id:
+                cond_ok = False
+            if req_id is not None and d.get("req_id") != req_id:
+                cond_ok = False
+
+            if cond_ok:
+                # mark for removal by not keeping it
+                removed += 1
+            else:
+                keep_raw.append(raw)
+
+        if removed == 0:
+            return 0
+
+        # rebuild the list with items to keep
+        pipe = self._redis.pipeline()
+        pipe.delete(self._task_queue_key)
+        if keep_raw:
+            pipe.rpush(self._task_queue_key, *keep_raw)
+        await pipe.execute()
+        MutyLogger.get_instance().debug("purged %d task(s) from %s", removed, self._task_queue_key)
+        return removed

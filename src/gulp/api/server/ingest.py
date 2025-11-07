@@ -33,7 +33,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.context import GulpContext
-from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpIngestionStats, GulpRequestStats, RequestStatsType
@@ -43,6 +42,7 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.redis_api import GulpRedis
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import (
     TASK_TYPE_INGEST,
@@ -343,15 +343,15 @@ async def _ingest_file_internal(
                 await muty.file.delete_file_or_dir_async(file_path)
 
 
-async def run_ingest_file_task(t: GulpTask):
+async def run_ingest_file_task(t: dict):
     """
     runs in a task in a worker process and calls _ingest_file_internal
 
-    :param t: a GulpTask dict to run
+    :param t: a task dict enqueued on the Redis ingestion queue
     """
-    ingest_args: dict = t.params
-    ingest_args["user_id"] = t.user_id
-    ingest_args["operation_id"] = t.operation_id
+    ingest_args: dict = t["params"]
+    ingest_args["user_id"] = t["user_id"]
+    ingest_args["operation_id"] = t["operation_id"]
     ingest_args["payload"] = GulpIngestPayload.model_validate(ingest_args["payload"])
     # MutyLogger.get_instance().debug(
     #     "run_ingest_file_task, t=%s", t)
@@ -425,17 +425,17 @@ async def _preview_or_enqueue_ingest_task(
         # error in preview
         return JSONResponse(JSendResponse.error(req_id=req_id))
 
-    # enqueue ingestion task on collab
+    # enqueue ingestion task on Redis
     kwds["payload"] = payload.model_dump(exclude_none=True)
-    await GulpTask.enqueue(
-        sess,
-        task_type=TASK_TYPE_INGEST,
-        operation_id=operation_id,
-        user_id=user_id,
-        ws_id=ws_id,
-        req_id=req_id,
-        params=kwds,
-    )
+    task_msg = {
+        "task_type": TASK_TYPE_INGEST,
+        "operation_id": operation_id,
+        "user_id": user_id,
+        "ws_id": ws_id,
+        "req_id": req_id,
+        "params": kwds,
+    }
+    await GulpRedis.get_instance().task_enqueue(task_msg)
 
     # return pending response
     return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1259,15 +1259,15 @@ async def _ingest_zip_internal(
                     payload=f.model_dump(exclude_none=True),
                     delete_after=delete_after,
                 )
-                await GulpTask.enqueue(
-                    sess,
-                    task_type=TASK_TYPE_INGEST,
-                    operation_id=operation_id,
-                    user_id=user_id,
-                    ws_id=ws_id,
-                    req_id=req_id,
-                    params=kwds,
-                )
+                task_msg = {
+                    "task_type": TASK_TYPE_INGEST,
+                    "operation_id": operation_id,
+                    "user_id": user_id,
+                    "ws_id": ws_id,
+                    "req_id": req_id,
+                    "params": kwds,
+                }
+                await GulpRedis.get_instance().task_enqueue(task_msg)
         finally:
             # delete the zip file
             await muty.file.delete_file_or_dir_async(path)

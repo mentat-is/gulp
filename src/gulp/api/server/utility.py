@@ -26,7 +26,6 @@ from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.gulptask import GulpTask
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import (
@@ -37,6 +36,7 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
+from gulp.api.redis_api import GulpRedis
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
@@ -140,11 +140,9 @@ async def request_cancel_handler(
             )
             await obj.set_canceled(sess, expire_now=expire_now)
 
-            # also delete related tasks if any
-            d: int = await GulpTask.delete_by_filter(
-                sess,
-                GulpCollabFilter(operation_ids=[op.id], req_id=[req_id_to_cancel]),
-                throw_if_not_found=False,
+            # also delete related queued tasks (if any) in Redis
+            d: int = await GulpRedis.get_instance().task_purge_by_filter(
+                operation_id=op.id, req_id=req_id_to_cancel
             )
             MutyLogger.get_instance().debug(
                 "also deleted %d pending tasks for request %s" % (d, req_id_to_cancel)
