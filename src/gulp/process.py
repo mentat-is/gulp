@@ -356,7 +356,7 @@ class GulpProcess:
             self.shared_memory = shared_memory
 
             # register sigterm handler for the worker process
-            signal.signal(signal.SIGTERM, GulpProcess.sigterm_handler)
+            #signal.signal(signal.SIGTERM, GulpProcess.sigterm_handler)
 
     def shared_memory_get(self, key: str):
         """

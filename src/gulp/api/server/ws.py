@@ -96,11 +96,13 @@ class WsIngestRawWorker:
     def __init__(self, ws: GulpConnectedSocket):
         # use gulp's multiprocessing manager to create a process-shareable queue
         self._input_queue = GulpProcess.get_instance().mp_manager.Queue()
+        self._done_event = GulpProcess.get_instance().mp_manager.Event()
         self._cws = ws
 
     @staticmethod
-    async def _process_loop(input_queue: Queue):
+    async def _process_loop(input_queue: Queue, done_event):
         """
+        runs in a worker process,
         loop for the ws_ingest_raw worker, processes packets from the queue for this websocket
         """
         MutyLogger.get_instance().debug(
@@ -183,6 +185,7 @@ class WsIngestRawWorker:
                         break
 
         MutyLogger.get_instance().debug("ws ingest _process_loop done")
+        done_event.set()
 
     async def start(self) -> None:
         """
@@ -193,17 +196,21 @@ class WsIngestRawWorker:
 
         # run _process_loop in a separate process
         await GulpServer.get_instance().spawn_worker_task(
-            WsIngestRawWorker._process_loop, self._input_queue
+            WsIngestRawWorker._process_loop, self._input_queue, self._done_event
         )
 
     async def stop(self) -> None:
         """
         stops the worker (puts an empty message in the queue to signal the worker to exit)
+        waits until the worker has finished processing.
         """
         MutyLogger.get_instance().debug(
             "stopping ws ingest worker (will put an empty message in the queue) ! ..."
         )
         self._input_queue.put(None)
+        # wait for the worker to finish
+        while not self._done_event.is_set():
+            await asyncio.sleep(0.05)
 
     def put(self, packet: InternalWsIngestPacket):
         """
@@ -545,6 +552,9 @@ class GulpAPIWebsocket:
                     worker_pool.put(packet)
                     if ingest_packet.last:
                         # last packet, break the loop
+                        MutyLogger.get_instance().debug(
+                            "ws_ingest received last packet for ws_id=%s, exiting loop", ws.ws_id
+                        )
                         break
 
                 except WebSocketDisconnect:
@@ -556,7 +566,8 @@ class GulpAPIWebsocket:
                 except Exception as ex:
                     MutyLogger.get_instance().exception(ex)
                     break
-
+        except Exception as ex:
+            MutyLogger.get_instance().exception(ex)
         finally:
             await worker_pool.stop()
 
