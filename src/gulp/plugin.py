@@ -2869,7 +2869,9 @@ class GulpPluginBase(ABC):
         Returns:
             GulpRequestStatus: The final status of the ingestion process.
         """
-        MutyLogger.get_instance().debug("update_final_stats_and_flush called for plugin=%s", self.name)
+        MutyLogger.get_instance().debug(
+            "update_final_stats_and_flush called for plugin=%s", self.name
+        )
         if self._preview_mode:
             MutyLogger.get_instance().debug("*** preview mode, no ingestion! ***")
             return GulpRequestStatus.DONE
@@ -2909,6 +2911,7 @@ class GulpPluginBase(ABC):
                 errors.append(s)
 
         source_finished: bool = True
+        disconnected: bool = False
         if self._raw_ingestion:
             # on raw ingestion, source is never done unless last chunk or canceled
             if self._last_raw_chunk:
@@ -2936,7 +2939,7 @@ class GulpPluginBase(ABC):
                 records_failed=self._records_failed_total,
                 status=status.value,
             )
-            disconnected: bool =False
+
             try:
                 await GulpWsSharedQueue.get_instance().put(
                     WSDATA_INGEST_SOURCE_DONE,
@@ -2948,21 +2951,26 @@ class GulpPluginBase(ABC):
                 )
             except WebSocketDisconnect as ex:
                 # may fail in case socket disconnected
-                disconnected=True
+                disconnected = True
                 errors.append(str(ex))
                 source_finished = True
                 status = GulpRequestStatus.FAILED
 
         self._raw_flush_count += 1
         # "and not disconnected" since if the websocket is disconnected, we want to update stats
-        if self._raw_ingestion and status == GulpRequestStatus.ONGOING and not disconnected:
+        if (
+            self._raw_ingestion
+            and status == GulpRequestStatus.ONGOING
+            and not disconnected
+        ):
             if self._raw_flush_count % 10 != 0:
                 # do not update stats and source_fields too frequently on raw
                 return status
 
         # update stats
         try:
-            MutyLogger.get_instance().debug("updating ingestion stats with: ingested=%d, skipped=%d, processed=%d, failed=%d, errors=%s, status=%s, source_finished=%r, ws_disconnected=%r",
+            MutyLogger.get_instance().debug(
+                "updating ingestion stats with: ingested=%d, skipped=%d, processed=%d, failed=%d, errors=%s, status=%s, source_finished=%r, ws_disconnected=%r",
                 ingested,
                 skipped,
                 self._records_processed_per_chunk,
