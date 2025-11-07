@@ -27,5 +27,6 @@
 - server_api/user: ws_id removed from login API (ws does not exist at login)
 - server_api/utility: gulp_reset, plugin_get (ui_plugin_get remains, for the ui), trigger_gc: REMOVED
 - server_api/utility: request_get_by_id, request_cancel, request_set_completed: operation_id arg removed (not needed)
+- server_api/highligh: highlight_create, removed source_id params
 
 - removed setup.sh/bootstrap.sh (installation should be made manually or with docker, following the docs)
