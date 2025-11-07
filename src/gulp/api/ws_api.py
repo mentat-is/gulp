@@ -746,30 +746,6 @@ class GulpConnectedSocket:
         self._tasks: list[asyncio.Task] = []
         # each socket has its own asyncio queue, consumed by its own task
         self.q = asyncio.Queue()
-
-    async def run_loop(self) -> None:
-        """
-        Runs the websocket loop with optimized task management and cleanup
-        """
-        # create tasks with names for better debugging
-        send_task: asyncio.Task = asyncio.create_task(
-            self._send_loop(), name=f"send_loop-{self.ws_id}"
-        )
-        receive_task: asyncio.Task = asyncio.create_task(
-            self._receive_loop(), name=f"receive_loop-{self.ws_id}"
-        )
-        self._tasks.extend([send_task, receive_task])
-
-        # Wait for first task to complete
-        done, pending = await asyncio.wait(self._tasks, return_when=asyncio.FIRST_EXCEPTION)
-
-        # MutyLogger.get_instance().debug("---> wait returned for ws_id=%s, done=%s, pending=%s", self.ws_id, done, pending)
-        for d in done:
-            MutyLogger.get_instance().debug("---> completed task %s for ws_id=%s", d.get_name(), self.ws_id)
-        if pending:
-            for t in pending:
-                MutyLogger.get_instance().debug("---> cancelling pending task %s for ws_id=%s", t.get_name(), self.ws_id)
-                t.cancel()
         
     async def _flush_queue(self) -> None:
         """
@@ -821,7 +797,7 @@ class GulpConnectedSocket:
 
         if self._tasks:
             # clear tasks
-            await asyncio.shield(self._cleanup_tasks())
+            await asyncio.shield(self.cleanup_tasks())
 
         MutyLogger.get_instance().debug(
             "---> GulpConnectedSocket.cleanup() DONE, ws=%s, ws_id=%s",
@@ -945,6 +921,11 @@ class GulpConnectedSocket:
             # )
             await asyncio.sleep(GulpConfig.get_instance().ws_rate_limit_delay())
             return True
+        except asyncio.CancelledError:
+            MutyLogger.get_instance().warning(
+                "---> _process_queue_message canceled for ws_id=%s", self.ws_id
+            )
+            raise
         except asyncio.TimeoutError:
             # no messages, check for cancellation during timeout
             current_task = asyncio.current_task()
@@ -1028,6 +1009,35 @@ class GulpConnectedSocket:
     def __str__(self):
         return f"ConnectedSocket(ws_id={self.ws_id}, types={self.types}, operation_ids={self.operation_ids})"
 
+    async def run_loop(self) -> None:
+        """
+        Runs the websocket loop with optimized task management and cleanup
+        """
+        # create tasks with names for better debugging
+        send_task: asyncio.Task = asyncio.create_task(
+            self._send_loop(), name=f"send_loop-{self.ws_id}"
+        )
+        receive_task: asyncio.Task = asyncio.create_task(
+            self._receive_loop(), name=f"receive_loop-{self.ws_id}"
+        )
+        self._tasks.extend([send_task, receive_task])
+
+        # Wait for first task to complete
+        done, pending = await asyncio.wait(self._tasks, return_when=asyncio.FIRST_EXCEPTION)
+
+        # MutyLogger.get_instance().debug("---> wait returned for ws_id=%s, done=%s, pending=%s", self.ws_id, done, pending)
+        for d in done:
+            MutyLogger.get_instance().debug("---> completed task %s for ws_id=%s", d.get_name(), self.ws_id)
+        if pending:
+            for t in pending:
+                MutyLogger.get_instance().debug("---> cancelling pending task %s for ws_id=%s", t.get_name(), self.ws_id)
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    MutyLogger.get_instance().debug(
+                        "pending task %s cancelled successfully", t.get_name()
+                    )
 
 class GulpConnectedSockets:
     """

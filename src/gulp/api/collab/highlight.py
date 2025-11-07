@@ -25,7 +25,7 @@ from gulp.api.collab.structs import COLLABTYPE_HIGHLIGHT, GulpCollabBase
 from gulp.api.ws_api import (
     WSDATA_COLLAB_CREATE,
     GulpCollabCreatePacket,
-    GulpWsSharedQueue,
+    GulpRedisBroker,
 )
 
 
@@ -123,7 +123,7 @@ class GulpHighlight(GulpCollabBase, type=COLLABTYPE_HIGHLIGHT):
                 bulk_size=len(inserted_highligths),
                 total_size=len(highligths),
             )
-            wsq = GulpWsSharedQueue.get_instance()
+            wsq = GulpRedisBroker.get_instance()
             await wsq.put(
                 WSDATA_COLLAB_CREATE,
                 user_id,
