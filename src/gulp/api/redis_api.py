@@ -57,7 +57,7 @@ class GulpRedis:
             cls._instance = cls()
         return cls._instance
 
-    def initialize(self, server_id: str) -> None:
+    def initialize(self, server_id: str, main_process: bool=True) -> None:
         """
         Initialize Redis pub/sub connections.
         
@@ -76,45 +76,45 @@ class GulpRedis:
             url_parts.hostname,
             url_parts.port,
         )
-        
-        # create pub/sub connection
-        self._pubsub = self._redis.pubsub()
-        
-        MutyLogger.get_instance().info(
-            "initialized Redis pub/sub for server_id=%s", server_id
-        )
+
+        if main_process:                
+            # create pub/sub connection
+            self._pubsub = self._redis.pubsub()
+            
+            MutyLogger.get_instance().info(
+                "initialized Redis pub/sub for server_id=%s", server_id
+            )
     
-    async def shutdown(self) -> None:
+    async def shutdown(self, main_process: bool=True) -> None:
         """
         close Redis connections and cleanup.
         """        
-        # cancel all subscriber tasks
-        try:
-            if self._subscriber_task:
-                # only main process have subscriber task
-                self._subscriber_task.cancel()
-                await asyncio.wait_for(self._subscriber_task, timeout=5.0)
-                MutyLogger.get_instance().debug("cancelled subscriber task!")
-        except asyncio.TimeoutError:
-            MutyLogger.get_instance().warning("timeout cancelling subscriber task!")
-        except Exception as ex:
-            MutyLogger.get_instance().exception("error cancelling subscriber task!")
-    
-        # close pubsub
-        if self._pubsub:
+        if main_process:
+            # cancel all subscriber tasks
+            try:
+                if self._subscriber_task:
+                    # only main process have subscriber task
+                    self._subscriber_task.cancel()
+                    await asyncio.wait_for(self._subscriber_task, timeout=5.0)
+                    MutyLogger.get_instance().debug("cancelled subscriber task!")
+            except asyncio.TimeoutError:
+                MutyLogger.get_instance().warning("timeout cancelling subscriber task!")
+            except Exception as ex:
+                MutyLogger.get_instance().exception("error cancelling subscriber task!")
+        
+            # close pubsub
             try:
                 await self._pubsub.close()
                 MutyLogger.get_instance().debug("pubsub closed!")
             except Exception as ex:
                 MutyLogger.get_instance().exception("error closing pubsub!")
-        
+            
         # close redis client
-        if self._redis:
-            try:
-                await self._redis.close()
-                MutyLogger.get_instance().info("Redis client %s connection closed", self._redis)
-            except Exception as ex:
-                MutyLogger.get_instance().exception("error closing redis client!")
+        try:
+            await self._redis.close()
+            MutyLogger.get_instance().info("Redis client %s connection closed", self._redis)
+        except Exception as ex:
+            MutyLogger.get_instance().exception("error closing redis client!")
         
     
     def _get_ws_metadata_key(self, ws_id: str) -> str:

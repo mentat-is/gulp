@@ -332,7 +332,7 @@ class GulpProcess:
             # in the worker process, initialize opensearch and collab clients (main process already did it)
             GulpOpenSearch.get_instance()
             await GulpCollab.get_instance().init()
-            GulpRedis.get_instance().initialize(server_id)
+            GulpRedis.get_instance().initialize(server_id, main_process=False) # do not initialize pub/sub in worker process, just redis client
 
             # worker process initialized
             MutyLogger.get_instance().info(
@@ -340,7 +340,7 @@ class GulpProcess:
             )
 
             # register sigterm handler for the worker process
-            signal.signal(signal.SIGTERM, GulpProcess.sigterm_handler)
+            #signal.signal(signal.SIGTERM, GulpProcess.sigterm_handler)
 
 
 
@@ -357,7 +357,7 @@ class GulpProcess:
             # close clients
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
-            await GulpRedis.get_instance().shutdown()
+            await GulpRedis.get_instance().shutdown(main_process=False)
 
             # close thread pool
             await GulpProcess.get_instance().close_thread_pool()
