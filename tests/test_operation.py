@@ -5,6 +5,24 @@ import os
 import pytest
 import pytest_asyncio
 import websockets
+from gulp_client.common import (
+    GulpAPICommon,
+    _cleanup_test_operation,
+    _ensure_test_operation,
+)
+from gulp_client.db import GulpAPIDb
+from gulp_client.object_acl import GulpAPIObjectACL
+from gulp_client.operation import GulpAPIOperation
+from gulp_client.query import GulpAPIQuery
+from gulp_client.test_values import (
+    TEST_HOST,
+    TEST_INDEX,
+    TEST_OPERATION_ID,
+    TEST_REQ_ID,
+    TEST_WS_ID,
+)
+from gulp_client.user import GulpAPIUser
+from gulp_client.user_group import GulpAPIUserGroup
 from muty.log import MutyLogger
 
 from gulp.api.collab.structs import (
@@ -14,24 +32,6 @@ from gulp.api.collab.structs import (
     GulpCollabFilter,
 )
 from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
-from gulp_client.common import (
-    GulpAPICommon,
-    _ensure_test_operation,
-    _cleanup_test_operation,
-)
-from gulp_client.db import GulpAPIDb
-from gulp_client.object_acl import GulpAPIObjectACL
-from gulp_client.operation import GulpAPIOperation
-from gulp_client.query import GulpAPIQuery
-from gulp_client.user import GulpAPIUser
-from gulp_client.user_group import GulpAPIUserGroup
-from gulp_client.test_values import (
-    TEST_HOST,
-    TEST_INDEX,
-    TEST_OPERATION_ID,
-    TEST_REQ_ID,
-    TEST_WS_ID,
-)
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 
 
@@ -376,3 +376,74 @@ async def test_operation_api():
         ingest_token, TEST_OPERATION_ID, context_id=context_id, expected_status=404
     )
     MutyLogger.get_instance().info("all OPERATION tests succeeded!")
+
+@pytest.mark.asyncio
+async def test_context():
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    ctx = await GulpAPIOperation.context_create(ingest_token, TEST_OPERATION_ID, "new_context")
+    assert ctx.get("name") == "new_context"
+    context_id = ctx["id"]
+
+    # get context by id
+    ctx2 = await GulpAPIOperation.context_get_by_id(ingest_token, context_id)
+    assert ctx2["id"] == context_id
+
+    # update context
+    ctx2 = await GulpAPIOperation.context_update(
+        ingest_token, context_id, color="blue", description="context description"
+    )
+    assert ctx2.get("color") == "blue"
+    assert ctx2.get("description") == "context description"
+
+    # create source
+    src = await GulpAPIOperation.source_create(
+        ingest_token, TEST_OPERATION_ID, context_id, "new_source"
+    )
+    assert src.get("name") == "new_source"
+    source_id = src["id"]
+
+    # get source by id
+    src2 = await GulpAPIOperation.source_get_by_id(ingest_token, source_id)
+    assert src2["id"] == source_id
+    assert src2["context_id"] == context_id
+
+    # update source
+    src2 = await GulpAPIOperation.source_update(
+        ingest_token, source_id, color="green", description="source description"
+    )
+    assert src2.get("color") == "green"
+    assert src2.get("description") == "source description"
+
+    # get context and check source
+    ctx3 = await GulpAPIOperation.context_get_by_id(ingest_token, context_id)
+    assert ctx3.get("sources") and len(ctx3["sources"]) == 1
+    assert ctx3["sources"][0]["id"] == source_id
+
+    # delete source
+    await GulpAPIOperation.source_delete(
+        ingest_token,
+        TEST_OPERATION_ID,
+        context_id,
+        source_id,
+    )
+    ctx4 = await GulpAPIOperation.context_get_by_id(ingest_token, context_id)
+    assert not ctx4.get("sources") or len(ctx4["sources"]) == 0
+
+    # list contexts
+    contexts = await GulpAPIOperation.context_list(ingest_token, TEST_OPERATION_ID)
+    assert contexts and len(contexts) == 1
+    found = False
+    for c in contexts:
+        if c["id"] == context_id:
+            found = True
+            break
+    assert found
+
+    # delete context
+    await GulpAPIOperation.context_delete(ingest_token, context_id)
+    contexts = await GulpAPIOperation.context_list(ingest_token, TEST_OPERATION_ID)
+    assert len(contexts) == 0
+    MutyLogger.get_instance().info("all CONTEXT tests succeeded!")
+    

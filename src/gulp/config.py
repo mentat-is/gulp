@@ -356,13 +356,13 @@ class GulpConfig:
         """
         Returns whether to ignore missing websocket connection (default: False).
         """
-        n = True
+        force_check_ws: str = os.getenv("GULP_FORCE_CHECK_WS", "0")
 
-        if __debug__:
-            # if self.is_integration_test():
-            #     return True
-            n = self._config.get("debug_ignore_missing_ws", False)
-
+        if int(force_check_ws) == 0:
+            # on integration test, skip
+            if self.is_integration_test():
+                return True
+        n = self._config.get("debug_ignore_missing_ws", False)
         return n
 
     def debug_no_token_expiration(self) -> bool:
