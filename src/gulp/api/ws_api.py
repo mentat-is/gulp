@@ -207,6 +207,7 @@ class GulpCollabDeletePacket(BaseModel):
     """
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"id": "the id"}]})
+    type: Annotated[str, Field(description="The deleted collab object type.")]
     id: Annotated[str, Field(description="The deleted collab object ID.")]
 
 
@@ -931,9 +932,9 @@ class GulpConnectedSocket:
 
             # connection is verified, send the message            
             await self.ws.send_json(item)
-            # MutyLogger.get_instance().debug(
-            #     "---> SENT message to ws_id=%s, type=%s, content=%s", self.ws_id, item.get("type"), item
-            # )
+            MutyLogger.get_instance().debug(
+                "---> SENT message to ws_id=%s, type=%s, content=%s", self.ws_id, item.get("type"), item
+            )
             await asyncio.sleep(GulpConfig.get_instance().ws_rate_limit_delay())
             return True
         except asyncio.TimeoutError:
@@ -1480,6 +1481,13 @@ class GulpWsSharedQueue:
             process a single message from the queue, called by gather() below
             """
             cws = GulpConnectedSockets.get_instance().get(msg.ws_id)
+            # MutyLogger.get_instance().debug(
+            #     "processing message from shard %s: %s, target ws_id=%s, connected ws=%s",
+            #     q,
+            #     msg,
+            #     msg.ws_id,
+            #     cws,
+            # )
             if cws or msg.internal:
                 await GulpConnectedSockets.get_instance().broadcast_message(msg)
 
@@ -1548,6 +1556,12 @@ class GulpWsSharedQueue:
                     break
 
                 # process batch concurrently
+                # MutyLogger.get_instance().debug(
+                #     "processing batch of %d messages from shard %s (queue size=%d)",
+                #     len(messages),
+                #     q,
+                #     queue_size,
+                # )
                 start_time: float = time.time()
                 await asyncio.gather(
                     *[_process_message(msg) for msg in messages],
@@ -1669,7 +1683,19 @@ class GulpWsSharedQueue:
         backoff_cap = GulpConfig.get_instance().ws_queue_backoff_cap()
         for retry in range(max_retries):
             try:
+                # MutyLogger.get_instance().debug(
+                #     "putting internal event in queue %s for ws_id=%s, attempt %d/%d",
+                #     target_queue,
+                #     wsd.ws_id,
+                #     retry + 1,
+                #     max_retries,
+                # )
                 target_queue.put(wsd, block=False)
+                # MutyLogger.get_instance().debug(
+                #     "successfully put internal event in queue %s for ws_id=%s",
+                #     target_queue,
+                #     wsd.ws_id,
+                # )
                 return
             except queue.Full:
                 # exponential backoff with cap

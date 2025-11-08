@@ -975,6 +975,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
         # notify websocket
         p = GulpCollabCreatePacket(obj=data)
+        # MutyLogger.get_instance().debug(
+        #     "notifying websocket id=%s of new object id=%s, type=%s", ws_id, instance.id, cls.__gulp_collab_type__
+        # )
         wsq = GulpWsSharedQueue.get_instance()
         await wsq.put(
             ws_data_type,
@@ -1225,7 +1228,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if ws_data:
             data = ws_data
         else:
-            p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=obj_id)
+            p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=obj_id, type=self.type)
             data = p.model_dump()
 
         wsq = GulpWsSharedQueue.get_instance()
