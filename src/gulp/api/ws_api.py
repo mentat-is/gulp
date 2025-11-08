@@ -216,6 +216,7 @@ class GulpCollabDeletePacket(BaseModel):
     """
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"id": "the id"}]})
+    type: Annotated[str, Field(description="The deleted collab object type.")]
     id: Annotated[str, Field(description="The deleted collab object ID.")]
 
 
@@ -916,9 +917,9 @@ class GulpConnectedSocket:
 
             # connection is verified, send the message            
             await self.ws.send_json(item)
-            # MutyLogger.get_instance().debug(
-            #     "---> SENT message to ws_id=%s, type=%s, content=%s", self.ws_id, item.get("type"), item
-            # )
+            MutyLogger.get_instance().debug(
+                "---> SENT message to ws_id=%s, type=%s, content=%s", self.ws_id, item.get("type"), item
+            )
             await asyncio.sleep(GulpConfig.get_instance().ws_rate_limit_delay())
             return True
         except asyncio.CancelledError:

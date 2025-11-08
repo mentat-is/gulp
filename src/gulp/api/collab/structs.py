@@ -1225,7 +1225,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if ws_data:
             data = ws_data
         else:
-            p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=obj_id)
+            p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=obj_id, type=self.type)
             data = p.model_dump()
 
         redis_broker = GulpRedisBroker.get_instance()
