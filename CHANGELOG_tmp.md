@@ -16,6 +16,7 @@
 - server_api/operation: removed "context_id", "operation_id" in source_delete (not needed, source object has it)
 - server_api/operation: context_list,source_list returns 404 when operation is not found
 - server_api/operation: context_delete, context_update: added ws_id
+- server_api/operation: context_create, source_create: as in other create APIs, returns the full object created (not only the id)
 - server_api/operation: source_delete, source_update: added_ws_id
 - server_api/operation: operation_delete, operation_update: added ws_id
 - server_api/operation: operation_create, removed index (index is always derived by name), added "operation_data" (forgot before)

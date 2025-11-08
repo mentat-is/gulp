@@ -522,9 +522,10 @@ async def context_get_by_id_handler(
                 sess,
                 token,
                 obj_id,
+                recursive=True,
             )
             return JSendResponse.success(
-                req_id=req_id, data=obj.to_dict(exclude_none=True)
+                req_id=req_id, data=obj.to_dict(exclude_none=True, nested=True)
             )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -562,20 +563,21 @@ async def context_delete_handler(
     delete_data: Annotated[
         Optional[bool],
         Query(
-            description="also deletes the related data on the given opensearch `index`."
+            description="also deletes the related data from context's operation"
         ),
     ] = True,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # get operation and check acl on it
+            # get context
             op: GulpOperation
             s: GulpUserSession
             ctx: GulpContext
-            s, ctx, op = await GulpOperation.get_by_id_wrapper(
+            s, ctx, op = await GulpContext.get_by_id_wrapper(
                 sess, token, context_id, permission=GulpUserPermission.INGEST
             )
+            MutyLogger.get_instance().info("got context=%s, operation=%s", ctx, op)
             if delete_data:
                 # delete all data
                 MutyLogger.get_instance().info(
@@ -606,7 +608,7 @@ async def context_delete_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"id": "obj_id"},
+                        "data": GulpContext.example(),
                     }
                 }
             }
@@ -665,7 +667,7 @@ async def context_create_handler(
                     f"context name={ctx.name}, id={ctx.id} already exists in operation_id={operation_id}."
                 )
 
-            return JSendResponse.success(req_id=req_id, data={"id": ctx.id})
+            return JSendResponse.success(req_id=req_id, data=ctx.to_dict())
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -833,7 +835,7 @@ async def source_get_by_id_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"id": "obj_id"},
+                        "data": GulpSource.example(),
                     }
                 }
             }
@@ -901,7 +903,7 @@ async def source_create_handler(
                     f"source name={ctx.name}, id={src.id} already exists in operation_id={operation_id}, context_id={ctx.id}."
                 )
 
-            return JSendResponse.success(req_id=req_id, data={"id": src.id})
+            return JSendResponse.success(req_id=req_id, data=src.to_dict())
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
