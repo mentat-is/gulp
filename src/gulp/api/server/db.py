@@ -45,6 +45,7 @@ from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpRedisBroker
 from gulp.config import GulpConfig
+from gulp.plugin import GulpInternalEventsManager
 from gulp.process import GulpProcess
 
 router: APIRouter = APIRouter()
@@ -385,6 +386,13 @@ async def opensearch_delete_index_handler(
             await GulpOpenSearch.get_instance().datastream_delete(
                 ds=index, throw_on_error=True
             )
+            await GulpInternalEventsManager.get_instance().broadcast_event(
+                GulpInternalEventsManager.EVENT_DELETE_OPERATION,
+                data=dict(index=index),
+                user_id=user_id,
+                req_id=req_id,
+            )
+
             return JSONResponse(
                 JSendResponse.success(
                     req_id=req_id,

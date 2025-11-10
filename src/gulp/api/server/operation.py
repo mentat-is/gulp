@@ -20,6 +20,7 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
+from gulp.plugin import GulpInternalEventsManager
 from gulp.structs import ObjectAlreadyExists
 
 router: APIRouter = APIRouter()
@@ -258,6 +259,12 @@ async def operation_delete_handler(
 
                 # delete the index
                 await GulpOpenSearch.get_instance().datastream_delete(index)
+                await GulpInternalEventsManager.get_instance().broadcast_event(
+                    GulpInternalEventsManager.EVENT_DELETE_OPERATION,
+                    data=dict(index=index),
+                    user_id=user_id,
+                    req_id=req_id,
+                )
 
             # delete the operation itself
             MutyLogger.get_instance().info(
@@ -562,9 +569,7 @@ async def context_delete_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     delete_data: Annotated[
         Optional[bool],
-        Query(
-            description="also deletes the related data from context's operation"
-        ),
+        Query(description="also deletes the related data from context's operation"),
     ] = True,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())

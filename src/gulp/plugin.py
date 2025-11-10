@@ -513,6 +513,7 @@ class GulpInternalEventsManager:
     EVENT_LOGIN: str = WSDATA_USER_LOGIN  # data=GulpUserAccessPacket
     EVENT_LOGOUT: str = WSDATA_USER_LOGOUT  # data=GulpUserAccessPacket
     EVENT_INGEST: str = "ingestion"
+    EVENT_DELETE_OPERATION: str = "delete_operation"
 
     def __init__(self):
         self._initialized: bool = True
@@ -2940,7 +2941,7 @@ class GulpPluginBase(ABC):
                 status=status.value,
             )
 
-            disconnected: bool =False
+            disconnected: bool = False
             try:
                 await GulpRedisBroker.get_instance().put(
                     WSDATA_INGEST_SOURCE_DONE,
@@ -2956,7 +2957,6 @@ class GulpPluginBase(ABC):
                 errors.append(str(ex))
                 source_finished = True
                 status = GulpRequestStatus.FAILED
-
 
         self._raw_flush_count += 1
         # "and not disconnected" since if the websocket is disconnected, we want to update stats
