@@ -145,7 +145,7 @@ async def _query_raw_chunk_callback(
     """
     cb_context: dict = kwargs["cb_context"]
     MutyLogger.get_instance().debug(
-        "query chunk callback, chunk_num=%d, cb_context=%s", chunk_num, cb_context
+        "query chunk callback, chunk_num=%d, cb_context=%s", chunk_num, muty.string.make_shorter(cb_context, max_len=260)
     )
 
     cb_context["total_hits"] = total_hits
@@ -232,7 +232,7 @@ async def _run_query(
         req_id,
         operation_id,
         ws_id,
-        gq,
+        muty.string.make_shorter(str(gq), max_len=260)
         q_options,
         index,
         plugin,
