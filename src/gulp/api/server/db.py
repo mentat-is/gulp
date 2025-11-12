@@ -39,6 +39,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.redis_api import GulpRedis
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
@@ -290,18 +291,23 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
             user_id = s.user.id
             index = op.index
 
-            # offload to a worker process and return pending
-            await GulpServer.get_instance().spawn_worker_task(
-                _rebase_by_query_internal,
-                req_id,
-                ws_id,
-                user_id,
-                operation_id,
-                index,
-                offset_msec,
-                flt,
-                script,
-            )
+            # enqueue rebase task to Redis for main process dispatcher
+            task_msg = {
+                "task_type": "rebase",
+                "operation_id": operation_id,
+                "user_id": user_id,
+                "ws_id": ws_id,
+                "req_id": req_id,
+                "params": {
+                    "index": index,
+                    "offset_msec": offset_msec,
+                    "flt": flt.model_dump(exclude_none=True)
+                    if hasattr(flt, "model_dump")
+                    else flt,
+                    "script": script,
+                },
+            }
+            await GulpRedis.get_instance().task_enqueue(task_msg)
             return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

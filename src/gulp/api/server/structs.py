@@ -13,14 +13,14 @@ and user credentials. These methods ensure consistent parameter handling across
 the API endpoints.
 """
 
-from os import name
 import re
+from os import name
 from typing import Annotated, Optional
 
+import muty.string
+from fastapi import Body, File, Header, Query, UploadFile
 from fastapi.exceptions import RequestValidationError
 from llvmlite.tests.test_ir import flt
-import muty.string
-from fastapi import Body, Header, Query, UploadFile, File
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
@@ -33,6 +33,7 @@ from gulp.structs import GulpPluginParameters
 TASK_TYPE_INGEST: str = "ingest"
 TASK_TYPE_INGEST_RAW: str = "ingest_raw"
 TASK_TYPE_QUERY: str = "query"
+TASK_TYPE_REBASE: str = "rebase"
 
 # 5-16 characters length, only letters, numbers, underscore, dot, @, dash allowed
 REGEX_CHECK_USERNAME = "^([a-zA-Z0-9_.@-]).{4,16}$"

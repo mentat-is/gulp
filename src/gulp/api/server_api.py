@@ -471,6 +471,13 @@ class GulpServer:
                         elif ttype == "query":
                             # run_query_task runs in main process and spawns workers itself
                             self.spawn_bg_task(run_query_task(obj), name=f"query_task_{obj.get('req_id')}")
+                        elif ttype == "rebase":
+                            # rebase task: run main-process handler that will spawn a worker
+                            from gulp.api.server.query_task import run_rebase_task
+
+                            self.spawn_bg_task(
+                                run_rebase_task(obj), name=f"rebase_task_{obj.get('req_id')}"
+                            )
 
                 except asyncio.CancelledError:
                     MutyLogger.get_instance().debug("blocking task loop cancelled!")
@@ -482,21 +489,35 @@ class GulpServer:
             MutyLogger.get_instance().info("EXITING blocking task loop ...")
 
     @staticmethod
-    def spawn_bg_task(coro: Coroutine, name: str = None) -> bool:
+    def spawn_bg_task(coro, name: str = None) -> bool:
         """
         spawns a background task without awaiting it
 
         Args:
-            coro (Coroutine): the coroutine to spawn
+            coro (Coroutine|Task): the coroutine to spawn
             name (str, optional): the name of the task: if a task with the same name already exists in the current process, it will not spawn another one.
 
         Returns:
             bool: True if the task was spawned, False otherwise (e.g. a task with the same name already exists).
         """
 
+        import inspect
+
+        # determine how to obtain the coroutine: either coro is a callable factory
+        # (not yet created) or it is an already-created coroutine object.
+        is_callable = callable(coro)
+        is_coro_obj = asyncio.iscoroutine(coro)
+        is_task = isinstance(coro, asyncio.Task)
+
+        def _make_coro_from_input():
+            if is_callable:
+                return coro()
+            return coro
+
         async def _run_and_await():
             try:
-                await coro
+                _coro = _make_coro_from_input()
+                await _coro
             except Exception as ex:
                 MutyLogger.get_instance().exception(
                     "***ERROR*** in background task: %s", ex
@@ -512,6 +533,16 @@ class GulpServer:
                         "a task with the same name (%s) already exists, not spawning another one!",
                         name,
                     )
+                    # if the caller passed an already-created coroutine object, make
+                    # sure we close it to avoid leaking an un-awaited coroutine.
+                    try:
+                        if is_coro_obj:
+                            coro.close()
+                        elif is_task:
+                            # cancel the task if it was somehow created already
+                            coro.cancel()
+                    except Exception:
+                        pass
                     return False
         _ = asyncio.create_task(_run_and_await(), name=name)
         return True
