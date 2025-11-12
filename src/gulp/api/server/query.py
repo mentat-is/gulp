@@ -5,7 +5,7 @@ This module contains FastAPI router endpoints for different types of queries:
 - Raw OpenSearch DSL queries
 - Simplified Gulp queries with filters
 - External data source queries
-- Sigma rule queries (single and batch via ZIP)
+- Sigma rule queries
 - Single document queries
 - Field mapping and aggregate operations
 
@@ -20,7 +20,6 @@ import asyncio
 import json
 import os
 import tempfile
-from asyncio import gather
 from copy import deepcopy
 from typing import Annotated, Any, Optional
 
@@ -199,6 +198,84 @@ async def _query_raw_chunk_callback(
         )
     return chunk
 
+
+async def run_query_task(t: dict) -> None:
+    """
+    runs in a worker process and executes a queued query task.
+
+    Expected task dict (same shape used by enqueue in handlers):
+      {
+        "task_type": "query",
+        "operation_id": <str>,
+        "user_id": <str>,
+        "ws_id": <str>,
+        "req_id": <str>,
+        "params": {
+            "queries": [<GulpQuery dict>],
+            "q_options": <dict>,
+            "index": <str|null>,
+            "plugin": <str|null>,
+            "plugin_params": <dict|null>
+         }
+      }
+
+    This function rehydrates the payload and calls the existing `process_queries` routine.
+    """
+    MutyLogger.get_instance().debug("run_query_task, t=%s", t)
+    try:
+        params: dict = t.get("params", {})
+        user_id: str = t.get("user_id")
+        req_id: str = t.get("req_id")
+        operation_id: str = t.get("operation_id")
+        ws_id: str = t.get("ws_id")
+
+        queries = params.get("queries", [])
+        q_options = params.get("q_options", {})
+        index = params.get("index")
+        plugin = params.get("plugin")
+        plugin_params = params.get("plugin_params")
+
+        # rebuild pydantic models from dict payloads
+        q_models: list[GulpQuery] = []
+        for qq in queries:
+            if isinstance(qq, dict):
+                q_models.append(GulpQuery.model_validate(qq))
+            elif isinstance(qq, GulpQuery):
+                q_models.append(qq)
+            else:
+                # try to coerce
+                q_models.append(GulpQuery(q=qq))
+
+        q_options_model: GulpQueryParameters = (
+            GulpQueryParameters.model_validate(q_options)
+            if isinstance(q_options, dict)
+            else q_options
+        )
+
+        # rebuild plugin_params if needed
+        plugin_params_model = None
+        if plugin_params:
+            plugin_params_model = (
+                GulpPluginParameters.model_validate(plugin_params)
+                if isinstance(plugin_params, dict)
+                else plugin_params
+            )
+
+        # call process_queries to handle all queries together (needed for group matching logic)
+        await process_queries(
+            user_id=user_id,
+            req_id=req_id,
+            operation_id=operation_id,
+            ws_id=ws_id,
+            queries=q_models,
+            num_total_queries=len(q_models),
+            q_options=q_options_model,
+            index=index,
+            plugin=plugin,
+            plugin_params=plugin_params_model,
+        )
+    except Exception as ex:
+        MutyLogger.get_instance().exception("error in run_query_task: %s", ex)
 
 async def run_query(
     user_id: str,

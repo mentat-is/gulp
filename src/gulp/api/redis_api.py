@@ -11,7 +11,7 @@ import redis.asyncio as redis
 from muty.log import MutyLogger
 from pydantic import BaseModel, Field
 from redis.asyncio.client import PubSub
-
+import muty.string
 from gulp.config import GulpConfig
 
 
@@ -316,7 +316,7 @@ class GulpRedis:
                         MutyLogger.get_instance().debug(
                             "---> received message on channel %s: %s",
                             channel,
-                            message,
+                            muty.string.make_shorter(str(message), max_len=260),
                         )
                         d: dict = orjson.loads(message["data"])
                         await callback(d)

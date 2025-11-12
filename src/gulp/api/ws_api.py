@@ -16,7 +16,7 @@ from gitdb.fun import chunk_size
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
-
+import muty.string
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
@@ -918,7 +918,7 @@ class GulpConnectedSocket:
             # connection is verified, send the message            
             await self.ws.send_json(item)
             MutyLogger.get_instance().debug(
-                "---> SENT message to ws_id=%s, type=%s, content=%s", self.ws_id, item.get("type"), item
+                "---> SENT message to ws_id=%s, type=%s, content=%s", self.ws_id, item.get("type"), muty.string.make_shorter(str(item),max_len=260)
             )
             await asyncio.sleep(GulpConfig.get_instance().ws_rate_limit_delay())
             return True
