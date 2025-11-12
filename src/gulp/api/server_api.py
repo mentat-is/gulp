@@ -434,9 +434,16 @@ class GulpServer:
         from gulp.api.server.ingest import run_ingest_file_task
         from gulp.api.server.query import run_query_task
 
-        limit: int = GulpConfig.get_instance().concurrency_num_tasks()
+        # compute total capacity: number of worker processes * per-worker concurrency
+        child_concurrency: int = GulpConfig.get_instance().concurrency_num_tasks()
+        num_workers: int = GulpConfig.get_instance().parallel_processes_max()
+        total_capacity: int = max(1, num_workers * child_concurrency)
+        limit: int = total_capacity
         MutyLogger.get_instance().info(
-            "STARTING blocking task loop, max batch size=%d ...", limit
+            "STARTING blocking task loop, max batch size=%d (num_workers=%d, child_concurrency=%d) ...",
+            limit,
+            num_workers,
+            child_concurrency,
         )
 
         try:

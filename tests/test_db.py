@@ -58,6 +58,7 @@ async def _ws_loop_rebase_by_query(total: int = None):
                 response = await ws.recv()
                 data = json.loads(response)
                 payload = data.get("payload", {})
+                MutyLogger.get_instance().debug("data: %s", data)
 
                 if data["type"] == "ws_connected":
                     # ws connected
@@ -114,6 +115,7 @@ async def test_rebase_by_query():
         operation_id=TEST_OPERATION_ID,
         offset_msec=one_day_msec,
         ws_id=TEST_WS_ID,
+        req_id="rebase_req",
         flt=GulpQueryFilter(operation_ids=[TEST_OPERATION_ID], source_ids=[source_id]),
     )
     await _ws_loop_rebase_by_query()

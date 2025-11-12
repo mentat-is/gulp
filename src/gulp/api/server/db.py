@@ -7,7 +7,6 @@ including operations like creating/deleting indexes, resetting the collaboration
 The endpoints are organized into several main operations:
 - OpenSearch datastream operations (create, delete, list)
 - PostgreSQL collaboration database management
-- Complete system reset
 - Index rebasing operations
 
 Most operations require admin-level permissions, as they can potentially delete or modify significant amounts of data.

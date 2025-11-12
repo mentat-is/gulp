@@ -1495,9 +1495,17 @@ class GulpRedisBroker:
         redis_client = GulpRedis.get_instance()
         message_dict = wsd.model_dump(exclude_none=True)
         
+
         # determine if this should be broadcast to all instances or just local
         if wsd.type in self.broadcast_types or wsd.internal:
-            # broadcast to all instances
+            # process here
+            if GulpProcess.get_instance().is_main_process():
+                await self._process_message(wsd)
+            else:
+                message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
+                await redis_client.publish(message_dict)
+            
+            # then broadcast to all other instances
             message_dict["__channel__"] = GulpRedisChannel.BROADCAST.value
             message_dict["__server_id__"] = redis_client.server_id
             await redis_client.publish(message_dict)
