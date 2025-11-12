@@ -64,6 +64,7 @@ from gulp.api.opensearch.structs import (
     GulpQueryParameters,
 )
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.redis_api import GulpRedis
 from gulp.api.server.ingest import GulpIngestionStats
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
@@ -145,7 +146,7 @@ async def _query_raw_chunk_callback(
     """
     cb_context: dict = kwargs["cb_context"]
     MutyLogger.get_instance().debug(
-        "query chunk callback, chunk_num=%d, cb_context=%s", chunk_num, cb_context
+        "query chunk callback, chunk_num=%d, cb_context=%s", chunk_num, muty.string.make_shorter(cb_context, max_len=260)
     )
 
     cb_context["total_hits"] = total_hits
@@ -199,7 +200,7 @@ async def _query_raw_chunk_callback(
     return chunk
 
 
-async def _run_query(
+async def run_query(
     user_id: str,
     req_id: str,
     operation_id: str,
@@ -211,7 +212,18 @@ async def _run_query(
     plugin_params: GulpPluginParameters = None,
 ) -> tuple[int, int, str, bool]:
     """
-    runs a single query in a worker
+    runs a single query in a coroutine running in a worker process (through aiomultiprocess)
+
+    Args:
+        user_id: str - user id
+        req_id: str - request id
+        operation_id: str - operation id
+        ws_id: str - websocket id
+        gq: GulpQuery - query to run
+        q_options: GulpQueryParameters - query options
+        index: str - index to query (for external queries)
+        plugin: str - plugin name (for external queries)
+        plugin_params: GulpPluginParameters - plugin parameters (for external queries)
 
     Returns:
         total_hits: int - number of hits
@@ -227,12 +239,12 @@ async def _run_query(
     stats: GulpRequestStats = None
     exx: Exception = None
     MutyLogger.get_instance().debug(
-        "---> _run_query: user_id=%s, req_id=%s, operation_id=%s, ws_id=%s, gq=%s, q_options=%s, index=%s, plugin=%s, plugin_params=%s",
+        "---> run_query: user_id=%s, req_id=%s, operation_id=%s, ws_id=%s, gq=%s, q_options=%s, index=%s, plugin=%s, plugin_params=%s",
         user_id,
         req_id,
         operation_id,
         ws_id,
-        gq,
+        muty.string.make_shorter(str(gq),max_len=260),
         q_options,
         index,
         plugin,
@@ -441,7 +453,7 @@ async def process_queries(
                     # MutyLogger.get_instance().debug("about to run _run_query with: %s", run_query_args)
                     coros.append(
                         GulpProcess.get_instance().process_pool.apply(
-                            _run_query, kwds=run_query_args
+                            run_query, kwds=run_query_args
                         )
                     )
 
@@ -750,16 +762,19 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                     queries.append(gq)
 
             # run a background task (will batch queries, spawn workers, gather results)
-            coro = process_queries(
-                user_id,
-                req_id,
-                operation_id,
-                ws_id,
-                queries,
-                len(queries),
-                q_options,
-            )
-            GulpServer.spawn_bg_task(coro)
+            # enqueue task for worker dispatch (always enqueue unless preview)
+            task_msg = {
+                "task_type": "query",
+                "operation_id": operation_id,
+                "user_id": user_id,
+                "ws_id": ws_id,
+                "req_id": req_id,
+                "params": {
+                    "queries": [q.model_dump(exclude_none=True) for q in queries],
+                    "q_options": q_options.model_dump(exclude_none=True),
+                },
+            }
+            await GulpRedis.get_instance().task_enqueue(task_msg)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -864,18 +879,21 @@ async def query_gulp_handler(
                     )
                 )
 
-            # run a background task to process the query
+            # run a background task to process the query: always enqueue (unless preview handled above)
             queries: list[GulpQuery] = [GulpQuery(q_name=q_options.name, q=q)]
-            coro = process_queries(
-                user_id,
-                req_id,
-                operation_id,
-                ws_id,
-                queries,
-                len(queries),
-                q_options,
-            )
-            GulpServer.spawn_bg_task(coro)
+            task_msg = {
+                "task_type": "query",
+                "operation_id": operation_id,
+                "user_id": user_id,
+                "ws_id": ws_id,
+                "req_id": req_id,
+                "params": {
+                    "queries": [q.model_dump(exclude_none=True) for q in queries],
+                    "q_options": q_options.model_dump(exclude_none=True),
+                    "index": op.index,
+                },
+            }
+            await GulpRedis.get_instance().task_enqueue(task_msg)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1008,22 +1026,23 @@ async def query_external_handler(
                     )
                 )
 
-            # run a background task to process the query
-            # we use process_query_batch to reuse code (but we have a single query only)
+            # run a background task to process the query: always enqueue (unless preview handled above)
             queries: list[GulpQuery] = [GulpQuery(q_name=q_options.name, q=q)]
-            coro = process_queries(
-                user_id,
-                req_id,
-                operation_id,
-                ws_id,
-                queries,
-                len(queries),
-                q_options,
-                index=index,
-                plugin=plugin,
-                plugin_params=plugin_params,
-            )
-            GulpServer.spawn_bg_task(coro)
+            task_msg = {
+                "task_type": "query",
+                "operation_id": operation_id,
+                "user_id": user_id,
+                "ws_id": ws_id,
+                "req_id": req_id,
+                "params": {
+                    "queries": [q.model_dump(exclude_none=True) for q in queries],
+                    "q_options": q_options.model_dump(exclude_none=True),
+                    "index": index,
+                    "plugin": plugin,
+                    "plugin_params": plugin_params.model_dump(exclude_none=True) if plugin_params else None,
+                },
+            }
+            await GulpRedis.get_instance().task_enqueue(task_msg)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1186,16 +1205,19 @@ async def query_sigma_handler(
                 )
 
             # run a background task (will batch queries, spawn workers, gather results)
-            coro = process_queries(
-                user_id,
-                req_id,
-                operation_id,
-                ws_id,
-                queries,
-                len(queries),
-                q_options,
-            )
-            GulpServer.spawn_bg_task(coro)
+            # enqueue task for worker dispatch (always enqueue unless preview)
+            task_msg = {
+                "task_type": "query",
+                "operation_id": operation_id,
+                "user_id": user_id,
+                "ws_id": ws_id,
+                "req_id": req_id,
+                "params": {
+                    "queries": [q.model_dump(exclude_none=True) for q in queries],
+                    "q_options": q_options.model_dump(exclude_none=True),
+                },
+            }
+            await GulpRedis.get_instance().task_enqueue(task_msg)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))

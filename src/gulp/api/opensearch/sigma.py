@@ -204,7 +204,7 @@ def _sigma_rule_to_gulp_query(
         q_name=rule_name,
         sigma_yml=sigma_yml,
         sigma_id=rule_id,
-        sigma_tags=rule_tags,
+        tags=rule_tags,
         q=q,
     )
     MutyLogger.get_instance().debug(

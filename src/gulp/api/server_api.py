@@ -432,6 +432,7 @@ class GulpServer:
         Waits for a task, then drains up to concurrency limit and dispatches to workers.
         """
         from gulp.api.server.ingest import run_ingest_file_task
+        from gulp.api.server.query_task import run_query_task
 
         limit: int = GulpConfig.get_instance().concurrency_num_tasks()
         MutyLogger.get_instance().info(
@@ -457,8 +458,11 @@ class GulpServer:
                     )
 
                     for obj in batch:
-                        if obj.get("task_type") == "ingest":
+                        ttype = obj.get("task_type")
+                        if ttype == "ingest":
                             await self.spawn_worker_task(run_ingest_file_task, obj)
+                        elif ttype == "query":
+                            await self.spawn_worker_task(run_query_task, obj)
 
                 except asyncio.CancelledError:
                     MutyLogger.get_instance().debug("blocking task loop cancelled!")

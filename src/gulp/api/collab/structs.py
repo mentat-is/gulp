@@ -1278,7 +1278,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         deleted_count: int = res.rowcount
         await sess.commit()
         MutyLogger.get_instance().debug(
-            "user_id=%s, deleted %d objects (optimized)", user_id, deleted_count
+            "user_id=%s, deleted %d objects", user_id, deleted_count
         )
         return deleted_count
 

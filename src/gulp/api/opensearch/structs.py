@@ -730,8 +730,8 @@ class GulpQuery(BaseModel):
         q_name: str = None,
         sigma_yml: str = None,
         sigma_id: str = None,
-        sigma_tags: list[str] = None,
-        q_group: str = None,
+        tags: list[str] = None,        
+        q_group: str = None,        
     ) -> None:
         if not q_name:
             # autogenerate name
@@ -741,6 +741,6 @@ class GulpQuery(BaseModel):
             q_name=q_name,
             sigma_yml=sigma_yml,
             sigma_id=sigma_id,
-            sigma_tags=sigma_tags or [],
+            tags=tags or [],
             q_group=q_group,
         )
