@@ -232,7 +232,7 @@ async def _run_query(
         req_id,
         operation_id,
         ws_id,
-        muty.string.make_shorter(str(gq), max_len=260)
+        muty.string.make_shorter(str(gq), max_len=260),
         q_options,
         index,
         plugin,
