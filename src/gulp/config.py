@@ -486,11 +486,10 @@ class GulpConfig:
         adaptive: bool = self.concurrency_adaptive_num_tasks()
         num_tasks: int = self._config.get("concurrency_num_tasks", 0)
         if not adaptive:
-            if not num_tasks:
+            if num_tasks < 2:
+                MutyLogger.get_instance().warning(
+                    "invalid concurrency_num_tasks=%d, set to default=16", num_tasks)
                 num_tasks = 16
-                MutyLogger.get_instance().debug(
-                    "using default number of tasks per process=%d" % (num_tasks)
-                )
             return num_tasks
 
         # adaptive, calculate

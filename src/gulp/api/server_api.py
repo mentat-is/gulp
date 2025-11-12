@@ -447,10 +447,10 @@ class GulpServer:
                         continue  # timeout, loop again
 
                     batch: list[dict] = [first]
+                    
                     # drain remaining up to limit-1 non-blocking
-                    if limit > 1:
-                        rest = await GulpRedis.get_instance().task_dequeue_batch(limit - 1)
-                        batch.extend(rest)
+                    rest = await GulpRedis.get_instance().task_dequeue_batch(limit - 1)
+                    batch.extend(rest)
 
                     MutyLogger.get_instance().debug(
                         "processing batch of %d task(s)", len(batch)
