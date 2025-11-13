@@ -64,6 +64,7 @@ WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the q
 
 SHARED_MEMORY_KEY_ACTIVE_SOCKETS = "active_sockets"
 
+
 class GulpRedisChannel(StrEnum):
     """
     Redis pubsub channels for websocket communication
@@ -71,6 +72,7 @@ class GulpRedisChannel(StrEnum):
 
     BROADCAST = "broadcast"
     WORKER_TO_MAIN = "worker_to_main"
+
 
 class GulpWsData(BaseModel):
     """
@@ -128,6 +130,7 @@ class GulpWsData(BaseModel):
             alias="gulp.operation_id",
         ),
     ] = None
+
 
 class GulpCollabCreatePacket(BaseModel):
     """
@@ -236,8 +239,10 @@ class GulpUserAccessPacket(BaseModel):
     user_id: Annotated[str, Field(description="The user ID.")]
     login: Annotated[
         bool, Field(description="If the event is a login event, either it is a logout.")
-    ]=True
-    req_id: Annotated[Optional[str], Field(description="The request ID, if any.")] = None
+    ] = True
+    req_id: Annotated[Optional[str], Field(description="The request ID, if any.")] = (
+        None
+    )
     ip: Annotated[
         Optional[str],
         Field(
@@ -245,6 +250,7 @@ class GulpUserAccessPacket(BaseModel):
             description="The IP address of the user, if available.",
         ),
     ] = None
+
 
 class GulpWsAcknowledgedPacket(BaseModel):
     """
@@ -627,9 +633,9 @@ class GulpWsAuthPacket(BaseModel):
             description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
         ),
     ] = None
-    req_id: Annotated[
-        Optional[str], Field(description="the request ID, if any.")
-    ] = None
+    req_id: Annotated[Optional[str], Field(description="the request ID, if any.")] = (
+        None
+    )
 
 
 class GulpDocumentsChunkPacket(BaseModel):
@@ -737,10 +743,11 @@ class GulpConnectedSocket:
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
         """
         from gulp.api.server_api import GulpServer
+
         self.ws = ws
         self.ws_id = ws_id
         self.types = types
-        self._terminated: bool=False
+        self._terminated: bool = False
         self.operation_ids = operation_ids
         self.socket_type = socket_type
         self._cleaned_up = False
@@ -748,7 +755,7 @@ class GulpConnectedSocket:
         self._tasks: list[asyncio.Task] = []
         # each socket has its own asyncio queue, consumed by its own task
         self.q = asyncio.Queue()
-        
+
     async def _flush_queue(self) -> None:
         """
         flushes the websocket queue and send the terminator message.
@@ -806,7 +813,6 @@ class GulpConnectedSocket:
             self.ws,
             self.ws_id,
         )
-
 
     @staticmethod
     async def is_alive(ws_id: str) -> bool:
@@ -907,7 +913,7 @@ class GulpConnectedSocket:
             if not item:
                 self._terminated = True
                 return True
-            
+
             # check state before sending
             current_task = asyncio.current_task()
             if current_task and current_task.cancelled():
@@ -916,10 +922,13 @@ class GulpConnectedSocket:
             # raise exception if websocket is disconnected
             self.validate_connection()
 
-            # connection is verified, send the message            
+            # connection is verified, send the message
             await self.ws.send_json(item)
             MutyLogger.get_instance().debug(
-                "---> SENT message to ws_id=%s, type=%s, content=%s", self.ws_id, item.get("type"), muty.string.make_shorter(str(item),max_len=260)
+                "---> SENT message to ws_id=%s, type=%s, content=%s",
+                self.ws_id,
+                item.get("type"),
+                muty.string.make_shorter(str(item), max_len=260),
             )
             await asyncio.sleep(GulpConfig.get_instance().ws_rate_limit_delay())
             return True
@@ -947,7 +956,8 @@ class GulpConnectedSocket:
             self.validate_connection()
             if self._terminated:
                 MutyLogger.get_instance().debug(
-                    "---> _receive loop terminator found, terminating ws_id=%s", self.ws_id
+                    "---> _receive loop terminator found, terminating ws_id=%s",
+                    self.ws_id,
                 )
                 break
 
@@ -970,7 +980,9 @@ class GulpConnectedSocket:
         processes outgoing messages (filled by the shared queue) and sends them to the websocket
         """
         try:
-            MutyLogger.get_instance().debug(f"---> starting send loop for ws_id={self.ws_id}")
+            MutyLogger.get_instance().debug(
+                f"---> starting send loop for ws_id={self.ws_id}"
+            )
 
             # tracking variables for metrics
             message_count: int = 0
@@ -981,7 +993,8 @@ class GulpConnectedSocket:
                 message_processed = await self._process_queue_message()
                 if self._terminated:
                     MutyLogger.get_instance().debug(
-                        "---> _send loop terminator found, terminating ws_id=%s", self.ws_id
+                        "---> _send loop terminator found, terminating ws_id=%s",
+                        self.ws_id,
                     )
                     break
 
@@ -995,16 +1008,22 @@ class GulpConnectedSocket:
                         await asyncio.sleep(self.YIELD_CONTROL_DELAY)
 
         except asyncio.CancelledError:
-            MutyLogger.get_instance().warning("---> send loop canceled for ws_id=%s", self.ws_id)
+            MutyLogger.get_instance().warning(
+                "---> send loop canceled for ws_id=%s", self.ws_id
+            )
             raise
 
         except WebSocketDisconnect as ex:
-            MutyLogger.get_instance().warning("---> websocket disconnected: ws_id=%s", self.ws_id)
+            MutyLogger.get_instance().warning(
+                "---> websocket disconnected: ws_id=%s", self.ws_id
+            )
             MutyLogger.get_instance().exception(ex)
             raise
 
         except Exception as ex:
-            MutyLogger.get_instance().error("---> error in send loop: ws_id=%s", self.ws_id)
+            MutyLogger.get_instance().error(
+                "---> error in send loop: ws_id=%s", self.ws_id
+            )
             MutyLogger.get_instance().exception(ex)
             raise
 
@@ -1025,14 +1044,22 @@ class GulpConnectedSocket:
         self._tasks.extend([send_task, receive_task])
 
         # Wait for first task to complete
-        done, pending = await asyncio.wait(self._tasks, return_when=asyncio.FIRST_EXCEPTION)
+        done, pending = await asyncio.wait(
+            self._tasks, return_when=asyncio.FIRST_EXCEPTION
+        )
 
         # MutyLogger.get_instance().debug("---> wait returned for ws_id=%s, done=%s, pending=%s", self.ws_id, done, pending)
         for d in done:
-            MutyLogger.get_instance().debug("---> completed task %s for ws_id=%s", d.get_name(), self.ws_id)
+            MutyLogger.get_instance().debug(
+                "---> completed task %s for ws_id=%s", d.get_name(), self.ws_id
+            )
         if pending:
             for t in pending:
-                MutyLogger.get_instance().debug("---> cancelling pending task %s for ws_id=%s", t.get_name(), self.ws_id)
+                MutyLogger.get_instance().debug(
+                    "---> cancelling pending task %s for ws_id=%s",
+                    t.get_name(),
+                    self.ws_id,
+                )
                 t.cancel()
                 try:
                     await t
@@ -1040,6 +1067,7 @@ class GulpConnectedSocket:
                     MutyLogger.get_instance().debug(
                         "pending task %s cancelled successfully", t.get_name()
                     )
+
 
 class GulpConnectedSockets:
     """
@@ -1104,7 +1132,7 @@ class GulpConnectedSockets:
             existing_socket = self._sockets[ws_id]
             await existing_socket.cleanup()
             del self._sockets[ws_id]
-            
+
         # create connected socket instance
         connected_socket = GulpConnectedSocket(
             ws=ws,
@@ -1116,15 +1144,15 @@ class GulpConnectedSockets:
 
         # store local socket reference
         self._sockets[ws_id] = connected_socket
-        
+
         # register in Redis
         redis_client = GulpRedis.get_instance()
         await redis_client.ws_register(
-                ws_id=ws_id,
-                types=types,
-                operation_ids=operation_ids,
-                socket_type=socket_type.value,
-            )
+            ws_id=ws_id,
+            types=types,
+            operation_ids=operation_ids,
+            socket_type=socket_type.value,
+        )
 
         MutyLogger.get_instance().debug(
             "---> added connected ws: %s, ws_id=%s, len=%d",
@@ -1414,37 +1442,31 @@ class GulpRedisBroker:
     async def initialize(self) -> None:
         """
         Initialize Redis pub/sub subscriptions
-         
-        NOTE: must be called in the main process.        
+
+        NOTE: must be called in the main process.
         """
         redis_client = GulpRedis.get_instance()
-        
+
         # subscribe to worker->main channel
-        await redis_client.subscribe(
-            self._handle_pubsub_message
-        )
-        MutyLogger.get_instance().info(
-            "GulpRedisBroker initialized!"
-        )
+        await redis_client.subscribe(self._handle_pubsub_message)
+        MutyLogger.get_instance().info("GulpRedisBroker initialized!")
 
     async def shutdown(self) -> None:
         """
         Deinitialize Redis pub/sub subscriptions
-        
-        NOTE: must be called in the main process.        
+
+        NOTE: must be called in the main process.
         """
         redis_client = GulpRedis.get_instance()
-        
+
         # unsubscribe from worker->main channel
         await redis_client.unsubscribe()
-        MutyLogger.get_instance().info(
-            "GulpRedisBroker uninitialized!"
-        )
+        MutyLogger.get_instance().info("GulpRedisBroker uninitialized!")
 
     async def _handle_pubsub_message(self, message: dict) -> None:
         """
         Handle a message from Redis pub/sub.
-        
+
         Args:
             message (dict): The message dictionary (GulpWsData)
         """
@@ -1452,10 +1474,14 @@ class GulpRedisBroker:
         server_id: str = message.pop("__server_id__", None)
         redis_client = GulpRedis.get_instance()
 
-        if server_id and server_id == redis_client.server_id and channel == GulpRedisChannel.BROADCAST.value:
+        if (
+            server_id
+            and server_id == redis_client.server_id
+            and channel == GulpRedisChannel.BROADCAST.value
+        ):
             # avoid processing our own broadcast messages
             return
-        
+
         try:
             wsd = GulpWsData.model_validate(message)
             if channel == GulpRedisChannel.WORKER_TO_MAIN.value:
@@ -1463,19 +1489,20 @@ class GulpRedisBroker:
             elif channel == GulpRedisChannel.BROADCAST.value:
                 # only process if we have this websocket or it's a broadcast type
                 server_id = await redis_client.ws_get_server(wsd.ws_id)
-                
+
                 # check if this message is for this instance (we have the websocket) or if it's a broadcast type
-                if server_id == redis_client.server_id or wsd.type in self.broadcast_types:
+                if (
+                    server_id == redis_client.server_id
+                    or wsd.type in self.broadcast_types
+                ):
                     await self._process_message(wsd)
         except Exception as ex:
-            MutyLogger.get_instance().error(
-                "error processing pubsub message: %s", ex
-            )
-    
+            MutyLogger.get_instance().error("error processing pubsub message: %s", ex)
+
     async def _process_message(self, msg: GulpWsData) -> None:
         """
         Process a single message and route to appropriate websockets.
-        
+
         Args:
             msg (GulpWsData): The message to process
         """
@@ -1486,15 +1513,14 @@ class GulpRedisBroker:
     async def _put_common(self, wsd: GulpWsData) -> None:
         """
         Publish message to Redis (or process directly).
-        
+
         Args:
             wsd (GulpWsData): The message to publish
         """
         from gulp.process import GulpProcess
-        
+
         redis_client = GulpRedis.get_instance()
         message_dict = wsd.model_dump(exclude_none=True)
-        
 
         # determine if this should be broadcast to all instances or just local
         if wsd.type in self.broadcast_types or wsd.internal:
@@ -1504,7 +1530,7 @@ class GulpRedisBroker:
             else:
                 message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
                 await redis_client.publish(message_dict)
-            
+
             # then broadcast to all other instances
             message_dict["__channel__"] = GulpRedisChannel.BROADCAST.value
             message_dict["__server_id__"] = redis_client.server_id
@@ -1574,12 +1600,9 @@ class GulpRedisBroker:
         """
 
         # verify websocket is alive (check Redis registry)
-        if ws_id:
-            redis_client = GulpRedis.get_instance()
-            server_id = await redis_client.ws_get_server(ws_id)
-            if not server_id:
-                raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
 
+        if not GulpConnectedSocket.is_alive(ws_id):
+            raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
         # create the message
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
