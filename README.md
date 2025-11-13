@@ -84,21 +84,38 @@ the following environment variables may be set to override configuration options
 
 > using the default [docker-compose.yml](./docker-compose.yml)
 
+#### gulp
+
 - [gulp swagger page on http://localhost:8080/docs](http://localhost:8080/docs)
 - [gulp web UI on http://localhost:3000](http://localhost:3000)
   - **user/pwd: `admin/admin`** (default gulp admin user)
 
+#### postgreSQL
+
 - postgreSQL on **localhost:5432**
   - **user/pwd: `postgres/Gulp1234!`**
 
-- [adminer on http://localhost:8001](http://localhost:8081) to manage postgreSQL.
+- [adminer on http://localhost:8001](http://localhost:8081) to manage postgreSQL (use `--profile dev`)
   - **server/user/pwd: `postgres/postgres/Gulp1234!`**
+
+#### OpenSearch
 
 - [opensearch on http://localhost:9200](http://localhost:9200)
   - **user/pwd: `admin/Gulp1234!`**
 
-- [elasticvue on http://localhost:8082](http://localhost:8082) to visualize OpensSearch indexes.
+- [elasticvue on http://localhost:8082](http://localhost:8082) to visualize OpensSearch indexes  (use `--profile dev`)
+
 - [opensearch dashboards on http://localhost:5001](http://localhost:5601) for a more comprehensive OpenSearch management.
+
+#### redis
+
+- redis on **localhost:6379**
+  - **user/pwd: `default/Gulp1234!`**
+
+- [redis insight on http://localhost:5540](http://localhost:8002) to manage redis  (use `--profile dev`)
+
+
+#### sftpd
 
 - [vsftpd on port 21(ftp) or 21000 (sftp)](ftp://localhost:21) to manage files in `$GULP_WORKING_DIR`
   - **user/pwd: `gulp/Gulp1234!`**
