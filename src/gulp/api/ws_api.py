@@ -1615,4 +1615,3 @@ class GulpRedisBroker:
             payload=d,
         )
         await self._put_common(wsd)
-        await self._put_common(wsd)
