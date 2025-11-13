@@ -17,6 +17,7 @@ from typing import Optional
 
 import muty.crypto
 from muty.log import MutyLogger
+import muty.string
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -179,6 +180,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
 
         await sess.refresh(self)
         MutyLogger.get_instance().debug(
-            f"source {src.id}, name={name} added to context {self.id}, src={src}, ctx={self}"
+            "source=%s, name=%s added to context=%s, src=%s, ctx=%s", src.id, name, self.id, muty.string.make_shorter(str(src),max_len=260), 
+            muty.string.make_shorter(str(self), max_len=260)
         )
         return src, True

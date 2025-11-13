@@ -9,6 +9,7 @@ from threading import Lock
 from typing import Annotated, Any, Literal, Optional
 
 import muty
+import muty.string
 import muty.time
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
@@ -16,7 +17,7 @@ from gitdb.fun import chunk_size
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
-import muty.string
+
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
@@ -945,7 +946,7 @@ class GulpConnectedSocket:
             # raise exception if websocket is disconnected
             self.validate_connection()
             if self._terminated:
-                self._logger.debug(
+                MutyLogger.get_instance().debug(
                     "---> _receive loop terminator found, terminating ws_id=%s", self.ws_id
                 )
                 break
@@ -957,7 +958,7 @@ class GulpConnectedSocket:
                 # no message received
                 continue
             except asyncio.CancelledError:
-                self._logger.warning(
+                MutyLogger.get_instance().warning(
                     "---> _receive loop canceled for ws_id=%s", self.ws_id
                 )
                 raise
@@ -1073,7 +1074,6 @@ class GulpConnectedSockets:
 
     def _initialize(self):
         self._sockets: dict[str, GulpConnectedSocket] = {}
-        self._logger = MutyLogger.get_instance()
 
     async def add(
         self,
@@ -1097,7 +1097,7 @@ class GulpConnectedSockets:
         """
         if ws_id in self._sockets:
             # disconnect the existing socket with the same ID
-            self._logger.warning(
+            MutyLogger.get_instance().warning(
                 "add(): websocket with ws_id=%s already exists, disconnecting existing socket",
                 ws_id,
             )
@@ -1126,7 +1126,7 @@ class GulpConnectedSockets:
                 socket_type=socket_type.value,
             )
 
-        self._logger.debug(
+        MutyLogger.get_instance().debug(
             "---> added connected ws: %s, ws_id=%s, len=%d",
             ws,
             ws_id,
@@ -1141,11 +1141,11 @@ class GulpConnectedSockets:
         Args:
             ws_id (str): The WebSocket ID.
         """
-        self._logger.debug("---> remove, ws_id=%s", ws_id)
+        MutyLogger.get_instance().debug("---> remove, ws_id=%s", ws_id)
 
         connected_socket = self._sockets.get(ws_id)
         if not connected_socket:
-            self._logger.warning(
+            MutyLogger.get_instance().warning(
                 "remove(): no websocket ws_id=%s found, num connected sockets=%d",
                 ws_id,
                 len(self._sockets),
@@ -1160,7 +1160,7 @@ class GulpConnectedSockets:
         redis_client = GulpRedis.get_instance()
         await redis_client.ws_unregister(ws_id)
 
-        self._logger.debug(
+        MutyLogger.get_instance().debug(
             "---> removed connected ws=%s, ws_id=%s, num connected sockets=%d",
             connected_socket.ws,
             ws_id,
@@ -1187,14 +1187,14 @@ class GulpConnectedSockets:
         sockets_to_cancel = list(self._sockets.values())
 
         for connected_socket in sockets_to_cancel:
-            self._logger.warning(
+            MutyLogger.get_instance().warning(
                 "---> canceling ws=%s, ws_id=%s",
                 connected_socket.ws,
                 connected_socket.ws_id,
             )
             await connected_socket.cleanup_tasks()
 
-        self._logger.debug(
+        MutyLogger.get_instance().debug(
             "---> all active websockets cancelled, count=%d", len(sockets_to_cancel)
         )
 
@@ -1271,7 +1271,7 @@ class GulpConnectedSockets:
         try:
             await target_ws.q.put(message)
         except Exception as ex:
-            self._logger.exception(
+            MutyLogger.get_instance().exception(
                 "failed to route message to ws_id=%s: %s", target_ws.ws_id, ex
             )
         return True
@@ -1283,7 +1283,7 @@ class GulpConnectedSockets:
         Args:
             data (GulpWsData): The internal message to process.
         """
-        # self._logger.debug(f"processing internal message: {data}")
+        # MutyLogger.get_instance().debug(f"processing internal message: {data}")
         from gulp.plugin import GulpInternalEventsManager
 
         # MutyLogger.get_instance().debug(
@@ -1338,7 +1338,7 @@ class GulpConnectedSockets:
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     ws_id = ws_ids[i]
-                    self._logger.warning(
+                    MutyLogger.get_instance().warning(
                         "failed to broadcast to (local) ws_id=%s: %s, removing dead socket",
                         ws_id,
                         result,
@@ -1591,4 +1591,5 @@ class GulpRedisBroker:
             private=private,
             payload=d,
         )
+        await self._put_common(wsd)
         await self._put_common(wsd)

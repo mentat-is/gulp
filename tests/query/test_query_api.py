@@ -7,23 +7,17 @@ import muty.file
 import pytest
 import pytest_asyncio
 import websockets
-from muty.log import MutyLogger
-
-from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabFilter
-from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp_client.common import (
     GulpAPICommon,
+    _cleanup_test_operation,
     _ensure_test_operation,
     _test_ingest_ws_loop,
-    _cleanup_test_operation,
 )
 from gulp_client.ingest import GulpAPIIngest
 from gulp_client.note import GulpAPINote
 from gulp_client.object_acl import GulpAPIObjectACL
 from gulp_client.operation import GulpAPIOperation
 from gulp_client.query import GulpAPIQuery
-from gulp_client.user import GulpAPIUser
 from gulp_client.test_values import (
     TEST_CONTEXT_ID,
     TEST_HOST,
@@ -32,12 +26,19 @@ from gulp_client.test_values import (
     TEST_REQ_ID,
     TEST_WS_ID,
 )
+from gulp_client.user import GulpAPIUser
+from muty.log import MutyLogger
+
+from gulp.api.collab.structs import COLLABTYPE_OPERATION, GulpCollabFilter
+from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp.api.ws_api import (
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
     GulpWsAuthPacket,
 )
 from gulp.structs import GulpMappingParameters
+from tests.ingest.test_ingest import test_win_evtx
 
 TEST_QUERY_RAW = {
     "query": {
@@ -61,7 +62,7 @@ async def _setup():
 
 
 async def _login_and_ingest(
-    user: str = "guest", password: str = "guest"
+    user: str = "guest", password: str = "guest", start_loop=False
 ) -> tuple[str, str]:
     """
     login and (if SKIP_RESET not set) ingest some data
@@ -74,7 +75,6 @@ async def _login_and_ingest(
     skip_reset = os.getenv("SKIP_RESET", "0")
     if skip_reset == "0":
         # ingest some data
-        from tests.ingest.test_ingest import test_win_evtx
 
         await test_win_evtx()
 
@@ -84,164 +84,174 @@ async def _login_and_ingest(
 
 
 async def _test_query_internal(q_type: str):
-    guest_token, _ = await _login_and_ingest()
+    async def _loop():
+        MutyLogger.get_instance().info("starting _test_query_internal loop, type=%s", q_type)
+        _, host = TEST_HOST.split("://")
+        ws_url = f"ws://{host}/ws"
+        test_completed = False
+        async with websockets.connect(ws_url) as ws:
+            # connect websocket
+            p: GulpWsAuthPacket = GulpWsAuthPacket(token=guest_token, ws_id=TEST_WS_ID)
+            await ws.send(p.model_dump_json(exclude_none=True))
 
-    MutyLogger.get_instance().info("ingested data, starting query")
-    _, host = TEST_HOST.split("://")
-    ws_url = f"ws://{host}/ws"
-    test_completed = False
-    async with websockets.connect(ws_url) as ws:
-        # connect websocket
-        p: GulpWsAuthPacket = GulpWsAuthPacket(token=guest_token, ws_id=TEST_WS_ID)
-        await ws.send(p.model_dump_json(exclude_none=True))
-
-        # receive responses
-        q_name: str = None
-        q_options = GulpQueryParameters(limit=2)
-        current_dir: str = os.path.dirname(os.path.realpath(__file__))
-        MutyLogger.get_instance().debug("current_dir=%s", current_dir)
-        num_matches: int = 0
-        query_group: str = None
-        query_raw_dict = {
-            "query": {
-                "query_string": {
-                    "query": "gulp.context_id: %s AND gulp.operation_id: %s"
-                    % (TEST_CONTEXT_ID, TEST_OPERATION_ID),
+            # receive responses
+            q_name: str = None
+            q_options = GulpQueryParameters(limit=2)
+            current_dir: str = os.path.dirname(os.path.realpath(__file__))
+            MutyLogger.get_instance().debug("current_dir=%s", current_dir)
+            num_matches: int = 0
+            query_group: str = None
+            query_raw_dict = {
+                "query": {
+                    "query_string": {
+                        "query": "gulp.context_id: %s AND gulp.operation_id: %s"
+                        % (TEST_CONTEXT_ID, TEST_OPERATION_ID),
+                    }
                 }
             }
-        }
 
-        try:
-            while True:
-                response = await ws.recv()
-                data = json.loads(response)
-                payload = data.get("payload", {})
-                if data["type"] == "ws_connected":
-                    # run test
-                    if q_type == "gulp":
-                        # query_gulp
-                        q_name = "test_gulp_query"
-                        q_options.name = q_name
-                        num_matches: int = 7
-                        await GulpAPIQuery.query_gulp(
-                            guest_token,
-                            TEST_OPERATION_ID,
-                            flt=GulpQueryFilter(
-                                operation_ids=[TEST_OPERATION_ID],
-                                context_ids=[TEST_CONTEXT_ID],
-                            ),
-                            q_options=q_options,
-                            req_id="req_test_gulp_query",
-                        )
-                    elif q_type == "raw":
-                        q_name = "test_raw_query"
-                        q_options.name = q_name
-                        num_matches: int = 7
-                        await GulpAPIQuery.query_raw(
-                            guest_token,
-                            TEST_OPERATION_ID,
-                            [query_raw_dict],
-                            q_options=q_options,
-                            req_id="req_test_raw_query",
-                        )
-                    elif q_type == "query_raw_group":
-                        num_matches: int = 140
-                        q_name = "test_raw_group"
-                        q_options.name = q_name
-                        q_options.create_notes = True
-                        q_options.group = "raw_group"
-                        query_group = q_options.group
-                        q_raw_array = []
-                        for _ in range(20):
-                            q_raw_array.append(query_raw_dict)
-                        await GulpAPIQuery.query_raw(
-                            guest_token,
-                            TEST_OPERATION_ID,
-                            q_raw_array,
-                            q_options=q_options,
-                            req_id="req_test_raw_group",
-                        )
-                    elif q_type == "sigma":
-                        sigma_yml: str = await muty.file.read_file_async(
-                            os.path.join(current_dir, "sigma/match_all.yaml")
-                        )
-
-                        ids: list[str] = ["64e7c3a4013ae243aa13151b5449aac884e36081"]
-                        num_matches = 7
-                        q_name = "Match All Events"
-                        q_options.create_notes = True
-                        await GulpAPIQuery.query_sigma(
-                            guest_token,
-                            TEST_OPERATION_ID,
-                            [sigma_yml.decode("utf-8")],
-                            src_ids=ids,
-                            q_options=q_options,
-                            req_id="req_test_sigma",
-                        )
-                    elif q_type == "query_sigma_group":
-                        sigma_1_yml: str = await muty.file.read_file_async(
-                            os.path.join(current_dir, "sigma/match_some.yaml")
-                        )
-                        sigma_2_yml: str = await muty.file.read_file_async(
-                            os.path.join(current_dir, "sigma/match_some_more.yaml")
-                        )
-
-                        ids: list[str] = ["64e7c3a4013ae243aa13151b5449aac884e36081"]
-                        num_matches: int = 5
-                        q_name = "test_sigma_group"
-                        q_options.create_notes = True
-                        q_options.group = "sigma_group"
-                        query_group = q_options.group
-                        await GulpAPIQuery.query_sigma(
-                            guest_token,
-                            TEST_OPERATION_ID,
-                            [sigma_1_yml.decode("utf-8"), sigma_2_yml.decode("utf-8")],
-                            src_ids=ids,
-                            q_options=q_options,
-                            req_id="req_test_sigma_group",
-                        )
-                elif data["type"] == "query_group_match":
-                    # query group match!
-                    q_match_packet: GulpQueryGroupMatchPacket = (
-                        GulpQueryGroupMatchPacket.model_validate(payload)
-                    )
-                    MutyLogger.get_instance().debug(
-                        "query_group_match, group=%s, matches=%s",
-                        q_match_packet.group,
-                        q_match_packet.matches,
-                    )
-                    assert q_match_packet.group == query_group
-                    test_completed = True
-                    break
-                elif data["type"] == "query_done":
-                    # a single query is done
-                    # query sigma group waits for query_group_match packets
-                    q_done_packet: GulpQueryDonePacket = (
-                        GulpQueryDonePacket.model_validate(payload)
-                    )
-                    MutyLogger.get_instance().debug(
-                        "query done, name=%s", q_done_packet.q_name
-                    )
-                    if not query_group:
-                        # not a group query
-                        if q_done_packet.q_name == q_name:
-                            assert q_done_packet.total_hits == num_matches
-                            test_completed = True
-                        else:
-                            raise ValueError(
-                                f"unexpected query name: {q_done_packet.q_name}, expected={q_name}"
+            try:
+                while True:
+                    response = await ws.recv()
+                    data = json.loads(response)
+                    payload = data.get("payload", {})
+                    if data["type"] == "ws_connected":
+                        # run test
+                        if q_type == "gulp":
+                            # query_gulp
+                            q_name = "test_gulp_query"
+                            q_options.name = q_name
+                            num_matches: int = 7
+                            await GulpAPIQuery.query_gulp(
+                                guest_token,
+                                TEST_OPERATION_ID,
+                                flt=GulpQueryFilter(
+                                    operation_ids=[TEST_OPERATION_ID],
+                                    context_ids=[TEST_CONTEXT_ID],
+                                ),
+                                q_options=q_options,
+                                req_id="req_test_gulp_query",
                             )
+                        elif q_type == "raw":
+                            q_name = "test_raw_query"
+                            q_options.name = q_name
+                            num_matches: int = 7
+                            await GulpAPIQuery.query_raw(
+                                guest_token,
+                                TEST_OPERATION_ID,
+                                [query_raw_dict],
+                                q_options=q_options,
+                                req_id="req_test_raw_query",
+                            )
+                        elif q_type == "query_raw_group":
+                            num_matches: int = 140
+                            q_name = "test_raw_group"
+                            q_options.name = q_name
+                            q_options.create_notes = True
+                            q_options.group = "raw_group"
+                            query_group = q_options.group
+                            q_raw_array = []
+                            for _ in range(20):
+                                q_raw_array.append(query_raw_dict)
+                            await GulpAPIQuery.query_raw(
+                                guest_token,
+                                TEST_OPERATION_ID,
+                                q_raw_array,
+                                q_options=q_options,
+                                req_id="req_test_raw_group",
+                            )
+                        elif q_type == "sigma":
+                            sigma_yml: str = await muty.file.read_file_async(
+                                os.path.join(current_dir, "sigma/match_all.yaml")
+                            )
+
+                            ids: list[str] = ["64e7c3a4013ae243aa13151b5449aac884e36081"]
+                            num_matches = 7
+                            q_name = "Match All Events"
+                            q_options.create_notes = True
+                            await GulpAPIQuery.query_sigma(
+                                guest_token,
+                                TEST_OPERATION_ID,
+                                [sigma_yml.decode("utf-8")],
+                                src_ids=ids,
+                                q_options=q_options,
+                                req_id="req_test_sigma",
+                            )
+                        elif q_type == "query_sigma_group":
+                            sigma_1_yml: str = await muty.file.read_file_async(
+                                os.path.join(current_dir, "sigma/match_some.yaml")
+                            )
+                            sigma_2_yml: str = await muty.file.read_file_async(
+                                os.path.join(current_dir, "sigma/match_some_more.yaml")
+                            )
+
+                            ids: list[str] = ["64e7c3a4013ae243aa13151b5449aac884e36081"]
+                            num_matches: int = 5
+                            q_name = "test_sigma_group"
+                            q_options.create_notes = True
+                            q_options.group = "sigma_group"
+                            query_group = q_options.group
+                            await GulpAPIQuery.query_sigma(
+                                guest_token,
+                                TEST_OPERATION_ID,
+                                [sigma_1_yml.decode("utf-8"), sigma_2_yml.decode("utf-8")],
+                                src_ids=ids,
+                                q_options=q_options,
+                                req_id="req_test_sigma_group",
+                            )
+                    elif data["type"] == "query_group_match":
+                        # query group match!
+                        q_match_packet: GulpQueryGroupMatchPacket = (
+                            GulpQueryGroupMatchPacket.model_validate(payload)
+                        )
+                        MutyLogger.get_instance().debug(
+                            "query_group_match, group=%s, matches=%s",
+                            q_match_packet.group,
+                            q_match_packet.matches,
+                        )
+                        assert q_match_packet.group == query_group
+                        test_completed = True
                         break
+                    elif data["type"] == "query_done":
+                        # a single query is done
+                        # query sigma group waits for query_group_match packets
+                        q_done_packet: GulpQueryDonePacket = (
+                            GulpQueryDonePacket.model_validate(payload)
+                        )
+                        MutyLogger.get_instance().debug(
+                            "query done, name=%s", q_done_packet.q_name
+                        )
+                        if not query_group:
+                            # not a group query
+                            if q_done_packet.q_name == q_name:
+                                assert q_done_packet.total_hits == num_matches
+                                test_completed = True
+                            else:
+                                raise ValueError(
+                                    f"unexpected query name: {q_done_packet.q_name}, expected={q_name}"
+                                )
+                            break
 
-                # ws delay
-                await asyncio.sleep(0.1)
+                    # ws delay
+                    await asyncio.sleep(0.1)
 
-        except websockets.exceptions.ConnectionClosed as ex:
-            MutyLogger.get_instance().exception(ex)
-            raise
+            except websockets.exceptions.ConnectionClosed as ex:
+                MutyLogger.get_instance().exception(ex)
+                raise
 
-    assert test_completed
+        assert test_completed
 
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+
+    skip_reset = os.getenv("SKIP_RESET", "0")
+    if skip_reset == "0":
+        # ingest some data
+        await test_win_evtx()
+
+    # wait loop
+    await _loop()
+    
 
 @pytest.mark.asyncio
 async def test_query_gulp():
@@ -355,6 +365,10 @@ async def test_query_operations():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
     file_path = os.path.join(samples_dir, "Security_short_selected.evtx")
+    
+    t = asyncio.create_task(_test_ingest_ws_loop(check_ingested=7, check_processed=7))
+    await asyncio.sleep(1)
+
     await GulpAPIIngest.ingest_file(
         token=ingest_token,
         file_path=file_path,
@@ -363,7 +377,7 @@ async def test_query_operations():
         plugin="win_evtx",
         req_id="new_req_id",
     )
-    await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+    await t
 
     # check that the guest user cannot see the new operation
     operations = await GulpAPIQuery.query_operations(guest_token)

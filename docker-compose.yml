@@ -74,6 +74,14 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
     command: [ "redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}" ]
 
+  redis-insight:
+    profiles: [ "dev" ]
+    image: redislabs/redisinsight:latest
+    ports:
+      - 5540:5540
+    depends_on:
+      - redis
+
   elasticvue:
     profiles: [ "dev" ]
     image: cars10/elasticvue:latest
