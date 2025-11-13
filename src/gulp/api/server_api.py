@@ -468,7 +468,7 @@ class GulpServer:
                         ttype = obj.get("task_type")
                         if ttype == "ingest":
                             await self.spawn_worker_task(run_ingest_file_task, obj)
-                        elif ttype == "query":
+                        elif ttype == "query" or ttype == "external_query":
                             # run_query_task runs in main process and spawns workers itself
                             self.spawn_bg_task(run_query_task(obj), name=f"query_task_{obj.get('req_id')}")
                         elif ttype == "rebase":

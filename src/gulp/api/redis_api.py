@@ -6,12 +6,13 @@ import asyncio
 from typing import Annotated, Any, Callable, Optional
 from urllib.parse import urlparse
 
+import muty.string
 import orjson
 import redis.asyncio as redis
 from muty.log import MutyLogger
 from pydantic import BaseModel, Field
 from redis.asyncio.client import PubSub
-import muty.string
+
 from gulp.config import GulpConfig
 
 
@@ -48,12 +49,16 @@ class GulpRedis:
 
     _instance: "GulpRedis" = None
     CHANNEL = "gulpredis"
+    # redis set key to track known task types (members are task_type strings)
+    TASK_TYPES_SET = "gulp:queue:types"
 
     def __init__(self):
         self._redis: redis.Redis = None
         self._pubsub: PubSub = None
         self._subscriber_task: asyncio.Task = None
         self.server_id: str = None
+        # list of roles assigned to this server instance (e.g. ['ingest', 'query'])
+        self._server_roles: list[str] = []
         # simple task queue (list) key
         self._task_queue_key: str = "gulp:queue:tasks"
 
@@ -85,6 +90,9 @@ class GulpRedis:
             server_id (str): The unique server instance ID
         """
         self.server_id = server_id
+
+        # determine instance roles from configuration
+        self._server_roles = GulpConfig.get_instance().instance_roles()
 
         # create redis client
         url: str = GulpConfig.get_instance().redis_url()
@@ -353,9 +361,28 @@ class GulpRedis:
               {"task_type": str, "operation_id": str, "user_id": str, "ws_id": str, "req_id": str, "params": dict}
         """
         payload: bytes = orjson.dumps(task)
-        await self._redis.rpush(self._task_queue_key, payload)
+
+        # tasks must have a task_type; push only to the type-specific queue
+        ttype = task.get("task_type")
+        if not ttype:
+            MutyLogger.get_instance().error(
+                "task missing 'task_type', not enqueued: %s", task
+            )
+            return
+
+        role_key = f"{self._task_queue_key}:{ttype}"
+        try:
+            await self._redis.rpush(role_key, payload)
+            # record known task type
+            await self._redis.sadd(GulpRedis.TASK_TYPES_SET, ttype)
+        except Exception:
+            # best-effort: log and continue
+            MutyLogger.get_instance().exception(
+                "failed to push task into role-specific queue '%s'", role_key
+            )
+
         MutyLogger.get_instance().debug(
-            "enqueued task_type=%s on %s", task.get("task_type"), self._task_queue_key
+            "enqueued task_type=%s on %s", ttype, role_key
         )
 
     async def task_dequeue_batch(self, max_items: int) -> list[dict]:
@@ -369,21 +396,58 @@ class GulpRedis:
             list[dict]: Decoded task dicts.
         """
         items: list[dict] = []
-        # non-blocking LPOP up to max_items
-        for _ in range(max_items):
-            data: bytes | None = await self._redis.lpop(self._task_queue_key)
-            if not data:
-                break
+
+        # determine keys to poll:
+        # - if this instance has roles assigned, poll only the corresponding type queues
+        # - if this instance has no roles, poll all known type queues
+        keys: list[str] = []
+        if self._server_roles:
+            for r in self._server_roles:
+                keys.append(f"{self._task_queue_key}:{r}")
+        else:
+            # get all known task types from redis set
             try:
-                items.append(orjson.loads(data))
-            except Exception as ex:
-                MutyLogger.get_instance().error(
-                    "invalid task payload, skipping: %s", ex
+                types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
+                # smembers returns bytes when decode_responses=False; normalize to str
+                if types:
+                    for t in types:
+                        if isinstance(t, bytes):
+                            t = t.decode()
+                        keys.append(f"{self._task_queue_key}:{t}")
+            except Exception:
+                MutyLogger.get_instance().exception(
+                    "failed to read known task types from %s", GulpRedis.TASK_TYPES_SET
                 )
-        if items:
-            MutyLogger.get_instance().debug(
-                "dequeued %d task(s) from %s", len(items), self._task_queue_key
-            )
+
+        if not keys:
+            # nothing to poll
+            return []
+        
+        # MutyLogger.get_instance().debug("dequeue polling keys=%s, server_id=%s", keys, self.server_id)
+
+        # round-robin across preferred keys until max_items collected or queues empty
+        while len(items) < max_items:
+            any_popped = False
+            for key in keys:
+                if len(items) >= max_items:
+                    break
+                data: bytes | None = await self._redis.lpop(key)
+                if not data:
+                    continue
+                any_popped = True
+                try:
+                    items.append(orjson.loads(data))
+                except Exception as ex:
+                    MutyLogger.get_instance().error(
+                        "invalid task payload, skipping: %s", ex
+                    )
+            if not any_popped:
+                break
+
+        # if items:
+        #     MutyLogger.get_instance().debug(
+        #         "dequeued %d task(s) from keys=%s", len(items), keys
+        #     )
         return items
 
     async def task_pop_blocking(self, timeout: int = 5) -> Optional[dict]:
@@ -397,7 +461,33 @@ class GulpRedis:
             Optional[dict]: Decoded task dict or None if timed out.
         """
         try:
-            res = await self._redis.blpop(self._task_queue_key, timeout=timeout)
+            # build the list of keys to BLPOP from: role-specific first, or all known types
+            keys: list[str] = []
+            if self._server_roles:
+                for r in self._server_roles:
+                    keys.append(f"{self._task_queue_key}:{r}")
+            else:
+                try:
+                    types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
+                    if types:
+                        for t in types:
+                            if isinstance(t, bytes):
+                                t = t.decode()
+                            keys.append(f"{self._task_queue_key}:{t}")
+                except Exception:
+                    MutyLogger.get_instance().exception(
+                        "failed to read known task types from %s", GulpRedis.TASK_TYPES_SET
+                    )
+
+            if not keys:
+                return None
+
+            # MutyLogger.get_instance().debug(
+            #     "polling (BLPOP) keys=%s, server_id=%s", keys, self.server_id
+            # )
+
+            # redis-py blpop expects keys as separate args
+            res = await self._redis.blpop(keys, timeout=timeout)
             if not res:
                 return None
             # res is (key, value)
@@ -431,43 +521,59 @@ class GulpRedis:
         Returns:
             int: Number of removed tasks.
         """
-        # fetch all current items
-        all_items: list[bytes] = await self._redis.lrange(self._task_queue_key, 0, -1)
-        if not all_items:
+        # purge matching tasks from all type-specific queues known in TASK_TYPES_SET
+        removed_total: int = 0
+
+        try:
+            types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
+        except Exception:
+            types = None
+
+        if not types:
             return 0
 
-        keep_raw: list[bytes] = []
-        removed: int = 0
-        for raw in all_items:
-            try:
-                d = orjson.loads(raw)
-            except Exception:
-                # keep malformed entries to avoid accidental data loss
-                keep_raw.append(raw)
+        for t in types:
+            if isinstance(t, bytes):
+                t = t.decode()
+            key = f"{self._task_queue_key}:{t}"
+            all_items: list[bytes] = await self._redis.lrange(key, 0, -1)
+            if not all_items:
                 continue
 
-            cond_ok = True
-            if operation_id is not None and d.get("operation_id") != operation_id:
-                cond_ok = False
-            if req_id is not None and d.get("req_id") != req_id:
-                cond_ok = False
+            keep_raw: list[bytes] = []
+            removed: int = 0
+            for raw in all_items:
+                try:
+                    d = orjson.loads(raw)
+                except Exception:
+                    # keep malformed entries to avoid accidental data loss
+                    keep_raw.append(raw)
+                    continue
 
-            if cond_ok:
-                # mark for removal by not keeping it
-                removed += 1
-            else:
-                keep_raw.append(raw)
+                cond_ok = True
+                if operation_id is not None and d.get("operation_id") != operation_id:
+                    cond_ok = False
+                if req_id is not None and d.get("req_id") != req_id:
+                    cond_ok = False
 
-        if removed == 0:
-            return 0
+                if cond_ok:
+                    # mark for removal by not keeping it
+                    removed += 1
+                else:
+                    keep_raw.append(raw)
 
-        # rebuild the list with items to keep
-        pipe = self._redis.pipeline()
-        pipe.delete(self._task_queue_key)
-        if keep_raw:
-            pipe.rpush(self._task_queue_key, *keep_raw)
-        await pipe.execute()
-        MutyLogger.get_instance().debug(
-            "purged %d task(s) from %s", removed, self._task_queue_key
-        )
-        return removed
+            if removed == 0:
+                continue
+
+            # rebuild the list with items to keep
+            pipe = self._redis.pipeline()
+            pipe.delete(key)
+            if keep_raw:
+                pipe.rpush(key, *keep_raw)
+            await pipe.execute()
+            MutyLogger.get_instance().debug(
+                "purged %d task(s) from %s", removed, key
+            )
+            removed_total += removed
+
+        return removed_total

@@ -41,7 +41,7 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
 from gulp.api.server.server_utils import ServerUtils
-from gulp.api.server.structs import APIDependencies
+from gulp.api.server.structs import TASK_TYPE_REBASE, APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpRedisBroker
 from gulp.config import GulpConfig
@@ -293,7 +293,7 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
 
             # enqueue rebase task to Redis for main process dispatcher
             task_msg = {
-                "task_type": "rebase",
+                "task_type": TASK_TYPE_REBASE,
                 "operation_id": operation_id,
                 "user_id": user_id,
                 "ws_id": ws_id,

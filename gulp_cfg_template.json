@@ -45,6 +45,8 @@
   "ingestion_retry_max": 3,
   // how many seconds between ingestion retries on error (default=1)
   "ingestion_retry_delay": 1,
+  // to "specialize" a gulp (consumer) instance, this instance will drain from the redis queue just these task types: example values are [ "ingest", "query", "external_query", "rebase" ] or [] / unset to process all task types.
+  "instance_roles": [],
   // client certificate password (not supported, ignored)
   "opensearch_client_cert_password": null,
   // how many seconds to wait until timeout (default=60, tune up if you have request timeouts during ingestion/query, 0=no timeout)

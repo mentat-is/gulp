@@ -46,7 +46,6 @@ from gulp.api.redis_api import GulpRedis
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import (
     TASK_TYPE_INGEST,
-    TASK_TYPE_INGEST_RAW,
     APIDependencies,
     GulpUploadResponse,
 )

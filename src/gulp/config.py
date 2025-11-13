@@ -664,6 +664,18 @@ class GulpConfig:
 
         return n
 
+    def instance_roles(self) -> list[str]:
+        """
+        Returns the list of roles this gulp instance should serve.
+
+        default supported roles are: "query", "ingest", "rebase"
+
+        """
+        roles = self._config.get("instance_roles", None)
+        if not roles:
+            return []
+        return roles
+    
     def opensearch_url(self) -> str:
         """
         Returns the opensearch url

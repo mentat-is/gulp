@@ -66,7 +66,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
 from gulp.api.server.ingest import GulpIngestionStats
 from gulp.api.server.server_utils import ServerUtils
-from gulp.api.server.structs import APIDependencies
+from gulp.api.server.structs import TASK_TYPE_EXTERNAL_QUERY, TASK_TYPE_INGEST, TASK_TYPE_QUERY, APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
@@ -841,7 +841,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
             # run a background task (will batch queries, spawn workers, gather results)
             # enqueue task for worker dispatch (always enqueue unless preview)
             task_msg = {
-                "task_type": "query",
+                "task_type": TASK_TYPE_QUERY,
                 "operation_id": operation_id,
                 "user_id": user_id,
                 "ws_id": ws_id,
@@ -959,7 +959,7 @@ async def query_gulp_handler(
             # run a background task to process the query: always enqueue (unless preview handled above)
             queries: list[GulpQuery] = [GulpQuery(q_name=q_options.name, q=q)]
             task_msg = {
-                "task_type": "query",
+                "task_type": TASK_TYPE_QUERY,
                 "operation_id": operation_id,
                 "user_id": user_id,
                 "ws_id": ws_id,
@@ -1106,7 +1106,8 @@ async def query_external_handler(
             # run a background task to process the query: always enqueue (unless preview handled above)
             queries: list[GulpQuery] = [GulpQuery(q_name=q_options.name, q=q)]
             task_msg = {
-                "task_type": "query",
+                # external query is an ingestion task
+                "task_type": TASK_TYPE_EXTERNAL_QUERY,
                 "operation_id": operation_id,
                 "user_id": user_id,
                 "ws_id": ws_id,
@@ -1284,7 +1285,7 @@ async def query_sigma_handler(
             # run a background task (will batch queries, spawn workers, gather results)
             # enqueue task for worker dispatch (always enqueue unless preview)
             task_msg = {
-                "task_type": "query",
+                "task_type": TASK_TYPE_QUERY,
                 "operation_id": operation_id,
                 "user_id": user_id,
                 "ws_id": ws_id,
