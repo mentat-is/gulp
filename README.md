@@ -38,60 +38,12 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - **Collaboration Platform**: Gulp includes a collaboration platform, enabling teams to work together on the same incident. Features include note-taking, highlighting, and link adding.
 - [**An innovative UI**](https://github.com/mentat-is/gulpui-web): Gulp's user interface includes multiple on-screen per-context(i.e. a log source) zoomable timelines for visualizing events, making it easier to understand and analyze incidents.
 
-  <style>
-    /* responsive carousel sizing: use most of available width on small screens,
-       cap to 800px on larger viewports and constrain image height to avoid oversized visuals */
-    .carousel { position: relative; max-width: 90%; margin: 10px auto; overflow: hidden; }
-    @media (min-width: 900px) { .carousel { max-width: 800px; } }
-    .carousel .slides { display: flex; width: 300%; transition: transform .45s ease; }
-    .carousel .slide { flex: 0 0 100%; display: flex; align-items: center; justify-content: center; }
-    /* images adapt to layout: keep aspect ratio, centered both vertically and horizontally, and limit height */
-    .carousel img { display: block; margin: 0 auto; max-width: 100%; max-height: 420px; width: auto; height: auto; object-fit: contain; }
-    .carousel input[type="radio"] { display: none; }
-    /* navigation: place arrows on left/right and ensure clickability */
-    .carousel .nav { position: absolute; top: 50%; left: 0; right: 0; transform: translateY(-50%); pointer-events: none; }
-    .carousel .nav label { pointer-events: auto; position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.92); border-radius: 6px; padding: 6px 10px; text-decoration: none; color: #000; font-weight: 700; font-size: 20px; line-height: 1; z-index: 3; }
-    .carousel .nav label.prev1, .carousel .nav label.prev2, .carousel .nav label.prev3 { left: 8px; }
-    .carousel .nav label.next1, .carousel .nav label.next2, .carousel .nav label.next3 { right: 8px; }
-    .carousel .dots { text-align: center; margin-top: 8px; }
-    .carousel .dots label { cursor: pointer; padding: 4px 6px; margin: 0 4px; color: #888; }
-    #c1:checked ~ .slides { transform: translateX(0%); }
-    #c2:checked ~ .slides { transform: translateX(-100%); }
-    #c3:checked ~ .slides { transform: translateX(-200%); }
-    .carousel .nav label { display: none; }
-    /* show appropriate prev/next label for each checked radio (wrap-around) */
-    #c1:checked ~ .nav .prev3, #c2:checked ~ .nav .prev1, #c3:checked ~ .nav .prev2 { display: inline-block; }
-    #c1:checked ~ .nav .next2, #c2:checked ~ .nav .next3, #c3:checked ~ .nav .next1 { display: inline-block; }
-  </style>
-
-  <div class="carousel">
-    <input type="radio" id="c1" name="carousel" checked>
-    <input type="radio" id="c2" name="carousel">
-    <input type="radio" id="c3" name="carousel">
-
-    <div class="slides">
-      <div class="slide" id="slide-1"><img src="screenshot-1.png" alt="screenshot 1"></div>
-      <div class="slide" id="slide-2"><img src="screenshot-2.png" alt="screenshot 2"></div>
-      <div class="slide" id="slide-3"><img src="screenshot-3.png" alt="screenshot 3"></div>
-    </div>
-
-    <div class="nav">
-      <!-- prev labels: show ‹ and target the previous slide (wrap-around) -->
-      <label class="prev3" for="c3" aria-label="previous">‹</label>
-      <label class="prev1" for="c1" aria-label="previous">‹</label>
-      <label class="prev2" for="c2" aria-label="previous">‹</label>
-      <!-- next labels: show › and target the next slide (wrap-around) -->
-      <label class="next2" for="c2" aria-label="next">›</label>
-      <label class="next3" for="c3" aria-label="next">›</label>
-      <label class="next1" for="c1" aria-label="next">›</label>
-    </div>
-
-    <div class="dots">
-      <label for="c1">●</label>
-      <label for="c2">●</label>
-      <label for="c3">●</label>
-    </div>
+  <div class="slides">
+    <div class="slide" id="slide-1"><img src="screenshot-1.png" alt="screenshot 1"></div>
+    <div class="slide" id="slide-2"><img src="screenshot-2.png" alt="screenshot 2"></div>
+    <div class="slide" id="slide-3"><img src="screenshot-3.png" alt="screenshot 3"></div>
   </div>
+
 
 - **Scalable**: Gulp is designed with scalability in mind. As your data and team grow, you can simply add more gulp nodes, more cores to increase parallel ingestion and query capabilities, more OpenSearch and PostgreSQL nodes. This makes Gulp a flexible solution that can adapt to your evolving needs!
 - **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
