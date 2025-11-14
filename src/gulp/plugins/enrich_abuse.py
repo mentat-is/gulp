@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 import aiohttp
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase, GulpPluginType
@@ -161,6 +162,7 @@ class Plugin(GulpPluginBase):
     async def enrich_documents(
         self,
         sess: AsyncSession,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -198,7 +200,16 @@ class Plugin(GulpPluginBase):
 
         # enrich
         return await super().enrich_documents(
-            sess, user_id, req_id, ws_id, operation_id, index, flt, plugin_params, rq=qq
+            sess,
+            stats,
+            user_id,
+            req_id,
+            ws_id,
+            operation_id,
+            index,
+            flt,
+            plugin_params,
+            rq=qq,
         )
 
     @override
