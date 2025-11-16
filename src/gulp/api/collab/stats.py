@@ -675,6 +675,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         hits: int = 0,
         inc_completed: int = 0,
         errors: list[str] = None,
+        ignore_failures: bool = False,
     ) -> dict:
         """
         update the query stats
@@ -688,6 +689,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             hits(int, optional): number of hits to add. Defaults to 0.
             inc_completed(int, optional): number of completed queries to add. Defaults to 0.
             errors(list[str], optional): list of errors to add. Defaults to None.
+            ignore_failures(bool, optional): if True, ignores failures when determining if the request is done. Defaults to False.
         Returns:
             dict: the updated stats
         """
@@ -720,13 +722,17 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
             # if the query has not been canceled
             if d.completed_queries >= d.num_queries:
+                final_status = GulpRequestStatus.DONE.value
+                if not ignore_failures and d.failed_queries > 0:
+                    final_status = GulpRequestStatus.FAILED.value
+                else:
+                    # set failed only if all queries failed
+                    if d.failed_queries == d.num_queries:
+                        final_status = GulpRequestStatus.FAILED.value
+
                 # the whole req is finished
                 self.time_finished = muty.time.now_msec()
-                self.status = (
-                    GulpRequestStatus.DONE.value
-                    if not self.errors
-                    else GulpRequestStatus.FAILED.value
-                )
+                self.status = final_status
                 # get time elapsed in seconds
                 MutyLogger.get_instance().info(
                     "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",

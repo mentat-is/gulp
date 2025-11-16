@@ -243,6 +243,7 @@ async def run_query_task(t: dict) -> None:
         plugin_params = params.get("plugin_params")
         write_history = params.get("write_history", True)
         total_num_queries: int = params.get("total_num_queries", 0) # this may be provided upfront
+        ignore_failures: bool = params.get("ignore_failures", False)
 
         # rebuild pydantic models from dict payloads
         q_models: list[GulpQuery] = []
@@ -286,6 +287,7 @@ async def run_query_task(t: dict) -> None:
                 plugin=plugin,
                 plugin_params=plugin_params_model,
                 write_history=write_history,
+                ignore_failures=ignore_failures,
             )
     except Exception as ex:
         MutyLogger.get_instance().exception("error in run_query_task: %s", ex)
@@ -448,11 +450,27 @@ async def process_queries(
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
     write_history: bool = True,
+    ignore_failures: bool = False,
 ) -> bool:
     """
     runs in a background task and spawns workers to process queries, batching them if needed.
 
     index, plugin, plugin_params are used for external queries only
+
+    Args:
+        sess: AsyncSession - database session
+        user_id: str - user id
+        req_id: str - request id
+        operation_id: str - operation id
+        ws_id: str - websocket id
+        queries: list[GulpQuery] - list of queries to run
+        num_total_queries: int - total number of queries (for stats)
+        q_options: GulpQueryParameters - query parameters
+        index: str - index to query (for external queries)
+        plugin: str - plugin name (for external queries)
+        plugin_params: GulpPluginParameters - plugin parameters (for external queries)
+        write_history: bool - whether to write query history entries for each query
+        ignore_failures: bool - whether to ignore failures when finalizing stats (sets "failed" status only if all queries failed)
 
     Returns:
         bool: True if the request was canceled, False otherwise.
@@ -605,6 +623,7 @@ async def process_queries(
                     hits=total_hits,
                     inc_completed=len(coros),
                     errors=errors,
+                    ignore_failures=ignore_failures,
                 )
             if req_canceled:
                 # request is canceled, stop processing more batches
