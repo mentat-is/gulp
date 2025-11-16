@@ -11,6 +11,8 @@ from typing import Annotated, Any, Literal, Optional
 import muty
 import muty.string
 import muty.time
+import orjson
+import zlib
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 from gitdb.fun import chunk_size
@@ -742,7 +744,7 @@ class GulpConnectedSocket:
             operation_ids (list[str], optional): The operation/s this websocket is interested in. Defaults to None (all).
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
         """
-        from gulp.api.server_api import GulpServer
+        from gulp.process import GulpProcess
 
         self.ws = ws
         self.ws_id = ws_id
@@ -751,7 +753,7 @@ class GulpConnectedSocket:
         self.operation_ids = operation_ids
         self.socket_type = socket_type
         self._cleaned_up = False
-        self._server_id = GulpServer.get_instance().server_id()
+        self._server_id = GulpProcess.get_instance().server_id
         self._tasks: list[asyncio.Task] = []
         # each socket has its own asyncio queue, consumed by its own task
         self.q = asyncio.Queue()
@@ -924,12 +926,12 @@ class GulpConnectedSocket:
 
             # connection is verified, send the message
             await self.ws.send_json(item)
-            MutyLogger.get_instance().debug(
-                "---> SENT message to ws_id=%s, type=%s, content=%s",
-                self.ws_id,
-                item.get("type"),
-                muty.string.make_shorter(str(item), max_len=260),
-            )
+            # MutyLogger.get_instance().debug(
+            #     "---> SENT message to ws_id=%s, type=%s, content=%s",
+            #     self.ws_id,
+            #     item.get("type"),
+            #     muty.string.make_shorter(str(item), max_len=260),
+            # )
             await asyncio.sleep(GulpConfig.get_instance().ws_rate_limit_delay())
             return True
         except asyncio.CancelledError:
@@ -1474,6 +1476,113 @@ class GulpRedisBroker:
         server_id: str = message.pop("__server_id__", None)
         redis_client = GulpRedis.get_instance()
 
+        # if this message is a pointer to a stored payload, try to fetch it and
+        # replace the message dict with the full stored payload
+        try:
+            pl = message.get("payload")
+            if isinstance(pl, dict) and pl.get("__pointer_key"):
+                ptr = pl.get("__pointer_key")
+                try:
+                    # New behavior: support chunked compressed payloads.
+                    # If pointer contains __chunks, try atomic multi-GET+DEL for all chunk keys
+                    chunks = pl.get("__chunks")
+                    compressed_flag = pl.get("__compressed", False)
+                    if chunks and int(chunks) > 0:
+                        # build chunk keys: base:0 .. base:N-1
+                        keys = [f"{ptr}:{i}" for i in range(int(chunks))]
+
+                        # lua: get all keys, if any missing return nil, else delete all and return concatenated value
+                        lua_multi = (
+                            "local n = #KEYS\n"
+                            "local vals = {}\n"
+                            "for i=1,n do local v = redis.call('GET', KEYS[i]); if not v then return nil end; vals[i]=v end\n"
+                            "for i=1,n do redis.call('DEL', KEYS[i]) end\n"
+                            "return table.concat(vals)\n"
+                        )
+                        try:
+                            stored = await redis_client._redis.eval(lua_multi, len(keys), *keys)
+                        except Exception:
+                            # fall back to multi-get then multi-del non-atomically (best-effort)
+                            try:
+                                vals = []
+                                missing = False
+                                for k in keys:
+                                    v = await redis_client._redis.get(k)
+                                    if not v:
+                                        missing = True
+                                        break
+                                    vals.append(v)
+                                if missing:
+                                    stored = None
+                                else:
+                                    # delete keys (best-effort)
+                                    try:
+                                        await asyncio.gather(*[redis_client._redis.delete(k) for k in keys])
+                                    except Exception:
+                                        MutyLogger.get_instance().exception("failed to delete chunk keys after read")
+                                    stored = b"".join(vals)
+                            except Exception:
+                                stored = None
+
+                        if stored:
+                            try:
+                                data_bytes = stored
+                                if compressed_flag:
+                                    try:
+                                        data_bytes = zlib.decompress(data_bytes)
+                                    except Exception:
+                                        MutyLogger.get_instance().exception(
+                                            "failed to decompress stored chunks for base=%s", ptr
+                                        )
+                                        data_bytes = None
+
+                                if data_bytes:
+                                    full_msg = orjson.loads(data_bytes)
+                                    message = full_msg
+                                else:
+                                    MutyLogger.get_instance().warning(
+                                        "failed to decode stored chunks for base=%s", ptr
+                                    )
+                            except Exception:
+                                MutyLogger.get_instance().exception(
+                                    "failed to decode stored large payload for base=%s", ptr
+                                )
+                        else:
+                            MutyLogger.get_instance().warning(
+                                "large payload chunked pointer missing in Redis for base=%s", ptr
+                            )
+                    else:
+                        # legacy/single-key pointer handling: atomic GET+DEL for single key
+                        lua = (
+                            "local v = redis.call('GET', KEYS[1]);"
+                            "if v then redis.call('DEL', KEYS[1]) end; return v"
+                        )
+                        try:
+                            stored = await redis_client._redis.eval(lua, 1, ptr)
+                        except Exception:
+                            # fall back to plain GET if EVAL not supported for some reason
+                            stored = await redis_client._redis.get(ptr)
+
+                        if stored:
+                            try:
+                                full_msg = orjson.loads(stored)
+                                message = full_msg
+                            except Exception:
+                                MutyLogger.get_instance().exception(
+                                    "failed to decode stored large payload for key=%s", ptr
+                                )
+                        else:
+                            MutyLogger.get_instance().warning(
+                                "large payload pointer missing in Redis for key=%s", ptr
+                            )
+                except Exception:
+                    MutyLogger.get_instance().exception(
+                        "error fetching and deleting large payload pointer %s from Redis",
+                        ptr,
+                    )
+        except Exception:
+            MutyLogger.get_instance().exception("error while resolving payload pointer")
+
         if (
             server_id
             and server_id == redis_client.server_id
@@ -1601,7 +1710,7 @@ class GulpRedisBroker:
 
         # verify websocket is alive (check Redis registry)
 
-        if not GulpConnectedSocket.is_alive(ws_id):
+        if not await GulpConnectedSocket.is_alive(ws_id):
             raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
         # create the message
         wsd = GulpWsData(

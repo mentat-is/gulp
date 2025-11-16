@@ -26,6 +26,7 @@ from typing import Annotated, Optional, Union, override
 
 import muty.log
 import muty.time
+from fastapi.websockets import WebSocketDisconnect
 from muty.log import MutyLogger
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import ARRAY, BIGINT, Boolean, ForeignKey, Index, Integer, String
@@ -34,7 +35,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Enum as SQLEnum
-from fastapi.websockets import WebSocketDisconnect
 
 from gulp.api.collab.structs import (
     COLLABTYPE_REQUEST_STATS,
@@ -154,6 +154,9 @@ class GulpQueryStats(BaseModel):
     completed_queries: Annotated[
         int, Field(description="Number of queries completed so far.")
     ] = 0
+    failed_queries: Annotated[
+        int, Field(description="Number of queries that failed.")
+    ] = 0
     q_group: Annotated[
         Optional[str], Field(description="The query group this query belongs to.")
     ] = None
@@ -197,6 +200,10 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         ForeignKey("operation.id", ondelete="CASCADE"),
         nullable=True,
         doc="The operation associated with the stats.",
+    )
+    server_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        doc="The server instance id that created this stats.",
     )
     status: Mapped[str] = mapped_column(
         String,
@@ -297,6 +304,16 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 "---> create_stats: req_id=%s, already existing, updating...",
                 req_id,
             )
+            if stats.req_type == RequestStatsType.REQUEST_TYPE_QUERY.value and data:
+                # update data
+                existing_d = GulpQueryStats.model_validate(stats.data)
+                new_d = GulpQueryStats.model_validate(data)
+                if existing_d and new_d:
+                    # existing_d.num_queries += new_d.num_queries
+                    existing_d.completed_queries += new_d.completed_queries                    
+                    existing_d.failed_queries += new_d.failed_queries
+                    stats.data = existing_d.model_dump()                    
+
             if stats.status != GulpRequestStatus.ONGOING.value:
                 MutyLogger.get_instance().warning(
                     "existing stats %s is already finished with status=%s, not updating status or expiration time",
@@ -316,6 +333,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
         # create new
         try:
+            # attach the current server id (if available) so we can later purge only stats created by this instance
+            from gulp.process import GulpProcess
+            server_id = GulpProcess.get_instance().server_id
             stats = await GulpRequestStats.create_internal(
                 sess,
                 user_id,
@@ -331,6 +351,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 errors=[],
                 data=data,
                 ws_data_type=WSDATA_STATS_CREATE,
+                server_id=server_id,
             )
         except WebSocketDisconnect as e:
             MutyLogger.get_instance().error(
@@ -450,17 +471,18 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         return self.to_dict()
 
     @staticmethod
-    async def purge_ongoing_requests():
+    async def purge_ongoing_requests(server_id: str):
         """
-        delete all ongoing stats (status="ongoing")
+        delete ongoing stats (status="ongoing").
+
+        If `server_id` is provided, only purge ongoing stats created by that server instance.
         """
         async with GulpCollab.get_instance().session() as sess:
-            flt = GulpCollabFilter(status=GulpRequestStatus.ONGOING.value)
+            flt = GulpCollabFilter(status=GulpRequestStatus.ONGOING.value, server_id=server_id)
             deleted = await GulpRequestStats.delete_by_filter(
                 sess, flt, throw_if_not_found=False
             )
-            # use lazy % formatting for logging to defer string interpolation
-            MutyLogger.get_instance().info("deleted %d ongoing stats", deleted)
+            MutyLogger.get_instance().info("deleted %d ongoing stats (server_id=%s)", deleted, server_id)
             return deleted
 
     async def update_ingestion_stats(
@@ -651,7 +673,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         user_id: str = None,
         ws_id: str = None,
         hits: int = 0,
-        inc_completed: int = 1,
+        inc_completed: int = 0,
         errors: list[str] = None,
     ) -> dict:
         """
@@ -664,7 +686,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             user_id(str, optional): the user id issuing the request (ignored if ws_id is not set)
             ws_id(str, optional): the websocket id to notify WS_STATS_UPDATE to (ignored if not set)
             hits(int, optional): number of hits to add. Defaults to 0.
-            inc_completed(int, optional): number of completed queries to add. Defaults to 1.
+            inc_completed(int, optional): number of completed queries to add. Defaults to 0.
             errors(list[str], optional): list of errors to add. Defaults to None.
         Returns:
             dict: the updated stats
@@ -683,16 +705,18 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 if e not in self.errors:
                     self.errors.append(e)
         if self.status != GulpRequestStatus.CANCELED.value:
-            if inc_completed:
-                # some queries completed
-                d.completed_queries += inc_completed
-                MutyLogger.get_instance().info(
-                    "**QUERY REQ=%s num queries completed=%d/%d**, current hits=%d",
-                    self.id,
-                    d.completed_queries,
-                    d.num_queries,
-                    d.total_hits,
-                )
+            # some queries completed
+            d.completed_queries += inc_completed
+            d.failed_queries += len(errors or [])
+
+            MutyLogger.get_instance().info(
+                "**QUERY REQ=%s num queries completed=%d/%d**, current total failed=%d, current total hits=%d",
+                self.id,
+                d.completed_queries,
+                d.num_queries,
+                d.failed_queries,
+                d.total_hits,
+            )
 
             # if the query has not been canceled
             if d.completed_queries >= d.num_queries:

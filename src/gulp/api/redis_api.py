@@ -3,6 +3,7 @@ This module provides a singleton class `GulpRedis` for managing asynchronous Red
 """
 
 import asyncio
+import zlib
 from typing import Annotated, Any, Callable, Optional
 from urllib.parse import urlparse
 
@@ -51,6 +52,10 @@ class GulpRedis:
     CHANNEL = "gulpredis"
     # redis set key to track known task types (members are task_type strings)
     TASK_TYPES_SET = "gulp:queue:types"
+    # redis stream key prefix for task streams (one stream per task_type)
+    STREAM_TASK_PREFIX = "gulp:stream:tasks"
+    # consumer group name for task streams
+    STREAM_CONSUMER_GROUP = "gulp:stream:group:tasks"
 
     def __init__(self):
         self._redis: redis.Redis = None
@@ -61,6 +66,13 @@ class GulpRedis:
         self._server_roles: list[str] = []
         # simple task queue (list) key
         self._task_queue_key: str = "gulp:queue:tasks"
+        # max inline publish size (bytes). messages larger than this are stored
+        # in Redis and a small pointer is published instead.
+        self.PUBLISH_INLINE_MAX_BYTES: int = 512 * 1024  # 512 KiB
+        # chunk size for large payloads (bytes)
+        self.PUBLISH_CHUNK_SIZE: int = 256 * 1024  # 256 KiB
+        # ttl for stored large payloads (seconds)
+        self.PUBLISH_LARGE_PAYLOAD_TTL: int = 5 * 60  # 5 min, it should be consumed quickly
 
     def __new__(cls):
         """
@@ -260,7 +272,92 @@ class GulpRedis:
         Args:
             message (dict): The message to publish (must be a GulpWsData dict)
         """
+        # serialize message
         payload = orjson.dumps(message)
+
+        # if payload is too large, compress, chunk and store it in Redis then publish a small pointer
+        try:
+            if len(payload) > self.PUBLISH_INLINE_MAX_BYTES:
+                # compress the serialized payload to reduce storage and network size
+                try:
+                    compressed = zlib.compress(payload)
+                except Exception:
+                    MutyLogger.get_instance().exception("failed to compress large payload, falling back to direct publish")
+                    await self._redis.publish(GulpRedis.CHANNEL, payload)
+                    return
+
+                # split compressed bytes into chunks
+                chunks = [compressed[i : i + self.PUBLISH_CHUNK_SIZE] for i in range(0, len(compressed), self.PUBLISH_CHUNK_SIZE)]
+                num_chunks = len(chunks)
+
+                base_key = f"gulp:pub:payload:{muty.string.generate_unique()}"
+                chunk_keys = [f"{base_key}:{i}" for i in range(num_chunks)]
+
+                # pointer metadata to publish on pubsub
+                pointer_message = dict(message)
+                pointer_message["payload"] = {
+                    "__pointer_key": base_key,
+                    "__chunks": num_chunks,
+                    "__compressed": True,
+                    "__orig_len": len(payload),
+                }
+                pointer_bytes = orjson.dumps(pointer_message)
+
+                # prepare lua script to atomically set all chunk keys with TTL and publish the pointer
+                # ARGV layout: chunk1..chunkN, pointer_json, ttl_seconds, channel
+                lua_lines = [
+                    "local n = #KEYS\n",
+                    "local ttl = tonumber(ARGV[n+2])\n",
+                    "for i=1,n do\n",
+                    "  redis.call('SET', KEYS[i], ARGV[i], 'EX', ttl)\n",
+                    "end\n",
+                    "redis.call('PUBLISH', ARGV[n+3], ARGV[n+1])\n",
+                    "return 1\n",
+                ]
+                lua = "".join(lua_lines)
+                try:
+                    # build args: chunk bytes..., pointer_bytes, ttl, channel
+                    args = []
+                    for c in chunks:
+                        args.append(c)
+                    args.append(pointer_bytes)
+                    args.append(str(self.PUBLISH_LARGE_PAYLOAD_TTL))
+                    args.append(GulpRedis.CHANNEL)
+
+                    # execute lua atomically
+                    await self._redis.eval(lua, len(chunk_keys), *chunk_keys, *args)
+                    MutyLogger.get_instance().warning(
+                        "published large compressed message stored in %d chunks base=%s total_size=%d bytes (compressed=%d)",
+                        num_chunks,
+                        base_key,
+                        len(payload),
+                        len(compressed),
+                    )
+                    return
+                except Exception:
+                    MutyLogger.get_instance().exception(
+                        "failed to atomically store/publish chunked payload, falling back to per-key store"
+                    )
+                    # fallback: attempt per-key store then publish pointer (best effort)
+                    try:
+                        for i, c in enumerate(chunks):
+                            await self._redis.set(chunk_keys[i], c, ex=self.PUBLISH_LARGE_PAYLOAD_TTL)
+                        await self._redis.publish(GulpRedis.CHANNEL, pointer_bytes)
+                        MutyLogger.get_instance().warning(
+                            "published large compressed message stored (fallback) in %d chunks base=%s",
+                            num_chunks,
+                            base_key,
+                        )
+                        return
+                    except Exception:
+                        MutyLogger.get_instance().exception(
+                            "failed to store chunked payload in Redis, falling back to direct publish"
+                        )
+
+        except Exception:
+            MutyLogger.get_instance().exception("error handling large publish payload")
+
+        # default: publish inline
         await self._redis.publish(GulpRedis.CHANNEL, payload)
 
     async def unsubscribe(self) -> None:
@@ -321,16 +418,25 @@ class GulpRedis:
                         ignore_subscribe_messages=True, timeout=1.0
                     )
                     if message:
-                        MutyLogger.get_instance().debug(
-                            "---> received message on channel %s: %s",
-                            channel,
-                            muty.string.make_shorter(str(message), max_len=260),
-                        )
-                        d: dict = orjson.loads(message["data"])
-                        await callback(d)
+                        # MutyLogger.get_instance().debug(
+                        #     "---> received message on channel %s: %s",
+                        #     channel,
+                        #     muty.string.make_shorter(str(message), max_len=260),
+                        # )
+                        try:
+                            d: dict = orjson.loads(message["data"])
+                            await callback(d)
+                        except Exception as ex:
+                            MutyLogger.get_instance().exception(
+                                "ERROR in subscriber callback for channel %s: %s",
+                                channel,
+                                ex,
+                            )
+                            raise ex
 
-                    # yield control
-                    await asyncio.sleep(0.001)
+                    # yield control — sleep a bit longer to avoid tight wakeups that
+                    # can cause unnecessary CPU usage on the main process.
+                    await asyncio.sleep(0.05)
 
                 except asyncio.CancelledError:
                     MutyLogger.get_instance().debug(
@@ -338,7 +444,7 @@ class GulpRedis:
                     )
                     raise
                 except Exception as ex:
-                    MutyLogger.get_instance().error(
+                    MutyLogger.get_instance().exception(
                         "error in subscriber loop for %s: %s", channel, ex
                     )
                     await asyncio.sleep(1.0)
@@ -362,7 +468,7 @@ class GulpRedis:
         """
         payload: bytes = orjson.dumps(task)
 
-        # tasks must have a task_type; push only to the type-specific queue
+        # tasks must have a task_type; push only to the type-specific stream
         ttype = task.get("task_type")
         if not ttype:
             MutyLogger.get_instance().error(
@@ -370,19 +476,21 @@ class GulpRedis:
             )
             return
 
-        role_key = f"{self._task_queue_key}:{ttype}"
+        # stream key per task type
+        stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{ttype}"
         try:
-            await self._redis.rpush(role_key, payload)
+            # add to stream under field 'data'
+            await self._redis.xadd(stream_key, {"data": payload})
             # record known task type
             await self._redis.sadd(GulpRedis.TASK_TYPES_SET, ttype)
         except Exception:
             # best-effort: log and continue
             MutyLogger.get_instance().exception(
-                "failed to push task into role-specific queue '%s'", role_key
+                "failed to push task into role-specific stream '%s'", stream_key
             )
 
         MutyLogger.get_instance().debug(
-            "enqueued task_type=%s on %s", ttype, role_key
+            "enqueued task_type=%s on %s, task=%s", ttype, stream_key, task
         )
 
     async def task_dequeue_batch(self, max_items: int) -> list[dict]:
@@ -397,57 +505,91 @@ class GulpRedis:
         """
         items: list[dict] = []
 
-        # determine keys to poll:
-        # - if this instance has roles assigned, poll only the corresponding type queues
-        # - if this instance has no roles, poll all known type queues
+        # determine stream keys to poll (per-type streams)
         keys: list[str] = []
         if self._server_roles:
             for r in self._server_roles:
-                keys.append(f"{self._task_queue_key}:{r}")
+                keys.append(f"{GulpRedis.STREAM_TASK_PREFIX}:{r}")
         else:
             # get all known task types from redis set
             try:
                 types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
-                # smembers returns bytes when decode_responses=False; normalize to str
                 if types:
                     for t in types:
                         if isinstance(t, bytes):
                             t = t.decode()
-                        keys.append(f"{self._task_queue_key}:{t}")
+                        keys.append(f"{GulpRedis.STREAM_TASK_PREFIX}:{t}")
             except Exception:
                 MutyLogger.get_instance().exception(
                     "failed to read known task types from %s", GulpRedis.TASK_TYPES_SET
                 )
 
         if not keys:
-            # nothing to poll
             return []
-        
-        # MutyLogger.get_instance().debug("dequeue polling keys=%s, server_id=%s", keys, self.server_id)
 
-        # round-robin across preferred keys until max_items collected or queues empty
-        while len(items) < max_items:
-            any_popped = False
-            for key in keys:
-                if len(items) >= max_items:
-                    break
-                data: bytes | None = await self._redis.lpop(key)
-                if not data:
+        # ensure consumer group exists for each stream
+        for stream in keys:
+            try:
+                # create group starting from the beginning so existing entries are consumable
+                await self._redis.xgroup_create(
+                    stream, GulpRedis.STREAM_CONSUMER_GROUP, id="0", mkstream=True
+                )
+            except Exception:
+                # ignore if group exists or other recoverable errors
+                pass
+
+        # build streams dict for xreadgroup: {stream: '>'}
+        streams_dict = {k: ">" for k in keys}
+
+        try:
+            # read up to max_items across streams (non-blocking)
+            entries = await self._redis.xreadgroup(
+                GulpRedis.STREAM_CONSUMER_GROUP,
+                self.server_id,
+                streams=streams_dict,
+                count=max_items,
+                block=None,
+                noack=False,
+            )
+        except Exception as ex:
+            MutyLogger.get_instance().exception("error reading from streams: %s", ex)
+            return []
+
+        # entries: list of (stream, [(id, {field: value}), ...])
+        ids_to_del: dict[str, list[str]] = {}
+        for stream_name, msgs in entries:
+            for msg_id, fields in msgs:
+                raw = fields.get(b"data") if isinstance(fields, dict) else fields.get("data")
+                if raw is None:
                     continue
-                any_popped = True
                 try:
-                    items.append(orjson.loads(data))
+                    # raw may be bytes
+                    if isinstance(raw, bytes):
+                        d = orjson.loads(raw)
+                    else:
+                        d = orjson.loads(raw)
+                    items.append(d)
+                    ids_to_del.setdefault(stream_name, []).append(msg_id)
                 except Exception as ex:
-                    MutyLogger.get_instance().error(
-                        "invalid task payload, skipping: %s", ex
-                    )
-            if not any_popped:
-                break
+                    MutyLogger.get_instance().error("invalid task payload in stream %s: %s", stream_name, ex)
 
-        # if items:
-        #     MutyLogger.get_instance().debug(
-        #         "dequeued %d task(s) from keys=%s", len(items), keys
-        #     )
+        # acknowledge and delete read entries to emulate destructive pop semantics
+        # batch xack/xdel operations in a single pipeline to reduce round trips
+        if ids_to_del:
+            try:
+                pipe = self._redis.pipeline(transaction=False)
+                for stream_name, ids in ids_to_del.items():
+                    try:
+                        pipe.xack(stream_name, GulpRedis.STREAM_CONSUMER_GROUP, *ids)
+                        pipe.xdel(stream_name, *ids)
+                    except Exception:
+                        # if building pipeline entries fails for this stream, log and continue
+                        MutyLogger.get_instance().exception("failed to queue xack/xdel in pipeline for %s", stream_name)
+                # execute all ack/del commands together
+                await pipe.execute()
+            except Exception:
+                MutyLogger.get_instance().exception("failed to execute pipeline for xack/xdel")
+
         return items
 
     async def task_pop_blocking(self, timeout: int = 5) -> Optional[dict]:
@@ -461,11 +603,11 @@ class GulpRedis:
             Optional[dict]: Decoded task dict or None if timed out.
         """
         try:
-            # build the list of keys to BLPOP from: role-specific first, or all known types
+            # build stream keys to read from
             keys: list[str] = []
             if self._server_roles:
                 for r in self._server_roles:
-                    keys.append(f"{self._task_queue_key}:{r}")
+                    keys.append(f"{GulpRedis.STREAM_TASK_PREFIX}:{r}")
             else:
                 try:
                     types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
@@ -473,7 +615,7 @@ class GulpRedis:
                         for t in types:
                             if isinstance(t, bytes):
                                 t = t.decode()
-                            keys.append(f"{self._task_queue_key}:{t}")
+                            keys.append(f"{GulpRedis.STREAM_TASK_PREFIX}:{t}")
                 except Exception:
                     MutyLogger.get_instance().exception(
                         "failed to read known task types from %s", GulpRedis.TASK_TYPES_SET
@@ -482,26 +624,52 @@ class GulpRedis:
             if not keys:
                 return None
 
-            # MutyLogger.get_instance().debug(
-            #     "polling (BLPOP) keys=%s, server_id=%s", keys, self.server_id
-            # )
+            # ensure consumer group exists for each stream
+            for stream in keys:
+                try:
+                    # create group starting from the beginning so existing entries are consumable
+                    await self._redis.xgroup_create(
+                        stream, GulpRedis.STREAM_CONSUMER_GROUP, id="0", mkstream=True
+                    )
+                except Exception:
+                    pass
 
-            # redis-py blpop expects keys as separate args
-            res = await self._redis.blpop(keys, timeout=timeout)
+            streams_dict = {k: ">" for k in keys}
+            # block is in milliseconds
+            block_ms = int(timeout * 1000) if timeout else 0
+            res = await self._redis.xreadgroup(
+                GulpRedis.STREAM_CONSUMER_GROUP,
+                self.server_id,
+                streams=streams_dict,
+                count=1,
+                block=block_ms,
+                noack=False,
+            )
             if not res:
                 return None
-            # res is (key, value)
-            _, raw = res
-            try:
-                d = orjson.loads(raw)
-                return d
-            except Exception as ex:
-                MutyLogger.get_instance().error(
-                    "invalid task payload on BLPOP, skipping: %s", ex
-                )
-                return None
+
+            # pick first message found
+            for stream_name, msgs in res:
+                for msg_id, fields in msgs:
+                    raw = fields.get(b"data") if isinstance(fields, dict) else fields.get("data")
+                    try:
+                        d = orjson.loads(raw)
+                        # acknowledge and delete entry to emulate destructive pop
+                        try:
+                            # batch ack + del in a small pipeline for this single message
+                            pipe = self._redis.pipeline(transaction=False)
+                            pipe.xack(stream_name, GulpRedis.STREAM_CONSUMER_GROUP, msg_id)
+                            pipe.xdel(stream_name, msg_id)
+                            await pipe.execute()
+                        except Exception:
+                            MutyLogger.get_instance().exception("failed to xack/xdel %s %s", stream_name, msg_id)
+
+                        return d
+                    except Exception as ex:
+                        MutyLogger.get_instance().error("invalid task payload on XREADGROUP, skipping: %s", ex)
+                        continue
+            return None
         except asyncio.CancelledError:
-            # propagate cancellations cleanly
             raise
         except Exception as ex:
             MutyLogger.get_instance().exception("error in task_pop_blocking: %s", ex)
@@ -521,7 +689,7 @@ class GulpRedis:
         Returns:
             int: Number of removed tasks.
         """
-        # purge matching tasks from all type-specific queues known in TASK_TYPES_SET
+        # purge matching tasks from all type-specific streams known in TASK_TYPES_SET
         removed_total: int = 0
 
         try:
@@ -535,19 +703,24 @@ class GulpRedis:
         for t in types:
             if isinstance(t, bytes):
                 t = t.decode()
-            key = f"{self._task_queue_key}:{t}"
-            all_items: list[bytes] = await self._redis.lrange(key, 0, -1)
-            if not all_items:
+            stream = f"{GulpRedis.STREAM_TASK_PREFIX}:{t}"
+            try:
+                entries = await self._redis.xrange(stream, min='-', max='+')
+            except Exception:
+                entries = None
+            if not entries:
                 continue
 
-            keep_raw: list[bytes] = []
             removed: int = 0
-            for raw in all_items:
+            ids_to_del: list[str] = []
+            for msg_id, fields in entries:
+                raw = fields.get(b"data") if isinstance(fields, dict) else fields.get("data")
+                if raw is None:
+                    continue
                 try:
                     d = orjson.loads(raw)
                 except Exception:
-                    # keep malformed entries to avoid accidental data loss
-                    keep_raw.append(raw)
+                    # skip malformed
                     continue
 
                 cond_ok = True
@@ -557,23 +730,108 @@ class GulpRedis:
                     cond_ok = False
 
                 if cond_ok:
-                    # mark for removal by not keeping it
+                    ids_to_del.append(msg_id)
                     removed += 1
-                else:
-                    keep_raw.append(raw)
 
-            if removed == 0:
-                continue
-
-            # rebuild the list with items to keep
-            pipe = self._redis.pipeline()
-            pipe.delete(key)
-            if keep_raw:
-                pipe.rpush(key, *keep_raw)
-            await pipe.execute()
-            MutyLogger.get_instance().debug(
-                "purged %d task(s) from %s", removed, key
-            )
-            removed_total += removed
+            if ids_to_del:
+                try:
+                    await self._redis.xdel(stream, *ids_to_del)
+                    MutyLogger.get_instance().debug("purged %d task(s) from %s", removed, stream)
+                    removed_total += removed
+                except Exception:
+                    MutyLogger.get_instance().exception("failed to xdel ids on %s", stream)
 
         return removed_total
+
+
+    async def cleanup_redis(self) -> int:
+        """
+        Destroy all keys under the `gulp:*` namespace used by this application.
+
+        Returns:
+            int: Number of keys removed.
+        """
+        total_deleted = 0
+        cursor = 0
+        pattern = "gulp:*"
+        try:
+            # iterate over keys matching the gulp prefix and delete them in batches
+            while True:
+                cursor, keys = await self._redis.scan(cursor=cursor, match=pattern, count=200)
+                if keys:
+                    try:
+                        # redis.delete accepts varargs of keys
+                        deleted = await self._redis.delete(*keys)
+                        if isinstance(deleted, int):
+                            total_deleted += deleted
+                    except Exception:
+                        MutyLogger.get_instance().exception("failed to delete key batch during cleanup")
+                if cursor == 0:
+                    break
+        except Exception:
+            MutyLogger.get_instance().exception("error during cleanup_redis scan/delete")
+
+        MutyLogger.get_instance().info("cleanup_redis removed %d keys", total_deleted)
+        return total_deleted
+
+    async def cleanup_consumers_for_server(self, server_id: str) -> None:
+        """
+        Remove this server's consumer entries from all task streams' consumer groups.
+
+        For each known task-type stream, attempt to remove the consumer named
+        `server_id` from the `STREAM_CONSUMER_GROUP`.
+
+        Args:
+            server_id (str): The server instance ID whose consumers should be removed.
+        """
+        try:
+            types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
+        except Exception:
+            types = None
+
+        if not types:
+            return
+
+        for t in types:
+            if isinstance(t, bytes):
+                t = t.decode()
+            stream = f"{GulpRedis.STREAM_TASK_PREFIX}:{t}"
+            try:
+                # remove this consumer from the group; returns number of pending messages
+                try:
+                    await self._redis.xgroup_delconsumer(stream, GulpRedis.STREAM_CONSUMER_GROUP, server_id)
+                except Exception:
+                    # ignore failures (group may not exist yet)
+                    pass
+
+                # inspect group info: if group exists and has zero consumers and zero pending,
+                # destroy the group and cleanup stream
+                try:
+                    groups = await self._redis.xinfo_groups(stream)
+                except Exception:
+                    groups = None
+
+                if groups:
+                    for g in groups:
+                        # g is a dict-like mapping returned by redis-py
+                        name = g.get(b'name') if isinstance(g, dict) and b'name' in g else g.get('name')
+                        if name and (name.decode() if isinstance(name, bytes) else name) == GulpRedis.STREAM_CONSUMER_GROUP:
+                            consumers = g.get(b'consumers') if isinstance(g, dict) and b'consumers' in g else g.get('consumers')
+                            pending = g.get(b'pending') if isinstance(g, dict) and b'pending' in g else g.get('pending')
+                            try:
+                                consumers = int(consumers)
+                            except Exception:
+                                consumers = 0
+                            try:
+                                pending = int(pending)
+                            except Exception:
+                                pending = 0
+
+                            if consumers == 0 and pending == 0:
+                                try:
+                                    await self._redis.xgroup_destroy(stream, GulpRedis.STREAM_CONSUMER_GROUP)
+                                except Exception:
+                                    pass
+                            break
+            except Exception:
+                MutyLogger.get_instance().exception("error cleaning consumer for stream %s", stream)

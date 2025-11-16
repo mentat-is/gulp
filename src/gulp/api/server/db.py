@@ -110,6 +110,69 @@ async def _rebase_callback(
         last=last,
     )
 
+async def run_rebase_task(t: dict) -> None:
+    """
+    runs in the MAIN PROCESS and spawns a worker for a queued rebase task.
+
+    Expected task dict:
+      {
+        "task_type": "rebase",
+        "operation_id": <str>,
+        "user_id": <str>,
+        "ws_id": <str>,
+        "req_id": <str>,
+        "params": {
+            "index": <str>,
+            "offset_msec": <int>,
+            "flt": <dict|null>,
+            "script": <str|null>
+         }
+      }
+
+    This function runs in the main process, reconstructs the filter model and
+    spawns a worker task to actually perform the rebase
+    """
+    MutyLogger.get_instance().debug("run_rebase_task, t=%s", t)
+    try:
+        params: dict = t.get("params", {})
+        user_id: str = t.get("user_id")
+        req_id: str = t.get("req_id")
+        operation_id: str = t.get("operation_id")
+        ws_id: str = t.get("ws_id")
+
+        index = params.get("index")
+        offset_msec = params.get("offset_msec")
+        flt = params.get("flt")
+        script = params.get("script")
+
+        # rebuild filter model if provided
+        from gulp.api.opensearch.filters import GulpQueryFilter
+        from gulp.api.server_api import GulpServer
+
+        flt_model = None
+        if flt:
+            # if dict, validate into model, otherwise assume already a model
+            if isinstance(flt, dict):
+                flt_model = GulpQueryFilter.model_validate(flt)
+            else:
+                flt_model = flt
+
+        # spawn worker to run the actual rebase (non-blocking)
+        await GulpServer.get_instance().spawn_worker_task(
+            _rebase_by_query_internal,
+            req_id,
+            ws_id,
+            user_id,
+            operation_id,
+            index,
+            offset_msec,
+            flt_model,
+            script,
+            task_name=f"rebase_{req_id}",
+        )
+
+    except Exception as ex:
+        MutyLogger.get_instance().exception("error in run_rebase_task: %s", ex)
 
 async def _rebase_by_query_internal(
     req_id: str,

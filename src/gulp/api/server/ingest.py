@@ -23,6 +23,7 @@ from typing import Annotated, Any, Optional
 import muty.file
 import muty.log
 import muty.pydantic
+import muty.string
 import orjson
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -70,7 +71,7 @@ class GulpBaseIngestPayload(BaseModel):
         }
     )
     flt: Optional[GulpIngestionFilter] = Field(
-        GulpIngestionFilter(), description="The ingestion filter."
+        default_factory=GulpIngestionFilter, description="The ingestion filter."
     )
 
 
@@ -98,7 +99,7 @@ class GulpIngestPayload(GulpBaseIngestPayload):
     plugin_params: Annotated[
         Optional[GulpPluginParameters],
         Field(description="To customize plugin behaviour"),
-    ] = GulpPluginParameters()
+    ] = Field(default_factory=GulpPluginParameters)
     original_file_path: Annotated[
         Optional[str], Field(description="The original file path.")
     ] = None
@@ -152,7 +153,7 @@ class GulpZipMetadataEntry(BaseModel):
     ] = None
     plugin_params: Annotated[
         Optional[GulpPluginParameters], Field(description="The plugin parameters.")
-    ] = GulpPluginParameters()
+    ] = Field(default_factory=GulpPluginParameters)
 
 
 router = APIRouter()
@@ -301,26 +302,31 @@ async def _ingest_file_internal(
 
             # run plugin and perform the ingestion
             mod = await GulpPluginBase.load(plugin)
-            status = await mod.ingest_file(
-                sess=sess,
-                stats=stats,
-                req_id=req_id,
-                ws_id=ws_id,
-                user_id=user_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=ctx_id,
-                source_id=src_id,
-                file_path=file_path,
-                original_file_path=payload.original_file_path,
-                plugin_params=payload.plugin_params,
-                flt=payload.flt,
-                **kwargs,
-            )
-            if payload.plugin_params.preview_mode:
-                # get the accumulated preview chunk and we're done
-                preview_chunk: list[dict] = deepcopy(mod.preview_chunk())
-                return status, preview_chunk
+            try:
+                status = await mod.ingest_file(
+                    sess=sess,
+                    stats=stats,
+                    req_id=req_id,
+                    ws_id=ws_id,
+                    user_id=user_id,
+                    index=index,
+                    operation_id=operation_id,
+                    context_id=ctx_id,
+                    source_id=src_id,
+                    file_path=file_path,
+                    original_file_path=payload.original_file_path,
+                    plugin_params=payload.plugin_params,
+                    flt=payload.flt,
+                    **kwargs,
+                )
+            except AttributeError as ae:
+                MutyLogger.get_instance().error(ae)
+                # MutyLogger.get_instance().debug("type=%s, %s", type(payload.plugin_params),payload.plugin_params)
+                if payload.plugin_params.preview_mode:
+                    # get the accumulated preview chunk and we're done
+                    preview_chunk: list[dict] = deepcopy(mod.preview_chunk())
+                    return GulpRequestStatus.DONE if len(preview_chunk) else GulpRequestStatus.FAILED, preview_chunk
+                raise
 
             # this source is done
             await mod.update_final_stats_and_flush(flt=payload.flt)
@@ -359,7 +365,7 @@ async def run_ingest_file_task(t: dict):
         await _ingest_file_internal(**ingest_args)
     except:
         MutyLogger.get_instance().exception(
-            "***ERROR*** in run_ingest_file_task, task=%s", t
+            "***ERROR*** in run_ingest_file_task, task=%s", muty.string.make_shorter(str(t), max_len=260)
         )
 
 
@@ -426,6 +432,7 @@ async def _preview_or_enqueue_ingest_task(
 
     # enqueue ingestion task on Redis
     kwds["payload"] = payload.model_dump(exclude_none=True)
+    # MutyLogger.get_instance().debug("ingest payload: %s", kwds["payload"])
     task_msg = {
         "task_type": TASK_TYPE_INGEST,
         "operation_id": operation_id,
@@ -615,7 +622,7 @@ async def ingest_file_handler(
             user_id = s.user.id
 
             # handle multipart request manually
-            file_path, payload, result = (
+            file_path, payload_dict, result = (
                 await ServerUtils.handle_multipart_chunked_upload(
                     r=r,
                     operation_id=operation_id,
@@ -631,7 +638,9 @@ async def ingest_file_handler(
                 return JSONResponse(d, status_code=206)
 
             # ensure payload is valid
-            payload = GulpIngestPayload.model_validate(payload)
+            # MutyLogger.get_instance().debug("ingest_file_handler ingest payload(before model_validate): %s", payload_dict)
+            payload = GulpIngestPayload.model_validate(payload_dict)
+            # MutyLogger.get_instance().debug("ingest_file_handler ingest payload(after model_validate): %s", payload)
 
             # proceed with the ingestion
             # we have all we need, proceed with ingestion outside the session

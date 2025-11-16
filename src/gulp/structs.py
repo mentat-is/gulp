@@ -81,7 +81,8 @@ class GulpAPIMethod(BaseModel):
     params: Annotated[
         list[GulpAPIParameter],
         Field(description="list of parameters for the method"),
-    ] = []
+    ] = Field(default_factory=list)
+    
 
 
 class GulpMappingParameters(BaseModel):
@@ -137,7 +138,7 @@ class GulpMappingParameters(BaseModel):
                 "- `mapping_file`, `additional_mapping_files`, `additional_mappings` are ignored if this is set."
             ),
         ),
-    ] = {}
+    ] = Field(default_factory=dict)
 
     # specify further mappings from other mapping files
     additional_mapping_files: Annotated[
@@ -148,7 +149,7 @@ class GulpMappingParameters(BaseModel):
                 "each tuple is defined as (other_mapping_file, mapping_id): each `mapping_id` from `other_mapping_file` will be loaded and merged to the mappings identified by `mapping_id` selected during parsing of the **main** `mapping_file`."
             ),
         ),
-    ] = []
+    ] = Field(default_factory=list)
 
     # pass additional mappings as a dictionary
     additional_mappings: Annotated[
@@ -159,7 +160,7 @@ class GulpMappingParameters(BaseModel):
                 "each `mapping_id` GulpMapping defined will be merged to the mappings identified by `mapping_id` selected during parsing of the **main** `mapping_file`."
             ),
         ),
-    ] = {}
+    ] = Field(default_factory=dict)
 
     # internal use, only for sigma queries
     sigma_mappings: Annotated[
@@ -170,7 +171,7 @@ class GulpMappingParameters(BaseModel):
                 'each key corresponds to `logsource.service` in the sigma rule: basically, we want to use the sigma rule only if a (mapped) "logsource.service" is defined in the sigma rule (or no `logsource` is defined at all in the sigma rule).'
             ),
         ),
-    ] = {}
+    ] = Field(default_factory=dict)
 
     def is_empty(self) -> bool:
         """
@@ -239,7 +240,7 @@ class GulpPluginParameters(BaseModel):
         Field(
             description="mapping parameters for the plugin.",
         ),
-    ] = GulpMappingParameters()
+    ] = Field(default_factory=GulpMappingParameters)
     override_chunk_size: Annotated[
         Optional[int],
         Field(
@@ -259,7 +260,7 @@ class GulpPluginParameters(BaseModel):
         Field(
             description="additional plugin-specific custom parameters.",
         ),
-    ] = {}
+    ] = Field(default_factory=dict)
     preview_mode: Annotated[
         bool,
         Field(

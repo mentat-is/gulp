@@ -59,6 +59,7 @@ class GulpProcess:
 
         # allow main/worker processes to spawn threads
         self.thread_pool: ThreadPoolExecutor = None
+        self.server_id: str = None
 
         # allow the main process to spawn worker processes
         self.process_pool: AioProcessPool = None
@@ -128,6 +129,12 @@ class GulpProcess:
                 if (None, None) is passed, it defaults to ("/var/log" or "/var/run/syslog" depending what is available, "LOG_USER").
                 cannot be used with logger_file_path.
         """
+        # we do not have mutylogger initialized yet here, so we use print statements
+        print(
+            "_worker_initializer, server_id=%s" % (
+            server_id)
+        )
+
         # initialize paths immediately, before any unpickling happens
         plugins_path = GulpConfig.get_instance().path_plugins_default()
         plugins_path_extra = GulpConfig.get_instance().path_plugins_extra()
@@ -167,13 +174,12 @@ class GulpProcess:
         spawned_processes.value += 1
         lock.release()
         MutyLogger.get_instance().warning(
-            "_worker_initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d"
-            % (
+            "_worker_initializer DONE, server_id=%s, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d",
+                server_id,
                 sys.path,
                 MutyLogger.get_instance().level,
                 logger_file_path,
                 spawned_processes.value,
-            )
         )
 
     async def close_thread_pool(self, wait: bool = True):
@@ -251,12 +257,13 @@ class GulpProcess:
 
         # initializes thread pool for the main or worker process
         self.thread_pool = ThreadPoolExecutor()
+        self.server_id = server_id
 
         if self._main_process:
             ###############################
             # main process initialization
             ###############################
-            MutyLogger.get_instance().info("initializing MAIN process...")
+            MutyLogger.get_instance().info("initializing MAIN process (server_id=%s) ...", self.server_id)
             self._log_level = log_level
             self._logger_file_path = logger_file_path
             self._log_to_syslog = log_to_syslog
@@ -299,12 +306,10 @@ class GulpProcess:
                 await asyncio.sleep(0.1)
 
             MutyLogger.get_instance().debug(
-                "all %d processes spawned!" % (spawned_processes.value)
-            )
+                "all %d processes spawned!", spawned_processes.value)
 
             MutyLogger.get_instance().warning(
-                "MAIN process initialized, sys.path=%s" % (sys.path,)
-            )
+                "MAIN process initialized, server_id=%s, sys.path=%s", server_id, sys.path)
 
             # load extension plugins
             from gulp.api.server_api import GulpServer
@@ -315,7 +320,6 @@ class GulpProcess:
             # worker process initialization
             ###############################
             # in the worker process, initialize redis, opensearch and collab clients (main process already did it)
-
             # we must initialize mutylogger here
             MutyLogger.get_instance(
                 "gulp-worker-%d" % (os.getpid()),
@@ -324,7 +328,7 @@ class GulpProcess:
                 level=log_level,
             )
             MutyLogger.get_instance().info(
-                "initializing WORKER process ...."
+                "initializing WORKER process (server_id=%s) ....",self.server_id
             )
             # read configuration in worker
             GulpConfig.get_instance()
@@ -334,57 +338,6 @@ class GulpProcess:
             await GulpCollab.get_instance().init()
             GulpRedis.get_instance().initialize(server_id, main_process=False) # do not initialize pub/sub in worker process, just redis client
 
-            # worker process initialized
-            MutyLogger.get_instance().info(
-                "WORKER process initialized"
-            )
-
-            # register sigterm handler for the worker process
-            #signal.signal(signal.SIGTERM, GulpProcess.sigterm_handler)
-
-
-
-    @staticmethod
-    async def _worker_cleanup():
-        """
-        cleanup the worker process (called as atexit handler)
-        """
-        MutyLogger.get_instance().debug(
-            "WORKER process PID=%d cleanup initiated!" % (os.getpid())
-        )
-        # close shared ws and process pool
-        try:
-            # close clients
-            await GulpCollab.get_instance().shutdown()
-            await GulpOpenSearch.get_instance().shutdown()
-            await GulpRedis.get_instance().shutdown(main_process=False)
-
-            # close thread pool
-            await GulpProcess.get_instance().close_thread_pool()
-
-        except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
-        finally:
-            MutyLogger.get_instance().info(
-                "WORKER process PID=%d cleanup DONE!" % (os.getpid())
-            )
-
-    def sigterm_handler(signum, frame):
-        MutyLogger.get_instance().debug(
-            "SIGTERM received, cleaning up worker process PID=%d..." % (os.getpid())
-        )
-        try:
-            # get the current event loop
-            loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
-            if loop.is_running():
-                # if the loop is running, create a task for cleanup
-                loop.create_task(GulpProcess._worker_cleanup())
-            else:
-                # if the loop is not running, run the cleanup synchronously
-                asyncio.run(GulpProcess._worker_cleanup())
-        except Exception as ex:
-            # log any exception during cleanup
-            MutyLogger.get_instance().exception(ex)
 
     def is_main_process(self) -> bool:
         """

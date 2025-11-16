@@ -147,10 +147,10 @@ class GulpCollabFilter(BaseModel):
     """
     defines filter to be applied to all objects in the collaboration system.
 
+    - custom fields can be provided in addition through model_extra, i.e. GulpCollabFilter(custom_list_field=["val1","val2"], custom_field="myval").
+      if a list is provided, it will match if any of the values match (OR)
     - use % for wildcard instead of * (SQL LIKE operator).
     - if "grant_user_ids" and/or "grant_user_group_ids" are provided, only objects with the defined grants will be returned.
-    - custom fields can be provided in addition, i.e. GulpCollabFilter(custom_list_field=["val1","val2"], custom_field="myval").
-      if a list is provided, it will match if any of the values match (OR)
     - all matches are case insensitive
     """
 
@@ -932,7 +932,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             d.update(extra_object_data)
 
         MutyLogger.get_instance().debug(
-            "creating object in table=%s, dict=%s", cls.__tablename__, d
+            "creating object in table=%s, dict=%s", cls.__tablename__, muty.string.make_shorter(str(d),max_len=260)
         )
 
         # insert the row using core insert so we don't instantiate the mapped class for persistence
@@ -1128,7 +1128,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         MutyLogger.get_instance().debug(
             "---> updated (type=%s): %s",
             self.type,
-            updated_dict,
+            muty.string.make_shorter(str(updated_dict),max_len=260)
         )
 
         if not ws_id:

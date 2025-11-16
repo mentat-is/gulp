@@ -36,6 +36,23 @@
 
 - if you get any issue starting gulp, try to reset gulp's docker volumes with [this](../reset_docker.sh) script.
 
+- beware of vscode `Forwarded Ports`: sometimes, you try to start a container that binds to a port already forwarded by vscode, causing conflicts.
+
+  i.e. if you see something like:
+  ~~~bash
+  ./test_scripts/start_splunk.sh
+
+  /home/valerino/repos/splunk_volume exists...
+  resetting permission on /home/valerino/repos/splunk_volume, user=valerino ...
+  [sudo] password for valerino: 
+  running splunk ...
+  Error response from daemon: No such container: splunk
+  3e1c39bc84753c3a09d0a66313c4f39b2cdc7c44ba5d90f9542cba9e7941f051
+  docker: Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint splunk (77cf82e507797a5cc68212a260891fe3f5153acd532fe2b4e552365c290f9f70): failed to bind host port for 0.0.0.0:8089:172.17.0.2:8089/tcp: address already in use
+  ~~~
+
+  simply go to vscode's `Ports` tab and remove the port forwarding for `8089`.
+
 ### devcontainer
 
 if you see an error like the following:

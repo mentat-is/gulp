@@ -54,7 +54,7 @@ class GulpServer:
     def __init__(self):
         self._initialized: bool = True
         self._app: FastAPI = None
-        self._server_id: str = muty.string.generate_unique()
+        self.server_id: str = muty.string.generate_unique()
         self._logger_file_path: str = None
         self._log_to_syslog: tuple[str, str] = None
         self._log_level: int = None
@@ -83,15 +83,6 @@ class GulpServer:
         if not cls._instance:
             cls._instance = cls()
         return cls._instance
-
-    def server_id(self) -> str:
-        """
-        returns the server unique ID
-
-        Returns:
-            str: server unique ID
-        """
-        return self._server_id
 
     def running_tasks(self) -> int:
         """
@@ -431,6 +422,7 @@ class GulpServer:
         Blocking task loop using Redis BLPOP for ingestion tasks.
         Waits for a task, then drains up to concurrency limit and dispatches to workers.
         """
+        from gulp.api.server.db import run_rebase_task
         from gulp.api.server.ingest import run_ingest_file_task
         from gulp.api.server.query import run_query_task
 
@@ -452,6 +444,8 @@ class GulpServer:
                     # block for first task (up to 5s) to avoid busy waiting
                     first = await GulpRedis.get_instance().task_pop_blocking(timeout=5)
                     if first is None:
+                        # timeout; avoid tight-looping if blocking returns without a task
+                        await asyncio.sleep(0.1)
                         continue  # timeout, loop again
 
                     batch: list[dict] = [first]
@@ -470,13 +464,11 @@ class GulpServer:
                             await self.spawn_worker_task(run_ingest_file_task, obj)
                         elif ttype == "query" or ttype == "external_query":
                             # run_query_task runs in main process and spawns workers itself
-                            self.spawn_bg_task(run_query_task(obj), name=f"query_task_{obj.get('req_id')}")
+                            self.spawn_bg_task(run_query_task(obj), name=f"query_task_{muty.string.generate_unique()}")#{obj.get('req_id')}")
                         elif ttype == "rebase":
                             # rebase task: run main-process handler that will spawn a worker
-                            from gulp.api.server.query_task import run_rebase_task
-
                             self.spawn_bg_task(
-                                run_rebase_task(obj), name=f"rebase_task_{obj.get('req_id')}"
+                                run_rebase_task(obj), name=f"rebase_task_{muty.string.generate_unique()}"
                             )
 
                 except asyncio.CancelledError:
@@ -631,6 +623,12 @@ class GulpServer:
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
             from gulp.api.redis_api import GulpRedis
+
+            # remove this server's consumer entries from Redis streams
+            try:
+                await GulpRedis.get_instance().cleanup_consumers_for_server(self.server_id)
+            except Exception:
+                MutyLogger.get_instance().exception("failed to cleanup redis consumers for server %s", self.server_id)
             await GulpRedisBroker.get_instance().shutdown()
             await GulpRedis.get_instance().shutdown()
 
@@ -642,7 +640,7 @@ class GulpServer:
         finally:
             # self._kill_gulp_processes()
             MutyLogger.get_instance().info(
-                "MAIN process cleanup DONE, just closing process pool is the only thing remaining ..."
+                "MAIN process cleanup DONE (server_id=%s), just closing process pool is the only thing remaining ...", self.server_id
             )
 
             # close process pool
@@ -702,7 +700,7 @@ class GulpServer:
 
         # initialize the redis client
         from gulp.api.redis_api import GulpRedis
-        GulpRedis.get_instance().initialize(self._server_id)
+        GulpRedis.get_instance().initialize(self.server_id)
 
         # initialize Redis pub/sub for worker->main process and instance<->instance communication
         redis_broker = GulpRedisBroker.get_instance()
@@ -715,6 +713,9 @@ class GulpServer:
 
                 # reset the collab database and recreate tables from scratch (also deletes all data in operations)
                 await db_reset()
+
+                # cleanup redis as well
+                await GulpRedis.get_instance().cleanup_redis()
 
             if self._create_operation:
                 from gulp.api.collab.operation import GulpOperation
@@ -731,7 +732,7 @@ class GulpServer:
 
         # finish initializing main process, will spawn workers as well
         await main_process.finish_initialization(
-            self._server_id,
+            self.server_id,
             log_level=self._log_level,
             logger_file_path=self._logger_file_path,
             log_to_syslog=self._log_to_syslog,
@@ -757,8 +758,8 @@ class GulpServer:
         MutyLogger.get_instance().info("gulp shutting down!")
         
         if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
-            # delete pending stats
-            await GulpRequestStats.purge_ongoing_requests()
+            # delete pending stats created by THIS instance only
+            await GulpRequestStats.purge_ongoing_requests(self.server_id)
 
         # unload extension plugins
         await self._unload_extension_plugins()
@@ -798,5 +799,6 @@ class GulpServer:
         )
         with open(check_first_run_file, "w", encoding="utf-8") as f:
             f.write("gulp!")
+        return True
         return True
         return True

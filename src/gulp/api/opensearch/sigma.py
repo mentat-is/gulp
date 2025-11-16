@@ -24,11 +24,11 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
 from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.opensearch.structs import GulpQuery
 from gulp.api.ws_api import GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpMappingParameters, GulpProgressCallback
-from gulp.api.opensearch.structs import GulpQuery
 
 
 async def _read_sigma_mappings_from_file(
@@ -460,7 +460,8 @@ async def sigmas_to_queries(
     categories: list[str] = None,
     tags: list[str] = None,
     paths: bool = False,
-) -> list["GulpQuery"]:
+    count_only: bool = False,
+) -> list["GulpQuery"]|int:
     """
     convert a list of sigma rules to GulpQuery objects.
 
@@ -481,13 +482,15 @@ async def sigmas_to_queries(
         categories (list[str], optional): list of categories to check. Defaults to None.
         tags (list[str], optional): list of tags to check. Defaults to None.
         paths (bool, optional): if True, sigmas are paths to files (will be read). Defaults to False.
+        count_only (bool, optional): if True, only return the count of converted queries. Defaults to False.
     Returns:
-        list[GulpQuery]: the list of GulpQuery objects
+        list[GulpQuery]|int: the list of converted GulpQuery objects, or the count if count_only=True
+
     """
 
     backend: Backend = OpensearchLuceneBackend()
     output_format: str = "dsl_lucene"
-
+    count_only_queries: int = 0
     srcs: list[GulpSource] = []
     if not src_ids:
         # get all source ids, if not provided
@@ -554,7 +557,7 @@ async def sigmas_to_queries(
         )
         if not rule:
             continue
-
+    
         should_part: list[dict] = []
         for mapping_parameters in my_mapping:
             # loop for every unique mapping parameters set
@@ -593,7 +596,7 @@ async def sigmas_to_queries(
                     % (rule.title or rule.name, yml, final_sigma_yml)
                 )
                 continue
-
+            
             for q in qs:
                 q_should_query_part: list[dict] = []
 
@@ -629,6 +632,10 @@ async def sigmas_to_queries(
 
             should_part.append(should_dict)
 
+        if count_only:
+            count_only_queries += 1
+            continue
+
         # mapping loop done, build the final query
         if len(should_part) == 1:
             final_query_dict: dict = {"query": should_part[0]}
@@ -643,6 +650,7 @@ async def sigmas_to_queries(
         final_gq: GulpQuery = _sigma_rule_to_gulp_query(
             rule, yml, final_query_dict, tags=tags
         )
+                
         gulp_queries.append(final_gq)
         MutyLogger.get_instance().info(
             '******* converted sigma rule "%s": current=%d, total=%d *******'
@@ -652,8 +660,16 @@ async def sigmas_to_queries(
         # for query in gulp_queries:
         #     print(query)
 
+    if count_only:
+        MutyLogger.get_instance().warning(
+            "count_only requested, total sigma rules converted to queries: %d", count_only_queries
+        )
+        return count_only_queries
+    
     if not len(gulp_queries):
         MutyLogger.get_instance().warning(
             "no sigma rules converted to queries (all filtered out?)"
         )
+    
     return gulp_queries
+

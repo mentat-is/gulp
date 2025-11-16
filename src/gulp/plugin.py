@@ -1948,6 +1948,7 @@ class GulpPluginBase(ABC):
 
         # walk generated documents and ensure they have context_id and source_id set
         mapping: GulpMapping = self.selected_mapping()
+        # MutyLogger.get_instance().debug("using mapping: %s", mapping)
         default_src = mapping.default_source
         default_ctx = mapping.default_context
         dd: list[dict] = []

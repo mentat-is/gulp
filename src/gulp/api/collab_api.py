@@ -206,14 +206,17 @@ class GulpCollab:
         pool_size: int = None
         max_overflow: int = 10
         if GulpConfig.get_instance().postgres_adaptive_pool_size():
+            # pool sizing should be based on per-process concurrency (child concurrency),
+            # not multiplied by number of worker processes. previously this used
+            # total_concurrency = num_tasks_per_worker * num_workers which caused
+            # each worker to create a large pool and ultimately exhaust PG max connections.
             num_tasks_per_worker: int = GulpConfig.get_instance().concurrency_num_tasks()
-            num_workers: int = GulpConfig.get_instance().parallel_processes_max()
-            total_concurrency: int = num_tasks_per_worker * num_workers
-            pool_size: int = min(200, max(10, total_concurrency // 4))
-            max_overflow: int = min(100, max(10, total_concurrency // 3))
+            # derive a conservative pool size from per-worker concurrency
+            pool_size = min(200, max(10, max(1, num_tasks_per_worker) // 4))
+            max_overflow = min(100, max(10, max(1, num_tasks_per_worker) // 3))
             MutyLogger.get_instance().debug(
-                "using postgres adaptive pool size, calculated pool_size=%d, max_overflow=%d (num_tasks_per_worker=%d, num_workers=%d, total_concurrency=%d) ..."
-                % (pool_size, max_overflow, num_tasks_per_worker, num_workers, total_concurrency)
+                "using postgres adaptive pool size, calculated pool_size=%d, max_overflow=%d (num_tasks_per_worker=%d) ..."
+                % (pool_size, max_overflow, num_tasks_per_worker)
             )
 
         # create engine
