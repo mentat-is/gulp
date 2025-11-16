@@ -939,6 +939,15 @@ class GulpConfig:
         n = self._config.get("ws_rate_limit_delay", 0.01)
         return n
 
+    def redis_compression_enabled(self) -> bool:
+        """
+        Returns whether Redis payload compression is enabled for large messages.
+
+        Default: False.
+        """
+        n = self._config.get("redis_compression_enabled", False)
+        return n
+
     def plugin_cache_enabled(self) -> bool:
         """
         Returns whether to enable the plugin cache (default: True).

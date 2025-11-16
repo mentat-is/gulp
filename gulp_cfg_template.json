@@ -75,6 +75,8 @@
   "postgres_verify_certs": false,
   // how many queries to keep in the history per user(default=20, max=50)
   "query_history_max_size": 20,
+// redis payload compression for large pub-sub messages (default=true)
+  "redis_compression_enabled": true,
   // redis url (may be overridden by GULP_REDIS_URL environment variable)
   "redis_url": "redis://:Gulp1234!@localhost:6379/0",
   // delete pending request stats on the collab database on gulp shutdown (default=true)

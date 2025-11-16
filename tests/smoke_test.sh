@@ -2,6 +2,17 @@
 # if this test passes, you may be quietly sure at least the basic and advanced ingestion/query features of gulp are working fine.
 # anything else is anyway trivially fixable....
 
+# log start time
+echo "Starting SMOKE TESTS at $(date)"
+start_ts=$(date +%s)
+
+finish_report() {
+    # print elapsed time and finishing timestamp
+    end_ts=$(date +%s)
+    elapsed=$((end_ts - start_ts))
+    printf "Elapsed time: %d seconds (%02d:%02d:%02d)\n" "$elapsed" "$((elapsed/3600))" "$((elapsed%3600/60))" "$((elapsed%60))"
+    echo "Finished SMOKE TESTS at $(date)"
+}
 python3 -m pytest -x -v -s ./tests/test_operation.py::test_operation_api
 if [ $? -ne 0 ]; then
     echo "test_operation_api failed"
@@ -66,8 +77,10 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "SUCCESS! SMOKE TESTS"
+finish_report
 exit 0
 
 __fail:
 echo "FAILED! SMOKE TESTS"
+finish_report
 exit 1

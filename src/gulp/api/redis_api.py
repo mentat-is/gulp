@@ -222,17 +222,46 @@ class GulpRedis:
         Returns:
             bool: True if unregistered successfully
         """
-        metadata_key = self._get_ws_metadata_key(ws_id)
         lookup_key = self._get_ws_lookup_key(ws_id)
 
-        deleted = await self._redis.delete(metadata_key, lookup_key)
+        deleted_total = 0
+        try:
+            # delete any metadata keys for this ws_id across all server instances
+            pattern = f"gulp:ws:metadata:*:{ws_id}"
+            cursor = 0
+            keys_to_delete: list[str] = []
+            while True:
+                cursor, keys = await self._redis.scan(cursor=cursor, match=pattern, count=200)
+                if keys:
+                    keys_to_delete.extend(keys)
+                if cursor == 0:
+                    break
+
+            if keys_to_delete:
+                try:
+                    deleted = await self._redis.delete(*keys_to_delete)
+                    if isinstance(deleted, int):
+                        deleted_total += deleted
+                except Exception:
+                    MutyLogger.get_instance().exception("failed to delete ws metadata keys")
+
+            # delete the lookup mapping ws_id -> server_id
+            try:
+                deleted = await self._redis.delete(lookup_key)
+                if isinstance(deleted, int):
+                    deleted_total += deleted
+            except Exception:
+                MutyLogger.get_instance().exception("failed to delete ws lookup key")
+
+        except Exception:
+            MutyLogger.get_instance().exception("error during ws_unregister scan/delete")
 
         MutyLogger.get_instance().debug(
             "unregistered websocket: ws_id=%s, deleted=%d",
             ws_id,
-            deleted,
+            deleted_total,
         )
-        return deleted > 0
+        return deleted_total > 0
 
     async def ws_get_server(self, ws_id: str) -> str:
         """
@@ -278,16 +307,25 @@ class GulpRedis:
         # if payload is too large, compress, chunk and store it in Redis then publish a small pointer
         try:
             if len(payload) > self.PUBLISH_INLINE_MAX_BYTES:
-                # compress the serialized payload to reduce storage and network size
-                try:
-                    compressed = zlib.compress(payload)
-                except Exception:
-                    MutyLogger.get_instance().exception("failed to compress large payload, falling back to direct publish")
-                    await self._redis.publish(GulpRedis.CHANNEL, payload)
-                    return
+                # decide whether to compress payload based on configuration
+                compress_payload = GulpConfig.get_instance().redis_compression_enabled()
 
-                # split compressed bytes into chunks
-                chunks = [compressed[i : i + self.PUBLISH_CHUNK_SIZE] for i in range(0, len(compressed), self.PUBLISH_CHUNK_SIZE)]
+                if compress_payload:
+                    # compress the serialized payload to reduce storage and network size
+                    try:
+                        stored_bytes = zlib.compress(payload)
+                        compressed_flag = True
+                    except Exception:
+                        MutyLogger.get_instance().exception("failed to compress large payload, falling back to direct publish")
+                        await self._redis.publish(GulpRedis.CHANNEL, payload)
+                        return
+                else:
+                    # store uncompressed bytes
+                    stored_bytes = payload
+                    compressed_flag = False
+
+                # split bytes into chunks
+                chunks = [stored_bytes[i : i + self.PUBLISH_CHUNK_SIZE] for i in range(0, len(stored_bytes), self.PUBLISH_CHUNK_SIZE)]
                 num_chunks = len(chunks)
 
                 base_key = f"gulp:pub:payload:{muty.string.generate_unique()}"
@@ -298,7 +336,7 @@ class GulpRedis:
                 pointer_message["payload"] = {
                     "__pointer_key": base_key,
                     "__chunks": num_chunks,
-                    "__compressed": True,
+                    "__compressed": compressed_flag,
                     "__orig_len": len(payload),
                 }
                 pointer_bytes = orjson.dumps(pointer_message)
@@ -327,11 +365,12 @@ class GulpRedis:
                     # execute lua atomically
                     await self._redis.eval(lua, len(chunk_keys), *chunk_keys, *args)
                     MutyLogger.get_instance().warning(
-                        "published large compressed message stored in %d chunks base=%s total_size=%d bytes (compressed=%d)",
+                        "published large %s message stored in %d chunks base=%s total_size=%d bytes (stored=%d)",
+                        "compressed" if compressed_flag else "uncompressed",
                         num_chunks,
                         base_key,
                         len(payload),
-                        len(compressed),
+                        len(stored_bytes),
                     )
                     return
                 except Exception:
@@ -344,7 +383,8 @@ class GulpRedis:
                             await self._redis.set(chunk_keys[i], c, ex=self.PUBLISH_LARGE_PAYLOAD_TTL)
                         await self._redis.publish(GulpRedis.CHANNEL, pointer_bytes)
                         MutyLogger.get_instance().warning(
-                            "published large compressed message stored (fallback) in %d chunks base=%s",
+                            "published large %s message stored (fallback) in %d chunks base=%s",
+                            "compressed" if compressed_flag else "uncompressed",
                             num_chunks,
                             base_key,
                         )
