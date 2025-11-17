@@ -66,7 +66,7 @@ class GulpRedis:
         self._subscriber_task: asyncio.Task = None
         self.server_id: str = None
         # list of roles assigned to this server instance (e.g. ['ingest', 'query'])
-        self._server_roles: list[str] = []
+        self._instance_roles: list[str] = []
         # simple task queue (list) key
         self._task_queue_key: str = "gulp:queue:tasks"
         # max inline publish size (bytes). messages larger than this are stored
@@ -107,7 +107,7 @@ class GulpRedis:
         self.server_id = server_id
 
         # determine instance roles from configuration
-        self._server_roles = GulpConfig.get_instance().instance_roles()
+        self._instance_roles = GulpConfig.get_instance().instance_roles()
 
         # create redis client
         url: str = GulpConfig.get_instance().redis_url()
@@ -557,8 +557,8 @@ class GulpRedis:
 
         # determine stream keys to poll (per-type streams)
         keys: list[str] = []
-        if self._server_roles:
-            for r in self._server_roles:
+        if self._instance_roles:
+            for r in self._instance_roles:
                 keys.append(f"{GulpRedis.STREAM_TASK_PREFIX}:{r}")
         else:
             # get all known task types from redis set
@@ -655,8 +655,8 @@ class GulpRedis:
         try:
             # build stream keys to read from
             keys: list[str] = []
-            if self._server_roles:
-                for r in self._server_roles:
+            if self._instance_roles:
+                for r in self._instance_roles:
                     keys.append(f"{GulpRedis.STREAM_TASK_PREFIX}:{r}")
             else:
                 try:
