@@ -199,7 +199,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             # trim if the history is too long
             max_history_size: int = GulpConfig.get_instance().query_history_max_size()
             if len(q_history) > max_history_size:
-                # remove oldest entries                
+                # remove oldest entries
                 over: int = len(q_history) - max_history_size
                 MutyLogger.get_instance().warning(
                     "trimming query history for user %s, size=%d, max_size=%d",
@@ -208,7 +208,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                     max_history_size,
                 )
                 q_history = q_history[over:]
-                
+
             self.user_data["query_history"] = q_history
             MutyLogger.get_instance().debug(
                 "added %d query history entries for user %s, total size=%d",
@@ -382,7 +382,10 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             await GulpInternalEventsManager.get_instance().broadcast_event(
                 WSDATA_USER_LOGIN,
                 data=GulpUserAccessPacket(
-                    user_id=u.id, login=True, req_id=req_id, ip=user_ip, 
+                    user_id=u.id,
+                    login=True,
+                    req_id=req_id,
+                    ip=user_ip,
                 ).model_dump(),
                 user_id=u.id,
                 req_id=req_id,
@@ -427,7 +430,10 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         await GulpInternalEventsManager.get_instance().broadcast_event(
             WSDATA_USER_LOGIN,
             data=GulpUserAccessPacket(
-                user_id=u.id, login=True, req_id=req_id, ip=user_ip, 
+                user_id=u.id,
+                login=True,
+                req_id=req_id,
+                ip=user_ip,
             ).model_dump(),
             user_id=u.id,
             req_id=req_id,
@@ -457,7 +463,9 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             None
         """
         MutyLogger.get_instance().info("logging out token=%s, user=%s", s.id, s.user.id)
-        p = GulpUserAccessPacket(user_id=s.user.id, login=False, req_id=req_id, ip=user_ip)
+        p = GulpUserAccessPacket(
+            user_id=s.user.id, login=False, req_id=req_id, ip=user_ip
+        )
         await s.delete(
             sess=sess,
             user_id=s.user.id,
@@ -473,7 +481,10 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         await GulpInternalEventsManager.get_instance().broadcast_event(
             WSDATA_USER_LOGIN,
             data=GulpUserAccessPacket(
-                user_id=u.id, login=False, req_id=req_id, ip=user_ip, 
+                user_id=s.id,
+                login=False,
+                req_id=req_id,
+                ip=user_ip,
             ).model_dump(),
             user_id=s.user.id,
             req_id=req_id,
