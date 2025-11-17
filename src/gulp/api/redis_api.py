@@ -29,15 +29,18 @@ class GulpWsMetadata(BaseModel):
     types: Annotated[
         list[str],
         Field(
-            description="List of GulpWsData.type this websocket is interested in, default is an empty list(all)"
+            description="List of GulpWsData.type this websocket is interested in, default is an empty list(all)",
+            default_factory=list,
         ),
-    ] = []
+    ]
     operation_ids: Annotated[
         list[str],
         Field(
-            description="List of `operation_id` this websocket is interested in, default is an empty list(all)"
+            description="List of `operation_id` this websocket is interested in, default is an empty list(all)",
+            default_factory=list,
+
         ),
-    ] = []
+    ]
     socket_type: Annotated[
         str, Field(description="The socket type (default, ingest, client_data)")
     ]
@@ -405,6 +408,13 @@ class GulpRedis:
         unsubscribe from the redis pubsub channel
         """
         if self._subscriber_task:
+            # cancel the task
+            self._subscriber_task.cancel()
+            try:
+                await self._subscriber_task
+            except asyncio.CancelledError:                
+                pass
+
             await self._pubsub.unsubscribe(GulpRedis.CHANNEL)
             MutyLogger.get_instance().info(
                 "unsubscribed from channel: %s, server_id=%s",
