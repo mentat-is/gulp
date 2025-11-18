@@ -131,8 +131,8 @@ remove the container with `docker container rm some_container_id` and retry.
   - increase `ingestion_request_timeout` (**almost always this is the easiest solution**) **OR**
   - scale up OpenSearch nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration **OR**
   - reduce parallelism with `parallel_processes_max` **AND/OR** `concurrency_num_tasks` **OR**
-  - tune `documents_chunk_size` configuration parameter (i.e. default is 1000, try with 2000 to reduce parallel chunks)
-    - keep in mind, though, that a too big `documents_chunk_size` may cause client websocket disconnections (`PayloadTooBig`)
+  - tune `ingestion_documents_chunk_size` configuration parameter (i.e. default is 1000, try with 2000 to reduce parallel chunks)
+    - keep in mind, though, that a too big `ingestion_documents_chunk_size` may cause client websocket disconnections (`PayloadTooBig`)
 
 #### query
 

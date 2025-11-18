@@ -2015,9 +2015,8 @@ class GulpOpenSearch:
         # )
 
         cb_attempts: int = 0
-        max_attempts: int = GulpConfig.get_instance().query_circuit_breaker_backoff_attempts()
-
-        options: dict = parsed_options
+        max_attempts: int = GulpConfig.get_instance().query_circuit_breaker_backoff_attempts()    
+        options: dict =deepcopy(parsed_options) # avoid to mutate original parsed_options
         track_total_hits: bool = True
         min_cb_limit: int  = GulpConfig.get_instance().query_circuit_breaker_min_limit()
         
@@ -2069,7 +2068,6 @@ class GulpOpenSearch:
 
                 # apply circuit breaker mitigation
                 cb_attempts += 1
-                options: dict =deepcopy(parsed_options)
                 size = options["size"]
                 if size > min_cb_limit:
                     new_size: int = max(min_cb_limit, max(1, size // 2))
@@ -2084,6 +2082,7 @@ class GulpOpenSearch:
                     size,
                     cb_attempts
                 )
+                await asyncio.sleep(1)
                 continue
 
         # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s", orjson.dumps(res, option=orjson.OPT_INDENT_2).decode())

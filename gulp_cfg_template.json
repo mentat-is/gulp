@@ -35,7 +35,7 @@
   // default for index template creation
   "index_template_default_refresh_interval": "5s",
   // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
-  // on file ingestion only, this is ignored if "adaptive_documents_chunk_size" is set.
+  // on file ingestion only, this is ignored if "ingestion_documents_adaptive_chunk_size" is set.
   "ingestion_documents_chunk_size": 1000,
   // if set, ingestion chunk depends on the source file size (applies to file ingestion only)
   "ingestion_documents_adaptive_chunk_size": true,
@@ -73,8 +73,8 @@
   "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@localhost:5432/gulp",
   // set to false to skip server certificate verification
   "postgres_verify_certs": false,
-  // number of times to backoff on opensearch query circuit breaker exception (default=3)
-  "query_circuit_breaker_backoff_attempts": 3,
+  // number of times to backoff on opensearch query circuit breaker exception (default=5)
+  "query_circuit_breaker_backoff_attempts": 5,
 // if set, disables highlights when query circuit breaker is triggered (default=true)
   "query_circuit_breaker_disables_highlights": true,
   // minimum query chunk size limit for circuit breaker backoff (default=100)

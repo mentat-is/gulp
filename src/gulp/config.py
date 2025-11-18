@@ -342,14 +342,14 @@ class GulpConfig:
 
         Default: 3 attempts.
         """
-        n = self._config.get("query_circuit_breaker_backoff_attempts", 3)
+        n = self._config.get("query_circuit_breaker_backoff_attempts", 5)
         try:
             n = int(n)
         except (TypeError, ValueError):
-            n = 3
+            n = 5
         if n <= 0:
-            n = 3
-            MutyLogger.get_instance().warning("invalid query_circuit_breaker_backoff_attempts, set to default=3")
+            n = 5
+            MutyLogger.get_instance().warning("invalid query_circuit_breaker_backoff_attempts, set to default=5")
 
         return n
 
