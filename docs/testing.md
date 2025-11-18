@@ -27,7 +27,7 @@ GULP_INTEGRATION_TEST=1 gulp --reset-collab --create test_operation
 
 tests are located in the [tests](../tests) folder and can be run independently, i.e.
 
-> [tests/smoke_test.sh](../tests/smoke_test.sh) is a simple smoke test script that runs a subset of critical tests in sequence (~10 minutes), stopping at the first failure: it is useful to quickly verify if the main functionalities are working as expected.
+> [tests/smoke_test.sh](../tests/smoke_test.sh) is a test script that runs a subset of critical tests in sequence (~10 minutes), stopping at the first failure: it is useful to verify if the main functionalities are working as expected.
 
 ~~~bash
 python3 -m pytest -v -s -x ./tests/query/test_query_api.py

@@ -58,6 +58,19 @@ if [ $? -ne 0 ]; then
     echo "test_ingest_preview failed"
     goto __fail
 fi
+
+python3 -m pytest -x -v -s ./tests/enrich/test_enrich_whois.py
+if [ $? -ne 0 ]; then
+    echo "test_ingest_preview failed"
+    goto __fail
+fi
+
+python3 -m pytest -x -v -s ./tests/enrich/test_tag_documents.py
+if [ $? -ne 0 ]; then
+    echo "test_ingest_preview failed"
+    goto __fail
+fi
+
 BIG_SIGMAS=1 python3 -m pytest -x -v -s ./gulp-paid-plugins/tests/extension/test_query_sigma_zip.py::test_sigma_zip
 if [ $? -ne 0 ]; then
     echo "test_sigma_zip failed"

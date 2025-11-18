@@ -158,12 +158,3 @@ async def test_tag_single_id():
 
     MutyLogger.get_instance().info(test_tag_single_id.__name__ + " succeeded!")
 
-@pytest.mark.asyncio
-async def test_enrich_single_id():
-    from tests.extension.test_enrich_whois import test_enrich_whois_single_id
-    await test_enrich_whois_single_id()
-
-@pytest.mark.asyncio
-async def test_enrich_documents():
-    from tests.extension.test_enrich_whois import test_enrich_whois_documents
-    await test_enrich_whois_documents()
