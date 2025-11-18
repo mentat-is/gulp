@@ -24,11 +24,6 @@
   "debug_ignore_missing_ws": false,
   // prevent token expiration for debugging purposes, ignored if debug_allow_any_token_as_admin is set to true (default=false)
   "debug_no_token_expiration": false,
-  // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
-  // on file ingestion only, this is ignored if "adaptive_documents_chunk_size" is set.
-  "documents_chunk_size": 1000,
-  // if set, ingestion chunk depends on the source file size (applies to file ingestion only)
-  "documents_adaptive_chunk_size": true,
   // enforce https
   "https_enforce": false,
   // enforce client certificates signed by gulp-ca for https
@@ -39,6 +34,11 @@
   "index_dynamic_keyword_ignore_above": 1500,
   // default for index template creation
   "index_template_default_refresh_interval": "5s",
+  // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
+  // on file ingestion only, this is ignored if "adaptive_documents_chunk_size" is set.
+  "ingestion_documents_chunk_size": 1000,
+  // if set, ingestion chunk depends on the source file size (applies to file ingestion only)
+  "ingestion_documents_adaptive_chunk_size": true,
   // failed events in a file to consider the file ABORTED (0=disabled)
   "ingestion_evt_failure_threshold": 5000,
   // how many times to retry ingestion on error (default=3)
@@ -73,6 +73,12 @@
   "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@localhost:5432/gulp",
   // set to false to skip server certificate verification
   "postgres_verify_certs": false,
+  // number of times to backoff on opensearch query circuit breaker exception (default=3)
+  "query_circuit_breaker_backoff_attempts": 3,
+// if set, disables highlights when query circuit breaker is triggered (default=true)
+  "query_circuit_breaker_disables_highlights": true,
+  // minimum query chunk size limit for circuit breaker backoff (default=100)
+  "query_circuit_breaker_min_limit": 100,
   // how many queries to keep in the history per user(default=20, max=50)
   "query_history_max_size": 20,
 // redis payload compression for large pub-sub messages (default=true)
@@ -87,9 +93,11 @@
   "token_admin_ttl": 600,
   // login token (except admin) expiration time, default=1week (604800 seconds)
   "token_ttl": 604800,
-  // rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected sockets: increment if you get clients disconnections, and also check client code if this happens too often.
-  // if `ws_adaptive_rate_limit_delay` is set, this is the base delay used to calculate the real delay depending on the number of connected sockets.
-  "ws_rate_limit_delay": 0.01,
   // if set, websocket delay depends on the number of connected websockets
   "ws_adaptive_rate_limit_delay": true,
+  // maximum size of the websocket message queue per client (default=1024 messages). increase if you get "queue full" warnings in the gulp logs.
+  "ws_queue_max_size": 1024,
+  // rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected sockets: increment if you get clients disconnections, and also check client code if this happens too often.
+  // if `ws_adaptive_rate_limit_delay` is set, this is the base delay used to calculate the real delay depending on the number of connected sockets.
+  "ws_rate_limit_delay": 0.01
 }

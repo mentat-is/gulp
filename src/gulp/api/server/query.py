@@ -400,7 +400,9 @@ async def run_query(
                 return total_processed, total_hits, q_options.name, canceled
 
             except Exception as ex:
-                MutyLogger.get_instance().exception(ex)
+                if not isinstance(ex, ObjectNotFound):
+                    # log this
+                    MutyLogger.get_instance().exception("EXCEPTION=%s,\nquery=\n%s", str(ex), gq)
                 if isinstance(ex, RequestCanceledError):
                     # request is canceled
                     canceled = True

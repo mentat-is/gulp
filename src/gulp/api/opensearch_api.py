@@ -21,8 +21,9 @@ import asyncio
 import json
 import os
 import tempfile
+from copy import deepcopy
 from importlib import resources as impresources
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import urlparse
 
 import aiofiles
@@ -34,6 +35,7 @@ import orjson
 from elasticsearch import AsyncElasticsearch
 from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch, NotFoundError
+from opensearchpy.exceptions import TransportError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.note import GulpNote
@@ -43,6 +45,7 @@ from gulp.api.collab.stats import GulpRequestStats, RequestCanceledError
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import (
+    QUERY_DEFAULT_FIELDS,
     GulpDocumentFilterResult,
     GulpIngestionFilter,
     GulpQueryFilter,
@@ -1992,13 +1995,8 @@ class GulpOpenSearch:
         Raises:
             ObjectNotFound: If no more hits are found.
         """
-        body = q
-        body["track_total_hits"] = True
-
-        # build raw query body (query + parsed_options)
-        for k, v in parsed_options.items():
-            if v:
-                body[k] = v
+        # do not mutate original query dict to avoid leaking settings across retries
+        body = dict(q)
 
         headers = {
             "content-type": "application/json",
@@ -2016,31 +2014,77 @@ class GulpOpenSearch:
         #     orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode(),
         # )
 
-        if el:
-            # use provided client
-            if isinstance(el, AsyncElasticsearch):
-                # use the ElasticSearch client provided
-                res = await el.search(
-                    index=index,
-                    track_total_hits=True,
-                    query=q["query"],
-                    sort=parsed_options["sort"],
-                    size=parsed_options["size"],
-                    search_after=parsed_options["search_after"],
-                    source=parsed_options["_source"],
-                    highlight=parsed_options.get("highlight", None),
-                    timeout=timeout if timeout else None,
+        cb_attempts: int = 0
+        max_attempts: int = GulpConfig.get_instance().query_circuit_breaker_backoff_attempts()
+
+        options: dict = parsed_options
+        track_total_hits: bool = True
+        min_cb_limit: int  = GulpConfig.get_instance().query_circuit_breaker_min_limit()
+        
+        while True:
+            try:
+                # build raw query body (query + parsed_options)
+                for k, v in options.items():
+                    if v:
+                        body[k] = v
+
+                body["track_total_hits"] = track_total_hits
+                
+                if el:
+                    # use provided client
+                    if isinstance(el, AsyncElasticsearch):
+                        # use the ElasticSearch client provided
+                        res = await el.search(
+                            index=index,
+                            track_total_hits=track_total_hits,
+                            query=q["query"],
+                            sort=options["sort"],
+                            size=options["size"],
+                            search_after=options["search_after"],
+                            source=options["_source"],
+                            highlight=options.get("highlight", None),
+                            timeout=timeout if timeout else None,
+                        )
+                    else:
+                        # opensearch client provided by the caller
+                        res = await el.search(
+                            body=body, index=index, headers=headers, params=params
+                        )
+                else:
+                    # use gulp's own opensearch client
+                    res = await self._opensearch.search(
+                        body=body, index=index, headers=headers, params=params
+                    )
+                break
+            except Exception as ex:
+                if not self._is_circuit_breaker_exception(ex):
+                    raise
+
+                if cb_attempts >= max_attempts:
+                    MutyLogger.get_instance().error(
+                        "circuit breaker retries exhausted (attempts=%d)",
+                        cb_attempts,
+                    )
+                    raise
+
+                # apply circuit breaker mitigation
+                cb_attempts += 1
+                options: dict =deepcopy(parsed_options)
+                size = options["size"]
+                if size > min_cb_limit:
+                    new_size: int = max(min_cb_limit, max(1, size // 2))
+                options["size"] = new_size
+                if GulpConfig.get_instance().query_circuit_breaker_disable_highlights():
+                    # disable hightlights
+                    options["highlight"] = None
+
+                MutyLogger.get_instance().warning(
+                    "CIRCUIT BREAKER EXCEPTION HIT! trying query chunk size=%d (prev=%d) due, attempt=%d",
+                    new_size,
+                    size,
+                    cb_attempts
                 )
-            else:
-                # opensearch client provided by the caller
-                res = await el.search(
-                    body=body, index=index, headers=headers, params=params
-                )
-        else:
-            # use gulp's own opensearch client
-            res = await self._opensearch.search(
-                body=body, index=index, headers=headers, params=params
-            )
+                continue
 
         # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s", orjson.dumps(res, option=orjson.OPT_INDENT_2).decode())
         hits = res["hits"]["hits"]
@@ -2061,6 +2105,37 @@ class GulpOpenSearch:
 
         search_after = hits[-1]["sort"]
         return total_hits, docs, search_after
+
+    def _is_circuit_breaker_exception(self, err: Exception) -> bool:
+        """
+        determine whether an exception is caused by the OpenSearch circuit breaker
+
+        Args:
+            err (Exception): the raised exception
+        Returns:
+            bool: True if the exception maps to a circuit breaker error, False otherwise
+        Throws:
+            None
+        """
+        if not isinstance(err, TransportError):
+            return False
+
+        def _contains_marker(payload: Optional[object]) -> bool:
+            marker = "circuit_breaking_exception"
+            if payload is None:
+                return False
+            if isinstance(payload, str):
+                return marker in payload.lower()
+            try:
+                return marker in json.dumps(payload).lower()
+            except Exception:
+                return marker in str(payload).lower()
+
+        if _contains_marker(err.error):
+            return True
+        if _contains_marker(err.info):
+            return True
+        return False
 
     async def search_dsl_sync(
         self,

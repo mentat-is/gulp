@@ -540,8 +540,7 @@ class GulpRedis:
             )
 
         MutyLogger.get_instance().debug(
-            "enqueued task_type=%s on %s, task=%s", ttype, stream_key, task
-        )
+            "enqueued task_type=%s on %s, task=%s", ttype, stream_key, muty.string.make_shorter(str(task),max_len=260))
 
     async def task_dequeue_batch(self, max_items: int) -> list[dict]:
         """

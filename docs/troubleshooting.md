@@ -136,14 +136,42 @@ remove the container with `docker container rm some_container_id` and retry.
 
 #### query
 
-- error like `opensearchpy.exceptions.TransportError: TransportError(500, 'search_phase_execution_exception', 'Query contains too many nested clauses; maxClauseCount is set to 1024'` or `opensearchpy.exceptions.RequestError: RequestError(400, 'search_phase_execution_exception', 'failed to create query: field expansion for [*] matches too many fields, limit: 1024, got: 1741')` usually happens when the query issued is **REALLY (i mean REALLY, with hundreds/thousands of clauses with or without wildcards)** and one may attempt to fix this using something like the following in the `os01/environment` section of the `docker-compose.yml` used to start OpenSearch (or, directly in its configuration file)
+- errors like
 
+  ~~~text
+  `opensearchpy.exceptions.TransportError: TransportError(500, 'search_phase_execution_exception', 'Query contains too many nested clauses; maxClauseCount is set to 1024'` or `opensearchpy.exceptions.RequestError: RequestError(400, 'search_phase_execution_exception', 'failed to create query: field expansion for [*] matches too many fields, limit: 1024, got: 1741')` 
   ~~~
+  
+  usually happens when the query issued is **REALLY BIG (i mean REALLY, with hundreds/thousands of clauses with or without wildcards)** and one may attempt to fix this using something like the following in the `os01/environment` section of the `docker-compose.yml` used to start OpenSearch (or, directly in its configuration file)
+
+  ~~~text
   # increase max clause count to 16k (default is 1024)
   indices.query.bool.max_clause_count: 16384
   ~~~
 
   **NOTE**: `this is discouraged`, and usually means the query should be reworked to include less statements.
+
+- errors like
+
+  ~~~text
+  opensearchpy.exceptions.TransportError: TransportError(500, 'search_phase_execution_exception', 'CircuitBreakingException: [parent] Data too large, data for [<transport_request>] would be [1053240832/1003mb], which is larger than the limit of [1048576000/1000mb], real usage: [1053240832/1003mb], new bytes reserved: [0/0mb], usages [request=0/0mb, fielddata=0/0mb, in_flight_requests=1053240832/1003mb, accounting=0/0mb]')`
+  ~~~
+
+  during querying usually means that OpenSearch ran out of memory while processing the query.
+
+  you can attempt to tweak the following configuration options to mitigate the issue, or simply scale up the OpenSearch nodes (**recommended**):
+
+  ~~~json
+    // number of times to retry on opensearch query circuit breaker exception (default=3)
+    "query_circuit_breaker_backoff_attempts": 3,
+    // minimum query chunk size limit for circuit breaker backoff (default=100)
+    "query_circuit_breaker_min_limit": 100,
+    // if set, disables highlights when query circuit breaker is triggered (default=true)
+    "query_circuit_breaker_disables_highlights": true,
+    
+  ~~~
+  
+  > you may also try to lower `concurrency` settings in the configuration and/or diminish `limit` in `GulpQueryOptions` when querying... but this is a clear indication that OpenSearch is struggling.
 
 - frequent errors like `"opensearchpy.exceptions.ConnectionError: ConnectionError(Cannot connect to host localhost:9200 ssl:default [Multiple exceptions: [Errno 111] ..."` may indicate OpenSearch crashing underneath, which can be verified inspecting Docker logs.
 
@@ -190,12 +218,12 @@ remove the container with `docker container rm some_container_id` and retry.
   websockets.exceptions.ConnectionClosedError: sent 1009 (message too big); no close frame received
   ~~~
 
-  diminish the websocket chunk size in the configuration, which by default is 1000 (i.e. set it to 500)
+  diminish the ingestion chunk size in the configuration, which by default is 1000 (i.e. set it to 500)
 
   ~~~json
   {
     // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
-    "documents_chunk_size": 1000
+    "ingestion_documents_chunk_size": 1000
   }
   ~~~
 

@@ -2,6 +2,7 @@ import asyncio
 import os
 import queue
 import time
+import zlib
 from enum import StrEnum
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
@@ -12,7 +13,6 @@ import muty
 import muty.string
 import muty.time
 import orjson
-import zlib
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 from gitdb.fun import chunk_size
@@ -723,8 +723,16 @@ class GulpConnectedSocket:
     - cleanup operations
     """
 
-    YIELD_CONTROL_INTERVAL: int = 100  # yield control every 100 messages
-    YIELD_CONTROL_DELAY: float = 0.01  # yield control delay in seconds
+    # yield interval used to avoid starving the event loop
+    YIELD_CONTROL_INTERVAL: int = 100
+    # sleep duration when yielding control to the event loop
+    YIELD_CONTROL_DELAY: float = 0.01
+    # threshold for logging queue pressure warnings
+    QUEUE_PRESSURE_THRESHOLD: float = 0.8
+    # interval between queue pressure logs to avoid flooding
+    QUEUE_PRESSURE_LOG_INTERVAL: float = 30.0
+    # interval between overflow logs
+    QUEUE_OVERFLOW_LOG_INTERVAL: float = 10.0
 
     def __init__(
         self,
@@ -755,8 +763,134 @@ class GulpConnectedSocket:
         self._cleaned_up = False
         self._server_id = GulpProcess.get_instance().server_id
         self._tasks: list[asyncio.Task] = []
-        # each socket has its own asyncio queue, consumed by its own task
-        self.q = asyncio.Queue()
+        # store queue capacity for quick reference in telemetry
+        self._queue_capacity: int = GulpConfig.get_instance().ws_queue_max_size()
+        # each socket has its own asyncio queue, consumed by its own task with bounded size
+        self.q = asyncio.Queue(maxsize=self._queue_capacity)
+        # track dropped message count for observability
+        self._dropped_messages: int = 0
+        # remember queue high watermark for diagnostics
+        self._queue_high_watermark: int = 0
+        # throttle repeated overflow logs
+        self._last_overflow_log_ts: float = 0.0
+        # throttle repeated pressure logs
+        self._last_pressure_log_ts: float = 0.0
+
+    async def enqueue_message(self, message: dict) -> bool:
+        """
+        enqueue a websocket message without blocking the caller
+
+        Args:
+            message (dict): payload ready for serialization
+        Returns:
+            bool: True when the message has been enqueued, False if dropped
+        Throws:
+            RuntimeError: propagated when queue operations fail unexpectedly
+        """
+        try:
+            # prefer non-blocking enqueue to avoid stalling broadcast fan-out
+            self.q.put_nowait(message)
+            self._record_queue_pressure()
+            return True
+        except asyncio.QueueFull:
+            # handle overflow by dropping the oldest entry and logging the event
+            MutyLogger.get_instance().exception("**** ws_id=%s QUEUE FULL ****", self.ws_id)
+            return await self._handle_queue_overflow(message)
+
+    def _record_queue_pressure(self) -> None:
+        """
+        track queue utilization and log when approaching capacity
+
+        Args:
+            None
+        Returns:
+            None
+        Throws:
+            RuntimeError: not raised explicitly but kept for interface parity
+        """
+        current_size: int = self.q.qsize()
+        if current_size > self._queue_high_watermark:
+            # update high watermark for later inspection
+            self._queue_high_watermark = current_size
+
+        if not self._queue_capacity:
+            return
+
+        utilization: float = current_size / self._queue_capacity
+        if utilization < self.QUEUE_PRESSURE_THRESHOLD:
+            return
+
+        now: float = time.monotonic()
+        if now - self._last_pressure_log_ts < self.QUEUE_PRESSURE_LOG_INTERVAL:
+            return
+
+        self._last_pressure_log_ts = now
+        MutyLogger.get_instance().warning(
+            "ws queue high pressure ws_id=%s utilization=%.2f capacity=%d high_watermark=%d",
+            self.ws_id,
+            utilization,
+            self._queue_capacity,
+            self._queue_high_watermark,
+        )
+
+    async def _handle_queue_overflow(self, message: dict) -> bool:
+        """
+        drop the oldest message to make room for a new one when the queue is full
+
+        Args:
+            message (dict): payload that could not be queued due to overflow
+        Returns:
+            bool: True if the new message was eventually enqueued, False otherwise
+        Throws:
+            RuntimeError: propagated when queue operations fail unexpectedly
+        """
+        self._dropped_messages += 1
+        dropped_type: Optional[str] = None
+
+        try:
+            # remove the oldest entry to reclaim space before inserting the new payload
+            dropped_item = self.q.get_nowait()
+            if isinstance(dropped_item, dict):
+                dropped_type = dropped_item.get("type")
+            self.q.task_done()
+        except asyncio.QueueEmpty:
+            dropped_type = None
+
+        try:
+            self.q.put_nowait(message)
+            self._log_queue_overflow(dropped_type, True)
+            return True
+        except asyncio.QueueFull:
+            MutyLogger.get_instance().exception("**** ws_id=%s QUEUE FULL ****", self.ws_id)
+            self._log_queue_overflow(dropped_type, False)
+            return False
+
+    def _log_queue_overflow(self, dropped_type: Optional[str], recovered: bool) -> None:
+        """
+        log overflow information with throttling to avoid noisy logs
+
+        Args:
+            dropped_type (Optional[str]): discarded payload type when known
+            recovered (bool): indicates if the new payload entered the queue
+        Returns:
+            None
+        Throws:
+            RuntimeError: not raised explicitly but reserved for consistency
+        """
+        now: float = time.monotonic()
+        if now - self._last_overflow_log_ts < self.QUEUE_OVERFLOW_LOG_INTERVAL:
+            return
+
+        self._last_overflow_log_ts = now
+        MutyLogger.get_instance().warning(
+            "ws queue overflow ws_id=%s dropped=%d last_type=%s recovered=%s capacity=%d high_watermark=%d",
+            self.ws_id,
+            self._dropped_messages,
+            dropped_type,
+            recovered,
+            self._queue_capacity,
+            self._queue_high_watermark,
+        )
 
     async def _flush_queue(self) -> None:
         """
@@ -830,8 +964,19 @@ class GulpConnectedSocket:
         if GulpConfig.get_instance().debug_ignore_missing_ws():
             return True
 
+        connected_sockets = GulpConnectedSockets.get_instance()
+
+        # check local registry first to avoid unnecessary redis round-trips
+        if connected_sockets.get(ws_id):
+            return True
+
+        cached_server: Optional[str] = connected_sockets.get_cached_server(ws_id)
+        if cached_server:
+            return True
+
         redis_client = GulpRedis.get_instance()
         server_id = await redis_client.ws_get_server(ws_id)
+        connected_sockets.cache_server(ws_id, server_id)
         return server_id is not None
 
     async def cleanup_tasks(self) -> None:
@@ -932,7 +1077,7 @@ class GulpConnectedSocket:
             #     item.get("type"),
             #     muty.string.make_shorter(str(item), max_len=260),
             # )
-            await asyncio.sleep(GulpConfig.get_instance().ws_rate_limit_delay())
+            await asyncio.sleep(await self._ws_rate_limit_delay())
             return True
         except asyncio.CancelledError:
             MutyLogger.get_instance().warning(
@@ -1104,6 +1249,70 @@ class GulpConnectedSockets:
 
     def _initialize(self):
         self._sockets: dict[str, GulpConnectedSocket] = {}
+        # cache websocket ownership lookups to reduce Redis load
+        self._ws_server_cache: dict[str, tuple[str, float]] = {}
+        # ttl for cache entries, for quick invalidation
+        self._ws_server_cache_ttl: float = 1.0 # GulpConfig.get_instance().ws_server_cache_ttl()
+
+    def get_cached_server(self, ws_id: str) -> Optional[str]:
+        """
+        return cached websocket ownership if the entry is still valid
+
+        Args:
+            ws_id (str): websocket identifier
+        Returns:
+            Optional[str]: cached server id or None if absent/expired
+        Throws:
+            RuntimeError: not raised explicitly but kept for parity
+        """
+        cache_entry = self._ws_server_cache.get(ws_id)
+        if not cache_entry:
+            return None
+
+        server_id, expires_at = cache_entry
+        if expires_at < time.monotonic():
+            self._ws_server_cache.pop(ws_id, None)
+            return None
+
+        return server_id
+
+    def cache_server(self, ws_id: str, server_id: Optional[str]) -> None:
+        """
+        store websocket ownership information locally to avoid extra Redis hits
+
+        Args:
+            ws_id (str): websocket identifier
+            server_id (Optional[str]): owning server id if known
+        Returns:
+            None
+        Throws:
+            RuntimeError: not raised explicitly but included for consistency
+        """
+        if not ws_id:
+            return
+
+        if not server_id:
+            self._ws_server_cache.pop(ws_id, None)
+            return
+
+        expires_at: float = time.monotonic() + self._ws_server_cache_ttl
+        self._ws_server_cache[ws_id] = (server_id, expires_at)
+
+    def invalidate_cached_server(self, ws_id: str) -> None:
+        """
+        remove a websocket ownership cache entry
+
+        Args:
+            ws_id (str): websocket identifier
+        Returns:
+            None
+        Throws:
+            RuntimeError: not raised explicitly but declared for uniformity
+        """
+        if not ws_id:
+            return
+
+        self._ws_server_cache.pop(ws_id, None)
 
     async def add(
         self,
@@ -1189,6 +1398,9 @@ class GulpConnectedSockets:
         # unregister from Redis
         redis_client = GulpRedis.get_instance()
         await redis_client.ws_unregister(ws_id)
+        
+        # drop cached ownership so workers do not rely on stale entries
+        self.invalidate_cached_server(ws_id)
 
         MutyLogger.get_instance().debug(
             "---> removed connected ws=%s, ws_id=%s, num connected sockets=%d",
@@ -1299,7 +1511,7 @@ class GulpConnectedSockets:
         #     "routing message to ws_id=%s: %s", target_ws.ws_id, message
         # )
         try:
-            await target_ws.q.put(message)
+            await target_ws.enqueue_message(message)
         except Exception as ex:
             MutyLogger.get_instance().exception(
                 "failed to route message to ws_id=%s: %s", target_ws.ws_id, ex
@@ -1500,7 +1712,9 @@ class GulpRedisBroker:
                             "return table.concat(vals)\n"
                         )
                         try:
-                            stored = await redis_client._redis.eval(lua_multi, len(keys), *keys)
+                            stored = await redis_client._redis.eval(
+                                lua_multi, len(keys), *keys
+                            )
                         except Exception:
                             # fall back to multi-get then multi-del non-atomically (best-effort)
                             try:
@@ -1517,9 +1731,16 @@ class GulpRedisBroker:
                                 else:
                                     # delete keys (best-effort)
                                     try:
-                                        await asyncio.gather(*[redis_client._redis.delete(k) for k in keys])
+                                        await asyncio.gather(
+                                            *[
+                                                redis_client._redis.delete(k)
+                                                for k in keys
+                                            ]
+                                        )
                                     except Exception:
-                                        MutyLogger.get_instance().exception("failed to delete chunk keys after read")
+                                        MutyLogger.get_instance().exception(
+                                            "failed to delete chunk keys after read"
+                                        )
                                     stored = b"".join(vals)
                             except Exception:
                                 stored = None
@@ -1532,7 +1753,8 @@ class GulpRedisBroker:
                                         data_bytes = zlib.decompress(data_bytes)
                                     except Exception:
                                         MutyLogger.get_instance().exception(
-                                            "failed to decompress stored chunks for base=%s", ptr
+                                            "failed to decompress stored chunks for base=%s",
+                                            ptr,
                                         )
                                         data_bytes = None
 
@@ -1541,15 +1763,18 @@ class GulpRedisBroker:
                                     message = full_msg
                                 else:
                                     MutyLogger.get_instance().warning(
-                                        "failed to decode stored chunks for base=%s", ptr
+                                        "failed to decode stored chunks for base=%s",
+                                        ptr,
                                     )
                             except Exception:
                                 MutyLogger.get_instance().exception(
-                                    "failed to decode stored large payload for base=%s", ptr
+                                    "failed to decode stored large payload for base=%s",
+                                    ptr,
                                 )
                         else:
                             MutyLogger.get_instance().warning(
-                                "large payload chunked pointer missing in Redis for base=%s", ptr
+                                "large payload chunked pointer missing in Redis for base=%s",
+                                ptr,
                             )
                     else:
                         # legacy/single-key pointer handling: atomic GET+DEL for single key
@@ -1569,7 +1794,8 @@ class GulpRedisBroker:
                                 message = full_msg
                             except Exception:
                                 MutyLogger.get_instance().exception(
-                                    "failed to decode stored large payload for key=%s", ptr
+                                    "failed to decode stored large payload for key=%s",
+                                    ptr,
                                 )
                         else:
                             MutyLogger.get_instance().warning(

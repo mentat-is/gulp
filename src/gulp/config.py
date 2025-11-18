@@ -310,21 +310,62 @@ class GulpConfig:
             )
         return n
 
-    def documents_chunk_size(self) -> int:
+    def ingestion_documents_chunk_size(self) -> int:
         """
-        size of documents chunk to send/request in one go
+        size of documents chunk (during ingestion) to send/request in one go
         """
-        n = self._config.get("documents_chunk_size", None)
+        n = self._config.get("ingestion_documents_chunk_size", None)
         if not n:
             n = 1000
-            # MutyLogger.get_instance().debug("using default documents_chunk_size=%d" % (n))
+            # MutyLogger.get_instance().debug("using default ingestion_documents_chunk_size=%d" % (n))
         return n
 
-    def documents_adaptive_chunk_size(self) -> bool:
+    def ingestion_documents_adaptive_chunk_size(self) -> bool:
         """
-        whether to enable adaptive documents chunk size
+        whether to enable adaptive documents chunk size during ingestion
         """
-        n = self._config.get("documents_adaptive_chunk_size", True)
+        n = self._config.get("ingestion_documents_adaptive_chunk_size", True)
+        return n
+
+    def query_circuit_breaker_disable_highlights(self) -> bool:
+        """
+        Returns whether to disable highlights when query circuit breaker is triggered.
+
+        Default: True
+        """
+        n = self._config.get("query_circuit_breaker_disables_highlights", True)
+        return n
+    
+    def query_circuit_breaker_backoff_attempts(self) -> int:
+        """
+        Returns how many times query execution should retry with backoff when OpenSearch circuit breakers trip.
+
+        Default: 3 attempts.
+        """
+        n = self._config.get("query_circuit_breaker_backoff_attempts", 3)
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            n = 3
+        if n <= 0:
+            n = 3
+            MutyLogger.get_instance().warning("invalid query_circuit_breaker_backoff_attempts, set to default=3")
+
+        return n
+
+    def query_circuit_breaker_min_limit(self) -> int:
+        """
+        Returns the lowest per-chunk document limit allowed during circuit breaker backoff.
+
+        Default: 100 documents.
+        """
+        n = self._config.get("query_circuit_breaker_min_limit", 100)
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            n = 100
+        if n < 1:
+            n = 1
         return n
 
     def ingestion_evt_failure_threshold(self) -> int:
@@ -336,7 +377,7 @@ class GulpConfig:
             return 0
         return n
 
-    def ws_adaptive_rate_limit() -> bool:
+    def ws_adaptive_rate_limit(self) -> bool:
         """
         Returns whether to enable adaptive rate limiting for websockets (default: False).
         """
@@ -925,7 +966,15 @@ class GulpConfig:
 
         return n
 
-    def ws_adaptive_rate_limit_delay() -> bool:
+    def ws_adaptive_rate_limit(self) -> bool:
+        """
+        Returns whether to enable adaptive rate limiting for websockets (default: False).
+        """
+        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit", True)
+        return n
+
+
+    def ws_adaptive_rate_limit_delay(self) -> bool:
         """
         Returns whether to enable adaptive rate limiting for websockets (default: False).
         """
@@ -938,7 +987,32 @@ class GulpConfig:
         """
         n = self._config.get("ws_rate_limit_delay", 0.01)
         return n
+    
+    def ws_queue_max_size(self) -> int:
+        """
+        Returns the maximum size of the websocket message queue per client.
 
+        Default: 1024 messages.
+        """
+        n = self._config.get("ws_queue_max_size", 1024)
+        return n
+    
+    def ws_server_cache_ttl(self) -> float:
+        """
+        Returns the TTL in seconds for cached websocket ownership lookups.
+
+        Default: 1 second.
+        """
+        ttl = self._config.get("ws_server_cache_ttl", 1.0)
+        try:
+            ttl = float(ttl)
+        except (TypeError, ValueError):
+            ttl = 1.0
+
+        if ttl <= 0:
+            ttl = 1.0
+        return ttl    
+    
     def redis_compression_enabled(self) -> bool:
         """
         Returns whether Redis payload compression is enabled for large messages.

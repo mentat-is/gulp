@@ -1674,7 +1674,7 @@ class GulpPluginBase(ABC):
         self._original_file_path = original_file_path
         self._source_id = source_id
 
-        if GulpConfig.get_instance().documents_adaptive_chunk_size():
+        if GulpConfig.get_instance().ingestion_documents_adaptive_chunk_size():
             # calculate adaptive chunk size based on file size
             file_size: int = await muty.file.get_size(file_path)
             file_size_mb: int = file_size / (1024 * 1024)
@@ -2406,7 +2406,7 @@ class GulpPluginBase(ABC):
         ingestion_buffer_size: int = (
             self._adaptive_chunk_size
             if self._adaptive_chunk_size
-            else GulpConfig.get_instance().documents_chunk_size()
+            else GulpConfig.get_instance().ingestion_documents_chunk_size()
         )
         if self._plugin_params.override_chunk_size:
             # override
