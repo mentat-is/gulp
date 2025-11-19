@@ -84,15 +84,6 @@ class GulpServer:
             cls._instance = cls()
         return cls._instance
 
-    def running_tasks(self) -> int:
-        """
-        Returns the number of currently running tasks.
-
-        Returns:
-            int: Number of running tasks.
-        """
-        return self._running_tasks
-
     def version_string(self) -> str:
         """
         returns the version string
