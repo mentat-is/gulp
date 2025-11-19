@@ -632,7 +632,7 @@ async def ingest_file_handler(
             )
             if not result.done:
                 # upload not done yet, must continue upload with a new chunk
-                d = JSendResponse.error(
+                d = JSendResponse.success(
                     req_id=req_id, data=result.model_dump(exclude_none=True)
                 )
                 return JSONResponse(d, status_code=206)
