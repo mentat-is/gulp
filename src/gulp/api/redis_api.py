@@ -331,7 +331,8 @@ class GulpRedis:
                 chunks = [stored_bytes[i : i + self.PUBLISH_CHUNK_SIZE] for i in range(0, len(stored_bytes), self.PUBLISH_CHUNK_SIZE)]
                 num_chunks = len(chunks)
 
-                base_key = f"gulp:pub:payload:{muty.string.generate_unique()}"
+                # include server_id in base key to prevent cross-node chunk retrieval
+                base_key = f"gulp:pub:payload:{self.server_id}:{muty.string.generate_unique()}"
                 chunk_keys = [f"{base_key}:{i}" for i in range(num_chunks)]
 
                 # pointer metadata to publish on pubsub
@@ -341,6 +342,7 @@ class GulpRedis:
                     "__chunks": num_chunks,
                     "__compressed": compressed_flag,
                     "__orig_len": len(payload),
+                    "__server_id": self.server_id,  # track which server stored the chunks
                 }
                 pointer_bytes = orjson.dumps(pointer_message)
 

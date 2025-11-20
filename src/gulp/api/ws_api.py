@@ -1694,8 +1694,36 @@ class GulpRedisBroker:
             pl = message.get("payload")
             if isinstance(pl, dict) and pl.get("__pointer_key"):
                 ptr = pl.get("__pointer_key")
+                chunk_server_id = pl.get("__server_id")
+                
+                # only retrieve chunks if:
+                # 1) we are the server that stored them (chunk_server_id == our server_id), OR
+                # 2) the message is explicitly targeted to a ws_id we own
+                should_retrieve = False
+                if chunk_server_id == redis_client.server_id:
+                    # we stored these chunks, we should retrieve them
+                    should_retrieve = True
+                else:
+                    # check if the message targets a websocket we own
+                    target_ws_id = message.get("ws_id")
+                    if target_ws_id:
+                        owner_server = await redis_client.ws_get_server(target_ws_id)
+                        if owner_server == redis_client.server_id:
+                            should_retrieve = True
+                
+                if not should_retrieve:
+                    # this node should not retrieve chunks - another node will handle it
+                    # log at debug level to avoid flooding logs
+                    MutyLogger.get_instance().debug(
+                        "skipping chunk retrieval for ptr=%s (chunk_server_id=%s, our_server_id=%s)",
+                        ptr,
+                        chunk_server_id,
+                        redis_client.server_id,
+                    )
+                    # leave message as-is with pointer, don't process further
+                    return
+                
                 try:
-                    # New behavior: support chunked compressed payloads.
                     # If pointer contains __chunks, try atomic multi-GET+DEL for all chunk keys
                     chunks = pl.get("__chunks")
                     compressed_flag = pl.get("__compressed", False)
@@ -1711,39 +1739,9 @@ class GulpRedisBroker:
                             "for i=1,n do redis.call('DEL', KEYS[i]) end\n"
                             "return table.concat(vals)\n"
                         )
-                        try:
-                            stored = await redis_client._redis.eval(
-                                lua_multi, len(keys), *keys
-                            )
-                        except Exception:
-                            # fall back to multi-get then multi-del non-atomically (best-effort)
-                            try:
-                                vals = []
-                                missing = False
-                                for k in keys:
-                                    v = await redis_client._redis.get(k)
-                                    if not v:
-                                        missing = True
-                                        break
-                                    vals.append(v)
-                                if missing:
-                                    stored = None
-                                else:
-                                    # delete keys (best-effort)
-                                    try:
-                                        await asyncio.gather(
-                                            *[
-                                                redis_client._redis.delete(k)
-                                                for k in keys
-                                            ]
-                                        )
-                                    except Exception:
-                                        MutyLogger.get_instance().exception(
-                                            "failed to delete chunk keys after read"
-                                        )
-                                    stored = b"".join(vals)
-                            except Exception:
-                                stored = None
+                        stored = await redis_client._redis.eval(
+                            lua_multi, len(keys), *keys
+                        )
 
                         if stored:
                             try:
@@ -1777,17 +1775,12 @@ class GulpRedisBroker:
                                 ptr,
                             )
                     else:
-                        # legacy/single-key pointer handling: atomic GET+DEL for single key
+                        # single-key pointer handling: atomic GET+DEL for single key
                         lua = (
                             "local v = redis.call('GET', KEYS[1]);"
                             "if v then redis.call('DEL', KEYS[1]) end; return v"
                         )
-                        try:
-                            stored = await redis_client._redis.eval(lua, 1, ptr)
-                        except Exception:
-                            # fall back to plain GET if EVAL not supported for some reason
-                            stored = await redis_client._redis.get(ptr)
-
+                        stored = await redis_client._redis.eval(lua, 1, ptr)                        
                         if stored:
                             try:
                                 full_msg = orjson.loads(stored)
