@@ -581,6 +581,9 @@ class GulpServer:
                 raise
 
         # fire and forget (just use spawn_bg_task to schedule the coro)
+        # NOTE: may be appropriate to directly call process_pool.queue_work instead ? from testing, it works as expected and 
+        # we don't have the minimal overhead of an extra task in the main process (it just await for apply() to complete, which in turn awaits for the coroutine supplied to the pool in a busy loop).
+        # but, using the process_pool.queue_work function directly we would loose task name check and exception handling...
         GulpServer.spawn_bg_task(coro, task_name)
         return
 

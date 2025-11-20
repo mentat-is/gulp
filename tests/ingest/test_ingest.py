@@ -256,6 +256,7 @@ async def test_raw(raw_data: list[dict] = None):
         # if we're passing raw_data (as in the enrich_whois test, this is the only chunk)
         last=True if raw_data else False,
     )
+
     if not raw_data:
         # ingest another (generate new random data)
         raw_chunk = json.loads(buf)
@@ -272,6 +273,8 @@ async def test_raw(raw_data: list[dict] = None):
         )
         check_size = 6  # plus the 3 above, we're using the same req_id
 
+    # NOTE: awaiting with a sleep is not ideal, a proper ws loop would reflect client communication better... 
+    # anyway, for just a basic test waiting a sufficient amount of time for the above two requests is ok.
     await asyncio.sleep(10)
     op = await GulpAPIOperation.operation_get_by_id(
         ingest_token, TEST_OPERATION_ID, get_count=True
@@ -392,6 +395,8 @@ async def test_ws_raw():
             MutyLogger.get_instance().exception(ex)
 
     assert test_completed
+    # NOTE: awaiting with a sleep is not ideal, a proper ws loop would reflect client communication better... 
+    # anyway, for just a basic test waiting a sufficient amount of time for the above two requests is ok.
     await asyncio.sleep(20)
     op = await GulpAPIOperation.operation_get_by_id(
         token=ingest_token, operation_id=TEST_OPERATION_ID

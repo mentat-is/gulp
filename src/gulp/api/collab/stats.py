@@ -275,7 +275,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         """
 
         MutyLogger.get_instance().debug(
-            "---> create_stats: req_id=%s, operation_id=%s, user_id=%s, stats_type=%s",
+            "---> create_or_get_existing: req_id=%s, operation_id=%s, user_id=%s, stats_type=%s",
             req_id,
             operation_id,
             user_id,
@@ -301,7 +301,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         )
         if stats:
             MutyLogger.get_instance().debug(
-                "---> create_stats: req_id=%s, already existing, updating...",
+                "---> create_or_get_existing: req_id=%s, already existing, updating...",
                 req_id,
             )
             if stats.req_type == RequestStatsType.REQUEST_TYPE_QUERY.value and data:

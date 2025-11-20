@@ -50,6 +50,7 @@ from gulp.api.server.structs import (
     APIDependencies,
     GulpUploadResponse,
 )
+from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
@@ -1008,6 +1009,44 @@ async def ingest_file_local_to_source_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+async def _ingest_raw_internal(user_id: str, operation_id: str, index: str, req_id: str, ws_id: str, plugin: str, chunk: bytes, flt: GulpIngestionFilter,
+                plugin_params: GulpPluginParameters, last: bool):
+    async with GulpCollab.get_instance().session() as sess:
+        # create (or get existing) stats
+        stats: GulpRequestStats
+        stats, _ = await GulpRequestStats.create_or_get_existing(
+            sess,
+            req_id,
+            user_id,
+            operation_id,
+            ws_id=ws_id,
+            never_expire=True,
+            data=GulpIngestionStats().model_dump(exclude_none=True),
+        )
+
+        # run plugin
+        mod: GulpPluginBase = None
+        try:
+            mod = await GulpPluginBase.load(plugin)
+            await mod.ingest_raw(
+                sess,
+                stats,
+                user_id,
+                req_id,
+                ws_id,
+                index,
+                operation_id,
+                chunk,
+                flt=flt,
+                plugin_params=plugin_params,
+                last=last,
+            )
+        except Exception as ex:
+            MutyLogger.get_instance().exception(ex)
+        finally:
+            if mod:
+                await mod.update_final_stats_and_flush(flt=flt)
+                await mod.unload()
 
 @router.post(
     "/ingest_raw",
@@ -1087,71 +1126,48 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
         MutyLogger.get_instance().debug("using default 'raw' plugin")
 
     ServerUtils.dump_params(params)
-    mod: GulpPluginBase = None
     try:
         async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation
-                s: GulpUserSession
-                s, op, _ = await GulpOperation.get_by_id_wrapper(
-                    sess,
-                    token,
-                    operation_id,
-                    permission=GulpUserPermission.INGEST,
-                )
+            # get operation and check acl
+            op: GulpOperation
+            s: GulpUserSession
+            s, op, _ = await GulpOperation.get_by_id_wrapper(
+                sess,
+                token,
+                operation_id,
+                permission=GulpUserPermission.INGEST,
+            )
 
-                # get body (contains chunk, and optionally flt and plugin_params)
-                payload, chunk = await ServerUtils.handle_multipart_body(r)
-                flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
-                    payload.get("flt", GulpIngestionFilter())
+            # get body (contains chunk, and optionally flt and plugin_params)
+            payload, chunk = await ServerUtils.handle_multipart_body(r)
+            flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
+                payload.get("flt", GulpIngestionFilter())
+            )
+            plugin_params: GulpPluginParameters = (
+                GulpPluginParameters.model_validate(
+                    payload.get("plugin_params", GulpPluginParameters())
                 )
-                plugin_params: GulpPluginParameters = (
-                    GulpPluginParameters.model_validate(
-                        payload.get("plugin_params", GulpPluginParameters())
-                    )
-                )
+            )
+            #async def _ingest_raw_internal(user_id: str, operation_id: str, index: str, req_id: str, ws_id: str, plugin: str, chunk: bytes, flt: GulpIngestionFilter,
+            #    plugin_params: GulpPluginParameters, last: bool):
 
-                # create (or get existing) stats
-                stats: GulpRequestStats
-                stats, _ = await GulpRequestStats.create_or_get_existing(
-                    sess,
-                    req_id,
-                    s.user_id,
-                    operation_id,
-                    ws_id=ws_id,
-                    never_expire=True,
-                    data=GulpIngestionStats().model_dump(exclude_none=True),
-                )
+            await GulpServer.get_instance().spawn_worker_task(
+                _ingest_raw_internal,
+                s.user_id,
+                operation_id,
+                op.index,
+                req_id,
+                ws_id,
+                plugin,
+                chunk,
+                flt,
+                plugin_params,
+                last)
 
-                # run plugin
-                mod = await GulpPluginBase.load(plugin)
-                await mod.ingest_raw(
-                    sess,
-                    stats,
-                    s.user_id,
-                    req_id,
-                    ws_id,
-                    op.index,
-                    operation_id,
-                    chunk,
-                    flt=flt,
-                    plugin_params=plugin_params,
-                    last=last,
-                )
-                await mod.update_final_stats_and_flush(flt=flt)
-
-                # done
-                return JSONResponse(JSendResponse.success(req_id=req_id))
-            except Exception as ex:
-                if mod:
-                    await mod.update_final_stats_and_flush(flt=flt, ex=ex)
-                raise
+            # done
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-    finally:
-        if mod:
-            await mod.unload()
 
 
 async def _process_metadata_json(
