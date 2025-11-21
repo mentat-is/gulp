@@ -149,7 +149,7 @@ class GulpCollabFilter(BaseModel):
 
     - custom fields can be provided in addition through model_extra, i.e. GulpCollabFilter(custom_list_field=["val1","val2"], custom_field="myval").
       if a list is provided, it will match if any of the values match (OR)
-    - use % for wildcard instead of * (SQL LIKE operator).
+    - wildcards ("*", escape to match literal "*") are supported for most of the strings field except noted.
     - if "grant_user_ids" and/or "grant_user_group_ids" are provided, only objects with the defined grants will be returned.
     - all matches are case insensitive
     """
@@ -202,7 +202,7 @@ class GulpCollabFilter(BaseModel):
     user_ids: Annotated[
         list[str], Field(description="filter by the given owner user id/s.")
     ] = None
-    tags: Annotated[list[str], Field(description="filter by the given tag/s.")] = None
+    tags: Annotated[list[str], Field(description="filter by the given tag/s (no wildcards accepted).")] = None
     names: Annotated[list[str], Field(description="filter by the given name/s.")] = None
     texts: Annotated[
         list[str],
@@ -274,6 +274,17 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         ),
     ] = None
 
+    def is_empty(self) -> bool:
+        """
+        check if the filter is empty (no filtering criteria set)
+
+        Returns:
+            bool: True if the filter is empty, False otherwise
+        """
+        if not self.ids and not self.types and not self.operation_ids and not self.context_ids and not self.source_ids and not self.user_ids and not self.tags and not self.names and not self.texts and not self.time_created_range and not self.time_pin_range and not self.doc_ids and not self.doc_time_range and not self.model_extra:
+            return True
+        return False
+    
     @override
     def __str__(self) -> str:
         return self.model_dump_json(exclude_none=True)
@@ -290,8 +301,8 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             ColumnElement[bool]: The OR query.
         """
         # print("column=%s, values=%s" % (column, values))
-        # check if values in values contains wildcards as *, if so, replace with % for SQL LIKE operator
-        values = [val.replace("*", "%") for val in values]
+        # check if values in values contains wildcards as *, if so, replace with % for SQL LIKE operator (but consider only non-escaped *)
+        values = [re.sub(r"(?<!\\)\*", "%", val) for val in values]
         conditions = [col.ilike(value) for value in values]
         return or_(*conditions)
 
@@ -423,12 +434,13 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                     is_array = isinstance(getattr(col, "type", None), ARRAY)
                     if is_array:
                         # if it's an array, use array overlap (matches if any element matches)
-                        q = q.filter(self._array_contains_any(col, v))
+                        q = q.filter(self._case_insensitive_or_ilike(k, v))
                     else:
                         # either a simple column, use case insensitive OR ilike match
                         q = q.filter(self._case_insensitive_or_ilike(col, v))
-
                     continue
+                else:
+                    raise ValueError("invalid filter field: %s" % k)
 
         if self.doc_ids and "doc_ids" in obj_type.columns:
             # return all collab objects that have at least one of the associated document "_id" (obj.doc_ids) in the given doc_ids list
@@ -1843,7 +1855,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         flt: GulpCollabFilter = await GulpCollabBase._restrict_flt_to_user(
             sess, user_id, flt
         )
-
+        
         # MutyLogger.get_instance().debug("pre to_select_query: user=%s, admin=%r, groups=%s, flt=%s", u.to_dict(), is_admin, group_ids, flt)
         q = flt.to_select_query(cls)
         q = q.options(*cls._build_eager_loading_options(recursive=recursive))
