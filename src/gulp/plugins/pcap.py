@@ -11,6 +11,7 @@ for the Gulp ingestion pipeline, converting network packet data into searchable 
 
 import orjson
 import os
+import string
 import pathlib
 from typing import Any, override
 
@@ -104,7 +105,7 @@ class Plugin(GulpPluginBase):
                     pass
 
             # make sure we have a valid json serializable dict
-            for field, value in fields.items():
+            for field, value in fields.copy().items():
                 if value is None:
                     # no need to map a None value
                     continue
@@ -112,6 +113,7 @@ class Plugin(GulpPluginBase):
                 if isinstance(value, bytes):
                     # print(field, value, "bytes found, hexing")
                     fields[field] = value.hex()
+                    #fields[field+"_ascii"] = ''.join([chr(b) if 32 <= b <= 126 else "." for b in value])
                 elif isinstance(value, EDecimal):
                     # print(field, value, "edecimal found, normalizing")
                     fields[field] = float(value.normalize(20))
@@ -165,6 +167,8 @@ class Plugin(GulpPluginBase):
         # print(f"TEST IS {dir(event_code)}")
         # print(f"NAME: {type(event_code.name)} ")
         # #TODO: check if member_descriptor if so get value and/or place "unknown"
+        d["gulp.packet_hexdump"] = ''.join([chr(b) if 32 <= b <= 126 else "." for b in record.build()])
+
         return GulpDocument(
             self,
             operation_id=self._operation_id,
