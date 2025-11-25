@@ -787,12 +787,13 @@ class GulpOpenSearch:
 
             # support for original event both as keyword and text
             # keyword is case sensitive, text is not
-            mappings["properties"]["event"]["properties"]["original"] = {
-                "type": "text",
-                "fields": {
-                    "keyword": {"type": "keyword", "ignore_above": ignore_above}
-                },
-            }
+            # removed to set new analizer and remove keywords
+            # mappings["properties"]["event"]["properties"]["original"] = {
+            #     "type": "text",
+            #     "fields": {
+            #         "keyword": {"type": "keyword", "ignore_above": ignore_above}
+            #     },
+            # }
 
             settings["index"]["mapping"]["total_fields"] = {
                 "limit": GulpConfig.get_instance().index_template_default_total_fields_limit()
