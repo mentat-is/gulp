@@ -758,12 +758,7 @@ class GulpOpenSearch:
                     "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
                     "match_mapping_type": "*",
                     "mapping": {
-                        "type": "keyword",
-                        "fields": {
-                            "text": {  # added multified in order to better support matching in partial queries (by enabling text field and using standard normalizer)
-                                "type": "text"
-                            }
-                        },
+                        "type": "wildcard",
                     },
                 }
             }

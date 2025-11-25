@@ -110,17 +110,10 @@ class Plugin(GulpPluginBase):
                     # no need to map a None value
                     continue
 
-
                 if isinstance(value, bytes):
                     # print(field, value, "bytes found, hexing")
-
-                    #TODO: we are currently trimming to 32766 all fields as thats' elastic default max size for
-                    #      fields, we need to come up with a better strategy for big fields
-                    value = value.hex()
-                    if len(value) > 32766:
-                        value = value[:32766-3]+"..."
-                    fields[field] = value
-                    #fields[field+"_ascii"] = ''.join([chr(b) if 32 <= b <= 126 else "." for b in value])
+                    fields[field] = value.hex()
+                    # fields[field+"_ascii"] = ''.join([chr(b) if 32 <= b <= 126 else "." for b in value])
                 elif isinstance(value, EDecimal):
                     # print(field, value, "edecimal found, normalizing")
                     fields[field] = float(value.normalize(20))
@@ -128,12 +121,7 @@ class Plugin(GulpPluginBase):
                     fields[field] = value.flagrepr()
                 else:
                     # fall back to str
-                    #TODO: we are currently trimming to 32766 all fields as thats' elastic default max size for
-                    #      fields, we need to come up with a better strategy for big fields 
-                    value = str(value)
-                    if len(value) > 32766:
-                        value = value[:32766-3]+"..."
-                    fields[field] = value
+                    fields[field] = str(value)
 
             d[layer_name].update(fields)
 
@@ -176,10 +164,9 @@ class Plugin(GulpPluginBase):
         ns: str = str(muty.time.float_to_nanos_from_unix_epoch(float(normalized)))
         timestamp: str = muty.time.ensure_iso8601(ns)
 
-        # print(f"TEST IS {dir(event_code)}")
-        # print(f"NAME: {type(event_code.name)} ")
-        # #TODO: check if member_descriptor if so get value and/or place "unknown"
-        d["gulp.packet_hexdump"] = ''.join([chr(b) if 32 <= b <= 126 else "." for b in record.build()])
+        d["gulp.packet_hexdump"] = "".join(
+            [chr(b) if 32 <= b <= 126 else "." for b in record.build()]
+        )
 
         hex = record.build().hex()
         return GulpDocument(
@@ -187,9 +174,7 @@ class Plugin(GulpPluginBase):
             operation_id=self._operation_id,
             context_id=self._context_id,
             source_id=self._source_id,
-            #TODO: we are currently trimming to 32766 all fields as thats' elastic default max size for
-            #      fields, we need to come up with a better strategy for big fields
-            event_original=hex[:32766-3]+"..." if len(hex) > 32766 else hex,
+            event_original=hex,
             event_sequence=record_idx,
             timestamp=timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
