@@ -242,7 +242,9 @@ async def run_query_task(t: dict) -> None:
         plugin = params.get("plugin")
         plugin_params = params.get("plugin_params")
         write_history = params.get("write_history", True)
-        total_num_queries: int = params.get("total_num_queries", 0) # this may be provided upfront
+        total_num_queries: int = params.get(
+            "total_num_queries", 0
+        )  # this may be provided upfront
         ignore_failures: bool = params.get("ignore_failures", False)
 
         # rebuild pydantic models from dict payloads
@@ -402,7 +404,9 @@ async def run_query(
             except Exception as ex:
                 if not isinstance(ex, ObjectNotFound):
                     # log this
-                    MutyLogger.get_instance().exception("EXCEPTION=%s,\nquery=\n%s", str(ex), gq)
+                    MutyLogger.get_instance().exception(
+                        "EXCEPTION=%s,\nquery=\n%s", str(ex), gq
+                    )
                 if isinstance(ex, RequestCanceledError):
                     # request is canceled
                     canceled = True
@@ -510,7 +514,7 @@ async def process_queries(
             )
             req_canceled = True
             return req_canceled
-                
+
         # 1. add query history entries, only if group is not set: we want this only for manual queries
         if write_history and not q_options.group:
             history: list[GulpUserDataQueryHistoryEntry] = []
@@ -585,7 +589,7 @@ async def process_queries(
             # check results
             total_hits: int = 0
             total_processed: int = 0
-            errors: list[str] = []            
+            errors: list[str] = []
             for r in batch_res:
                 if isinstance(r, tuple) and len(r) == 4:
                     # we have a result
@@ -737,7 +741,12 @@ async def _preview_query(
                 await mod.unload()
     else:
         # standard query
-        total_hits, docs, _ = await GulpOpenSearch.get_instance().search_dsl_sync(
+        (
+            total_hits,
+            docs,
+            _,
+            _,
+        ) = await GulpOpenSearch.get_instance().search_dsl_sync(
             index, q, q_options, raise_on_error=True
         )
         for d in docs:
@@ -745,6 +754,88 @@ async def _preview_query(
             d.pop("highlight", None)
 
     return total_hits, docs
+
+
+@router.post(
+    "/aggregation_query",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "default": {
+                            "value": {
+                                "status": "pending",
+                                "timestamp_msec": 1704380570434,
+                                "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                            }
+                        },
+                        "preview": {
+                            "value": {
+                                "status": "success",
+                                "timestamp_msec": 1704380570434,
+                                "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                                "data": {"aggregations": {}},
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="Advanced query.",
+    description="""
+aggregations query Gulp with a raw OpenSearch DSL query.
+
+- this API returns `success` and results are send in HTTP Response.
+- `q` must be one aggregation querie with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
+""",
+)
+async def aggregation_query_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    q: Annotated[
+        dict,
+        Body(
+            description="""
+one aggregation querie according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
+""",
+            examples=[[EXAMPLE_QUERY_RAW], [{"query": {"match_all": {}}}]],
+        ),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(sess, token, obj=op)
+            q_options = GulpQueryParameters()
+            q_options.limit = 0
+            (
+                total_hits,
+                _,
+                _,
+                aggregations,
+            ) = await GulpOpenSearch.get_instance().search_dsl_sync(
+                operation_id, q, q_options, raise_on_error=True
+            )
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={
+                        "total_hits": total_hits,
+                        "aggregations": aggregations,
+                    },
+                )
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -846,7 +937,11 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                 )
                 return JSONResponse(
                     JSendResponse.success(
-                        req_id=req_id, data={"total_hits": total_hits, "docs": docs}
+                        req_id=req_id,
+                        data={
+                            "total_hits": total_hits,
+                            "docs": docs,
+                        },
                     )
                 )
 

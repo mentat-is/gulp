@@ -475,7 +475,7 @@ class GulpOpenSearch:
         total_hits: int = 0
         while True:
             parsed_options = options.parse()
-            total_hits, docs, search_after = await self._search_dsl_internal(
+            total_hits, docs, search_after, _ = await self._search_dsl_internal(
                 index, parsed_options, q, el=el, raise_on_error=False
             )
 
@@ -1977,7 +1977,7 @@ class GulpOpenSearch:
         q: dict,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         raise_on_error: bool = False,
-    ) -> tuple[int, list[dict], list[dict]]:
+    ) -> tuple[int, list[dict], list[dict], dict]:
         """
         Executes a raw DSL query on OpenSearch and returns the results.
 
@@ -2016,11 +2016,15 @@ class GulpOpenSearch:
         # )
 
         cb_attempts: int = 0
-        max_attempts: int = GulpConfig.get_instance().query_circuit_breaker_backoff_attempts()    
-        options: dict =deepcopy(parsed_options) # avoid to mutate original parsed_options
+        max_attempts: int = (
+            GulpConfig.get_instance().query_circuit_breaker_backoff_attempts()
+        )
+        options: dict = deepcopy(
+            parsed_options
+        )  # avoid to mutate original parsed_options
         track_total_hits: bool = True
-        min_cb_limit: int  = GulpConfig.get_instance().query_circuit_breaker_min_limit()
-        
+        min_cb_limit: int = GulpConfig.get_instance().query_circuit_breaker_min_limit()
+
         while True:
             try:
                 # build raw query body (query + parsed_options)
@@ -2029,7 +2033,7 @@ class GulpOpenSearch:
                         body[k] = v
 
                 body["track_total_hits"] = track_total_hits
-                
+
                 if el:
                     # use provided client
                     if isinstance(el, AsyncElasticsearch):
@@ -2081,7 +2085,7 @@ class GulpOpenSearch:
                     "CIRCUIT BREAKER EXCEPTION HIT! trying query chunk size=%d (prev=%d) due, attempt=%d",
                     new_size,
                     size,
-                    cb_attempts
+                    cb_attempts,
                 )
                 await asyncio.sleep(1)
                 continue
@@ -2104,7 +2108,15 @@ class GulpOpenSearch:
             docs.append(doc)
 
         search_after = hits[-1]["sort"]
-        return total_hits, docs, search_after
+
+        # get aggregations
+        aggregations: dict
+        try:
+            aggregations = res["aggregations"]
+        except:
+            aggregations = {}
+
+        return total_hits, docs, search_after, aggregations
 
     def _is_circuit_breaker_exception(self, err: Exception) -> bool:
         """
@@ -2144,7 +2156,7 @@ class GulpOpenSearch:
         q_options: "GulpQueryParameters" = None,
         el: AsyncElasticsearch | AsyncOpenSearch = None,
         raise_on_error: bool = False,
-    ) -> tuple[int, list[dict], list[dict]]:
+    ) -> tuple[int, list[dict], list[dict], dict]:
         """
         Executes a raw DSL query on OpenSearch/Elasticsearch and returns the results directly.
 
@@ -2169,10 +2181,10 @@ class GulpOpenSearch:
             q_options = GulpQueryParameters()
 
         parsed_options: dict = q_options.parse()
-        total_hits, docs, search_after = await self._search_dsl_internal(
+        total_hits, docs, search_after, aggregations = await self._search_dsl_internal(
             index, parsed_options, q, el, raise_on_error=raise_on_error
         )
-        return total_hits, docs, search_after
+        return total_hits, docs, search_after, aggregations
 
     async def search_dsl(
         self,
@@ -2233,7 +2245,7 @@ class GulpOpenSearch:
 
         while True:
             docs: list[dict] = []
-            total_hits, docs, search_after = await self._search_dsl_internal(
+            total_hits, docs, search_after, _ = await self._search_dsl_internal(
                 index, parsed_options, q, el
             )
 
