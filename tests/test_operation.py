@@ -193,12 +193,11 @@ async def test_operation_api():
 
     # create new operation with just owner's grants
     new_operation = await GulpAPIOperation.operation_create(
-        admin_token, "new_operation", glyph_id="antenna", set_default_grants=False
+        admin_token, "new_operation", set_default_grants=False
     )
     assert new_operation.get("name") == new_operation_id
     assert new_operation.get("index") == new_operation_id
     assert new_operation.get("id") == new_operation_id
-    assert new_operation.get("glyph_id") == "antenna"
 
     # list operations (ingest can see only one operation)
     operations = await GulpAPIOperation.operation_list(ingest_token)

@@ -154,7 +154,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             user_id,
             operation_id=self.operation_id,
             name=name,
-            glyph_id=glyph_id or "file",
+            glyph_id=glyph_id or "File",
             color=color,
             private=False,
             ws_id=ws_id,
