@@ -8,18 +8,12 @@ import datetime, dateutil
 import os
 import re
 from typing import Any, override
-from urllib.parse import parse_qs, urlparse
 
 import aiofiles
-import muty.string
-import muty.time
-import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import (
-    GulpRequestStats,
-    RequestCanceledError,
-    SourceCanceledError,
+    GulpRequestStats
 )
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
@@ -28,7 +22,136 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
-# TODO: not working
+import aiofiles
+import re
+
+class MySQLLogParser:
+    def __init__(self, filename, type=None, preserve_newlines=False, separator='', pattern=None):
+        self.filename = filename
+        self.line_buffer = []
+        self.log_pattern = re.compile(r'^(\d{6} [\d:]{8})?\s+(\d+)\s(\w+)(\s+(.*))?', re.DOTALL)
+        self._file = None
+        self._closed = False
+
+        self.preserve_newlines = preserve_newlines
+        self.separator = separator
+        self.pattern = pattern
+        self.type = type
+        
+    def __aiter__(self):
+        return self
+        
+    async def __anext__(self):
+        if self._closed:
+            raise StopAsyncIteration
+            
+        if self._file is None:
+            self._file = await aiofiles.open(self.filename, 'r')
+            
+        try:
+            while True:
+                query_block = await self._get_next_query()
+                if query_block == -1:
+                    await self._close()
+                    raise StopAsyncIteration
+                    
+                processed = self._process_query(query_block)
+                if processed is not None:
+                    return processed
+        except Exception as e:
+            await self._close()
+            raise e
+            
+    async def _close(self):
+        if self._file and not self._closed:
+            await self._file.close()
+            self._closed = True
+            
+    async def _get_next_query(self):
+        query_found = False
+        error = False
+        in_block = len(self.line_buffer) == 1
+        
+        while not query_found and not error:
+            line = await self._file.readline()
+            if not line:  # EOF
+                return -1
+                
+            self.line_buffer.append(line)
+            
+            # check if line is valid entry
+            line_matches_pattern = bool(self.log_pattern.match(self.line_buffer[-1]))
+
+            if not in_block and line_matches_pattern:
+                if len(self.line_buffer) == 1:
+                    in_block = True
+                    
+            elif in_block:
+                if line_matches_pattern:
+                    if len(self.line_buffer) > 1:
+                        query_found = ''.join(self.line_buffer[:-1])
+                        self.line_buffer = [self.line_buffer[-1]]
+                        return query_found
+                
+            else:
+                # Not in block and line doesn't match pattern - so idontcare.
+                self.line_buffer.pop(0)
+                
+        return query_found
+
+    def _parse_log_entry_to_dict(self, query_block):
+        """
+        Parse a query block into a dict
+        """
+        if not query_block:
+            return None
+            
+        query_block = query_block.rstrip('\n\r')
+        
+        match = self.log_pattern.match(query_block)
+        if not match:
+            return None
+            
+        timestamp_str = match.group(0) or ''
+        thread_id = match.group(2) or ''
+        command_type = (match.group(3) or '').lower()
+        query_content = match.group(5) or ''
+        
+        if not self.preserve_newlines:
+            query_content = re.sub(r'[\r\n]', ' ', query_content)
+
+        result = {
+            'ThreadId': thread_id,
+            'CommandType': command_type,
+            'Query': query_content + self.separator,
+            'DateTime': timestamp_str
+        }
+
+        return result
+        
+    def _process_query(self, query_block):
+        """
+        Process query-block, extract query type, content and apply filtering
+        """
+        entry_dict = self._parse_log_entry_to_dict(query_block)
+        if not entry_dict:
+            return None
+            
+        if self.type is None or self.type == '' or entry_dict['CommandType'] == self.type.lower():
+            if self.pattern is not None:
+                if re.search(self.pattern, entry_dict['Query']):
+                    return entry_dict
+            else:
+                return entry_dict
+                
+        return None
+        
+    async def __aenter__(self):
+        return self
+        
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self._close()
+
 class Plugin(GulpPluginBase):
     """
     mysql general logs file processor.
@@ -45,7 +168,32 @@ class Plugin(GulpPluginBase):
         return "mysql_general"
 
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
-        return []
+        return [            
+            GulpPluginCustomParameter(
+                name="preserve_newlines",
+                type="bool",
+                desc="preserve newlines in the query",
+                default_value=False,
+            ),
+            GulpPluginCustomParameter(
+                name="pattern",
+                type="string",
+                desc="if specified, queries must match this pattern",
+                default_value=None
+            ),
+            GulpPluginCustomParameter(
+                name="separator",
+                type="string",
+                desc="separator to use",
+                default_value=""
+            ),
+            GulpPluginCustomParameter(
+                name="type",
+                type="string",
+                desc="type to match (if not specified, returns all types)",
+                default_value=None
+            )
+        ]
 
     def regex(self) -> str:
         """regex to identify this format"""
@@ -55,18 +203,12 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
-        date_format = kwargs.get("date_format")
-        event: dict = {}
-        fields = record.split(",")
 
         d = {}
-        # map timestamp manually
-        print(event)
-        time_str = " ".join([event["Date"], event["Time"]])
-        timestamp = datetime.datetime.strptime(time_str, date_format).isoformat()
+        time_str = " ".join([record["Date"], record["Time"]])
+        timestamp = datetime.datetime.strptime(time_str, "%y%m%d %H:%M:%S").isoformat()
 
-        # map
-        for k, v in event.items():
+        for k, v in record.items():
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
@@ -117,15 +259,23 @@ class Plugin(GulpPluginBase):
             flt=flt,
         )
 
-        date_format = self._plugin_params.custom_parameters.get(
-            "date_format", "%m/%d/%y %H:%M:%S"
-        )
+        preserve_newlines = self._plugin_params.custom_parameters.get("preserve_newlines", False)
+        pattern = self._plugin_params.custom_parameters.get("pattern", None)
+        separator = self._plugin_params.custom_parameters.get("separator", "")
+        mtype = self._plugin_params.custom_parameters.get("type", None)
+
         doc_idx = 0
 
-        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
+        async with MySQLLogParser(
+            file_path, 
+            type=mtype, 
+            preserve_newlines=preserve_newlines, 
+            separator=separator, 
+            pattern=pattern
+            ) as log_src:
+            
             async for l in log_src:
-                # TODO: port to python https://gist.github.com/httpdss/948386
-                await self.process_record(l, doc_idx, flt=flt, date_format=date_format)
+                await self.process_record(l, doc_idx, flt=flt)
                 doc_idx += 1
 
         return stats.status
