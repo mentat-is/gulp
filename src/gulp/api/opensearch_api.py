@@ -2090,7 +2090,7 @@ class GulpOpenSearch:
         if not hits:
             if raise_on_error:
                 raise ObjectNotFound("no more hits")
-            return 0, [], []
+            return 0, [], [], {}
 
         # get data
         total_hits = res["hits"]["total"]["value"]
