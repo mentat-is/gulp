@@ -12,7 +12,7 @@ Key components:
 - GulpMappingFile: Container for multiple mappings that can be loaded from JSON
 """
 
-from typing import Literal, Optional, Annotated
+from typing import Annotated, Literal, Optional
 
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
@@ -59,9 +59,9 @@ if set, the corresponding value is a JSON object (or string) and will be flatten
     ] = None
 
     is_timestamp: Annotated[
-        Optional[Literal["chrome", "generic"]],
+        Optional[Literal["chrome", "windows_filetime", "generic"]],
         Field(
-            description="""if set, the corresponding value is a timestamp in \"chrome\" (webkit) or generic (time string supported by python dateutil.parser, numeric-from-epoch) format and it will be translated to nanoseconds from the unix epoch.
+            description="""if set, the corresponding value is a timestamp in `chrome` (webkit, numeric, from 1601), `windows_filetime` (from 1601, numeric, in units of 100 nanoseconds) or `generic` (time string supported by python dateutil.parser) format and it will be translated to nanoseconds from the unix epoch.
 
 note that value mapped as "@timestamp" with a mapping are automatically supported for "generic" timestamps, and do not need this field set: they do need it instead (set to "chrome") if the value mapped as "@timestamp" is from chrome.
 """,
@@ -92,7 +92,7 @@ in this setting, the mapping file should:
 - map a **single** field directly as `@timestamp` (to indicate the *main* document)
 - set `mapping.event_code` to the *main* event code
 - add additional `extra_doc_with_event_code` fields to create further documents with their own event code.
-- if this value needs chrome timestamp translation, "is_timestamp": "chrome" should be set also for the field.
+- if this value needs some timestamp translation, something like "is_timestamp": "chrome" should also be set for the field.
 
 check `mftecmd_csv.json` for an example of this setting.
 """,

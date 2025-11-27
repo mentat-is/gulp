@@ -226,7 +226,7 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
 
         d = {}
-        print(record)
+        # print(record)
         time_str = record["datetime"] or 0
         
         try:
