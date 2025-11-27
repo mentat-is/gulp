@@ -6,7 +6,7 @@
  <img alt="gULP" src="./logo.svg" width="30%" height="30%">
 </picture>
 
-the generic, universal Log processor for incident response!
+the graphical, universal Log processor for incident response!
 
 _made with :heart: by Mentat._
 
