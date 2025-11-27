@@ -596,7 +596,13 @@ Here's a commented example mapping file, further details in the [model definitio
         },
         "a_chrome_timestamp": {
           "ecs": "chrome_ts",
-          // this is a special flag to indicate this field refer to a timestamp (in the original document), and gulp allows to handle it as `chrome` (webkit) timestamp from 1601 or "generic" (in a format compatible with gulp time strings, i.e. any supported by python dateutil parser) timestamp: both will be converted to nanoseconds from the unix epoch.
+          // this is a special flag to indicate this field refer to a timestamp (in the original document), and gulp allows to handle it as:
+          // 
+          // - `chrome`: webkit numeric timestamp from 1601
+          // - `windows_filetime`: windows numeric timestamp from 1601 in unit of 100 nanoseconds
+          // - `generic`: a format compatible with gulp time strings, i.e. any supported by python dateutil parser
+          // 
+          // any of these will be converted to nanoseconds from the unix epoch.
           "is_timestamp": "chrome"
         },
         "date_last_used": {

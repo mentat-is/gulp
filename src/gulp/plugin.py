@@ -2197,6 +2197,12 @@ class GulpPluginBase(ABC):
                 )
 
                 force_type = "int"
+            elif timestamp_type == "windows_filetime":
+                # timestamp windows filetime, turn to nanoseconds from epoch. do not apply offset here, yet
+                source_value = muty.time.windows_filetime_to_nanos_from_unix_epoch(
+                    int(source_value)
+                )
+                force_type = "int"
             elif timestamp_type == "generic":
                 # this is a generic timestamp, turn it into a string and nanoseconds. no offset applied here, yet
                 _, ns, _ = GulpDocument.ensure_timestamp(str(source_value))
