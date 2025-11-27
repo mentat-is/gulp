@@ -2189,7 +2189,8 @@ class GulpPluginBase(ABC):
 
         if timestamp_type:
             # this field represents a timestamp to be handled
-            # NOTE: a field mapped as "@timestamp" is handled automatically by the engine when creating a new document, and it DOES NOT need "is_timestamp" set if it's a generic timestamp
+            # NOTE: a field mapped as "@timestamp" (AND ONLY THAT) needs `is_timestamp` set ONLY IF its type is different than `generic` (i.e. if it is a `chrome` or `windows_filetime` timestamp)
+            # this is because `@timestamp` is a special field handled directly by the engine.
             if timestamp_type == "chrome":
                 # timestamp chrome, turn to nanoseconds from epoch. do not apply offset here, yet
                 source_value = muty.time.chrome_epoch_to_nanos_from_unix_epoch(
