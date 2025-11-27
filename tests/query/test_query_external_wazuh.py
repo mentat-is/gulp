@@ -75,6 +75,7 @@ async def test_elasticsearch():
                                 "is_elasticsearch": False,  # we are querying wazuh's opensearch
                                 "source_field": "host.name"
                             },
+                            override_chunk_size=100
                         )
 
                         # all hits
