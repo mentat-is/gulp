@@ -21,10 +21,6 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
-
-import aiofiles
-import re
-
 class MySQLLogParser:
     def __init__(self, filename, type=None, preserve_newlines=False, separator='', pattern=None):
         self.filename = filename
@@ -37,6 +33,10 @@ class MySQLLogParser:
         self.separator = separator
         self.pattern = pattern
         self.type = type
+        
+        # track last timestamp per thread ID
+        self.thread_timestamps = {}
+        self.last_global_timestamp = None
         
     def __aiter__(self):
         return self
@@ -105,27 +105,48 @@ class MySQLLogParser:
         """
         if not query_block:
             return None
-            
+
+        result = {
+            "original": query_block,
+        } 
         query_block = query_block.rstrip('\n\r')
         
         match = self.log_pattern.match(query_block)
         if not match:
             return None
             
-        timestamp_str = match.group(0) or ''
+        timestamp_str = match.group(1) or ''
         thread_id = match.group(2) or ''
         command_type = (match.group(3) or '').lower()
         query_content = match.group(5) or ''
         
+        # inherit timestamp
+        if timestamp_str:
+            # entry has a timestamp we can save it
+            self.last_global_timestamp = timestamp_str
+            self.thread_timestamps[thread_id] = timestamp_str
+            final_timestamp = timestamp_str
+        else:
+            # no timestamp, inherit from thread or global
+            if thread_id in self.thread_timestamps:
+                final_timestamp = self.thread_timestamps[thread_id]
+            elif self.last_global_timestamp:
+                # fallback to last global timestamp
+                final_timestamp = self.last_global_timestamp
+                self.thread_timestamps[thread_id] = final_timestamp
+            else:
+                # no timestamp available
+                final_timestamp = None
+        
         if not self.preserve_newlines:
             query_content = re.sub(r'[\r\n]', ' ', query_content)
 
-        result = {
-            'ThreadId': thread_id,
-            'CommandType': command_type,
-            'Query': query_content + self.separator,
-            'DateTime': timestamp_str
-        }
+        result.update({
+            'thread_id': thread_id,
+            'cmd_type': command_type,
+            'query': query_content + self.separator,
+            'datetime': final_timestamp,
+        })
 
         return result
         
@@ -137,9 +158,9 @@ class MySQLLogParser:
         if not entry_dict:
             return None
             
-        if self.type is None or self.type == '' or entry_dict['CommandType'] == self.type.lower():
+        if self.type is None or self.type == '' or entry_dict['cmd_type'] == self.type.lower():
             if self.pattern is not None:
-                if re.search(self.pattern, entry_dict['Query']):
+                if re.search(self.pattern, entry_dict['query']):
                     return entry_dict
             else:
                 return entry_dict
@@ -177,19 +198,19 @@ class Plugin(GulpPluginBase):
             ),
             GulpPluginCustomParameter(
                 name="pattern",
-                type="string",
+                type="str",
                 desc="if specified, queries must match this pattern",
                 default_value=None
             ),
             GulpPluginCustomParameter(
                 name="separator",
-                type="string",
+                type="str",
                 desc="separator to use",
                 default_value=""
             ),
             GulpPluginCustomParameter(
                 name="type",
-                type="string",
+                type="str",
                 desc="type to match (if not specified, returns all types)",
                 default_value=None
             )
@@ -205,9 +226,14 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
 
         d = {}
-        time_str = " ".join([record["Date"], record["Time"]])
-        timestamp = datetime.datetime.strptime(time_str, "%y%m%d %H:%M:%S").isoformat()
-
+        print(record)
+        time_str = record["datetime"] or 0
+        
+        try:
+            timestamp = datetime.datetime.strptime(time_str, "%y%m%d %H:%M:%S").isoformat()
+        except ValueError:
+            timestamp = 0
+        
         for k, v in record.items():
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
@@ -217,7 +243,8 @@ class Plugin(GulpPluginBase):
             operation_id=self._operation_id,
             context_id=self._context_id,
             source_id=self._source_id,
-            event_original=record,
+            event_code=record["cmd_type"],
+            event_original=record["original"],
             event_sequence=record_idx,
             timestamp=timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
