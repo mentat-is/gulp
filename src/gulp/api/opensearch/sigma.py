@@ -448,6 +448,12 @@ async def sigma_to_tags(sigma: str) -> list[str]:
     return q.tags
 
 
+async def sigma_to_severity(sigma: str) -> str:
+    """get sigma severity by sigma rule"""
+    r: SigmaRule = SigmaRule.from_yaml(sigma)
+    return r.level.name.lower()
+
+
 async def sigmas_to_queries(
     sess: AsyncSession,
     user_id: str,
@@ -461,7 +467,7 @@ async def sigmas_to_queries(
     tags: list[str] = None,
     paths: bool = False,
     count_only: bool = False,
-) -> list["GulpQuery"]|int:
+) -> list["GulpQuery"] | int:
     """
     convert a list of sigma rules to GulpQuery objects.
 
@@ -557,7 +563,7 @@ async def sigmas_to_queries(
         )
         if not rule:
             continue
-    
+
         should_part: list[dict] = []
         for mapping_parameters in my_mapping:
             # loop for every unique mapping parameters set
@@ -596,7 +602,7 @@ async def sigmas_to_queries(
                     % (rule.title or rule.name, yml, final_sigma_yml)
                 )
                 continue
-            
+
             for q in qs:
                 q_should_query_part: list[dict] = []
 
@@ -650,7 +656,7 @@ async def sigmas_to_queries(
         final_gq: GulpQuery = _sigma_rule_to_gulp_query(
             rule, yml, final_query_dict, tags=tags
         )
-                
+
         gulp_queries.append(final_gq)
         MutyLogger.get_instance().info(
             '******* converted sigma rule "%s": current=%d, total=%d *******'
@@ -662,14 +668,14 @@ async def sigmas_to_queries(
 
     if count_only:
         MutyLogger.get_instance().warning(
-            "count_only requested, total sigma rules converted to queries: %d", count_only_queries
+            "count_only requested, total sigma rules converted to queries: %d",
+            count_only_queries,
         )
         return count_only_queries
-    
+
     if not len(gulp_queries):
         MutyLogger.get_instance().warning(
             "no sigma rules converted to queries (all filtered out?)"
         )
-    
-    return gulp_queries
 
+    return gulp_queries

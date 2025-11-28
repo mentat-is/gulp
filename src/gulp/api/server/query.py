@@ -55,7 +55,7 @@ from gulp.api.collab.user import GulpUser, GulpUserDataQueryHistoryEntry
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.sigma import sigmas_to_queries
+from gulp.api.opensearch.sigma import sigmas_to_queries, sigma_to_severity
 from gulp.api.opensearch.structs import (
     GulpDocument,
     GulpQuery,
@@ -167,6 +167,19 @@ async def _query_raw_chunk_callback(
     # we also have these for sigma query
     sigma_yml: str = cb_context.get("sigma_yml")
     tags: list[str] = cb_context.get("tags", [])
+
+    if sigma_yml and q_options.create_notes:
+        severity = await sigma_to_severity(sigma_yml)
+        # severity value: critical | high | medium | low | informational
+        match severity:
+            case "high" | "critical":
+                q_options.notes_color = "#ff0000"
+            case "medium":
+                q_options.notes_color = "#ffa500"
+            case "low":
+                q_options.notes_color = "#ffff00"
+            case _:
+                q_options.notes_color = "#ffffff"
 
     # send chunk of documents to the websocket
     c = GulpDocumentsChunkPacket(
