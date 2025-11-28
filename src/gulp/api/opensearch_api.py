@@ -757,9 +757,7 @@ class GulpOpenSearch:
                 "unmapped_fields": {
                     "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
                     "match_mapping_type": "*",
-                    "mapping": {
-                        "type": "wildcard",
-                    },
+                    "mapping": {"type": "wildcard", "index_options": "offset"},
                 }
             }
         )

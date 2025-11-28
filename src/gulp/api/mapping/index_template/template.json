@@ -1210,7 +1210,8 @@
               "type": "keyword"
             },
             "original": {
-              "type": "wildcard"
+              "type": "wildcard",
+              "index_options": "offset"
             },
             "outcome": {
               "ignore_above": 1024,
