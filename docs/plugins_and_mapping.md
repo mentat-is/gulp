@@ -542,23 +542,23 @@ Here's a commented example mapping file, further details in the [model definitio
       // if the document, in the end of processing, does not have "gulp.source_id" set, a default source is created with this name
       "default_source": "my_default_src",
 
-      // "fields" represents the fields to map
+      // "fields" represents the fields (= keys in the source document) to map
       //
       // each field option is processed in the following order:
       //
-      // 1. if `flatten_json` is set, the value is a JSON object and its fields are flattened, recursively, as "source_key.field.inner_field.another_inner_field" and such (and each is processed independently then, i.e. can be assigned mapping and options)
-      // 2. if `force_type` is set, the value is forced to this type
-      // 3. if `multiplier` is set, the value is multiplied by this value.
-      // 4. if `is_timestamp` is set, the value is converted to nanoseconds from the unix epoch according to type ("generic", "chrome")
-      // 5. if `is_gulp_type` is set, processing stops here and the value is treated as a gulp context or source (read the specific docs below)
-      // 6. finally, the value is mapped to ECS fields as defined in `ecs`.
-      //
-      // if 'extra_doc_with_event_code' is set on a field, step 7 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of the field.
-      //
+      // 1. if `is_gulp_type` is set, processing stops here and the value is treated as a gulp context or source (read the specific docs below)
+      // 2. if `flatten_json` is set, processing stops here and the value is a JSON object which fields gets flattened, recursively, as "source_key.field.inner_field.another_inner_field" and such (and each is processed independently then, i.e. can be assigned mapping and options)
+      // 3. if `force_type` is set, source[key] value is forced to this type
+      // 4. if `multiplier` is set, source[key] value is multiplied by this value.
+      // 5. if `is_timestamp` is set, source[key] value is converted to nanoseconds from the unix epoch according to type ("generic", "chrome", "windows_filetime")
+      // 6. if 'extra_doc_with_event_code' is set on a field, step 7 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of the field.
+      // 7. finally, source[key] value transformed from the steps above is mapped to ECS one or more fields as defined in `ecs`, resulting in one or more fields in the resulting document.
+      // 8. in the very end, if "value_aliases" is set, the value is replaced according to the aliases defined in the mapping file before being returned
+    
       // NOTE: source fields not listed here will be stored with `gulp.unmapped.` prefix.
       "fields": {
         // the field name (source field) in the original document
-        "field": {
+        "TheField": {
           // this may be a string or a []: this allows mapping a single field to one or more target document fields.
           // in this example, whenever in the source document "field" is found, its mapped to "gulp.html.form.field.name" in the resulting document.
           "ecs": "gulp.html.form.field.name"
@@ -625,6 +625,25 @@ Here's a commented example mapping file, further details in the [model definitio
           //
           "extra_doc_with_event_code": "autofill_date_last_used",
           "multiplier": 1000000000,
+        }
+      },
+      // if set, allows to alias values after being processed by the mapping pipeline.
+      // in the following example, whenever "network.direction" is mapped, if its value is "%%14592" it is replaced with "inbound", if "%%14593" it is replaced with "outbound".
+      // moreover, if the mapping is used in a special case identified by "special_case_1", the aliases are assigned other values (in this case, they are just inverted)
+      // this may be used to handle special cases where the same field may have different meanings in different contexts and can be controlled by the plugin via `self._record_type` which may be set during record processing (if it is not set, the `default` aliases are used).
+      "value_aliases": {
+        // the source key POST-mapping
+        "network.direction": {
+            // the default case
+            "default": {
+                // the original value in the document for "network.direction" and the new value (alias) to be used
+                "%%14592": "inbound",
+                "%%14593": "outbound"
+            },
+            "special_case_1": {
+                "%%14592": "outbound",
+                "%%14593": "inbound"
+            }
         }
       }
     }

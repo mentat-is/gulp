@@ -134,6 +134,12 @@ class GulpMapping(BaseModel):
         ),
     ] = {}
 
+    value_aliases: Annotated[
+        dict[str, dict[str, dict]],
+        Field(
+            description="optional field value aliases to be applied AFTER all the other mappings (i.e. to replace 2 with `Outbound` for `network.direction`)",
+        ),
+    ] = {}
     # mapping's description
     description: Annotated[
         Optional[str],

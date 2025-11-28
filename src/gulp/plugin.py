@@ -749,6 +749,9 @@ class GulpPluginBase(ABC):
         # used instead of _context_id and _source_id when they're generated at runtime by the mapping rules
         self._ctx_src_pairs: list[tuple[str, str]] = []
 
+        # for custom value aliases mapping
+        self._record_type: str = None
+
         # current file being ingested
         self._file_path: str = None
         self._adaptive_chunk_size: int = 0
@@ -2014,35 +2017,36 @@ class GulpPluginBase(ABC):
 
     def _try_map_ecs(
         self,
-        fields_mapping: GulpMappingField,
+        field_mapping: GulpMappingField,
         d: dict,
         source_key: str,
         source_value: Any,
         skip_unmapped: bool = False,
         **kwargs,
-    ) -> dict:
+    ) -> tuple[dict, list[str]]:
         """
         tries to map a source key to an ECS key.
 
         Args:
-            fields_mapping (GulpMappingField): The mapping field.
+            field_mapping (GulpMappingField): mapping for the key (fields.mappings.mapping_id[source_key])
             d (dict): The dict to be updated with the mapped key/value/s
             source_key (str): The source key to map.
             source_value (any): The value to set in the mapped key
             skip_unmapped (bool): whether to skip unmapped keys, defaults to False(=if mapping not found for source_key, set it as unmapped in the resulting dict).
-            **kwargs: additional keyword arguments, currently unused.
+            **kwargs: additional keyword arguments
+                - force_type (str, optional): force the type of the mapped key, defaults to None.
         Returns:
             dict, list[str]: a tuple containing the updated dict and a list of the new keys set in the dict (all derived from source_key).
         """
 
-        # print(fields_mapping)
-        mapping = fields_mapping.ecs
+        # print(field_mapping)
+        mapping = field_mapping.ecs
         if isinstance(mapping, str):
             # single mapping
             mapping = [mapping]
 
         set_keys: list[str] = []
-        force_type = fields_mapping.force_type or kwargs.get("force_type", None)
+        force_type: str = kwargs.get("force_type", None)
         if mapping:
             # source key is mapped, add the mapped key to the document
             for k in mapping:
@@ -2089,6 +2093,54 @@ class GulpPluginBase(ABC):
                         return None
         return ctx_id
 
+    def _apply_value_aliases(self, mapped_key: str, d: dict, value_aliases: dict[str, dict[str, dict]]) -> dict:
+        """
+        apply value aliases after mapping        
+        """
+        
+        """
+        "value_aliases": {
+            # example value_aliases dictionary
+            {
+                // source_key
+                "network.direction": {
+                    // this is the default
+                    "default": {
+                        "2": "outbound",
+                        "1": "inbound"
+                    },
+                    // some special cases
+                    "special_case": {
+                        "2": "abcd",
+                        "1": "efgh"
+                    }
+                }
+            }
+        """
+        # MutyLogger.get_instance().debug("applying value aliases for key %s on dict %s", mapped_key, d)
+        if not value_aliases or not mapped_key in value_aliases:
+            return d
+
+        r_type: str = 'default'
+        if self._record_type:
+            r_type = self._record_type
+        aliases: dict[str, dict] = value_aliases[mapped_key]
+        if r_type in aliases:
+            alias_map: dict = aliases[r_type]
+        else:
+            alias_map: dict = aliases.get('default', {})
+
+        # MutyLogger.get_instance().debug("r_type=%s, selected alias map: %s", r_type, alias_map)
+        if not alias_map:
+            return d
+        
+        # apply
+        for k, v in d.items():
+            if str(v) in alias_map:
+                d[k] = alias_map[str(v)]
+        # MutyLogger.get_instance().debug("r_type=%s, successfully mapped dict=%s", r_type, d)
+        return d
+        
     async def _process_key(
         self, source_key: str, source_value: Any, doc: dict, **kwargs
     ) -> dict:
@@ -2119,123 +2171,58 @@ class GulpPluginBase(ABC):
             # ignore this key
             return {}
 
-        fields_mapping: GulpMappingField
-        # if fields_mapping is provided, use it (comes from "extract")
-        fields_mapping = kwargs.get("fields_mapping", None)
-        if not fields_mapping:
-            # get from source key
-            fields_mapping = mapping.fields.get(source_key)
-            if not fields_mapping:
-                # missing mapping at all (no ecs and no timestamp field)
-                return {GulpPluginBase.build_unmapped_key(source_key): source_value}
+        # to replace with aliases AFTER mapping        
+        value_aliases: dict = mapping.value_aliases or {}
+
+        # get field mapping from mappings.mapping_id.fields[source_key] (i.e. { "mappings": { "windows": { "fields": { "AccountDomain": { ... } } } } })
+        field_mapping: GulpMappingField = mapping.fields.get(source_key)
+        if not field_mapping:
+            # missing mapping at all (no ecs and no timestamp field)
+            d = {GulpPluginBase.build_unmapped_key(source_key): source_value}
+            if value_aliases:
+                # apply aliases
+                self._apply_value_aliases(GulpPluginBase.build_unmapped_key(source_key), d, value_aliases)
+            return d
 
         # determine if this is a timestamp for an extra doc and determine timestamp type, if needed
-        is_extra_doc_timestamp = (
-            fields_mapping.extra_doc_with_event_code and not fields_mapping.is_timestamp
+        is_extra_doc_timestamp: bool = (
+            field_mapping.extra_doc_with_event_code and not field_mapping.is_timestamp
         )
-        timestamp_type = fields_mapping.is_timestamp
+        is_timestamp: str = field_mapping.is_timestamp
         if is_extra_doc_timestamp:
-            timestamp_type = "generic"
+            is_timestamp = "generic"
 
         # print(
         #     "processing key:",
         #     source_key,
         #     "value:",
         #     source_value,
-        #     "fields_mapping:",
-        #     fields_mapping,
+        #     "field_mapping:",
+        #     field_mapping,
         #     "\n",
         # )
 
-        # this dict will accumulate result and will be added in the end
-        d = {}
-        if fields_mapping.flatten_json:
-            # flatten json, i.e. {"a": {"b": 1}} -> {"a.b": 1}
-            if isinstance(source_value, str):
-                js: dict = orjson.loads(source_value)
-            else:
-                js: dict = source_value
-            flattened: dict = muty.dict.flatten(js, prefix="%s." % (source_key))
-            for k, v in flattened.items():
-                processed = await self._process_key(k, v, doc, **kwargs)
-                d.update(processed)
-            return d
-
-        force_type: str = fields_mapping.force_type
-        if force_type:
-            # force value to the given type
-            t = force_type
-            if t == "int":
-                try:
-                    source_value = int(source_value)
-                except ValueError:
-                    source_value = 0
-            elif t == "float":
-                try:
-                    source_value = float(source_value)
-                except ValueError:
-                    source_value = 0.0
-            elif t == "str":
-                source_value = str(source_value)
-            # MutyLogger.get_instance().warning(f"value {source_value} forced to {t}")
-
-        if (
-            fields_mapping.multiplier
-            and isinstance(source_value, int)
-            and fields_mapping.multiplier > 1
-        ):
-            # apply multiplier
-            source_value = int(source_value * fields_mapping.multiplier)
-
-        if timestamp_type:
-            # this field represents a timestamp to be handled
-            # NOTE: a field mapped as "@timestamp" (AND ONLY THAT) needs `is_timestamp` set ONLY IF its type is different than `generic` (i.e. if it is a `chrome` or `windows_filetime` timestamp)
-            # this is because `@timestamp` is a special field handled directly by the engine.
-            if timestamp_type == "chrome":
-                # timestamp chrome, turn to nanoseconds from epoch. do not apply offset here, yet
-                source_value = muty.time.chrome_epoch_to_nanos_from_unix_epoch(
-                    int(source_value)
-                )
-
-                force_type = "int"
-            elif timestamp_type == "windows_filetime":
-                # timestamp windows filetime, turn to nanoseconds from epoch. do not apply offset here, yet
-                source_value = muty.time.windows_filetime_to_nanos_from_unix_epoch(
-                    int(source_value)
-                )
-                force_type = "int"
-            elif timestamp_type == "generic":
-                # this is a generic timestamp, turn it into a string and nanoseconds. no offset applied here, yet
-                _, ns, _ = GulpDocument.ensure_timestamp(str(source_value))
-                source_value = ns
-                force_type = "int"
-            else:
-                # not supported
-                MutyLogger.get_instance().warning(
-                    f"timestamp type {fields_mapping.is_timestamp} not supported for key {source_key}, keeping as is..."
-                )
-                pass
-
-        gulp_type: str = fields_mapping.is_gulp_type
+        gulp_type: str = field_mapping.is_gulp_type
         if gulp_type:
             if gulp_type in ["context_name", "context_id"]:
                 # this is a gulp context field
                 if self._preview_mode:
                     ctx_id = "preview"
-                elif gulp_type == "context_name":
-                    # get or create the context
-                    ctx_id: str = await self._context_id_from_doc_value(
-                        source_key, source_value
-                    )
                 else:
-                    # directly use the value as context_id, and ensure it exists
-                    ctx_id: str = await self._context_id_from_doc_value(
-                        source_key, source_value, force_v_as_context_id=True
-                    )
+                    if gulp_type == "context_name":
+                        # get or create the context
+                        ctx_id: str = await self._context_id_from_doc_value(
+                            source_key, source_value
+                        )
+                    else:
+                        # directly use the value as context_id, and ensure it exists
+                        ctx_id: str = await self._context_id_from_doc_value(
+                            source_key, source_value, force_v_as_context_id=True
+                        )
 
                 # also map the value if there's ecs set
                 m, _ = self._try_map_ecs(
-                    fields_mapping,
+                    field_mapping,
                     d,
                     source_key,
                     source_value,
@@ -2243,6 +2230,8 @@ class GulpPluginBase(ABC):
                     force_type=force_type,
                 )
                 m["gulp.context_id"] = ctx_id
+
+                # mapping value aliases not needed here
                 return m
             elif gulp_type in ["source_id", "source_name"]:
                 # this is a gulp source field
@@ -2261,7 +2250,7 @@ class GulpPluginBase(ABC):
                         )
                         return {}
 
-                    elif gulp_type == "source_name":
+                    if gulp_type == "source_name":
                         # get/create the source
                         src_id: str = await self._source_id_from_doc_value(
                             ctx_id, source_key, source_value
@@ -2278,7 +2267,7 @@ class GulpPluginBase(ABC):
 
                 # also map the value if there's ecs set
                 m, _ = self._try_map_ecs(
-                    fields_mapping,
+                    field_mapping,
                     d,
                     source_key,
                     source_value,
@@ -2291,32 +2280,115 @@ class GulpPluginBase(ABC):
                     # add to the unique pairs, will be used when computing source_field_types
                     self._ctx_src_pairs.append([ctx_id, src_id])
 
+                # mapping value aliases not needed here
                 return m
+
+            # mapping value aliases not needed here
             return m
 
-        if fields_mapping.extra_doc_with_event_code:
+        # d will accumulate values
+        d: dict = {}
+        if field_mapping.flatten_json:
+            # this key value is a json that must be flattened, i.e. {"a": {"b": 1}} -> {"a.b": 1}
+            if isinstance(source_value, str):
+                js: dict = orjson.loads(source_value)
+            else:
+                js: dict = source_value
+            flattened: dict = muty.dict.flatten(js, prefix="%s." % (source_key))
+            for k, v in flattened.items():
+                processed: dict = await self._process_key(k, v, doc, **kwargs)
+                if value_aliases:
+                    # apply aliases
+                    for kk, _ in processed.items():
+                        self._apply_value_aliases(kk, processed, value_aliases)    
+                d.update(processed)
+            return d
+        
+        force_type: str = field_mapping.force_type
+        if force_type:
+            # force value to the given type
+            t = force_type
+            if t == "int":
+                try:
+                    source_value = int(source_value)
+                except ValueError:
+                    source_value = 0
+            elif t == "float":
+                try:
+                    source_value = float(source_value)
+                except ValueError:
+                    source_value = 0.0
+            elif t == "str":
+                source_value = str(source_value)
+            # MutyLogger.get_instance().warning(f"value {source_value} forced to {t}")
+
+        if (
+            field_mapping.multiplier
+            and isinstance(source_value, int)
+            and field_mapping.multiplier > 1
+        ):
+            # apply multiplier
+            source_value = int(source_value * field_mapping.multiplier)
+
+        if is_timestamp:
+            # this field represents a timestamp to be handled
+            # NOTE: a field mapped as "@timestamp" (AND ONLY THAT) needs `is_timestamp` set ONLY IF its type is different than `generic` (i.e. if it is a `chrome` or `windows_filetime` timestamp)
+            # this is because `@timestamp` is a special field handled directly by the engine.
+            if is_timestamp == "chrome":
+                # timestamp chrome, turn to nanoseconds from epoch. do not apply offset here, yet
+                source_value = muty.time.chrome_epoch_to_nanos_from_unix_epoch(
+                    int(source_value)
+                )
+
+                force_type = "int"
+            elif is_timestamp == "windows_filetime":
+                # timestamp windows filetime, turn to nanoseconds from epoch. do not apply offset here, yet
+                source_value = muty.time.windows_filetime_to_nanos_from_unix_epoch(
+                    int(source_value)
+                )
+                force_type = "int"
+            elif is_timestamp == "generic":
+                # this is a generic timestamp, turn it into a string and nanoseconds. no offset applied here, yet
+                _, ns, _ = GulpDocument.ensure_timestamp(str(source_value))
+                source_value = ns
+                force_type = "int"
+            else:
+                # not supported
+                MutyLogger.get_instance().warning(
+                    f"timestamp type {field_mapping.is_timestamp} not supported for key {source_key}, keeping as is..."
+                )
+                return {}
+
+        if field_mapping.extra_doc_with_event_code:
             # this will trigger the creation of an extra document
             # with the given event code in _finalize_process_record()
-            extra = {
-                "event_code": str(fields_mapping.extra_doc_with_event_code),
+            extra: dict = {
+                "event_code": str(field_mapping.extra_doc_with_event_code),
                 "timestamp": source_value,
             }
 
-            # this will trigger the removal of field/s corresponding to this key in the generated extra document,
-            # to avoid duplication
-            # note that "ecs" is ignored if set
-            mapped, _ = self._try_map_ecs(fields_mapping, d, source_key, source_value)
-            for k, _ in mapped.items():
+            # remove field/s corresponding to this key in the generated extra document
+            d, _ = self._try_map_ecs(field_mapping, d, source_key, source_value)
+            for k, _ in d.items():
                 extra[k] = None
             self._extra_docs.append(extra)
 
+            if value_aliases:
+                # apply aliases
+                for kk, _ in processed.items():
+                    self._apply_value_aliases(kk, processed, value_aliases)    
+
             # we also add this key to the main document
-            return mapped
+            return d
 
         # map to the "ecs" value
         m, _ = self._try_map_ecs(
-            fields_mapping, d, source_key, source_value, force_type=force_type
+            field_mapping, d, source_key, source_value, force_type=force_type
         )
+        if value_aliases:
+            # apply value aliases if any
+            for kk, _ in m.items():
+                self._apply_value_aliases(kk, m, value_aliases)    
         return m
 
     async def _flush_and_check_thresholds(
