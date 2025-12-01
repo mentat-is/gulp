@@ -97,7 +97,7 @@ class Plugin(GulpPluginBase):
 
         timestamp: str = None
         if date_format:
-            timestamp = datetime.strptime(d["@timestamp"], date_format).isoformat()
+            timestamp = datetime.strptime(record["timestamp"], date_format).isoformat()
 
         return GulpDocument(
             self,
@@ -179,7 +179,9 @@ class Plugin(GulpPluginBase):
             async for line in file:
                 m = regex.match(line)
                 if m:
-                    await self.process_record(m, doc_idx, flt=flt, line=line)
+                    await self.process_record(
+                        m, doc_idx, flt=flt, line=line, date_format=date_format
+                    )
                 else:
                     # no match
                     MutyLogger.get_instance().warning(f"regex did not match: {line}")
