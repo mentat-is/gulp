@@ -362,6 +362,7 @@ class GulpAPIWebsocket:
                 types=params.types,
                 operation_ids=params.operation_ids,
                 socket_type=socket_type,
+                data=params.data,
             )
 
             # acknowledge connection

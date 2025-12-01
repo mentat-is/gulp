@@ -613,9 +613,7 @@ class GulpWsAuthPacket(BaseModel):
     token: Annotated[
         str,
         Field(
-            description="""user token.
-
-        - `monitor` is a special token, reserved for internal use.
+            description="""access token from login API.
     """,
         ),
     ]
@@ -635,10 +633,15 @@ class GulpWsAuthPacket(BaseModel):
             description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
         ),
     ] = None
+    data: Annotated[
+        Optional[dict],
+        Field(
+            description="optional arbitrary data to be associated with this websocket connection.",
+        ),
+    ] = None    
     req_id: Annotated[Optional[str], Field(description="the request ID, if any.")] = (
         None
     )
-
 
 class GulpDocumentsChunkPacket(BaseModel):
     """
@@ -741,6 +744,7 @@ class GulpConnectedSocket:
         types: list[str] = None,
         operation_ids: list[str] = None,
         socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
+        data: dict = None,
     ):
         """
         Initializes the ConnectedSocket object.
@@ -751,12 +755,14 @@ class GulpConnectedSocket:
             types (list[str], optional): The types of data this websocket is interested in. Defaults to None (all).
             operation_ids (list[str], optional): The operation/s this websocket is interested in. Defaults to None (all).
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
+            data (dict, optional): Optional arbitrary data to be associated with this websocket connection. Defaults to None.
         """
         from gulp.process import GulpProcess
 
         self.ws = ws
         self.ws_id = ws_id
         self.types = types
+        self._data = data or {}
         self._terminated: bool = False
         self.operation_ids = operation_ids
         self.socket_type = socket_type
@@ -1321,6 +1327,7 @@ class GulpConnectedSockets:
         types: list[str] = None,
         operation_ids: list[str] = None,
         socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
+        data: dict = None,
     ) -> GulpConnectedSocket:
         """
         Adds a websocket to the connected sockets list and registers in Redis.
@@ -1331,6 +1338,7 @@ class GulpConnectedSockets:
             types (list[str], optional): The types of data this websocket is interested in. Defaults to None (all)
             operation_ids (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
+            data (dict, optional): Optional arbitrary data to be associated with this websocket connection. Defaults to None.
         Returns:
             ConnectedSocket: The ConnectedSocket object.
         """
@@ -1351,6 +1359,7 @@ class GulpConnectedSockets:
             types=types,
             operation_ids=operation_ids,
             socket_type=socket_type,
+            data=data,
         )
 
         # store local socket reference
