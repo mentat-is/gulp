@@ -2667,9 +2667,9 @@ class GulpPluginBase(ABC):
         elif mapping_parameters.mapping_file:
             # load from mapping file
             mapping_file = mapping_parameters.mapping_file
-            MutyLogger.get_instance().debug(
-                f"using plugin_params.mapping_parameters.mapping_file={mapping_file}"
-            )
+            # MutyLogger.get_instance().debug(
+            #     f"using plugin_params.mapping_parameters.mapping_file={mapping_file}"
+            # )
 
             mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
                 mapping_file
@@ -2693,7 +2693,7 @@ class GulpPluginBase(ABC):
 
         # ensure mapping_id is set to first key if not specified
         mapping_id = mapping_parameters.mapping_id or list(mappings.keys())[0]
-        MutyLogger.get_instance().debug(f"mapping_id={mapping_id}")
+        # MutyLogger.get_instance().debug(f"mapping_id={mapping_id}")
 
         # if we have specified direct mapping alone, just stop here and use it
         if mapping_parameters.mappings or (
