@@ -265,6 +265,7 @@ class GulpWsAcknowledgedPacket(BaseModel):
         }
     )
     ws_id: Annotated[str, Field(description="The WebSocket ID.")]
+    req_id: Annotated[str, Field(description="The request ID.")]
     token: Annotated[str, Field(description="The user token.")]
 
 

@@ -297,7 +297,7 @@ class GulpAPIWebsocket:
 
     @staticmethod
     async def _send_connection_ack(
-        websocket: WebSocket, ws_id: str, token: str, user_id: Optional[str]
+        websocket: WebSocket, ws_id: str, req_id: str, token: str, user_id: Optional[str]
     ) -> None:
         """
         sends connection acknowledgment to the client
@@ -305,6 +305,7 @@ class GulpAPIWebsocket:
         Args:
             websocket (WebSocket): the websocket to send the acknowledgment to
             ws_id (str): the websocket id
+            req_id (str): the request id
             token (str): the auth token
             user_id (Optional[str]): the user id
         """
@@ -312,8 +313,9 @@ class GulpAPIWebsocket:
             timestamp=muty.time.now_msec(),
             type=WSDATA_CONNECTED,
             ws_id=ws_id,
+            req_id=req_id,
             user_id=user_id,
-            data=GulpWsAcknowledgedPacket(token=token, ws_id=ws_id).model_dump(
+            data=GulpWsAcknowledgedPacket(token=token, ws_id=ws_id, req_id=req_id).model_dump(
                 exclude_none=True
             ),
         )
@@ -367,7 +369,7 @@ class GulpAPIWebsocket:
 
             # acknowledge connection
             await GulpAPIWebsocket._send_connection_ack(
-                websocket, ws_id, params.token, user_id
+                websocket, ws_id, req_id, params.token, user_id
             )
             if notify_login:
                 # notify login event
