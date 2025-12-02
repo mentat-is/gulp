@@ -419,12 +419,14 @@ async def run_query(
                     # log this
                     MutyLogger.get_instance().exception(
                         "EXCEPTION=%s,\nquery=\n%s", str(ex), gq
-                    )
+                    )                
                 if isinstance(ex, RequestCanceledError):
                     # request is canceled
                     canceled = True
                 exx = ex
-                raise
+                if not isinstance(ex, ObjectNotFound):
+                    # do not reraise ObjectNotFound here, we want to send a done packet with 0 hits
+                    raise
             finally:
                 if mod:
                     # finalize external query stats
