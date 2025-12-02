@@ -2050,7 +2050,7 @@ class GulpPluginBase(ABC):
         if mapping:
             # source key is mapped, add the mapped key to the document
             for k in mapping:
-                kk, vv = self._type_checks(k, source_value, force_type_set=force_type)
+                kk, vv = self._type_checks(k, source_value, force_type_set=force_type is not None)
                 if vv:
                     d[kk] = vv
                     set_keys.append(kk)
@@ -2204,6 +2204,8 @@ class GulpPluginBase(ABC):
 
         gulp_type: str = field_mapping.is_gulp_type
         if gulp_type:
+            d: dict={}
+            force_type: str = "str" # always string
             if gulp_type in ["context_name", "context_id"]:
                 # this is a gulp context field
                 if self._preview_mode:
@@ -2225,7 +2227,7 @@ class GulpPluginBase(ABC):
                     field_mapping,
                     d,
                     source_key,
-                    source_value,
+                    str(source_value),
                     skip_unmapped=True,
                     force_type=force_type,
                 )
@@ -2270,7 +2272,7 @@ class GulpPluginBase(ABC):
                     field_mapping,
                     d,
                     source_key,
-                    source_value,
+                    str(source_value),
                     skip_unmapped=True,
                     force_type=force_type,
                 )
