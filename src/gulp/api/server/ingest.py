@@ -320,13 +320,22 @@ async def _ingest_file_internal(
                     flt=payload.flt,
                     **kwargs,
                 )
-            except AttributeError as ae:
-                MutyLogger.get_instance().error(ae)
-                # MutyLogger.get_instance().debug("type=%s, %s", type(payload.plugin_params),payload.plugin_params)
-                if payload.plugin_params.preview_mode:
-                    # get the accumulated preview chunk and we're done
-                    preview_chunk: list[dict] = deepcopy(mod.preview_chunk())
-                    return GulpRequestStatus.DONE if len(preview_chunk) else GulpRequestStatus.FAILED, preview_chunk
+            except Exception as ae:
+                if isinstance(ae, AttributeError):
+                    MutyLogger.get_instance().error(ae)
+                    # MutyLogger.get_instance().debug("type=%s, %s", type(payload.plugin_params),payload.plugin_params)
+                    if payload.plugin_params.preview_mode:
+                        # get the accumulated preview chunk and we're done
+                        preview_chunk: list[dict] = deepcopy(mod.preview_chunk())
+                        return GulpRequestStatus.DONE if len(preview_chunk) else GulpRequestStatus.FAILED, preview_chunk
+                else:
+                    # other exception
+                    MutyLogger.get_instance().exception(ae)
+                
+                if mod:
+                    # this source failed
+                    await mod.update_final_stats_and_flush(flt=payload.flt, ex=ae)
+
                 raise
 
             # this source is done
@@ -335,12 +344,6 @@ async def _ingest_file_internal(
             # broadcast internal event and update source field types
             await mod.broadcast_ingest_internal_event()
             return status, []
-        except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
-            if mod:
-                # this source failed
-                await mod.update_final_stats_and_flush(flt=payload.flt, ex=ex)
-            raise
         finally:
             if mod:
                 await mod.unload()

@@ -982,7 +982,7 @@ class GulpPluginBase(ABC):
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
         all_fields_on_ws: bool = False,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int]:
         """
         flush the internal doc buffer: send documents to opensearch and to the websocket.
 
@@ -991,10 +991,10 @@ class GulpPluginBase(ABC):
             wait_for_refresh (bool, optional): whether to wait for refresh after ingestion. Defaults to False.
             all_fields_on_ws (bool, optional): whether to send all fields to the websocket. Defaults to False (only default fields)
         Returns:
-            tuple[int, int]: the number of ingested documents and the number of skipped documents
+            tuple[int, int, int]: the number of skipped, ingested, and failed documents
         """
         if not self._docs_buffer:
-            return 0, 0
+            return 0, 0, 0
 
         if self._external_query:
             # for external queries, always send all fields to the websocket
@@ -1020,22 +1020,22 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d',len(self.buffer))
 
         # perform ingestion, ingested_docs may be different from self._docs_buffer in the end due to skipped documents
-        skipped, ingestion_errors, ingested_docs = await el.bulk_ingest(
+        skipped, ingested_docs, failed = await el.bulk_ingest(
             self._index,
             self._docs_buffer,
             flt=flt,
             wait_for_refresh=wait_for_refresh,
         )
         # print(orjson.dumps(ingested_docs, option=orjson.OPT_INDENT_2).decode())
-        if ingestion_errors > 0:
+        if failed > 0:
             # NOTE: errors here means something wrong with the format of the documents, and must be fixed ASAP.
             # ideally, function should NEVER append errors and the errors total should be the same before and
             # after this function returns (this function may only change the skipped total, which means some duplicates were found).
             if GulpConfig.get_instance().debug_abort_on_opensearch_ingestion_error():
                 raise Exception(
-                    "opensearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
+                    "failed=%d, opensearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!" % (failed)
                 )
-
+    
         def __select_ws_doc_fields(doc: dict) -> dict:
             """
             patch document to send to ws, either all fields or only default fields
@@ -1098,11 +1098,12 @@ class GulpPluginBase(ABC):
                 "_process_docs_chunk: request %s canceled!", self._req_id
             )
 
-        # MutyLogger.get_instance().debug("returning %d ingested, %d skipped",l, skipped)
+        # MutyLogger.get_instance().debug("returning %d ingested, %d skipped, %d failed",l, skipped, failed)
         ingested: int = len(ingested_docs)
         self._records_skipped_total += skipped
         self._records_ingested_total += ingested
-        return ingested, skipped
+        self._records_failed_total += failed
+        return skipped, ingested, failed
 
     async def _context_id_from_doc_value(
         self, k: str, v: str, force_v_as_context_id: bool = False
@@ -2410,7 +2411,7 @@ class GulpPluginBase(ABC):
             "_flush_and_check_thresholds called, plugin=%s", self.name
         )
         # flush buffer
-        ingested, skipped = await self.flush_buffer_and_send_to_ws(
+        skipped, ingested, failed = await self.flush_buffer_and_send_to_ws(
             flt, wait_for_refresh
         )
 
@@ -2955,6 +2956,12 @@ class GulpPluginBase(ABC):
         MutyLogger.get_instance().debug(
             "update_final_stats_and_flush called for plugin=%s", self.name
         )
+        if not self._stats:
+            MutyLogger.get_instance().error(
+                "cannot update final stats and flush: stats object is None!"
+            )
+            return GulpRequestStatus.FAILED
+        
         if self._preview_mode:
             MutyLogger.get_instance().debug("*** preview mode, no ingestion! ***")
             return GulpRequestStatus.DONE
@@ -2968,6 +2975,7 @@ class GulpPluginBase(ABC):
         )
         ingested: int = 0
         skipped: int = 0
+        failed: int = 0
         errors: list[str] = []
         status: GulpRequestStatus = None
         if ex:
@@ -2983,7 +2991,7 @@ class GulpPluginBase(ABC):
 
         try:
             # flush the last chunk
-            ingested, skipped = await self.flush_buffer_and_send_to_ws(
+            skipped, ingested, failed = await self.flush_buffer_and_send_to_ws(
                 flt,
                 wait_for_refresh=True,
             )
@@ -2993,6 +3001,7 @@ class GulpPluginBase(ABC):
             if s not in errors:
                 errors.append(s)
 
+        self._records_failed_per_chunk += failed
         source_finished: bool = True
         disconnected: bool = False
         if self._raw_ingestion:

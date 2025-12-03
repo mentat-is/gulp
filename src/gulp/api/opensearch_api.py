@@ -1134,7 +1134,7 @@ class GulpOpenSearch:
         docs: list[dict],
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
-    ) -> tuple[int, int, list[dict]]:
+    ) -> tuple[int, list[dict], int]:
         """
         ingests a list of GulpDocument into OpenSearch.
 
@@ -1146,10 +1146,10 @@ class GulpOpenSearch:
 
         Returns:
             tuple:
-            - number of skipped (because already existing=duplicated) events
-            - number of failed events
+            - number of skipped (because already existing=duplicated) documents
             - list of ingested documents
-        """
+            - number of failed dicynebts
+       """
 
         # Filter documents if needed
         filtered_docs = docs
@@ -1163,7 +1163,7 @@ class GulpOpenSearch:
 
         if not filtered_docs:
             MutyLogger.get_instance().warning("no document to ingest (flt=%s)", flt)
-            return 0, 0, []
+            return 0, [], 0
 
         # prepare bulk operation format
         bulk_docs: list[dict] = []
@@ -1225,7 +1225,7 @@ class GulpOpenSearch:
         # process results
         skipped: int = 0
         failed: int = 0
-        ingested: list[dict] = []
+        ingested_docs: list[dict] = []
 
         if res["errors"]:
             # Count skipped (already exists) and failed documents
@@ -1247,7 +1247,7 @@ class GulpOpenSearch:
                     "%d docs failed ingestion, %d docs skipped: %s",
                     failed,
                     skipped,
-                    muty.string.make_shorter(s, max_len=10000),
+                    muty.string.make_shorter(s, max_len=260),
                 )
 
             # extract successfully ingested documents
@@ -1256,14 +1256,14 @@ class GulpOpenSearch:
                 for item in res["items"]
                 if item["create"]["status"] not in [200, 201]
             }
-            ingested: list[dict] = [
+            ingested_docs: list[dict] = [
                 {**doc, "_id": action["create"]["_id"]}
                 for action, doc in zip(bulk_docs[::2], bulk_docs[1::2])
                 if action["create"]["_id"] not in error_ids
             ]
         else:
             # all documents successfully ingested
-            ingested: list[dict] = [
+            ingested_docs: list[dict] = [
                 {**doc, "_id": action["create"]["_id"]}
                 for action, doc in zip(bulk_docs[::2], bulk_docs[1::2])
             ]
@@ -1278,10 +1278,10 @@ class GulpOpenSearch:
 
         if failed:
             MutyLogger.get_instance().critical(
-                "failed is set, ingestion format needs to be fixed!"
+                "failed is set (skipped=%d, ingested=%d, failed=%d), ingestion format needs to be fixed!", skipped, len(ingested_docs), failed
             )
 
-        return skipped, failed, ingested
+        return skipped, ingested_docs, failed
 
     async def opensearch_cancel_task(self, task_id: str) -> bool:
         """

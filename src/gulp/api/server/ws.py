@@ -108,82 +108,108 @@ class WsIngestRawWorker:
         MutyLogger.get_instance().debug(
             "ws ingest _process_loop started, input_queue=%s" % (input_queue)
         )
-        async with GulpCollab.get_instance().session() as sess:
-            stats: GulpRequestStats = None
-            mod: GulpPluginBase = None
 
-            while True:
-                exx: Exception = None
-                try:
-                    packet: InternalWsIngestPacket = (
-                        InternalWsIngestPacket.model_validate(input_queue.get())
-                    )
+        try:
+            async with GulpCollab.get_instance().session() as sess:
+                stats: GulpRequestStats = None
+                mod: GulpPluginBase = None
+                last: bool = False
+                packet: InternalWsIngestPacket = None
 
-                    if not packet:
-                        # empty packet, exit loop
-                        MutyLogger.get_instance().debug(
-                            "ws ingest _process_loop got empty packet, exiting ..."
-                        )
-                        break
+                while True:
+                    exx: Exception = None
 
-                    if not stats:
-                        # first iteration, create a stats that never expire
-                        stats, _ = await GulpRequestStats.create_or_get_existing(
-                            sess,
-                            packet.data.req_id,
-                            packet.user_id,
-                            packet.data.operation_id,
-                            ws_id=packet.data.ws_id,
-                            never_expire=True,
-                            data=GulpIngestionStats().model_dump(exclude_none=True),
-                        )
+                    async def _raw_ws_worker_cleanup():
+                        """
+                        internal cleanup function for the ws ingest raw worker
+                        """
+                        if mod:
+                            if last:
+                                MutyLogger.get_instance().debug(
+                                    "ws ingest _process_loop last packet, finalizing plugin=%s", mod.name
+                                )
+                                # will finalize stats with done status, unregardless of errors
+                                mod._last_raw_chunk=True
+                            
+                            if stats:
+                                # update stats
+                                await mod.update_final_stats_and_flush(
+                                    flt=packet.data.flt if packet else None, ex=exx
+                                )
+                            if last:
+                                # unload the plugin
+                                await mod.unload()
+                        else:
+                            # no plugin loaded, finalize stats with error status and exit loop
+                            if stats:
+                                # finalize stats with error
+                                await stats.set_finished(
+                                    sess,
+                                    GulpRequestStatus.FAILED,
+                                    errors=(
+                                        [muty.log.exception_to_string(exx)] if exx else None
+                                    ),
+                                )
 
-                    if not mod:
-                        # load plugin on first received packet
-                        mod = await GulpPluginBase.load(packet.data.plugin)
-
-                    # process raw data using plugin
-                    await mod.ingest_raw(
-                        sess,
-                        stats,
-                        packet.user_id,
-                        packet.data.req_id,
-                        packet.data.ws_id,
-                        packet.index,
-                        packet.data.operation_id,
-                        packet.raw_data,
-                        flt=packet.data.flt,
-                        plugin_params=packet.data.plugin_params,
-                        last=packet.data.last,
-                    )
-                except Exception as ex:
-                    # swallow, manual rollback
-                    await sess.rollback()
-                    MutyLogger.get_instance().exception(ex)
-                    exx = ex
-                finally:
-                    if mod:
-                        # update stats
-                        await mod.update_final_stats_and_flush(
-                            flt=packet.data.flt, ex=exx
-                        )
-                        if packet.data.last:
-                            # last packet, exit loop
-                            await mod.unload()
-                            break
-                    else:
-                        # no plugin loaded, finalize stats with error and exit loop
-                        if stats:
-                            # finalize stats with error
-                            await stats.set_finished(
-                                sess,
-                                GulpRequestStatus.FAILED,
-                                errors=(
-                                    [muty.log.exception_to_string(exx)] if exx else None
-                                ),
+                    try:
+                        # get a packet
+                        packet = input_queue.get()
+                        if not packet:
+                            # empty packet, exit loop
+                            MutyLogger.get_instance().debug(
+                                "ws ingest _process_loop got EMPTY packet, exiting..."
                             )
-                        break
+                            last = True
+                        
+                        else:
+                            packet = InternalWsIngestPacket.model_validate(packet)
 
+                        if last:
+                            await _raw_ws_worker_cleanup()
+                            break
+
+                        # on first iteration, create stats and load the plugin once
+                        if not stats:
+                            stats, _ = await GulpRequestStats.create_or_get_existing(
+                                sess,
+                                packet.data.req_id,
+                                packet.user_id,
+                                packet.data.operation_id,
+                                ws_id=packet.data.ws_id,
+                                never_expire=True,
+                                data=GulpIngestionStats().model_dump(exclude_none=True),
+                            )
+
+                        if not mod:
+                            mod = await GulpPluginBase.load(packet.data.plugin)
+
+                        # process raw data using plugin
+                        await mod.ingest_raw(
+                            sess,
+                            stats,
+                            packet.user_id,
+                            packet.data.req_id,
+                            packet.data.ws_id,
+                            packet.index,
+                            packet.data.operation_id,
+                            packet.raw_data,
+                            flt=packet.data.flt,
+                            plugin_params=packet.data.plugin_params,
+                            last=packet.data.last,
+                        )
+                        await mod.update_final_stats_and_flush(
+                            flt=packet.data.flt
+                        )
+                    except Exception as ex:
+                        # swallow, manual rollback
+                        # await sess.rollback()
+                        MutyLogger.get_instance().exception(ex)
+                        exx = ex
+
+        except Exception as exxx:
+            MutyLogger.get_instance().exception(
+                "outer exception in ws ingest _process_loop: %s", exxx
+            )
         MutyLogger.get_instance().debug("ws ingest _process_loop done")
         done_event.set()
 
@@ -205,12 +231,15 @@ class WsIngestRawWorker:
         waits until the worker has finished processing.
         """
         MutyLogger.get_instance().debug(
-            "stopping ws ingest worker (will put an empty message in the queue) ! ..."
+            "stopping ws ingest worker for ws=%s (will put an empty message in the queue) ! ...", self._cws.ws_id
         )
         self._input_queue.put(None)
         # wait for the worker to finish
         while not self._done_event.is_set():
             await asyncio.sleep(0.05)
+        MutyLogger.get_instance().debug(
+            "stopped ws ingest worker for ws=%s !", self._cws.ws_id
+        )
 
     def put(self, packet: InternalWsIngestPacket):
         """
