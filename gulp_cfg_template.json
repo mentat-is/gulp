@@ -39,7 +39,7 @@
   "ingestion_documents_chunk_size": 1000,
   // if set, ingestion chunk depends on the source file size (applies to file ingestion only)
   "ingestion_documents_adaptive_chunk_size": true,
-  // failed events in a file to consider the file ABORTED (0=disabled)
+  // failed events in a file to consider the file ABORTED (0=disabled, ignored for raw ingestions)
   "ingestion_evt_failure_threshold": 5000,
   // how many times to retry ingestion on error (default=3)
   "ingestion_retry_max": 3,

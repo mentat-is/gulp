@@ -2421,7 +2421,7 @@ class GulpPluginBase(ABC):
 
         # check failure thresholds
         failure_threshold = GulpConfig.get_instance().ingestion_evt_failure_threshold()
-        if failure_threshold > 0 and (
+        if not self._raw_ingestion and failure_threshold > 0 and (
             self._records_skipped_total >= failure_threshold
             or self._records_failed_total >= failure_threshold
         ):
