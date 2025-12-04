@@ -590,7 +590,7 @@ class GulpAPIWebsocket:
                         break
 
                 except WebSocketDisconnect:
-                    MutyLogger.get_instance().error(
+                    MutyLogger.get_instance().exception(
                         "websocket %s disconnected!", ws.ws_id
                     )
                     break
