@@ -344,7 +344,7 @@ class GulpAPIWebsocket:
             ws_id=ws_id,
             req_id=req_id,
             user_id=user_id,
-            data=GulpWsAcknowledgedPacket(token=token, ws_id=ws_id, req_id=req_id).model_dump(
+            payload=GulpWsAcknowledgedPacket(token=token, ws_id=ws_id, req_id=req_id).model_dump(
                 exclude_none=True
             ),
         )
@@ -649,7 +649,7 @@ class GulpAPIWebsocket:
                     ws_id=ws.ws_id,
                     user_id=user_id,
                     operation_id=client_ui_data.operation_id,
-                    data=client_ui_data.model_dump(exclude_none=True),
+                    payload=client_ui_data.model_dump(exclude_none=True),
                 )
 
                 # route to connected client_data websockets
