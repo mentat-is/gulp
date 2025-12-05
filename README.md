@@ -137,13 +137,13 @@ the following environment variables may be set to override configuration options
 
 ### SSL
 
-to use SSL, the following configuration options and environment variables may be provided:
+to use SSL, the following configuration options and files variables may be provided:
 
 #### OpenSearch
 
 - Gulp configuration
   - `opensearch_verify_certs`: set to `false` to skip server verification
-- environment variables
+- certificate files
   - `$GULP_WORKING_DIR/certs/opensearch-ca.pem`: CA certificate for Gulp to connect to the Opensearch server
   - `$GULP_WORKING_DIR/certs/opensearch.pem`: client certificate for Gulp to connect to the Opensearch server
   - `$GULP_WORKING_DIR/certs/opensearch.key`: ***passwordless*** client certificate key
@@ -153,7 +153,7 @@ to use SSL, the following configuration options and environment variables may be
 - Gulp configuration
   - `postgres_ssl`: use SSL for postgres connection, set to `false` to not use.
   - `postgres_verify_certs`: set to `false` to skip server verification
-- environment variables
+- certificate files
   - `$GULP_WORKING_DIR/certs/postgres-ca.pem`: CA certificate for Gulp to connect to the PostgreSQL server
   - `$GULP_WORKING_DIR/certs/postgres.pem`: client certificate for Gulp to connect to PostgreSQL server
   - `$GULP_WORKING_DIR/certs/postgres.key`: client certificate key
@@ -163,15 +163,16 @@ to use SSL, the following configuration options and environment variables may be
 - Gulp configuration
   - `https_enforce`: set to `true` to enforce connection to Gulp only through HTTPS
   - `https_enforce_client_certs`: set to `true` to enforce check of client certificates signed by `gulp-ca.pem` CA
-- environment variables
+- certificate files
   - `$GULP_WORKING_DIR/certs/gulp-ca.pem`: Gulp CA
   - `$GULP_WORKING_DIR/certs/gulp.pem`: Gulp server certificate
   - `$GULP_WORKING_DIR/certs/gulp.key`: Gulp server certificate key
 
 # sftpd
 
-- `$GULP_WORKING_DIR/certs/sftpd.pem`: server certificate + CA
-- `$GULP_WORKING_DIR/certs/sftpd.key`: server certificate key
+- certificate files
+  - `$GULP_WORKING_DIR/certs/sftpd.pem`: server certificate + CA
+  - `$GULP_WORKING_DIR/certs/sftpd.key`: server certificate key
 
 ## commandline examples
 
