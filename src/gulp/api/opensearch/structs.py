@@ -581,6 +581,12 @@ if set, highlights are included in the results (default=True).
 """,
         ),
     ] = True
+    add_to_history: Annotated[
+        bool,
+        Field(
+            description="if set, add this/these queries to the query history for the calling user. Default is False."
+        ),
+    ] = False
 
     def __init__(self, **data: Any) -> None:
         if "name" not in data or not data["name"]:
@@ -730,8 +736,8 @@ class GulpQuery(BaseModel):
         q_name: str = None,
         sigma_yml: str = None,
         sigma_id: str = None,
-        tags: list[str] = None,        
-        q_group: str = None,        
+        tags: list[str] = None,
+        q_group: str = None,
     ) -> None:
         if not q_name:
             # autogenerate name

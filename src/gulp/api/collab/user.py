@@ -64,6 +64,10 @@ class GulpUserDataQueryHistoryEntry(BaseModel):
             description="The query that was performed, may be a string or a dict depending on the query type and target.",
         ),
     ]
+    operation_id: Annotated[
+        str,
+        Field(description="Operation Id for the query"),
+    ]
     timestamp_msec: Annotated[
         int,
         Field(

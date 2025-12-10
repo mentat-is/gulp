@@ -254,7 +254,6 @@ async def run_query_task(t: dict) -> None:
         index = params.get("index")
         plugin = params.get("plugin")
         plugin_params = params.get("plugin_params")
-        write_history = params.get("write_history", True)
         total_num_queries: int = params.get(
             "total_num_queries", 0
         )  # this may be provided upfront
@@ -301,7 +300,6 @@ async def run_query_task(t: dict) -> None:
                 index=index,
                 plugin=plugin,
                 plugin_params=plugin_params_model,
-                write_history=write_history,
                 ignore_failures=ignore_failures,
             )
     except Exception as ex:
@@ -419,7 +417,7 @@ async def run_query(
                     # log this
                     MutyLogger.get_instance().exception(
                         "EXCEPTION=%s,\nquery=\n%s", str(ex), gq
-                    )                
+                    )
                 if isinstance(ex, RequestCanceledError):
                     # request is canceled
                     canceled = True
@@ -470,7 +468,6 @@ async def process_queries(
     index: str = None,
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
-    write_history: bool = True,
     ignore_failures: bool = False,
 ) -> bool:
     """
@@ -490,7 +487,6 @@ async def process_queries(
         index: str - index to query (for external queries)
         plugin: str - plugin name (for external queries)
         plugin_params: GulpPluginParameters - plugin parameters (for external queries)
-        write_history: bool - whether to write query history entries for each query
         ignore_failures: bool - whether to ignore failures when finalizing stats (sets "failed" status only if all queries failed)
 
     Returns:
@@ -531,7 +527,7 @@ async def process_queries(
             return req_canceled
 
         # 1. add query history entries, only if group is not set: we want this only for manual queries
-        if write_history and not q_options.group:
+        if q_options.add_to_history and not q_options.group:
             history: list[GulpUserDataQueryHistoryEntry] = []
             for gq in queries:
                 q_opts = deepcopy(
@@ -543,6 +539,7 @@ async def process_queries(
                     timestamp_msec=muty.time.now_msec(),
                     external=True if plugin else False,
                     q_options=q_opts,
+                    operation_id=operation_id,
                     plugin=plugin,
                     plugin_params=plugin_params,
                     sigma_yml=gq.sigma_yml,
