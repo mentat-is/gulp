@@ -57,6 +57,7 @@ WSDATA_USER_LOGIN = "user_login"  # GulpUserAccessPacket
 WSDATA_USER_LOGOUT = "user_logout"  # GulpUserAccessPacket
 WSDATA_DOCUMENTS_CHUNK = "docs_chunk"  # GulpDocumentsChunkPacket
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
+WSDATA_INGEST_RAW_PROGRESS = "ingest_raw_progress"  # GulpIngestRawProgress, this is sent in the end of an ingestion operation for realtime
 WSDATA_REBASE_DONE = "rebase_done"  # GulpUpdateDocumentsStats, sent when a rebase operation is done (broadcasted to all websockets)
 WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries
 WSDATA_CLIENT_DATA = "client_data"  # arbitrary content, to be routed to all connected websockets (used by the ui to communicate with other connected clients with its own protocol)
@@ -438,6 +439,32 @@ class GulpIngestSourceDonePacket(BaseModel):
     ] = 0
 
 
+class GulpIngestRawProgress(BaseModel):
+    "to signal on the websocket that ingest raw progress for realtime"
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "last": True,
+                    "status": GulpRequestStatus.DONE,
+                }
+            ]
+        },
+    )
+
+    status: Annotated[
+        str, Field(description="The status of the query operation (done/failed).")
+    ] = GulpRequestStatus.DONE
+    last: Annotated[
+        bool,
+        Field(
+            description="set to True to indicate the last packet of a stream.",
+        ),
+    ]
+
+
 class GulpCollabGenericNotifyPacket(BaseModel):
     """
     Represents a generic notify
@@ -639,10 +666,11 @@ class GulpWsAuthPacket(BaseModel):
         Field(
             description="optional arbitrary data to be associated with this websocket connection.",
         ),
-    ] = None    
+    ] = None
     req_id: Annotated[Optional[str], Field(description="the request ID, if any.")] = (
         None
     )
+
 
 class GulpDocumentsChunkPacket(BaseModel):
     """
@@ -801,7 +829,9 @@ class GulpConnectedSocket:
             return True
         except asyncio.QueueFull:
             # handle overflow by dropping the oldest entry and logging the event
-            MutyLogger.get_instance().exception("**** ws_id=%s QUEUE FULL ****", self.ws_id)
+            MutyLogger.get_instance().exception(
+                "**** ws_id=%s QUEUE FULL ****", self.ws_id
+            )
             return await self._handle_queue_overflow(message)
 
     def _record_queue_pressure(self) -> None:
@@ -868,7 +898,9 @@ class GulpConnectedSocket:
             self._log_queue_overflow(dropped_type, True)
             return True
         except asyncio.QueueFull:
-            MutyLogger.get_instance().exception("**** ws_id=%s QUEUE FULL ****", self.ws_id)
+            MutyLogger.get_instance().exception(
+                "**** ws_id=%s QUEUE FULL ****", self.ws_id
+            )
             self._log_queue_overflow(dropped_type, False)
             return False
 
@@ -1259,7 +1291,9 @@ class GulpConnectedSockets:
         # cache websocket ownership lookups to reduce Redis load
         self._ws_server_cache: dict[str, tuple[str, float]] = {}
         # ttl for cache entries, for quick invalidation
-        self._ws_server_cache_ttl: float = 1.0 # GulpConfig.get_instance().ws_server_cache_ttl()
+        self._ws_server_cache_ttl: float = (
+            1.0  # GulpConfig.get_instance().ws_server_cache_ttl()
+        )
 
     def get_cached_server(self, ws_id: str) -> Optional[str]:
         """
@@ -1408,7 +1442,7 @@ class GulpConnectedSockets:
         # unregister from Redis
         redis_client = GulpRedis.get_instance()
         await redis_client.ws_unregister(ws_id)
-        
+
         # drop cached ownership so workers do not rely on stale entries
         self.invalidate_cached_server(ws_id)
 
@@ -1705,7 +1739,7 @@ class GulpRedisBroker:
             if isinstance(pl, dict) and pl.get("__pointer_key"):
                 ptr = pl.get("__pointer_key")
                 chunk_server_id = pl.get("__server_id")
-                
+
                 # only retrieve chunks if:
                 # 1) we are the server that stored them (chunk_server_id == our server_id), OR
                 # 2) the message is explicitly targeted to a ws_id we own
@@ -1720,7 +1754,7 @@ class GulpRedisBroker:
                         owner_server = await redis_client.ws_get_server(target_ws_id)
                         if owner_server == redis_client.server_id:
                             should_retrieve = True
-                
+
                 if not should_retrieve:
                     # this node should not retrieve chunks - another node will handle it
                     # log at debug level to avoid flooding logs
@@ -1732,7 +1766,7 @@ class GulpRedisBroker:
                     )
                     # leave message as-is with pointer, don't process further
                     return
-                
+
                 try:
                     # If pointer contains __chunks, try atomic multi-GET+DEL for all chunk keys
                     chunks = pl.get("__chunks")
@@ -1790,7 +1824,7 @@ class GulpRedisBroker:
                             "local v = redis.call('GET', KEYS[1]);"
                             "if v then redis.call('DEL', KEYS[1]) end; return v"
                         )
-                        stored = await redis_client._redis.eval(lua, 1, ptr)                        
+                        stored = await redis_client._redis.eval(lua, 1, ptr)
                         if stored:
                             try:
                                 full_msg = orjson.loads(stored)

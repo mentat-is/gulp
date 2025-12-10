@@ -251,6 +251,7 @@ async def test_raw(raw_data: list[dict] = None):
     # ingest raw chunk with "raw" plugin
     await GulpAPIIngest.ingest_raw(
         token=ingest_token,
+        ws_id=TEST_WS_ID,
         raw_data=buf,
         operation_id=TEST_OPERATION_ID,
         # if we're passing raw_data (as in the enrich_whois test, this is the only chunk)
@@ -267,13 +268,14 @@ async def test_raw(raw_data: list[dict] = None):
         buf = json.dumps(raw_chunk).encode("utf-8")
         await GulpAPIIngest.ingest_raw(
             token=ingest_token,
+            ws_id=TEST_WS_ID,
             raw_data=buf,
             last=True,
             operation_id=TEST_OPERATION_ID,
         )
         check_size = 6  # plus the 3 above, we're using the same req_id
 
-    # NOTE: awaiting with a sleep is not ideal, a proper ws loop would reflect client communication better... 
+    # NOTE: awaiting with a sleep is not ideal, a proper ws loop would reflect client communication better...
     # anyway, for just a basic test waiting a sufficient amount of time for the above two requests is ok.
     await asyncio.sleep(10)
     op = await GulpAPIOperation.operation_get_by_id(
@@ -395,7 +397,7 @@ async def test_ws_raw():
             MutyLogger.get_instance().exception(ex)
 
     assert test_completed
-    # NOTE: awaiting with a sleep is not ideal, a proper ws loop would reflect client communication better... 
+    # NOTE: awaiting with a sleep is not ideal, a proper ws loop would reflect client communication better...
     # anyway, for just a basic test waiting a sufficient amount of time for the above two requests is ok.
     await asyncio.sleep(20)
     op = await GulpAPIOperation.operation_get_by_id(

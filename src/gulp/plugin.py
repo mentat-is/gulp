@@ -54,8 +54,10 @@ from gulp.api.ws_api import (
     WSDATA_INGEST_SOURCE_DONE,
     WSDATA_USER_LOGIN,
     WSDATA_USER_LOGOUT,
+    WSDATA_INGEST_RAW_PROGRESS,
     GulpDocumentsChunkPacket,
     GulpIngestSourceDonePacket,
+    GulpIngestRawProgress,
     GulpQueryDonePacket,
     GulpRedisBroker,
 )
@@ -1033,9 +1035,10 @@ class GulpPluginBase(ABC):
             # after this function returns (this function may only change the skipped total, which means some duplicates were found).
             if GulpConfig.get_instance().debug_abort_on_opensearch_ingestion_error():
                 raise Exception(
-                    "failed=%d, opensearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!" % (failed)
+                    "failed=%d, opensearch ingestion errors means GulpDocument contains invalid data, review errors on collab db!"
+                    % (failed)
                 )
-    
+
         def __select_ws_doc_fields(doc: dict) -> dict:
             """
             patch document to send to ws, either all fields or only default fields
@@ -1089,6 +1092,19 @@ class GulpPluginBase(ABC):
                 d=chunk.model_dump(exclude_none=True),
             )
             self._chunks_ingested += 1
+            if self._chunks_ingested % 50 == 0 or self._last_raw_chunk:
+                payload = GulpIngestRawProgress(
+                    last=self._last_raw_chunk,
+                )
+                await redis_broker.put(
+                    t=WSDATA_INGEST_RAW_PROGRESS,
+                    ws_id=self._ws_id,
+                    operation_id=self._operation_id,
+                    user_id=self._user_id,
+                    req_id=self._req_id,
+                    d=payload.model_dump(exclude_none=True),
+                    private=False,
+                )
 
         # check if the request is canceled
         canceled: bool = await GulpRequestStats.is_canceled(self._sess, self._req_id)
@@ -2051,7 +2067,9 @@ class GulpPluginBase(ABC):
         if mapping:
             # source key is mapped, add the mapped key to the document
             for k in mapping:
-                kk, vv = self._type_checks(k, source_value, force_type_set=force_type is not None)
+                kk, vv = self._type_checks(
+                    k, source_value, force_type_set=force_type is not None
+                )
                 if vv:
                     d[kk] = vv
                     set_keys.append(kk)
@@ -2094,11 +2112,13 @@ class GulpPluginBase(ABC):
                         return None
         return ctx_id
 
-    def _apply_value_aliases(self, mapped_key: str, d: dict, value_aliases: dict[str, dict[str, dict]]) -> dict:
+    def _apply_value_aliases(
+        self, mapped_key: str, d: dict, value_aliases: dict[str, dict[str, dict]]
+    ) -> dict:
         """
-        apply value aliases after mapping        
+        apply value aliases after mapping
         """
-        
+
         """
         "value_aliases": {
             # example value_aliases dictionary
@@ -2122,26 +2142,26 @@ class GulpPluginBase(ABC):
         if not value_aliases or not mapped_key in value_aliases:
             return d
 
-        r_type: str = 'default'
+        r_type: str = "default"
         if self._record_type:
             r_type = self._record_type
         aliases: dict[str, dict] = value_aliases[mapped_key]
         if r_type in aliases:
             alias_map: dict = aliases[r_type]
         else:
-            alias_map: dict = aliases.get('default', {})
+            alias_map: dict = aliases.get("default", {})
 
         # MutyLogger.get_instance().debug("r_type=%s, selected alias map: %s", r_type, alias_map)
         if not alias_map:
             return d
-        
+
         # apply
         for k, v in d.items():
             if str(v) in alias_map:
                 d[k] = alias_map[str(v)]
         # MutyLogger.get_instance().debug("r_type=%s, successfully mapped dict=%s", r_type, d)
         return d
-        
+
     async def _process_key(
         self, source_key: str, source_value: Any, doc: dict, **kwargs
     ) -> dict:
@@ -2172,7 +2192,7 @@ class GulpPluginBase(ABC):
             # ignore this key
             return {}
 
-        # to replace with aliases AFTER mapping        
+        # to replace with aliases AFTER mapping
         value_aliases: dict = mapping.value_aliases or {}
 
         # get field mapping from mappings.mapping_id.fields[source_key] (i.e. { "mappings": { "windows": { "fields": { "AccountDomain": { ... } } } } })
@@ -2182,7 +2202,9 @@ class GulpPluginBase(ABC):
             d = {GulpPluginBase.build_unmapped_key(source_key): source_value}
             if value_aliases:
                 # apply aliases
-                self._apply_value_aliases(GulpPluginBase.build_unmapped_key(source_key), d, value_aliases)
+                self._apply_value_aliases(
+                    GulpPluginBase.build_unmapped_key(source_key), d, value_aliases
+                )
             return d
 
         # determine if this is a timestamp for an extra doc and determine timestamp type, if needed
@@ -2205,8 +2227,8 @@ class GulpPluginBase(ABC):
 
         gulp_type: str = field_mapping.is_gulp_type
         if gulp_type:
-            d: dict={}
-            force_type: str = "str" # always string
+            d: dict = {}
+            force_type: str = "str"  # always string
             if gulp_type in ["context_name", "context_id"]:
                 # this is a gulp context field
                 if self._preview_mode:
@@ -2303,10 +2325,10 @@ class GulpPluginBase(ABC):
                 if value_aliases:
                     # apply aliases
                     for kk, _ in processed.items():
-                        self._apply_value_aliases(kk, processed, value_aliases)    
+                        self._apply_value_aliases(kk, processed, value_aliases)
                 d.update(processed)
             return d
-        
+
         force_type: str = field_mapping.force_type
         if force_type:
             # force value to the given type
@@ -2379,7 +2401,7 @@ class GulpPluginBase(ABC):
             if value_aliases:
                 # apply aliases
                 for kk, _ in processed.items():
-                    self._apply_value_aliases(kk, processed, value_aliases)    
+                    self._apply_value_aliases(kk, processed, value_aliases)
 
             # we also add this key to the main document
             return d
@@ -2391,7 +2413,7 @@ class GulpPluginBase(ABC):
         if value_aliases:
             # apply value aliases if any
             for kk, _ in m.items():
-                self._apply_value_aliases(kk, m, value_aliases)    
+                self._apply_value_aliases(kk, m, value_aliases)
         return m
 
     async def _flush_and_check_thresholds(
@@ -2421,9 +2443,13 @@ class GulpPluginBase(ABC):
 
         # check failure thresholds
         failure_threshold = GulpConfig.get_instance().ingestion_evt_failure_threshold()
-        if not self._raw_ingestion and failure_threshold > 0 and (
-            self._records_skipped_total >= failure_threshold
-            or self._records_failed_total >= failure_threshold
+        if (
+            not self._raw_ingestion
+            and failure_threshold > 0
+            and (
+                self._records_skipped_total >= failure_threshold
+                or self._records_failed_total >= failure_threshold
+            )
         ):
             raise SourceCanceledError(
                 f"ingestion per-source failure threshold reached (tot_skipped={self._records_skipped_total}, "
@@ -2961,7 +2987,7 @@ class GulpPluginBase(ABC):
                 "cannot update final stats and flush: stats object is None!"
             )
             return GulpRequestStatus.FAILED
-        
+
         if self._preview_mode:
             MutyLogger.get_instance().debug("*** preview mode, no ingestion! ***")
             return GulpRequestStatus.DONE
