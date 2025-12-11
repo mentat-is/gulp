@@ -10,7 +10,7 @@ Classes:
 """
 
 import base64
-from typing import override
+from typing import Optional, override
 
 from sqlalchemy import LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column
@@ -23,7 +23,7 @@ class GulpGlyph(GulpCollabBase, type=COLLABTYPE_GLYPH):
     Represents a glyph object.
     """
 
-    img: Mapped[bytes] = mapped_column(
+    img: Optional[Mapped[bytes]] = mapped_column(
         LargeBinary, doc="The image data of the glyph as binary blob."
     )
 
@@ -52,5 +52,6 @@ class GulpGlyph(GulpCollabBase, type=COLLABTYPE_GLYPH):
             exclude=exclude,
             exclude_none=exclude_none,
         )
-        d["img"] = base64.b64encode(self.img).decode()
+        if self.img:
+            d["img"] = base64.b64encode(self.img).decode()
         return d

@@ -13,6 +13,7 @@ the module handles:
 """
 
 import asyncio
+import aiofiles
 import orjson
 import os
 import pkgutil
@@ -210,7 +211,9 @@ class GulpCollab:
             # not multiplied by number of worker processes. previously this used
             # total_concurrency = num_tasks_per_worker * num_workers which caused
             # each worker to create a large pool and ultimately exhaust PG max connections.
-            num_tasks_per_worker: int = GulpConfig.get_instance().concurrency_num_tasks()
+            num_tasks_per_worker: int = (
+                GulpConfig.get_instance().concurrency_num_tasks()
+            )
             # derive a conservative pool size from per-worker concurrency
             pool_size = min(200, max(10, max(1, num_tasks_per_worker) // 4))
             max_overflow = min(100, max(10, max(1, num_tasks_per_worker) // 3))
@@ -230,10 +233,7 @@ class GulpCollab:
         )
         if pool_size:
             kw["pool_size"] = pool_size
-        _engine = create_async_engine(
-            url,
-            **kw
-        )
+        _engine = create_async_engine(url, **kw)
 
         MutyLogger.get_instance().info(
             "engine %s created/initialized, url=%s ..." % (_engine, url)
@@ -549,47 +549,25 @@ class GulpCollab:
         from gulp.api.collab.glyph import GulpGlyph
 
         assets_path = resources.files("gulp.api.collab.assets")
-        zip_path = muty.file.safe_path_join(assets_path, "icons.zip")
+        icon_path = muty.file.safe_path_join(assets_path, "icons.txt")
 
-        # unzip to temp dir
-        unzipped_dir: str = None
+        glyphs: list[dict] = []
         try:
-            unzipped_dir = await muty.file.unzip(zip_path, None)
-
-            # load each icon
-            files = await muty.file.list_directory_async(
-                unzipped_dir, "*.svg", case_sensitive=False
-            )
-            MutyLogger.get_instance().debug(
-                "found %d files in %s" % (len(files), unzipped_dir)
-            )
-            glyphs: list[dict] = []
-            l: int = len(files)
-            chunk_size = 256 if l > 256 else l
-
-            for f in files:
-                # read file, get bare filename without extension
-                icon_b = await muty.file.read_file_async(f)
-                bare_filename: str = os.path.basename(f)
-                bare_filename = os.path.splitext(bare_filename)[0].replace(" ", "_")
-                # print("** processing icon: %s (%s)" % (bare_filename, f))
-                # glyphs are public
-                d = GulpGlyph.build_object_dict(
-                    user_id,
-                    name=bare_filename,
-                    obj_id=bare_filename,
-                    private=False,
-                    img=icon_b,
-                )
-
-                glyphs.append(d)
-                if len(glyphs) == chunk_size:
-                    # insert bulk
-                    await sess.execute(insert(GulpGlyph).values(glyphs))
-                    MutyLogger.get_instance().debug(
-                        "inserted bulk of %d glyphs ..." % (len(glyphs))
+            async with aiofiles.open(icon_path, mode="r", newline="") as f:
+                chunk_size = 256
+                async for row in f:
+                    d = GulpGlyph.build_object_dict(
+                        user_id, name=row.strip(), obj_id=row.strip(), private=False
                     )
-                    glyphs = []
+
+                    glyphs.append(d)
+                    if len(glyphs) == chunk_size:
+                        # insert bulk
+                        await sess.execute(insert(GulpGlyph).values(glyphs))
+                        MutyLogger.get_instance().debug(
+                            "inserted bulk of %d glyphs ..." % (len(glyphs))
+                        )
+                        glyphs = []
 
             if glyphs:
                 # insert remaining
@@ -605,10 +583,6 @@ class GulpCollab:
                 "error loading icons: %s" % (str(e)), exc_info=True
             )
             raise e
-        finally:
-            if unzipped_dir:
-                # remove temp dir
-                await muty.file.delete_file_or_dir_async(unzipped_dir)
 
     async def create_default_glyphs(self) -> None:
         """
@@ -629,7 +603,7 @@ class GulpCollab:
             await self._load_icons(sess, admin_user.id)
 
             # get user glyph
-            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "User")
+            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "UserCross")
 
             # pylint: disable=protected-access
 

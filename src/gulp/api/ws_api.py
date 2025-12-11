@@ -65,8 +65,6 @@ WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
 WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
 WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
 
-SHARED_MEMORY_KEY_ACTIVE_SOCKETS = "active_sockets"
-
 
 class GulpRedisChannel(StrEnum):
     """

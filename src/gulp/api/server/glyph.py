@@ -80,8 +80,8 @@ def _read_img_file(file: UploadFile) -> bytes:
 )
 async def glyph_create_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    img: Annotated[UploadFile, File(description="an image file.")],
     private: Annotated[bool, Depends(APIDependencies.param_private_optional)],
+    img: Annotated[UploadFile, File(description="an image file.")] = None,
     name: Annotated[
         str, Field(description="an optional name, either the uploaded filename is used")
     ] = None,
