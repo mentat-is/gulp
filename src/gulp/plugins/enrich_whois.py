@@ -27,14 +27,14 @@ import datetime
 import ipaddress
 import re
 import socket
-import orjson
 import urllib
 from typing import Any, Optional, override
 
 import muty.dict
 import muty.os
-from muty.log import MutyLogger
+import orjson
 from ipwhois import IPWhois
+from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
@@ -772,7 +772,10 @@ class Plugin(GulpPluginBase):
             }
         }
         for host_field in host_fields:
-            qq["query"]["bool"]["should"].append(self._build_ip_query(host_field))
+            if host_field not in [ "event.original"]:
+                # avoid building query for event.original, just limit to the other fields.
+                # this is because event.original may contain generic text other than just an ip/hostname and this would break the query
+                qq["query"]["bool"]["should"].append(self._build_ip_query(host_field))
 
         # MutyLogger.get_instance().debug("query: %s" % qq)
         return await super().enrich_documents(

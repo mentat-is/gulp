@@ -636,7 +636,7 @@ if set, highlights are included in the results (default=True).
             # use the given set
             fields = self.fields
 
-        n["_source"] = None
+        # n["_source"] = None
         if fields != "*":
             # if "*", return all (so we do not set "_source"). either, only return these fields
             if self.ensure_default_fields:
@@ -647,7 +647,6 @@ if set, highlights are included in the results (default=True).
             n["_source"] = fields
 
         # pagination: doc limit
-        n["size"] = None
         if self.limit:
             # use provided
             n["size"] = self.limit
@@ -656,8 +655,6 @@ if set, highlights are included in the results (default=True).
         if self.search_after:
             # next chunk from this point
             n["search_after"] = self.search_after
-        else:
-            n["search_after"] = None
 
         # wether to highlight results for the query (warning: may take a lot of memory)
         if self.highlight_results:
