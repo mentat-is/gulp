@@ -575,12 +575,12 @@ the glyph ID to use for notes created from this query (if `create_notes` is set)
         bool,
         Field(
             description="""
-if set, highlights are included in the results (default=True).
+if set, highlights are included in the results (default=False).
 - this is valid only for local queries to Gulp (including sigma queries), it is ignored for `external` queries.
 - may need adjustment to OpenSearch configuration if causing heap exhaustion errors.
 """,
         ),
-    ] = True
+    ] = False
     add_to_history: Annotated[
         bool,
         Field(
