@@ -832,8 +832,8 @@ class GulpPluginBase(ABC):
         self._last_raw_chunk: bool = False
         self._raw_flush_count: int = 0
 
-        # mantain a plugin local cache to avoid precomputing the same values every time (useful for some values, i.e. context_id, source_id, gulp.event_code, ...)
-        # co
+        # mantain a plugin local cache to avoid precomputing the same values every time.
+        # core uses it for context_id, source_id, gulp.event_code, plugin can use it while processing records.
         self.doc_value_cache: DocValueCache = DocValueCache()
 
 

@@ -13,17 +13,16 @@ the module handles:
 """
 
 import asyncio
-import aiofiles
-import orjson
 import os
 import pkgutil
 import re
 from importlib import import_module, resources
-from sqlalchemy.ext.asyncio import AsyncSession
 
+import aiofiles
 import muty.file
-from muty.log import MutyLogger
 import muty.string
+import orjson
+from muty.log import MutyLogger
 from sqlalchemy import Table, insert, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -347,11 +346,8 @@ class GulpCollab:
                     """
                     CREATE OR REPLACE FUNCTION delete_expired_stats_rows() RETURNS void AS $$
                     BEGIN
-                        WITH deleted AS (
                             DELETE FROM request_stats
-                            WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0
-                            RETURNING id
-                        )
+                            WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
                     END;
                     $$ LANGUAGE plpgsql;
             """
