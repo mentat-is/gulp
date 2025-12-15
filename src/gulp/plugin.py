@@ -51,13 +51,13 @@ from gulp.api.opensearch.structs import (
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
+    WSDATA_INGEST_RAW_PROGRESS,
     WSDATA_INGEST_SOURCE_DONE,
     WSDATA_USER_LOGIN,
     WSDATA_USER_LOGOUT,
-    WSDATA_INGEST_RAW_PROGRESS,
     GulpDocumentsChunkPacket,
-    GulpIngestSourceDonePacket,
     GulpIngestRawProgress,
+    GulpIngestSourceDonePacket,
     GulpQueryDonePacket,
     GulpRedisBroker,
 )
@@ -1387,8 +1387,9 @@ class GulpPluginBase(ABC):
 
         NOTE: implementors should process the chunk then call super()._enrich_documents_chunk to allow for stacked plugins.
         """
-        if self._upper_enrich_documents_chunk_fun:
-            # call upper plugin's enrich_documents_chunk
+        u: GulpPluginBase = self
+        while u._upper_instance != None:
+            # walk the chain of upper stacked plugins and call each _enrich_documents_chunk (from bottom to top)
             chunk = await self._upper_enrich_documents_chunk_fun(
                 sess,
                 chunk,
@@ -1401,6 +1402,7 @@ class GulpPluginBase(ABC):
                 q_group=q_group,
                 **kwargs,
             )
+            u = u._upper_instance
         return chunk
 
     async def _enrich_documents_chunk_wrapper(
@@ -1552,7 +1554,7 @@ class GulpPluginBase(ABC):
                 q = flt.to_opensearch_dsl()
 
         # force return all fields
-        q_options = GulpQueryParameters(fields="*")
+        q_options = GulpQueryParameters(fields="*", highlight_results=False)
         errors: list[str] = []
         cb_context = {
             "total_hits": 0,
@@ -1933,10 +1935,13 @@ class GulpPluginBase(ABC):
             list[dict]: processed documents
         """
         for i, doc in enumerate(docs):
-            # pylint: disable=E1102
-            docs[i] = await self._upper_record_to_gulp_document_fun(
-                doc, record_idx, **kwargs
-            )
+            u: GulpPluginBase = self
+            # walk the chain of upper stacked plugins and call each _record_to_gulp_document (from bottom to top)
+            while u._upper_instance != None:                
+                docs[i] = await u._upper_record_to_gulp_document_fun(
+                    doc, record_idx, **kwargs
+                )
+                u = u._upper_instance
         return docs
 
     async def _record_to_gulp_documents_wrapper(
@@ -3013,7 +3018,13 @@ class GulpPluginBase(ABC):
 
         if self._stacked:
             # we're a stacked plugin and buffering was done in the lower instance: so, use its buffer
-            self._docs_buffer = self._lower_instance._docs_buffer
+            # note we walk the chain of lower instances to allow multiple stacked plugins one on top of the other
+            l: GulpPluginBase = self
+            while l._lower_instance != None:
+                ll = l
+                l = l._lower_instance
+                # MutyLogger.get_instance().debug("*************************** self=%s, current=%s, current->lower=%s", self.name, ll.name, l.name)
+            self._docs_buffer = l._docs_buffer
 
         try:
             # flush the last chunk

@@ -564,6 +564,30 @@ async def test_csv_stacked():
     assert doc["event.duration"] == 9999
     MutyLogger.get_instance().info(test_csv_stacked.__name__ + " succeeded!")
 
+@pytest.mark.asyncio
+async def test_csv_stacked_on_stacked():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    files = [os.path.join(current_dir, "../../samples/mftecmd/sample_record.csv")]
+    plugin_params = GulpPluginParameters(
+        mapping_parameters=GulpMappingParameters(
+            mappings={
+                "test_mapping": GulpMapping(
+                    fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
+                )
+            }
+        )
+    )
+    await _test_ingest_generic(
+        files, "stacked_on_stacked_example", check_ingested=10, plugin_params=plugin_params
+    )
+
+    # check at least one document ...
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    doc = await GulpAPIQuery.query_single_id(
+        guest_token, TEST_OPERATION_ID, "903bd0a1ecb33ce4b3fec4a5575c9085"
+    )
+    assert doc["event.duration"] == 9997
+    MutyLogger.get_instance().info(test_csv_stacked.__name__ + " succeeded!")
 
 @pytest.mark.skipif(
     platform.system() == "Darwin", reason="systemd journal tests not supported on macOS"

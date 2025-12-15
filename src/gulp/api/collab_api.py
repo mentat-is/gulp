@@ -352,7 +352,6 @@ class GulpCollab:
                             WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0
                             RETURNING id
                         )
-                        DELETE FROM task WHERE req_id IN (SELECT id FROM deleted);
                     END;
                     $$ LANGUAGE plpgsql;
             """
