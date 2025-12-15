@@ -14,22 +14,20 @@ Key classes include:
 These structures form the foundation for document handling in the Gulp OpenSearch API.
 """
 
-from typing import Any, Optional, TypeVar, override
+from typing import Annotated, Any, Optional, TypeVar, override
 
 import muty.crypto
-import muty.time
 import muty.string
-from typing import Annotated, Optional
+import muty.time
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
+
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
-
 from gulp.structs import GulpPluginParameters, GulpSortOrder
 
 T = TypeVar("T", bound=GulpBaseDocumentFilter)
-
 
 class GulpBasicDocument(BaseModel):
     model_config = ConfigDict(
@@ -183,6 +181,7 @@ class GulpDocument(GulpBasicDocument):
         ),
     ] = 1
 
+    
     @staticmethod
     def ensure_timestamp(
         timestamp: str, plugin_params: GulpPluginParameters = None
@@ -340,12 +339,22 @@ class GulpDocument(GulpBasicDocument):
             # flag invalid timestamp
             data["invalid_timestamp"] = True
 
-        # add gulp_event_code (event code as a number)
-        data["gulp_event_code"] = (
-            int(data["event_code"])
-            if data["event_code"].isnumeric()
-            else muty.crypto.hash_xxh64_int(data["event_code"])
-        )
+        # add gulp_event_code (event code as a number), try to find it in cache first
+        from gulp.plugin import DocValueCache        
+        evc = data["event_code"]
+        gulp_evc: int = plugin_instance.doc_value_cache.get_value(evc)
+        if gulp_evc:
+            # cache hit
+            data["gulp_event_code"] = gulp_evc
+        else:
+            # cache miss
+            gulp_evc = (
+                int(data["event_code"])
+                if data["event_code"].isnumeric()
+                else muty.crypto.hash_xxh64_int(data["event_code"])
+            )
+            plugin_instance.doc_value_cache.set_value(evc, gulp_evc)
+            data["gulp_event_code"] = gulp_evc
 
         # id is a hash of the document
         event_sequence = data.get("event_sequence", 0)

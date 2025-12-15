@@ -416,6 +416,26 @@ class GulpUiPluginMetadata(BaseModel):
     ] = None
 
 
+class DocValueCache:
+    """
+    a cache for specific document values, local to the plugin.
+    this is to be used to avoid recalculating same value every time for the same input (i.e. hashes, derived values, ...)
+    """
+    def __init__(self, cache_size: int = 10000):
+        self._cache: dict[str, Any] = {}
+        self._max_size: int = cache_size
+
+    def get_value(self, k: str) -> Any|None:
+        return self._cache.get(k, None)
+
+    def set_value(self, k: str, v: Any) -> None:
+        # flush cache if too big
+        if len(self._cache) > self._max_size:
+            self._cache = {}
+
+        if v not in self._cache:
+            self._cache[k] = v
+
 class GulpPluginCache:
     """
     Plugin cache singleton.
@@ -802,9 +822,6 @@ class GulpPluginBase(ABC):
 
         self._plugin_params: GulpPluginParameters = GulpPluginParameters()
 
-        # to minimize db requests to postgres to get context and source at every record
-        self._ctx_cache: dict = {}
-        self._src_cache: dict = {}
         self._operation: GulpOperation | None = None
 
         # for preview mode
@@ -814,6 +831,11 @@ class GulpPluginBase(ABC):
         # indicates the last chunk in a raw ingestion
         self._last_raw_chunk: bool = False
         self._raw_flush_count: int = 0
+
+        # mantain a plugin local cache to avoid precomputing the same values every time (useful for some values, i.e. context_id, source_id, gulp.event_code, ...)
+        # co
+        self.doc_value_cache: DocValueCache = DocValueCache()
+
 
     def check_license(self, throw_on_invalid: bool = True) -> bool:
         """
@@ -1137,11 +1159,12 @@ class GulpPluginBase(ABC):
         """
         # check cache first
         cache_key: str = f"{k}-{v}"
-        if cache_key in self._ctx_cache:
-            # MutyLogger.get_instance().debug("found context %s in cache, returning id %s", v, self._ctx_cache[cache_key])
+        cached_ctx_id = self.doc_value_cache.get_value(cache_key)
+        if cached_ctx_id:
+            # MutyLogger.get_instance().debug("found context %s in cache, returning id %s", v, cached_ctx_id)
             # return cached context id
-            return self._ctx_cache[cache_key]
-
+            return cached_ctx_id
+        
         # cache miss - create new context (or get existing)
         if not self._operation:
             # we need the operation object, lazy load
@@ -1159,8 +1182,8 @@ class GulpPluginBase(ABC):
             ctx_id=v if force_v_as_context_id else None,
         )
 
-        # update cache
-        self._ctx_cache[cache_key] = context.id
+        # update cache        
+        self.doc_value_cache.set_value(cache_key, context.id)
         MutyLogger.get_instance().debug(
             "context name=%s, id=%s added to cache, created=%r", v, context.id, created
         )
@@ -1190,10 +1213,10 @@ class GulpPluginBase(ABC):
 
         # check cache first
         cache_key: str = f"{context_id}-{k}-{v}"
-        if cache_key in self._src_cache:
-            # MutyLogger.get_instance().debug("found source %s in cache for context %s, returning id %s",v,context_id, self._src_cache[cache_key])
-            # return cached source id
-            return self._src_cache[cache_key]
+        cached_source_id = self.doc_value_cache.get_value(cache_key)
+        if cached_source_id:
+            # MutyLogger.get_instance().debug("found source %s in cache for context %s, returning id %s",v,context_id, cached_source_id)
+            return cached_source_id
 
         # cache miss - create new source (or get existing)
 
@@ -1214,7 +1237,7 @@ class GulpPluginBase(ABC):
         )
 
         # update cache
-        self._src_cache[cache_key] = source.id
+        self.doc_value_cache.set_value(cache_key, source.id)
         MutyLogger.get_instance().debug(
             "source name=%s, context_id=%s, id=%s added to cache, created=%r",
             v,
