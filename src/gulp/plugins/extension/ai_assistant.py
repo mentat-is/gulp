@@ -260,6 +260,7 @@ up to 10 dictionary created from GulpDocuments, dictionary must to be contains:
                     prompt=prompt,
                     user_id=user_id,
                 )
+                break
             except RequestCanceledError as e:
                 raise e
             except Exception as e:
