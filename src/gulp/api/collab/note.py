@@ -177,7 +177,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         MutyLogger.get_instance().info("creating a bulk of %d notes ..." % len(docs))
         for doc in docs:
             # remove highlights from the document, if any
-            highlights: dict = doc.pop("highlight", {})
+            highlights: dict = doc.pop("_highlight", {})
 
             # use basic fields from the document and builds an associated doc for the note
             associated_doc: dict = {
@@ -230,8 +230,8 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 context_id=associated_doc["gulp.context_id"],
                 source_id=associated_doc["gulp.source_id"],
             )
-            obj_id=muty.crypto.hash_xxh128(str(object_data))
-            object_data["id"]=obj_id
+            obj_id = muty.crypto.hash_xxh128(str(object_data))
+            object_data["id"] = obj_id
             notes.append(object_data)
 
         # bulk insert (handles duplicates)
@@ -268,7 +268,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             )
             MutyLogger.get_instance().debug(
                 "sent (inserted) notes on the websocket %s: notes=%d,inserted=%d,last=%r (if 'notes' > 'inserted', duplicate notes were skipped!)"
-                % (ws_id, len(notes), len(inserted_notes),last)
+                % (ws_id, len(notes), len(inserted_notes), last)
             )
         return len(inserted_notes)
 

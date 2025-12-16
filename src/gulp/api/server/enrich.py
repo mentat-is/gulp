@@ -313,7 +313,7 @@ async def _tag_documents_chunk(
     # update the documents on opensearch
     # also ensure no highlight field is left from the query
     for d in chunk:
-        d.pop("highlight", None)
+        d.pop("_highlight", None)
 
     updated, _, errs = await GulpOpenSearch.get_instance().update_documents(
         index, chunk, wait_for_refresh=last

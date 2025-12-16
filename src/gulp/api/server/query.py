@@ -763,7 +763,7 @@ async def _preview_query(
         )
         for d in docs:
             # remove highlight, not needed in preview
-            d.pop("highlight", None)
+            d.pop("_highlight", None)
 
     return total_hits, docs
 
@@ -1838,7 +1838,7 @@ async def _write_file_callback(
     # write this chunk
     for d in chunk:
         # remove highlight if any
-        d.pop("highlight", None)
+        d.pop("_highlight", None)
         d = json.dumps(d, indent="\t")
         await f.write(f"\t{d},\n".encode())
 
