@@ -268,8 +268,8 @@ up to 10 dictionary created from GulpDocuments, dictionary must to be contains:
                 )
                 last_exception = e
                 await asyncio.sleep(delay)
-
-        raise last_exception
+        if last_exception:
+            raise last_exception
 
     async def _call_ai(
         self,
