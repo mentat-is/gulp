@@ -91,13 +91,12 @@ class Plugin(GulpPluginBase):
 
         # map
         rec: dict = event.groupdict()
+        timestamp: str = None
+        if date_format:
+            timestamp = datetime.strptime(rec.pop("timestamp"), date_format).isoformat()
         for k, v in rec.items():
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
-
-        timestamp: str = None
-        if date_format:
-            timestamp = datetime.strptime(record["timestamp"], date_format).isoformat()
 
         return GulpDocument(
             self,
