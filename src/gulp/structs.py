@@ -11,12 +11,13 @@ Key components:
 """
 
 from enum import StrEnum
-from typing import Any, Literal, Optional, Annotated, Protocol
+from typing import Annotated, Any, Literal, Optional, Protocol
 
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from gulp.api.mapping.models import GulpMapping, GulpSigmaMapping
 
 
@@ -244,11 +245,18 @@ class GulpPluginParameters(BaseModel):
     override_chunk_size: Annotated[
         Optional[int],
         Field(
-            description="""this is used to override the bufferized size of chunk before flushing to OpenSearch and possibly send to websocket.
-
-        by default, this is set as configuration 'ingestion_documents_chunk_size' and can be overridden here i.e. when OpenSearch or websocket complains about too big chunks.""",
+            description="""this is used to override, on a request basis, the bufferized size of chunk before flushing to OpenSearch and possibly send to websocket.
+            by default, this is set as configuration 'ingestion_documents_chunk_size' and can be overridden here i.e. when OpenSearch or websocket complains about too big chunks.""",
         ),
     ] = None
+    override_allow_unmapped_fields: Annotated[
+        bool,
+        Field(
+            description="""overrides, on a request basis, `ingestion_allow_unmapped_fields` in the configuration, to disable `gulp.unmapped` values generations during ingestion (default=True=allow).
+            read the configuration documentation for more details (disabling may affect sigma rules matching)'
+            """,
+        ),
+    ] = True
     timestamp_offset_msec: Annotated[
         int,
         Field(
@@ -402,4 +410,5 @@ class GulpDocumentsChunkCallback(Protocol):
         Returns:
             list[dict]: the processed chunk of documents
         """
+        ...
         ...

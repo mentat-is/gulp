@@ -227,6 +227,14 @@ class GulpConfig:
         )
         return n
 
+    def ingestion_allow_unmapped_fields(self) -> bool:
+        """
+        Returns whether to allow unmapped fields during ingestion (default: True).
+        """
+        n = self._config.get("ingestion_allow_unmapped_fields", True)
+        return n
+    
+
     def ingestion_retry_max(self) -> int:
         """
         Returns the maximum number of retries for ingestion.

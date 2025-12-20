@@ -34,6 +34,9 @@
   "index_dynamic_keyword_ignore_above": 1500,
   // default for index template creation
   "index_template_default_refresh_interval": "5s",
+  // defaults to true, allows fields not defined in the mapping to be ingested (generates gulp.unmapped.* keys in the document).
+  // warning: this may affect sigma rules matching if set to false, but may be useful to enforce strict mappings in some cases (i.e. eases AI workflow).
+  "ingestion_allow_unmapped_fields": true,
   // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
   // on file ingestion only, this is ignored if "ingestion_documents_adaptive_chunk_size" is set.
   "ingestion_documents_chunk_size": 1000,

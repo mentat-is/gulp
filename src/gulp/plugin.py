@@ -2102,7 +2102,7 @@ class GulpPluginBase(ABC):
                     d[kk] = vv
                     set_keys.append(kk)
         else:
-            # unmapped key
+            # fallback, unmapped key (should never happen, means "ecs" is set to "" ...)
             if not skip_unmapped:
                 kk = GulpPluginBase.build_unmapped_key(source_key)
                 d[kk] = source_value
@@ -2225,13 +2225,23 @@ class GulpPluginBase(ABC):
 
         # get field mapping from mappings.mapping_id.fields[source_key] (i.e. { "mappings": { "windows": { "fields": { "AccountDomain": { ... } } } } })
         field_mapping: GulpMappingField = mapping.fields.get(source_key)
-        if not field_mapping:
+        allow_unmapped_fields: bool =True
+        if not GulpConfig.get_instance().ingestion_allow_unmapped_fields() or not self._plugin_params.override_allow_unmapped_fields:
+            allow_unmapped_fields = False
+
+        if not field_mapping:       
             # missing mapping at all (no ecs and no timestamp field)
-            d = {GulpPluginBase.build_unmapped_key(source_key): source_value}
+            if not allow_unmapped_fields:
+                # no umapped fields in the output!
+                return {}
+
+            # generate an unmapped field
+            k: str = GulpPluginBase.build_unmapped_key(source_key)
+            d = {k: source_value}
             if value_aliases:
                 # apply aliases
                 self._apply_value_aliases(
-                    GulpPluginBase.build_unmapped_key(source_key), d, value_aliases
+                    k, d, value_aliases
                 )
             return d
 
