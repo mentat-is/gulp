@@ -238,6 +238,40 @@ class GulpOpenSearch:
         properties = res[idx]["mappings"]["properties"]
         return _parse_field_types_internal(properties)
 
+    async def datastream_get_field_types_by_source_id(
+        self,
+        sess: AsyncSession,
+        operation_id: str,
+        source_id: str,
+        user_id: str,
+    ) -> dict:
+        """
+        get source->fieldtypes from the collab database
+
+        Args:
+            sess (AsyncSession): The database session.
+            operation_id (str): The operation ID.
+            source_id (str): The source ID.
+            user_id (str): The user ID.
+        Returns:
+            dict: The mapping dict (same as index_get_mapping with return_raw_result=False), or None if the mapping does not exist
+
+        """
+        flt = GulpCollabFilter(
+            operation_ids=[operation_id],
+            source_ids=[source_id],
+        )
+        f: list[GulpSourceFieldTypes] = await GulpSourceFieldTypes.get_by_filter(
+            sess,
+            flt,
+            throw_if_not_found=False,
+            user_id=user_id,
+        )
+        if f:
+            return f[0].field_types
+
+        return None
+
     async def datastream_get_field_types_by_src(
         self,
         sess: AsyncSession,
@@ -1149,7 +1183,7 @@ class GulpOpenSearch:
             - number of skipped (because already existing=duplicated) documents
             - list of ingested documents
             - number of failed dicynebts
-       """
+        """
 
         # Filter documents if needed
         filtered_docs = docs
@@ -1278,7 +1312,10 @@ class GulpOpenSearch:
 
         if failed:
             MutyLogger.get_instance().critical(
-                "failed is set (skipped=%d, ingested=%d, failed=%d), ingestion format needs to be fixed!", skipped, len(ingested_docs), failed
+                "failed is set (skipped=%d, ingested=%d, failed=%d), ingestion format needs to be fixed!",
+                skipped,
+                len(ingested_docs),
+                failed,
             )
 
         return skipped, ingested_docs, failed
