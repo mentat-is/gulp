@@ -9,7 +9,7 @@ through an internal Redis broker.
 
 Configuration:
 Requires the following configuration in the GULP configuration file:
-"ai_report": {
+"ai_configuration": {
     // The default model to use.
     "default_model": "your_default_model_here",
 
@@ -19,7 +19,7 @@ Requires the following configuration in the GULP configuration file:
 
 Behavior:
 - Registers POST /get_ai_hint during post_init when running in the main process.
-- Reads configuration from GulpConfig under the 'ai_report' section:
+- Reads configuration from GulpConfig under the 'ai_configuration' section:
     - 'openrouter_key' (required): API key used in the Authorization header.
     - 'default_model' (required): model identifier to send in the API payload.
 - Validates read permission for the requested operation before accepting work.
@@ -173,18 +173,18 @@ class Plugin(GulpPluginBase):
             )
             # read api key
             self._api_key = None
-            ai_report = GulpConfig.get_instance().get("ai_report", {})
+            ai_configuration = GulpConfig.get_instance().get("ai_configuration", {})
 
-            if ai_report:
-                self._api_key = ai_report.get("openrouter_key", None)
-                self._model = ai_report.get("default_model")
+            if ai_configuration:
+                self._api_key = ai_configuration.get("openrouter_key", None)
+                self._model = ai_configuration.get("default_model")
             if not self._api_key:
                 raise Exception(
-                    "'ai_report/openrouter_key' missing in the configuration file!"
+                    "'ai_configuration/openrouter_key' missing in the configuration file!"
                 )
             if not self._model:
                 raise Exception(
-                    "'ai_report/default_model' missing in the configuration file!"
+                    "'ai_configuration/default_model' missing in the configuration file!"
                 )
         else:
             MutyLogger.get_instance().debug("initialized in worker process")

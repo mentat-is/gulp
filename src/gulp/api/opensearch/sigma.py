@@ -154,7 +154,7 @@ def _use_this_sigma(
         tag_found: bool = False
         if r.tags:
             tag_names = {t.name.lower() for t in r.tags if t.name}
-            if tag_names & tags:
+            if tag_names and tags:
                 tag_found = True
         if not tag_found:
             return None

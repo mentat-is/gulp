@@ -75,7 +75,7 @@ You must provide your analysis in Markdown using this exact structure:
 Requires the following configuration in the GULP configuration file:
 
 ```json
-"ai_report": {
+"ai_configuration": {
 	// The default model to use.
 	"default_model": "your_default_model_here",
 	// Insert your OpenRouter API key here.

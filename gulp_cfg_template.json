@@ -102,5 +102,12 @@
   "ws_queue_max_size": 1024,
   // rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected sockets: increment if you get clients disconnections, and also check client code if this happens too often.
   // if `ws_adaptive_rate_limit_delay` is set, this is the base delay used to calculate the real delay depending on the number of connected sockets.
-  "ws_rate_limit_delay": 0.01
+  "ws_rate_limit_delay": 0.01,
+  // ai plugin configuration
+  "ai_configuration": {
+    // The default model to use.
+    "default_model": "your_default_model_here",
+    // Insert your OpenRouter API key here.
+    "openrouter_key": "sk-or-your-openrouter-api-key",
+  }
 }
