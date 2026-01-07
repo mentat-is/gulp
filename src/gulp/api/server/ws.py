@@ -23,6 +23,7 @@ during ingestion operations, collaboration features, and inter-client communicat
 """
 
 import asyncio
+from queue import Empty
 import time
 from multiprocessing import Queue
 from typing import Annotated, Awaitable, Callable, Optional
@@ -153,7 +154,15 @@ class WsIngestRawWorker:
 
                     try:
                         # get a packet
-                        packet = input_queue.get()
+                        try:
+                            packet = input_queue.get_nowait()
+                        except Empty:
+                            # use the thread pool to wait for new data without blocking the event loop
+                            executor = GulpProcess.get_instance().thread_pool
+                            packet = await asyncio.get_event_loop().run_in_executor(
+                                executor, input_queue.get
+                            )
+
                         if not packet:
                             # empty packet, exit loop
                             MutyLogger.get_instance().debug(
@@ -516,8 +525,8 @@ class GulpAPIWebsocket:
             user_id (str): the user id
         """
         # starts a worker in the pool for this ws
-        worker_pool = WsIngestRawWorker(ws)
-        await worker_pool.start()
+        pool_worker = WsIngestRawWorker(ws)
+        await pool_worker.start()
         index: str = None
 
         # loop until done
@@ -581,7 +590,7 @@ class GulpAPIWebsocket:
                     )
 
                     # and put in the worker queue
-                    worker_pool.put(packet)
+                    pool_worker.put(packet)
                     if ingest_packet.last:
                         # last packet, break the loop
                         MutyLogger.get_instance().debug(
@@ -601,7 +610,7 @@ class GulpAPIWebsocket:
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
         finally:
-            await worker_pool.stop()
+            await pool_worker.stop()
 
     @router.websocket("/ws_client_data")
     @staticmethod
