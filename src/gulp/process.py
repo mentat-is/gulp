@@ -25,9 +25,9 @@ import asyncio
 import os
 import signal
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
-from multiprocessing import Lock, Manager, Queue, Value
-from multiprocessing.managers import DictProxy, SyncManager
+from multiprocessing import Queue
 
 from aiomultiprocess import Pool as AioProcessPool
 from asyncio_pool import AioPool as AioCoroPool
@@ -55,7 +55,6 @@ class GulpProcess:
 
     def __init__(self):
         self._initialized: bool = True
-        self.mp_manager: SyncManager = None
 
         # allow main/worker processes to spawn threads
         self.thread_pool: ThreadPoolExecutor = None
@@ -113,7 +112,7 @@ class GulpProcess:
         return
 
     @staticmethod
-    def _worker_initializer(server_id: str, spawned_processes: Value, lock: Lock, log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str, str] = None):  # type: ignore
+    def _worker_initializer(server_id: str, spawn_key: str, log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str, str] = None):  # type: ignore
         """
         initializes a worker process
 
@@ -121,8 +120,7 @@ class GulpProcess:
 
         Args:
             server_id (str): the server ID
-            spawned_processes (Value): shared counter for the number of spawned processes (for ordered initialization)
-            lock (Lock): shared lock for spawned_processes (for ordered initialization)
+            spawn_key (str): the redis key to INCR to notify main process of worker process spawn
             log_level (int, optional): the log level. Defaults to None.
             logger_file_path (str, optional): the logger file path to log to file. Defaults to None, cannot be used with log_to_syslog.
             log_to_syslog (tuple[str,str], optional): the syslog address and facility to log to syslog. Defaults to (None, None).
@@ -131,8 +129,8 @@ class GulpProcess:
         """
         # we do not have mutylogger initialized yet here, so we use print statements
         print(
-            "_worker_initializer, server_id=%s" % (
-            server_id)
+            "_worker_initializer, server_id=%s, spawn_key=%s" % (
+            server_id, spawn_key)
         )
 
         # initialize paths immediately, before any unpickling happens
@@ -160,7 +158,6 @@ class GulpProcess:
             loop.run_until_complete(
                 p.finish_initialization(
                     server_id,
-                    lock=lock,
                     log_level=log_level,
                     logger_file_path=logger_file_path,
                     log_to_syslog=log_to_syslog,
@@ -169,17 +166,27 @@ class GulpProcess:
             )
         except Exception as ex:
             MutyLogger.get_instance(name="gulp").exception(ex)
-        # done
-        lock.acquire()
-        spawned_processes.value += 1
-        lock.release()
+
+        # notify main process via Redis counter (spawn_key)
+        try:
+            redis_client = GulpRedis.get_instance().client()
+            if redis_client is not None and spawn_key:
+                try:
+                    loop.run_until_complete(redis_client.incr(spawn_key))
+                    # refresh TTL in case main set a short expiry
+                    loop.run_until_complete(redis_client.expire(spawn_key, 40))
+                except Exception:
+                    MutyLogger.get_instance().warning("_worker_initializer: failed to INCR spawn key %s", spawn_key)
+        except Exception:
+            MutyLogger.get_instance().warning("_worker_initializer: redis client not available to INCR spawn key %s", spawn_key)
+
         MutyLogger.get_instance().warning(
-            "_worker_initializer DONE, server_id=%s, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d",
+            "_worker_initializer DONE, server_id=%s, sys.path=%s, logger level=%d, logger_file_path=%s, spawn_key=%s",
                 server_id,
                 sys.path,
                 MutyLogger.get_instance().level,
                 logger_file_path,
-                spawned_processes.value,
+                spawn_key,
         )
 
     async def close_thread_pool(self, wait: bool = True):
@@ -220,11 +227,6 @@ class GulpProcess:
                 MutyLogger.get_instance().exception(ex)
 
             finally:
-                if self.mp_manager:
-                    MutyLogger.get_instance().debug("shutting down mp manager...")
-                    self.mp_manager.shutdown()
-                    MutyLogger.get_instance().debug("mp manager shut down!")
-
                 # clear the reference to the pool
                 self.process_pool = None
                 MutyLogger.get_instance().debug("mp pool closed!")
@@ -232,7 +234,6 @@ class GulpProcess:
     async def finish_initialization(
         self,
         server_id: str,
-        lock: Lock = None,  # type: ignore
         log_level: int = None,
         logger_file_path: str = None,
         log_to_syslog: tuple[str, str] = None,
@@ -243,7 +244,6 @@ class GulpProcess:
 
         Args:
             server_id (str): the server ID
-            lock (Lock, optional): if set, will be acquired (and then released) during getting configuration instance in worker processes
             log_level (int, optional): the log level for the logger. Defaults to None.
             logger_file_path (str, optional): the log file path for the logger. Defaults to None, cannot be used with log_to_syslog.
             log_to_syslog (bool, optional): whether to log to syslog. Defaults to (None, None).
@@ -274,14 +274,18 @@ class GulpProcess:
                 % (GulpConfig.get_instance().parallel_processes_respawn_after_tasks())
             )
 
-            # initializes the multiprocessing manager and structs
-            self.mp_manager = Manager()
-            spawned_processes = self.mp_manager.Value(int, 0)
-            num_workers = GulpConfig.get_instance().parallel_processes_max()
-            lock = self.mp_manager.Lock()
+            num_workers: int = GulpConfig.get_instance().parallel_processes_max()
+
+            # prepare a Redis-based spawn counter key (unique per server run)
+            spawn_key: str = "gulp:spawn:%s:%d" % (server_id, int(time.time()))
+            try:
+                await GulpRedis.get_instance().client().set(spawn_key, 0, ex=40)
+            except Exception as ex:
+                MutyLogger.get_instance().exception("failed to create/reset spawn key in redis: %s", ex)
+                raise
 
             # start workers
-            # each worker will call finish_initialization as well
+            # each worker will call finish_initialization as well and INCR the spawn_key
             self.process_pool = AioProcessPool(
                 exception_handler=GulpProcess._worker_exception_handler,
                 processes=num_workers,
@@ -290,23 +294,35 @@ class GulpProcess:
                 initializer=GulpProcess._worker_initializer,
                 initargs=(
                     server_id,
-                    spawned_processes,
-                    lock,
+                    spawn_key,
                     MutyLogger.log_level,
                     MutyLogger.logger_file_path,
                     self._log_to_syslog,
                 ),
             )
-            # wait for all workers to be spawned
-            MutyLogger.get_instance().debug(
-                "waiting for all processes to be spawned ..."
-            )
-            while spawned_processes.value < num_workers:
-                # MutyLogger.get_instance().debug('waiting for all processes to be spawned ...')
+
+            # wait for all workers to be spawned by polling Redis counter
+            MutyLogger.get_instance().debug("waiting for all processes to be spawned ...")
+            start_time = time.time()
+            timeout = 60
+            spawned_count = 0
+            while True:
+                try:
+                    val = await GulpRedis.get_instance().client().get(spawn_key)
+                    spawned_count = int(val or 0)
+                except Exception:
+                    spawned_count = 0
+                if spawned_count >= num_workers:
+                    break
+                if time.time() - start_time > timeout:
+                    MutyLogger.get_instance().critical(
+                        "timeout waiting for workers to spawn (got %d/%d)", spawned_count, num_workers
+                    )
+                    raise TimeoutError("timeout waiting for workers to spawn")
+                    
                 await asyncio.sleep(0.1)
 
-            MutyLogger.get_instance().debug(
-                "all %d processes spawned!", spawned_processes.value)
+            MutyLogger.get_instance().debug("all %d processes spawned!", spawned_count)
 
             MutyLogger.get_instance().warning(
                 "MAIN process initialized, server_id=%s, sys.path=%s", server_id, sys.path)

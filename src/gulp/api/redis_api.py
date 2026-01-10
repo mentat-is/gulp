@@ -97,6 +97,20 @@ class GulpRedis:
             cls._instance = cls()
         return cls._instance
 
+    def client(self) -> redis.Redis:
+        """
+        Get the underlying Redis (async) client.
+
+        Returns:
+            redis.Redis: The Redis (async) client instance.
+
+        Throws:
+            RuntimeError: If initialize() has not been called yet.
+        """
+        if not self._redis:
+            raise RuntimeError("initialize() must be called first!")
+        return self._redis
+    
     def initialize(self, server_id: str, main_process: bool = True) -> None:
         """
         Initialize Redis pub/sub connections.

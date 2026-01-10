@@ -542,8 +542,8 @@ class GulpOpenSearch:
 
         # store on database (create or update)
         MutyLogger.get_instance().debug(
-            "***DONE*** datastream_update_source_field_types_by_src, found %d source->fieldtype mappings, storing/updating on collab db...",
-            len(filtered_mapping),
+            "***DONE*** datastream_update_source_field_types_by_src, found %d source->fieldtype mappings (src_id=%s, ctx_id=%s, operation_id=%s), storing/updating on collab db...",
+            len(filtered_mapping), source_id, context_id, operation_id,
         )
         if sess:
             # session provided

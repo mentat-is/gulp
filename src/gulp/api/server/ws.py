@@ -23,14 +23,13 @@ during ingestion operations, collaboration features, and inter-client communicat
 """
 
 import asyncio
-from queue import Empty
 import time
-from multiprocessing import Queue
 from typing import Annotated, Awaitable, Callable, Optional
 
 import muty.log
 import muty.string
 import muty.time
+import orjson
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 from muty.log import MutyLogger
@@ -45,6 +44,7 @@ from gulp.api.collab.structs import (
 )
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
+from gulp.api.redis_api import GulpRedis
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import (
     WSDATA_CLIENT_DATA,
@@ -71,6 +71,9 @@ from gulp.structs import ObjectNotFound
 
 router = APIRouter()
 
+# default TTL for idle streams (seconds) — stream deleted only after this much inactivity
+STREAM_TTL = 3600
+
 
 class InternalWsIngestPacket(BaseModel):
     """
@@ -93,134 +96,236 @@ class WsIngestRawWorker:
 
     1 ws -> 1 task in a worker process
     """
+    # Stream lifecycle (per websocket):
+    # - Main process creates a `stream_key` for this websocket:
+    #     `gulp:stream:ws_ingest:{server_id}:{ws_id}`
+    # - Main process `await pool_worker.put(packet)` performs `XADD` into the stream.
+    # - A worker process consumes messages with `XREADGROUP` from a consumer group
+    #   (`gulp:ws_ingest:group`) using a unique consumer name `{server_id}:{ws_id}`.
+    # - When the main process wants the worker to stop it appends a sentinel
+    #   message `{"terminate": True}` to the stream; the worker ACKs/DEL and
+    #   sets a done key `gulp:ws_ingest:done:{server_id}:{ws_id}` before exiting.
+    # - The main process waits for the done key, then deletes the stream and done key.
 
     def __init__(self, ws: GulpConnectedSocket):
-        # use gulp's multiprocessing manager to create a process-shareable queue
-        self._input_queue = GulpProcess.get_instance().mp_manager.Queue()
-        self._done_event = GulpProcess.get_instance().mp_manager.Event()
+        # use Redis streams per-websocket for cross-instance processing
         self._cws = ws
+        redis = GulpRedis.get_instance()
+        self._server_id = redis.server_id
+        self._stream_key = f"gulp:stream:ws_ingest:{self._server_id}:{ws.ws_id}"
+        self._consumer_group = "gulp:ws_ingest:group"
+        self._consumer_name = f"{self._server_id}:{ws.ws_id}"
+        self._done_key = f"gulp:ws_ingest:done:{self._server_id}:{ws.ws_id}"
+        # ttl for orphaned streams (seconds).
+        self._stream_ttl = STREAM_TTL
 
     @staticmethod
-    async def _process_loop(input_queue: Queue, done_event):
+    async def _process_loop(stream_key: str, consumer_group: str, consumer_name: str, done_key: str):
         """
         runs in a worker process,
         loop for the ws_ingest_raw worker, processes packets from the queue for this websocket
         """
         MutyLogger.get_instance().debug(
-            "ws ingest _process_loop started, input_queue=%s" % (input_queue)
+            "ws ingest _process_loop started for stream=%s consumer=%s",
+            stream_key,
+            consumer_name,
         )
+
+        redis = GulpRedis.get_instance().client()
 
         try:
             async with GulpCollab.get_instance().session() as sess:
                 stats: GulpRequestStats = None
                 mod: GulpPluginBase = None
-                last: bool = False
-                packet: InternalWsIngestPacket = None
 
-                while True:
-                    exx: Exception = None
-
-                    async def _raw_ws_worker_cleanup():
-                        """
-                        internal cleanup function for the ws ingest raw worker
-                        """
-                        if mod:
-                            if last:
-                                MutyLogger.get_instance().debug(
-                                    "ws ingest _process_loop last packet, finalizing plugin=%s", mod.name
-                                )
-                                # will finalize stats with done status, unregardless of errors
-                                mod._last_raw_chunk=True
-                            
-                            if stats:
-                                # update stats
-                                await mod.update_final_stats_and_flush(
-                                    flt=packet.data.flt if packet else None, ex=exx
-                                )
-                            if last:
-                                # unload the plugin
-                                await mod.unload()
-                        else:
-                            # no plugin loaded, finalize stats with error status and exit loop
-                            if stats:
-                                # finalize stats with error
-                                await stats.set_finished(
-                                    sess,
-                                    GulpRequestStatus.FAILED,
-                                    errors=(
-                                        [muty.log.exception_to_string(exx)] if exx else None
-                                    ),
-                                )
-
-                    try:
-                        # get a packet
+                try:
+                    while True:
+                        # blocking read from stream via consumer group
                         try:
-                            packet = input_queue.get_nowait()
-                        except Empty:
-                            # use the thread pool to wait for new data without blocking the event loop
-                            executor = GulpProcess.get_instance().thread_pool
-                            packet = await asyncio.get_event_loop().run_in_executor(
-                                executor, input_queue.get
+                            entries = await redis.xreadgroup(
+                                consumer_group,
+                                consumer_name,
+                                streams={stream_key: ">"},
+                                count=1,
+                                block=5000,
+                                noack=False,
                             )
-
-                        if not packet:
-                            # empty packet, exit loop
-                            MutyLogger.get_instance().debug(
-                                "ws ingest _process_loop got EMPTY packet, exiting..."
+                        except Exception as ex:
+                            MutyLogger.get_instance().exception(
+                                "error during xreadgroup: %s", ex
                             )
-                            last = True
-                        
-                        else:
-                            packet = InternalWsIngestPacket.model_validate(packet)
+                            await asyncio.sleep(0.5)
+                            continue
 
-                        if last:
-                            await _raw_ws_worker_cleanup()
-                            break
+                        if not entries:
+                            # timeout, loop again
+                            continue
 
-                        # on first iteration, create stats and load the plugin once
-                        if not stats:
-                            stats, _ = await GulpRequestStats.create_or_get_existing(
-                                sess,
-                                packet.data.req_id,
-                                packet.user_id,
-                                packet.data.operation_id,
-                                ws_id=packet.data.ws_id,
-                                never_expire=True,
-                                data=GulpIngestionStats().model_dump(exclude_none=True),
-                            )
+                        # process entries
+                        ids_to_ack = []
+                        ids_to_del = []
 
-                        if not mod:
-                            mod = await GulpPluginBase.load(packet.data.plugin)
+                        for stream_name, msgs in entries:
+                            for msg_id, fields in msgs:
+                                # fields keys are bytes when decode_responses=False
+                                # expect 'data' (JSON) and optionally 'raw' (bytes)
+                                meta_raw = fields.get(b"data") or fields.get("data")
+                                raw_bytes = fields.get(b"raw") or fields.get("raw")
 
-                        # process raw data using plugin
-                        await mod.ingest_raw(
-                            sess,
-                            stats,
-                            packet.user_id,
-                            packet.data.req_id,
-                            packet.data.ws_id,
-                            packet.index,
-                            packet.data.operation_id,
-                            packet.raw_data,
-                            flt=packet.data.flt,
-                            plugin_params=packet.data.plugin_params,
-                            last=packet.data.last,
-                        )
-                        await mod.update_final_stats_and_flush(
-                            flt=packet.data.flt
-                        )
-                    except Exception as ex:
-                        # swallow, manual rollback
-                        # await sess.rollback()
-                        MutyLogger.get_instance().exception(ex)
-                        exx = ex
+                                # normalize memoryview to bytes
+                                try:
+                                    if isinstance(meta_raw, memoryview):
+                                        meta_raw = meta_raw.tobytes()
+                                    if isinstance(raw_bytes, memoryview):
+                                        raw_bytes = raw_bytes.tobytes()
+                                except Exception:
+                                    pass
+
+                                if not isinstance(meta_raw, (bytes, bytearray, str)):
+                                    MutyLogger.get_instance().exception(
+                                        "invalid meta packet type in stream %s id=%s: %r",
+                                        stream_name,
+                                        msg_id,
+                                        type(meta_raw),
+                                    )
+                                    ids_to_ack.append((stream_name, msg_id))
+                                    ids_to_del.append((stream_name, msg_id))
+                                    continue
+
+                                try:
+                                    d = orjson.loads(meta_raw)
+                                except Exception as ex:
+                                    MutyLogger.get_instance().exception(
+                                        "invalid meta packet in stream %s id=%s: %s",
+                                        stream_name,
+                                        msg_id,
+                                        ex,
+                                    )
+                                    # acknowledge and delete malformed message
+                                    ids_to_ack.append((stream_name, msg_id))
+                                    ids_to_del.append((stream_name, msg_id))
+                                    continue
+
+                                # attach raw bytes if present
+                                if raw_bytes is not None:
+                                    d["raw_data"] = raw_bytes
+
+                                # termination sentinel
+                                if isinstance(d, dict) and d.get("terminate"):
+                                    # ack + del
+                                    ids_to_ack.append((stream_name, msg_id))
+                                    ids_to_del.append((stream_name, msg_id))
+                                    # set done key and exit
+                                    pipe = redis.pipeline(transaction=False)
+                                    for s, mid in ids_to_ack:
+                                        pipe.xack(s, consumer_group, mid)
+                                    for s, mid in ids_to_del:
+                                        pipe.xdel(s, mid)
+                                    await pipe.execute()
+                                    await GulpRedis.get_instance().client().set(done_key, "1")
+                                    MutyLogger.get_instance().debug(
+                                        "ws ingest _process_loop received terminate for stream=%s",
+                                        stream_key,
+                                    )
+                                    return
+
+                                # normal packet
+                                packet = None
+                                try:
+                                    packet = InternalWsIngestPacket.model_validate(d)
+                                except Exception as ex:
+                                    MutyLogger.get_instance().exception(
+                                        "error validating packet from stream %s id=%s: %s",
+                                        stream_name,
+                                        msg_id,
+                                        ex,
+                                    )
+                                    ids_to_ack.append((stream_name, msg_id))
+                                    ids_to_del.append((stream_name, msg_id))
+                                    continue
+
+                                # process packet safely per-packet
+                                try:
+                                    # on first iteration, create stats and load plugin
+                                    if not stats:
+                                        stats, _ = await GulpRequestStats.create_or_get_existing(
+                                            sess,
+                                            packet.data.req_id,
+                                            packet.user_id,
+                                            packet.data.operation_id,
+                                            ws_id=packet.data.ws_id,
+                                            never_expire=True,
+                                            data=GulpIngestionStats().model_dump(exclude_none=True),
+                                        )
+
+                                    if not mod:
+                                        mod = await GulpPluginBase.load(packet.data.plugin)
+
+                                    await mod.ingest_raw(
+                                        sess,
+                                        stats,
+                                        packet.user_id,
+                                        packet.data.req_id,
+                                        packet.data.ws_id,
+                                        packet.index,
+                                        packet.data.operation_id,
+                                        packet.raw_data,
+                                        flt=packet.data.flt,
+                                        plugin_params=packet.data.plugin_params,
+                                        last=packet.data.last,
+                                    )
+                                    await mod.update_final_stats_and_flush(flt=packet.data.flt)
+
+                                    # track last and cleanup if needed
+                                    if packet.data.last:
+                                        # finalize plugin and stats
+                                        try:
+                                            mod._last_raw_chunk = True
+                                        except Exception:
+                                            pass
+                                        await mod.update_final_stats_and_flush(flt=packet.data.flt)
+                                        await mod.unload()
+
+                                except Exception as ex:
+                                    MutyLogger.get_instance().exception(
+                                        "error processing packet from stream %s id=%s: %s",
+                                        stream_name,
+                                        msg_id,
+                                        ex,
+                                    )
+                                    # continue after logging
+
+                                # always ack+del the message to avoid reprocessing
+                                ids_to_ack.append((stream_name, msg_id))
+                                ids_to_del.append((stream_name, msg_id))
+
+                        # batch ack + del
+                        if ids_to_ack:
+                            pipe = redis.pipeline(transaction=False)
+                            for s, mid in ids_to_ack:
+                                pipe.xack(s, consumer_group, mid)
+                            for s, mid in ids_to_del:
+                                pipe.xdel(s, mid)
+                            try:
+                                await pipe.execute()
+                            except Exception as ex:
+                                MutyLogger.get_instance().exception(
+                                    "error acknowledging/deleting messages: %s", ex
+                                )
+
+                finally:
+                    # ensure done_key is set so the main process can detect worker exit
+                    try:
+                        await GulpRedis.get_instance().client().set(done_key, "1")
+                    except Exception:
+                        pass
 
         except Exception as exxx:
             MutyLogger.get_instance().exception(
                 "outer exception in ws ingest _process_loop: %s", exxx
             )
-        MutyLogger.get_instance().debug("ws ingest _process_loop done")
-        done_event.set()
+
+        MutyLogger.get_instance().debug("ws ingest _process_loop done for stream=%s", stream_key)
 
     async def start(self) -> None:
         """
@@ -229,9 +334,24 @@ class WsIngestRawWorker:
         """
         MutyLogger.get_instance().debug("starting ws ingest worker ...")
 
-        # run _process_loop in a separate process
+        # ensure consumer group exists and then run _process_loop in a separate process
+        redis = GulpRedis.get_instance().client()
+        try:
+            try:
+                await redis.xgroup_create(self._stream_key, self._consumer_group, id="0", mkstream=True)
+            except Exception:
+                # ignore if group exists or other create-time race
+                pass
+            # do NOT set expire here — TTL will be set on first data `put()` and refreshed thereafter
+        except Exception:
+            MutyLogger.get_instance().exception("error creating consumer group for %s", self._stream_key)
+
         await GulpServer.get_instance().spawn_worker_task(
-            WsIngestRawWorker._process_loop, self._input_queue, self._done_event
+            WsIngestRawWorker._process_loop,
+            self._stream_key,
+            self._consumer_group,
+            self._consumer_name,
+            self._done_key,
         )
 
     async def stop(self) -> None:
@@ -240,25 +360,67 @@ class WsIngestRawWorker:
         waits until the worker has finished processing.
         """
         MutyLogger.get_instance().debug(
-            "stopping ws ingest worker for ws=%s (will put an empty message in the queue) ! ...", self._cws.ws_id
+            "stopping ws ingest worker for ws=%s (will push terminate to stream=%s) ...",
+            self._cws.ws_id,
+            self._stream_key,
         )
-        self._input_queue.put(None)
-        # wait for the worker to finish
-        while not self._done_event.is_set():
-            await asyncio.sleep(0.05)
-        MutyLogger.get_instance().debug(
-            "stopped ws ingest worker for ws=%s !", self._cws.ws_id
-        )
+        redis = GulpRedis.get_instance().client()
+        try:
+            # push termination sentinel as meta field
+            await redis.xadd(self._stream_key, {"data": orjson.dumps({"terminate": True})})
+        except Exception:
+            MutyLogger.get_instance().exception("error pushing terminate sentinel to %s", self._stream_key)
 
-    def put(self, packet: InternalWsIngestPacket):
+        # wait for worker to set done key
+        try:
+            while not await redis.exists(self._done_key):
+                await asyncio.sleep(0.1)
+        except Exception:
+            MutyLogger.get_instance().exception("error waiting for done key %s", self._done_key)
+
+        # cleanup stream and done key
+        try:
+            # destroy consumer group to avoid leaving groups behind
+            try:
+                await redis.xgroup_destroy(self._stream_key, self._consumer_group)
+            except Exception:
+                # ignore if group does not exist or destroy fails
+                pass
+            await redis.delete(self._stream_key)
+            await redis.delete(self._done_key)
+        except Exception:
+            MutyLogger.get_instance().exception("error cleaning up stream %s", self._stream_key)
+
+        MutyLogger.get_instance().debug("stopped ws ingest worker for ws=%s !", self._cws.ws_id)
+
+    async def put(self, packet: InternalWsIngestPacket):
         """
         puts a packet in the worker queue
 
         Args:
             packet (InternalWsIngestPacket): the packet to put in the queue
         """
-        # MutyLogger.get_instance().debug("putting packet in ws ingest worker")
-        self._input_queue.put(packet.model_dump(exclude_none=True))
+        try:
+            payload = packet.model_dump(exclude_none=True)
+            # separate raw bytes from JSON-serializable metadata
+            raw_bytes = None
+            if "raw_data" in payload and isinstance(payload["raw_data"], (bytes, bytearray)):
+                raw_bytes = payload.pop("raw_data")
+
+            data_json = orjson.dumps(payload)
+            # push two fields: 'data' (JSON) and 'raw' (binary)
+            fields = {"data": data_json}
+            if raw_bytes is not None:
+                fields["raw"] = raw_bytes
+
+            await GulpRedis.get_instance().client().xadd(self._stream_key, fields)
+            # refresh TTL to indicate recent activity
+            try:
+                await GulpRedis.get_instance().client().expire(self._stream_key, self._stream_ttl)
+            except Exception:
+                MutyLogger.get_instance().exception("error refreshing expire on stream %s", self._stream_key)
+        except Exception as ex:
+            MutyLogger.get_instance().exception("error xadd to %s: %s", self._stream_key, ex)
 
 
 class GulpAPIWebsocket:
@@ -589,8 +751,8 @@ class GulpAPIWebsocket:
                         raw_data=raw_data,
                     )
 
-                    # and put in the worker queue
-                    pool_worker.put(packet)
+                    # and put in the worker queue (async xadd to Redis)
+                    await pool_worker.put(packet)
                     if ingest_packet.last:
                         # last packet, break the loop
                         MutyLogger.get_instance().debug(
