@@ -73,6 +73,7 @@ class GulpRedisChannel(StrEnum):
 
     BROADCAST = "broadcast"
     WORKER_TO_MAIN = "worker_to_main"
+    CLIENT_DATA = "client_data"
 
 
 class GulpWsData(BaseModel):
@@ -772,6 +773,7 @@ class GulpConnectedSocket:
         operation_ids: list[str] = None,
         socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
         data: dict = None,
+        user_id: str = None,
     ):
         """
         Initializes the ConnectedSocket object.
@@ -783,6 +785,7 @@ class GulpConnectedSocket:
             operation_ids (list[str], optional): The operation/s this websocket is interested in. Defaults to None (all).
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
             data (dict, optional): Optional arbitrary data to be associated with this websocket connection. Defaults to None.
+            user_id (str, optional): The user ID associated with this websocket connection. Defaults to None.
         """
         from gulp.process import GulpProcess
 
@@ -793,6 +796,7 @@ class GulpConnectedSocket:
         self._terminated: bool = False
         self.operation_ids = operation_ids
         self.socket_type = socket_type
+        self.user_id = user_id
         self._cleaned_up = False
         self._server_id = GulpProcess.get_instance().server_id
         self._tasks: list[asyncio.Task] = []
@@ -1361,6 +1365,7 @@ class GulpConnectedSockets:
         operation_ids: list[str] = None,
         socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
         data: dict = None,
+        user_id: str = None,
     ) -> GulpConnectedSocket:
         """
         Adds a websocket to the connected sockets list and registers in Redis.
@@ -1372,6 +1377,7 @@ class GulpConnectedSockets:
             operation_ids (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
             data (dict, optional): Optional arbitrary data to be associated with this websocket connection. Defaults to None.
+            user_id (str, optional): The user ID associated with this websocket connection. Defaults to None.
         Returns:
             ConnectedSocket: The ConnectedSocket object.
         """
@@ -1393,6 +1399,7 @@ class GulpConnectedSockets:
             operation_ids=operation_ids,
             socket_type=socket_type,
             data=data,
+            user_id=user_id,
         )
 
         # store local socket reference
@@ -1451,6 +1458,15 @@ class GulpConnectedSockets:
             len(self._sockets),
         )
 
+    def sockets(self) -> dict[str, GulpConnectedSocket]:
+        """
+        gets all connected sockets.
+
+        Returns:
+            dict[str, GulpConnectedSocket]: A dictionary of WebSocket ID to ConnectedSocket objects.
+        """
+        return self._sockets
+        
     def get(self, ws_id: str) -> GulpConnectedSocket:
         """
         gets a ConnectedSocket object by its ID.
@@ -1726,6 +1742,9 @@ class GulpRedisBroker:
         Args:
             message (dict): The message dictionary (GulpWsData)
         """
+        # extract Redis channel name (added by subscriber loop)
+        redis_channel: str = message.pop("__redis_channel__", None)
+        # extract message metadata
         channel: str = message.pop("__channel__", None)
         server_id: str = message.pop("__server_id__", None)
         redis_client = GulpRedis.get_instance()
@@ -1844,13 +1863,36 @@ class GulpRedisBroker:
         except Exception:
             MutyLogger.get_instance().exception("error while resolving payload pointer")
 
+        # avoid processing our own broadcast messages for broadcast channel
         if (
             server_id
             and server_id == redis_client.server_id
             and channel == GulpRedisChannel.BROADCAST.value
         ):
-            # avoid processing our own broadcast messages
             return
+
+        # handle client_data channel specially: route to WS_CLIENT_DATA sockets
+        # check the actual Redis channel (not message metadata)
+        if redis_channel == GulpRedis.CLIENT_DATA_CHANNEL:
+            try:
+                # message is expected to be a GulpWsData-like dict
+                # include __sender_ws_id__ and __server_id__ when published
+                sender_ws = message.pop("__sender_ws_id__", None)
+                # skip messages originating from this server instance
+                if server_id and server_id == redis_client.server_id:
+                    return
+
+                try:
+                    wsd = GulpWsData.model_validate(message)
+                except Exception:
+                    MutyLogger.get_instance().error("invalid GulpWsData on client_data channel")
+                    return
+
+                await self._process_client_data_message(wsd)
+                return
+            except Exception as ex:
+                MutyLogger.get_instance().error("error processing client_data pubsub message: %s", ex)
+                return
 
         try:
             wsd = GulpWsData.model_validate(message)
@@ -1879,6 +1921,85 @@ class GulpRedisBroker:
         cws = GulpConnectedSockets.get_instance().get(msg.ws_id)
         if cws or msg.internal:
             await GulpConnectedSockets.get_instance().broadcast_message(msg)
+
+    async def _process_client_data_message(self, msg: GulpWsData) -> None:
+        """
+        Process a client_data message received from another instance and route to
+        local `WS_CLIENT_DATA` sockets applying the same filters as the local path.
+
+        Args:
+            msg (GulpWsData): The client_data message
+        """
+        MutyLogger.get_instance().debug(
+            "processing cross-instance client_data: ws_id=%s, operation_id=%s",
+            msg.ws_id, msg.operation_id
+        )
+        s = GulpConnectedSockets.get_instance()
+        
+        # if msg.ws_id is set, only deliver to that specific websocket
+        if msg.ws_id:
+            cws = s.get(msg.ws_id)
+            if not cws or cws.socket_type != GulpWsType.WS_CLIENT_DATA:
+                return
+            
+            # filter by operation_id if set (empty list means accept all)
+            if (
+                msg.operation_id
+                and cws.operation_ids
+                and msg.operation_id not in cws.operation_ids
+            ):
+                return
+            
+            # send message
+            try:
+                await cws.enqueue_message(msg.model_dump(exclude_none=True))
+                MutyLogger.get_instance().debug(
+                    "routed cross-instance client_data to ws_id=%s", cws.ws_id
+                )
+            except Exception as ex:
+                MutyLogger.get_instance().error(
+                    f"error sending client_data to ws_id={cws.ws_id}: {ex}"
+                )
+            return
+        
+        # broadcast to all matching client_data sockets
+        for _, cws in s.sockets().items():
+            try:
+                # skip if not client_data socket
+                if cws.socket_type != GulpWsType.WS_CLIENT_DATA:
+                    continue
+
+                # filter by operation_id if set (empty list means accept all)
+                if (
+                    msg.operation_id
+                    and cws.operation_ids
+                    and msg.operation_id not in cws.operation_ids
+                ):
+                    continue
+
+                # filter by target_user_ids if present in payload
+                # check if recipient's user matches target list
+                pl = msg.payload or {}
+                target_user_ids = None
+                if isinstance(pl, dict):
+                    target_user_ids = pl.get("target_user_ids")
+                if target_user_ids and cws.user_id not in target_user_ids:
+                    continue
+
+                # send message
+                try:
+                    await cws.enqueue_message(msg.model_dump(exclude_none=True))
+                    MutyLogger.get_instance().debug(
+                        "routed cross-instance client_data to ws_id=%s", cws.ws_id
+                    )
+                except Exception as ex:
+                    MutyLogger.get_instance().error(
+                        f"error sending client_data to ws_id={cws.ws_id}: {ex}"
+                    )
+            except Exception:
+                MutyLogger.get_instance().exception(
+                    "error routing client_data message to local sockets"
+                )
 
     async def _put_common(self, wsd: GulpWsData) -> None:
         """

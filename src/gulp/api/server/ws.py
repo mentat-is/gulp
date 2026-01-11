@@ -565,6 +565,7 @@ class GulpAPIWebsocket:
                 operation_ids=params.operation_ids,
                 socket_type=socket_type,
                 data=params.data,
+                user_id=user_id,
             )
 
             # acknowledge connection
@@ -826,14 +827,14 @@ class GulpAPIWebsocket:
                 # route to connected client_data websockets
                 s = GulpConnectedSockets.get_instance()
 
-                # pylint: disable=protected-access
-                for _, cws in s._sockets.items():
+                for _, cws in s.sockets().items():
                     if (
                         ws.ws_id == cws.ws_id
                         or cws.socket_type != GulpWsType.WS_CLIENT_DATA
-                        # filter by operation_id if set
+                        # filter by operation_id if set (empty list means accept all)
                         or (
                             client_ui_data.operation_id
+                            and cws.operation_ids
                             and client_ui_data.operation_id not in cws.operation_ids
                         )
                         # filter by user_id if set
@@ -845,19 +846,45 @@ class GulpAPIWebsocket:
                         # skip this ws
                         continue
                     try:
-                        await cws.ws.send_json(data.model_dump(exclude_none=True))
+                        # use enqueue_message to properly handle queuing and connection state
+                        await cws.enqueue_message(data.model_dump(exclude_none=True))
                     except Exception as ex:
                         MutyLogger.get_instance().error(
-                            f"error sending data to ws_id={cws.ws_id}: {ex}"
+                            f"error enqueuing data to ws_id={cws.ws_id}: {ex}"
                         )
+                # publish to other instances via dedicated client_data Redis channel
+                try:
+                    redis_client = GulpRedis.get_instance()
+                    msg = data.model_dump(exclude_none=True)
+                    msg["__channel__"] = "client_data"
+                    msg["__server_id__"] = redis_client.server_id
+                    msg["__sender_ws_id__"] = ws.ws_id
+                    # publish to dedicated channel
+                    MutyLogger.get_instance().debug(
+                        "publishing client_data to Redis: ws_id=%s, operation_id=%s",
+                        ws.ws_id, client_ui_data.operation_id
+                    )
+                    await redis_client.client().publish(
+                        GulpRedis.CLIENT_DATA_CHANNEL, orjson.dumps(msg)
+                    )
+                except Exception as ex:
+                    MutyLogger.get_instance().warning(
+                        "failed to publish client_data to Redis for ws_id=%s: %s", ws.ws_id, ex
+                    )
             except WebSocketDisconnect as ex:
                 MutyLogger.get_instance().warning(
-                    f"websocket {ws.ws_id} disconnected: {ex}"
+                    "---> ws_client_data websocket %s disconnected: ex", ws.ws_id, ex
                 )
-                break
+                raise
+            except asyncio.CancelledError:
+                MutyLogger.get_instance().warning(
+                    "---> ws_client_data receive loop canceled for ws_id=%s", ws.ws_id
+                )
+                raise
             except Exception as ex:
-                MutyLogger.get_instance().error(f"error in receive loop: {ex}")
-
+                MutyLogger.get_instance().error("---> ws_client_data error for ws_id=%s, in receive loop: %s", ws.ws_id, ex)
+                raise
+            
     @staticmethod
     async def ws_client_data_run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
         """
@@ -872,20 +899,43 @@ class GulpAPIWebsocket:
             Exception: for any unexpected errors during processing
         """
         # create tasks with names for better debugging
+        send_task: asyncio.Task = asyncio.create_task(
+            ws._send_loop(), name=f"client_data-send_loop-{ws.ws_id}"
+        )
         receive_task: asyncio.Task = asyncio.create_task(
             GulpAPIWebsocket.ws_client_data_receive_loop(ws, user_id),
             name=f"client_data-receive_loop-{ws.ws_id}",
         )
-        ws._tasks.append(receive_task)
+        ws._tasks.extend([send_task, receive_task])
 
         # wait for first task to complete
-        done, _ = await asyncio.wait(ws._tasks, return_when=asyncio.FIRST_EXCEPTION)
+        done, pending = await asyncio.wait(ws._tasks, return_when=asyncio.FIRST_EXCEPTION)
+        
+        # cancel all pending tasks to ensure clean shutdown
+        MutyLogger.get_instance().debug("ws_id=%s done=%s, pending=%s", ws.ws_id, done, pending)
+        if pending:
+            for t in pending:
+                MutyLogger.get_instance().debug(
+                    "cancelling pending task %s for ws_id=%s",
+                    t.get_name(),
+                    ws.ws_id,
+                )
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    MutyLogger.get_instance().debug(
+                        "pending task %s cancelled successfully", t.get_name()
+                    )
+        
+        # check if any completed task raised an exception
         task = done.pop()
         try:
             await task
         except WebSocketDisconnect as ex:
-            MutyLogger.get_instance().error(f"websocket {ws.ws_id} disconnected: {ex}")
+            MutyLogger.get_instance().debug(f"websocket {ws.ws_id} disconnected: {ex}")
             raise
         except Exception as ex:
             MutyLogger.get_instance().error(f"error in {task.get_name()}: {ex}")
             raise
+        MutyLogger.get_instance().debug("ws_id=%s ws_client_data_run_loop exiting!",ws.ws_id)

@@ -418,7 +418,7 @@ class GulpUiPluginMetadata(BaseModel):
 
 class DocValueCache:
     """
-    a cache for specific document values, local to the plugin.
+    a cache for specific document values, local to the plugin (more specifically, to the process running the plugin).
     this is to be used to avoid recalculating same value every time for the same input (i.e. hashes, derived values, ...)
     """
     def __init__(self, cache_size: int = 10000):

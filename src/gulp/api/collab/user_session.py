@@ -155,8 +155,8 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
             self.id = token_id
 
         MutyLogger.get_instance().debug(
-            "session expiration time updated, previous= %s, new=%s"
-            % (self.time_expire, time_expire)
+            "session expiration time updated for user_id=%s, previous= %s, new=%s"
+            % (self.user.id, self.time_expire, time_expire)
         )
         self.time_expire = time_expire
         await sess.commit()

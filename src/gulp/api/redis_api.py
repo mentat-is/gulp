@@ -53,6 +53,8 @@ class GulpRedis:
 
     _instance: "GulpRedis" = None
     CHANNEL = "gulpredis"
+    # dedicated channel for client_data cross-instance routing
+    CLIENT_DATA_CHANNEL = "gulpredis:client_data"
     # redis set key to track known task types (members are task_type strings)
     TASK_TYPES_SET = "gulp:queue:types"
     # redis stream key prefix for task streams (one stream per task_type)
@@ -423,20 +425,27 @@ class GulpRedis:
         """
         unsubscribe from the redis pubsub channel
         """
+        # cancel the subscriber task if present
         if self._subscriber_task:
-            # cancel the task
             self._subscriber_task.cancel()
             try:
                 await self._subscriber_task
-            except asyncio.CancelledError:                
+            except asyncio.CancelledError:
                 pass
 
-            await self._pubsub.unsubscribe(GulpRedis.CHANNEL)
-            MutyLogger.get_instance().info(
-                "unsubscribed from channel: %s, server_id=%s",
-                GulpRedis.CHANNEL,
-                self.server_id,
-            )
+        # unsubscribe from both channels
+        try:
+            await self._pubsub.unsubscribe(GulpRedis.CHANNEL, GulpRedis.CLIENT_DATA_CHANNEL)
+        except Exception:
+            # ignore errors during unsubscribe
+            pass
+
+        MutyLogger.get_instance().info(
+            "unsubscribed from channels: %s, %s, server_id=%s",
+            GulpRedis.CHANNEL,
+            GulpRedis.CLIENT_DATA_CHANNEL,
+            self.server_id,
+        )
 
     async def subscribe(
         self,
@@ -448,32 +457,38 @@ class GulpRedis:
         Args:
             callback: Async function fun(d: dict) to call with each message dict
         """
-        await self._pubsub.subscribe(GulpRedis.CHANNEL)
+        # subscribe to both channels using a single pubsub subscription
+        await self._pubsub.subscribe(GulpRedis.CHANNEL, GulpRedis.CLIENT_DATA_CHANNEL)
 
         task = asyncio.create_task(
-            self._subscriber_loop(GulpRedis.CHANNEL, callback),
+            self._subscriber_loop("multiple", callback),
             name=f"gulpredis-sub-{self.server_id}",
         )
         self._subscriber_task = task
 
         MutyLogger.get_instance().info(
-            "subscribed to channel: %s, server_id=%s", GulpRedis.CHANNEL, self.server_id
+            "subscribed to channels: %s, %s, server_id=%s",
+            GulpRedis.CHANNEL,
+            GulpRedis.CLIENT_DATA_CHANNEL,
+            self.server_id,
         )
 
     async def _subscriber_loop(
         self,
-        channel: str,
+        channel_name: str,
         callback: Callable[[dict], Any],
     ) -> None:
         """
-        Internal loop for processing Redis pub/sub messages.
+        Internal loop for processing Redis pub/sub messages from multiple channels.
 
         Args:
-            channel (str): The channel name
+            channel_name (str): Descriptive name for logging (e.g., "multiple")
             callback: Function to call with each message
         """
         MutyLogger.get_instance().debug(
-            "starting subscriber loop for channel: %s", channel
+            "starting subscriber loop for channels: %s, %s",
+            GulpRedis.CHANNEL,
+            GulpRedis.CLIENT_DATA_CHANNEL,
         )
 
         try:
@@ -484,18 +499,25 @@ class GulpRedis:
                         ignore_subscribe_messages=True, timeout=1.0
                     )
                     if message:
+                        # extract the actual Redis channel name from message
+                        actual_channel = message.get("channel")
+                        if isinstance(actual_channel, bytes):
+                            actual_channel = actual_channel.decode("utf-8")
+                        
                         # MutyLogger.get_instance().debug(
                         #     "---> received message on channel %s: %s",
-                        #     channel,
+                        #     actual_channel,
                         #     muty.string.make_shorter(str(message), max_len=260),
                         # )
                         try:
                             d: dict = orjson.loads(message["data"])
+                            # add Redis channel info for routing in broker
+                            d["__redis_channel__"] = actual_channel
                             await callback(d)
                         except Exception as ex:
                             MutyLogger.get_instance().exception(
                                 "ERROR in subscriber callback for channel %s: %s",
-                                channel,
+                                actual_channel,
                                 ex,
                             )
                             raise ex
@@ -506,18 +528,20 @@ class GulpRedis:
 
                 except asyncio.CancelledError:
                     MutyLogger.get_instance().debug(
-                        "subscriber loop cancelled for %s", channel
+                        "subscriber loop cancelled"
                     )
                     raise
                 except Exception as ex:
                     MutyLogger.get_instance().exception(
-                        "error in subscriber loop for %s: %s", channel, ex
+                        "error in subscriber loop: %s", ex
                     )
                     await asyncio.sleep(1.0)
 
         except asyncio.CancelledError:
             MutyLogger.get_instance().info(
-                "subscriber loop stopped for channel: %s", channel
+                "subscriber loop stopped for channels: %s, %s",
+                GulpRedis.CHANNEL,
+                GulpRedis.CLIENT_DATA_CHANNEL,
             )
 
     def task_queue_key(self) -> str:
