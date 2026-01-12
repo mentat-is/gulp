@@ -517,6 +517,9 @@ async def user_update_handler(
             )
 
         async with GulpCollab.get_instance().session() as sess:
+            # get calling user GulpUserSession
+            calling_user_s: GulpUserSession = await GulpUserSession.check_token(sess, token)
+
             s: GulpUserSession
             u: GulpUser
             if user_id:
@@ -525,10 +528,12 @@ async def user_update_handler(
                 s, u, _ = await GulpUser.get_by_id_wrapper(
                     sess, token, user_id, enforce_owner=True
                 )
+                MutyLogger.get_instance().debug("specified user_id=%s, session.user_id=%s", user_id, s.user.id)
             else:
                 # no user_id specified, use the token's user
-                s = await GulpUserSession.check_token(sess, token)
-                u = s.user
+                s = calling_user_s
+                u = calling_user_s.user
+                MutyLogger.get_instance().debug("no user_id specified, session.user_id=%s", s.user.id)
 
             delete_existing_user_session: bool = False
             if permission:
@@ -546,7 +551,7 @@ async def user_update_handler(
 
             pwd_hash: str = None
             if password:
-                if not u.is_admin() and s.user.id != u.id:
+                if not s.user.is_admin() and s.user.id != u.id:
                     # only admin can change password to other users
                     raise MissingPermission(
                         "only admin can change password to other users, user_id=%s, session_user_id=%s"
@@ -577,7 +582,7 @@ async def user_update_handler(
 
             dd: dict = await u.update(
                 sess,
-                password=pwd_hash,
+                pwd_hash=pwd_hash,
                 permission=permission,
                 email=email,
                 glyph_id=glyph_id,
