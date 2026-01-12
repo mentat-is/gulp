@@ -582,6 +582,8 @@ async def sigmas_to_queries(
                     or (rule.logsource.service not in mapping_parameters.sigma_mappings)
                 ):
                     use_sigma_mapping = False
+            else:
+                use_sigma_mapping = False
 
             try:
                 # transform the sigma rule considering source mappings: i.e. if the sigma rule have EventId in the conditions, we want it
@@ -606,7 +608,7 @@ async def sigmas_to_queries(
             for q in qs:
                 q_should_query_part: list[dict] = []
 
-                if use_sigma_mapping:
+                if use_sigma_mapping and rule.logsource and rule.logsource.service:
                     # add the logsource specific part
                     sigma_mapping_to_use: GulpSigmaMapping = (
                         mapping_parameters.sigma_mappings[rule.logsource.service]

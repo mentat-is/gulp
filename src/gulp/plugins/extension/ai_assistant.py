@@ -127,8 +127,8 @@ class Plugin(GulpPluginBase):
     ## Required Output Format
     You must provide your analysis in Markdown using this exact structure:
     1. **Event Analysis**
-    - Event 1 (agent.type: [agent_type]): [brief event description]
-    - Event 2 (agent.type: [agent_type]): [brief event description]
+    - Event [id] (agent.type: [agent_type]): [brief event description]
+    - Event [id] (agent.type: [agent_type]): [brief event description]
     - ... (Continue for all events)
     2. **Correlation Assessment**  
     (State here: CORRELATED or NOT CORRELATED)
