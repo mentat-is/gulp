@@ -31,7 +31,14 @@ import muty.string
 import muty.time
 import orjson
 from click import group
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    Query,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse, JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -55,7 +62,7 @@ from gulp.api.collab.user import GulpUser, GulpUserDataQueryHistoryEntry
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.sigma import sigmas_to_queries, sigma_to_severity
+from gulp.api.opensearch.sigma import sigma_to_severity, sigmas_to_queries
 from gulp.api.opensearch.structs import (
     GulpDocument,
     GulpQuery,
@@ -197,6 +204,7 @@ async def _query_raw_chunk_callback(
         operation_id=operation_id,
         req_id=req_id,
         d=c.model_dump(exclude_none=True),
+        force_ignore_missing_ws=q_options.force_ignore_missing_ws,
     )
 
     if q_options.create_notes:
@@ -210,6 +218,7 @@ async def _query_raw_chunk_callback(
             chunk,
             q_name,
             orjson.dumps(q, option=orjson.OPT_INDENT_2).decode(),
+            q_options,
             sigma_yml=sigma_yml,
             tags=tags,
             color=q_options.notes_color,
@@ -453,6 +462,7 @@ async def run_query(
             user_id=user_id,
             req_id=req_id,
             d=p.model_dump(exclude_none=True),
+            force_ignore_missing_ws=q_options.force_ignore_missing_ws,
         )
 
 
@@ -495,31 +505,38 @@ async def process_queries(
     stats: GulpRequestStats = None
     batching_step_reached: bool = False
     req_canceled: bool = False
-
+    stats: GulpRequestStats = None
     try:
         # get a stats, or create it if it doesn't exist yet
         # for query stats, we will have a GulpQueryStats payload
         # either, for external queries, we will have a GulpIngestionStats payload
-        stats, _ = await GulpRequestStats.create_or_get_existing(
-            sess,
-            req_id,
-            user_id,
-            operation_id,
-            req_type=(
-                RequestStatsType.REQUEST_TYPE_EXTERNAL_QUERY
-                if plugin
-                else RequestStatsType.REQUEST_TYPE_QUERY
-            ),
-            ws_id=ws_id,
-            data=(
-                GulpIngestionStats().model_dump(exclude_none=True)
-                if plugin
-                else GulpQueryStats(
-                    num_queries=num_total_queries, q_group=q_options.group
-                ).model_dump(exclude_none=True)
-            ),
-        )
-        if stats.status == GulpRequestStatus.CANCELED.value:
+        try:
+            stats, _ = await GulpRequestStats.create_or_get_existing(
+                sess,
+                req_id,
+                user_id,
+                operation_id,
+                req_type=(
+                    RequestStatsType.REQUEST_TYPE_EXTERNAL_QUERY
+                    if plugin
+                    else RequestStatsType.REQUEST_TYPE_QUERY
+                ),
+                ws_id=ws_id,
+                data=(
+                    GulpIngestionStats().model_dump(exclude_none=True)
+                    if plugin
+                    else GulpQueryStats(
+                        num_queries=num_total_queries, q_group=q_options.group
+                    ).model_dump(exclude_none=True)
+                ),
+            )
+        except WebSocketDisconnect:
+            # ignore if force_ignore_missing_ws is set
+            if not q_options.force_ignore_missing_ws:
+                raise
+            
+
+        if stats and stats.status == GulpRequestStatus.CANCELED.value:
             MutyLogger.get_instance().warning(
                 "request %s already canceled, abort processing!", req_id
             )
@@ -630,19 +647,24 @@ async def process_queries(
                     if err not in errors:
                         errors.append(err)
 
-            if not plugin:
+            if not plugin and stats:
                 # for default (non-external queries), update request stats, will auto-finalize the stats when completion is detected (all queries completed or request canceled)
                 # in external queries, stats is updated by the ingestion loop
-
-                await stats.update_query_stats(
-                    sess,
-                    user_id=user_id,
-                    ws_id=ws_id,
-                    hits=total_hits,
-                    inc_completed=len(coros),
-                    errors=errors,
-                    ignore_failures=ignore_failures,
-                )
+                try:
+                    await stats.update_query_stats(
+                        sess,
+                        user_id=user_id,
+                        ws_id=ws_id,
+                        hits=total_hits,
+                        inc_completed=len(coros),
+                        errors=errors,
+                        ignore_failures=ignore_failures,
+                    )
+                except WebSocketDisconnect:
+                    # ignore if force_ignore_missing_ws is set
+                    if not q_options.force_ignore_missing_ws:
+                        raise
+                    
             if req_canceled:
                 # request is canceled, stop processing more batches
                 MutyLogger.get_instance().warning(
@@ -689,17 +711,23 @@ async def process_queries(
             operation_id=operation_id,
             req_id=req_id,
             d=p.model_dump(exclude_none=True),
+            force_ignore_missing_ws=q_options.force_ignore_missing_ws,
         )
     except Exception as ex:
         if stats and not batching_step_reached:
             # ensure we set the stats as failed on error (unless we reached batching code, in which case the stats will be auto-finalized)
-            await stats.set_finished(
-                sess,
-                GulpRequestStatus.FAILED,
-                user_id=user_id,
-                ws_id=ws_id,
-                errors=[muty.log.exception_to_string(ex)],
-            )
+            try:
+                await stats.set_finished(
+                    sess,
+                    GulpRequestStatus.FAILED,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                    errors=[muty.log.exception_to_string(ex)],
+                )
+            except WebSocketDisconnect:
+                # ignore if force_ignore_missing_ws is set
+                if not q_options.force_ignore_missing_ws:
+                    raise
 
         raise
 

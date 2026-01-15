@@ -597,6 +597,12 @@ if set, highlights are included in the results (default=False).
         ),
     ] = False
 
+    force_ignore_missing_ws: Annotated[
+        bool,
+        Field(
+            description="if set, disconnecting client websocket does not stop query/ies processing."
+        ),
+    ] = False
     def __init__(self, **data: Any) -> None:
         if "name" not in data or not data["name"]:
             # autogenerate name

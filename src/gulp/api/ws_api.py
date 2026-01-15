@@ -2074,6 +2074,7 @@ class GulpRedisBroker:
         req_id: str = None,
         d: Any = None,
         private: bool = False,
+        force_ignore_missing_ws: bool = False,
     ) -> None:
         """
         called by workers, publishes data to the main process via Redis pub/sub.
@@ -2086,14 +2087,16 @@ class GulpRedisBroker:
             req_id (Optional[str]): the request id if applicable
             d (Optional[Any]): the payload data
             private (bool): whether this message is private to the specified ws_id
+            force_ignore_missing_ws (bool): whether to ignore missing websocket and not raise an error
         raises:
             WebSocketDisconnect: if websocket is not connected
         """
 
         # verify websocket is alive (check Redis registry)
 
-        if not await GulpConnectedSocket.is_alive(ws_id):
-            raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
+        if not force_ignore_missing_ws:
+            if not await GulpConnectedSocket.is_alive(ws_id):
+                raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
         # create the message
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),

@@ -37,6 +37,7 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
+from gulp.api.server.structs import TASK_TYPE_EXTERNAL_QUERY, TASK_TYPE_INGEST, TASK_TYPE_QUERY, TASK_TYPE_REBASE
 from gulp.api.ws_api import GulpConnectedSockets, GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -451,12 +452,12 @@ class GulpServer:
 
                     for obj in batch:
                         ttype = obj.get("task_type")
-                        if ttype == "ingest":
+                        if ttype == TASK_TYPE_INGEST:
                             await self.spawn_worker_task(run_ingest_file_task, obj)
-                        elif ttype == "query" or ttype == "external_query":
+                        elif ttype == TASK_TYPE_QUERY or ttype == TASK_TYPE_EXTERNAL_QUERY:
                             # run_query_task runs in main process and spawns workers itself
                             self.spawn_bg_task(run_query_task(obj), name=f"query_task_{muty.string.generate_unique()}")#{obj.get('req_id')}")
-                        elif ttype == "rebase":
+                        elif ttype == TASK_TYPE_REBASE:
                             # rebase task: run main-process handler that will spawn a worker
                             self.spawn_bg_task(
                                 run_rebase_task(obj), name=f"rebase_task_{muty.string.generate_unique()}"

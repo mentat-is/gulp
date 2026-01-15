@@ -128,6 +128,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         docs: list[dict],
         name: str,
         q: str,
+        q_options: GulpQueryParameters,
         sigma_yml: str = None,
         tags: list[str] = None,
         color: str = None,
@@ -148,6 +149,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             docs (list[dict]): the list of GulpDocument dictionaries to create notes for (must belong to the operation_id, no checks!)
             name (str): the name (title) to set on the notes
             q (str): the original query to be set as text
+            q_options (GulpQueryParameters): the query options containing notes settings
             sigma_yml (str, optional): the originating sigma rule in yml format, if any. Defaults to None.
             tags (list[str], optional): the tags to add to the notes. Defaults to None (will set tags=["auto"]).
             color (str, optional): the color of the notes. Defaults to None (use default).
@@ -265,6 +267,8 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 operation_id=operation_id,
                 req_id=req_id,
                 d=p.model_dump(exclude_none=True),
+                force_ignore_missing_ws=q_options.force_ignore_missing_ws,
+
             )
             MutyLogger.get_instance().debug(
                 "sent (inserted) notes on the websocket %s: notes=%d,inserted=%d,last=%r (if 'notes' > 'inserted', duplicate notes were skipped!)"

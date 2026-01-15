@@ -410,6 +410,7 @@ class GulpConfig:
         if int(force_check_ws) == 0:
             # on integration test, skip
             if self.is_integration_test():
+                MutyLogger.get_instance().warning("IGNORING MISSING WEBSOCKET CONNECTIONS FOR INTEGRATION TESTS!")
                 return True
         n = self._config.get("debug_ignore_missing_ws", False)
         return n
