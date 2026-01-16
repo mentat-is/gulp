@@ -3,7 +3,9 @@ This module provides a singleton class `GulpRedis` for managing asynchronous Red
 """
 
 import asyncio
+import time
 import zlib
+from collections import deque
 from typing import Annotated, Any, Callable, Optional
 from urllib.parse import urlparse
 
@@ -13,6 +15,7 @@ import redis.asyncio as redis
 from muty.log import MutyLogger
 from pydantic import BaseModel, Field
 from redis.asyncio.client import PubSub
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from gulp.config import GulpConfig
 
@@ -73,6 +76,9 @@ class GulpRedis:
         self._task_queue_key: str = "gulp:queue:tasks"
         # ttl for stored large payloads (seconds)
         self.PUBLISH_LARGE_PAYLOAD_TTL: int = 5 * 60  # 5 min, it should be consumed quickly
+        # sliding window for publish rate limiting
+        self._publish_times: deque[float] = deque()
+        self._publish_rate_limit: int = 100  # msgs per second
 
     def __new__(cls):
         """
@@ -320,6 +326,8 @@ class GulpRedis:
         compression_threshold: int = GulpConfig.get_instance().redis_compression_threshold() * 1024
         pubsub_max_chunk_size: int = GulpConfig.get_instance().redis_pubsub_max_chunk_size() * 1024
 
+        await self._apply_publish_backpressure()
+
         # if payload is too large, compress, chunk and store it in Redis then publish a small pointer
         try:
             if len(payload) > compression_threshold:
@@ -418,6 +426,18 @@ class GulpRedis:
         # default: publish inline
         await self._redis.publish(GulpRedis.CHANNEL, payload)
 
+    async def _apply_publish_backpressure(self) -> None:
+        """Simple sliding-window rate limiter to avoid flooding Redis pubsub."""
+        now = time.monotonic()
+        self._publish_times.append(now)
+        cutoff = now - 1.0
+        while self._publish_times and self._publish_times[0] < cutoff:
+            self._publish_times.popleft()
+
+        if len(self._publish_times) > self._publish_rate_limit:
+            # sleep just enough to drop under limit
+            await asyncio.sleep(0.01)
+
     async def unsubscribe(self) -> None:
         """
         unsubscribe from the redis pubsub channel
@@ -470,6 +490,24 @@ class GulpRedis:
             self.server_id,
         )
 
+    async def _recreate_pubsub(self) -> None:
+        """Recreate pubsub connection and resubscribe after errors."""
+        try:
+            if self._pubsub:
+                try:
+                    await self._pubsub.close()
+                except Exception:
+                    pass
+        except Exception:
+            MutyLogger.get_instance().exception("error closing pubsub before recreate")
+
+        self._pubsub = self._redis.pubsub()
+        await self._pubsub.subscribe(GulpRedis.CHANNEL, GulpRedis.CLIENT_DATA_CHANNEL)
+
+        MutyLogger.get_instance().warning(
+            "pubsub connection recreated and resubscribed: %s, %s", GulpRedis.CHANNEL, GulpRedis.CLIENT_DATA_CHANNEL
+        )
+
     async def _subscriber_loop(
         self,
         channel_name: str,
@@ -489,26 +527,19 @@ class GulpRedis:
         )
 
         try:
+            backoff: float = 1.0
             while True:
                 try:
-                    # get message and call callback
                     message: dict = await self._pubsub.get_message(
                         ignore_subscribe_messages=True, timeout=1.0
                     )
                     if message:
-                        # extract the actual Redis channel name from message
                         actual_channel = message.get("channel")
                         if isinstance(actual_channel, bytes):
                             actual_channel = actual_channel.decode("utf-8")
-                        
-                        # MutyLogger.get_instance().debug(
-                        #     "---> received message on channel %s: %s",
-                        #     actual_channel,
-                        #     muty.string.make_shorter(str(message), max_len=260),
-                        # )
+
                         try:
                             d: dict = orjson.loads(message["data"])
-                            # add Redis channel info for routing in broker
                             d["__redis_channel__"] = actual_channel
                             await callback(d)
                         except Exception as ex:
@@ -519,15 +550,22 @@ class GulpRedis:
                             )
                             raise ex
 
-                    # yield control — sleep a bit longer to avoid tight wakeups that
-                    # can cause unnecessary CPU usage on the main process.
+                    backoff = 1.0
                     await asyncio.sleep(0.05)
 
                 except asyncio.CancelledError:
-                    MutyLogger.get_instance().debug(
-                        "subscriber loop cancelled"
-                    )
+                    MutyLogger.get_instance().debug("subscriber loop cancelled")
                     raise
+                except (RedisConnectionError, asyncio.IncompleteReadError) as ex:
+                    MutyLogger.get_instance().warning(
+                        "redis pubsub connection error, will reconnect: %s", ex
+                    )
+                    try:
+                        await self._recreate_pubsub()
+                    except Exception:
+                        MutyLogger.get_instance().exception("failed to recreate pubsub")
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2.0, 30.0)
                 except Exception as ex:
                     MutyLogger.get_instance().exception(
                         "error in subscriber loop: %s", ex

@@ -1789,10 +1789,8 @@ class GulpRedisBroker:
                     chunks = pl.get("__chunks")
                     compressed_flag = pl.get("__compressed", False)
                     if chunks and int(chunks) > 0:
-                        # build chunk keys: base:0 .. base:N-1
                         keys = [f"{ptr}:{i}" for i in range(int(chunks))]
 
-                        # lua: get all keys, if any missing return nil, else delete all and return concatenated value
                         lua_multi = (
                             "local n = #KEYS\n"
                             "local vals = {}\n"
@@ -1800,9 +1798,18 @@ class GulpRedisBroker:
                             "for i=1,n do redis.call('DEL', KEYS[i]) end\n"
                             "return table.concat(vals)\n"
                         )
-                        stored = await redis_client._redis.eval(
-                            lua_multi, len(keys), *keys
-                        )
+
+                        stored = None
+                        for attempt in range(3):
+                            try:
+                                stored = await redis_client._redis.eval(
+                                    lua_multi, len(keys), *keys
+                                )
+                                break
+                            except Exception as ex:
+                                if attempt == 2:
+                                    raise ex
+                                await asyncio.sleep(0.2 * (attempt + 1))
 
                         if stored:
                             try:
@@ -1841,7 +1848,15 @@ class GulpRedisBroker:
                             "local v = redis.call('GET', KEYS[1]);"
                             "if v then redis.call('DEL', KEYS[1]) end; return v"
                         )
-                        stored = await redis_client._redis.eval(lua, 1, ptr)
+                        stored = None
+                        for attempt in range(3):
+                            try:
+                                stored = await redis_client._redis.eval(lua, 1, ptr)
+                                break
+                            except Exception as ex:
+                                if attempt == 2:
+                                    raise ex
+                                await asyncio.sleep(0.2 * (attempt + 1))
                         if stored:
                             try:
                                 full_msg = orjson.loads(stored)
