@@ -1026,9 +1026,9 @@ class GulpConfig:
         """
         Returns whether Redis payload compression is enabled for large messages.
 
-        Default: False.
+        Default: True.
         """
-        n = self._config.get("redis_compression_enabled", False)
+        n = self._config.get("redis_compression_enabled", True)
         return n
 
     def plugin_cache_enabled(self) -> bool:
