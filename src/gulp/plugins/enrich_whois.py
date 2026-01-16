@@ -56,10 +56,11 @@ class Plugin(GulpPluginBase):
     ) -> None:
         super().__init__(path, module_name, pickled=pickled, **kwargs)
 
-        # stores results for the original_input string
-        self._whois_cache: dict[str, Optional[dict[str, Any]]] = {}
-        # stores raw whois data for individual resolved entities (ip/hostname)
-        self._single_entity_whois_cache: dict[str, Optional[dict[str, Any]]] = {}
+        # Use the shared DocValueCache provided by GulpPluginBase instead of
+        # per-instance dicts. We prefix keys to distinguish cached single-entity
+        # lookups from whole-input lookups.
+        # Note: values are stored as tuples ("__whois_cached__", value) so that
+        # we can cache explicit None values while still detecting cache hits.
 
     def type(self) -> GulpPluginType:
         return GulpPluginType.ENRICHMENT
@@ -132,11 +133,13 @@ class Plugin(GulpPluginBase):
         MutyLogger.get_instance().debug(
             f"performing whois lookup for entity_key='{entity_key}'"
         )
-        if entity_key in self._single_entity_whois_cache:
+        cache_key: str = f"single_entity:{entity_key}"
+        cached = self.doc_value_cache.get_value(cache_key)
+        if cached is not None:
             MutyLogger.get_instance().debug(
                 f"single entity whois cache hit for entity_key='{entity_key}'"
             )
-            return self._single_entity_whois_cache[entity_key]
+            return cached[1]
 
         try:
             # get whois info in a thread to avoid blocking the event loop
@@ -157,14 +160,16 @@ class Plugin(GulpPluginBase):
                     # ensure we keep empty strings if they are actual values, but filter out none
                     enriched_entity_data[k] = v
 
-            self._single_entity_whois_cache[entity_key] = enriched_entity_data
+            # store a wrapper so that a cached None can be distinguished from
+            # a missing key
+            self.doc_value_cache.set_value(cache_key, ("__whois_cached__", enriched_entity_data))
             return enriched_entity_data
         except Exception as ex:
             # log the exception and store None in the cache to avoid repeated lookups
             MutyLogger.get_instance().error(
                 f"error during whois lookup for entity_key='{entity_key}': {ex}"
             )
-            self._single_entity_whois_cache[entity_key] = None
+            self.doc_value_cache.set_value(cache_key, ("__whois_cached__", None))
             return None
 
     async def _extract_entities_with_regex(self, text_input: str) -> set[str]:
@@ -387,11 +392,13 @@ class Plugin(GulpPluginBase):
         )
 
         # check main cache for the entire original_input string
-        if original_input in self._whois_cache:
+        main_cache_key: str = f"whois:{original_input}"
+        main_cached = self.doc_value_cache.get_value(main_cache_key)
+        if main_cached is not None:
             MutyLogger.get_instance().debug(
                 f"main whois cache hit for input='{original_input[:100]}...'"
             )
-            return self._whois_cache[original_input]
+            return main_cached[1]
 
         final_entities_for_rdap: set[str] = set()
         is_single_entity_processing_path: bool = False
@@ -481,7 +488,7 @@ class Plugin(GulpPluginBase):
         # if no entities were found by any method, cache none and return
         if not final_entities_for_rdap:
             # MutyLogger.get_instance().debug(f"no entities found for whois lookup in input: '{original_input[:100]}...'")
-            self._whois_cache[original_input] = None
+            self.doc_value_cache.set_value(main_cache_key, ("__whois_cached__", None))
             return None
 
         # MutyLogger.get_instance().debug(f"final set of entities for rdap lookup: {final_entities_for_rdap}")
@@ -578,12 +585,12 @@ class Plugin(GulpPluginBase):
             MutyLogger.get_instance().warning(
                 f"no enrichment data produced for input: '{original_input[:100]}...'"
             )
-            self._whois_cache[original_input] = None
+            self.doc_value_cache.set_value(main_cache_key, ("__whois_cached__", None))
             return None
 
         # cache the final combined result and return it
         # MutyLogger.get_instance().debug(f"whois enriched for input='{original_input[:100]}...', final data keys: {list(final_combined_enriched_data.keys())}")
-        self._whois_cache[original_input] = final_combined_enriched_data
+        self.doc_value_cache.set_value(main_cache_key, ("__whois_cached__", final_combined_enriched_data))
         return final_combined_enriched_data
 
     def _filter_fields_with_wildcards(

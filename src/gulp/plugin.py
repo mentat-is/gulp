@@ -425,6 +425,9 @@ class DocValueCache:
         self._cache: dict[str, Any] = {}
         self._max_size: int = cache_size
 
+    def set_max_size(self, max_size: int) -> None:
+        self._max_size = max_size
+        
     def get_value(self, k: str) -> Any|None:
         return self._cache.get(k, None)
 
@@ -432,9 +435,7 @@ class DocValueCache:
         # flush cache if too big
         if len(self._cache) > self._max_size:
             self._cache = {}
-
-        if v not in self._cache:
-            self._cache[k] = v
+        self._cache[k] = v
 
 class GulpPluginCache:
     """
