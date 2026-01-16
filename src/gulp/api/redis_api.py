@@ -71,11 +71,6 @@ class GulpRedis:
         self._instance_roles: list[str] = []
         # simple task queue (list) key
         self._task_queue_key: str = "gulp:queue:tasks"
-        # max inline publish size (bytes). messages larger than this are stored
-        # in Redis and a small pointer is published instead.
-        self.PUBLISH_INLINE_MAX_BYTES: int = 512 * 1024  # 512 KiB
-        # chunk size for large payloads (bytes)
-        self.PUBLISH_CHUNK_SIZE: int = 256 * 1024  # 256 KiB
         # ttl for stored large payloads (seconds)
         self.PUBLISH_LARGE_PAYLOAD_TTL: int = 5 * 60  # 5 min, it should be consumed quickly
 
@@ -322,10 +317,12 @@ class GulpRedis:
         """
         # serialize message
         payload = orjson.dumps(message)
+        compression_threshold: int = GulpConfig.get_instance().redis_compression_threshold() * 1024
+        pubsub_max_chunk_size: int = GulpConfig.get_instance().redis_pubsub_max_chunk_size() * 1024
 
         # if payload is too large, compress, chunk and store it in Redis then publish a small pointer
         try:
-            if len(payload) > self.PUBLISH_INLINE_MAX_BYTES:
+            if len(payload) > compression_threshold:
                 # decide whether to compress payload based on configuration
                 compress_payload = GulpConfig.get_instance().redis_compression_enabled()
 
@@ -344,7 +341,7 @@ class GulpRedis:
                     compressed_flag = False
 
                 # split bytes into chunks
-                chunks = [stored_bytes[i : i + self.PUBLISH_CHUNK_SIZE] for i in range(0, len(stored_bytes), self.PUBLISH_CHUNK_SIZE)]
+                chunks = [stored_bytes[i : i + pubsub_max_chunk_size] for i in range(0, len(stored_bytes), pubsub_max_chunk_size)]
                 num_chunks = len(chunks)
 
                 # include server_id in base key to prevent cross-node chunk retrieval

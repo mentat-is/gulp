@@ -84,9 +84,13 @@
   "query_circuit_breaker_min_limit": 100,
   // how many queries to keep in the history per user(default=20, max=50)
   "query_history_max_size": 20,
-// redis payload compression for large pub-sub messages (default=true)
+  // redis payload compression for large pub-sub messages (default=true)
   "redis_compression_enabled": true,
-  // redis url (may be overridden by GULP_REDIS_URL environment variable)
+  // compression threshold in kilobytes for redis pub/sub messages: messages bigger than this size will be compressed before publishing (default=256kb)
+  "redis_compression_threshold": 256,
+  // redis pubsub max chunk size (default=128kb)
+  "redis_pubsub_max_chunk_size": 128,
+    // redis url (may be overridden by GULP_REDIS_URL environment variable)
   "redis_url": "redis://:Gulp1234!@localhost:6379/0",
   // delete pending request stats on the collab database on gulp shutdown (default=true)
   "stats_delete_pending_on_shutdown": true,

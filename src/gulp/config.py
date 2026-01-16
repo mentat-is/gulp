@@ -1031,6 +1031,24 @@ class GulpConfig:
         n = self._config.get("redis_compression_enabled", True)
         return n
 
+    def redis_compression_threshold(self) -> int:
+        """
+        Compression threshold in kilobytes for Redis pub/sub messages: messages bigger than this size will be compressed before publishing.
+
+        Default: 256kb
+        """
+        n = self._config.get("redis_compression_threshold", 256)
+        return n
+
+    def redis_pubsub_max_chunk_size(self) -> int:
+        """
+        Returns the maximum chunk size in kilobytes for Redis pub/sub messages.
+
+        Default: 128kb
+        """
+        n = self._config.get("redis_pubsub_max_chunk_size", 128)
+        return n
+    
     def plugin_cache_enabled(self) -> bool:
         """
         Returns whether to enable the plugin cache (default: True).
