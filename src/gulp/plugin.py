@@ -421,19 +421,39 @@ class DocValueCache:
     a cache for specific document values, local to the plugin (more specifically, to the process running the plugin).
     this is to be used to avoid recalculating same value every time for the same input (i.e. hashes, derived values, ...)
     """
-    def __init__(self, cache_size: int = 10000):
+    def __init__(self, cache_size: int = 1000):
         self._cache: dict[str, Any] = {}
         self._max_size: int = cache_size
 
     def set_max_size(self, max_size: int) -> None:
+        """
+        set the maximum cache size (after which the cache is reset)
+
+        Args:
+            max_size (int): the maximum cache size
+        """
         self._max_size = max_size
         
     def get_value(self, k: str) -> Any|None:
+        """
+        get a value from the cache
+        Args:
+            k (str): the key
+        Returns:
+            Any|None: the value if found, None otherwise
+        """
         return self._cache.get(k, None)
 
     def set_value(self, k: str, v: Any) -> None:
-        # flush cache if too big
+        """
+        set a value in the cache
+
+        Args:
+            k (str): the key
+            v (Any): the value
+        """
         if len(self._cache) > self._max_size:
+            # reset cache
             self._cache = {}
         self._cache[k] = v
 
