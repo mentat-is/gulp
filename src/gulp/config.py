@@ -1001,9 +1001,37 @@ class GulpConfig:
         """
         Returns the maximum size of the websocket message queue per client.
 
-        Default: 1024 messages.
+        Default: 8192 messages.
         """
-        n = self._config.get("ws_queue_max_size", 1024)
+        n = self._config.get("ws_queue_max_size", 8192)
+        return n
+    
+    def ws_enqueue_timeout(self) -> float:
+        """
+        Returns the timeout in seconds for blocking enqueue operations.
+        If a message cannot be enqueued within this timeout, the client is considered unresponsive.
+
+        Default: 5.0 seconds.
+        """
+        n = self._config.get("ws_enqueue_timeout", 5.0)
+        return n
+    
+    def ws_throttle_threshold(self) -> float:
+        """
+        Returns the queue utilization threshold (0.0-1.0) above which intake throttling begins.
+
+        Default: 0.7 (70% full).
+        """
+        n = self._config.get("ws_throttle_threshold", 0.7)
+        return max(0.0, min(1.0, n))  # clamp to [0, 1]
+    
+    def ws_throttle_max_delay(self) -> float:
+        """
+        Returns the maximum delay in seconds for intake throttling when queue is nearly full.
+
+        Default: 0.2 seconds.
+        """
+        n = self._config.get("ws_throttle_max_delay", 0.2)
         return n
     
     def ws_server_cache_ttl(self) -> float:

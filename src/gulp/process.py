@@ -12,8 +12,6 @@ process pools, and websocket queues, facilitating efficient communication betwee
 
 Key components:
 - Process pool management for parallel task execution
-- Thread and coroutine pools for concurrent operations
-- Inter-process communication through shared queues
 - Lifecycle management for graceful startup and shutdown
 - Integration with other Gulp components (Collab, OpenSearch, WebSocket)
 

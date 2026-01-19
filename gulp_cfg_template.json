@@ -102,8 +102,14 @@
   "token_ttl": 604800,
   // if set, websocket delay depends on the number of connected websockets
   "ws_adaptive_rate_limit_delay": true,
-  // maximum size of the websocket message queue per client (default=1024 messages). increase if you get "queue full" warnings in the gulp logs.
-  "ws_queue_max_size": 1024,
+  // maximum size of the websocket message queue per client (default=8192 messages). increase if you get "queue full" warnings in the gulp logs.
+  "ws_queue_max_size": 8192,
+  // timeout in seconds for blocking enqueue operations: if a message cannot be enqueued within this timeout, the client is considered unresponsive and disconnected (default=5.0 seconds)
+  "ws_enqueue_timeout": 5.0,
+  // queue utilization threshold (0.0-1.0) above which intake throttling begins (default=0.7, i.e. 70% full)
+  "ws_throttle_threshold": 0.7,
+  // maximum delay in seconds for intake throttling when queue is nearly full (default=0.2 seconds)
+  "ws_throttle_max_delay": 0.2,
   // rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected sockets: increment if you get clients disconnections, and also check client code if this happens too often.
   // if `ws_adaptive_rate_limit_delay` is set, this is the base delay used to calculate the real delay depending on the number of connected sockets.
   "ws_rate_limit_delay": 0.01,

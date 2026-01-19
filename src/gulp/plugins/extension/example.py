@@ -9,7 +9,6 @@ The plugin adds an `/example_extension` API endpoint that:
 1. Handles PUT requests
 2. Creates an example stats entry in the database
 3. Spawns a task in a worker process
-4. Demonstrates message passing between processes using shared queues
 
 Extension plugins in Gulp are:
 - Automatically loaded from `PLUGIN_DIR/extension` at startup

@@ -762,8 +762,6 @@ class GulpConnectedSocket:
     QUEUE_PRESSURE_THRESHOLD: float = 0.8
     # interval between queue pressure logs to avoid flooding
     QUEUE_PRESSURE_LOG_INTERVAL: float = 30.0
-    # interval between overflow logs
-    QUEUE_OVERFLOW_LOG_INTERVAL: float = 10.0
 
     def __init__(
         self,
@@ -804,37 +802,52 @@ class GulpConnectedSocket:
         self._queue_capacity: int = GulpConfig.get_instance().ws_queue_max_size()
         # each socket has its own asyncio queue, consumed by its own task with bounded size
         self.q = asyncio.Queue(maxsize=self._queue_capacity)
-        # track dropped message count for observability
-        self._dropped_messages: int = 0
         # remember queue high watermark for diagnostics
         self._queue_high_watermark: int = 0
-        # throttle repeated overflow logs
-        self._last_overflow_log_ts: float = 0.0
         # throttle repeated pressure logs
         self._last_pressure_log_ts: float = 0.0
 
     async def enqueue_message(self, message: dict) -> bool:
         """
-        enqueue a websocket message without blocking the caller
+        enqueue a websocket message with backpressure handling
+
+        Uses a combination of:
+        1. Pre-enqueue throttle delay based on queue pressure
+        2. Blocking enqueue with timeout to give slow clients time to catch up
+        3. Disconnection on timeout (client considered unresponsive)
 
         Args:
             message (dict): payload ready for serialization
         Returns:
-            bool: True when the message has been enqueued, False if dropped
+            bool: True when the message has been enqueued, False if client should be disconnected
         Throws:
             RuntimeError: propagated when queue operations fail unexpectedly
         """
+        # apply pre-enqueue throttle delay if queue is under pressure
+        throttle_delay = self._calculate_throttle_delay()
+        if throttle_delay > 0:
+            await asyncio.sleep(throttle_delay)
+
         try:
-            # prefer non-blocking enqueue to avoid stalling broadcast fan-out
-            self.q.put_nowait(message)
+            # blocking enqueue with timeout
+            timeout: float = GulpConfig.get_instance().ws_enqueue_timeout()
+            await asyncio.wait_for(self.q.put(message), timeout=timeout)
             self._record_queue_pressure()
             return True
-        except asyncio.QueueFull:
-            # handle overflow by dropping the oldest entry and logging the event
-            MutyLogger.get_instance().exception(
-                "**** ws_id=%s QUEUE FULL ****", self.ws_id
+        except asyncio.TimeoutError:
+            # client cannot keep up after generous timeout - disconnect
+            MutyLogger.get_instance().error(
+                "ws_id=%s ENQUEUE TIMEOUT after %.2fs - client unresponsive, will disconnect",
+                self.ws_id,
+                timeout,
             )
-            return await self._handle_queue_overflow(message)
+            return False
+        except asyncio.QueueFull:
+            # should not happen with blocking put, but handle defensively
+            MutyLogger.get_instance().exception(
+                "**** ws_id=%s QUEUE FULL (unexpected with blocking) ****", self.ws_id
+            )
+            return False
 
     def _record_queue_pressure(self) -> None:
         """
@@ -872,66 +885,28 @@ class GulpConnectedSocket:
             self._queue_high_watermark,
         )
 
-    async def _handle_queue_overflow(self, message: dict) -> bool:
+    def _calculate_throttle_delay(self) -> float:
         """
-        drop the oldest message to make room for a new one when the queue is full
+        calculate intake throttle delay based on current queue pressure
 
-        Args:
-            message (dict): payload that could not be queued due to overflow
         Returns:
-            bool: True if the new message was eventually enqueued, False otherwise
-        Throws:
-            RuntimeError: propagated when queue operations fail unexpectedly
+            float: delay in seconds (0 if no throttling needed)
         """
-        self._dropped_messages += 1
-        dropped_type: Optional[str] = None
+        if not self._queue_capacity:
+            return 0.0
 
-        try:
-            # remove the oldest entry to reclaim space before inserting the new payload
-            dropped_item = self.q.get_nowait()
-            if isinstance(dropped_item, dict):
-                dropped_type = dropped_item.get("type")
-            self.q.task_done()
-        except asyncio.QueueEmpty:
-            dropped_type = None
+        utilization: float = self.q.qsize() / self._queue_capacity
+        throttle_threshold: float = GulpConfig.get_instance().ws_throttle_threshold()
 
-        try:
-            self.q.put_nowait(message)
-            self._log_queue_overflow(dropped_type, True)
-            return True
-        except asyncio.QueueFull:
-            MutyLogger.get_instance().exception(
-                "**** ws_id=%s QUEUE FULL ****", self.ws_id
-            )
-            self._log_queue_overflow(dropped_type, False)
-            return False
+        if utilization < throttle_threshold:
+            return 0.0
 
-    def _log_queue_overflow(self, dropped_type: Optional[str], recovered: bool) -> None:
-        """
-        log overflow information with throttling to avoid noisy logs
-
-        Args:
-            dropped_type (Optional[str]): discarded payload type when known
-            recovered (bool): indicates if the new payload entered the queue
-        Returns:
-            None
-        Throws:
-            RuntimeError: not raised explicitly but reserved for consistency
-        """
-        now: float = time.monotonic()
-        if now - self._last_overflow_log_ts < self.QUEUE_OVERFLOW_LOG_INTERVAL:
-            return
-
-        self._last_overflow_log_ts = now
-        MutyLogger.get_instance().warning(
-            "ws queue overflow ws_id=%s dropped=%d last_type=%s recovered=%s capacity=%d high_watermark=%d",
-            self.ws_id,
-            self._dropped_messages,
-            dropped_type,
-            recovered,
-            self._queue_capacity,
-            self._queue_high_watermark,
+        # progressive delay from 0 to max_delay based on utilization above threshold
+        max_delay: float = GulpConfig.get_instance().ws_throttle_max_delay()
+        pressure_above_threshold = (utilization - throttle_threshold) / (
+            1.0 - throttle_threshold
         )
+        return max_delay * pressure_above_threshold
 
     async def _flush_queue(self) -> None:
         """
@@ -1165,7 +1140,7 @@ class GulpConnectedSocket:
 
     async def _send_loop(self) -> None:
         """
-        processes outgoing messages (filled by the shared queue) and sends them to the websocket
+        processes outgoing messages and sends them to the websocket
         """
         try:
             MutyLogger.get_instance().debug(
@@ -1177,7 +1152,7 @@ class GulpConnectedSocket:
             yield_counter: int = 0
 
             while True:
-                # process message from the websocket queue (filled by the shared queue)
+                # process message from the websocket queue
                 message_processed = await self._process_queue_message()
                 if self._terminated:
                     MutyLogger.get_instance().debug(
@@ -1568,12 +1543,25 @@ class GulpConnectedSockets:
         # MutyLogger.get_instance().debug(
         #     "routing message to ws_id=%s: %s", target_ws.ws_id, message
         # )
-        try:
-            await target_ws.enqueue_message(message)
-        except Exception as ex:
-            MutyLogger.get_instance().exception(
-                "failed to route message to ws_id=%s: %s", target_ws.ws_id, ex
-            )
+        
+        # isolate slow client enqueue using task to prevent blocking fan-out to other clients
+        async def enqueue_and_disconnect_on_failure():
+            try:
+                success = await target_ws.enqueue_message(message)
+                if not success:
+                    # client failed to keep up within timeout - disconnect it
+                    MutyLogger.get_instance().warning(
+                        "disconnecting unresponsive ws_id=%s after enqueue failure",
+                        target_ws.ws_id,
+                    )
+                    await self.remove(target_ws.ws_id)
+            except Exception as ex:
+                MutyLogger.get_instance().exception(
+                    "failed to route message to ws_id=%s: %s", target_ws.ws_id, ex
+                )
+        
+        # create task to isolate this enqueue from the broadcast loop
+        asyncio.create_task(enqueue_and_disconnect_on_failure())
         return True
 
     async def _route_internal_message(self, data: GulpWsData) -> None:
