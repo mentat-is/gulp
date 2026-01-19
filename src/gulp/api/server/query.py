@@ -62,7 +62,11 @@ from gulp.api.collab.user import GulpUser, GulpUserDataQueryHistoryEntry
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch.sigma import sigma_to_severity, sigmas_to_queries
+from gulp.api.opensearch.sigma import (
+    sigma_to_severity,
+    sigmas_to_queries,
+    sigmas_to_queries_wrapper,
+)
 from gulp.api.opensearch.structs import (
     GulpDocument,
     GulpQuery,
@@ -1425,20 +1429,22 @@ async def query_sigma_handler(
             user_id = s.user.id
 
             # convert sigma rule/s using pysigma
-            queries: list[GulpQuery] = await sigmas_to_queries(
-                sess,
+            queries: list[GulpQuery] = await GulpServer.get_instance().spawn_worker_task(
+                sigmas_to_queries_wrapper,
                 user_id,
                 operation_id,
                 (
                     sigmas[:1] if q_options.preview_mode else sigmas
                 ),  # use only first sigma in preview mode
-                src_ids=src_ids,
-                levels=levels,
-                products=products,
-                services=services,
-                categories=categories,
-                tags=tags,
-            )
+                src_ids,
+                levels,
+                products,
+                services,
+                categories,
+                tags,
+                False, # no paths
+                False, # no count, create queries
+                wait=True)
 
             if q_options.preview_mode:
                 # preview mode, return sync
