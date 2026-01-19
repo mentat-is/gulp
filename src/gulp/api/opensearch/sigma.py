@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
+from gulp.api.collab_api import GulpCollab
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpQuery
@@ -453,6 +454,37 @@ async def sigma_to_severity(sigma: str) -> str:
     r: SigmaRule = SigmaRule.from_yaml(sigma)
     return r.level.name.lower()
 
+
+async def sigmas_to_queries_wrapper(user_id: str,
+    operation_id: str,
+    sigmas: list[str],
+    src_ids: list[str] = None,
+    levels: list[str] = None,
+    products: list[str] = None,
+    services: list[str] = None,
+    categories: list[str] = None,
+    tags: list[str] = None,
+    paths: bool = False,
+    count_only: bool = False,
+) -> list["GulpQuery"] | int:
+    """
+    wrapper for sigmas_to_queries to call it with an AsyncSession.
+    """
+    async with GulpCollab.get_instance().session() as sess:
+        return await sigmas_to_queries(
+            sess,
+            user_id,
+            operation_id,
+            sigmas,
+            src_ids=src_ids,
+            levels=levels,
+            products=products,
+            services=services,
+            categories=categories,
+            tags=tags,
+            paths=paths,
+            count_only=count_only,
+        )
 
 async def sigmas_to_queries(
     sess: AsyncSession,
