@@ -18,18 +18,12 @@ import re
 from typing import Any, override
 
 import aiofiles
-import muty.dict
-import muty.jsend
-import muty.log
-import muty.string
 import muty.time
-import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -41,8 +35,8 @@ from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -50,6 +44,10 @@ class Plugin(GulpPluginBase):
 
     def display_name(self) -> str:
         return "apache_error_clf"
+
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return None
 
     @override
     async def _record_to_gulp_document(
@@ -130,53 +128,35 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            plugin_params = self._ensure_plugin_params(
-                plugin_params, mapping_file="apache_error_clf.json"
-            )
 
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                flt=flt,
-                plugin_params=plugin_params,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+        plugin_params = self._ensure_plugin_params(
+            plugin_params, mapping_file="apache_error_clf.json"
+        )
+
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            flt=flt,
+            plugin_params=plugin_params,
+            **kwargs,
+        )
 
         doc_idx = 0
-        try:
-            async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
-                async for l in log_src:
-                    l = l.strip()
-                    if not l:
-                        continue
+        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
+            async for l in log_src:
+                l = l.strip()
+                if not l:
+                    continue
+                await self.process_record(l, doc_idx, flt=flt)
 
-                    try:
-                        await self.process_record(l, doc_idx, flt=flt)
-                    except (RequestCanceledError, SourceCanceledError) as ex:
-                        MutyLogger.get_instance().exception(ex)
-                        await self._source_failed(ex)
-                        break
-                    except PreviewDone:
-                        # preview done, stop processing
-                        break
-                    doc_idx += 1
-
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+                doc_idx += 1
+        return stats.status

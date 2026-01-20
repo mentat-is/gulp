@@ -8,6 +8,7 @@ and message, and converts them into GulpDocument objects for indexing.
 The plugin uses regex patterns to match log entries that may span multiple lines, handling the
 multi-line nature of MySQL error logs appropriately.
 """
+
 import datetime
 import os
 import re
@@ -19,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -31,8 +31,8 @@ from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -43,6 +43,10 @@ class Plugin(GulpPluginBase):
 
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return []
+
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return None
 
     @override
     async def _record_to_gulp_document(
@@ -91,29 +95,25 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-         **kwargs
-   ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+        **kwargs,
+    ) -> GulpRequestStatus:
+
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         lookahead_regex = re.compile(
             r"^(?P<date>[^ ]+)\s(?P<time>[^ ]+)\s(?P<thread>[^ ]+)\s\[(?P<log_level>[^\]]+)\]\s(?P<message>.*)$"
@@ -122,45 +122,28 @@ class Plugin(GulpPluginBase):
             r"^(?P<date>[^ ]+)\s(?P<time>[^ ]+)\s(?P<thread>[^ ]+)\s\[(?P<log_level>[^\]]+)\]\s(?P<message>(.|\n)+)"
         )
         doc_idx = 0
-        try:
-            async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
-                current_rec = None
-                async for line in log_src:
-                    match = lookahead_regex.match(line)
-                    if match:
-                        if current_rec:
-                            try:
-                                await self.process_record(
-                                    current_rec, doc_idx, flt=flt, regex=regex
-                                )
-                                doc_idx += 1
-                            except (RequestCanceledError, SourceCanceledError) as ex:
-                                MutyLogger.get_instance().exception(ex)
-                                await self._source_failed(ex)
-                                break
-                            except PreviewDone:
-                                # preview done, stop processing
-                                pass
 
-                        current_rec = line
-                    elif current_rec:
-                        current_rec += line
+        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
+            current_rec = None
+            async for line in log_src:
+                match = lookahead_regex.match(line)
+                if match:
+                    if current_rec:
+                        try:
+                            await self.process_record(
+                                current_rec, doc_idx, flt=flt, regex=regex
+                            )
+                            doc_idx += 1
+                        except (RequestCanceledError, SourceCanceledError) as ex:
+                            MutyLogger.get_instance().exception(ex)
+                            break
 
-                if current_rec:
-                    try:
-                        doc_idx += 1
-                        await self.process_record(
-                            current_rec, doc_idx, flt=flt, regex=regex
-                        )
-                    except (RequestCanceledError, SourceCanceledError) as ex:
-                        MutyLogger.get_instance().exception(ex)
-                        await self._source_failed(ex)
-                    except PreviewDone:
-                        # preview done, stop processing
-                        pass
+                    current_rec = line
+                elif current_rec:
+                    current_rec += line
 
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+            if current_rec:
+                doc_idx += 1
+                await self.process_record(current_rec, doc_idx, flt=flt, regex=regex)
+
+        return stats.status

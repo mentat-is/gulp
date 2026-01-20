@@ -8,6 +8,7 @@ status code, and bytes sent.
 The plugin supports custom date formatting through the 'date_format' parameter,
 defaulting to '%d/%b/%Y:%H:%M:%S %z'.
 """
+
 import datetime
 import os
 import re
@@ -19,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -31,8 +31,8 @@ from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -40,6 +40,10 @@ class Plugin(GulpPluginBase):
 
     def display_name(self) -> str:
         return "iis_access_ncsa"
+
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return None
 
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
@@ -60,14 +64,16 @@ class Plugin(GulpPluginBase):
         # fields = record.split(",")
 
         # TODO: move compile regex outside _record_to_gulp_document (also in apache plugin)
-        regex = "".join([
+        regex = "".join(
+            [
                 r"^(?P<remote_host>(.*)\s)-",
                 r"\s(?P<username>.+)\s",
                 r"\[(?P<timestamp>([^\]])+)\]\s",
                 r"\"(?P<verb>([^ ])+) (?P<path>([^ ])+) (?P<version>[^\"]+)\"",
                 r"\s(?P<status_code>([0-9]+))\s",
-                r"(?P<bytes_sent>([0-9]+))$"
-        ])
+                r"(?P<bytes_sent>([0-9]+))$",
+            ]
+        )
         pattern = re.compile(regex)
         matches = pattern.match(record.strip("\n"))
 
@@ -77,14 +83,13 @@ class Plugin(GulpPluginBase):
             "timestamp": matches["timestamp"],
             "verb": matches["verb"],
             "status_code": matches["status_code"],
-            "bytes_sent": matches["bytes_sent"]
+            "bytes_sent": matches["bytes_sent"],
         }
 
         d = {}
         # map timestamp manually
         time_str = event.get("timestamp")
-        timestamp = datetime.datetime.strptime(
-            time_str, date_format).isoformat()
+        timestamp = datetime.datetime.strptime(time_str, date_format).isoformat()
 
         # map
         for k, v in event.items():
@@ -99,8 +104,7 @@ class Plugin(GulpPluginBase):
             event_original=record,
             event_sequence=record_idx,
             timestamp=timestamp,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
@@ -120,54 +124,35 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-        **kwargs
- ) -> GulpRequestStatus:
+        **kwargs,
+    ) -> GulpRequestStatus:
 
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         date_format = self._plugin_params.custom_parameters.get(
-            "date_format", "%d/%b/%Y:%H:%M:%S %z")
+            "date_format", "%d/%b/%Y:%H:%M:%S %z"
+        )
         doc_idx = 0
-        try:
-            async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
-                async for l in log_src:
-                    # if log_format == "w3c" and l.startswith("#"):
-                    # TODO: parse header, skip other comments, is this needed/useful info, other than the fields part?
-                    # continue
-
-                    try:
-                        await self.process_record(l, doc_idx, flt=flt, date_format=date_format)
-                    except (RequestCanceledError, SourceCanceledError) as ex:
-                        MutyLogger.get_instance().exception(ex)
-                        await self._source_failed(ex)
-                        break
-                    except PreviewDone:
-                        # preview done, stop processing
-                        pass
-                    doc_idx += 1
-
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
+            async for l in log_src:
+                # if log_format == "w3c" and l.startswith("#"):
+                # TODO: parse header, skip other comments, is this needed/useful info, other than the fields part?
+                # continue
+                await self.process_record(l, doc_idx, flt=flt, date_format=date_format)
+                doc_idx += 1
+            return stats.status

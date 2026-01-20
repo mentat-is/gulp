@@ -1,0 +1,51 @@
+{
+    "metadata": {
+        "plugin": [
+            "mem_proc_fs_ntfs.py"
+        ]
+    },
+    "mappings": {
+        "ntfs": {
+            "event_code": "record_created",
+            "agent_type": "MemProcFs",
+            "fields": {
+                "phys_addr": {
+                    "ecs": [
+                        "gulp.MemProcFs.phys_addr"
+                    ]
+                },
+                "recid": {
+                    "ecs": [
+                        "file.inode"
+                    ]
+                },
+                "parent": {
+                    "ecs": [
+                        "file.parent.inode"
+                    ]
+                },
+                "date_modified":
+                {
+                    "extra_doc_with_event_code": "record_modified"
+                },
+                "size":
+                {
+                    "ecs": [
+                        "file.size"
+                    ]
+                },
+                "flag":
+                {
+                    "ecs": [
+                        "file.attribute"
+                    ]
+                },
+                "path": {
+                    "ecs": [
+                        "file.path"
+                    ]
+                }
+            }
+        }
+    }
+}

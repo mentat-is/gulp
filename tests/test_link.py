@@ -1,9 +1,9 @@
 import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
-
+import os
 from gulp.api.collab.structs import COLLABTYPE_LINK, GulpCollabFilter
-from gulp_client.common import _ensure_test_operation
+from gulp_client.common import _ensure_test_operation, _cleanup_test_operation
 from gulp_client.link import GulpAPILink
 from gulp_client.object_acl import GulpAPIObjectACL
 from gulp_client.user import GulpAPIUser
@@ -15,15 +15,24 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _ensure_test_operation()
+    if os.getenv("SKIP_RESET", "0") == "1":
+        await _cleanup_test_operation()
+    else:
+        await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
 async def test_link():
-    doc_id = "c8869c95f8e92be5e86d6b1f03a50252"
+    if os.getenv("SKIP_RESET", "0") != "1":
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx
+
+        await test_win_evtx()
+
+    doc_id = "4905967cfcaf2abe0e28322ff085619d"
     target_doc_ids = [
-        "9d6f4d014b7dd9f5f65ce43f3c142749",
-        "7090d29202d7cd8b57c30fa14202ac37",
+        "a20b2f881e11f5f61cb3ba007aa662f6",
+        "02ea5d4d3962ba8e5867e630146c30c4",
     ]
 
     guest_token = await GulpAPIUser.login("guest", "guest")
@@ -51,6 +60,7 @@ async def test_link():
     # doc filter
     l = await GulpAPILink.link_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             doc_ids=[target_doc_ids[0]],
             operation_ids=[TEST_OPERATION_ID],
@@ -61,6 +71,7 @@ async def test_link():
 
     l = await GulpAPILink.link_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(operation_ids=[TEST_OPERATION_ID], doc_ids=["aaaaa"]),
     )
     assert not l  # 0 len
@@ -79,6 +90,7 @@ async def test_link():
     lnk = await GulpAPILink.link_get_by_id(guest_token, lnk["id"], expected_status=401)
     l = await GulpAPILink.link_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
         ),
@@ -93,6 +105,7 @@ async def test_link():
     await GulpAPILink.link_delete(edit_token, lnk["id"])
     l = await GulpAPILink.link_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
         ),

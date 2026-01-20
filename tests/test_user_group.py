@@ -1,15 +1,19 @@
 import pytest
 import pytest_asyncio
+import os
 from muty.log import MutyLogger
 
-from gulp_client.common import _ensure_test_operation
+from gulp_client.common import _ensure_test_operation, _cleanup_test_operation
 from gulp_client.user import GulpAPIUser
 from gulp_client.user_group import GulpAPIUserGroup
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
-    await _ensure_test_operation()
+    if os.getenv("SKIP_RESET", "0") == "1":
+        await _cleanup_test_operation()
+    else:
+        await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -91,7 +95,7 @@ async def test_user_group():
     )
 
     # list groups
-    groups = await GulpAPIUserGroup.usergroup_list(admin_token, expected_status=200)
+    groups = await GulpAPIUserGroup.usergroup_list(admin_token)
     assert len(groups) > 0
     assert any(g["id"] == test_group["id"] for g in groups)
 

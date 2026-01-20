@@ -1,7 +1,7 @@
 
 - [troubleshooting](#troubleshooting)
-  - [devcontainer](#devcontainer)
   - [docker](#docker)
+    - [devcontainer](#devcontainer)
   - [general](#general)
   - [os](#os)
   - [opensearch / elasticsearch](#opensearch--elasticsearch)
@@ -18,7 +18,45 @@
 
 **before opening issues**, please check the following:
 
-## devcontainer
+## docker
+
+- **never** use docker as root (i.e. with `sudo), ensure your user has proper permissions to run docker commands.
+- 
+  ~~~
+  sudo groupadd docker
+  sudo usermod -aG docker $USER
+
+  # also, you may set proper permissions on the docker socket
+  sudo chmod 666 /var/run/docker.sock
+
+  # then logout/login or restart your system
+  ~~~
+
+- if you want to be able to run the docker CLI command as a non-root user, add your user to the `docker` user group, re-login, and restart `docker.service` [check here](https://wiki.archlinux.org/title/Users_and_groups#Group_management)
+
+- if you get any issue starting gulp, try to reset gulp's docker volumes with [this](../reset_docker.sh) script.
+
+- beware of vscode `Forwarded Ports`: sometimes, you try to start a container that binds to a port already forwarded by vscode, causing conflicts.
+
+  i.e. if you see something like:
+  ~~~bash
+  ./test_scripts/start_splunk.sh
+
+  /home/valerino/repos/splunk_volume exists...
+  resetting permission on /home/valerino/repos/splunk_volume, user=valerino ...
+  [sudo] password for valerino: 
+  running splunk ...
+  Error response from daemon: No such container: splunk
+  3e1c39bc84753c3a09d0a66313c4f39b2cdc7c44ba5d90f9542cba9e7941f051
+  docker: Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint splunk (77cf82e507797a5cc68212a260891fe3f5153acd532fe2b4e552365c290f9f70): failed to bind host port for 0.0.0.0:8089:172.17.0.2:8089/tcp: address already in use
+  ~~~
+
+  simply go to vscode's `Ports` tab and remove the port forwarding for `8089`.
+
+- if you have issues starting gulp in docker environment, doublecheck each service's URL in gulp_cfg.json : i.e. it has been reported that redis doesn't like localhost but wants the container name in the URL string.
+Specifically, replace i.e.redis://:Gulp1234!@localhost:6379/0 with redis://:Gulp1234!@redis:6379/0  in redis_url.
+
+### devcontainer
 
 if you see an error like the following:
 
@@ -28,11 +66,6 @@ Error response from daemon: Conflict. The container name "/elasticvue" is alread
 
 remove the container with `docker container rm some_container_id` and retry.
 
-## docker
-
-- if you want to be able to run the docker CLI command as a non-root user, add your user to the `docker` user group, re-login, and restart `docker.service` [check here](https://wiki.archlinux.org/title/Users_and_groups#Group_management)
-
-- if you get any issue starting container/s as [per docs](./Install%20Docker.md), try to reset gulp's docker volumes with [this](../reset_docker.sh) script.
 
 ## general
 
@@ -99,21 +132,49 @@ remove the container with `docker container rm some_container_id` and retry.
 
 - error `elastic_transport.ConnectionTimeout: Connection timed out` usually means your opensearch istance is not keeping up with ingestion:
   - increase `ingestion_request_timeout` (**almost always this is the easiest solution**) **OR**
-  - scale up OpenSearch nodes **OR**
-  - reduce parallelism with `parallel_processes_max` **AND/OR** `concurrency_max_tasks` **OR**
-  - tune `documents_chunk_size` configuration parameter (i.e. default is 1000, try with 2000 to reduce parallel chunks)
-    - keep in mind, though, that a too big `documents_chunk_size` may cause client websocket disconnections (`PayloadTooBig`)
+  - scale up OpenSearch nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration **OR**
+  - reduce parallelism with `parallel_processes_max` **AND/OR** `concurrency_num_tasks` **OR**
+  - tune `ingestion_documents_chunk_size` configuration parameter (i.e. default is 1000, try with 2000 to reduce parallel chunks)
+    - keep in mind, though, that a too big `ingestion_documents_chunk_size` may cause client websocket disconnections (`PayloadTooBig`)
 
 #### query
 
-- error like `opensearchpy.exceptions.TransportError: TransportError(500, 'search_phase_execution_exception', 'Query contains too many nested clauses; maxClauseCount is set to 1024'` or `opensearchpy.exceptions.RequestError: RequestError(400, 'search_phase_execution_exception', 'failed to create query: field expansion for [*] matches too many fields, limit: 1024, got: 1741')` usually happens when the query issued is **REALLY (i mean REALLY, with hundreds/thousands of clauses with or without wildcards)** and one may attempt to fix this using something like the following in the `os01/environment` section of the `docker-compose.yml` used to start OpenSearch (or, directly in its configuration file)
+- errors like
 
+  ~~~text
+  `opensearchpy.exceptions.TransportError: TransportError(500, 'search_phase_execution_exception', 'Query contains too many nested clauses; maxClauseCount is set to 1024'` or `opensearchpy.exceptions.RequestError: RequestError(400, 'search_phase_execution_exception', 'failed to create query: field expansion for [*] matches too many fields, limit: 1024, got: 1741')` 
   ~~~
+  
+  usually happens when the query issued is **REALLY BIG (i mean REALLY, with hundreds/thousands of clauses with or without wildcards)** and one may attempt to fix this using something like the following in the `os01/environment` section of the `docker-compose.yml` used to start OpenSearch (or, directly in its configuration file)
+
+  ~~~text
   # increase max clause count to 16k (default is 1024)
   indices.query.bool.max_clause_count: 16384
   ~~~
 
   **NOTE**: `this is discouraged`, and usually means the query should be reworked to include less statements.
+
+- errors like
+
+  ~~~text
+  opensearchpy.exceptions.TransportError: TransportError(500, 'search_phase_execution_exception', 'CircuitBreakingException: [parent] Data too large, data for [<transport_request>] would be [1053240832/1003mb], which is larger than the limit of [1048576000/1000mb], real usage: [1053240832/1003mb], new bytes reserved: [0/0mb], usages [request=0/0mb, fielddata=0/0mb, in_flight_requests=1053240832/1003mb, accounting=0/0mb]')`
+  ~~~
+
+  during querying usually means that OpenSearch ran out of memory while processing the query.
+
+  you can attempt to tweak the following configuration options to mitigate the issue, or simply scale up the OpenSearch nodes (**recommended**):
+
+  ~~~json
+    // number of times to retry on opensearch query circuit breaker exception (default=3)
+    "query_circuit_breaker_backoff_attempts": 3,
+    // minimum query chunk size limit for circuit breaker backoff (default=100)
+    "query_circuit_breaker_min_limit": 100,
+    // if set, disables highlights when query circuit breaker is triggered (default=true)
+    "query_circuit_breaker_disables_highlights": true,
+    
+  ~~~
+  
+  > you may also try to lower `concurrency` settings in the configuration and/or diminish `limit` in `GulpQueryOptions` when querying... but this is a clear indication that OpenSearch is struggling.
 
 - frequent errors like `"opensearchpy.exceptions.ConnectionError: ConnectionError(Cannot connect to host localhost:9200 ssl:default [Multiple exceptions: [Errno 111] ..."` may indicate OpenSearch crashing underneath, which can be verified inspecting Docker logs.
 
@@ -140,8 +201,8 @@ remove the container with `docker container rm some_container_id` and retry.
 
   either, this may mean that Opensearch is not keeping up with the query rate from gulp: this may be solved in the following way, similar to ingestion issues:
 
-  - scale up opensearch nodes **OR**
-  - also reducing `parallel_processes_max` **AND/OR** `concurrency_max_tasks` as for ingestion may help
+  - scale up opensearch nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration **OR**
+  - also reducing `parallel_processes_max` **AND/OR** `concurrency_num_tasks` as for ingestion may help
 
 ## postgreSQL
 
@@ -149,10 +210,9 @@ remove the container with `docker container rm some_container_id` and retry.
   - for developers, an example [migration script](../example_migrate_collab.py) is provided to show how to migrate existing data (i.e. `notes`) to a new database schema.
 
 - error `too many connections already` from postgres usually happens when ingesting too many files at once, and should be handled by tuning the configuration parameters:
-  - in gulp configuration, check `multiprocessing_batch_size`: it is advised to keep it 0 to perform operation in batches of *number of cores*, raising this value may speed up ingestion a lot but it is more prone to errors.
   - in postgres configuration, increase `max_connections`
-  - **better solution is to scale up (increase cores and/or postgres cluster size)**
-
+  - scale up postgreSQL nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration
+  
 ## websocket
 
 - if too big messages on websocket causes the client to disconnect with something like the following:
@@ -161,12 +221,12 @@ remove the container with `docker container rm some_container_id` and retry.
   websockets.exceptions.ConnectionClosedError: sent 1009 (message too big); no close frame received
   ~~~
 
-  diminish the websocket chunk size in the configuration, which by default is 1000 (i.e. set it to 500)
+  diminish the ingestion chunk size in the configuration, which by default is 1000 (i.e. set it to 500)
 
   ~~~json
   {
     // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
-    "documents_chunk_size": 1000
+    "ingestion_documents_chunk_size": 1000
   }
   ~~~
 

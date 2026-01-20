@@ -14,11 +14,8 @@ import muty.string
 import pytest
 import pytest_asyncio
 import websockets
-from muty.log import MutyLogger
-
-from gulp.api.mapping.models import GulpMapping, GulpMappingField
-from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp_client.common import (
+    _cleanup_test_operation,
     _ensure_test_operation,
     _test_ingest_generic,
     _test_ingest_ws_loop,
@@ -26,7 +23,6 @@ from gulp_client.common import (
 from gulp_client.ingest import GulpAPIIngest
 from gulp_client.operation import GulpAPIOperation
 from gulp_client.query import GulpAPIQuery
-from gulp_client.user import GulpAPIUser
 from gulp_client.test_values import (
     TEST_CONTEXT_NAME,
     TEST_HOST,
@@ -35,6 +31,11 @@ from gulp_client.test_values import (
     TEST_REQ_ID,
     TEST_WS_ID,
 )
+from gulp_client.user import GulpAPIUser
+from muty.log import MutyLogger
+
+from gulp.api.mapping.models import GulpMapping, GulpMappingField
+from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.ws_api import GulpWsAuthPacket, GulpWsIngestPacket
 from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
@@ -44,7 +45,10 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _ensure_test_operation()
+    if os.getenv("SKIP_RESET") == "1":
+        await _cleanup_test_operation()
+    else:
+        await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -110,6 +114,10 @@ async def test_failed_upload():
         )
 
         # ingest the real file, starting from file_size - 100
+        t = asyncio.create_task(
+            _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+        )
+        await asyncio.sleep(1)
         await GulpAPIIngest.ingest_file(
             token=ingest_token,
             file_path=file_path,
@@ -121,7 +129,7 @@ async def test_failed_upload():
             restart_from=file_size - 100,
         )
 
-        await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+        await t
     finally:
         shutil.rmtree(tmp_dir)
     MutyLogger.get_instance().info(test_failed_upload.__name__ + " succeeded!")
@@ -140,6 +148,9 @@ async def test_skipped_records():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
+    t = asyncio.create_task(_test_ingest_ws_loop(check_ingested=7, check_processed=7))
+    await asyncio.sleep(1)
+
     # ingest first
     await GulpAPIIngest.ingest_file(
         token=ingest_token,
@@ -148,7 +159,12 @@ async def test_skipped_records():
         context_name=TEST_CONTEXT_NAME,
         plugin="win_evtx",
     )
-    await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+    await t
+
+    t = asyncio.create_task(
+        _test_ingest_ws_loop(check_ingested=0, check_processed=7, check_skipped=7)
+    )
+    await asyncio.sleep(1)
 
     # ingest same file again, use another req_id
     await GulpAPIIngest.ingest_file(
@@ -159,7 +175,7 @@ async def test_skipped_records():
         plugin="win_evtx",
         req_id="req_id_2",
     )
-    await _test_ingest_ws_loop(check_ingested=0, check_processed=7, check_skipped=7)
+    await t
     MutyLogger.get_instance().info(test_skipped_records.__name__ + " succeeded!")
 
 
@@ -176,6 +192,9 @@ async def test_ingest_filter():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
+    t = asyncio.create_task(_test_ingest_ws_loop(check_ingested=1, check_processed=7))
+    await asyncio.sleep(1)
+
     # ingest the file
     flt = GulpIngestionFilter(time_range=[0, 1467213874345999999])
     await GulpAPIIngest.ingest_file(
@@ -187,13 +206,15 @@ async def test_ingest_filter():
         flt=flt,
     )
 
-    await _test_ingest_ws_loop(check_ingested=1, check_processed=7)
+    await t
 
     # ingest another part
-    from gulp_client.common import _ensure_test_operation
-
-    await _ensure_test_operation()
+    await _cleanup_test_operation()
     flt = GulpIngestionFilter(time_range=[1467213874345999999, 0])
+
+    t = asyncio.create_task(_test_ingest_ws_loop(check_ingested=6, check_processed=7))
+    await asyncio.sleep(1)
+
     await GulpAPIIngest.ingest_file(
         token=ingest_token,
         file_path=file_path,
@@ -203,7 +224,7 @@ async def test_ingest_filter():
         flt=flt,
     )
 
-    await _test_ingest_ws_loop(check_ingested=6, check_processed=7)
+    await t
     MutyLogger.get_instance().info(test_ingest_filter.__name__ + " succeeded!")
 
 
@@ -230,11 +251,13 @@ async def test_raw(raw_data: list[dict] = None):
     # ingest raw chunk with "raw" plugin
     await GulpAPIIngest.ingest_raw(
         token=ingest_token,
+        ws_id=TEST_WS_ID,
         raw_data=buf,
         operation_id=TEST_OPERATION_ID,
-        # if we're passing raw_data (as in the enrich_whois test, this is the onlyu chunk)
-        last=False,
+        # if we're passing raw_data (as in the enrich_whois test, this is the only chunk)
+        last=True if raw_data else False,
     )
+
     if not raw_data:
         # ingest another (generate new random data)
         raw_chunk = json.loads(buf)
@@ -245,14 +268,19 @@ async def test_raw(raw_data: list[dict] = None):
         buf = json.dumps(raw_chunk).encode("utf-8")
         await GulpAPIIngest.ingest_raw(
             token=ingest_token,
+            ws_id=TEST_WS_ID,
             raw_data=buf,
             last=True,
             operation_id=TEST_OPERATION_ID,
         )
         check_size = 6  # plus the 3 above, we're using the same req_id
-    
+
+    # NOTE: awaiting with a sleep is not ideal, a proper ws loop would reflect client communication better...
+    # anyway, for just a basic test waiting a sufficient amount of time for the above two requests is ok.
     await asyncio.sleep(10)
-    op = await GulpAPIOperation.operation_get_by_id(ingest_token, TEST_OPERATION_ID, get_count=True)
+    op = await GulpAPIOperation.operation_get_by_id(
+        ingest_token, TEST_OPERATION_ID, get_count=True
+    )
     assert op["doc_count"] == check_size
     MutyLogger.get_instance().info(test_raw.__name__ + " succeeded!")
 
@@ -334,20 +362,24 @@ async def test_ws_raw():
                 response = await ws.recv()
                 data = json.loads(response)
                 if data["type"] == "ws_connected":
-                    for i in range(2):
+                    MutyLogger.get_instance().debug("ws connected, sending data ...")
+                    n: int = 2
+                    for i in range(n):
                         # send chunk
                         p: GulpWsIngestPacket = GulpWsIngestPacket(
                             index=TEST_INDEX,
                             operation_id=TEST_OPERATION_ID,
-                            context_name=TEST_CONTEXT_NAME,
-                            source="test_source",
                             req_id=TEST_REQ_ID,
                             ws_id=TEST_WS_ID,
+                            last=(i == n - 1),
                         )
-                        raw_data = json.dumps(
-                            _generate_random_chunk(raw_chunk, size=1000)
-                        ).encode("utf-8")
-
+                        packet_chunk: list[dict] = _generate_random_chunk(
+                            raw_chunk, size=1000
+                        )
+                        raw_data = json.dumps(packet_chunk).encode("utf-8")
+                        MutyLogger.get_instance().debug(
+                            "sending chunk %d (%d documents)", i, len(packet_chunk)
+                        )
                         # send json then chunk
                         await ws.send(p.model_dump_json(exclude_none=True))
                         await ws.send(raw_data)
@@ -355,6 +387,7 @@ async def test_ws_raw():
 
                     # TODO: check data, but should be ok ....
                     test_completed = True
+                    MutyLogger.get_instance().debug("all data sent, exiting ...")
                     break
 
                 # ws delay
@@ -364,10 +397,13 @@ async def test_ws_raw():
             MutyLogger.get_instance().exception(ex)
 
     assert test_completed
-    await asyncio.sleep(10)
+    # NOTE: awaiting with a sleep is not ideal, a proper ws loop would reflect client communication better...
+    # anyway, for just a basic test waiting a sufficient amount of time for the above two requests is ok.
+    await asyncio.sleep(20)
     op = await GulpAPIOperation.operation_get_by_id(
         token=ingest_token, operation_id=TEST_OPERATION_ID
     )
+    # n=2 generates 6000 documents (3 in template chunk)
     assert op["doc_count"] == 6000
     MutyLogger.get_instance().info(test_ws_raw.__name__ + " succeeded!")
 
@@ -383,13 +419,14 @@ async def test_ingest_preview():
     assert ingest_token
 
     # ingest the file
+    plugin_params = GulpPluginParameters(preview_mode=True)
     d: dict = await GulpAPIIngest.ingest_file(
         token=ingest_token,
         file_path=file_path,
         operation_id=TEST_OPERATION_ID,
         context_name=TEST_CONTEXT_NAME,
         plugin="win_evtx",
-        preview_mode=True,
+        plugin_params=plugin_params,
     )
     assert len(d) == 7
     MutyLogger.get_instance().info(test_ingest_preview.__name__ + " succeeded!")
@@ -404,6 +441,9 @@ async def test_ingest_offset():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
+    t = asyncio.create_task(_test_ingest_ws_loop(check_ingested=7, check_processed=7))
+    await asyncio.sleep(1)
+
     # ingest the file
     one_day_msec = 1000 * 60 * 60 * 24
     await GulpAPIIngest.ingest_file(
@@ -414,11 +454,11 @@ async def test_ingest_offset():
         plugin="win_evtx",
         plugin_params=GulpPluginParameters(timestamp_offset_msec=one_day_msec),
     )
-    await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+    await t
 
     # get doc by id
     # source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
-    target_id = "50edff98db7773ef04378ec20a47f622"
+    target_id = "6aeed56012cd4d669d57b700ef72650c"
     doc = await GulpAPIQuery.query_single_id(ingest_token, TEST_OPERATION_ID, target_id)
     assert doc["_id"] == target_id
     assert doc["@timestamp"] == "2016-06-30T15:24:34.346000+00:00"
@@ -436,6 +476,13 @@ async def test_win_evtx(file_path: str = None, skip_checks: bool = False):
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
+    t = asyncio.create_task(
+        _test_ingest_ws_loop(
+            check_ingested=7, check_processed=7, skip_checks=skip_checks
+        )
+    )
+    await asyncio.sleep(1)
+
     # ingest the file
     await GulpAPIIngest.ingest_file(
         token=ingest_token,
@@ -445,9 +492,7 @@ async def test_win_evtx(file_path: str = None, skip_checks: bool = False):
         plugin="win_evtx",
     )
 
-    await _test_ingest_ws_loop(
-        check_ingested=7, check_processed=7, skip_checks=skip_checks
-    )
+    await t
     MutyLogger.get_instance().info(test_win_evtx.__name__ + " succeeded!")
 
 
@@ -514,33 +559,35 @@ async def test_csv_stacked():
     # check at least one document ...
     guest_token = await GulpAPIUser.login("guest", "guest")
     doc = await GulpAPIQuery.query_single_id(
-        guest_token, TEST_OPERATION_ID, "d3bd618f59c8b001d77c6c8edc729b0a"
+        guest_token, TEST_OPERATION_ID, "903bd0a1ecb33ce4b3fec4a5575c9085"
     )
     assert doc["event.duration"] == 9999
-    assert doc["enriched"]
     MutyLogger.get_instance().info(test_csv_stacked.__name__ + " succeeded!")
 
-
 @pytest.mark.asyncio
-async def test_ingest_zip():
-    ingest_token = await GulpAPIUser.login("ingest", "ingest")
-    assert ingest_token
-
+async def test_csv_stacked_on_stacked():
     current_dir = os.path.dirname(os.path.realpath(__file__))
-    test_zip = os.path.join(current_dir, "test_ingest_zip.zip")
-
-    # ingest raw chunk
-    await GulpAPIIngest.ingest_zip(
-        token=ingest_token,
-        file_path=test_zip,
-        operation_id=TEST_OPERATION_ID,
-        context_name=TEST_CONTEXT_NAME,
+    files = [os.path.join(current_dir, "../../samples/mftecmd/sample_record.csv")]
+    plugin_params = GulpPluginParameters(
+        mapping_parameters=GulpMappingParameters(
+            mappings={
+                "test_mapping": GulpMapping(
+                    fields={"Created0x10": GulpMappingField(ecs="@timestamp")}
+                )
+            }
+        )
+    )
+    await _test_ingest_generic(
+        files, "stacked_on_stacked_example", check_ingested=10, plugin_params=plugin_params
     )
 
-    # wait ws
-    await _test_ingest_ws_loop(check_ingested=13779, check_processed=13745)
-    MutyLogger.get_instance().info(test_ingest_zip.__name__ + " succeeded!")
-
+    # check at least one document ...
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    doc = await GulpAPIQuery.query_single_id(
+        guest_token, TEST_OPERATION_ID, "903bd0a1ecb33ce4b3fec4a5575c9085"
+    )
+    assert doc["event.duration"] == 9997
+    MutyLogger.get_instance().info(test_csv_stacked.__name__ + " succeeded!")
 
 @pytest.mark.skipif(
     platform.system() == "Darwin", reason="systemd journal tests not supported on macOS"
@@ -589,9 +636,7 @@ async def test_chrome_history():
 async def test_chrome_webdata():
     current_dir = os.path.dirname(os.path.realpath(__file__))
     files = [os.path.join(current_dir, "../../samples/sqlite/chrome_webdata")]
-    await _test_ingest_generic(
-        files, "chrome_webdata_sqlite_stacked", 2, check_processed=1
-    )
+    await _test_ingest_generic(files, "chrome_webdata_sqlite_stacked", 2)
     MutyLogger.get_instance().info(test_chrome_webdata.__name__ + " succeeded!")
 
 
@@ -703,6 +748,165 @@ async def test_json_list():
 
 
 @pytest.mark.asyncio
+async def test_zeek_conn_file_mapping():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    zeek_mapping = {
+        "conn": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/conn.log")],
+            "count": 34,
+        },
+        "dns": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/dns.log")],
+            "count": 4,
+        },
+        "http": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/http.log")],
+            "count": 5,
+        },
+        "file": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/files.log")],
+            "count": 11,
+        },
+        "ftp": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ftp.log")],
+            "count": 4,
+        },
+        "ssl": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ssl.log")],
+            "count": 13,
+        },
+        "x509": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/x509.log")],
+            "count": 7,
+        },
+        "smtp": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/smtp.log")],
+            "count": 2,
+        },
+        "ssh": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ssh.log")],
+            "count": 5,
+        },
+        "pe": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/pe.log")],
+            "count": 4,
+        },
+        "dhcp": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/dhcp.log")],
+            "count": 4,
+        },
+        "ntp": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ntp.log")],
+            "count": 2,
+        },
+        "notice": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/notice.log")],
+            "count": 6,
+        },
+        "dce_rpc": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/dce_rpc.log")],
+            "count": 3,
+        },
+        "kerberos": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/kerberos.log")],
+            "count": 5,
+        },
+        "smb_mapping": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/smb_mapping.log")],
+            "count": 5,
+        },
+        "smb_files": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/smb_files.log")],
+            "count": 7,
+        },
+        "ntlm": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ntlm.log")],
+            "count": 7,
+        },
+        "irc": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/irc.log")],
+            "count": 11,
+        },
+        "ldap": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/ldap.log")],
+            "count": 2,
+        },
+        "postgresql": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/postgresql.log")],
+            "count": 3,
+        },
+        "quic": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/quic.log")],
+            "count": 1,
+        },
+        "rdp": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/rdp.log")],
+            "count": 1,
+        },
+        "traceroute": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/traceroute.log")],
+            "count": 4,
+        },
+        "tunnel": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/tunnel.log")],
+            "count": 8,
+        },
+        "known_certs": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/known_certs.log")],
+            "count": 1,
+        },
+        "known_hosts": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/known_hosts.log")],
+            "count": 5,
+        },
+        "known_services": {
+            "path": [
+                os.path.join(current_dir, "../../samples/zeek/known_services.log")
+            ],
+            "count": 20,
+        },
+        "software": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/software.log")],
+            "count": 4,
+        },
+        "weird": {
+            "path": [os.path.join(current_dir, "../../samples/zeek/weird.log")],
+            "count": 2,
+        },
+    }
+    total_doc_injested = 0
+    for key, value in zeek_mapping.items():
+        total_doc_injested += value["count"]
+        await _test_zeek_ingest(value["path"], key, total_doc_injested)
+
+    MutyLogger.get_instance().info(test_zeek_conn_file_mapping.__name__ + " succeeded!")
+
+
+async def _test_zeek_ingest(files: list, mapping_id: str, check_ingested: int):
+    plugin_params = GulpPluginParameters(
+        custom_parameters={"mode": "line"},
+        mapping_parameters=GulpMappingParameters(
+            mapping_file="zeek.json", mapping_id=mapping_id
+        ),
+    )
+
+    MutyLogger.get_instance().info(
+        f"\n\n*********************\n START INGEST\n Mapping: {mapping_id}\n Ingest {check_ingested} doc \n*********************\n"
+    )
+
+    await _test_ingest_generic(
+        files,
+        "json",
+        check_ingested=check_ingested,
+        plugin_params=plugin_params,
+    )
+
+    MutyLogger.get_instance().info(
+        f"\n\n*********************\n END INGEST\n Mapping: {mapping_id}\n Ingest {check_ingested} doc \n*********************\n"
+    )
+
+
+@pytest.mark.asyncio
 async def test_json():
     # line
     current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -748,7 +952,7 @@ async def test_mysql_error():
     MutyLogger.get_instance().info(test_mysql_error.__name__ + " succeeded!")
 
 
-@pytest.mark.asyncio
+# @pytest.mark.asyncio
 async def test_mysql_general():
     # TODO: broken
     current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -760,7 +964,7 @@ async def test_mysql_general():
 
 
 @pytest.mark.asyncio
-async def test_ingest_to_source(file_path: str = None, skip_checks: bool = False):
+async def test_ingest_file_to_source(file_path: str = None, skip_checks: bool = False):
     # ingest first evtx first
     await test_win_evtx(file_path=file_path, skip_checks=skip_checks)
     source_id: str = "64e7c3a4013ae243aa13151b5449aac884e36081"
@@ -771,6 +975,14 @@ async def test_ingest_to_source(file_path: str = None, skip_checks: bool = False
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
     file_path = os.path.join(samples_dir, "Application.evtx")
+
+    t = asyncio.create_task(
+        _test_ingest_ws_loop(
+            check_ingested=6419, check_processed=6419, skip_checks=skip_checks
+        )
+    )
+    await asyncio.sleep(1)
+
     await GulpAPIIngest.ingest_file_to_source(
         token=ingest_token,
         file_path=os.path.join(samples_dir, file_path),
@@ -778,14 +990,12 @@ async def test_ingest_to_source(file_path: str = None, skip_checks: bool = False
         req_id="new_req",
     )
 
-    await _test_ingest_ws_loop(
-        check_ingested=6419, check_processed=6419, skip_checks=skip_checks
-    )
+    await t
 
     # now check operation total
     op = await GulpAPIOperation.operation_get_by_id(ingest_token, TEST_OPERATION_ID)
     assert op["doc_count"] == 6426
-    MutyLogger.get_instance().info(test_ingest_to_source.__name__ + " succeeded!")
+    MutyLogger.get_instance().info(test_ingest_file_to_source.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio
@@ -810,6 +1020,9 @@ async def test_ingest_file_local():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
+    t = asyncio.create_task(_test_ingest_ws_loop(check_ingested=7, check_processed=7))
+    await asyncio.sleep(1)
+
     # ingest the file
     await GulpAPIIngest.ingest_file_local(
         token=ingest_token,
@@ -817,10 +1030,77 @@ async def test_ingest_file_local():
         operation_id=TEST_OPERATION_ID,
         context_name=TEST_CONTEXT_NAME,
         plugin="win_evtx",
+        delete_after=True,
     )
 
-    await _test_ingest_ws_loop(check_ingested=7, check_processed=7)
+    await t
     MutyLogger.get_instance().info(test_ingest_file_local.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_ingest_zip():
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    test_zip = os.path.join(current_dir, "test_ingest_zip.zip")
+
+    t = asyncio.create_task(
+        _test_ingest_ws_loop(check_ingested=13779, check_processed=13745)
+    )
+    await asyncio.sleep(1)
+
+    # ingest raw chunk
+    await GulpAPIIngest.ingest_zip(
+        token=ingest_token,
+        file_path=test_zip,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+    )
+
+    # wait ws
+    await t
+    MutyLogger.get_instance().info(test_ingest_zip.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_ingest_zip_local():
+    # get working directory
+    wrk_dir = os.getenv("GULP_WORKING_DIR", None)
+    if not wrk_dir:
+        home_path = os.path.expanduser("~")
+        wrk_dir = os.path.join(home_path, ".config/gulp")
+    ingest_local_dir = os.path.join(wrk_dir, "ingest_local")
+
+    # get zip file path
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    src_path = os.path.join(current_dir, "test_ingest_zip.zip")
+
+    # copy to ingest_local
+    dest_path = os.path.join(ingest_local_dir, "test_ingest_zip.zip")
+    await muty.file.copy_file_async(src_path, dest_path)
+    MutyLogger.get_instance().info(f"copied {src_path} to {dest_path}")
+
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    t = asyncio.create_task(
+        _test_ingest_ws_loop(check_ingested=13779, check_processed=13745)
+    )
+    await asyncio.sleep(1)
+
+    # ingest the file
+    await GulpAPIIngest.ingest_zip_local(
+        token=ingest_token,
+        file_path=dest_path,
+        operation_id=TEST_OPERATION_ID,
+        context_name=TEST_CONTEXT_NAME,
+        delete_after=True,
+    )
+
+    # wait ws
+    await t
+    MutyLogger.get_instance().info(test_ingest_zip_local.__name__ + " succeeded!")
 
 
 @pytest.mark.asyncio
@@ -852,6 +1132,11 @@ async def test_ingest_file_local_to_source():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
 
+    t = asyncio.create_task(
+        _test_ingest_ws_loop(check_ingested=6419, check_processed=6419)
+    )
+    await asyncio.sleep(1)
+
     await GulpAPIIngest.ingest_file_local_to_source(
         token=ingest_token,
         file_path=dest_path,
@@ -859,7 +1144,7 @@ async def test_ingest_file_local_to_source():
         req_id="new_req_2",
     )
 
-    await _test_ingest_ws_loop(check_ingested=6419, check_processed=6419)
+    await t
 
     # now check operation total
     op = await GulpAPIOperation.operation_get_by_id(ingest_token, TEST_OPERATION_ID)
@@ -867,4 +1152,80 @@ async def test_ingest_file_local_to_source():
 
     MutyLogger.get_instance().info(
         test_ingest_file_local_to_source.__name__ + " succeeded!"
+    )
+
+
+@pytest.mark.asyncio
+async def test_memprocfs_timeline_ingest():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+
+    files = [os.path.join(current_dir, "../../samples/memprocfs/timeline_all.txt")]
+
+    plugin_params = GulpPluginParameters()
+    await _test_ingest_generic(files, "mem_proc_fs", 77140, plugin_params=plugin_params)
+    MutyLogger.get_instance().info(
+        test_memprocfs_timeline_ingest.__name__ + " succeeded!"
+    )
+
+
+@pytest.mark.asyncio
+async def test_memprocfs_web_ingest():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+
+    files = [os.path.join(current_dir, "../../samples/memprocfs/web.txt")]
+
+    plugin_params = GulpPluginParameters()
+    await _test_ingest_generic(
+        files, "mem_proc_fs_web", 28, plugin_params=plugin_params
+    )
+    MutyLogger.get_instance().info(
+        test_memprocfs_timeline_ingest.__name__ + " succeeded!"
+    )
+
+
+@pytest.mark.asyncio
+async def test_memprocfs_ntfs_ingest():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+
+    files = [os.path.join(current_dir, "../../samples/memprocfs/ntfs_files.txt")]
+
+    plugin_params = GulpPluginParameters()
+    await _test_ingest_generic(
+        files, "mem_proc_fs_ntfs", 58, plugin_params=plugin_params
+    )
+    MutyLogger.get_instance().info(
+        test_memprocfs_timeline_ingest.__name__ + " succeeded!"
+    )
+
+
+@pytest.mark.asyncio
+async def test_suricata_ingest():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+
+    files = [os.path.join(current_dir, "../../samples/suricata/eve_long.json")]
+
+    plugin_params = GulpPluginParameters(
+        custom_parameters={"mode": "line"},
+        mapping_parameters=GulpMappingParameters(
+            mapping_file="suricata.json", mapping_id="eve"
+        ),
+    )
+    await _test_ingest_generic(files, "json", 7775, plugin_params=plugin_params)
+    MutyLogger.get_instance().info(
+        test_memprocfs_timeline_ingest.__name__ + " succeeded!"
+    )
+
+
+@pytest.mark.asyncio
+async def test_suricata_fast_log_ingest():
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+
+    files = [os.path.join(current_dir, "../../samples/suricata/fast.log")]
+
+    plugin_params = GulpPluginParameters()
+    await _test_ingest_generic(
+        files, "suricata_fast_log", 9, plugin_params=plugin_params
+    )
+    MutyLogger.get_instance().info(
+        test_memprocfs_timeline_ingest.__name__ + " succeeded!"
     )

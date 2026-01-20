@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-_requirements_file="requirements.txa"
+_requirements_file="requirements.txt"
 echo "[.] Updating requirements.txt ..."
 
 # Get pip freeze output, remove -e lines

@@ -33,6 +33,7 @@ class GulpConfig:
         self._path_mapping_files_extra: str = None
         self._path_plugins_extra: str = None
         self._config: dict = None
+        self._concurrency_num_tasks: int = None  # avoid to recalculate every time
 
         # read configuration on init
         self._read_config()
@@ -226,6 +227,14 @@ class GulpConfig:
         )
         return n
 
+    def ingestion_allow_unmapped_fields(self) -> bool:
+        """
+        Returns whether to allow unmapped fields during ingestion (default: True).
+        """
+        n = self._config.get("ingestion_allow_unmapped_fields", True)
+        return n
+    
+
     def ingestion_retry_max(self) -> int:
         """
         Returns the maximum number of retries for ingestion.
@@ -309,14 +318,62 @@ class GulpConfig:
             )
         return n
 
-    def documents_chunk_size(self) -> int:
+    def ingestion_documents_chunk_size(self) -> int:
         """
-        size of documents chunk to send/request in one go
+        size of documents chunk (during ingestion) to send/request in one go
         """
-        n = self._config.get("documents_chunk_size", None)
+        n = self._config.get("ingestion_documents_chunk_size", None)
         if not n:
             n = 1000
-            # MutyLogger.get_instance().debug("using default documents_chunk_size=%d" % (n))
+            # MutyLogger.get_instance().debug("using default ingestion_documents_chunk_size=%d" % (n))
+        return n
+
+    def ingestion_documents_adaptive_chunk_size(self) -> bool:
+        """
+        whether to enable adaptive documents chunk size during ingestion
+        """
+        n = self._config.get("ingestion_documents_adaptive_chunk_size", True)
+        return n
+
+    def query_circuit_breaker_disable_highlights(self) -> bool:
+        """
+        Returns whether to disable highlights when query circuit breaker is triggered.
+
+        Default: True
+        """
+        n = self._config.get("query_circuit_breaker_disables_highlights", True)
+        return n
+    
+    def query_circuit_breaker_backoff_attempts(self) -> int:
+        """
+        Returns how many times query execution should retry with backoff when OpenSearch circuit breakers trip.
+
+        Default: 3 attempts.
+        """
+        n = self._config.get("query_circuit_breaker_backoff_attempts", 5)
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            n = 5
+        if n <= 0:
+            n = 5
+            MutyLogger.get_instance().warning("invalid query_circuit_breaker_backoff_attempts, set to default=5")
+
+        return n
+
+    def query_circuit_breaker_min_limit(self) -> int:
+        """
+        Returns the lowest per-chunk document limit allowed during circuit breaker backoff.
+
+        Default: 100 documents.
+        """
+        n = self._config.get("query_circuit_breaker_min_limit", 100)
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            n = 100
+        if n < 1:
+            n = 1
         return n
 
     def ingestion_evt_failure_threshold(self) -> int:
@@ -326,6 +383,13 @@ class GulpConfig:
         n = self._config.get("ingestion_evt_failure_threshold", 0)
         if not n:
             return 0
+        return n
+
+    def ws_adaptive_rate_limit(self) -> bool:
+        """
+        Returns whether to enable adaptive rate limiting for websockets (default: False).
+        """
+        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit", True)
         return n
 
     def debug_collab(self) -> bool:
@@ -339,15 +403,16 @@ class GulpConfig:
 
     def debug_ignore_missing_ws(self) -> bool:
         """
-        Returns whether to ignore missing websocket connection (default: True).
+        Returns whether to ignore missing websocket connection (default: False).
         """
-        n = True
+        force_check_ws: str = os.getenv("GULP_FORCE_CHECK_WS", "0")
 
-        if __debug__:
+        if int(force_check_ws) == 0:
+            # on integration test, skip
             if self.is_integration_test():
+                MutyLogger.get_instance().warning("IGNORING MISSING WEBSOCKET CONNECTIONS FOR INTEGRATION TESTS!")
                 return True
-            n = self._config.get("debug_ignore_missing_ws", True)
-
+        n = self._config.get("debug_ignore_missing_ws", False)
         return n
 
     def debug_no_token_expiration(self) -> bool:
@@ -445,7 +510,18 @@ class GulpConfig:
         # MutyLogger.get_instance().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
         return n
 
-    def concurrency_max_tasks(self) -> int:
+    def concurrency_tasks_cap_per_process(self) -> int:
+        """
+        maximum number of concurrent coroutines per process which can be spawned by the API server when adaptive concurrency is enabled
+
+        default: 64
+
+        @return the maximum number of tasks executing concurrently in a process
+        """
+        n = self._config.get("concurrency_tasks_cap_per_process", 64)
+        return n
+
+    def concurrency_num_tasks(self) -> int:
         """
         maximum number of concurrent coroutines per process which can be spawned by the API server
 
@@ -453,12 +529,61 @@ class GulpConfig:
 
         @return the maximum number of tasks executing concurrently in a process
         """
-        n = self._config.get("concurrency_max_tasks", 0)
-        if not n:
-            n = 16
-            MutyLogger.get_instance().debug(
-                "using default number of tasks per process=%d" % (n)
+        if self._concurrency_num_tasks is not None:
+            # already calculated
+            return self._concurrency_num_tasks
+
+        adaptive: bool = self.concurrency_adaptive_num_tasks()
+        num_tasks: int = self._config.get("concurrency_num_tasks", 0)
+        if not adaptive:
+            if num_tasks < 2:
+                MutyLogger.get_instance().warning(
+                    "invalid concurrency_num_tasks=%d, set to default=16", num_tasks)
+                num_tasks = 16
+            return num_tasks
+
+        # adaptive, calculate
+        opensearch_num_nodes: int = self.concurrency_opensearch_num_nodes()
+        postgres_num_nodes: int = self.concurrency_postgres_num_nodes()
+        base_num_tasks: int = num_tasks if num_tasks > 0 else 16
+        cap_per_process: int = self.concurrency_tasks_cap_per_process()
+
+        # scale linearly with OS nodes and clamp to cap_per_process
+        scaled = (
+            base_num_tasks * max(1, opensearch_num_nodes) * max(1, postgres_num_nodes)
+        )
+        self._concurrency_num_tasks = max(8, min(cap_per_process, scaled))
+        MutyLogger.get_instance().debug(
+            "calculated adaptive concurrency_num_tasks=%d (base=%d, os_nodes=%d, pg_nodes=%d, cap_per_process=%d)"
+            % (
+                self._concurrency_num_tasks,
+                base_num_tasks,
+                opensearch_num_nodes,
+                postgres_num_nodes,
+                cap_per_process,
             )
+        )
+        return self._concurrency_num_tasks
+
+    def concurrency_adaptive_num_tasks(self) -> bool:
+        """
+        whether to enable adaptive concurrency max tasks per process
+        """
+        n = self._config.get("concurrency_adaptive_num_tasks", False)
+        return n
+
+    def concurrency_opensearch_num_nodes(self) -> int:
+        """
+        number of opensearch nodes used to determine concurrency max tasks when adaptive concurrency is enabled
+        """
+        n = self._config.get("concurrency_opensearch_num_nodes", 1)
+        return n
+
+    def concurrency_postgres_num_nodes(self) -> int:
+        """
+        number of postgres nodes used to determine concurrency max tasks when adaptive concurrency is enabled
+        """
+        n = self._config.get("concurrency_postgres_num_nodes", 1)
         return n
 
     def opensearch_client_cert_password(self) -> str:
@@ -466,13 +591,6 @@ class GulpConfig:
         Returns the password for the opensearch client certificate.
         """
         n = self._config.get("opensearch_client_cert_password", None)
-        return n
-
-    def opensearch_multiple_nodes(self) -> bool:
-        """
-        Returns whether to use multiple nodes for opensearch.
-        """
-        n = self._config.get("opensearch_multiple_nodes", False)
         return n
 
     def parallel_processes_max(self) -> int:
@@ -528,6 +646,13 @@ class GulpConfig:
             )
         return n
 
+    def postgres_adaptive_pool_size(self) -> bool:
+        """
+        whether to adapt the postgres connection pool size to concurrency (max tasks/num workers)
+        """
+        n = self._config.get("postgres_adaptive_pool_size", True)
+        return n
+
     def postgres_url(self) -> str:
         """
         Returns the postgres url (i.e. postgresql://user:password@localhost:5432)
@@ -572,6 +697,35 @@ class GulpConfig:
         n = self._config.get("postgres_client_cert_password", None)
         return n
 
+    def redis_url(self) -> str:
+        """
+        Returns the redis URL
+
+        Raises:
+            Exception if neither redis_url or GULP_REDIS_URL is set
+        """
+        n = os.getenv("GULP_REDIS_URL", None)
+        if not n:
+            n = self._config.get("redis_url", None)
+            if not n:
+                raise Exception(
+                    "redis_url not set (tried configuration and GULP_REDIS_URL environment_variable)."
+                )
+
+        return n
+
+    def instance_roles(self) -> list[str]:
+        """
+        Returns the list of roles this gulp instance should serve.
+
+        default supported roles are: "query", "ingest", "rebase"
+
+        """
+        roles = self._config.get("instance_roles", None)
+        if not roles:
+            return []
+        return roles
+    
     def opensearch_url(self) -> str:
         """
         Returns the opensearch url
@@ -821,13 +975,108 @@ class GulpConfig:
 
         return n
 
+    def ws_adaptive_rate_limit(self) -> bool:
+        """
+        Returns whether to enable adaptive rate limiting for websockets (default: False).
+        """
+        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit", True)
+        return n
+
+
+    def ws_adaptive_rate_limit_delay(self) -> bool:
+        """
+        Returns whether to enable adaptive rate limiting for websockets (default: False).
+        """
+        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit_delay", True)
+        return n
+
     def ws_rate_limit_delay(self) -> float:
         """
-        Returns the delay in seconds to wait before sending a message to a client.
+        Returns the delay in seconds to wait in between sending messages to connected clients.
         """
         n = self._config.get("ws_rate_limit_delay", 0.01)
         return n
+    
+    def ws_queue_max_size(self) -> int:
+        """
+        Returns the maximum size of the websocket message queue per client.
 
+        Default: 8192 messages.
+        """
+        n = self._config.get("ws_queue_max_size", 8192)
+        return n
+    
+    def ws_enqueue_timeout(self) -> float:
+        """
+        Returns the timeout in seconds for blocking enqueue operations.
+        If a message cannot be enqueued within this timeout, the client is considered unresponsive.
+
+        Default: 5.0 seconds.
+        """
+        n = self._config.get("ws_enqueue_timeout", 5.0)
+        return n
+    
+    def ws_throttle_threshold(self) -> float:
+        """
+        Returns the queue utilization threshold (0.0-1.0) above which intake throttling begins.
+
+        Default: 0.7 (70% full).
+        """
+        n = self._config.get("ws_throttle_threshold", 0.7)
+        return max(0.0, min(1.0, n))  # clamp to [0, 1]
+    
+    def ws_throttle_max_delay(self) -> float:
+        """
+        Returns the maximum delay in seconds for intake throttling when queue is nearly full.
+
+        Default: 0.2 seconds.
+        """
+        n = self._config.get("ws_throttle_max_delay", 0.2)
+        return n
+    
+    def ws_server_cache_ttl(self) -> float:
+        """
+        Returns the TTL in seconds for cached websocket ownership lookups.
+
+        Default: 1 second.
+        """
+        ttl = self._config.get("ws_server_cache_ttl", 1.0)
+        try:
+            ttl = float(ttl)
+        except (TypeError, ValueError):
+            ttl = 1.0
+
+        if ttl <= 0:
+            ttl = 1.0
+        return ttl    
+    
+    def redis_compression_enabled(self) -> bool:
+        """
+        Returns whether Redis payload compression is enabled for large messages.
+
+        Default: True.
+        """
+        n = self._config.get("redis_compression_enabled", True)
+        return n
+
+    def redis_compression_threshold(self) -> int:
+        """
+        Compression threshold in kilobytes for Redis pub/sub messages: messages bigger than this size will be compressed before publishing.
+
+        Default: 256kb
+        """
+        n = self._config.get("redis_compression_threshold", 256)
+        return n
+
+    def redis_pubsub_max_chunk_size(self) -> int:
+        """
+        Returns the maximum chunk size in kilobytes for Redis pub/sub messages.
+
+        Default: 128kb
+        """
+        n = self._config.get("redis_pubsub_max_chunk_size", 128)
+        return n
+    
     def plugin_cache_enabled(self) -> bool:
         """
         Returns whether to enable the plugin cache (default: True).

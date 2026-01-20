@@ -7,6 +7,9 @@ sudo chmod 666 /var/run/docker.sock
 # set permission for pip cache
 sudo mkdir -p /home/vscode/.cache/pip && sudo chown -R vscode:vscode /home/vscode/.cache
 
+python3 -m venv ./.venv
+source ./.venv/bin/activate
+
 # install development packages
 echo "[.] Installing gulp"
 pip3 install --timeout=1000 -e .

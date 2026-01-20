@@ -6,6 +6,11 @@
     - [ws\_ingest\_raw](#ws_ingest_raw)
     - [ws\_client\_data](#ws_client_data)
     - [tracking status](#tracking-status)
+- [scaling](#scaling)
+  - [increase concurrency](#increase-concurrency)
+  - [scale OpenSearch, PostgreSQL and Redis](#scale-opensearch-postgresql-and-redis)
+  - [gulp server roles](#gulp-server-roles)
+  - [raw ingestion scaling](#raw-ingestion-scaling)
 
 ## GULP architecture
 
@@ -23,6 +28,8 @@ ingestion
 
 collab[(PostgreSQL
   collaboration DB)]
+redis[(Redis
+  task queue & pub/sub)]
 
 extension_plugin[ExtensionPlugins
   i.e. extend API,
@@ -53,6 +60,7 @@ gulp <-->|users,
   stored queries,
   stats
   | collab
+gulp <-->|tasks, pubsub| redis
 
 bridges<-->|ingest| gulp
 gulp <-->|extend api| extension_plugin
@@ -64,6 +72,12 @@ external_plugin-->|ingest|opensearch
 bridges<-->|fetch| external_source
 
 ```
+
+Task queue and pub/sub:
+- gULP uses Redis for both the ingestion task queue and lightweight pub/sub.
+- Ingestion requests enqueue task dictionaries on a Redis list (key `gulp:queue:tasks`).
+- The main process polls the Redis queue and dispatches tasks to worker processes.
+- Redis pub/sub is used for WebSocket fan-out and inter-instance coordination.
 
 All components are based on the [muty utility library](https://github.com/mentat-is/muty-python)
 
@@ -232,3 +246,46 @@ each `GulpClientDataPacket` is as follows:
 #### tracking status
 
 a client can keep track of operations [via data sent by gulp on the connected websockets](../src/gulp/api/ws_api.py#WS_DATA_STATS_UPDATE) during operations (i.e. queries, ingestion, ...)
+
+## scaling
+
+gULP can be scaled by both providing more hardware resources and/or by running multiple instances of gulp connected to the same OpenSearch, Redis and PostgreSQL (`collab` database).
+
+### increase concurrency
+
+tune configuration parameters in [gulp_cfg.json](../gulp_cfg_template.json) according to hardware resources available:
+
+- `concurrency_num_tasks`
+- `concurrency_opensearch_num_nodes`
+- `concurrency_postgres_num_nodes`
+- `concurrency_adaptive_num_tasks`
+- `parallel_processes_max`
+- `postgres_adaptive_pool_size`
+
+### scale OpenSearch, PostgreSQL and Redis
+
+just [scale them up as needed](../docker-compose.yml), gULP instances will connect to the cluster as per the configuration in [gulp_cfg.json](../gulp_cfg_template.json).
+
+### gulp server roles
+
+to *specialize* a gulp **consumer** instance you can set the `instance_roles` configuration parameter to a list of task types this instance will `consume` from the Redis task queue.
+
+```json
+  // this instance will only process `ingest` tasks in the Redis queue
+  "instance_roles": [ "ingest"]
+```
+
+available values are `[ "ingest", "query", "external_query", "rebase" ]`, all resource intensive tasks.
+
+if the list is empty or unset, the instance will process all task types, and anyway other kind of `non-specialized`/non computationally intensive 
+API tasks will always be processed by all instances (i.e. user management, collaboration objects management, etc...).
+
+> every gulp `producer` instance will still enqueue all the above task types to the Redis queue, regardless of its `instance_roles` configuration, since just enqueiuing a task is a low resource operation.
+> 
+> only the dequeueing/consuming behavior is affected by this setting, since that is what really `process` the task.
+
+### raw ingestion scaling
+
+raw ingestion using `/ws_ingest_raw` or `/ingest_raw` API endpoints are always processed by all gulp instances, regardless of their `instance_roles` configuration.
+
+so to scale raw ingestion, just run multiple gulp instances behind a load balancer which routes raw ingestion requests to specific instances.

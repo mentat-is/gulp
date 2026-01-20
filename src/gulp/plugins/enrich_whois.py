@@ -27,18 +27,20 @@ import datetime
 import ipaddress
 import re
 import socket
-import orjson
 import urllib
 from typing import Any, Optional, override
 
 import muty.dict
 import muty.os
-from muty.log import MutyLogger
+import orjson
 from ipwhois import IPWhois
+from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.process import GulpProcess
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("ipwhois", ">=1.3.0")
@@ -48,18 +50,20 @@ class Plugin(GulpPluginBase):
     def __init__(
         self,
         path: str,
+        module_name: str,
         pickled: bool = False,
         **kwargs,
     ) -> None:
-        super().__init__(path, pickled=pickled, **kwargs)
+        super().__init__(path, module_name, pickled=pickled, **kwargs)
 
-        # stores results for the original_input string
-        self._whois_cache: dict[str, Optional[dict[str, Any]]] = {}
-        # stores raw whois data for individual resolved entities (ip/hostname)
-        self._single_entity_whois_cache: dict[str, Optional[dict[str, Any]]] = {}
+        # Use the shared DocValueCache provided by GulpPluginBase instead of
+        # per-instance dicts. We prefix keys to distinguish cached single-entity
+        # lookups from whole-input lookups.
+        # Note: values are stored as tuples ("__whois_cached__", value) so that
+        # we can cache explicit None values while still detecting cache hits.
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.ENRICHMENT]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.ENRICHMENT
 
     def display_name(self) -> str:
         return "enrich_whois"
@@ -129,16 +133,22 @@ class Plugin(GulpPluginBase):
         MutyLogger.get_instance().debug(
             f"performing whois lookup for entity_key='{entity_key}'"
         )
-        if entity_key in self._single_entity_whois_cache:
+        cache_key: str = f"single_entity:{entity_key}"
+        cached = self.doc_value_cache.get_value(cache_key)
+        if cached is not None:
             MutyLogger.get_instance().debug(
                 f"single entity whois cache hit for entity_key='{entity_key}'"
             )
-            return self._single_entity_whois_cache[entity_key]
+            return cached[1]
 
         try:
+            # get whois info in a thread to avoid blocking the event loop
+            def _get_info() -> dict:
+                return IPWhois(entity_key).lookup_rdap(depth=1)
 
-            # transform to ecs fields
-            whois_info = IPWhois(entity_key).lookup_rdap(depth=1)
+            whois_info = await asyncio.get_event_loop().run_in_executor(
+                GulpProcess.get_instance().thread_pool, _get_info
+            )
             # MutyLogger.get_instance().debug(f"raw whois_info for entity_key='{entity_key}': {whois_info}")
 
             # remove null fields and format datetime
@@ -150,14 +160,16 @@ class Plugin(GulpPluginBase):
                     # ensure we keep empty strings if they are actual values, but filter out none
                     enriched_entity_data[k] = v
 
-            self._single_entity_whois_cache[entity_key] = enriched_entity_data
+            # store a wrapper so that a cached None can be distinguished from
+            # a missing key
+            self.doc_value_cache.set_value(cache_key, ("__whois_cached__", enriched_entity_data))
             return enriched_entity_data
         except Exception as ex:
             # log the exception and store None in the cache to avoid repeated lookups
             MutyLogger.get_instance().error(
                 f"error during whois lookup for entity_key='{entity_key}': {ex}"
             )
-            self._single_entity_whois_cache[entity_key] = None
+            self.doc_value_cache.set_value(cache_key, ("__whois_cached__", None))
             return None
 
     async def _extract_entities_with_regex(self, text_input: str) -> set[str]:
@@ -322,7 +334,9 @@ class Plugin(GulpPluginBase):
                     if addr_info_list:
                         # add all resolved ip addresses
                         for addr_info_tuple in addr_info_list:
-                            resolved_ip: str = addr_info_tuple[4][0]  # ip is the first element of sockaddr
+                            resolved_ip: str = addr_info_tuple[4][
+                                0
+                            ]  # ip is the first element of sockaddr
                             entities_for_rdap.add(resolved_ip.lower())
                             # MutyLogger.get_instance().debug(f"resolved '{entity_str}' to '{resolved_ip}'")
                             if resolve_first_only:
@@ -378,11 +392,13 @@ class Plugin(GulpPluginBase):
         )
 
         # check main cache for the entire original_input string
-        if original_input in self._whois_cache:
+        main_cache_key: str = f"whois:{original_input}"
+        main_cached = self.doc_value_cache.get_value(main_cache_key)
+        if main_cached is not None:
             MutyLogger.get_instance().debug(
                 f"main whois cache hit for input='{original_input[:100]}...'"
             )
-            return self._whois_cache[original_input]
+            return main_cached[1]
 
         final_entities_for_rdap: set[str] = set()
         is_single_entity_processing_path: bool = False
@@ -434,10 +450,14 @@ class Plugin(GulpPluginBase):
             if self._is_ip_field(single_target_entity):
                 final_entities_for_rdap.add(single_target_entity)
             else:
-                # it's a hostname, try to resolve
+                # it's a hostname, try to resolve (without blocking the event loop)
                 try:
                     # MutyLogger.get_instance().debug(f"resolving single entity hostname: {single_target_entity}")
-                    resolved_ip: str = socket.gethostbyname(single_target_entity)
+                    resolved_ip: str = await asyncio.get_event_loop().run_in_executor(
+                        GulpProcess.get_instance().thread_pool,
+                        socket.gethostbyname,
+                        single_target_entity,
+                    )
                     final_entities_for_rdap.add(resolved_ip)
                     # MutyLogger.get_instance().debug(f"resolved single entity hostname '{single_target_entity}' to '{resolved_ip}'")
 
@@ -468,7 +488,7 @@ class Plugin(GulpPluginBase):
         # if no entities were found by any method, cache none and return
         if not final_entities_for_rdap:
             # MutyLogger.get_instance().debug(f"no entities found for whois lookup in input: '{original_input[:100]}...'")
-            self._whois_cache[original_input] = None
+            self.doc_value_cache.set_value(main_cache_key, ("__whois_cached__", None))
             return None
 
         # MutyLogger.get_instance().debug(f"final set of entities for rdap lookup: {final_entities_for_rdap}")
@@ -487,6 +507,7 @@ class Plugin(GulpPluginBase):
                 MutyLogger.get_instance().warning(
                     f"no raw whois data returned for entity: {entity_to_lookup}"
                 )
+                await asyncio.sleep(0.1)  # let other tasks run
                 continue  # skip to next entity
 
             # filter fields based on custom parameters ("whois_fields", "full_dump")
@@ -508,6 +529,7 @@ class Plugin(GulpPluginBase):
                 MutyLogger.get_instance().warning(
                     f"data for entity {entity_to_lookup} is empty after filtering."
                 )
+                await asyncio.sleep(0.1)  # let other tasks run
                 continue  # skip to next entity
 
             # MutyLogger.get_instance().debug(f"filtered data for entity {entity_to_lookup} has {len(filtered_data_for_entity)} fields.")
@@ -524,6 +546,8 @@ class Plugin(GulpPluginBase):
                 for key, value in filtered_data_for_entity.items():
                     final_combined_enriched_data[f"{entity_prefix}_{key}"] = value
 
+            await asyncio.sleep(0.1)  # let other tasks run
+
         # if unify_dump is true, create the 'unified_dump' field now
         if (
             self._plugin_params.custom_parameters.get("unify_dump")
@@ -536,7 +560,8 @@ class Plugin(GulpPluginBase):
 
                 # dump only the data for that single entity
                 ud: str = orjson.dumps(
-                    data_for_unification[single_entity_data_key], option=orjson.OPT_INDENT_2
+                    data_for_unification[single_entity_data_key],
+                    option=orjson.OPT_INDENT_2,
                 ).decode()
                 final_combined_enriched_data["unified_dump"] = ud
 
@@ -547,7 +572,9 @@ class Plugin(GulpPluginBase):
                 # multiple entities found (either via regex or potentially complex single input that resolved to multiple, though less likely for single path)
                 # or if it wasn't a single entity path but unify_dump is on
                 # dump the dictionary of all entities and their data
-                ud: str = orjson.dumps(data_for_unification, option=orjson.OPT_INDENT_2).decode()
+                ud: str = orjson.dumps(
+                    data_for_unification, option=orjson.OPT_INDENT_2
+                ).decode()
                 final_combined_enriched_data["unified_dump"] = ud
                 MutyLogger.get_instance().debug(
                     f"unified dump created for {len(data_for_unification)} entities:\n{ud}"
@@ -558,12 +585,12 @@ class Plugin(GulpPluginBase):
             MutyLogger.get_instance().warning(
                 f"no enrichment data produced for input: '{original_input[:100]}...'"
             )
-            self._whois_cache[original_input] = None
+            self.doc_value_cache.set_value(main_cache_key, ("__whois_cached__", None))
             return None
 
         # cache the final combined result and return it
         # MutyLogger.get_instance().debug(f"whois enriched for input='{original_input[:100]}...', final data keys: {list(final_combined_enriched_data.keys())}")
-        self._whois_cache[original_input] = final_combined_enriched_data
+        self.doc_value_cache.set_value(main_cache_key, ("__whois_cached__", final_combined_enriched_data))
         return final_combined_enriched_data
 
     def _filter_fields_with_wildcards(
@@ -668,24 +695,38 @@ class Plugin(GulpPluginBase):
             }
         }
 
-    async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
+    async def _enrich_documents_chunk(
+        self,
+        sess: AsyncSession,
+        chunk: list[dict],
+        chunk_num: int = 0,
+        total_hits: int = 0,
+        index: str = None,
+        last: bool = False,
+        req_id: str = None,
+        q_name: str = None,
+        q_group: str = None,
+        **kwargs,
+    ) -> list[dict]:
         dd = []
         host_fields = self._plugin_params.custom_parameters.get("host_fields", [])
 
         # MutyLogger.get_instance().debug("host_fields: %s, num_docs=%d" % (host_fields, len(docs)))
-        for doc in docs:
+        for doc in chunk:
             # TODO: when opensearch will support runtime mappings, this can be removed and done with "highlight" queries.
             # either, we may also add text mappings to ip fields in the index template..... but keep it as is for now...
-            enriched: bool=False
+            enriched: bool = False
             for host_field in host_fields:
                 f = doc.get(host_field)
                 if not f:
+                    await asyncio.sleep(0.1)  # let other tasks run
                     continue
 
                 # append flattened whois data to the document
                 whois_data = await self._get_whois(f)
+                await asyncio.sleep(0.1)  # let other tasks run
                 if whois_data:
-                    enriched=True
+                    enriched = True
                     for key, value in whois_data.items():
                         if value:
                             # also replace . with _ in the field name
@@ -697,12 +738,24 @@ class Plugin(GulpPluginBase):
                 # at least one host field was enriched
                 dd.append(doc)
 
-        return dd
+        return await super()._enrich_documents_chunk(
+            sess,
+            dd,
+            chunk_num=chunk_num,
+            total_hits=total_hits,
+            index=index,
+            last=last,
+            req_id=req_id,
+            q_name=q_name,
+            q_group=q_group,
+            **kwargs,
+        )
 
     @override
     async def enrich_documents(
         self,
         sess: AsyncSession,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -711,11 +764,11 @@ class Plugin(GulpPluginBase):
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
-    ) -> int:
+    ) -> tuple[int, int, list[str], bool]:
         # parse custom parameters
         await self._initialize(plugin_params)
 
-        # build queries for each host field that match non-private IP addresses (both v4 and v6)
+        # build "should" nodes for each host field that match non-private IP addresses (both v4 and v6)
         host_fields = self._plugin_params.custom_parameters.get("host_fields", [])
         qq = {
             "query": {
@@ -726,11 +779,23 @@ class Plugin(GulpPluginBase):
             }
         }
         for host_field in host_fields:
-            qq["query"]["bool"]["should"].append(self._build_ip_query(host_field))
+            if host_field not in [ "event.original"]:
+                # avoid building query for event.original, just limit to the other fields.
+                # this is because event.original may contain generic text other than just an ip/hostname and this would break the query
+                qq["query"]["bool"]["should"].append(self._build_ip_query(host_field))
 
         # MutyLogger.get_instance().debug("query: %s" % qq)
         return await super().enrich_documents(
-            sess, user_id, req_id, ws_id, operation_id, index, flt, plugin_params, rq=qq
+            sess,
+            stats,
+            user_id,
+            req_id,
+            ws_id,
+            operation_id,
+            index,
+            flt,
+            plugin_params,
+            rq=qq,
         )
 
     @override

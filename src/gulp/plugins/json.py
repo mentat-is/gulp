@@ -26,7 +26,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -50,8 +49,12 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "json"
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
+
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return '^\s*(\{[\s\n\r]*"[^"]+"\s*:|^\s*\[\s*(\{[\s\n\r]*"[^"]+"\s*:|\d|"|\[|null|true|false))'
 
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
@@ -103,39 +106,28 @@ class Plugin(GulpPluginBase):
         )
 
     async def _ingest_jsonline(
-        self, file_path: str, encoding: str = None, flt: GulpIngestionFilter = None
+        self,
+        file_path: str,
+        stats: GulpRequestStats,
+        encoding: str = None,
+        flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
         doc_idx: int = 0
-        try:
-            # one record per line:
-            # {"a": "b"}\n
-            # {"b": "c"}\n
-            async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
-                async for line in file:
-                    try:
-                        parsed = orjson.loads(line)
+        # one record per line:
+        # {"a": "b"}\n
+        # {"b": "c"}\n
+        async with aiofiles.open(file_path, mode="r", encoding=encoding) as file:
+            async for line in file:
+                parsed = orjson.loads(line)
 
-                        await self.process_record(
-                            parsed,
-                            doc_idx,
-                            flt=flt,
-                            __line__=line,
-                        )
-                    except (RequestCanceledError, SourceCanceledError) as ex:
-                        MutyLogger.get_instance().exception(ex)
-                        await self._source_failed(ex)
-                        break
-                    except PreviewDone:
-                        # preview done, stop processing
-                        break
-
-                    doc_idx += 1
-
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+                await self.process_record(
+                    parsed,
+                    doc_idx,
+                    flt=flt,
+                    __line__=line,
+                )
+                doc_idx += 1
+            return stats.status
 
     def _read_file(
         self, q: asyncio.Queue, file_path: str, encoding: str, keys: list[str] = None
@@ -188,6 +180,7 @@ class Plugin(GulpPluginBase):
     async def _ingest_jsonlist_and_jsondict(
         self,
         file_path: str,
+        stats: GulpRequestStats,
         encoding: str = None,
         flt: GulpIngestionFilter = None,
     ) -> GulpRequestStatus:
@@ -214,47 +207,35 @@ class Plugin(GulpPluginBase):
         MutyLogger.get_instance().debug("starting processing file %s" % file_path)
 
         # and process it asynchronously until the queue is empty
-        try:
-            while True:
-                record: dict = None
-                record = await q.get()
-                q.task_done()
-                if record is None:
-                    # end of file reached
-                    MutyLogger.get_instance().debug(
-                        "end of file %s reached, breaking loop!" % (file_path)
-                    )
-                    break
-                try:
-                    await self.process_record(
-                        record,
-                        doc_idx,
-                        flt=flt,
-                        __line__=str(record),
-                    )
-                except (RequestCanceledError, SourceCanceledError) as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    await self._source_failed(ex)
-                    break
-                except PreviewDone:
-                    # preview done, stop processing
-                    break
 
-                doc_idx += 1
-
-            # after the loop, wait for the reader task (thread) to fully complete.
-            # this also allows any exception from _read_file to be propagated here.
-            MutyLogger.get_instance().debug(
-                "processing loop finished for %s, awaiting reader thread completion."
-                % (file_path)
+        while True:
+            record: dict = None
+            record = await q.get()
+            q.task_done()
+            if record is None:
+                # end of file reached
+                MutyLogger.get_instance().debug(
+                    "end of file %s reached, breaking loop!" % (file_path)
+                )
+                break
+            await self.process_record(
+                record,
+                doc_idx,
+                flt=flt,
+                __line__=str(record),
             )
-            await fut
 
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+            doc_idx += 1
+
+        # after the loop, wait for the reader task (thread) to fully complete.
+        # this also allows any exception from _read_file to be propagated here.
+        MutyLogger.get_instance().debug(
+            "processing loop finished for %s, awaiting reader thread completion."
+            % (file_path)
+        )
+        await fut
+
+        return stats.status
 
     @override
     async def ingest_file(
@@ -274,39 +255,30 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         encoding: str = self._plugin_params.custom_parameters.get("encoding")
         mode: str = self._plugin_params.custom_parameters.get("mode")
         if mode == "line":
-            return await self._ingest_jsonline(file_path, encoding=encoding, flt=flt)
+            return await self._ingest_jsonline(
+                file_path, encoding=encoding, flt=flt, stats=stats
+            )
         elif mode == "list" or mode == "dict":
             return await self._ingest_jsonlist_and_jsondict(
-                file_path, encoding=encoding, flt=flt
+                file_path, encoding=encoding, flt=flt, stats=stats
             )
-
-        # failed
-        await self._source_failed(ValueError(f"Unsupported mode: {mode}"))
-        await self._source_done(flt)
-        return GulpRequestStatus.FAILED

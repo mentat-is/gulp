@@ -16,7 +16,7 @@ fields to include in query results.
 """
 
 from enum import IntEnum
-from typing import Optional, override
+from typing import Optional, override, Annotated
 import orjson
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -58,22 +58,27 @@ class GulpBaseDocumentFilter(BaseModel):
         },
     )
 
-    time_range: Optional[tuple[int, int]] = Field(
-        default=None,
-        description="""
+    time_range: Annotated[
+        Optional[tuple[int, int]],
+        Field(
+            description="""
 a tuple representing a `gulp.timestamp` range `[ start, end ]`.
 
 - `start` and `end` are nanoseconds from the unix epoch.
+- to set only start (or end), use 0 for end (or start), e.g. `[ start, 0 ]` or `[ 0, end ]`.
 """,
-    )
+        ),
+    ] = None
 
-    query_string_parameters: Optional[dict] = Field(
-        default=None,
-        description="""
+    query_string_parameters: Annotated[
+        dict,
+        Field(
+            description="""
 additional parameters to be applied to the resulting `query_string` query, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/full-text/query-string)
 
 """,
-    )
+        ),
+    ] = {}
 
     @override
     def __str__(self) -> str:
@@ -107,14 +112,16 @@ class GulpIngestionFilter(GulpBaseDocumentFilter):
             ]
         }
     )
-    storage_ignore_filter: Optional[bool] = Field(
-        False,
-        description="""
+    storage_ignore_filter: Annotated[
+        bool,
+        Field(
+            description="""
 if set, websocket receives filtered results while OpenSearch stores unfiltered (=all) documents.
 default is False (both OpenSearch and websocket receives the filtered results).
 """,
-    )
-
+        ),
+    ] = False
+    
     @override
     def __str__(self) -> str:
         return super().__str__()
@@ -137,21 +144,25 @@ default is False (both OpenSearch and websocket receives the filtered results).
         if not flt or flt.storage_ignore_filter:
             # empty filter or ignore
             return GulpDocumentFilterResult.ACCEPT
-        if not flt.time_range:
+        if not flt.time_range or len (flt.time_range) != 2:
             # no time range, accept all
             return GulpDocumentFilterResult.ACCEPT
-
+        if flt.time_range[0] == 0 and flt.time_range[1] == 0:
+            # empty time range, accept all
+            return GulpDocumentFilterResult.ACCEPT
+        
         # filter based on time range
         # check if ts is within the range. either start or end can be None
         # if both are None, the filter is empty and all events are accepted
         ts = doc["gulp.timestamp"]
-        if flt.time_range[0] and flt.time_range[1]:
+
+        if flt.time_range[0] > 0 and flt.time_range[1] > 0:
             if ts >= flt.time_range[0] and ts <= flt.time_range[1]:
                 return GulpDocumentFilterResult.ACCEPT
-        if flt.time_range[0]:
+        if flt.time_range[0] > 0:
             if ts >= flt.time_range[0]:
                 return GulpDocumentFilterResult.ACCEPT
-        if flt.time_range[1]:
+        if flt.time_range[1] > 0:
             if ts <= flt.time_range[1]:
                 return GulpDocumentFilterResult.ACCEPT
 
@@ -163,7 +174,10 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     a GulpQueryFilter defines a filter for the query API.
 
     - query is built using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query.
-    - further extra key=value pairs are allowed and are intended as k: [v1, v2, ...] filters: they match any of the values as OR, i.e.: `{"key": ["v1", "v2"]}` matches `key: v1 OR key: v2`.
+    - further extra key=value pairs are allowed and are intended as k: list[str]|str:
+        if it is a list of values, an OR clause is built, otherwise an equality clause is built, i.e.
+        - `{"event.code": ["5152", "5156"]}` becomes `(event.code: 5152 OR event.code: 5156)`
+        - `{"event.code": "5152"}` becomes `event.code: 5152`
     """
 
     model_config = ConfigDict(
@@ -185,37 +199,49 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
             ]
         }
     )
-    agent_types: Optional[list[str]] = Field(
-        None,
-        description="include documents matching the given `agent.type`/s.",
-    )
-    doc_ids: Optional[list[str]] = Field(
-        None,
-        description="include documents matching the given `_id`/s.",
-    )
-    operation_ids: Optional[list[str]] = Field(
-        None,
-        description="include documents  matching the given `gulp.operation_id`/s",
-    )
-    context_ids: Optional[list[str]] = Field(
-        None,
-        description="""
+    agent_types: Annotated[
+        list[str],
+        Field(
+            description="include documents matching the given `agent.type`/s.",
+        ),
+    ] = []
+    doc_ids: Annotated[
+        list[str],
+        Field(
+            description="include documents matching the given `_id`/s.",
+        ),
+    ] = []
+    operation_ids: Annotated[
+        list[str],
+        Field(
+            description="include documents  matching the given `gulp.operation_id`/s",
+        ),
+    ] = []
+    context_ids: Annotated[
+        list[str],
+        Field(
+            description="""
 include documents matching the given `gulp.context_id`/s.
 
 - this must be set to the *real context_id* as on the collab database, calculated as *SHA1(operation_id+context_id)*.
 """,
-    )
-    source_ids: Optional[list[str]] = Field(
-        None,
-        description="""
+        ),
+    ] = []
+    source_ids: Annotated[
+        list[str],
+        Field(
+            description="""
 include documents matching the given `gulp.source_id`/s.
 - this must be set to the *real source_id* as on the collab database, calculated as *SHA1(operation_id+context_id+source_id)*.
 """,
-    )
-    event_codes: Optional[list[str]] = Field(
-        None,
-        description="include documents matching the given `event.code`/s.",
-    )
+        ),
+    ] = []
+    event_codes: Annotated[
+        list[str],
+        Field(
+            description="include documents matching the given `event.code`/s.",
+        ),
+    ] = []
 
     @override
     def __str__(self) -> str:
@@ -312,21 +338,26 @@ include documents matching the given `gulp.source_id`/s.
                 clauses.append(
                     self._query_string_build_or_clauses("event.code", self.event_codes)
                 )
-            if self.time_range:
+            if self.time_range and len(self.time_range) == 2:
                 # simple >=, <= clauses
                 field = "gulp.timestamp"
-                if self.time_range[0]:
+                if self.time_range[0] > 0:
                     clauses.append(
                         self._query_string_build_gte_clause(field, self.time_range[0])
                     )
-                if self.time_range[1]:
+                if self.time_range[1] > 0:
                     clauses.append(
                         self._query_string_build_lte_clause(field, self.time_range[1])
                     )
             if self.model_extra:
                 # extra fields
                 for k, v in self.model_extra.items():
-                    clauses.append(self._query_string_build_or_clauses(k, v))
+                    if isinstance(v, list):
+                        # OR clauses
+                        clauses.append(self._query_string_build_or_clauses(k, v))
+                    else:
+                        # equality
+                        clauses.append(self._query_string_build_eq_clause(k, v))
 
             # only return non-empty clauses
             clauses = [c for c in clauses if c and c.strip()]
@@ -351,6 +382,7 @@ include documents matching the given `gulp.source_id`/s.
 
         q_string = query_dict["query"]["query_string"]
         if self.query_string_parameters:
+            # add provided parameters
             q_string.update(self.query_string_parameters)
 
         # MutyLogger.get_instance().debug('resulting query=%s' % (orjson.dumps(query_dict, option=orjson.OPT_INDENT_2).decode()))
@@ -392,5 +424,6 @@ include documents matching the given `gulp.source_id`/s.
                 self.source_ids,
                 self.event_codes,
                 self.doc_ids,
+                self.model_extra,
             ]
         )

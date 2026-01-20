@@ -7,6 +7,7 @@ It extracts information from journal entries and transforms them into structured
 NOTE: This plugin requires the systemd-python package and is not available on Windows or macOS.
 
 """
+
 import datetime
 import os
 from typing import Any, override
@@ -21,8 +22,11 @@ import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import (GulpRequestStats, PreviewDone,
-                                   RequestCanceledError, SourceCanceledError)
+from gulp.api.collab.stats import (
+    GulpRequestStats,
+    RequestCanceledError,
+    SourceCanceledError,
+)
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
@@ -55,8 +59,8 @@ class Plugin(GulpPluginBase):
 
         return str_dict
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -64,6 +68,10 @@ class Plugin(GulpPluginBase):
 
     def display_name(self) -> str:
         return "systemd_journal"
+
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return "^(\x4c\x50\x4b\x53\x48\x48\x52\x48|LPKSHHRH)"
 
     @override
     async def _record_to_gulp_document(
@@ -110,53 +118,36 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-         **kwargs
-   ) -> GulpRequestStatus:
-        try:
-            plugin_params = self._ensure_plugin_params(
-                plugin_params,
-                mapping_file="systemd_journal.json",
-            )
+        **kwargs,
+    ) -> GulpRequestStatus:
 
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+        plugin_params = self._ensure_plugin_params(
+            plugin_params,
+            mapping_file="systemd_journal.json",
+        )
+
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         doc_idx = 0
-        try:
-            with journal.Reader(None, files=[file_path]) as log_file:
-                log_file.log_level(journal.LOG_DEBUG)
-                for rr in log_file:
-                    try:
-                        await self.process_record(rr, doc_idx, flt=flt)
-                    except (RequestCanceledError, SourceCanceledError) as ex:
-                        MutyLogger.get_instance().exception(ex)
-                        await self._source_failed(ex)
-                        break
-                    except PreviewDone:
-                        # preview done, stop processing
-                        pass
-                    doc_idx += 1
 
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+        with journal.Reader(None, files=[file_path]) as log_file:
+            log_file.log_level(journal.LOG_DEBUG)
+            for rr in log_file:
+                await self.process_record(rr, doc_idx, flt=flt)
+                doc_idx += 1
+        return stats.status

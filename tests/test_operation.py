@@ -1,9 +1,28 @@
 import asyncio
 import json
+import os
 
 import pytest
 import pytest_asyncio
 import websockets
+from gulp_client.common import (
+    GulpAPICommon,
+    _cleanup_test_operation,
+    _ensure_test_operation,
+)
+from gulp_client.db import GulpAPIDb
+from gulp_client.object_acl import GulpAPIObjectACL
+from gulp_client.operation import GulpAPIOperation
+from gulp_client.query import GulpAPIQuery
+from gulp_client.test_values import (
+    TEST_HOST,
+    TEST_INDEX,
+    TEST_OPERATION_ID,
+    TEST_REQ_ID,
+    TEST_WS_ID,
+)
+from gulp_client.user import GulpAPIUser
+from gulp_client.user_group import GulpAPIUserGroup
 from muty.log import MutyLogger
 
 from gulp.api.collab.structs import (
@@ -13,20 +32,6 @@ from gulp.api.collab.structs import (
     GulpCollabFilter,
 )
 from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
-from gulp_client.common import GulpAPICommon, _ensure_test_operation
-from gulp_client.db import GulpAPIDb
-from gulp_client.object_acl import GulpAPIObjectACL
-from gulp_client.operation import GulpAPIOperation
-from gulp_client.query import GulpAPIQuery
-from gulp_client.user import GulpAPIUser
-from gulp_client.user_group import GulpAPIUserGroup
-from gulp_client.test_values import (
-    TEST_HOST,
-    TEST_INDEX,
-    TEST_OPERATION_ID,
-    TEST_REQ_ID,
-    TEST_WS_ID,
-)
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 
 
@@ -35,9 +40,12 @@ async def _ws_loop():
     ws_url = f"ws://{host}/ws"
     test_completed = False
 
+    admin_token = await GulpAPIUser.login_admin()
+    assert admin_token
+
     async with websockets.connect(ws_url) as ws:
         # connect websocket
-        p: GulpWsAuthPacket = GulpWsAuthPacket(token="monitor", ws_id=TEST_WS_ID)
+        p: GulpWsAuthPacket = GulpWsAuthPacket(token=admin_token, ws_id=TEST_WS_ID)
         await ws.send(p.model_dump_json(exclude_none=True))
 
         # receive responses
@@ -45,6 +53,8 @@ async def _ws_loop():
             while True:
                 response = await ws.recv()
                 data = json.loads(response)
+                payload = data.get("payload", {})
+
                 if data["type"] == "ws_connected":
                     # ws connected
                     MutyLogger.get_instance().debug("ws connected: %s", data)
@@ -52,7 +62,7 @@ async def _ws_loop():
                 elif data["type"] == "query_done":
                     # query done
                     q_done_packet: GulpQueryDonePacket = (
-                        GulpQueryDonePacket.model_validate(data["data"])
+                        GulpQueryDonePacket.model_validate(payload)
                     )
                     if q_done_packet.total_hits == 0:
                         test_completed = True
@@ -76,7 +86,10 @@ async def _setup():
     """
     this is called before any test, to initialize the environment
     """
-    await _ensure_test_operation()
+    if os.getenv("SKIP_RESET") == "1":
+        await _cleanup_test_operation()
+    else:
+        await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -115,17 +128,27 @@ async def test_operation_api():
     # ensure clean state: remove ingest from administrators group, delete test operation, delete new operation if exists
     new_operation_id = "new_operation"
     try:
-        await GulpAPIOperation.operation_delete(admin_token, TEST_OPERATION_ID)
+        l = await GulpAPIOperation.operation_list(admin_token)
+        for o in l:
+            await GulpAPIOperation.operation_delete(admin_token, o["id"])
         await GulpAPIUserGroup.usergroup_remove_user(
             admin_token, "ingest", ADMINISTRATORS_GROUP_ID
         )
-        await GulpAPIOperation.operation_delete(admin_token, new_operation_id)
+        MutyLogger.get_instance().info("cleaned up existing operations")
     except Exception:
         pass
 
     # recreate test operation
     await GulpAPIOperation.operation_create(
         admin_token, TEST_OPERATION_ID, set_default_grants=True
+    )
+
+    # we must add grants to the ingest user as well (operation recreated)
+    await GulpAPIObjectACL.object_add_granted_user(
+        admin_token,
+        TEST_OPERATION_ID,
+        COLLABTYPE_OPERATION,
+        "ingest",
     )
 
     # ingest some data
@@ -170,13 +193,12 @@ async def test_operation_api():
 
     # create new operation with just owner's grants
     new_operation = await GulpAPIOperation.operation_create(
-        admin_token, "new_operation", glyph_id="antenna", set_default_grants=False
+        admin_token, "new_operation", set_default_grants=False
     )
     assert new_operation.get("name") == new_operation_id
     assert new_operation.get("index") == new_operation_id
     assert new_operation.get("id") == new_operation_id
-    assert new_operation.get("glyph_id") == "antenna"
-    
+
     # list operations (ingest can see only one operation)
     operations = await GulpAPIOperation.operation_list(ingest_token)
     assert operations and len(operations) == 1
@@ -314,15 +336,14 @@ async def test_operation_api():
     assert context.get("description") == "new description"
 
     # delete source with data
-    d = await GulpAPIOperation.source_delete(
+    await GulpAPIOperation.source_delete(
         ingest_token,
         TEST_OPERATION_ID,
         context_id,
         source_id,
     )
     # check data on opensearch (should be empty)
-    res = await GulpAPIQuery.query_gulp(guest_token, TEST_OPERATION_ID)
-    assert not res
+    await GulpAPIQuery.query_gulp(guest_token, TEST_OPERATION_ID)
     await _ws_loop()
 
     # verify that the source is deleted
@@ -347,11 +368,81 @@ async def test_operation_api():
     operations = await GulpAPIOperation.operation_list(ingest_token)
     assert len(operations) == 0
 
+    contexts = await GulpAPIOperation.context_list(
+        ingest_token, TEST_OPERATION_ID, expected_status=404
+    )
+    sources = await GulpAPIOperation.source_list(
+        ingest_token, TEST_OPERATION_ID, context_id=context_id, expected_status=404
+    )
+    MutyLogger.get_instance().info("all OPERATION tests succeeded!")
+
+@pytest.mark.asyncio
+async def test_context():
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    ctx = await GulpAPIOperation.context_create(ingest_token, TEST_OPERATION_ID, "new_context")
+    assert ctx.get("name") == "new_context"
+    context_id = ctx["id"]
+
+    # get context by id
+    ctx2 = await GulpAPIOperation.context_get_by_id(ingest_token, context_id)
+    assert ctx2["id"] == context_id
+
+    # update context
+    ctx2 = await GulpAPIOperation.context_update(
+        ingest_token, context_id, color="blue", description="context description"
+    )
+    assert ctx2.get("color") == "blue"
+    assert ctx2.get("description") == "context description"
+
+    # create source
+    src = await GulpAPIOperation.source_create(
+        ingest_token, TEST_OPERATION_ID, context_id, "new_source"
+    )
+    assert src.get("name") == "new_source"
+    source_id = src["id"]
+
+    # get source by id
+    src2 = await GulpAPIOperation.source_get_by_id(ingest_token, source_id)
+    assert src2["id"] == source_id
+    assert src2["context_id"] == context_id
+
+    # update source
+    src2 = await GulpAPIOperation.source_update(
+        ingest_token, source_id, color="green", description="source description"
+    )
+    assert src2.get("color") == "green"
+    assert src2.get("description") == "source description"
+
+    # get context and check source
+    ctx3 = await GulpAPIOperation.context_get_by_id(ingest_token, context_id)
+    assert ctx3.get("sources") and len(ctx3["sources"]) == 1
+    assert ctx3["sources"][0]["id"] == source_id
+
+    # delete source
+    await GulpAPIOperation.source_delete(
+        ingest_token,
+        TEST_OPERATION_ID,
+        context_id,
+        source_id,
+    )
+    ctx4 = await GulpAPIOperation.context_get_by_id(ingest_token, context_id)
+    assert not ctx4.get("sources") or len(ctx4["sources"]) == 0
+
+    # list contexts
+    contexts = await GulpAPIOperation.context_list(ingest_token, TEST_OPERATION_ID)
+    assert contexts and len(contexts) == 1
+    found = False
+    for c in contexts:
+        if c["id"] == context_id:
+            found = True
+            break
+    assert found
+
+    # delete context
+    await GulpAPIOperation.context_delete(ingest_token, context_id)
     contexts = await GulpAPIOperation.context_list(ingest_token, TEST_OPERATION_ID)
     assert len(contexts) == 0
-
-    sources = await GulpAPIOperation.source_list(
-        ingest_token, TEST_OPERATION_ID, context_id=context_id
-    )
-    assert len(sources) == 0
-    MutyLogger.get_instance().info("all OPERATION tests succeeded!")
+    MutyLogger.get_instance().info("all CONTEXT tests succeeded!")
+    

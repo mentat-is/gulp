@@ -1,0 +1,1950 @@
+{
+  "metadata": {
+    "plugin": [
+      "json.py"
+    ]
+  },
+  "mappings": {
+    "conn":{
+      "event_code": "log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.conn",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "proto": {
+          "ecs": [
+            "network.transport"
+          ]
+        },
+        "service": {
+          "ecs": [
+            "network.protocol"
+          ]
+        },
+        "duration": {
+          "ecs":[
+            "event.duration"
+          ],
+          "force_type":"float"
+        },
+        "orig_bytes": {
+          "ecs": [
+            "source.bytes"
+          ],
+          "force_type": "int"
+        },
+        "resp_bytes": {
+          "ecs": [
+            "destination.bytes"
+          ],
+          "force_type": "int"
+        },
+        "orig_pkts": {
+          "ecs": [
+            "source.packets"
+          ],
+          "force_type": "int"
+        },
+        "resp_pkts": {
+          "ecs": [
+            "destination.packets"
+          ],
+          "force_type": "int"
+        },
+        "tunnel_parents": {
+          "ecs": [
+            "gulp.zeek.tunnel.tunnel_parents"
+          ]
+        }
+
+      }
+    },
+    "dns": {
+      "event_code": "log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.dns",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "proto": {
+          "ecs": [
+            "network.transport"
+          ]
+        },
+        "trans_id": {
+          "ecs": [
+            "dns.id"
+          ]
+        },
+        "query": {
+          "ecs": [
+            "dns.question.name"
+          ]
+        },
+        "qclass_name": {
+          "ecs": [
+            "dns.question.class"
+          ]
+        },
+        "qtype_name": {
+          "ecs": [
+            "dns.question.type"
+          ]
+        },
+        "rcode_name": {
+          "ecs": [
+            "dns.response_code"
+          ]
+        },
+        "answers" : {
+          "ecs": [
+            "dns.resolved_ip"
+          ]
+        },
+        "TTLs": {
+          "ecs": [
+            "dns.answers.ttl"
+          ],
+          "force_type": "str"
+        }
+      }
+    },
+    "http": {
+      "event_code": "log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.http",
+      "network.protocol":"http",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "method": {
+          "ecs": [
+            "http.request.method"
+          ]
+        },
+        "host": {
+          "ecs": [
+            "http.request.referrer"
+          ]
+        },
+        "uri": {
+          "ecs": [
+            "url.original"
+          ]
+        },
+        "version": {
+          "ecs": [
+            "http.version"
+          ]
+        },
+        "user_agent": {
+          "ecs": [
+            "user_agent.original"
+          ]
+        },
+        "request_body_len": {
+          "ecs": [
+            "http.request.body.bytes"
+          ]
+        },
+        "response_body_len": {
+          "ecs": [
+            "http.response.body.bytes"
+          ]
+        },
+        "status_code": {
+          "ecs": [
+            "http.response.status_code"
+          ]
+        },
+        "resp_fuids": {
+          "ecs": [
+            "gulp.zeek.fuid"
+          ],
+          "force_type": "str"
+        },
+        "resp_mime_types": {
+          "ecs": [
+            "http.response.mime_type"
+          ],
+          "force_type": "str"
+        }
+      }
+    },
+    "file": {
+      "event_code": "log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.file",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "fuid": {
+          "ecs": [
+            "gulp.zeek.fuid"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "mime_type": {
+          "ecs": [
+            "file.mime_type"
+          ]
+        },
+        "filename": {
+          "ecs": [
+            "file.name"
+          ]
+        },
+        "md5": {
+          "ecs": [
+            "hash.md5"
+          ]
+        },
+        "sha1": {
+          "ecs": [
+            "hash.sha1"
+          ]
+        },
+        "sha256": {
+          "ecs": [
+            "hash.sha256"
+          ]
+        },
+        "duration": {
+          "ecs": [
+            "event.duration"
+          ],
+          "force_type":"float"
+        },
+        "extracted": {
+          "ecs": [
+            "file.name"
+          ]
+        }
+      }
+    },
+    "ftp": {
+      "event_code": "log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.ftp",
+      "fields": {
+        "_path": {
+          "ecs": [
+            "gulp.zeek.ftp._path"
+          ]
+        },
+        "_system_name": {
+          "ecs": [
+            "gulp.zeek.ftp._system_name"
+          ]
+        },
+        "_write_ts": {
+          "ecs": [
+            "gulp.zeek.ftp._write_ts"
+          ]
+        },
+        "_node": {
+          "ecs": [
+            "gulp.zeek.ftp._node"
+          ]
+        },
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "proto": {
+          "ecs": [
+            "network.transport"
+          ]
+        },
+        "service": {
+          "ecs": [
+            "network.protocol"
+          ]
+        },
+        "duration": {
+          "ecs":[
+            "event.duration"
+          ],
+          "force_type":"float"
+        },
+        "orig_bytes": {
+          "ecs": [
+            "source.bytes"
+          ]
+        },
+        "resp_bytes": {
+          "ecs": [
+            "destination.bytes"
+          ]
+        },
+        "orig_pkts": {
+          "ecs": [
+            "source.packets"
+          ]
+        },
+        "resp_pkts": {
+          "ecs": [
+            "destination.packets"
+          ]
+        },
+        "community_id": {
+          "ecs": [
+            "gulp.zeek.ftp.community_id"
+          ]
+        },
+        "user": {
+          "ecs": [
+            "user.name"
+          ]
+        },
+        "password": {
+          "ecs": [
+            "gulp.zeek.ftp.password"
+          ]
+        },
+        "command": {
+          "ecs": [
+            "event.action"
+          ]
+        },
+        "arg": {
+          "ecs": [
+            "url.original"
+          ]
+        },
+        "file_size": {
+          "ecs": [
+            "file.size"
+          ]
+        },        
+        "reply_code": {
+          "ecs": [
+            "event.code"
+          ]
+        },
+        "reply_msg": {
+          "ecs": [
+            "event.reason"
+          ]
+        },
+        "fuid": {
+          "ecs": [
+            "gulp.zeek.fuid"
+          ]
+        },
+        "data_channel.passive": {
+          "ecs": [
+            "gulp.zeek.ftp.data_channel.passive"
+          ]
+        },
+        "data_channel.orig_h": {
+          "ecs": [
+            "gulp.zeek.ftp.data_channel.orig_h"
+          ]
+        },
+        "data_channel.resp_h": {
+          "ecs": [
+            "gulp.zeek.ftp.data_channel.resp_h"
+          ]
+        },
+        "data_channel.resp_p": {
+          "ecs": [
+            "gulp.zeek.ftp.data_channel.resp_p"
+          ]
+        }
+      }
+    },
+    "ssl": {
+      "event_code": "log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.ssl",
+      "fields":{
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "version": {
+          "ecs": [
+            "tls.version_protocol"
+          ]
+        },
+        "cipher": {
+          "ecs": [
+            "tls.cipher"
+          ]
+        },
+        "curve": {
+          "ecs": [
+            "tls.curve"
+          ]
+        },
+        "server_name": {
+          "ecs": [
+            "tls.client.server_name",
+            "destination.domain"
+          ]
+        },
+        "resumed": {
+          "ecs": [
+            "tls.resumed"
+          ]
+        },
+        "next_protocol": {
+          "ecs": [
+            "tls.next_protocol"
+          ]
+        },
+        "established": {
+          "ecs": [
+            "tls.established"
+          ]
+        },
+        "cert_chain_fuids": {
+          "ecs": [
+            "gulp.zeek.fuid"
+          ],
+          "force_type": "str"
+        },
+        "client_cert_chain_fuids": {
+          "ecs": [
+            "gulp.zeek.client_fuid"
+          ],
+          "force_type": "str"
+        },
+        "subject": {
+          "ecs": [
+            "tls.server.subject"
+          ]
+        },
+        "issuer": {
+          "ecs": [
+            "tls.server.issuer"
+          ]
+        }
+      }
+    },
+    "x509": {
+      "event_code": "log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.x509",
+      "fields":{
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "id": {
+          "ecs": [
+            "gulp.zeek.fuid"
+          ]
+        },
+        "certificate.version": {
+          "ecs": [
+            "tls.client.x509.version_number"
+          ]
+        },
+        "certificate.serial": {
+          "ecs": [
+            "tls.client.x509.serial_number"
+          ]
+        },
+        "certificate.subject": {
+          "ecs": [
+            "tls.server.x509.subject.common_name"
+          ]
+        },
+        "certificate.issuer": {
+          "ecs": [
+            "tls.client.x509.issuer.distinguished_name"
+          ]
+        },
+        "certificate.not_valid_before": {
+          "ecs": [
+            "tls.client.x509.not_before"
+          ]
+        },
+        "certificate.not_valid_after": {
+          "ecs": [
+            "tls.client.x509.not_after"
+          ]
+        },
+        "certificate.key_alg": {
+          "ecs": [
+            "tls.client.x509.public_key_algorithm"
+          ]
+        },
+        "certificate.sig_alg": {
+          "ecs": [
+            "tls.client.x509.signature_algorithm"
+          ]
+        },
+        "certificate.key_type": {
+          "ecs": [
+            "tls.client.x509.public_key_algorithm"
+          ]
+        },
+        "certificate.key_length": {
+          "ecs": [
+            "tls.client.x509.public_key_size"
+          ]
+        },
+        "certificate.exponent": {
+          "ecs": [
+            "tls.client.x509.public_key_exponent"
+          ]
+        },
+        "san.dns": {
+          "ecs": [
+            "gulp.zeek.x509.san.dns"
+          ]
+        },
+        "basic_constraints.ca": {
+          "ecs": [
+            "gulp.zeek.fuid"
+          ]
+        }
+      }
+    },
+    "smtp": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.smtp",
+      "network.protocol":"smtp",
+      "fields":{
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "helo": {
+          "ecs": [
+            "gulp.zeek.smtp.helo"
+          ]
+        },
+        "mailfrom": {
+          "ecs": [
+            "gulp.zeek.smtp.mailfrom"
+          ]
+        },
+        "rcptto": {
+          "ecs": [
+            "gulp.zeek.smtp.rcptto"
+          ]
+        },
+        "from": {
+          "ecs": [
+            "email.from.address"
+          ]
+        },
+        "to": {
+          "ecs": [
+            "email.to.address"
+          ]
+        },
+        "msg_id": {
+          "ecs": [
+            "email.message_id"
+          ]
+        },
+        "subject": {
+          "ecs": [
+            "email.subject"
+          ]
+        },
+        "last_reply": {
+          "ecs": [
+            "event.reason"
+          ]          
+        },
+        "path": {
+          "ecs": [
+            "network.forwarded_ip"
+          ],
+          "force_type": "str"
+        },
+        "user_agent": {
+          "ecs": [
+            "user_agent.original"
+          ]
+        },
+        "tls": {
+          "ecs":[
+            "tls.established"
+          ]
+        },
+        "fuids": {
+          "ecs": [
+            "gulp.zeek.fuid"
+          ],
+          "force_type": "str"
+        }
+      }
+    },
+    "ssh": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.ssh",
+      "network.protocol":"ssh",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+              "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+              "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+              "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "version": {
+          "ecs": [
+            "gulp.zeek.ssh.version"
+          ]
+        },
+        "auth_success": {
+          "ecs": [
+            "event.outcome"
+          ]
+        },
+        "client": {
+          "ecs": [
+            "gulp.zeek.ssh.client"
+          ]
+        },
+        "server": {
+          "ecs": [
+            "gulp.zeek.ssh.server"
+          ]
+        },
+        "cipher_alg": {
+          "ecs": [
+            "gulp.zeek.ssh.cipher_alg"
+          ]
+        },
+        "mac_alg": {
+          "ecs": [
+            "gulp.zeek.ssh.mac_alg"
+          ]
+        },
+        "compression_alg": {
+          "ecs": [
+            "gulp.zeek.ssh.compression_alg"
+          ]
+        },
+        "kex_alg": {
+          "ecs": [
+            "gulp.zeek.ssh.kex_alg"
+          ]
+        },
+        "host_key_alg": {
+          "ecs": [
+            "gulp.zeek.ssh.host_key_alg"
+          ]
+        },
+        "host_key": {
+          "ecs": [
+            "gulp.zeek.ssh.host_key"
+          ]
+        },
+        "hasshVersion": {
+          "ecs": [
+            "gulp.zeek.ssh.hasshVersion"
+          ]
+        },
+        "hassh": {
+          "ecs": [
+            "gulp.zeek.ssh.hassh"
+          ]
+        },
+        "hasshServer": {
+          "ecs": [
+            "gulp.zeek.ssh.hasshServer"
+          ]
+        },
+        "cshka": {
+          "ecs": [
+            "gulp.zeek.ssh.cshka"
+          ]
+        },
+        "hasshAlgorithms": {
+          "ecs": [
+            "gulp.zeek.ssh.hasshAlgorithms"
+          ]
+        },
+        "sshka": {
+          "ecs": [
+            "gulp.zeek.ssh.sshka"
+          ]
+        },
+        "hasshServerAlgorithms": {
+          "ecs": [
+            "gulp.zeek.ssh.hasshServerAlgorithms"
+          ]
+        }
+      }
+    },
+    "pe": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.pe",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "id": {
+          "ecs": [
+            "gulp.zeek.fuid"
+          ]
+        },
+        "machine": {
+          "ecs": [
+            "pe.architecture"
+          ]
+        },
+        "os": {
+          "ecs": [
+            "os.name"
+          ]
+        },
+        "subsystem": {
+          "ecs": [
+            "os.type"
+          ]
+        }
+      }
+    },
+    "dhcp": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.dhcp",
+      "network.protocol":"dhcp",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uids": {
+          "ecs": [
+            "gulp.zeek.fuid"
+          ],
+          "force_type": "str"
+        },
+        "client_addr": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "server_addr": {
+          "ecs": [
+            "destination.address"
+          ]
+        },
+        "mac": {
+          "ecs": [
+            "host.mac"
+          ]
+        },
+        "host_name": {
+          "ecs": [
+            "host.name"
+          ]
+        },
+        "client_fqdn": {
+          "ecs": [
+            "host.name"
+          ]
+        },
+        "domain": {
+          "ecs": [
+            "host.domain"
+          ]
+        },
+        "requested_addr": {
+          "ecs": [
+            "gulp.zeek.dhcp.requested_addr"
+          ]
+        },
+        "assigned_addr": {
+          "ecs": [
+            "gulp.zeek.dhcp.requested_addr"
+          ]
+        },
+        "msg_types": {
+          "ecs": [
+            "gulp.zeek.dhcp.msg_types"
+          ],
+          "force_type":"str"
+        },
+        "duration": {
+          "ecs": [
+            "event.duration"
+          ],
+          "force_type":"float"
+        }
+      }
+    },
+    "ntp": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.ntp",
+      "network.protocol":"ntp",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "mode": {
+          "ecs": [
+            "gulp.zeek.ntp.mode"
+          ]
+        }
+      }
+    },
+    "notice": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.notice",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },"id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "fuid": {
+          "ecs": [ 
+            "gulp.zeek.fuid" 
+          ]
+        },
+        "file_mime_type": {
+          "ecs": [ 
+            "file.mime_type" 
+          ]
+        },
+        "file_desc": {
+          "ecs": [ 
+            "file.attributes" 
+          ]
+        },
+        "proto": {
+          "ecs": [
+            "network.transport"
+          ]
+        },
+        "note": {
+          "ecs": [
+            "gulp.zeek.notice.note"
+          ]
+        },
+        "sub": {
+          "ecs": [ 
+            "rule.description" 
+          ]
+        },
+        "actions": {
+          "ecs": [ 
+            "rule.action" 
+          ]
+        }
+      }      
+    },
+    "dce_rpc": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.dce_rpc",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "rtt": {
+          "ecs": [
+            "event.duration"
+          ],
+          "force_type":"float"
+        },
+        "named_pipe": {
+          "ecs": [
+            "gulp.zeek.dce_rpc.named_pipe"
+          ]
+        },
+        "endpoint": {
+          "ecs": [
+            "gulp.zeek.dce_rpc.endpoint"
+          ]
+        },
+        "operation": {
+          "ecs": [
+            "gulp.zeek.dce_rpc.operation"
+          ]
+        }
+      } 
+    },
+    "kerberos": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.kerberos",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "request_type": {
+          "ecs": [ 
+            "event.action" 
+          ]
+        },
+        "client": {
+          "ecs": [ 
+            "user.name"
+          ]
+        },
+        "service": {
+          "ecs": [ 
+            "service.name"
+          ]
+        },
+        "success": {
+          "ecs": [ 
+            "event.outcome" 
+          ]
+        },        
+        "cipher": {
+          "ecs": [
+            "tls.cipher"
+          ]
+        }
+      }
+    },
+    "smb_mapping": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.smb_mapping",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "path": {
+          "ecs": [ "file.path" ]
+        },
+        "share_type": {
+          "ecs": [ "network.share.type" ]
+        }
+      }
+    },
+    "smb_files": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.smb_files",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "path": {
+          "ecs": [ "file.path" ]
+        },
+        "action": {
+          "ecs": [
+            "event.action"
+          ]
+        },
+        "name": {
+          "ecs": [ 
+            "file.name" 
+          ]
+        },
+        "size": {
+          "ecs": [ 
+            "file.size" 
+          ]
+        },
+        "times.modified": {
+          "ecs": [ 
+            "gulp.zeek.smb_files.times.modified" 
+          ]
+        },
+        "times.accessed": {
+          "ecs": [ 
+            "gulp.zeek.smb_files.times.accessed" 
+          ]
+        },
+        "times.created": {
+          "ecs": [ 
+            "gulp.zeek.smb_files.times.created" 
+          ]
+        },
+        "times.changed": {
+          "ecs": [ 
+            "gulp.zeek.smb_files.times.changed" 
+          ]
+        }
+      }
+    },
+    "ntlm": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.ntlm",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },       
+        "username": {
+          "ecs": [ 
+            "user.name" 
+          ]
+        },
+        "hostname": {
+          "ecs": [ 
+            "client.domain" 
+          ]
+        },
+        "domainname": {
+          "ecs": [ 
+            "user.domain" 
+          ]
+        },
+        "server_nb_computer_name": {
+          "ecs": [ 
+            "server.domain" 
+          ]
+        },
+        "server_dns_computer_name": {
+          "ecs": [ 
+            "server.domain" 
+          ]
+        }
+      }
+    },
+    "irc": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.irc",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "nick": {
+          "ecs": [ 
+            "user.name" 
+          ]
+        },
+        "user": {
+          "ecs": [ 
+            "user.id" 
+          ]
+        },
+        "command": {
+          "ecs": [ 
+            "event.action" 
+          ]
+        },
+        "value": {
+          "ecs": [ 
+            "group.name" 
+          ]
+        }
+      }
+    },
+    "ldap": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.ldap",
+      "fields":{
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "message_id": {
+          "ecs": [ 
+            "event.sequence" 
+          ]
+        },
+        "opcode": {
+          "ecs": [ 
+            "event.action" 
+          ]
+        },
+        "result": {
+          "ecs": [ 
+            "event.outcome" 
+          ]
+        },
+        "object": {
+          "ecs": [ 
+            "user.dn"
+          ]
+        },
+        "argument": {
+          "ecs": [ 
+            "event.details" 
+          ]
+        }
+      }
+    },
+    "postgresql": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.postgresql",
+      "fields":{
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "user": {
+          "ecs": [ "user.name" ]
+        },
+        "database": {
+          "ecs": [ "gulp.zeek.postgresql.database" ]
+        },
+        "application_name": {
+          "ecs": [ "client.application" ]
+        },
+        "frontend": {
+          "ecs": [ "gulp.zeek.postgresql.frontend" ]
+        },
+        "frontend_arg": {
+          "ecs": [ "gulp.zeek.postgresql.frontend_arg" ]
+        },
+        "backend": {
+          "ecs": [ "gulp.zeek.postgresql.backend" ]
+        },
+        "backend_arg": {
+          "ecs": [ "gulp.zeek.postgresql.backend_arg" ]
+        },
+        "success": {
+          "ecs": [ "event.outcome" ]
+        },
+        "rows": {
+          "ecs": [ "gulp.zeek.postgresql.rows" ]
+        }
+      }
+    },
+    "quic": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.quic",
+      "fields":{
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "server_name": {
+          "ecs": [
+            "tls.client.server_name",
+            "destination.domain"
+          ]
+        },
+        "client_protocol": {
+          "ecs": [
+            "network.protocol"
+          ]
+        }
+      }
+    },
+    "rdp": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.rdp",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "cookie": {
+          "ecs": [ 
+            "network.session_id" 
+          ]
+        },
+        "result": {
+          "ecs": [ 
+            "event.outcome"
+          ]
+        },
+        "security_protocol": {
+          "ecs": [ "gulp.zeek.rdp.security_protocl" ]
+        }        
+      }
+    },
+    "traceroute": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.traceroute",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "src":{
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "dst":{
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "proto": {
+          "ecs": [
+            "network.transport"
+          ]
+        }
+      }      
+    },
+    "tunnel": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.tunnel",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        },
+        "action": {
+          "ecs":[
+            "event.action"
+          ]
+        },
+        "tunnel_type": {
+          "ecs": [
+            "gulp.zeek.tunnel.tunnel_type"
+          ]
+        }
+      }
+    },
+    "known_certs": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.known_certs",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "host": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "port_num": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "subject": {
+          "ecs": [
+            "tls.server.subject"
+          ]
+        },
+        "issuer_subject": {
+          "ecs": [
+            "tls.server.issuer"
+          ]
+        },
+        "serial": {
+          "ecs": [
+            "tls.client.x509.serial_number"
+          ]
+        }
+      }
+    },
+    "known_hosts": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.known_hosts",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "host": {
+          "ecs": [
+            "source.address"
+          ]
+        }
+      }
+    },
+    "known_services": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.known_services",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "host": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "port_num": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "port_proto":{
+          "ecs": [
+            "network.transport"
+          ]
+        },
+        "service": {
+          "ecs": [
+            "network.protocol"
+          ],
+          "force_type":"str"
+        }
+      }
+    },
+    "software": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.software",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "host": {
+          "ecs": [
+            "source.address"
+          ]
+        }
+      }
+    },
+    "weird": {
+      "event_code":"log_recorded",
+      "agent_type": "zeek",
+      "event.dataset": "zeek.software",
+      "fields": {
+        "ts": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "uid": {
+          "ecs": [
+            "related.ids"
+          ]
+        },
+        "id.orig_h": {
+          "ecs": [
+            "source.address"
+          ]
+        },
+        "id.orig_p": {
+            "ecs": [
+                "source.port"
+            ],
+            "force_type": "int"
+        },
+        "id.resp_h": {
+            "ecs": [
+                "destination.address"
+            ]
+        },
+        "id.resp_p": {
+            "ecs": [
+                "destination.port"
+            ],
+            "force_type": "int"
+        }
+      }
+    }
+  }
+}

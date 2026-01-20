@@ -1,0 +1,31 @@
+     #    PID                    Time  Browser Type     Url :: Info
+-------------------------------------------------------------------
+     0   9784 2025-10-09 08:48:37 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS :: GitHub - ufrisk/MemProcFS: MemProcFS
+     1   9784 2025-10-09 08:48:30 UTC  CHROME  VISIT    http://github.com/ufrisk :: ufrisk (Ulf Frisk) · GitHub
+     2   9784 2025-10-09 08:48:30 UTC  CHROME  VISIT    https://github.com/ufrisk :: ufrisk (Ulf Frisk) · GitHub
+     3   9784 2025-10-09 08:34:17 UTC  CHROME  VISIT    https://learn.microsoft.com/it-it/sysinternals/downloads/notmyfault :: NotMyFault - Sysinternals | Microsoft Learn
+     4   9784 2025-10-09 08:32:06 UTC  CHROME  VISIT    https://learn.microsoft.com/it-it/sysinternals/downloads/notmyfault :: NotMyFault - Sysinternals | Microsoft Learn
+     5   9784 2025-10-09 08:32:04 UTC  CHROME  VISIT    https://www.google.com/search?q=notmyfault&rlz=1C1CHBF_enIT1147IT1147&oq=notmyf&gs_lcrp=EgZjaHJvbWUqBwgAEAAYgAQyBwgAEAAYgAQyBggBEEUYOTIGCAIQABgeMgYIAxAAGB4yBggEEAAYHjIGCAUQABgeMgYIBhAAGB4yBggHEAAYHjIGCAgQABgeMgYICRAAGB6oAgCwAgA&sourceid=chrome&ie=UTF-8&sei=A3PnaImjBfzl7_UP5YXweA :: notmyfault - Cerca con Google
+     6   9784 2025-10-09 08:16:49 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS?tab=readme-ov-file :: GitHub - ufrisk/MemProcFS: MemProcFS
+     7   9784 2025-10-09 08:16:43 UTC  CHROME  VISIT    https://github.com/ufrisk/LeechCore/wiki/Device_WinPMEM :: Device_WinPMEM · ufrisk/LeechCore Wiki · GitHub
+     8   9784 2025-10-09 08:16:41 UTC  CHROME  VISIT    https://github.com/ufrisk/LeechCore/wiki/Device_WinPMEM :: Device_WinPMEM · ufrisk/LeechCore Wiki · GitHub
+     9   9784 2025-10-09 08:16:40 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS?tab=readme-ov-file :: GitHub - ufrisk/MemProcFS: MemProcFS
+     a   9784 2025-10-09 08:16:25 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS?tab=readme-ov-file :: GitHub - ufrisk/MemProcFS: MemProcFS
+     b   9784 2025-10-09 08:15:38 UTC  CHROME  VISIT    https://www.magnetforensics.com/resources/magnet-dumpit-for-windows :: Magnet DumpIt for Windows - Magnet Forensics
+     c   9784 2025-10-09 08:15:38 UTC  CHROME  VISIT    https://www.magnetforensics.com/resources/magnet-dumpit-for-windows/ :: Magnet DumpIt for Windows - Magnet Forensics
+     d   9784 2025-10-09 08:15:36 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS?tab=readme-ov-file :: GitHub - ufrisk/MemProcFS: MemProcFS
+     e   9784 2025-10-09 07:48:41 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS?tab=readme-ov-file :: GitHub - ufrisk/MemProcFS: MemProcFS
+     f   9784 2025-10-09 07:46:58 UTC  CHROME  VISIT    https://github.com/dokan-dev/dokany/releases/tag/v2.3.1.1000 :: Release v2.3.1.1000 · dokan-dev/dokany · GitHub
+    10   9784 2025-10-09 07:46:58 UTC  CHROME  VISIT    https://github.com/dokan-dev/dokany/releases/tag/v2.3.1.1000 :: Release v2.3.1.1000 · dokan-dev/dokany · GitHub
+    11   9784 2025-10-09 07:46:58 UTC  CHROME  VISIT    https://github.com/dokan-dev/dokany/releases/latest :: Release v2.3.1.1000 · dokan-dev/dokany · GitHub
+    12   9784 2025-10-09 07:46:58 UTC  CHROME  VISIT    https://github.com/dokan-dev/dokany/releases/latest :: Release v2.3.1.1000 · dokan-dev/dokany · GitHub
+    13   9784 2025-10-09 07:46:57 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS?tab=readme-ov-file :: GitHub - ufrisk/MemProcFS: MemProcFS
+    14   9784 2025-10-09 07:46:39 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS/tree/v5.16 :: GitHub - ufrisk/MemProcFS at v5.16
+    15   9784 2025-10-09 07:46:38 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS/tree/v5.16 :: GitHub - ufrisk/MemProcFS at v5.16
+    16   9784 2025-10-09 07:46:07 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS/releases/tag/v5.16 :: Release Version 5.16 · ufrisk/MemProcFS · GitHub
+    17   9784 2025-10-09 07:46:07 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS/releases/latest :: Release Version 5.16 · ufrisk/MemProcFS · GitHub
+    18   9784 2025-10-09 07:46:06 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS?tab=readme-ov-file :: GitHub - ufrisk/MemProcFS: MemProcFS
+    19   9784 2025-10-09 07:45:50 UTC  CHROME  VISIT    https://github.com/ufrisk/MemProcFS :: GitHub - ufrisk/MemProcFS: MemProcFS
+    1a   9784 2025-10-09 07:45:42 UTC  CHROME  VISIT    http://github.com/ufrisk :: ufrisk (Ulf Frisk) · GitHub
+    1b   9784 2025-10-09 07:45:42 UTC  CHROME  VISIT    https://github.com/ufrisk :: ufrisk (Ulf Frisk) · GitHub
+    1c   9784                     ***  CHROME  LOGINPWD https://www.nowtv.it/ :: 

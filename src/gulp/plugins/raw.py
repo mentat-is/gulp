@@ -33,8 +33,8 @@ from gulp.api.mapping.models import GulpMapping, GulpMappingField
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     def display_name(self) -> str:
         return "raw"
@@ -62,24 +62,21 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: dict, record_idx: int, **kwargs
     ) -> GulpDocument:
-
+        # we need to process context and source here (anything else is untouched)
+        # if they do not exist, they will be created with name = id
+        # get context and process it
         d: dict = record
-        m = await self._process_key(
-            "gulp.context_id", record["gulp.context_id"], d, **kwargs
-        )
+        context_id: str = record.get("gulp.context_id")
+        m = await self._process_key("gulp.context_id", context_id, d, **kwargs)
         d.update(m)
 
-        # check if we have to override source_id
-        source_id: str = self._plugin_params.custom_parameters.get("override_source_id")
-        if source_id:
-            # override
-            d["gulp.source_id"] = source_id
-        else:
-            # either overridden or from record
-            m = await self._process_key(
-                "gulp.source_id", d["gulp.source_id"], d, **kwargs
-            )
-            d.update(m)
+        # get source and process it
+        source_id = record.get("gulp.source_id")
+        override: str = self._plugin_params.custom_parameters.get("override_source_id")
+        if override:
+            source_id = override
+        m = await self._process_key("gulp.source_id", source_id, d, **kwargs)
+        d.update(m)
 
         # create GulpDocument as is
         return GulpDocument(
@@ -94,13 +91,13 @@ class Plugin(GulpPluginBase):
     async def ingest_raw(
         self,
         sess: AsyncSession,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
         index: str,
         operation_id: str,
         chunk: bytes,
-        stats: GulpRequestStats = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
         last: bool = False,
@@ -108,56 +105,44 @@ class Plugin(GulpPluginBase):
     ) -> GulpRequestStatus:
 
         js: list[dict] = []
-        try:
-            # initialize plugin
-            plugin_params=self._ensure_plugin_params(plugin_params, mappings={
+        # initialize plugin
+        plugin_params = self._ensure_plugin_params(
+            plugin_params,
+            mappings={
                 "raw_doc": GulpMapping(
                     fields={
                         # as default, treats these fields as GulpContext and GulpSource ids (creates them if not existing)
                         "gulp.context_id": GulpMappingField(is_gulp_type="context_id"),
-                        "gulp.source_id": GulpMappingField(is_gulp_type="source_id",),
+                        "gulp.source_id": GulpMappingField(
+                            is_gulp_type="source_id",
+                        ),
                     }
                 ),
-            })
+            },
+        )
 
-            await super().ingest_raw(
-                sess=sess,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                chunk=chunk,
-                stats=stats,
-                flt=flt,
-                plugin_params=plugin_params,
-                last=last,
-                **kwargs,
-            )
+        await super().ingest_raw(
+            sess,
+            stats,
+            user_id,
+            req_id,
+            ws_id,
+            index,
+            operation_id,
+            chunk,
+            flt=flt,
+            plugin_params=plugin_params,
+            last=last,
+            **kwargs,
+        )
 
-            # chunk is a list of dicts, each dict being a GulpDocument record
-            js = orjson.loads(chunk.decode("utf-8"))
+        # chunk is a list of dicts, each dict being a GulpDocument record
+        js = orjson.loads(chunk.decode("utf-8"))
 
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
-
-        doc_idx = 0
-        try:
-            for rr in js:
-                doc_idx += 1
-
-                try:
-                    await self.process_record(rr, doc_idx, flt=flt)
-                except RequestCanceledError as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    break
-                except SourceCanceledError as ex:
-                    await self._source_failed(ex)
-                    break
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+        # walk each document in the chunk
+        doc_idx: int = 0
+        for rr in js:
+            if not await self.process_record(rr, doc_idx, flt=flt):
+                break
+            doc_idx += 1
+        return stats.status

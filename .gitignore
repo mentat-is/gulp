@@ -13,7 +13,8 @@ venv
 # symlinks
 gulp-paid-plugins
 slurp
-gulp-sdk-python
+gulpui-web
+# gulp-sdk-python
 
 #auto generated docs
 docs/html
@@ -24,9 +25,8 @@ src/gulp/libgulp
 *.so
 
 # misc
-copilot-instructions.md
-chatmodes
-prompts
+.github/agents
+.github/**/*instructions.md
 export.csv
 export.json
 gulp_cfg.json
@@ -42,3 +42,4 @@ build_paid.sh
 prompts.txt
 tests/query/sigma/windows
 build_test.sh
+.specstory

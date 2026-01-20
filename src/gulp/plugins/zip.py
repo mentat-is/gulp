@@ -1,4 +1,3 @@
-
 """
 A plugin for processing and ingesting ZIP files into GULP.
 
@@ -13,6 +12,7 @@ Features:
 - Support for password-protected archives
 - Customizable hashing algorithm
 """
+
 import os
 import datetime
 import hashlib
@@ -29,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -47,6 +46,10 @@ class Plugin(GulpPluginBase):
 
     def display_name(self) -> str:
         return "zip"
+
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return "^\x50\x4b\x03\x04|^\x50\x4b\x05\x06|^\x50\x4b\x07\x08"
 
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
@@ -78,12 +81,12 @@ class Plugin(GulpPluginBase):
                 name="keep_files",
                 type="bool",
                 desc="if True, event.original will contain the file extracted from the zip",
-                default_value=False
-            )
+                default_value=False,
+            ),
         ]
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     async def _record_to_gulp_document(
@@ -130,7 +133,8 @@ class Plugin(GulpPluginBase):
         event_code = str()
 
         timestamp = datetime.datetime(
-            *d["date_time"], tzinfo=datetime.timezone.utc).isoformat()
+            *d["date_time"], tzinfo=datetime.timezone.utc
+        ).isoformat()
         d["date_time"] = str(d["date_time"])
 
         # if keep_file is false, discard original files and only keep raw metadata
@@ -153,8 +157,7 @@ class Plugin(GulpPluginBase):
             timestamp=timestamp,
             event_original=event_original,
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **final,
         )
 
@@ -174,30 +177,24 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-        **kwargs 
-        ) -> GulpRequestStatus:
-        try:
-
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+        **kwargs,
+    ) -> GulpRequestStatus:
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         keep_files = self._plugin_params.custom_parameters.get("keep_files")
         password = self._plugin_params.custom_parameters.get("password")
@@ -205,30 +202,22 @@ class Plugin(GulpPluginBase):
         hashes = self._plugin_params.custom_parameters.get("hashes")
         chunk_size = self._plugin_params.custom_parameters.get("chunk_size")
         doc_idx = 0
-        try:
-            with zipfile.ZipFile(file_path) as z:
-                for f in z.filelist:
-                    try:
-                        await self.process_record(
-                            f, doc_idx,
-                            flt=flt,
-                            zip=z,
-                            file=f,
-                            encoding=encoding,
-                            password=password,
-                            hashes=hashes,
-                            chunk_size=chunk_size,
-                            keep_files=keep_files,
-                        )
-                    except (RequestCanceledError, SourceCanceledError) as ex:
-                        MutyLogger.get_instance().exception(ex)
-                        await self._source_failed(ex)
-                    except PreviewDone:
-                        pass
 
-                    doc_idx += 1
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+        with zipfile.ZipFile(file_path) as z:
+            for f in z.filelist:
+
+                await self.process_record(
+                    f,
+                    doc_idx,
+                    flt=flt,
+                    zip=z,
+                    file=f,
+                    encoding=encoding,
+                    password=password,
+                    hashes=hashes,
+                    chunk_size=chunk_size,
+                    keep_files=keep_files,
+                )
+                doc_idx += 1
+
+        return stats.status

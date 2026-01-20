@@ -7,7 +7,7 @@ import pytest_asyncio
 import websockets
 from muty.log import MutyLogger
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
-from gulp.api.opensearch.query import GulpQueryParameters
+from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp_client.common import _ensure_test_operation
 from gulp_client.query import GulpAPIQuery
 from gulp_client.user import GulpAPIUser
@@ -87,7 +87,7 @@ async def test_elasticsearch():
                         await GulpAPIQuery.query_external(
                             token,
                             TEST_OPERATION_ID,
-                            q=[TEST_QUERY_RAW],
+                            q=TEST_QUERY_RAW,
                             plugin="query_elasticsearch",
                             plugin_params=plugin_params,
                             q_options=q_options,
@@ -95,17 +95,17 @@ async def test_elasticsearch():
                     elif data["type"] == "query_done":
                         # query done
                         q_done_packet: GulpQueryDonePacket = (
-                            GulpQueryDonePacket.model_validate(data["data"])
+                            GulpQueryDonePacket.model_validate(data["payload"])
                         )
                         MutyLogger.get_instance().debug(
                             "query done, packet=%s", q_done_packet
                         )
-                        if q_done_packet.name == "test_external_elasticsearch":
+                        if q_done_packet.q_name == "test_external_elasticsearch":
                             assert q_done_packet.total_hits == 1
                             test_completed = True
                         else:
                             raise ValueError(
-                                f"unexpected query name: {q_done_packet.name}"
+                                f"unexpected query name: {q_done_packet.q_name}"
                             )
                         break
 

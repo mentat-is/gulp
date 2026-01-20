@@ -31,7 +31,7 @@ gulp is made of plugins, each serving different purposes:
 
 - `ingestion` plugins for ingesting data from local sources (i.e. log files)
 - `external` plugins to query external sources (i.e. a SIEM), and possibly ingest data into gulp at the same time
-- `extension` plugins to extend the gulp [REST api](../src/gulp/api/rest/)
+- `extension` plugins to extend the gulp [server API](../src/gulp/api/server/)
 - `ui` plugins to extend the [frontend](https://github.com/mentat-is/gulpui-web) (*just served, not used by the backend*)
 
 ## loading plugins
@@ -87,7 +87,7 @@ Along side the specific ones we also provide some generic "base" plugins which c
 
 ### external
 
-- `elasticsearch` to query and ingest from an external source based on `Elasticsearch` or `Opensearch` (i.e. Wazuh)
+- `elasticsearch` to **query and ingest** from an external source based on `Elasticsearch` or `Opensearch` (i.e. Wazuh)
 
 ### extension
 
@@ -137,7 +137,7 @@ other *optional* methods to implement are:
 - `desc`: the plugin description
 - `depends_on`: if the plugin dependens on other plugins, they are listed here.
 
-> a plugin may be of mixed types too: nothing stop to implement both `ingest_file`, `ingest_raw` and `query_external` in a single plugin, and declare its type as `[`ingestion`, `external`]
+> look at [GulpPluginBase](../src/gulp/plugin.py) for a complete list of methods and properties a plugin may implement.
 
 ## plugin internals
 
@@ -165,19 +165,19 @@ the plugins must implement:
 
 ### multiprocessing and concurrency
 
-`ingest_file`, `ingest_raw`, `query_external` are guaranteed to be called in a task running in a *worker process*, so each operation will run in parallel, unless (for `ingest_file` and `query_external`) `preview_mode` is set.
+`ingest_file`, `query_external` are guaranteed to be called in a task running in a *worker process*, so each ingest/query operation will run in parallel, unless `preview_mode` is set.
 
 > gulp spawns different worker processes at startup (controlled by `parallel_processes_max` in the configuration) to maximize the usage of available cores, using both `multiprocessing` and `asyncio` to run lenghty operations (queries, ingestion) `concurrently` and in `parallel` as much as possible.
 
 following are basic rules to use multiprocessing and concurrency effectively in gulp plugins:
 
-- both `main` and `worker` processes are guaranteed to have a dedicated `coroutine pool`:
-
-  the coroutines pool makes sure no more than n (`concurrency_max_tasks` in the configuration) coroutines are executed concurrently in the process, efficiently queueing them if needed.
+- both `main` and `worker` processes can spawn `background async tasks` which runs in the current process without blocking the process event loop.
 
   ```python
-  # submit a coroutine to the coroutines pool to be executed asap
-  await GulpProcess.get_instance().coro_pool.spawn(coroutine)
+  async def fun(param1, param2):
+      ...
+  coro = fun()
+  GulpApiRestServer.spawn_bg_task(coro)
   ```
 
 - moreover, a dedicated `thread pool` is also available for both `main` and `worker` processes.
@@ -200,10 +200,11 @@ following are basic rules to use multiprocessing and concurrency effectively in 
 - **in the main process only**, a plugin may also run a coroutine in one of the worker processes using the `process` pool.
 
   ```python
-    # run the _ingest_file_internal coroutines with `kwds` parameters in one of the worker processes
-    await GulpProcess.get_instance().process_pool.apply(
-        _ingest_file_internal, kwds=kwds
-    )
+    async def fun(param1, param2, param3):
+        ...
+    
+    # run fun in an async task in a worker process, thanks to aiomultiprocess
+    await GulpServer.get_instance().spawn_worker_task(fun, param1, param2, param3)
   ```
 
 - in `external`, `ingestion`, `enrich` plugins a `collab` session is guaranteed to exist when `ingest_file`, `ingest_raw`, `query_external`, `enrich_documents` are called: **this session is valid in the `current running` task only**.
@@ -244,14 +245,12 @@ sequenceDiagram
         Plugin->>Base: process_record()
         Base->>Base: Buffer records
         opt When buffer full
-            Base->>Base: _flush_buffer()
-            Base->>Base: _ingest_chunk_and_or_send_to_ws()
+            Base->>Base: flush_buffer_and_send_to_ws()
             Base-->>Engine: Stream to websocket
             Base-->>Engine: Ingest to OpenSearch
         end
     end
 
-    Plugin->>Base: _source_done()
     Base-->>Engine: Send completion status
 ~~~
 
@@ -262,8 +261,6 @@ enrichment plugins takes one or more `GulpDocuments` and returns them augmented 
 they must implement `enrich_documents`, `enrich_single_documents` and `_enrich_documents_chunk`.
 
 [here is a basic example](../src/gulp/plugins/enrich_example.py).
-
-> a plugin may support both `enrichment` and `ingestion` by declaring its `type` as `[GulpPluginType.INGESTION, GulpPluginType.ENRICH]` and implement both types entrypoints.
 
 here is the illustrated data flow for the [enrich_whois plugin](../src/gulp/plugins/enrich_whois.py), which enriches gulp data with whois information.
 
@@ -291,7 +288,7 @@ sequenceDiagram
 
 ### external plugins
 
-this is how the data flows through an `external plugin` when querying and ingesting from an external source.
+this is how the data flows through an `external` plugin when querying and ingesting from an external source.
 
 ~~~mermaid
 sequenceDiagram
@@ -331,7 +328,7 @@ to query an external source with an `external plugin`, a client uses the `query_
 3. pass the `q` parameter, which is the query in the `external specific DSL(Domain Specific Language) format`.
 4. optionally pass the `q_options` parameter, which controls how the query is performed (*not all parameters may be supported by the plugin*)
 
-> look at [test_elasticsearch](../tests/query.py) in the query tests for an example usage
+> look at [test_elasticsearch](../tests/query/test_query_external_elasticsearch.py) in the query tests for an example usage
 
 
 ### extension plugins
@@ -375,7 +372,7 @@ sequenceDiagram
 
 ## stacked plugins
 
-plugins may be stacked one on top of the another, as a `lower` and `higher` plugin: the idea is the `higher` plugin has access to the data processed by `lower` and can process it further.
+`ingestion`, `enrichment`, `external` plugins may be stacked above another plugin of the same type (**only one stacking is supported**), as a `lower` and `higher` plugin: the idea is the `lower` plugin processes the source data into basic `GulpDocuments`, while the `higher` plugin further process/enrich each document generated by the lower plugin.
 
 stacked plugins are usually based on generic *ingestion* plugins such as [csv](../src/gulp/plugins/csv) or [sqlite](../src/gulp/plugins/sqlite.py)
 
@@ -385,20 +382,17 @@ An example of a basic extension plugin is [stacked_example](../src/gulp/plugins/
 
 stacking is handled by the engine, which basically does this `for every record` being processed in the source document:
 
-- calls plugin's own `_record_to_gulp_document`
-- if there is a plugin stacked on top, calls its `_record_to_gulp_document` with the `GulpDocument` returned as `dict`.
-- if the stacked plugin also implements `_enrich_documents_chunk`, this is called with each chunk of documents`right before` storing into gulp.
+- always process the record with the `lower` plugin's `_record_to_gulp_document` or `_enrich_documents_chunk`
+- if there is a plugin stacked on top, calls its `_record_to_gulp_document` or `_enrich_documents_chunk` for further processing.
 
 ```mermaid
 flowchart TD
-    A(Log file) -->|parsed by| B[Base plugin]
+    A(Record) -->|parsed by| B[Lower plugin]
     B --> |Generates GulpDocument| C[Stacked plugin]
-    C --> |Modifies GulpDocument.model_dump| D(Ingest events)
+    C --> |Modifies GulpDocument| D(Ingest)
 ```
 
-so, basically, as every other plugin they must implement `_record_to_gulp_document`, but instead of a `GulpDocument` object they receives (and returns) `record` as its `dict` representation: here they can postprocess the record (i.e. change/add/delete fields).
-
-- they must call `setup_stacked_plugin(lower_plugin)` in their `ingest_file`, `ingest_raw`, `query_external` entrypoints (depending on where it is needed)
+- stacked plugins must call `setup_stacked_plugin(lower_plugin)` in their `ingest_file`, `ingest_raw`, `query_external` entrypoints (depending on where it is needed) and then process the record using the corresponding lower plugin's `ingest_file`, `ingest_raw`, `query_external` entrypoints.
 
 - some plugins may want to bypass the engine and call lower's `_record_to_gulp_document` by itself: so, they must use `load_plugin` instead of `setup_stacked_pugin` in their initialization: for an example of this, look at the [mbox](../src/gulp/plugins/mbox.py) which sits on top of the [eml](../src/gulp/plugins/eml.py) plugin.
 
@@ -548,23 +542,23 @@ Here's a commented example mapping file, further details in the [model definitio
       // if the document, in the end of processing, does not have "gulp.source_id" set, a default source is created with this name
       "default_source": "my_default_src",
 
-      // "fields" represents the fields to map
+      // "fields" represents the fields (= keys in the source document) to map
       //
       // each field option is processed in the following order:
       //
-      // 1. if `flatten_json` is set, the value is a JSON object and its fields are flattened, recursively, as "source_key.field.inner_field.another_inner_field" and such (and each is processed independently then, i.e. can be assigned mapping and options)
-      // 2. if `force_type` is set, the value is forced to this type
-      // 3. if `multiplier` is set, the value is multiplied by this value.
-      // 4. if `is_timestamp` is set, the value is converted to nanoseconds from the unix epoch according to type ("generic", "chrome")
-      // 5. if `is_gulp_type` is set, processing stops here and the value is treated as a gulp context or source (read the specific docs below)
-      // 6. finally, the value is mapped to ECS fields as defined in `ecs`.
-      //
-      // if 'extra_doc_with_event_code' is set on a field, step 7 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of the field.
-      //
+      // 1. if `is_gulp_type` is set, processing stops here and the value is treated as a gulp context or source (read the specific docs below)
+      // 2. if `flatten_json` is set, processing stops here and the value is a JSON object which fields gets flattened, recursively, as "source_key.field.inner_field.another_inner_field" and such (and each is processed independently then, i.e. can be assigned mapping and options)
+      // 3. if `force_type` is set, source[key] value is forced to this type
+      // 4. if `multiplier` is set, source[key] value is multiplied by this value.
+      // 5. if `is_timestamp` is set, source[key] value is converted to nanoseconds from the unix epoch according to type ("generic", "chrome", "windows_filetime")
+      // 6. if 'extra_doc_with_event_code' is set on a field, step 7 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of the field.
+      // 7. finally, source[key] value transformed from the steps above is mapped to ECS one or more fields as defined in `ecs`, resulting in one or more fields in the resulting document.
+      // 8. in the very end, if "value_aliases" is set, the value is replaced according to the aliases defined in the mapping file before being returned
+    
       // NOTE: source fields not listed here will be stored with `gulp.unmapped.` prefix.
       "fields": {
         // the field name (source field) in the original document
-        "field": {
+        "TheField": {
           // this may be a string or a []: this allows mapping a single field to one or more target document fields.
           // in this example, whenever in the source document "field" is found, its mapped to "gulp.html.form.field.name" in the resulting document.
           "ecs": "gulp.html.form.field.name"
@@ -602,7 +596,13 @@ Here's a commented example mapping file, further details in the [model definitio
         },
         "a_chrome_timestamp": {
           "ecs": "chrome_ts",
-          // this is a special flag to indicate this field refer to a timestamp (in the original document), and gulp allows to handle it as `chrome` (webkit) timestamp from 1601 or "generic" (in a format compatible with gulp time strings, i.e. any supported by python dateutil parser) timestamp: both will be converted to nanoseconds from the unix epoch.
+          // this is a special flag to indicate this field refer to a timestamp (in the original document), and gulp allows to handle it as:
+          // 
+          // - `chrome`: webkit numeric timestamp from 1601
+          // - `windows_filetime`: windows numeric timestamp from 1601 in unit of 100 nanoseconds
+          // - `generic`: a format compatible with gulp time strings, i.e. any supported by python dateutil parser
+          // 
+          // any of these will be converted to nanoseconds from the unix epoch.
           "is_timestamp": "chrome"
         },
         "date_last_used": {
@@ -625,6 +625,25 @@ Here's a commented example mapping file, further details in the [model definitio
           //
           "extra_doc_with_event_code": "autofill_date_last_used",
           "multiplier": 1000000000,
+        }
+      },
+      // if set, allows to alias values after being processed by the mapping pipeline.
+      // in the following example, whenever "network.direction" is mapped, if its value is "%%14592" it is replaced with "inbound", if "%%14593" it is replaced with "outbound".
+      // moreover, if the mapping is used in a special case identified by "special_case_1", the aliases are assigned other values (in this case, they are just inverted)
+      // this may be used to handle special cases where the same field may have different meanings in different contexts and can be controlled by the plugin via `self._record_type` which may be set during record processing (if it is not set, the `default` aliases are used).
+      "value_aliases": {
+        // the source key POST-mapping
+        "network.direction": {
+            // the default case
+            "default": {
+                // the original value in the document for "network.direction" and the new value (alias) to be used
+                "%%14592": "inbound",
+                "%%14593": "outbound"
+            },
+            "special_case_1": {
+                "%%14592": "outbound",
+                "%%14593": "inbound"
+            }
         }
       }
     }

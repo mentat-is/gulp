@@ -1,0 +1,11 @@
+{"ts": 1607009493.733304,"uid": "CDsHGC2ZJuJh10XNbk","id.orig_h": "192.168.4.142","id.orig_p": 52856,"id.resp_h": "195.154.200.232","id.resp_p": 6667,"command": "NICK","value": "zeektest"}
+{"ts": 1607009493.733304,"uid": "CDsHGC2ZJuJh10XNbk","id.orig_h": "192.168.4.142","id.orig_p": 52856,"id.resp_h": "195.154.200.232","id.resp_p": 6667,"nick": "zeektest","command": "USER","value": "zeektest","addl": "0 * realname"}
+{"ts": 1607009514.481161,"uid": "CDsHGC2ZJuJh10XNbk","id.orig_h": "192.168.4.142","id.orig_p": 52856,"id.resp_h": "195.154.200.232","id.resp_p": 6667,"nick": "zeektest","user": "zeektest","command": "JOIN","value": "#freenode","addl": ""}
+{"ts": 1461774814.057057,"uid": "Cs0hwm3slMw4IBDU0h","id.orig_h": "10.240.0.3","id.orig_p": 42277,"id.resp_h": "10.240.0.2","id.resp_p": 31337,"command": "NICK","value": "Matir"}
+{"ts": 1461774814.057057,"uid": "Cs0hwm3slMw4IBDU0h","id.orig_h": "10.240.0.3","id.orig_p": 42277,"id.resp_h": "10.240.0.2","id.resp_p": 31337,"nick": "Matir","user": "root-poppopret","command": "JOIN","value": "#ctf"}
+{"ts": 1461774814.057057,"uid": "Cs0hwm3slMw4IBDU0h","id.orig_h": "10.240.0.4","id.orig_p": 42277,"id.resp_h": "10.240.0.2","id.resp_p": 31337,"command": "NICK","value": "andrewg"}
+{"ts": 1461774814.057057,"uid": "Cs0hwm3slMw4IBDU0h","id.orig_h": "10.240.0.4","id.orig_p": 42277,"id.resp_h": "10.240.0.2","id.resp_p": 31337,"nick": "andrewg","command": "root-poppopret","value": "root-poppopret 10.240.0.2 andrewg"}
+{"ts": 1461774814.057057,"uid": "Cs0hwm3slMw4IBDU0h","id.orig_h": "10.240.0.4","id.orig_p": 42277,"id.resp_h": "10.240.0.2","id.resp_p": 31337,"nick": "andrewg","user": "oot-poppopret","command": "JOIN","value": "#ctf","addl": ""}
+{"ts": 1461774814.057057,"uid": "Cs0hwm3slMw4IBDU0h","id.orig_h": "10.240.0.5","id.orig_p": 42277,"id.resp_h": "10.240.0.2","id.resp_p": 31337,"command": "NICK","value": "itsl0wk3y"}
+{"ts": 1461774814.057057,"uid": "Cs0hwm3slMw4IBDU0h","id.orig_h": "10.240.0.5","id.orig_p": 42277,"id.resp_h": "10.240.0.2","id.resp_p": 31337,"nick": "itsl0wk3y","command": "USER","value": "root-poppopret","addl": "root-poppopret 10.240.0.2 l0w"}
+{"ts": 1461774814.057057,"uid": "Cs0hwm3slMw4IBDU0h","id.orig_h": "10.240.0.5","id.orig_p": 42277,"id.resp_h": "10.240.0.2","id.resp_p": 31337,"nick": "itsl0wk3y","user": "root-poppopret","command": "JOIN","value": "#ctf","addl": ""}

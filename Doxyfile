@@ -107,7 +107,7 @@ FILE_PATTERNS        = **/plugins/csv.py \
     **/gulp/structs.py \
     **/gulp/api/collab/structs.py \
     **/gulp/api/opensearch/structs.py \
-    **/gulp/api/rest/structs.py \
+    **/gulp/api/server/structs.py \
     *.md
 
 

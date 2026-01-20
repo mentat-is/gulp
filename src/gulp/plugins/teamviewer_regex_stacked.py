@@ -25,8 +25,8 @@ from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -38,6 +38,10 @@ class Plugin(GulpPluginBase):
     @override
     def depends_on(self) -> list[str]:
         return ["regex"]
+
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return None
 
     @override
     async def _record_to_gulp_document(
@@ -74,32 +78,28 @@ class Plugin(GulpPluginBase):
     ) -> GulpRequestStatus:
 
         await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         mappings = self.selected_mapping()
         if not "timestamp" in mappings.fields:
             mappings.fields["timestamp"] = GulpMappingField(ecs="@timestamp")
-        
+
         # set as stacked
-        try:
-            lower = await self.setup_stacked_plugin("regex")
-        except Exception as ex:
-            await self._source_failed(ex)
-            return GulpRequestStatus.FAILED
+        lower = await self.setup_stacked_plugin("regex")
 
         # TODO: instead get regexes form mapping file based on mapping_id
         regex = r"\s+".join(

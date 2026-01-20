@@ -1,0 +1,3 @@
+{"ts": 1507562478.112879,"uid": "CzgIrZ31Lh5vCHioWi","id.orig_h": "192.168.10.31","id.orig_p": 49282,"id.resp_h": "192.168.10.10","id.resp_p": 445,"rtt": 0.0003020763397216797,"named_pipe": "\\pipe\\lsass","endpoint": "samr","operation": "SamrConnect5"}
+{"ts": 1507565599.588936,"uid": "CBFaLB1HJivXnb9Jw2","id.orig_h": "192.168.10.31","id.orig_p": 49240,"id.resp_h": "192.168.10.30","id.resp_p": 135,"rtt": 0.0002448558807373047,"named_pipe": "135","endpoint": "epmapper","operation": "ept_map"}
+{"ts": 1507565599.601632,"uid": "CqgZIa4KYnX4cNHJo8","id.orig_h": "192.168.10.31","id.orig_p": 49241,"id.resp_h": "192.168.10.30","id.resp_p": 49155,"rtt": 0.0003237724304199219,"named_pipe": "49155","endpoint": "svcctl","operation": "OpenSCManagerW"}

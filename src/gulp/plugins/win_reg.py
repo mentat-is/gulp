@@ -7,6 +7,7 @@ extracting registry keys, values, and other metadata for analysis.
 The plugin supports parsing both complete registry hives and partial hives,
 with customizable starting paths for traversal.
 """
+
 import os
 from typing import Any, override
 
@@ -20,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import orjson
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -34,8 +34,8 @@ muty.os.check_and_install_package("regipy", ">=5.1.0,<6")
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -43,6 +43,10 @@ class Plugin(GulpPluginBase):
 
     def display_name(self) -> str:
         return "win_reg"
+
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return "^\x72\x65\x67\x66"
 
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
@@ -123,8 +127,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=str(record),
             event_sequence=record_idx,
-            log_file_path=self._original_file_path or os.path.basename(
-                self._file_path),
+            log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
 
@@ -144,57 +147,44 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-         **kwargs
-   ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+        **kwargs,
+    ) -> GulpRequestStatus:
+
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         doc_idx = 0
-        try:
-            hive = RegistryHive(
-                file_path,
-                hive_type=self._plugin_params.custom_parameters.get(
-                    "partial_hive_type"),
-                partial_hive_path=self._plugin_params.custom_parameters.get(
-                    "partial_hive_path"),
-            )
-            for entry in hive.recurse_subkeys(
-                as_json=True, path_root=self._plugin_params.custom_parameters.get("path")
-            ):
 
-                if len(entry.values) < 1:
-                    continue
-                try:
-                    await self.process_record(entry, doc_idx, flt=flt)
-                except (RequestCanceledError, SourceCanceledError) as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    await self._source_failed(ex)
-                    break
-                except PreviewDone:
-                    break
-                doc_idx += 1
+        hive = RegistryHive(
+            file_path,
+            hive_type=self._plugin_params.custom_parameters.get("partial_hive_type"),
+            partial_hive_path=self._plugin_params.custom_parameters.get(
+                "partial_hive_path"
+            ),
+        )
+        for entry in hive.recurse_subkeys(
+            as_json=True,
+            path_root=self._plugin_params.custom_parameters.get("path"),
+        ):
 
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+            if len(entry.values) < 1:
+                continue
+
+            await self.process_record(entry, doc_idx, flt=flt)
+            doc_idx += 1
+
+        return stats.status

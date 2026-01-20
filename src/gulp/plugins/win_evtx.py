@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -35,11 +34,15 @@ from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     def display_name(self) -> str:
         return "win_evtx"
+
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return "^\x45\x6c\x66\x46\x69\x6c\x65\x00"
 
     @override
     def desc(self) -> str:
@@ -206,47 +209,33 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            plugin_params = self._ensure_plugin_params(plugin_params, mapping_file="windows.json")
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
+        plugin_params = self._ensure_plugin_params(
+            plugin_params, mapping_file="windows.json"
+        )
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
-            # init parser
-            parser = PyEvtxParser(file_path)
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+        # init parser
+        parser = PyEvtxParser(file_path)
 
-        doc_idx = 0
-        try:
-            for rr in parser.records_json():
-                try:
-                    await self.process_record(rr, doc_idx, flt=flt)
-                except (RequestCanceledError, SourceCanceledError) as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    await self._source_failed(ex)
-                    break
-                except PreviewDone:
-                    # preview done, stop processing
-                    break
-                doc_idx += 1
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+        doc_idx: int = 0
+        for rr in parser.records_json():
+            if not await self.process_record(rr, doc_idx, flt=flt):
+                # stop processing (preview mode)
+                break
+            doc_idx += 1
+        return stats.status

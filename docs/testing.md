@@ -1,7 +1,6 @@
 - [testing gulp](#testing-gulp)
   - [prerequisites](#prerequisites)
-  - [running the test suite](#running-the-test-suite)
-  - [running single tests manually](#running-single-tests-manually)
+  - [running tests](#running-tests)
   - [ingestion tool](#ingestion-tool)
   - [query external tool](#query-external-tool)
 
@@ -9,10 +8,10 @@
 
 ## prerequisites
 
-install [gulp api client sdk](https://github.com/mentat-is/gulp-sdk-python) if you haven't already (i.e. you're not in the dev environment)
+ensure [gulp api client sdk](https://github.com/mentat-is/gulp-sdk-python) is installed
 
 ~~~bash
-pip3 install https://github.com/mentat-is/gulp-sdk-python
+pip3 install -e ./gulp-sdk-python
 ~~~
 
 start gulp first
@@ -24,30 +23,27 @@ start gulp first
 GULP_INTEGRATION_TEST=1 gulp --reset-collab --create test_operation
 ~~~
 
-## running the test suite
+## running tests
 
-> **TODO: some tests are currently broken!**
+tests are located in the [tests](../tests) folder and can be run independently, i.e.
 
-the test suite tests all the gulp rest API and plugins, including ingestion and query (checking the results too)
+> [tests/smoke_test.sh](../tests/smoke_test.sh) is a test script that runs a subset of critical tests in sequence (~10 minutes), stopping at the first failure: it is useful to verify if the main functionalities are working as expected.
 
 ~~~bash
-# run test suite (covers the whole API, including ingestion and query)
-cd tests
-./test_suite.sh
+python3 -m pytest -v -s -x ./tests/query/test_query_api.py
+python3 -m pytest -v -s -x ./tests/test_note.py
 
-# also test paid plugins
-PATH_PAID_PLUGINS=/home/valerino/repos/gulp-paid-plugins ./test_suite.sh
+# also specifying the single function to run
+python3 -m pytest -v -s -x ./tests/test_note.py::test_note_many
 ~~~
 
-> use [test_lite.sh](../tests/test_lite.sh) to skip most of the ingestion tests (but still tests collab objects, queries, etc...)
-
-## running single tests manually
-
-single tests in the [test suite](../tests) may also be run manually
+or use the provided [run_tests.sh](../test_scripts/run_tests.sh) script to run all tests automatically (or a subset of them)
 
 ~~~bash
-# run single test manually, i.e. run test_queries function inside test_query_api.py
-python3 -m pytest -v -s ./tests/query/test_query_api.py::test_queries
+# run all tests
+./test_scripts/run_tests.sh ./tests
+# run only specific tests
+./test_scripts/run_tests.sh ./tests/query/test_query_api.py ./tests/ingest/test_ingest.py::test_win_evtx"
 ~~~
 
 ## ingestion tool

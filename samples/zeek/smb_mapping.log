@@ -1,0 +1,5 @@
+{"ts": 1507562478.111677,"uid": "CzgIrZ31Lh5vCHioWi","id.orig_h": "192.168.10.31","id.orig_p": 49282,"id.resp_h": "192.168.10.10","id.resp_p": 445,"path": "\\\\DC1.contoso.local\\IPC$","share_type": "PIPE"}
+{"ts": 1507565438.205583,"uid": "CR7Vww4LuLkMzi4jMd","id.orig_h": "192.168.10.31","id.orig_p": 49238,"id.resp_h": "192.168.10.30","id.resp_p": 445,"path": "\\\\admin-pc\\c$","share_type": "DISK"}
+{"ts": 1512585460.297722,"uid": "C4j5Ds3VyExc2ZAOh9","id.orig_h": "192.168.10.31","id.orig_p": 1112,"id.resp_h": "192.168.10.30","id.resp_p": 445,"path": "\\\\admin-pc\\c$","share_type": "DISK"}
+{"ts": 1507565599.576613,"uid": "C6HQVsDf8VCu0XTJe","id.orig_h": "192.168.10.31","id.orig_p": 49239,"id.resp_h": "192.168.10.30","id.resp_p": 445,"path": "\\\\admin-pc\\ADMIN$","share_type": "DISK"}
+{"ts": 1507565599.729707,"uid": "C6HQVsDf8VCu0XTJe","id.orig_h": "192.168.10.31","id.orig_p": 49239,"id.resp_h": "192.168.10.30","id.resp_p": 445,"path": "\\\\admin-pc\\IPC$","share_type": "PIPE"}

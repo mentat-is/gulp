@@ -1,19 +1,21 @@
 import asyncio
-import collections
 import os
 import queue
-import random
-import threading
 import time
+import zlib
 from enum import StrEnum
 from multiprocessing.managers import SyncManager
 from queue import Empty, Queue
-from typing import Any, Optional
+from threading import Lock
+from typing import Annotated, Any, Literal, Optional
 
 import muty
+import muty.string
 import muty.time
+import orjson
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
+from gitdb.fun import chunk_size
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
+from gulp.api.redis_api import GulpRedis
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
 
@@ -34,44 +37,200 @@ class GulpWsType(StrEnum):
 
 # data types for the websocket
 WSDATA_ERROR = "ws_error"
-WSDATA_CONNECTED = "ws_connected"
-WSDATA_COLLAB_UPDATE = "collab_update"
-WSDATA_USER_LOGIN = "user_login"
-WSDATA_USER_LOGOUT = "user_logout"
-WSDATA_DOCUMENTS_CHUNK = "docs_chunk"
-WSDATA_COLLAB_DELETE = "collab_delete"
-WSDATA_CLIENT_DATA = "client_data"
+WSDATA_CONNECTED = "ws_connected"  # whenever a websocket connection is established
+WSDATA_COLLAB_CREATE = (
+    "collab_create"  # GulpCollabCreatePacket, whenever a collab object is created
+)
+WSDATA_COLLAB_UPDATE = (
+    "collab_update"  # GulpCollabUpdatePacket, whenever a collab object is updated
+)
+WSDATA_COLLAB_DELETE = (
+    "collab_delete"  # GulpCollabDeletePacket, whenever a collab object is deleted
+)
+WSDATA_STATS_CREATE = (
+    "stats_create"  # GulpRequestStats, whenever a stats object is created
+)
+WSDATA_STATS_UPDATE = (
+    "stats_update"  # GulpRequestStats, whenever a stats object is updated
+)
+WSDATA_USER_LOGIN = "user_login"  # GulpUserAccessPacket
+WSDATA_USER_LOGOUT = "user_logout"  # GulpUserAccessPacket
+WSDATA_DOCUMENTS_CHUNK = "docs_chunk"  # GulpDocumentsChunkPacket
+WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
+WSDATA_INGEST_RAW_PROGRESS = "ingest_raw_progress"  # GulpIngestRawProgress, this is sent in the end of an ingestion operation for realtime
+WSDATA_REBASE_DONE = "rebase_done"  # GulpUpdateDocumentsStats, sent when a rebase operation is done (broadcasted to all websockets)
+WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries
+WSDATA_CLIENT_DATA = "client_data"  # arbitrary content, to be routed to all connected websockets (used by the ui to communicate with other connected clients with its own protocol)
 WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
-WSDATA_NEW_SOURCE = "new_source"
-WSDATA_NEW_CONTEXT = "new_context"
-WSDATA_GENERIC = "generic"
-
-# the following data types sent on the websocket are to be used to track status
-WSDATA_STATS_UPDATE = "stats_update"  # this is sent each time a GulpRequestStats is updated on the collab db (at start of the operation, and in the end, usually)
-WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # this is sent in the end of an ingestion operation, one per source
 WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
 WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
-WSDATA_PROGRESS = "progress"  # this is sent to indicate query progrress during, indicates current/total queries being performed and optionally a progress message
-WSDATA_ENRICH_DONE = "enrich_done"  # this is sent in the end of an enrichment operation
-WSDATA_TAG_DONE = "tag_done"  # this is sent in the end of a tag operation
-WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # this is sent to indicate a query group match, i.e. a query group that matched some queries
-
-# progress types
-PROGRESS_REBASE = "rebase"
-
-# special token used to monitor also logins
-WSTOKEN_MONITOR = "monitor"
-
-SHARED_MEMORY_KEY_ACTIVE_SOCKETS = "active_sockets"
 
 
-class WsQueueFullException(Exception):
+class GulpRedisChannel(StrEnum):
+    """
+    Redis pubsub channels for websocket communication
+    """
+
+    BROADCAST = "broadcast"
+    WORKER_TO_MAIN = "worker_to_main"
+    CLIENT_DATA = "client_data"
+
+
+class GulpWsData(BaseModel):
+    """
+    data carried by the websocket ui<->gulp
+    """
+
+    model_config = ConfigDict(
+        # solves the issue of not being able to populate fields using field name instead of alias
+        populate_by_name=True,
+    )
+    timestamp: Annotated[
+        int, Field(description="The timestamp of the data.", alias="@timestamp")
+    ]
+    type: Annotated[
+        str,
+        Field(
+            description="The type of data carried by the websocket, see WSDATA_* constants.",
+        ),
+    ]
+    private: Annotated[
+        bool,
+        Field(
+            description="If the data is private, only the websocket `ws_id` receives it. Ignored if `internal` is set.",
+        ),
+    ] = False
+    internal: Annotated[
+        bool,
+        Field(
+            description="set to broadcast internal events to plugins registered through `GulpPluginBase.register_internal_events_callback()`.",
+        ),
+    ] = False
+    payload: Annotated[
+        Optional[Any], Field(description="The data carried by the websocket.")
+    ] = None
+    ws_id: Annotated[
+        Optional[str],
+        Field(
+            description="The target WebSocket ID, ignored if `internal` is set. if None, the message is broadcasted to all connected websockets.",
+        ),
+    ] = None
+    user_id: Annotated[
+        Optional[str],
+        Field(
+            description="The user who issued the request, ignored if `internal` is set.",
+        ),
+    ] = None
+    req_id: Annotated[
+        Optional[str],
+        Field(description="The request ID, ignored if `internal` is set."),
+    ] = None
+    operation_id: Annotated[
+        Optional[str],
+        Field(
+            description="The operation this data belongs to, ignored if `internal` is set.",
+            alias="gulp.operation_id",
+        ),
+    ] = None
+
+
+class GulpCollabCreatePacket(BaseModel):
+    """
+    Represents a create event (WsData.type = WSDATA_COLLAB_CREATE).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "obj": {
+                        "id": "the id",
+                        "name": "the name",
+                        "type": "note",
+                        "something": "else",
+                    },
+                    "bulk": True,
+                    "last": False,
+                }
+            ]
+        },
+    )
+    obj: Annotated[
+        list[dict] | dict,
+        Field(
+            description="The created GulpCollabObject (or bulk of objects): the object `type` is `obj.type` or `obj[0].type` for bulk objects.",
+        ),
+    ]
+    bulk: Annotated[
+        bool,
+        Field(
+            description="indicates if `obj` is a bulk of objects (list) or a single object (dict).",
+        ),
+    ] = False
+    last: Annotated[
+        bool,
+        Field(
+            description="for bulk operations, indicates if this is the last chunk of a bulk operation.",
+        ),
+    ] = False
+    total_size: Annotated[
+        int,
+        Field(
+            description="for bulk operations, indicates the total size of the bulk operation, if known.",
+        ),
+    ] = 0
+    bulk_size: Annotated[
+        int,
+        Field(
+            description="for bulk operations, indicates the size of this bulk chunk.",
+        ),
+    ] = 0
+
+
+class GulpCollabUpdatePacket(BaseModel):
+    """
+    Represents an update event (WsData.type = WSDATA_COLLAB_UPDATE).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "obj": {
+                        "id": "the id",
+                        "name": "the name",
+                        "type": "note",
+                        "something": "else",
+                    }
+                }
+            ]
+        },
+    )
+    obj: Annotated[
+        dict,
+        Field(
+            description="The updated GulpCollabObject: the object `type` is `obj.type`."
+        ),
+    ]
+
+
+class GulpCollabDeletePacket(BaseModel):
+    """
+    Represents a delete collab event (WsData.type = WSDATA_COLLAB_DELETE).
+    """
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"id": "the id"}]})
+    type: Annotated[str, Field(description="The deleted collab object type.")]
+    id: Annotated[str, Field(description="The deleted collab object ID.")]
+
+
+class redis_brokerueueFullException(Exception):
     """Exception raised when queue is full after retries"""
 
-    pass
 
-
-class GulpUserLoginLogoutPacket(BaseModel):
+class GulpUserAccessPacket(BaseModel):
     """
     Represents a user login or logout event.
     """
@@ -79,14 +238,20 @@ class GulpUserLoginLogoutPacket(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={"examples": [{"user_id": "admin", "login": True}]}
     )
-    user_id: str = Field(..., description="The user ID.")
-    login: bool = Field(
-        ..., description="If the event is a login event, either it is a logout."
+    user_id: Annotated[str, Field(description="The user ID.")]
+    login: Annotated[
+        bool, Field(description="If the event is a login event, either it is a logout.")
+    ] = True
+    req_id: Annotated[Optional[str], Field(description="The request ID, if any.")] = (
+        None
     )
-    ip: Optional[str] = Field(
-        None,
-        description="The IP address of the user, if available.",
-    )
+    ip: Annotated[
+        Optional[str],
+        Field(
+            None,
+            description="The IP address of the user, if available.",
+        ),
+    ] = None
 
 
 class GulpWsAcknowledgedPacket(BaseModel):
@@ -99,8 +264,9 @@ class GulpWsAcknowledgedPacket(BaseModel):
             "examples": [{"ws_id": "the_ws_id", "token": "the_user_token"}]
         }
     )
-    ws_id: str = Field(..., description="The WebSocket ID.")
-    token: str = Field(..., description="The user token.")
+    ws_id: Annotated[str, Field(description="The WebSocket ID.")]
+    req_id: Annotated[str, Field(description="The request ID.")]
+    token: Annotated[str, Field(description="The user token.")]
 
 
 class GulpSourceFieldsChunkPacket(BaseModel):
@@ -126,35 +292,36 @@ class GulpSourceFieldsChunkPacket(BaseModel):
         }
     )
 
-    operation_id: str = Field(
-        ...,
-        description="the operation ID.",
-    )
-    source_id: str = Field(
-        ...,
-        description="the source ID.",
-    )
-    context_id: str = Field(
-        ...,
-        description="the context ID.",
-    )
-    fields: dict = Field(
-        ...,
-        description="mappings for the fields in a source.",
-    )
-    last: bool = Field(
-        False,
-        description="if this is the last chunk.",
-    )
-
-
-class GulpCollabDeletePacket(BaseModel):
-    """
-    Represents a delete collab event.
-    """
-
-    model_config = ConfigDict(json_schema_extra={"examples": [{"id": "the id"}]})
-    id: str = Field(..., description="The collab object ID.")
+    operation_id: Annotated[
+        str,
+        Field(
+            description="the operation ID.",
+        ),
+    ]
+    source_id: Annotated[
+        str,
+        Field(
+            description="the source ID.",
+        ),
+    ]
+    context_id: Annotated[
+        str,
+        Field(
+            description="the context ID.",
+        ),
+    ]
+    fields: Annotated[
+        dict,
+        Field(
+            description="mappings for the fields in a source.",
+        ),
+    ]
+    last: Annotated[
+        bool,
+        Field(
+            description="if this is the last chunk.",
+        ),
+    ] = False
 
 
 class GulpQueryGroupMatchPacket(BaseModel):
@@ -174,8 +341,22 @@ class GulpQueryGroupMatchPacket(BaseModel):
             ]
         }
     )
-    name: str = Field(..., description="The query group name.")
-    total_hits: int = Field(..., description="The total number of hits.")
+    group: Annotated[str, Field(description="The query group name.")]
+    matches: Annotated[dict, Field(description="The matched queries.")]
+    color: Annotated[
+        Optional[str],
+        Field(
+            None,
+            description="The color associated with the query group, if any.",
+        ),
+    ] = None
+    glyph_id: Annotated[
+        Optional[str],
+        Field(
+            None,
+            description="The glyph associated with the query group, if any.",
+        ),
+    ] = None
 
 
 class GulpQueryDonePacket(BaseModel):
@@ -196,47 +377,17 @@ class GulpQueryDonePacket(BaseModel):
             ]
         },
     )
-    name: Optional[str] = Field(None, description="The query name.")
-    status: GulpRequestStatus = Field(
-        ..., description="The status of the query operation (done/failed)."
-    )
-    errors: Optional[list[str]] = Field([], description="The error message/s, if any.")
-    total_hits: Optional[int] = Field(
-        None, description="The total number of hits for the query."
-    )
-
-
-class GulpProgressPacket(BaseModel):
-    """
-    Used to signal progress on the websocket.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        json_schema_extra={
-            "examples": [
-                {
-                    "current": 50,
-                    "total": 100,
-                    "msg": "some_msg",
-                }
-            ]
-        },
-    )
-    current: int = Field(0, description="The current progress.")
-    done: Optional[bool] = Field(
-        False, description="If the progress is done, i.e. reached the total."
-    )
-    total: Optional[int] = Field(0, description="The total to be reached.")
-    msg: Optional[str] = Field(
-        None, description="An optional message to display with the progress."
-    )
-    data: Optional[dict] = Field(
-        None, description="Optional extra data to send with the progress."
-    )
-    canceled: Optional[bool] = Field(
-        False, description="If the request has been canceled."
-    )
+    q_name: Annotated[str, Field(description="The query name.")]
+    q_group: Annotated[
+        Optional[str], Field(description="The query group name, if any.")
+    ] = None
+    status: Annotated[
+        str, Field(description="The status of the query operation (done/failed).")
+    ]
+    errors: Annotated[list[str], Field(description="The error message/s, if any.")] = []
+    total_hits: Annotated[
+        int, Field(description="The total number of hits for the query.")
+    ] = 0
 
 
 class GulpIngestSourceDonePacket(BaseModel):
@@ -259,69 +410,58 @@ class GulpIngestSourceDonePacket(BaseModel):
             ]
         },
     )
-    source_id: str = Field(
-        description="The source ID in the collab database.",
-        alias="gulp.source_id",
-    )
-    context_id: str = Field(
-        ...,
-        description="The context ID in the collab database.",
-        alias="gulp.context_id",
-    )
-    docs_ingested: int = Field(
-        ..., description="The number of documents ingested in this source."
-    )
-    docs_skipped: int = Field(
-        ..., description="The number of documents skipped in this source."
-    )
-    docs_failed: int = Field(
-        ..., description="The number of documents failed in this source."
-    )
-    req_id: str = Field(..., description="The request ID.")
-    status: GulpRequestStatus = Field(..., description="The request status.")
+    status: Annotated[
+        str, Field(description="The source ingestion status (failed, done, canceled).")
+    ]
+    source_id: Annotated[
+        Optional[str],
+        Field(
+            description="The source ID in the collab database (this may be None if the plugin dynamically created a source).",
+            alias="gulp.source_id",
+        ),
+    ] = None
+    context_id: Annotated[
+        Optional[str],
+        Field(
+            description="The context ID in the collab database (this may be None if the plugin dynamically created a context).",
+            alias="gulp.context_id",
+        ),
+    ] = None
+    records_ingested: Annotated[
+        int, Field(description="The number of documents ingested in this source.")
+    ] = 0
+    records_skipped: Annotated[
+        int, Field(description="The number of documents skipped in this source.")
+    ] = 0
+    records_failed: Annotated[
+        int, Field(description="The number of documents failed in this source.")
+    ] = 0
 
 
-class GulpCollabCreateUpdatePacket(BaseModel):
-    """
-    Represents a create or update event.
-    """
+class GulpIngestRawProgress(BaseModel):
+    "to signal on the websocket that ingest raw progress for realtime"
 
     model_config = ConfigDict(
-        extra="allow",
+        populate_by_name=True,
         json_schema_extra={
             "examples": [
                 {
-                    "data": {
-                        "id": "the id",
-                        "name": "the name",
-                        "type": "note",
-                        "something": "else",
-                    },
-                    "bulk": True,
-                    "bulk_size": 100,
-                    "type": "note",
-                    "created": True,
+                    "last": True,
+                    "status": GulpRequestStatus.DONE,
                 }
             ]
         },
     )
-    data: list | dict = Field(..., description="The created or updated data.")
-    bulk: Optional[bool] = Field(
-        default=False,
-        description="If the event is a bulk event (data is a list instead of dict).",
-    )
-    type: Optional[str] = Field(
-        None,
-        description="Type of the event (i.e. one of the COLLABTYPE strings).",
-    )
-    bulk_size: Optional[int] = Field(None, description="The size of the bulk event.")
-    last: Optional[bool] = Field(
-        True,
-        description="indicates the last chunk.",
-    )
-    created: Optional[bool] = Field(
-        default=False, description="If the event is a create event."
-    )
+
+    status: Annotated[
+        str, Field(description="The status of the query operation (done/failed).")
+    ] = GulpRequestStatus.DONE
+    last: Annotated[
+        bool,
+        Field(
+            description="set to True to indicate the last packet of a stream.",
+        ),
+    ]
 
 
 class GulpCollabGenericNotifyPacket(BaseModel):
@@ -340,10 +480,13 @@ class GulpCollabGenericNotifyPacket(BaseModel):
             ]
         },
     )
-    type: str = Field(
-        description="An arbitrary application specific notify type.",
-    )
-    data: dict = Field(None, description="Some optional arbitrary data.")
+    type: Annotated[
+        str,
+        Field(
+            description="An arbitrary application specific notify type.",
+        ),
+    ]
+    data: Annotated[str, Field(description="Some optional arbitrary data.")] = {}
 
 
 class GulpWsError(StrEnum):
@@ -372,9 +515,11 @@ class GulpWsErrorPacket(BaseModel):
             ]
         }
     )
-    error: str = Field(..., description="error on the websocket.")
-    error_code: Optional[str] = Field(None, description="optional error code.")
-    data: Optional[dict] = Field(None, description="optional error data")
+    error: Annotated[str, Field(description="error on the websocket.")]
+    error_code: Annotated[Optional[str], Field(description="optional error code.")] = (
+        None
+    )
+    data: Annotated[dict, Field(description="optional error data")] = {}
 
 
 class GulpClientDataPacket(BaseModel):
@@ -393,14 +538,19 @@ class GulpClientDataPacket(BaseModel):
             ]
         }
     )
-    operation_id: Optional[str] = Field(
-        description="the operation ID this data belongs to: if not set, the data is broadcast to all connected websockets.",
-    )
-    target_user_ids: Optional[list[str]] = Field(
-        None,
-        description="optional list of user IDs to send this data to only: if not set, data is broadcast to all connected websockets.",
-    )
-    data: dict = Field(..., description="arbitrary data")
+    data: Annotated[dict, Field(description="arbitrary data")]
+    operation_id: Annotated[
+        Optional[str],
+        Field(
+            description="the operation ID this data belongs to: if not set, the data is broadcast to all connected websockets.",
+        ),
+    ] = None
+    target_user_ids: Annotated[
+        Optional[list[str]],
+        Field(
+            description="optional list of user IDs to send this data to only: if not set, data is broadcast to all connected websockets.",
+        ),
+    ] = None
 
 
 class GulpWsIngestPacket(BaseModel):
@@ -424,31 +574,50 @@ class GulpWsIngestPacket(BaseModel):
         },
     )
 
-    index: str = Field(
-        ...,
-        description="the Gulp index to ingest into.",
-    )
-    operation_id: str = Field(
-        ...,
-        description="the operation ID.",
-    )
-    ws_id: str = Field(
-        ...,
-        description="id of the websocket to stream ingested data to.",
-    )
-    req_id: str = (Field(..., description="id of the request"),)
-    flt: Optional[GulpIngestionFilter] = Field(
-        GulpIngestionFilter(),
-        description="optional filter to apply for ingestion.",
-    )
-    plugin: Optional[str] = Field(
-        "raw",
-        description="plugin to be used for ingestion (default='raw').",
-    )
-    plugin_params: Optional[GulpPluginParameters] = Field(
-        None,
-        description="optional plugin parameters",
-    )
+    index: Annotated[
+        str,
+        Field(
+            description="the Gulp index to ingest into.",
+        ),
+    ]
+    operation_id: Annotated[
+        str,
+        Field(
+            description="the operation ID.",
+        ),
+    ]
+    ws_id: Annotated[
+        str,
+        Field(
+            description="id of the websocket to stream ingested data to.",
+        ),
+    ]
+    req_id: Annotated[str, Field(description="id of the request")]
+
+    flt: Annotated[
+        Optional[GulpIngestionFilter],
+        Field(
+            description="optional filter to apply for ingestion.",
+        ),
+    ] = GulpIngestionFilter()
+    plugin: Annotated[
+        str,
+        Field(
+            description="plugin to be used for ingestion (default='raw').",
+        ),
+    ] = "raw"
+    plugin_params: Annotated[
+        GulpPluginParameters,
+        Field(
+            description="optional plugin parameters",
+        ),
+    ] = None
+    last: Annotated[
+        bool,
+        Field(
+            description="set to True to indicate the last packet of a stream.",
+        ),
+    ] = False
 
 
 class GulpWsAuthPacket(BaseModel):
@@ -463,28 +632,42 @@ class GulpWsAuthPacket(BaseModel):
                     "token": "token_admin",
                     "ws_id": "test_ws",
                     "operation_id": ["test_operation"],
-                    "type": [WSDATA_DOCUMENTS_CHUNK],
+                    "types": [WSDATA_DOCUMENTS_CHUNK],
                 }
             ]
         }
     )
-    token: str = Field(
-        ...,
-        description="""user token.
-
-        - `monitor` is a special token, reserved for internal use.
+    token: Annotated[
+        str,
+        Field(
+            description="""access token from login API.
     """,
-    )
-    ws_id: Optional[str] = Field(
-        None, description="the WebSocket ID, leave empty to autogenerate."
-    )
-    operation_ids: Optional[list[str]] = Field(
-        None,
-        description="the `operation_id`/s this websocket is registered to receive data for, defaults to `None` (all).",
-    )
-    types: Optional[list[str]] = Field(
-        None,
-        description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
+        ),
+    ]
+    ws_id: Annotated[
+        Optional[str],
+        Field(description="the WebSocket ID, leave empty to autogenerate."),
+    ] = None
+    operation_ids: Annotated[
+        Optional[list[str]],
+        Field(
+            description="the `operation_id`/s this websocket is registered to receive data for, defaults to `None` (all).",
+        ),
+    ] = None
+    types: Annotated[
+        Optional[list[str]],
+        Field(
+            description="the `GulpWsData.type`/s this websocket is registered to receive, defaults to `None` (all).",
+        ),
+    ] = None
+    data: Annotated[
+        Optional[dict],
+        Field(
+            description="optional arbitrary data to be associated with this websocket connection.",
+        ),
+    ] = None
+    req_id: Annotated[Optional[str], Field(description="the request ID, if any.")] = (
+        None
     )
 
 
@@ -515,113 +698,48 @@ class GulpDocumentsChunkPacket(BaseModel):
         },
     )
 
-    docs: list[dict] = Field(
-        ...,
-        description="the documents in a query or ingestion chunk.",
-    )
-    num_docs: int = Field(
-        ...,
-        description="the number of documents in this chunk.",
-    )
-    chunk_number: Optional[int] = Field(
-        0,
-        description="the chunk number (may not be available)",
-    )
-    total_hits: Optional[int] = Field(
-        0,
-        description="for query only: the total number of hits for the query related to this chunk.",
-    )
-    name: Optional[str] = Field(
-        None,
-        description="for query only: the query name related to this chunk.",
-    )
-    last: Optional[bool] = Field(
-        False,
-        description="for query only: is this the last chunk of a query response ?",
-    )
-    search_after: Optional[list] = Field(
-        None,
-        description="for query only: to use in `QueryAdditionalParameters.search_after` to request the next chunk in a paged query.",
-    )
-    enriched: Optional[bool] = Field(
-        False,
-        description="if the documents have been enriched.",
-    )
-
-
-class GulpWsData(BaseModel):
-    """
-    data carried by the websocket ui<->gulp
-    """
-
-    model_config = ConfigDict(
-        # solves the issue of not being able to populate fields using field name instead of alias
-        populate_by_name=True,
-    )
-    timestamp: int = Field(
-        ..., description="The timestamp of the data.", alias="@timestamp"
-    )
-    type: str = Field(..., description="The type of data carried by the websocket.")
-    ws_id: Optional[str] = Field(
-        None,
-        description="The target WebSocket ID, may be None only if `internal` is set or if the message must be broadcast to all connected websockets.",
-    )
-    user_id: Optional[str] = Field(None, description="The user who issued the request.")
-    req_id: Optional[str] = Field(None, description="The request ID.")
-    operation_id: Optional[str] = Field(
-        None,
-        description="The operation this data belongs to.",
-        alias="gulp.operation_id",
-    )
-    private: Optional[bool] = Field(
-        False,
-        description="If the data is private, only the websocket `ws_id` receives it.",
-    )
-    data: Optional[Any] = Field(None, description="The data carried by the websocket.")
-    internal: Optional[bool] = Field(
-        False,
-        description="Used internally (i.e. to broadcast internal events to plugins).",
-    )
-
-
-class WsQueueMessagePool:
-    """
-    message pool for the ws to reduce memory pressure and gc
-    """
-
-    def __init__(self, maxsize: int = 1000):
-        # preallocate message pool
-        self._pool = collections.deque(maxlen=maxsize)
-
-    def clear(self):
-        """
-        clear the message pool
-        """
-        self._pool.clear()
-
-    def get(self) -> dict:
-        """
-        get a preallocated message from the pool
-
-        Returns:
-            dict: the message
-        """
-        try:
-            msg = self._pool.popleft()
-            return msg
-        except IndexError:
-            return {}
-
-    def put(self, msg: dict):
-        """
-        put a message back into the pool
-
-        Args:
-            msg (dict): the message to put back
-        """
-        # clear and put back
-        msg.clear()
-        self._pool.append(msg)
+    docs: Annotated[
+        list[dict],
+        Field(
+            description="the documents in a query or ingestion chunk.",
+        ),
+    ]
+    chunk_size: Annotated[
+        int,
+        Field(
+            description="the chunk size (number of documents)",
+        ),
+    ] = 0
+    chunk_number: Annotated[
+        int,
+        Field(
+            description="the chunk number (may not be available)",
+        ),
+    ] = 0
+    total_hits: Annotated[
+        int,
+        Field(
+            description="for query only: the total number of hits for the query related to this chunk.",
+        ),
+    ] = 0
+    name: Annotated[
+        Optional[str],
+        Field(
+            description="for query only: the query name related to this chunk.",
+        ),
+    ] = None
+    last: Annotated[
+        bool,
+        Field(
+            description="for query only: is this the last chunk of a query response ?",
+        ),
+    ] = False
+    enriched: Annotated[
+        bool,
+        Field(
+            description="if the documents have been enriched.",
+        ),
+    ] = False
 
 
 class GulpConnectedSocket:
@@ -636,16 +754,14 @@ class GulpConnectedSocket:
     - cleanup operations
     """
 
-    # class constants for configuration
-    BACKPRESSURE_THRESHOLD: int = 1000
-    BACKPRESSURE_DELAY: float = 0.1
-    QUEUE_SIZE_HIGH_THRESHOLD: int = 500
-    QUEUE_SIZE_MEDIUM_THRESHOLD: int = 200
-    MAX_ADAPTIVE_DELAY: float = 0.5
-    METRICS_LOG_INTERVAL: int = 1000
-    COUNTER_RESET_INTERVAL: int = 10000
+    # yield interval used to avoid starving the event loop
     YIELD_CONTROL_INTERVAL: int = 100
+    # sleep duration when yielding control to the event loop
     YIELD_CONTROL_DELAY: float = 0.01
+    # threshold for logging queue pressure warnings
+    QUEUE_PRESSURE_THRESHOLD: float = 0.8
+    # interval between queue pressure logs to avoid flooding
+    QUEUE_PRESSURE_LOG_INTERVAL: float = 30.0
 
     def __init__(
         self,
@@ -654,6 +770,8 @@ class GulpConnectedSocket:
         types: list[str] = None,
         operation_ids: list[str] = None,
         socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
+        data: dict = None,
+        user_id: str = None,
     ):
         """
         Initializes the ConnectedSocket object.
@@ -664,107 +782,194 @@ class GulpConnectedSocket:
             types (list[str], optional): The types of data this websocket is interested in. Defaults to None (all).
             operation_ids (list[str], optional): The operation/s this websocket is interested in. Defaults to None (all).
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
+            data (dict, optional): Optional arbitrary data to be associated with this websocket connection. Defaults to None.
+            user_id (str, optional): The user ID associated with this websocket connection. Defaults to None.
         """
+        from gulp.process import GulpProcess
+
         self.ws = ws
         self.ws_id = ws_id
-        self._msg_pool = WsQueueMessagePool()
         self.types = types
+        self._data = data or {}
+        self._terminated: bool = False
         self.operation_ids = operation_ids
-        self.send_task = None
-        self.receive_task = None
         self.socket_type = socket_type
+        self.user_id = user_id
         self._cleaned_up = False
+        self._server_id = GulpProcess.get_instance().server_id
+        self._tasks: list[asyncio.Task] = []
+        # store queue capacity for quick reference in telemetry
+        self._queue_capacity: int = GulpConfig.get_instance().ws_queue_max_size()
+        # each socket has its own asyncio queue, consumed by its own task with bounded size
+        self.q = asyncio.Queue(maxsize=self._queue_capacity)
+        # remember queue high watermark for diagnostics
+        self._queue_high_watermark: int = 0
+        # throttle repeated pressure logs
+        self._last_pressure_log_ts: float = 0.0
 
-        # each socket has its own asyncio queue, consumed by its own task
-        self.q = asyncio.Queue()
+    async def enqueue_message(self, message: dict) -> bool:
+        """
+        enqueue a websocket message with backpressure handling
 
-    async def run_loop(self) -> None:
+        Uses a combination of:
+        1. Pre-enqueue throttle delay based on queue pressure
+        2. Blocking enqueue with timeout to give slow clients time to catch up
+        3. Disconnection on timeout (client considered unresponsive)
+
+        Args:
+            message (dict): payload ready for serialization
+        Returns:
+            bool: True when the message has been enqueued, False if client should be disconnected
+        Throws:
+            RuntimeError: propagated when queue operations fail unexpectedly
         """
-        Runs the websocket loop with optimized task management and cleanup
-        """
-        tasks: list[asyncio.Task] = []
+        # apply pre-enqueue throttle delay if queue is under pressure
+        throttle_delay = self._calculate_throttle_delay()
+        if throttle_delay > 0:
+            await asyncio.sleep(throttle_delay)
+
         try:
-            # Create tasks with names for better debugging
-            self.send_task = asyncio.create_task(
-                self._send_loop(), name=f"send_loop-{self.ws_id}"
+            # blocking enqueue with timeout
+            timeout: float = GulpConfig.get_instance().ws_enqueue_timeout()
+            await asyncio.wait_for(self.q.put(message), timeout=timeout)
+            self._record_queue_pressure()
+            return True
+        except asyncio.TimeoutError:
+            # client cannot keep up after generous timeout - disconnect
+            MutyLogger.get_instance().error(
+                "ws_id=%s ENQUEUE TIMEOUT after %.2fs - client unresponsive, will disconnect",
+                self.ws_id,
+                timeout,
             )
-            self.receive_task = asyncio.create_task(
-                self._receive_loop(), name=f"receive_loop-{self.ws_id}"
+            return False
+        except asyncio.QueueFull:
+            # should not happen with blocking put, but handle defensively
+            MutyLogger.get_instance().exception(
+                "**** ws_id=%s QUEUE FULL (unexpected with blocking) ****", self.ws_id
             )
-            tasks.extend([self.send_task, self.receive_task])
+            return False
 
-            # Wait for first task to complete
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
-
-            # Process completed task
-            task = done.pop()
-            try:
-                await task
-            except WebSocketDisconnect as ex:
-                MutyLogger.get_instance().debug(
-                    f"websocket {self.ws_id} disconnected: {ex}"
-                )
-                raise
-            except Exception as ex:
-                MutyLogger.get_instance().error(f"error in {task.get_name()}: {ex}")
-                raise
-
-        finally:
-            # ensure cleanup happens even if cancelled
-            await self.cleanup(tasks)
-
-    async def cleanup(self, tasks: list[asyncio.Task] = None) -> None:
+    def _record_queue_pressure(self) -> None:
         """
-        ensure websocket is cleaned up when canceled/closing
+        track queue utilization and log when approaching capacity
+
+        Args:
+            None
+        Returns:
+            None
+        Throws:
+            RuntimeError: not raised explicitly but kept for interface parity
         """
-        if self._cleaned_up:
-            # already cleaned up
+        current_size: int = self.q.qsize()
+        if current_size > self._queue_high_watermark:
+            # update high watermark for later inspection
+            self._queue_high_watermark = current_size
+
+        if not self._queue_capacity:
             return
 
-        MutyLogger.get_instance().debug(
-            "---> cleanup, ensuring ws cleanup for ws=%s, ws_id=%s"
-            % (self.ws, self.ws_id)
+        utilization: float = current_size / self._queue_capacity
+        if utilization < self.QUEUE_PRESSURE_THRESHOLD:
+            return
+
+        now: float = time.monotonic()
+        if now - self._last_pressure_log_ts < self.QUEUE_PRESSURE_LOG_INTERVAL:
+            return
+
+        self._last_pressure_log_ts = now
+        MutyLogger.get_instance().warning(
+            "ws queue high pressure ws_id=%s utilization=%.2f capacity=%d high_watermark=%d",
+            self.ws_id,
+            utilization,
+            self._queue_capacity,
+            self._queue_high_watermark,
         )
-        # empty the queue
-        await self._flush_queue()
 
-        # clear the msg pool
-        self._msg_pool.clear()
+    def _calculate_throttle_delay(self) -> float:
+        """
+        calculate intake throttle delay based on current queue pressure
 
-        if tasks:
-            # clear tasks
-            await asyncio.shield(self._cleanup_tasks(tasks))
+        Returns:
+            float: delay in seconds (0 if no throttling needed)
+        """
+        if not self._queue_capacity:
+            return 0.0
 
-        self._cleaned_up = True
-        MutyLogger.get_instance().debug(
-            "---> GulpConnectedSocket.cleanup() DONE, ws=%s, ws_id=%s"
-            % (self.ws, self.ws_id)
+        utilization: float = self.q.qsize() / self._queue_capacity
+        throttle_threshold: float = GulpConfig.get_instance().ws_throttle_threshold()
+
+        if utilization < throttle_threshold:
+            return 0.0
+
+        # progressive delay from 0 to max_delay based on utilization above threshold
+        max_delay: float = GulpConfig.get_instance().ws_throttle_max_delay()
+        pressure_above_threshold = (utilization - throttle_threshold) / (
+            1.0 - throttle_threshold
         )
+        return max_delay * pressure_above_threshold
 
     async def _flush_queue(self) -> None:
         """
-        flushes the websocket queue.
+        flushes the websocket queue and send the terminator message.
         """
+        MutyLogger.get_instance().debug(
+            "---> flushing queue for ws=%s, ws_id=%s", self.ws, self.ws_id
+        )
+
         try:
-            # drain queue quickly and efficiently
-            while self.q.qsize() != 0:
+            # drain any currently enqueued items without blocking
+            drained: int = 0
+            while True:
                 try:
                     self.q.get_nowait()
-                    self.q.task_done()
+                    try:
+                        self.q.task_done()
+                    except Exception:
+                        # defensive: task tracking may misbehave; continue
+                        pass
+                    drained += 1
                 except asyncio.QueueEmpty:
                     break
 
-            await self.q.join()
             MutyLogger.get_instance().debug(
-                f"---> queue flushed for ws_id={self.ws_id}"
+                "---> drained %d queued items for ws=%s, ws_id=%s",
+                drained,
+                self.ws,
+                self.ws_id,
             )
+
+            # put terminator
+            await self.q.put(None)
         except Exception as ex:
-            MutyLogger.get_instance().warning(f"error flushing queue: {ex}")
+            MutyLogger.get_instance().exception(
+                "error flushing queue for ws=%s, ws_id=%s: %s", self.ws, self.ws_id, ex
+            )
+
+    async def cleanup(self) -> None:
+        """
+        ensure websocket is cleaned up when canceled/closing
+        """
+        MutyLogger.get_instance().debug(
+            "---> cleanup, ensuring ws cleanup for ws=%s, ws_id=%s", self.ws, self.ws_id
+        )
+
+        # empty the queue
+        await self._flush_queue()
+
+        if self._tasks:
+            # clear tasks
+            await asyncio.shield(self.cleanup_tasks())
+
+        MutyLogger.get_instance().debug(
+            "---> GulpConnectedSocket.cleanup() DONE, ws=%s, ws_id=%s",
+            self.ws,
+            self.ws_id,
+        )
 
     @staticmethod
-    def is_alive(ws_id: str) -> bool:
+    async def is_alive(ws_id: str) -> bool:
         """
-        check if a websocket is alive
+        check if a websocket is alive by querying Redis
 
         Args:
             ws_id (str): The WebSocket ID.
@@ -772,134 +977,57 @@ class GulpConnectedSocket:
         Returns:
             bool: True if the websocket is alive, False otherwise.
         """
-        from gulp.process import GulpProcess
-
         if GulpConfig.get_instance().debug_ignore_missing_ws():
             return True
 
-        active_sockets: list[str] = GulpProcess.get_instance().shared_memory_get(
-            SHARED_MEMORY_KEY_ACTIVE_SOCKETS
-        )
-        if not active_sockets:
-            return False
-        return ws_id in active_sockets
+        connected_sockets = GulpConnectedSockets.get_instance()
 
-    async def _cleanup_tasks(self, tasks: list[asyncio.Task]) -> None:
+        # check local registry first to avoid unnecessary redis round-trips
+        if connected_sockets.get(ws_id):
+            return True
+
+        cached_server: Optional[str] = connected_sockets.get_cached_server(ws_id)
+        if cached_server:
+            return True
+
+        redis_client = GulpRedis.get_instance()
+        server_id = await redis_client.ws_get_server(ws_id)
+        connected_sockets.cache_server(ws_id, server_id)
+        return server_id is not None
+
+    async def cleanup_tasks(self) -> None:
         """
         clean up tasks with proper cancellation handling
-
-        Args:
-            tasks (list): the tasks to clean up
         """
-        logger = MutyLogger.get_instance()
-
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    logger.debug(f"task {task.get_name()} cancelled successfully")
-                except WebSocketDisconnect:
-                    logger.debug(f"task {task.get_name()} disconnected during cleanup")
-                except Exception as ex:
-                    logger.error(f"error cleaning up {task.get_name()}: {str(ex)}")
-
-        # remove from global ws list
-        from gulp.process import GulpProcess
-
-        logger.debug(f"removing ws_id={self.ws_id} from active sockets shared list ...")
-        GulpProcess.get_instance().shared_memory_remove_from_list(
-            SHARED_MEMORY_KEY_ACTIVE_SOCKETS, self.ws_id
-        )
-
-    async def _receive_loop(self) -> None:
-        """
-        continuously receives messages to detect disconnection
-        """
-        # track time to periodically yield control
-        last_yield_time = time.monotonic()
-
-        while True:
-            # raise exception if websocket is disconnected
-            self.validate_connection()
-
+        for task in self._tasks:
+            task.cancel()
             try:
-                # use a shorter timeout to ensure we can yield control regularly
-                await asyncio.wait_for(self.ws.receive_json(), timeout=1.0)
+                await task
+            except asyncio.CancelledError:
+                MutyLogger.get_instance().debug(
+                    "task %s cancelled successfully", task.get_name()
+                )
+            except WebSocketDisconnect:
+                MutyLogger.get_instance().debug(
+                    "task %s disconnected during cleanup", task.get_name()
+                )
+            except Exception as ex:
+                MutyLogger.get_instance().error(
+                    "error cleaning up %s: %s", task.get_name(), str(ex)
+                )
 
-                # yield control periodically even if receiving messages quickly
-                current_time = time.monotonic()
-                if current_time - last_yield_time > 0.1:
-                    await asyncio.sleep(
-                        self.YIELD_CONTROL_DELAY
-                    )  # brief yield to handle control frames
-                    last_yield_time = current_time
+        # unregister from Redis
+        from gulp.api.redis_api import GulpRedis
 
-            except asyncio.TimeoutError:
-                # no message received, good time to yield control
-                await asyncio.sleep(self.YIELD_CONTROL_DELAY)
-                continue
-
-    async def put_message(self, msg: dict) -> None:
-        """
-        Puts a message into the websocket queue.
-
-        Args:
-            msg (dict): The message to put.
-        """
-        if self.q.qsize() > self.BACKPRESSURE_THRESHOLD:
-            # backpressure
-            await asyncio.sleep(self.BACKPRESSURE_DELAY)
-
-        # use a slot from the pool
-        pooled_msg = self._msg_pool.get()
-        pooled_msg.update(msg)
-        await self.q.put(pooled_msg)
-
-    async def send_json(self, msg: dict, delay: float) -> None:
-        """
-        Sends a JSON message to the websocket.
-
-        Args:
-            msg (dict): The message to send.
-            delay (float): The delay to wait before sending the message.
-        """
-        await self.ws.send_json(msg)
-
-        # return msg to pool
-        self._msg_pool.put(msg)
-
-        # rate limit
-        await asyncio.sleep(delay)
-
-    def _calculate_adaptive_delay(self, queue_size: int, base_delay: float) -> float:
-        """
-        calculates adaptive delay based on queue size
-
-        args:
-            queue_size (int): current queue size
-            base_delay (float): base delay configuration
-
-        returns:
-            float: calculated delay in seconds
-        """
-        if queue_size > self.QUEUE_SIZE_HIGH_THRESHOLD:
-            # exponential backoff based on queue size
-            return min(base_delay * (queue_size / 100), self.MAX_ADAPTIVE_DELAY)
-        return base_delay
-
-    def _get_queue_timeout(self, queue_size: int) -> float:
-        """
-        determines appropriate queue timeout based on load
-
-        args:
-            queue_size (int): current queue size
-
-        returns:
-            float: timeout value in seconds
-        """
-        return 0.05 if queue_size > self.QUEUE_SIZE_MEDIUM_THRESHOLD else 0.1
+        MutyLogger.get_instance().debug(
+            "unregistering ws_id=%s from Redis ...", self.ws_id
+        )
+        try:
+            await GulpRedis.get_instance().ws_unregister(self.ws_id)
+        except Exception as ex:
+            MutyLogger.get_instance().error(
+                "error unregistering ws_id=%s: %s", self.ws_id, ex
+            )
 
     def validate_connection(self) -> None:
         """
@@ -911,19 +1039,43 @@ class GulpConnectedSocket:
         if self.ws.client_state != WebSocketState.CONNECTED:
             raise WebSocketDisconnect("client disconnected")
 
+    async def _ws_rate_limit_delay(self) -> float:
+        """
+        get the rate limit delay for the websocket
+
+        returns:
+            float: the rate limit delay in seconds
+        """
+        adaptive_rate_limit = GulpConfig.get_instance().ws_adaptive_rate_limit()
+        if not adaptive_rate_limit:
+            return GulpConfig.get_instance().ws_rate_limit_delay()
+
+        base_delay: float = GulpConfig.get_instance().ws_rate_limit_delay()
+        connected_sockets: int = (
+            GulpConnectedSockets.get_instance().num_connected_sockets()
+        )
+
+        # reduce delay for fewer sockets, increase for many
+        if connected_sockets < 10:
+            return base_delay * 0.5
+        elif connected_sockets > 50:
+            return base_delay * 2
+        return base_delay
+
     async def _process_queue_message(self) -> bool:
         """
-        processes a single message from the queue
+        get and send a message from the queue to the websocket with timeout and cancellation handling
 
         returns:
             bool: true if message was processed, false if timeout occurred
         """
-        queue_size = self.q.qsize()
-        timeout = self._get_queue_timeout(queue_size)
-
+        item = None
         try:
             # get message with timeout
-            item = await asyncio.wait_for(self.q.get(), timeout=timeout)
+            item = await asyncio.wait_for(self.q.get(), timeout=0.1)
+            if not item:
+                self._terminated = True
+                return True
 
             # check state before sending
             current_task = asyncio.current_task()
@@ -934,100 +1086,155 @@ class GulpConnectedSocket:
             self.validate_connection()
 
             # connection is verified, send the message
-            await self.send_json(
-                item,
-                self._calculate_adaptive_delay(
-                    queue_size, GulpConfig.get_instance().ws_rate_limit_delay()
-                ),
-            )
-            self.q.task_done()
+            await self.ws.send_json(item)
+            # MutyLogger.get_instance().debug(
+            #     "---> SENT message to ws_id=%s, type=%s, content=%s",
+            #     self.ws_id,
+            #     item.get("type"),
+            #     muty.string.make_shorter(str(item), max_len=260),
+            # )
+            await asyncio.sleep(await self._ws_rate_limit_delay())
             return True
-
+        except asyncio.CancelledError:
+            MutyLogger.get_instance().warning(
+                "---> _process_queue_message canceled for ws_id=%s", self.ws_id
+            )
+            raise
         except asyncio.TimeoutError:
-            # check for cancellation during timeout
+            # no messages, check for cancellation during timeout
             current_task = asyncio.current_task()
             if current_task and current_task.cancelled():
                 raise asyncio.CancelledError()
             return False
+        finally:
+            if item:
+                self.q.task_done()
 
-    def _log_processing_metrics(self, message_count: int, start_time: float) -> None:
+    async def _receive_loop(self) -> None:
         """
-        logs processing metrics for monitoring
-
-        args:
-            message_count (int): number of messages processed
-            start_time (float): start time reference
+        continuously receives messages to detect disconnection
         """
-        elapsed: float = time.monotonic() - start_time
-        queue_size: int = self.q.qsize()
+        while True:
+            # raise exception if websocket is disconnected
+            self.validate_connection()
+            if self._terminated:
+                MutyLogger.get_instance().debug(
+                    "---> _receive loop terminator found, terminating ws_id=%s",
+                    self.ws_id,
+                )
+                break
 
-        if elapsed > 0:
-            rate: float = message_count / elapsed
-            MutyLogger.get_instance().info(
-                f"websocket {self.ws_id} processing at {rate:.1f} msg/s, queue_size={queue_size}"
-            )
-        else:
-            MutyLogger.get_instance().info(
-                f"websocket {self.ws_id} processed {message_count} messages, queue_size={queue_size}"
-            )
+            try:
+                # use a shorter timeout to ensure we can yield control regularly
+                await asyncio.wait_for(self.ws.receive_json(), timeout=1.0)
+            except asyncio.TimeoutError:
+                # no message received
+                continue
+            except asyncio.CancelledError:
+                MutyLogger.get_instance().warning(
+                    "---> _receive loop canceled for ws_id=%s", self.ws_id
+                )
+                raise
+            except WebSocketDisconnect:
+                raise
 
     async def _send_loop(self) -> None:
         """
-        processes outgoing messages with adaptive rate limiting and monitoring
+        processes outgoing messages and sends them to the websocket
         """
-        logger = MutyLogger.get_instance()
-
         try:
-            logger.debug(f"---> starting send loop for ws_id={self.ws_id}")
+            MutyLogger.get_instance().debug(
+                f"---> starting send loop for ws_id={self.ws_id}"
+            )
 
             # tracking variables for metrics
-            message_count = 0
-            start_time = time.monotonic()
-            yield_counter = 0
+            message_count: int = 0
+            yield_counter: int = 0
 
             while True:
-                # process a single message
+                # process message from the websocket queue
                 message_processed = await self._process_queue_message()
+                if self._terminated:
+                    MutyLogger.get_instance().debug(
+                        "---> _send loop terminator found, terminating ws_id=%s",
+                        self.ws_id,
+                    )
+                    break
 
                 if message_processed:
                     message_count += 1
                     yield_counter += 1
 
-                    # log metrics periodically
-                    if message_count % self.METRICS_LOG_INTERVAL == 0:
-                        self._log_processing_metrics(message_count, start_time)
-
-                    # reset counters periodically
-                    if message_count % self.COUNTER_RESET_INTERVAL == 0:
-                        start_time = time.monotonic()
-                        message_count = 0
-
-                    # yield control periodically to allow ping handling
+                    # yield control periodically
                     if yield_counter % self.YIELD_CONTROL_INTERVAL == 0:
                         yield_counter = 0
                         await asyncio.sleep(self.YIELD_CONTROL_DELAY)
 
         except asyncio.CancelledError:
-            logger.warning(f"---> send loop canceled for ws_id={self.ws_id}")
+            MutyLogger.get_instance().warning(
+                "---> send loop canceled for ws_id=%s", self.ws_id
+            )
             raise
 
         except WebSocketDisconnect as ex:
-            logger.warning(f"---> websocket disconnected: ws_id={self.ws_id}")
-            logger.exception(ex)
+            MutyLogger.get_instance().warning(
+                "---> websocket disconnected: ws_id=%s", self.ws_id
+            )
+            MutyLogger.get_instance().exception(ex)
             raise
 
         except Exception as ex:
-            logger.error(f"---> error in send loop: ws_id={self.ws_id}")
-            logger.exception(ex)
+            MutyLogger.get_instance().error(
+                "---> error in send loop: ws_id=%s", self.ws_id
+            )
+            MutyLogger.get_instance().exception(ex)
             raise
 
     def __str__(self):
-        return f"ConnectedSocket(ws_id={self.ws_id}, types={self.types}, operations={self.operation_ids})"
+        return f"ConnectedSocket(ws_id={self.ws_id}, types={self.types}, operation_ids={self.operation_ids})"
+
+    async def run_loop(self) -> None:
+        """
+        Runs the websocket loop with optimized task management and cleanup
+        """
+        # create tasks with names for better debugging
+        send_task: asyncio.Task = asyncio.create_task(
+            self._send_loop(), name=f"send_loop-{self.ws_id}"
+        )
+        receive_task: asyncio.Task = asyncio.create_task(
+            self._receive_loop(), name=f"receive_loop-{self.ws_id}"
+        )
+        self._tasks.extend([send_task, receive_task])
+
+        # Wait for first task to complete
+        done, pending = await asyncio.wait(
+            self._tasks, return_when=asyncio.FIRST_EXCEPTION
+        )
+
+        # MutyLogger.get_instance().debug("---> wait returned for ws_id=%s, done=%s, pending=%s", self.ws_id, done, pending)
+        for d in done:
+            MutyLogger.get_instance().debug(
+                "---> completed task %s for ws_id=%s", d.get_name(), self.ws_id
+            )
+        if pending:
+            for t in pending:
+                MutyLogger.get_instance().debug(
+                    "---> cancelling pending task %s for ws_id=%s",
+                    t.get_name(),
+                    self.ws_id,
+                )
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    MutyLogger.get_instance().debug(
+                        "pending task %s cancelled successfully", t.get_name()
+                    )
 
 
 class GulpConnectedSockets:
     """
-    singleton class to hold all connected sockets
+    singleton class to hold all connected sockets for an instance of the Gulp server (NOT cluster-wide).
     """
 
     _instance: "GulpConnectedSockets" = None
@@ -1057,23 +1264,86 @@ class GulpConnectedSockets:
         return cls._instance
 
     def _initialize(self):
-        self._initialized: bool = True
         self._sockets: dict[str, GulpConnectedSocket] = {}
+        # cache websocket ownership lookups to reduce Redis load
+        self._ws_server_cache: dict[str, tuple[str, float]] = {}
+        # ttl for cache entries, for quick invalidation
+        self._ws_server_cache_ttl: float = (
+            1.0  # GulpConfig.get_instance().ws_server_cache_ttl()
+        )
 
-        # for faster lookup, maintain a mapping from ws_id to socket id
-        self._ws_id_map: dict[str, str] = {}
-        self._logger = MutyLogger.get_instance()
+    def get_cached_server(self, ws_id: str) -> Optional[str]:
+        """
+        return cached websocket ownership if the entry is still valid
 
-    def add(
+        Args:
+            ws_id (str): websocket identifier
+        Returns:
+            Optional[str]: cached server id or None if absent/expired
+        Throws:
+            RuntimeError: not raised explicitly but kept for parity
+        """
+        cache_entry = self._ws_server_cache.get(ws_id)
+        if not cache_entry:
+            return None
+
+        server_id, expires_at = cache_entry
+        if expires_at < time.monotonic():
+            self._ws_server_cache.pop(ws_id, None)
+            return None
+
+        return server_id
+
+    def cache_server(self, ws_id: str, server_id: Optional[str]) -> None:
+        """
+        store websocket ownership information locally to avoid extra Redis hits
+
+        Args:
+            ws_id (str): websocket identifier
+            server_id (Optional[str]): owning server id if known
+        Returns:
+            None
+        Throws:
+            RuntimeError: not raised explicitly but included for consistency
+        """
+        if not ws_id:
+            return
+
+        if not server_id:
+            self._ws_server_cache.pop(ws_id, None)
+            return
+
+        expires_at: float = time.monotonic() + self._ws_server_cache_ttl
+        self._ws_server_cache[ws_id] = (server_id, expires_at)
+
+    def invalidate_cached_server(self, ws_id: str) -> None:
+        """
+        remove a websocket ownership cache entry
+
+        Args:
+            ws_id (str): websocket identifier
+        Returns:
+            None
+        Throws:
+            RuntimeError: not raised explicitly but declared for uniformity
+        """
+        if not ws_id:
+            return
+
+        self._ws_server_cache.pop(ws_id, None)
+
+    async def add(
         self,
         ws: WebSocket,
         ws_id: str,
         types: list[str] = None,
         operation_ids: list[str] = None,
         socket_type: GulpWsType = GulpWsType.WS_DEFAULT,
+        data: dict = None,
+        user_id: str = None,
     ) -> GulpConnectedSocket:
         """
-        Adds a websocket to the connected sockets list.
+        Adds a websocket to the connected sockets list and registers in Redis.
 
         Args:
             ws (WebSocket): The WebSocket object.
@@ -1081,9 +1351,21 @@ class GulpConnectedSockets:
             types (list[str], optional): The types of data this websocket is interested in. Defaults to None (all)
             operation_ids (list[str], optional): The operations this websocket is interested in. Defaults to None (all)
             socket_type (GulpWsType, optional): The type of the websocket. Defaults to GulpWsType.WS_DEFAULT.
+            data (dict, optional): Optional arbitrary data to be associated with this websocket connection. Defaults to None.
+            user_id (str, optional): The user ID associated with this websocket connection. Defaults to None.
         Returns:
             ConnectedSocket: The ConnectedSocket object.
         """
+        if ws_id in self._sockets:
+            # disconnect the existing socket with the same ID
+            MutyLogger.get_instance().warning(
+                "add(): websocket with ws_id=%s already exists, disconnecting existing socket",
+                ws_id,
+            )
+            existing_socket = self._sockets[ws_id]
+            await existing_socket.cleanup()
+            del self._sockets[ws_id]
+
         # create connected socket instance
         connected_socket = GulpConnectedSocket(
             ws=ws,
@@ -1091,93 +1373,86 @@ class GulpConnectedSockets:
             types=types,
             operation_ids=operation_ids,
             socket_type=socket_type,
+            data=data,
+            user_id=user_id,
         )
 
-        # store socket reference
-        socket_id = str(id(ws))
-        self._sockets[socket_id] = connected_socket
-        self._ws_id_map[ws_id] = socket_id
+        # store local socket reference
+        self._sockets[ws_id] = connected_socket
 
-        # add to global shared list
-        from gulp.process import GulpProcess
-
-        GulpProcess.get_instance().shared_memory_add_to_list(
-            SHARED_MEMORY_KEY_ACTIVE_SOCKETS, ws_id
-        )
-        self._logger.debug(
-            f"---> added connected ws: {ws}, id_str={socket_id}, ws_id={ws_id}, len={len(self._sockets)}"
+        # register in Redis
+        redis_client = GulpRedis.get_instance()
+        await redis_client.ws_register(
+            ws_id=ws_id,
+            types=types,
+            operation_ids=operation_ids,
+            socket_type=socket_type.value,
         )
 
+        MutyLogger.get_instance().debug(
+            "---> added connected ws: %s, ws_id=%s, len=%d",
+            ws,
+            ws_id,
+            len(self._sockets),
+        )
         return connected_socket
 
-    async def remove(self, ws: WebSocket, flush: bool = True) -> None:
+    async def remove(self, ws_id: str) -> None:
         """
-        Removes a websocket from the connected sockets list
+        Removes a websocket from the connected sockets list and unregisters from Redis
 
         Args:
-            ws (WebSocket): The WebSocket object.
-            flush (bool, optional): If the queue should be flushed. Defaults to True.
-
+            ws_id (str): The WebSocket ID.
         """
-        socket_id = str(id(ws))
-        self._logger.debug(f"---> remove, ws={ws}, id_str={socket_id}")
+        MutyLogger.get_instance().debug("---> remove, ws_id=%s", ws_id)
 
-        connected_socket = self._sockets.get(socket_id)
+        connected_socket = self._sockets.get(ws_id)
         if not connected_socket:
-            self._logger.warning(
-                f"remove(): no websocket found for ws={ws}, id_str={socket_id}, len={len(self._sockets)}"
+            MutyLogger.get_instance().warning(
+                "remove(): no websocket ws_id=%s found, num connected sockets=%d",
+                ws_id,
+                len(self._sockets),
             )
             return
 
-        # flush queue if requested
-        if flush:
-            await connected_socket.cleanup()
-
-        # remove from global ws list
-        from gulp.process import GulpProcess
-
+        # remove from internal map
         ws_id = connected_socket.ws_id
-        ws_list: list[str] = GulpProcess.get_instance().shared_memory_get(
-            SHARED_MEMORY_KEY_ACTIVE_SOCKETS
-        )
-        while True:
-            if ws_id in ws_list:
-                GulpProcess.get_instance().shared_memory_remove_from_list(
-                    SHARED_MEMORY_KEY_ACTIVE_SOCKETS, ws_id
-                )
-            else:
-                break
+        del self._sockets[ws_id]
 
-            # next
-            ws_list = GulpProcess.get_instance().shared_memory_get(
-                SHARED_MEMORY_KEY_ACTIVE_SOCKETS
-            )
+        # unregister from Redis
+        redis_client = GulpRedis.get_instance()
+        await redis_client.ws_unregister(ws_id)
 
-        # remove from internal maps
-        del self._sockets[socket_id]
-        if ws_id in self._ws_id_map:
-            del self._ws_id_map[ws_id]
+        # drop cached ownership so workers do not rely on stale entries
+        self.invalidate_cached_server(ws_id)
 
-        self._logger.debug(
-            f"---> removed connected ws={ws}, id={socket_id}, ws_id={ws_id}, len={len(self._sockets)}"
+        MutyLogger.get_instance().debug(
+            "---> removed connected ws=%s, ws_id=%s, num connected sockets=%d",
+            connected_socket.ws,
+            ws_id,
+            len(self._sockets),
         )
 
-    def find(self, ws_id: str) -> GulpConnectedSocket:
+    def sockets(self) -> dict[str, GulpConnectedSocket]:
         """
-        Finds a ConnectedSocket object by its ID.
+        gets all connected sockets.
+
+        Returns:
+            dict[str, GulpConnectedSocket]: A dictionary of WebSocket ID to ConnectedSocket objects.
+        """
+        return self._sockets
+        
+    def get(self, ws_id: str) -> GulpConnectedSocket:
+        """
+        gets a ConnectedSocket object by its ID.
 
         Args:
             ws_id (str): The WebSocket ID.
 
         Returns:
-            ConnectedSocket: The ConnectedSocket object or None if not found.
+            GulpConnectedSocket: The ConnectedSocket object or None if not found.
         """
-        # use fast lookup via mapping
-        socket_id = self._ws_id_map.get(ws_id)
-        if socket_id:
-            return self._sockets.get(socket_id)
-
-        return None
+        return self._sockets.get(ws_id)
 
     async def cancel_all(self) -> None:
         """
@@ -1187,16 +1462,15 @@ class GulpConnectedSockets:
         sockets_to_cancel = list(self._sockets.values())
 
         for connected_socket in sockets_to_cancel:
-            self._logger.warning(
-                f"---> canceling ws {connected_socket.ws}, ws_id={connected_socket.ws_id}"
+            MutyLogger.get_instance().warning(
+                "---> canceling ws=%s, ws_id=%s",
+                connected_socket.ws,
+                connected_socket.ws_id,
             )
-            if connected_socket.receive_task:
-                connected_socket.receive_task.cancel()
-            if connected_socket.send_task:
-                connected_socket.send_task.cancel()
+            await connected_socket.cleanup_tasks()
 
-        self._logger.debug(
-            f"all active websockets cancelled, count={len(sockets_to_cancel)}"
+        MutyLogger.get_instance().debug(
+            "---> all active websockets cancelled, count=%d", len(sockets_to_cancel)
         )
 
     def num_connected_sockets(self, default_sockets_only: bool = True) -> int:
@@ -1257,7 +1531,7 @@ class GulpConnectedSockets:
                 return False
 
         # check message distribution rules (broadcast only the specified types or if ws_id matches)
-        if data.type not in GulpWsSharedQueue.get_instance().broadcast_types and (
+        if data.type not in GulpRedisBroker.get_instance().broadcast_types and (
             data.ws_id and target_ws.ws_id != data.ws_id
         ):
             return False
@@ -1266,7 +1540,28 @@ class GulpConnectedSockets:
         message = data.model_dump(
             exclude_none=True, exclude_defaults=True, by_alias=True
         )
-        await target_ws.put_message(message)
+        # MutyLogger.get_instance().debug(
+        #     "routing message to ws_id=%s: %s", target_ws.ws_id, message
+        # )
+        
+        # isolate slow client enqueue using task to prevent blocking fan-out to other clients
+        async def enqueue_and_disconnect_on_failure():
+            try:
+                success = await target_ws.enqueue_message(message)
+                if not success:
+                    # client failed to keep up within timeout - disconnect it
+                    MutyLogger.get_instance().warning(
+                        "disconnecting unresponsive ws_id=%s after enqueue failure",
+                        target_ws.ws_id,
+                    )
+                    await self.remove(target_ws.ws_id)
+            except Exception as ex:
+                MutyLogger.get_instance().exception(
+                    "failed to route message to ws_id=%s: %s", target_ws.ws_id, ex
+                )
+        
+        # create task to isolate this enqueue from the broadcast loop
+        asyncio.create_task(enqueue_and_disconnect_on_failure())
         return True
 
     async def _route_internal_message(self, data: GulpWsData) -> None:
@@ -1276,18 +1571,24 @@ class GulpConnectedSockets:
         Args:
             data (GulpWsData): The internal message to process.
         """
-        # self._logger.debug(f"processing internal message: {data}")
+        # MutyLogger.get_instance().debug(f"processing internal message: {data}")
         from gulp.plugin import GulpInternalEventsManager
 
+        # MutyLogger.get_instance().debug(
+        #     "routing internal message: type=%s, data=%s", data.type, data.payload
+        # )
         await GulpInternalEventsManager.get_instance().broadcast_event(
-            data.type, data.data
+            data.type,
+            data=data.payload,
+            user_id=data.user_id,
+            operation_id=data.operation_id,
         )
 
     async def broadcast_message(
         self, data: GulpWsData, skip_list: list[str] = None
     ) -> None:
         """
-        broadcasts message to appropriate connected websockets
+        Broadcasts message to appropriate connected websockets (local and cross-instance).
 
         Args:
             data (GulpWsData): The message to broadcast.
@@ -1298,67 +1599,64 @@ class GulpConnectedSockets:
             await self._route_internal_message(data)
             return
 
-        # create copy to avoid modification during iteration
+        # for broadcast types, publish to Redis so all instances receive it
+        if data.type in GulpRedisBroker.get_instance().broadcast_types:
+            redis_client = GulpRedis.get_instance()
+            message_dict = data.model_dump(exclude_none=True)
+            await redis_client.publish(message_dict)
+            # NOTE: we'll still process locally below, the broadcast ensures other instances get it
+
+        # route to local connected websockets
         socket_items = list(self._sockets.items())
 
-        # track dead sockets for cleanup
-        dead_sockets = []
+        # collect routing tasks
+        tasks = []
+        ws_ids = []
+        for ws_id, connected_socket in socket_items:
+            if skip_list and ws_id in skip_list:
+                continue
+            tasks.append(self._route_message(data, connected_socket))
+            ws_ids.append(ws_id)
 
-        for socket_id, connected_socket in socket_items:
-            try:
-                if skip_list and socket_id in skip_list:
-                    continue
+        if tasks:
+            # execute concurrently
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                await self._route_message(data, connected_socket)
-
-            except Exception as ex:
-                self._logger.warning(
-                    f"Failed to broadcast to socket {socket_id}: {str(ex)}"
-                )
-                dead_sockets.append(socket_id)
-
-        # clean up dead sockets
-        for socket_id in dead_sockets:
-            self._logger.warning(f"removing dead socket {socket_id}")
-            self._sockets.pop(socket_id, None)
+            # check for exceptions
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    ws_id = ws_ids[i]
+                    MutyLogger.get_instance().warning(
+                        "failed to broadcast to (local) ws_id=%s: %s, removing dead socket",
+                        ws_id,
+                        result,
+                    )
+                    self._sockets.pop(ws_id, None)
 
 
-class GulpWsSharedQueue:
+class GulpRedisBroker:
     """
-    Singleton class to manage a shared websocket queue between processes.
-    Provides methods for adding data to the queue and processing messages.
+    Singleton class to manage Redis pub/sub for worker->main and instance<->instance communication.
+    Provides methods for publishing data and handling broadcast messages.
     """
 
-    _instance: "GulpWsSharedQueue" = None
-
-    # Class constants
-    MAX_QUEUE_SIZE = 1000
-    QUEUE_TIMEOUT = 30
-    MAX_RETRIES = 3
-
-    # Queue processing constants
-    MIN_BATCH_SIZE = 10
-    MAX_BATCH_SIZE = 100
-    BATCH_TIMEOUT = 0.1
-    PROCESSING_YIELD_INTERVAL = 0.1
-    SUB_BATCH_SIZE = 20
+    _instance: "GulpRedisBroker" = None
 
     def __init__(self):
         # these are the fixed broadcast types that are always sent to all connected websockets
-        self.broadcast_types: list[str] = {
-            WSDATA_GENERIC,
+        # keep as a set for fast membership checks
+        self.broadcast_types: set[str] = {
+            WSDATA_COLLAB_CREATE,
             WSDATA_COLLAB_UPDATE,
             WSDATA_COLLAB_DELETE,
-            WSDATA_NEW_CONTEXT,
-            WSDATA_NEW_SOURCE,
+            WSDATA_REBASE_DONE,
             WSDATA_INGEST_SOURCE_DONE,
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,
         }
+
+        # internal state
         self._initialized: bool = True
-        self._shared_q: Queue = None
-        self._fill_task: asyncio.Task = None
-        self._last_queue_warning: int = 0  # just for metrics...
 
     def __new__(cls):
         """
@@ -1369,12 +1667,12 @@ class GulpWsSharedQueue:
         return cls._instance
 
     @classmethod
-    def get_instance(cls) -> "GulpWsSharedQueue":
+    def get_instance(cls) -> "GulpRedisBroker":
         """
         Returns the singleton instance.
 
         Returns:
-            GulpWsSharedQueue: The singleton instance.
+            GulpRedisBroker: The singleton instance.
         """
         if not cls._instance:
             cls._instance = cls()
@@ -1387,8 +1685,9 @@ class GulpWsSharedQueue:
         Args:
             type (str): The type to add.
         """
-        if t not in self._broadcast_types:
-            self._broadcast_types.append(t)
+        # ensure we operate on the broadcast_types set
+        if t not in self.broadcast_types:
+            self.broadcast_types.add(t)
 
     def remove_broadcast_type(self, t: str) -> None:
         """
@@ -1397,440 +1696,419 @@ class GulpWsSharedQueue:
         Args:
             type (str): The type to remove.
         """
-        if t in self._broadcast_types:
-            self._broadcast_types.remove(t)
+        if t in self.broadcast_types:
+            self.broadcast_types.remove(t)
 
-    def set_queue(self, q: Queue) -> None:
+    async def initialize(self) -> None:
         """
-        Sets the shared queue.
+        Initialize Redis pub/sub subscriptions
+
+        NOTE: must be called in the main process.
+        """
+        redis_client = GulpRedis.get_instance()
+
+        # subscribe to worker->main channel
+        await redis_client.subscribe(self._handle_pubsub_message)
+        MutyLogger.get_instance().info("GulpRedisBroker initialized!")
+
+    async def shutdown(self) -> None:
+        """
+        Deinitialize Redis pub/sub subscriptions
+
+        NOTE: must be called in the main process.
+        """
+        redis_client = GulpRedis.get_instance()
+
+        # unsubscribe from worker->main channel
+        await redis_client.unsubscribe()
+        MutyLogger.get_instance().info("GulpRedisBroker uninitialized!")
+
+    async def _handle_pubsub_message(self, message: dict) -> None:
+        """
+        Handle a message from Redis pub/sub.
 
         Args:
-            q (Queue): The shared queue.
+            message (dict): The message dictionary (GulpWsData)
         """
-        from gulp.process import GulpProcess
+        # extract Redis channel name (added by subscriber loop)
+        redis_channel: str = message.pop("__redis_channel__", None)
+        # extract message metadata
+        channel: str = message.pop("__channel__", None)
+        server_id: str = message.pop("__server_id__", None)
+        redis_client = GulpRedis.get_instance()
 
-        if GulpProcess.get_instance().is_main_process():
-            raise RuntimeError("set_queue() must be called in a worker process")
+        # if this message is a pointer to a stored payload, try to fetch it and
+        # replace the message dict with the full stored payload
+        try:
+            pl = message.get("payload")
+            if isinstance(pl, dict) and pl.get("__pointer_key"):
+                ptr = pl.get("__pointer_key")
+                chunk_server_id = pl.get("__server_id")
 
-        MutyLogger.get_instance().debug(
-            "setting shared ws queue in worker process: q=%s(%s)" % (q, type(q))
-        )
-        self._shared_q = q
+                # only retrieve chunks if:
+                # 1) we are the server that stored them (chunk_server_id == our server_id), OR
+                # 2) the message is explicitly targeted to a ws_id we own
+                should_retrieve = False
+                if chunk_server_id == redis_client.server_id:
+                    # we stored these chunks, we should retrieve them
+                    should_retrieve = True
+                else:
+                    # check if the message targets a websocket we own
+                    target_ws_id = message.get("ws_id")
+                    if target_ws_id:
+                        owner_server = await redis_client.ws_get_server(target_ws_id)
+                        if owner_server == redis_client.server_id:
+                            should_retrieve = True
 
-    async def init_queue(self, mgr: SyncManager) -> Queue:
-        """
-        to be called by the MAIN PROCESS, initializes the shared multiprocessing queue: the same queue must then be passed to the worker processes
-
-        Args:
-            q (Queue): The shared queue created by the multiprocessing manager in the main process
-        """
-        from gulp.process import GulpProcess
-
-        if not GulpProcess.get_instance().is_main_process():
-            raise RuntimeError("init_queue() must be called in the main process")
-
-        if self._shared_q:
-            # close first
-            await self.close()
-
-        MutyLogger.get_instance().debug("re/initializing shared ws queue ...")
-        self._shared_q = mgr.Queue(self.MAX_QUEUE_SIZE)
-        self._fill_task = asyncio.create_task(self._fill_ws_queues_from_shared_queue())
-
-        return self._shared_q
-
-    def _update_queue_metrics(self, queue_size: int, sleep_time: float) -> None:
-        """
-        update queue metrics for monitoring
-
-        args:
-            queue_size (int): current queue size
-            sleep_time (float): applied sleep time
-        """
-        # log periodic warnings if queue remains consistently full
-        now = time.time()
-        load_ratio = queue_size / self.MAX_QUEUE_SIZE
-
-        # log warning at most once per minute
-        if load_ratio > 0.9 and (now - self._last_queue_warning) > 60:
-            MutyLogger.get_instance().warning(
-                f"high queue pressure: size={queue_size}/{self.MAX_QUEUE_SIZE} "
-                f"({load_ratio:.1%}), applying {sleep_time:.3f}s delay"
-            )
-            self._last_queue_warning = now
-
-    def _apply_backpressure_strategy(self, queue_size: int) -> float:
-        """
-        apply appropriate backpressure based on queue size.
-
-        throttles throughput by increasing sleep time as queue fills up,
-        but never drops messages.
-
-        args:
-            queue_size (int): current queue size
-
-        returns:
-            float: sleep time in seconds to apply
-        """
-        # determine load level
-        load_ratio = queue_size / self.MAX_QUEUE_SIZE
-
-        # exponential backpressure as load increases
-        if load_ratio > 0.95:  # critical load
-            # max 2 second delay at absolute maximum load
-            return min(2.0, 0.5 * (load_ratio**2))
-
-        elif load_ratio > 0.8:  # heavy load
-            # between ~0.1s and ~0.5s delay
-            return min(0.5, 0.15 * load_ratio)
-
-        elif load_ratio > 0.6:  # moderate load
-            # gentle slowdown
-            return min(0.15, 0.05 * load_ratio)
-
-        else:  # normal load
-            # minimal delay
-            return 0.01
-
-    async def _process_message_batch(self, messages: list[GulpWsData]) -> None:
-        """
-        Process a batch of messages with retry logic.
-
-        Args:
-            messages (list): List of messages to process
-        """
-        logger = MutyLogger.get_instance()
-
-        # process in smaller sub-batches to yield control
-        sub_batch_size = max(1, min(self.SUB_BATCH_SIZE, len(messages)))
-        for i in range(0, len(messages), sub_batch_size):
-            sub_batch = messages[i : i + sub_batch_size]
-            for msg in sub_batch:
-                await self._process_single_message(msg, logger)
-
-            # yield control between sub-batches
-            await asyncio.sleep(0.01)
-
-    async def _process_single_message(self, msg: GulpWsData, logger: MutyLogger):
-        """Process a single message with retry logic"""
-        retries = 0
-        while retries < self.MAX_RETRIES:
-            try:
-                cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
-                if cws or msg.internal:
-                    await GulpConnectedSockets.get_instance().broadcast_message(msg)
-                break
-            except Exception as e:
-                retries += 1
-                if retries == self.MAX_RETRIES:
-                    logger.error(
-                        f"Failed to process message after {self.MAX_RETRIES} retries: {e}"
+                if not should_retrieve:
+                    # this node should not retrieve chunks - another node will handle it
+                    # log at debug level to avoid flooding logs
+                    MutyLogger.get_instance().debug(
+                        "skipping chunk retrieval for ptr=%s (chunk_server_id=%s, our_server_id=%s)",
+                        ptr,
+                        chunk_server_id,
+                        redis_client.server_id,
                     )
-                await asyncio.sleep(0.1 * retries)
+                    # leave message as-is with pointer, don't process further
+                    return
 
-    async def _fill_ws_queues_from_shared_queue(self):
-        """
-        Processes messages from shared queue with guaranteed delivery
-        """
-        from gulp.api.rest_api import GulpRestServer
+                try:
+                    # If pointer contains __chunks, try atomic multi-GET+DEL for all chunk keys
+                    chunks = pl.get("__chunks")
+                    compressed_flag = pl.get("__compressed", False)
+                    if chunks and int(chunks) > 0:
+                        keys = [f"{ptr}:{i}" for i in range(int(chunks))]
 
-        logger = MutyLogger.get_instance()
-        logger.debug("Starting queue processing task...")
+                        lua_multi = (
+                            "local n = #KEYS\n"
+                            "local vals = {}\n"
+                            "for i=1,n do local v = redis.call('GET', KEYS[i]); if not v then return nil end; vals[i]=v end\n"
+                            "for i=1,n do redis.call('DEL', KEYS[i]) end\n"
+                            "return table.concat(vals)\n"
+                        )
+
+                        stored = None
+                        for attempt in range(3):
+                            try:
+                                stored = await redis_client._redis.eval(
+                                    lua_multi, len(keys), *keys
+                                )
+                                break
+                            except Exception as ex:
+                                if attempt == 2:
+                                    raise ex
+                                await asyncio.sleep(0.2 * (attempt + 1))
+
+                        if stored:
+                            try:
+                                data_bytes = stored
+                                if compressed_flag:
+                                    try:
+                                        data_bytes = zlib.decompress(data_bytes)
+                                    except Exception:
+                                        MutyLogger.get_instance().exception(
+                                            "failed to decompress stored chunks for base=%s",
+                                            ptr,
+                                        )
+                                        data_bytes = None
+
+                                if data_bytes:
+                                    full_msg = orjson.loads(data_bytes)
+                                    message = full_msg
+                                else:
+                                    MutyLogger.get_instance().warning(
+                                        "failed to decode stored chunks for base=%s",
+                                        ptr,
+                                    )
+                            except Exception:
+                                MutyLogger.get_instance().exception(
+                                    "failed to decode stored large payload for base=%s",
+                                    ptr,
+                                )
+                        else:
+                            MutyLogger.get_instance().warning(
+                                "large payload chunked pointer missing in Redis for base=%s",
+                                ptr,
+                            )
+                    else:
+                        # single-key pointer handling: atomic GET+DEL for single key
+                        lua = (
+                            "local v = redis.call('GET', KEYS[1]);"
+                            "if v then redis.call('DEL', KEYS[1]) end; return v"
+                        )
+                        stored = None
+                        for attempt in range(3):
+                            try:
+                                stored = await redis_client._redis.eval(lua, 1, ptr)
+                                break
+                            except Exception as ex:
+                                if attempt == 2:
+                                    raise ex
+                                await asyncio.sleep(0.2 * (attempt + 1))
+                        if stored:
+                            try:
+                                full_msg = orjson.loads(stored)
+                                message = full_msg
+                            except Exception:
+                                MutyLogger.get_instance().exception(
+                                    "failed to decode stored large payload for key=%s",
+                                    ptr,
+                                )
+                        else:
+                            MutyLogger.get_instance().warning(
+                                "large payload pointer missing in Redis for key=%s", ptr
+                            )
+                except Exception:
+                    MutyLogger.get_instance().exception(
+                        "error fetching and deleting large payload pointer %s from Redis",
+                        ptr,
+                    )
+        except Exception:
+            MutyLogger.get_instance().exception("error while resolving payload pointer")
+
+        # avoid processing our own broadcast messages for broadcast channel
+        if (
+            server_id
+            and server_id == redis_client.server_id
+            and channel == GulpRedisChannel.BROADCAST.value
+        ):
+            return
+
+        # handle client_data channel specially: route to WS_CLIENT_DATA sockets
+        # check the actual Redis channel (not message metadata)
+        if redis_channel == GulpRedis.CLIENT_DATA_CHANNEL:
+            try:
+                # message is expected to be a GulpWsData-like dict
+                # include __sender_ws_id__ and __server_id__ when published
+                sender_ws = message.pop("__sender_ws_id__", None)
+                # skip messages originating from this server instance
+                if server_id and server_id == redis_client.server_id:
+                    return
+
+                try:
+                    wsd = GulpWsData.model_validate(message)
+                except Exception:
+                    MutyLogger.get_instance().error("invalid GulpWsData on client_data channel")
+                    return
+
+                await self._process_client_data_message(wsd)
+                return
+            except Exception as ex:
+                MutyLogger.get_instance().error("error processing client_data pubsub message: %s", ex)
+                return
 
         try:
-            messages: list[GulpWsData] = []
-            current_batch_size = self.MAX_BATCH_SIZE
-            last_yield_time = time.monotonic()
+            wsd = GulpWsData.model_validate(message)
+            if channel == GulpRedisChannel.WORKER_TO_MAIN.value:
+                await self._process_message(wsd)
+            elif channel == GulpRedisChannel.BROADCAST.value:
+                # only process if we have this websocket or it's a broadcast type
+                server_id = await redis_client.ws_get_server(wsd.ws_id)
 
-            while not GulpRestServer.get_instance().is_shutdown():
-                # Yield control periodically
-                if time.monotonic() - last_yield_time > self.PROCESSING_YIELD_INTERVAL:
-                    await asyncio.sleep(0.01)
-                    last_yield_time = time.monotonic()
+                # check if this message is for this instance (we have the websocket) or if it's a broadcast type
+                if (
+                    server_id == redis_client.server_id
+                    or wsd.type in self.broadcast_types
+                ):
+                    await self._process_message(wsd)
+        except Exception as ex:
+            MutyLogger.get_instance().error("error processing pubsub message: %s", ex)
 
-                #shared_queue_size = self._shared_q.qsize()
+    async def _process_message(self, msg: GulpWsData) -> None:
+        """
+        Process a single message and route to appropriate websockets.
 
-                """
-                # apply backpressure strategy based on queue load
-                if shared_queue_size > self.MAX_QUEUE_SIZE * 0.6:
-                    sleep_time = self._apply_backpressure_strategy(shared_queue_size)
-                    self._update_queue_metrics(shared_queue_size, sleep_time)
-                    await asyncio.sleep(sleep_time)
+        Args:
+            msg (GulpWsData): The message to process
+        """
+        cws = GulpConnectedSockets.get_instance().get(msg.ws_id)
+        if cws or msg.internal:
+            await GulpConnectedSockets.get_instance().broadcast_message(msg)
 
-                    # increase batch size under heavy load to clear backlog faster
-                    if shared_queue_size > self.MAX_QUEUE_SIZE * 0.95:
-                        current_batch_size = (
-                            self.MAX_BATCH_SIZE
-                        )  # force maximum batch size
-                    else:
-                        # adjust batch size dynamically based on load
-                        current_batch_size = self._calculate_batch_size(
-                            shared_queue_size
-                        )
-                else:
-                    # normal load - use standard batch size calculation
-                    current_batch_size = self._calculate_batch_size(shared_queue_size)
+    async def _process_client_data_message(self, msg: GulpWsData) -> None:
+        """
+        Process a client_data message received from another instance and route to
+        local `WS_CLIENT_DATA` sockets applying the same filters as the local path.
 
-                """
-                # collect batch of messages
-                await self._collect_message_batch(messages, current_batch_size)
+        Args:
+            msg (GulpWsData): The client_data message
+        """
+        MutyLogger.get_instance().debug(
+            "processing cross-instance client_data: ws_id=%s, operation_id=%s",
+            msg.ws_id, msg.operation_id
+        )
+        s = GulpConnectedSockets.get_instance()
+        
+        # if msg.ws_id is set, only deliver to that specific websocket
+        if msg.ws_id:
+            cws = s.get(msg.ws_id)
+            if not cws or cws.socket_type != GulpWsType.WS_CLIENT_DATA:
+                return
+            
+            # filter by operation_id if set (empty list means accept all)
+            if (
+                msg.operation_id
+                and cws.operation_ids
+                and msg.operation_id not in cws.operation_ids
+            ):
+                return
+            
+            # send message
+            try:
+                await cws.enqueue_message(msg.model_dump(exclude_none=True))
+                MutyLogger.get_instance().debug(
+                    "routed cross-instance client_data to ws_id=%s", cws.ws_id
+                )
+            except Exception as ex:
+                MutyLogger.get_instance().error(
+                    f"error sending client_data to ws_id={cws.ws_id}: {ex}"
+                )
+            return
+        
+        # broadcast to all matching client_data sockets
+        for _, cws in s.sockets().items():
+            try:
+                # skip if not client_data socket
+                if cws.socket_type != GulpWsType.WS_CLIENT_DATA:
+                    continue
 
-                # process collected messages
-                if messages:
-                    await self._process_message_batch(messages)
-                    messages.clear()
+                # filter by operation_id if set (empty list means accept all)
+                if (
+                    msg.operation_id
+                    and cws.operation_ids
+                    and msg.operation_id not in cws.operation_ids
+                ):
+                    continue
 
-                # Adaptive sleep based on queue size
-                sleep_time = self.PROCESSING_YIELD_INTERVAL
-                # sleep_time = (
-                #     0.05 if shared_queue_size > self.MAX_QUEUE_SIZE * 0.5 else 0.1
-                # )
-                await asyncio.sleep(sleep_time)
+                # filter by target_user_ids if present in payload
+                # check if recipient's user matches target list
+                pl = msg.payload or {}
+                target_user_ids = None
+                if isinstance(pl, dict):
+                    target_user_ids = pl.get("target_user_ids")
+                if target_user_ids and cws.user_id not in target_user_ids:
+                    continue
 
-        except asyncio.CancelledError:
-            logger.info("Queue processing cancelled")
-        except Exception as e:
-            logger.error(f"Queue processing error: {e}")
-            raise
-        finally:
-            # process remaining messages
-            for msg in messages:
+                # send message
                 try:
-                    cws = GulpConnectedSockets.get_instance().find(msg.ws_id)
-                    if cws or msg.internal:
-                        await GulpConnectedSockets.get_instance().broadcast_message(msg)
-                except Exception as e:
-                    logger.error(f"Cleanup error: {e}")
+                    await cws.enqueue_message(msg.model_dump(exclude_none=True))
+                    MutyLogger.get_instance().debug(
+                        "routed cross-instance client_data to ws_id=%s", cws.ws_id
+                    )
+                except Exception as ex:
+                    MutyLogger.get_instance().error(
+                        f"error sending client_data to ws_id={cws.ws_id}: {ex}"
+                    )
+            except Exception:
+                MutyLogger.get_instance().exception(
+                    "error routing client_data message to local sockets"
+                )
 
-            logger.info("Queue processing task completed")
+    async def _put_common(self, wsd: GulpWsData) -> None:
+        """
+        Publish message to Redis (or process directly).
 
-    def _calculate_batch_size(self, queue_size: int) -> int:
-        """Calculate optimal batch size based on queue load"""
-        if queue_size > self.MAX_QUEUE_SIZE * 0.8:
-            return self.MAX_BATCH_SIZE
-        elif queue_size < self.MAX_QUEUE_SIZE * 0.2:
-            return self.MIN_BATCH_SIZE
+        Args:
+            wsd (GulpWsData): The message to publish
+        """
+        from gulp.process import GulpProcess
+
+        redis_client = GulpRedis.get_instance()
+        message_dict = wsd.model_dump(exclude_none=True)
+
+        # determine if this should be broadcast to all instances or just local
+        if wsd.type in self.broadcast_types or wsd.internal:
+            # process here
+            if GulpProcess.get_instance().is_main_process():
+                await self._process_message(wsd)
+            else:
+                message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
+                await redis_client.publish(message_dict)
+
+            # then broadcast to all other instances
+            message_dict["__channel__"] = GulpRedisChannel.BROADCAST.value
+            message_dict["__server_id__"] = redis_client.server_id
+            await redis_client.publish(message_dict)
+        elif GulpProcess.get_instance().is_main_process():
+            # main process: directly process locally
+            await self._process_message(wsd)
         else:
-            # linear interpolation between min and max batch sizes
-            load_factor = (queue_size - self.MAX_QUEUE_SIZE * 0.2) / (
-                self.MAX_QUEUE_SIZE * 0.6
-            )
-            return int(
-                self.MIN_BATCH_SIZE
-                + load_factor * (self.MAX_BATCH_SIZE - self.MIN_BATCH_SIZE)
-            )
+            # worker process: publish to main process of this instance
+            message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
+            await redis_client.publish(message_dict)
 
-    async def _collect_message_batch(
-        self, messages: list[GulpWsData], batch_size: int
+    async def put_internal_event(
+        self,
+        t: str,
+        user_id: str = None,
+        operation_id: str = None,
+        req_id: str = None,
+        data: dict = None,
     ) -> None:
         """
-        Collect a batch of messages from the queue
+        called by internal components and plugins to publish internal events.
+
+        this is used to broadcast internal events via the GulpInternalEventsManager
 
         Args:
-            messages (list): List to store collected messages
-            batch_size (int): Target batch size
-        """
-        #batch_start = time.monotonic()
-
-        while (
-            len(messages) < batch_size
-            #and (time.monotonic() - batch_start) < self.BATCH_TIMEOUT
-        ):
-            try:
-                entry = self._shared_q.get_nowait()
-                messages.append(entry)
-                self._shared_q.task_done()
-            except Empty:
-                break
-
-    async def close(self) -> None:
-        """
-        Closes the shared multiprocessing queue (flushes it first).
-
-        Returns:
-            None
-        """
-        if not self._shared_q:
-            return
-
-        logger = MutyLogger.get_instance()
-        logger.debug("Closing shared WS queue...")
-        success: bool = False
-
-        try:
-            # flush queue with timeout protection
-            try:
-                await asyncio.wait_for(self._flush_queue(), timeout=10.0)
-            except asyncio.TimeoutError:
-                logger.warning("Queue flush operation timed out")
-
-            # cancel processing task with proper handling
-            if self._fill_task:
-                try:
-                    cancelled = self._fill_task.cancel()
-                    if cancelled:
-                        # wait for task with timeout
-                        await asyncio.wait_for(self._fill_task, timeout=5.0)
-                        logger.debug("Queue processing task cancelled successfully")
-                    else:
-                        logger.debug("Queue processing task was already completed")
-                except asyncio.TimeoutError:
-                    logger.warning("Task cancellation timed out")
-                except Exception as e:
-                    logger.error(f"Error during task cancellation: {e}")
-
-            # release resources
-            self._shared_q = None
-            success = True
-            logger.debug(f"Shared WS queue closed (success={success})")
-
-        except Exception as e:
-            logger.error(f"Failed to close shared queue: {e}")
-
-    async def _flush_queue(self) -> None:
-        """Flush all items from the queue"""
-        if not self._shared_q:
-            return
-
-        counter = 0
-        while True:
-            try:
-                self._shared_q.get_nowait()
-                self._shared_q.task_done()
-                counter += 1
-            except Empty:
-                break
-
-        self._shared_q.join()
-        MutyLogger.get_instance().debug(f"Flushed {counter} messages from shared queue")
-
-    def put_internal_event(self, msg: str, params: dict = None) -> None:
-        """
-        Puts a GulpInternalEvent (not websocket related) into the shared queue.
-
-        this is used to send internal events from worker processes to be processed by the main process
-
-        Args:
-            msg (str): The message type.
-            params (dict, optional): The parameters for the message.
+            t (str): The message type (i.e. GulpInternalEventsManager.EVENT_INGEST)
+            user_id (str, optional): the user id associated with this event. Defaults to None.
+            operation_id (str, optional): the operation id if applicable. Defaults to None.
+            req_id (str, optional): the request id originating the event, if applicable. Defaults to None.
+            data (dict, optional): event data. Defaults to None.
         """
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
-            type=msg,
-            data=params,
+            type=t,
+            user_id=user_id,
+            req_id=req_id,
+            operation_id=operation_id,
+            payload=data,
             internal=True,
         )
-        self._shared_q.put(wsd)
+        await self._put_common(wsd)
 
     async def put(
         self,
-        type: str,
+        t: str,
         user_id: str,
         ws_id: str = None,
         operation_id: str = None,
         req_id: str = None,
-        data: Any = None,
+        d: Any = None,
         private: bool = False,
+        force_ignore_missing_ws: bool = False,
     ) -> None:
         """
-        adds data to the shared queue with retry logic and backpressure handling.
-
-        this method attempts to put a message into the queue and will retry if the
-        queue is full, with progressive backoff between retries.
+        called by workers, publishes data to the main process via Redis pub/sub.
 
         args:
-            type (str): the type of data being queued
+            t (str): the type of data being published
             user_id (str): the user id associated with this message
             ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
             operation_id (Optional[str]): the operation id if applicable
             req_id (Optional[str]): the request id if applicable
-            data (Optional[Any]): the payload data
+            d (Optional[Any]): the payload data
             private (bool): whether this message is private to the specified ws_id
-
+            force_ignore_missing_ws (bool): whether to ignore missing websocket and not raise an error
         raises:
-            WebSocketDisconnect: if websocket is not connected for DOCUMENTS_CHUNK type
-            WsQueueFullException: if queue is full after all retries
+            WebSocketDisconnect: if websocket is not connected
         """
 
-        # verify websocket is alive for document chunks - this allows interrupting
-        # lengthy processes if the websocket is no longer connected
-        if type == WSDATA_DOCUMENTS_CHUNK:
-            if not ws_id or not GulpConnectedSocket.is_alive(ws_id):
-                raise WebSocketDisconnect("websocket '%s' is not connected!" % (ws_id))
+        # verify websocket is alive (check Redis registry)
 
+        if not force_ignore_missing_ws:
+            if not await GulpConnectedSocket.is_alive(ws_id):
+                raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
         # create the message
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),
-            type=type,
+            type=t,
             operation_id=operation_id,
             ws_id=ws_id,
             user_id=user_id,
             req_id=req_id,
             private=private,
-            data=data,
+            payload=d,
         )
-
-        # attempt to add with exponential backoff
-        for retry in range(self.MAX_RETRIES):
-            try:
-                self._shared_q.put(wsd, block=True, timeout=self.QUEUE_TIMEOUT)
-                # MutyLogger.get_instance().debug(f"added {type} message to queue for ws {ws_id}")
-                return
-            except queue.Full:
-                # exponential backoff with jitter
-                backoff_time = min(self.PROCESSING_YIELD_INTERVAL * (2**retry), 1.0) * (
-                    0.8 + 0.4 * random.random()
-                )
-
-                # log the attempt with more consistent formatting
-                MutyLogger.get_instance().warning(
-                    f"queue full for ws {ws_id}, attempt {retry+1}/{self.MAX_RETRIES}, "
-                    f"backoff for {backoff_time:.2f}s"
-                )
-
-                # wait before retrying
-                # TODO: maybe this should be the reason to turn this async ? hopefully we do not hit this often....
-                await asyncio.sleep(backoff_time)
-
-        # all retries failed
-        queue_size = self._shared_q.qsize() if self._shared_q else "unknown"
-        MutyLogger.get_instance().error(
-            f"failed to add {type} message to queue for ws {ws_id} after "
-            f"{self.MAX_RETRIES} attempts (queue size: {queue_size})"
-        )
-        raise WsQueueFullException(f"queue full for ws {ws_id}")
-
-    async def put_generic_notify(
-        self,
-        t: str,
-        user_id: str,
-        d: dict = None,
-        operation_id: str = None,
-        ws_id: str = None,
-        req_id: str = None,
-    ) -> None:
-        """
-        a shortcut method to send generic notify messages to the queue, to be routed among connected sockets
-
-        args:
-            t (str): the custom notify type
-            user_id (str): the user id associated with this message
-            d (dict, optional): the payload data. Defaults to None.
-            operation_id (Optional[str]): the operation id if applicable
-            ws_id (str, optional): the websocket id that will receive the message. if None, the message is broadcasted to all connected websockets
-            req_id (str, optional): the request id if applicable
-        """
-
-        if d is None:
-            d = {}
-
-        p: GulpCollabGenericNotifyPacket = GulpCollabGenericNotifyPacket(type=t, data=d)
-        d = p.model_dump(exclude_none=True, exclude_defaults=True)
-        await self.put(
-            type=WSDATA_GENERIC,
-            user_id=user_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            req_id=req_id,
-            data=d,
-        )
+        await self._put_common(wsd)

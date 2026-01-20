@@ -12,8 +12,6 @@ process pools, and websocket queues, facilitating efficient communication betwee
 
 Key components:
 - Process pool management for parallel task execution
-- Thread and coroutine pools for concurrent operations
-- Inter-process communication through shared queues
 - Lifecycle management for graceful startup and shutdown
 - Integration with other Gulp components (Collab, OpenSearch, WebSocket)
 
@@ -25,16 +23,18 @@ import asyncio
 import os
 import signal
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
-from multiprocessing import Lock, Manager, Queue, Value
-from multiprocessing.managers import SyncManager, DictProxy
+from multiprocessing import Queue
+
 from aiomultiprocess import Pool as AioProcessPool
 from asyncio_pool import AioPool as AioCoroPool
 from muty.log import MutyLogger
 
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import GulpWsSharedQueue
+from gulp.api.redis_api import GulpRedis
+from gulp.api.ws_api import GulpRedisBroker
 from gulp.config import GulpConfig
 
 
@@ -42,44 +42,28 @@ class GulpProcess:
     """
     represents the main or one of the worker processes for the Gulp application.
 
-    how a GulpProcess starts depending on it is the main process or a worker:
+    It manages shared resources like thread pools, coroutine pools, process pools,
+    and websocket queues, facilitating efficient communication between processes.
 
-    - each GulpProcess is initialized by calling `init_gulp_process`, which handles both main and worker processes initialization
-
-    - the main GulpProcess is initialized at application startup and is responsible for creating the worker processes pool and the shared websocket queue
-    which is used by workers to fill the websocket with data to be sent to the clients.
-
-    - each worker GulpProcess is initialized when a worker process is spawned and is responsible for initializing the worker process.
-
-    - each GulpProcess, main and worker, have its own executors and clients to communicate with other parts of gulp.
-        specifically, they are implemented as singletons to guarantee only one instance per-process is created.
-            - GulpProcess.get_instance().process_pool: process pool executor (only the main process, to spawn worker)
-            - GulpProcess.get_instance().thread_pool: thread pool executor
-            - GulpProcess.get_instance().coro_pool: coroutine pool executor
-            - GulpCollab.get_instance(): the collab client
-            - GulpOpenSearch.get_instance(): the opensearch client
-            - GulpWsSharedQueue.get_instance(): the shared websocket queue
+    The GulpProcess class is responsible for initializing and managing the lifecycle of
+    the main and worker processes, including graceful startup and shutdown procedures.
     """
 
     _instance: "GulpProcess" = None
 
     def __init__(self):
         self._initialized: bool = True
-        self.mp_manager: SyncManager = None
 
         # allow main/worker processes to spawn threads
         self.thread_pool: ThreadPoolExecutor = None
-        # allow main/worker processes to spawn coroutines
-        self.coro_pool: AioCoroPool = None
+        self.server_id: str = None
+
         # allow the main process to spawn worker processes
         self.process_pool: AioProcessPool = None
         self._log_level: int = None
         self._logger_file_path: str = None
         self._log_to_syslog: bool = False
         self._main_process: bool = True
-
-        # shared memory between main and worker process
-        self.shared_memory: DictProxy = None
 
     def __new__(cls) -> "GulpProcess":
         """
@@ -126,23 +110,27 @@ class GulpProcess:
         return
 
     @staticmethod
-    def _worker_initializer(spawned_processes: Value, lock: Lock, q: Queue, shared_memory: DictProxy, log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str, str] = None):  # type: ignore
+    def _worker_initializer(server_id: str, spawn_key: str, log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str, str] = None):  # type: ignore
         """
         initializes a worker process
 
         NOTE: this is run IN THE WORKER process before anything else.
 
         Args:
-            spawned_processes (Value): shared counter for the number of spawned processes (for ordered initialization)
-            lock (Lock): shared lock for spawned_processes (for ordered initialization)
-            q (Queue): the shared websocket queue created by the main process
-            shared_memory (dict, optional): a dictionary to be used as shared memory between main and worker processes.
+            server_id (str): the server ID
+            spawn_key (str): the redis key to INCR to notify main process of worker process spawn
             log_level (int, optional): the log level. Defaults to None.
             logger_file_path (str, optional): the logger file path to log to file. Defaults to None, cannot be used with log_to_syslog.
             log_to_syslog (tuple[str,str], optional): the syslog address and facility to log to syslog. Defaults to (None, None).
                 if (None, None) is passed, it defaults to ("/var/log" or "/var/run/syslog" depending what is available, "LOG_USER").
                 cannot be used with logger_file_path.
         """
+        # we do not have mutylogger initialized yet here, so we use print statements
+        print(
+            "_worker_initializer, server_id=%s, spawn_key=%s" % (
+            server_id, spawn_key)
+        )
+
         # initialize paths immediately, before any unpickling happens
         plugins_path = GulpConfig.get_instance().path_plugins_default()
         plugins_path_extra = GulpConfig.get_instance().path_plugins_extra()
@@ -166,43 +154,38 @@ class GulpProcess:
         loop = asyncio.get_event_loop()
         try:
             loop.run_until_complete(
-                p.init_gulp_process(
-                    lock=lock,
+                p.finish_initialization(
+                    server_id,
                     log_level=log_level,
                     logger_file_path=logger_file_path,
-                    q=q,
-                    shared_memory=shared_memory,
                     log_to_syslog=log_to_syslog,
+                    is_worker=True,
                 )
             )
         except Exception as ex:
             MutyLogger.get_instance(name="gulp").exception(ex)
-        # done
-        lock.acquire()
-        spawned_processes.value += 1
-        lock.release()
+
+        # notify main process via Redis counter (spawn_key)
+        try:
+            redis_client = GulpRedis.get_instance().client()
+            if redis_client is not None and spawn_key:
+                try:
+                    loop.run_until_complete(redis_client.incr(spawn_key))
+                    # refresh TTL in case main set a short expiry
+                    loop.run_until_complete(redis_client.expire(spawn_key, 40))
+                except Exception:
+                    MutyLogger.get_instance().warning("_worker_initializer: failed to INCR spawn key %s", spawn_key)
+        except Exception:
+            MutyLogger.get_instance().warning("_worker_initializer: redis client not available to INCR spawn key %s", spawn_key)
+
         MutyLogger.get_instance().warning(
-            "_worker_initializer DONE, sys.path=%s, logger level=%d, logger_file_path=%s, spawned_processes=%d, ws_queue=%s, shared_memory(%s)=%s"
-            % (
+            "_worker_initializer DONE, server_id=%s, sys.path=%s, logger level=%d, logger_file_path=%s, spawn_key=%s",
+                server_id,
                 sys.path,
                 MutyLogger.get_instance().level,
                 logger_file_path,
-                spawned_processes.value,
-                q,
-                type(shared_memory),
-                shared_memory,
-            )
+                spawn_key,
         )
-
-    async def close_coro_pool(self):
-        """
-        closes the coroutine pool
-        """
-        if self.coro_pool:
-            MutyLogger.get_instance().debug("closing coro pool...")
-            await self.coro_pool.cancel()
-            await self.coro_pool.join()
-            MutyLogger.get_instance().debug("coro pool closed!")
 
     async def close_thread_pool(self, wait: bool = True):
         """
@@ -213,7 +196,7 @@ class GulpProcess:
         """
         if self.thread_pool:
             MutyLogger.get_instance().debug("closing thread pool...")
-            self.thread_pool.shutdown(wait=wait)
+            self.thread_pool.shutdown(wait)
             MutyLogger.get_instance().debug("thread pool closed!")
 
     async def close_process_pool(self):
@@ -242,118 +225,115 @@ class GulpProcess:
                 MutyLogger.get_instance().exception(ex)
 
             finally:
-                if self.mp_manager:
-                    MutyLogger.get_instance().debug("shutting down mp manager...")
-                    self.mp_manager.shutdown()
-                    MutyLogger.get_instance().debug("mp manager shut down!")
-
                 # clear the reference to the pool
                 self.process_pool = None
                 MutyLogger.get_instance().debug("mp pool closed!")
 
-    async def main_process_init(self):
-        """
-        creates (or recreates if already running) the worker process pool, together with
-
-        - shared memory dictionary between main and worker processes
-        - multiprocessing manager and structs
-        - shared websocket queue
-
-        each worker starts in _worker_initializer, which further calls init_gulp_process to initialize the worker process.
-
-        NOTE: This method is called ONLY by the main process to recreate the process pool
-        """
-        MutyLogger.get_instance().debug(
-            "recreating process pool and shared queue (respawn after %d tasks)..."
-            % (GulpConfig.get_instance().parallel_processes_respawn_after_tasks())
-        )
-        if not self._main_process:
-            raise RuntimeError("only the main process can recreate the process pool")
-
-        if self.process_pool:
-            # close the worker process pool gracefully if it is already running
-            await GulpWsSharedQueue.get_instance().close()
-            await self.close_process_pool()
-
-        # initializes the multiprocessing manager and structs
-        self.mp_manager = Manager()
-        spawned_processes = self.mp_manager.Value(int, 0)
-        num_workers = GulpConfig.get_instance().parallel_processes_max()
-        lock = self.mp_manager.Lock()
-
-        # re/create the shared websocket queue (closes it first if already running)
-        wsq = GulpWsSharedQueue.get_instance()
-        q = await wsq.init_queue(self.mp_manager)
-        self.shared_memory = self.mp_manager.dict()
-        self.shared_memory["shmem_initialized"]=True
-
-        # start workers, pass the shared queue to each
-        self.process_pool = AioProcessPool(
-            exception_handler=GulpProcess._worker_exception_handler,
-            processes=num_workers,
-            childconcurrency=GulpConfig.get_instance().concurrency_max_tasks(),
-            maxtasksperchild=GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
-            initializer=GulpProcess._worker_initializer,
-            queuecount=num_workers // 2,
-            initargs=(
-                spawned_processes,
-                lock,
-                q,
-                self.shared_memory,
-                MutyLogger.log_level,
-                MutyLogger.logger_file_path,
-                self._log_to_syslog,
-            ),
-        )
-        # wait for all processes are spawned
-        MutyLogger.get_instance().debug("waiting for all processes to be spawned ...")
-        while spawned_processes.value < num_workers:
-            # MutyLogger.get_instance().debug('waiting for all processes to be spawned ...')
-            await asyncio.sleep(0.1)
-
-        MutyLogger.get_instance().debug(
-            "all %d processes spawned!" % (spawned_processes.value)
-        )
-
-    async def init_gulp_process(
+    async def finish_initialization(
         self,
-        lock: Lock = None,  # type: ignore
+        server_id: str,
         log_level: int = None,
         logger_file_path: str = None,
-        q: Queue = None,
-        shared_memory: dict = None,
         log_to_syslog: tuple[str, str] = None,
+        is_worker: bool = False,
     ) -> None:
         """
-        initializes main or worker gulp process
+        last initializion steps in main or worker gulp process, called both by main process and also by each worker initializer
 
         Args:
-            lock (Lock, optional): if set, will be acquired (and then released) during getting configuration instance in worker processes
+            server_id (str): the server ID
             log_level (int, optional): the log level for the logger. Defaults to None.
             logger_file_path (str, optional): the log file path for the logger. Defaults to None, cannot be used with log_to_syslog.
-            q: (Queue, optional): the shared websocket queue created by the main process(we are called in a worker process).
-                Defaults to None (we are called in the main process)
-            shared_memory (dict, optional): a dictionary to be used as shared memory between main and worker processes (set to None the in main process when called in the main process on startup, will be created by this function)
             log_to_syslog (bool, optional): whether to log to syslog. Defaults to (None, None).
                 if (None, None) is passed, it defaults to ("/var/log" or "/var/run/syslog" depending what is available, "LOG_USER").
                 cannot be used with logger_file_path.
+            is_worker (bool): True if this is a worker process, False if main process
         """
 
         # only in a worker process we're passed the queue and shared_memory by the process pool initializer
-        self._main_process = q is None and shared_memory is None
+        self._main_process = not is_worker
+
+        # initializes thread pool for the main or worker process
+        self.thread_pool = ThreadPoolExecutor()
+        self.server_id = server_id
+
         if self._main_process:
-            if self._log_level:
-                # keep the same as before
-                log_level = self._log_level
-                logger_file_path = self._logger_file_path
-                log_to_syslog = self._log_to_syslog
-                MutyLogger.get_instance().warning("reinitializing MAIN process...")
-            else:
-                MutyLogger.get_instance().info("initializing MAIN process...")
-                self._log_level = log_level
-                self._logger_file_path = logger_file_path
-                self._log_to_syslog = log_to_syslog
+            ###############################
+            # main process initialization
+            ###############################
+            MutyLogger.get_instance().info("initializing MAIN process (server_id=%s) ...", self.server_id)
+            self._log_level = log_level
+            self._logger_file_path = logger_file_path
+            self._log_to_syslog = log_to_syslog
+
+            # creates the process pool and shared queue
+            MutyLogger.get_instance().debug(
+                "creating process pool (respawn after %d tasks)..."
+                % (GulpConfig.get_instance().parallel_processes_respawn_after_tasks())
+            )
+
+            num_workers: int = GulpConfig.get_instance().parallel_processes_max()
+
+            # prepare a Redis-based spawn counter key (unique per server run)
+            spawn_key: str = "gulp:spawn:%s:%d" % (server_id, int(time.time()))
+            try:
+                await GulpRedis.get_instance().client().set(spawn_key, 0, ex=40)
+            except Exception as ex:
+                MutyLogger.get_instance().exception("failed to create/reset spawn key in redis: %s", ex)
+                raise
+
+            # start workers
+            # each worker will call finish_initialization as well and INCR the spawn_key
+            self.process_pool = AioProcessPool(
+                exception_handler=GulpProcess._worker_exception_handler,
+                processes=num_workers,
+                childconcurrency=GulpConfig.get_instance().concurrency_num_tasks(),
+                maxtasksperchild=GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
+                initializer=GulpProcess._worker_initializer,
+                initargs=(
+                    server_id,
+                    spawn_key,
+                    MutyLogger.log_level,
+                    MutyLogger.logger_file_path,
+                    self._log_to_syslog,
+                ),
+            )
+
+            # wait for all workers to be spawned by polling Redis counter
+            MutyLogger.get_instance().debug("waiting for all processes to be spawned ...")
+            start_time = time.time()
+            timeout = 60
+            spawned_count = 0
+            while True:
+                try:
+                    val = await GulpRedis.get_instance().client().get(spawn_key)
+                    spawned_count = int(val or 0)
+                except Exception:
+                    spawned_count = 0
+                if spawned_count >= num_workers:
+                    break
+                if time.time() - start_time > timeout:
+                    MutyLogger.get_instance().critical(
+                        "timeout waiting for workers to spawn (got %d/%d)", spawned_count, num_workers
+                    )
+                    raise TimeoutError("timeout waiting for workers to spawn")
+                    
+                await asyncio.sleep(0.1)
+
+            MutyLogger.get_instance().debug("all %d processes spawned!", spawned_count)
+
+            MutyLogger.get_instance().warning(
+                "MAIN process initialized, server_id=%s, sys.path=%s", server_id, sys.path)
+
+            # load extension plugins
+            from gulp.api.server_api import GulpServer
+
+            await GulpServer.get_instance()._load_extension_plugins()
         else:
+            ###############################
+            # worker process initialization
+            ###############################
+            # in the worker process, initialize redis, opensearch and collab clients (main process already did it)
             # we must initialize mutylogger here
             MutyLogger.get_instance(
                 "gulp-worker-%d" % (os.getpid()),
@@ -362,213 +342,16 @@ class GulpProcess:
                 level=log_level,
             )
             MutyLogger.get_instance().info(
-                "initializing worker process, q=%s ..." % (q)
+                "initializing WORKER process (server_id=%s) ....",self.server_id
             )
+            # read configuration in worker
+            GulpConfig.get_instance()
 
-        # read configuration (needs lock in worker processes)
-        if lock:
-            lock.acquire()
-        GulpConfig.get_instance()
-        if lock:
-            lock.release()
+            # in the worker process, initialize opensearch and collab clients (main process already did it)
+            GulpOpenSearch.get_instance()
+            await GulpCollab.get_instance().init()
+            GulpRedis.get_instance().initialize(server_id, main_process=False) # do not initialize pub/sub in worker process, just redis client
 
-        # initializes coroutine and thread pools for the main or worker process
-        await self.close_coro_pool()
-        await self.close_thread_pool()
-        self.coro_pool = AioCoroPool()
-        self.thread_pool = ThreadPoolExecutor()
-
-        # initialize collab and opensearch clients for the main or worker process
-        collab = GulpCollab.get_instance()
-        await collab.init(main_process=self._main_process)
-        GulpOpenSearch.get_instance()
-
-        if self._main_process:
-
-            # creates the process pool and shared queue
-            await self.main_process_init()
-            MutyLogger.get_instance().warning(
-                "MAIN process initialized, shared_memory(%s)=%s, sys.path=%s"
-                % (self.shared_memory, type(self.shared_memory), sys.path)
-            )
-
-            # load extension plugins
-            from gulp.api.rest_api import GulpRestServer
-
-            # pylint: disable=protected-access
-            await GulpRestServer.get_instance()._unload_extension_plugins()
-            await GulpRestServer.get_instance()._load_extension_plugins()
-        else:
-            # worker process, set the queue and shared memory
-            MutyLogger.get_instance().info(
-                "WORKER process initialized, shared_memory(%s)=%s"
-                % (type(shared_memory), self.shared_memory)
-            )
-            GulpWsSharedQueue.get_instance().set_queue(q)
-            self.shared_memory = shared_memory
-
-            # register sigterm handler for the worker process
-            signal.signal(signal.SIGTERM, GulpProcess.sigterm_handler)
-
-    def shared_memory_get(self, key: str):
-        """
-        gets data from the shared memory dictionary
-
-        Args:
-            key (str): the key to get
-
-        Returns:
-            any: the value associated with the key, or None if not found
-        """
-        if key in self.shared_memory:
-            return self.shared_memory[key]
-        return None
-
-    def shared_memory_set(self, key: str, value) -> None:
-        """
-        sets data in the shared memory dictionary
-
-        Args:
-            key (str): the key to set
-            value (any): the value to set
-        """
-        self.shared_memory[key] = value
-
-    def shared_memory_delete(self, key: str) -> None:
-        """
-        deletes data from the shared memory dictionary
-
-        Args:
-            key (str): the key to delete
-        """
-        if key in self.shared_memory:
-            del self.shared_memory[key]
-
-    def shared_memory_clear(self) -> None:
-        """
-        clears the shared memory dictionary
-        """
-        self.shared_memory.clear()
-
-    def shared_memory_add_to_list(self, key: str, value) -> None:
-        """
-        adds a value to a list in the shared memory dictionary
-
-        Args:
-            key (str): the key of the list
-            value (any): the value to add to the list
-        """
-        current_list = self.shared_memory.get(key, [])
-        if value not in current_list:
-            current_list.append(value)
-
-            # need to reassign the whole list to trigger the proxy update
-            self.shared_memory[key] = current_list
-        
-    def shared_memory_remove_from_list(self, key: str, value) -> None:
-        """
-        removes a value from a list in the shared memory dictionary
-
-        Args:
-            key (str): the key of the list
-            value (any): the value to remove from the list
-        """
-        if key in self.shared_memory and value in self.shared_memory[key]:
-            current_list = self.shared_memory[key]
-            current_list.remove(value)
-            
-            # need to reassign the whole list to trigger the proxy update
-            self.shared_memory[key] = current_list            
-            
-    def shared_memory_get_from_dict(self, key: str, subkey: str):
-        """
-        gets a value from a dictionary in the shared memory dictionary
-
-        Args:
-            key (str): the key of the dictionary
-            subkey (str): the subkey to get
-
-        Returns:
-            any: the value associated with the subkey, or None if not found
-        """
-        if key in self.shared_memory and subkey in self.shared_memory[key]:            
-            return self.shared_memory[key][subkey]
-        return None
-
-    def shared_memory_set_in_dict(self, key: str, subkey: str, value) -> None:
-        """
-        sets a value to a dictionary in the shared memory dictionary
-
-        Args:
-            key (str): the key of the dictionary
-            subkey (str): the subkey to add
-            value (any): the value to set for the subkey
-        """
-        if key not in self.shared_memory:
-            self.shared_memory[key] = {}
-
-        nested_dict = self.shared_memory[key]
-        nested_dict[subkey] = value
-
-        # need to reassign the whole dict to trigger the proxy update
-        self.shared_memory[key] = nested_dict
-
-    def shared_memory_remove_from_dict(self, key: str, subkey: str) -> None:
-        """
-        removes a subkey from a dictionary in the shared memory dictionary
-
-        Args:
-            key (str): the key of the dictionary
-            subkey (str): the subkey to remove
-        """
-        if key in self.shared_memory and subkey in self.shared_memory[key]:
-            nested_dict = self.shared_memory[key]
-            del nested_dict[subkey]
-
-            # need to reassign the whole dict to trigger the proxy update
-            self.shared_memory[key] = nested_dict
-
-    @staticmethod
-    async def _worker_cleanup():
-        """
-        cleanup the worker process (called as atexit handler)
-        """
-        MutyLogger.get_instance().debug(
-            "WORKER process PID=%d cleanup initiated!" % (os.getpid())
-        )
-        # close shared ws and process pool
-        try:
-            # close clients
-            await GulpCollab.get_instance().shutdown()
-            await GulpOpenSearch.get_instance().shutdown()
-
-            # close coro and thread pool
-            await GulpProcess.get_instance().close_coro_pool()
-            await GulpProcess.get_instance().close_thread_pool(wait=False)
-
-        except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
-        finally:
-            MutyLogger.get_instance().info(
-                "WORKER process PID=%d cleanup DONE!" % (os.getpid())
-            )
-
-    def sigterm_handler(signum, frame):
-        MutyLogger.get_instance().debug(
-            "SIGTERM received, cleaning up worker process PID=%d..." % (os.getpid())
-        )
-        try:
-            # get the current event loop
-            loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
-            if loop.is_running():
-                # if the loop is running, create a task for cleanup
-                loop.create_task(GulpProcess._worker_cleanup())
-            else:
-                # if the loop is not running, run the cleanup synchronously
-                asyncio.run(GulpProcess._worker_cleanup())
-        except Exception as ex:
-            # log any exception during cleanup
-            MutyLogger.get_instance().exception(ex)
 
     def is_main_process(self) -> bool:
         """

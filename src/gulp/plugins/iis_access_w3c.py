@@ -10,6 +10,7 @@ The plugin handles W3C header directives like #Software, #Version, #Date, and #F
 to correctly map log fields to structured data.
 
 """
+
 import datetime
 import os
 from typing import Any, override
@@ -19,7 +20,6 @@ from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -29,9 +29,10 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
+
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -43,6 +44,10 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return []
 
+    def regex(self) -> str:
+        """regex to identify this format"""
+        return None
+
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
@@ -53,12 +58,12 @@ class Plugin(GulpPluginBase):
         event: dict = {}
 
         record_split = record.split()
-        i=0
+        i = 0
         for r in record_split:
             event[fields[i]] = r
-            i=i+1
+            i = i + 1
 
-        d={}
+        d = {}
         # map timestamp manually
         date_format = "%Y-%d-%m %H:%M:%S"
         time_str = " ".join([event.get("date"), event.get("time")])
@@ -76,7 +81,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=record,
             event_sequence=record_idx,
-            timestamp = timestamp, 
+            timestamp=timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
@@ -97,65 +102,42 @@ class Plugin(GulpPluginBase):
         original_file_path: str = None,
         flt: GulpIngestionFilter = None,
         plugin_params: GulpPluginParameters = None,
-         **kwargs
-   ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+        **kwargs,
+    ) -> GulpRequestStatus:
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
-        metadata={
-            "software":"",
-            "version":"",
-            "date":"",
-            "fields":[]
-        }
+        metadata = {"software": "", "version": "", "date": "", "fields": []}
         doc_idx = 0
-        try:
-            async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
-                async for l in log_src:
-                    if l.startswith("#"):
-                        l = l.split(":")
-                        k = l[0].lower().lstrip("#")
 
-                        if k in ["software", "version"]:
-                            metadata[k] = "".join(l[1:]).lstrip()
-                        elif k == "date":
-                            metadata[k] = "".join(l[1:]).lstrip()
-                        elif k == "fields":
-                            metadata[k] = "".join(l[1:]).lstrip().split()
-                        continue
+        async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
+            async for l in log_src:
+                if l.startswith("#"):
+                    l = l.split(":")
+                    k = l[0].lower().lstrip("#")
 
-                    try:
-                        await self.process_record(l, doc_idx, flt=flt, metadata=metadata)
-                    except (RequestCanceledError, SourceCanceledError) as ex:
-                        MutyLogger.get_instance().exception(ex)
-                        await self._source_failed(ex)
-                        break
-                    except PreviewDone:
-                        # preview done, stop processing
-                        pass
-                    doc_idx += 1
+                    if k in ["software", "version"]:
+                        metadata[k] = "".join(l[1:]).lstrip()
+                    elif k == "date":
+                        metadata[k] = "".join(l[1:]).lstrip()
+                    elif k == "fields":
+                        metadata[k] = "".join(l[1:]).lstrip().split()
+                    continue
 
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+                await self.process_record(l, doc_idx, flt=flt, metadata=metadata)
+                doc_idx += 1
+            return stats.status

@@ -1,4 +1,3 @@
-
 """
 Module for representing and manipulating glyphs in the Gulp collaboration system.
 
@@ -11,7 +10,7 @@ Classes:
 """
 
 import base64
-from typing import override
+from typing import Optional, override
 
 from sqlalchemy import LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column
@@ -24,7 +23,7 @@ class GulpGlyph(GulpCollabBase, type=COLLABTYPE_GLYPH):
     Represents a glyph object.
     """
 
-    img: Mapped[bytes] = mapped_column(
+    img: Optional[Mapped[bytes]] = mapped_column(
         LargeBinary, doc="The image data of the glyph as binary blob."
     )
 
@@ -40,15 +39,19 @@ class GulpGlyph(GulpCollabBase, type=COLLABTYPE_GLYPH):
         return super().__repr__() + f" img={self.img[:10]}[...]"
 
     @override
-    # pylint: disable=W0221
-    def to_dict(self, **kwargs) -> dict:
-        """
-        Convert the object to a dictionary representation.
-        Args:
-            **kwargs: Arbitrary keyword arguments.
-        Returns:
-            dict: A dictionary representation of the object, including base64 encoded "img".
-        """
-        d = super().to_dict(**kwargs)
-        d["img"] = base64.b64encode(self.img).decode()
+    def to_dict(
+        self,
+        nested: bool = False,
+        hybrid_attributes: bool = False,
+        exclude: list[str] | None = None,
+        exclude_none: bool = False,
+    ) -> dict:
+        d = super().to_dict(
+            nested=nested,
+            hybrid_attributes=hybrid_attributes,
+            exclude=exclude,
+            exclude_none=exclude_none,
+        )
+        if self.img:
+            d["img"] = base64.b64encode(self.img).decode()
         return d

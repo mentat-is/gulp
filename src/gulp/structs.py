@@ -11,11 +11,12 @@ Key components:
 """
 
 from enum import StrEnum
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional, Protocol
 
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.mapping.models import GulpMapping, GulpSigmaMapping
 
@@ -47,19 +48,23 @@ class GulpAPIParameter(BaseModel):
         }
     )
 
-    name: str = Field(..., description="the parameter.")
-    type: Literal["bool", "str", "int", "float", "dict", "list"] = Field(
-        ..., description="parameter type."
-    )
-    default_value: Optional[Any] = Field(None, description="default value.")
-    desc: Optional[str] = Field(None, description="parameter description.")
-    location: Optional[Literal["query", "header", "body"]] = Field(
-        default="query", description="where the parameter is located, for API requests."
-    )
-    required: Optional[bool] = Field(False, description="is the parameter required ?")
-    example: Optional[Any] = Field(
-        None, description="an example value for the parameter, if any."
-    )
+    name: Annotated[str, Field(description="the parameter.")]
+    type: Annotated[
+        Literal["bool", "str", "int", "float", "dict", "list"],
+        Field(description="parameter type."),
+    ]
+    default_value: Annotated[Optional[Any], Field(description="default value.")] = None
+    desc: Annotated[Optional[str], Field(description="parameter description.")] = None
+    location: Annotated[
+        Optional[Literal["query", "header", "body"]],
+        Field(description="where the parameter is located, for API requests."),
+    ] = "query"
+    required: Annotated[
+        bool, Field(False, description="is the parameter required ?")
+    ] = False
+    example: Annotated[
+        Optional[Any], Field(description="an example value for the parameter, if any.")
+    ] = None
 
 
 class GulpAPIMethod(BaseModel):
@@ -67,13 +72,18 @@ class GulpAPIMethod(BaseModel):
     describes a Gulp API method.
     """
 
-    method: Literal["PUT", "GET", "POST", "DELETE", "PATCH"] = (
-        Field(..., description="the method to be used"),
-    )
-    url: str = (Field(..., description="the endpoint url, relative to the base host"),)
-    params: Optional[list[GulpAPIParameter]] = Field(
-        [], description="list of parameters for the method"
-    )
+    method: Annotated[
+        Literal["PUT", "GET", "POST", "DELETE", "PATCH"],
+        Field(description="the method to be used"),
+    ]
+    url: Annotated[
+        str, Field(..., description="the endpoint url, relative to the base host")
+    ]
+    params: Annotated[
+        list[GulpAPIParameter],
+        Field(description="list of parameters for the method"),
+    ] = Field(default_factory=list)
+    
 
 
 class GulpMappingParameters(BaseModel):
@@ -99,51 +109,70 @@ class GulpMappingParameters(BaseModel):
             ]
         }
     )
-    mapping_file: Optional[str] = Field(
-        None,
-        description="""
-mapping file name in the mapping files directory (main or extra) to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).
 
-- `mappings` is ignored if this is set.
-- `additional_mapping_files` and `additional_mappings` can be used to load further mappings from other files or directly from a dictionary.
-""",
-    )
-    mapping_id: Optional[str] = Field(
-        None,
-        description="the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
-    )
-    mappings: Optional[dict[str, GulpMapping]] = Field(
-        None,
-        description="""
-    a dictionary of one or more { mapping_id: GulpMapping } to use directly.
+    # mapping file name in the mapping files directory (main or extra) to read GulpMapping entries from
+    mapping_file: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "mapping file name in the mapping files directory (main or extra) to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).\n"
+                "- `mappings` is ignored if this is set.\n"
+                "- `additional_mapping_files` and `additional_mappings` can be used to load further mappings from other files or directly from a dictionary."
+            ),
+        ),
+    ] = None
 
-    - `mapping_file`, `additional_mapping_files`, `additional_mappings` are ignored if this is set.
-""",
-    )
-    additional_mapping_files: Optional[list[tuple[str, str]]] = Field(
-        None,
-        description="""
-if this is set, it allows to specify further mappings from other mapping files.
+    # the GulpMapping to select in mapping_file or mappings object
+    mapping_id: Annotated[
+        Optional[str],
+        Field(
+            description="the `GulpMapping` to select in `mapping_file` or `mappings` object: if not set, the first found GulpMapping is used.",
+        ),
+    ] = None
 
-each tuple is defined as (other_mapping_file, mapping_id): each `mapping_id` from `other_mapping_file` will be loaded and merged to the mappings identified by `mapping_id` selected during parsing of the **main** `mapping_file`.
-""",
-    )
-    additional_mappings: Optional[dict[str, GulpMapping]] = Field(
-        None,
-        description="""
-        same as `additional_mapping_files`, but used to pass additional mappings as a dictionary of { mapping_id: GulpMapping }.
+    # a dictionary of one or more { mapping_id: GulpMapping } to use directly
+    mappings: Annotated[
+        dict[str, GulpMapping],
+        Field(
+            description=(
+                "a dictionary of one or more { mapping_id: GulpMapping } to use directly.\n"
+                "- `mapping_file`, `additional_mapping_files`, `additional_mappings` are ignored if this is set."
+            ),
+        ),
+    ] = Field(default_factory=dict)
 
-        each `mapping_id` GulpMapping defined will be merged to the mappings identified by `mapping_id` selected during parsing of the **main** `mapping_file`.
-        """,
-    )
-    # NOTE: should this be exposed to the query api ?
-    sigma_mappings: Optional[dict[str, GulpSigmaMapping]] = Field(
-        None,
-        description="""
-internal use, only for sigma queries: if set, rules to map `logsource` in sigma rules when using the mapping previously stored for each GulpSource.
-         
-each key corresponds to `logsource.service` in the sigma rule: basically, we want to use the sigma rule only if a (mapped) "logsource.service" is defined in the sigma rule (or no `logsource` is defined at all in the sigma rule).""",
-    )
+    # specify further mappings from other mapping files
+    additional_mapping_files: Annotated[
+        list[tuple[str, str]],
+        Field(
+            description=(
+                "if this is set, it allows to specify further mappings from other mapping files.\n"
+                "each tuple is defined as (other_mapping_file, mapping_id): each `mapping_id` from `other_mapping_file` will be loaded and merged to the mappings identified by `mapping_id` selected during parsing of the **main** `mapping_file`."
+            ),
+        ),
+    ] = Field(default_factory=list)
+
+    # pass additional mappings as a dictionary
+    additional_mappings: Annotated[
+        dict[str, GulpMapping],
+        Field(
+            description=(
+                "same as `additional_mapping_files`, but used to pass additional mappings as a dictionary of { mapping_id: GulpMapping }.\n"
+                "each `mapping_id` GulpMapping defined will be merged to the mappings identified by `mapping_id` selected during parsing of the **main** `mapping_file`."
+            ),
+        ),
+    ] = Field(default_factory=dict)
+
+    # internal use, only for sigma queries
+    sigma_mappings: Annotated[
+        dict[str, GulpSigmaMapping],
+        Field(
+            description=(
+                "internal use, only for sigma queries: if set, rules to map `logsource` in sigma rules when using the mapping previously stored for each GulpSource.\n"
+                'each key corresponds to `logsource.service` in the sigma rule: basically, we want to use the sigma rule only if a (mapped) "logsource.service" is defined in the sigma rule (or no `logsource` is defined at all in the sigma rule).'
+            ),
+        ),
+    ] = Field(default_factory=dict)
 
     def is_empty(self) -> bool:
         """
@@ -153,11 +182,11 @@ each key corresponds to `logsource.service` in the sigma rule: basically, we wan
             bool: True if all parameters are None, False otherwise
         """
         if (
-            self.mappings is not None
-            or self.mapping_file is not None
-            or self.sigma_mappings is not None
-            or self.additional_mapping_files is not None
-            or self.additional_mappings is not None
+            not self.mappings
+            or not self.mapping_file
+            or not self.sigma_mappings
+            or not self.additional_mapping_files
+            or not self.additional_mappings
         ):
             return False
 
@@ -207,24 +236,45 @@ class GulpPluginParameters(BaseModel):
             ]
         },
     )
-    mapping_parameters: Optional[GulpMappingParameters] = Field(
-        GulpMappingParameters(),
-        description="mapping parameters for the plugin.",
-    )
-    override_chunk_size: Optional[int] = Field(
-        None,
-        description="""this is used to override the bufferized size of chunk before flushing to OpenSearch and possibly send to websocket.
-
-        by default, this is set as configuration 'documents_chunk_size' and can be overridden here i.e. when OpenSearch or websocket complains about too big chunks.""",
-    )
-    timestamp_offset_msec: Optional[int] = Field(
-        0,
-        description="if set, this is used to offset document `@timestamp` (and `gulp.timestamp`) by the given number of milliseconds (positive or negative).",
-    )
-    custom_parameters: Optional[dict] = Field(
-        {},
-        description="additional plugin-specific custom parameters.",
-    )
+    mapping_parameters: Annotated[
+        Optional[GulpMappingParameters],
+        Field(
+            description="mapping parameters for the plugin.",
+        ),
+    ] = Field(default_factory=GulpMappingParameters)
+    override_chunk_size: Annotated[
+        Optional[int],
+        Field(
+            description="""this is used to override, on a request basis, the bufferized size of chunk before flushing to OpenSearch and possibly send to websocket.
+            by default, this is set as configuration 'ingestion_documents_chunk_size' and can be overridden here i.e. when OpenSearch or websocket complains about too big chunks.""",
+        ),
+    ] = None
+    override_allow_unmapped_fields: Annotated[
+        bool,
+        Field(
+            description="""overrides, on a request basis, `ingestion_allow_unmapped_fields` in the configuration, to disable `gulp.unmapped` values generations during ingestion (default=True=allow).
+            read the configuration documentation for more details (disabling may affect sigma rules matching)'
+            """,
+        ),
+    ] = True
+    timestamp_offset_msec: Annotated[
+        int,
+        Field(
+            description="if not 0, this is used to offset document `@timestamp` (and `gulp.timestamp`) by the given number of milliseconds (positive or negative).",
+        ),
+    ] = 0
+    custom_parameters: Annotated[
+        dict,
+        Field(
+            description="additional plugin-specific custom parameters.",
+        ),
+    ] = Field(default_factory=dict)
+    preview_mode: Annotated[
+        bool,
+        Field(
+            description="if True, the plugin should run in preview mode (return synchronously a chunk of data)"
+        ),
+    ] = False
 
     def is_empty(self) -> bool:
         """
@@ -285,33 +335,6 @@ class GulpPluginCustomParameter(GulpAPIParameter):
     )
 
 
-class GulpNameDescriptionEntry(BaseModel):
-    """
-    indicates the sigma support for a plugin, to be returned by the plugin.sigma_support() method.
-
-    refer to [sigma-cli](
-    """
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "name": "opensearch",
-                    "description": "the one to use to query Gulp.",
-                }
-            ]
-        }
-    )
-    name: str = Field(
-        ...,
-        description="name for the entry.",
-    )
-    description: Optional[str] = Field(
-        None,
-        description="a description",
-    )
-
-
 class GulpSortOrder(StrEnum):
     """
     specifies the sort types for API accepting the "sort" parameter
@@ -319,3 +342,73 @@ class GulpSortOrder(StrEnum):
 
     ASC = "asc"
     DESC = "desc"
+
+
+class GulpProgressCallback(Protocol):
+    """
+    callback protocol for generic progress updates
+    """
+
+    async def __call__(
+        self,
+        sess: AsyncSession,
+        total: int,
+        current: int,
+        req_id: str,
+        last: bool = False,
+        **kwargs,
+    ) -> None:
+        """
+        callback function to report progress.
+
+        Args:
+            sess (AsyncSession): the current database session
+            total (int): total number of items to process
+            current (int): current number of processed items
+            last (bool, optional): True if this is the last progress update. Defaults to False.
+            req_id (str): originating request id
+            **kwargs: additional arguments passed to the callback
+
+        Returns:
+            None
+        """
+        ...
+
+
+class GulpDocumentsChunkCallback(Protocol):
+    """
+    callback protocol for chunk processing
+    """
+
+    async def __call__(
+        self,
+        sess: AsyncSession,
+        chunk: list[dict],
+        chunk_num: int = 0,
+        total_hits: int = 0,
+        index: str = None,
+        last: bool = False,
+        req_id: str = None,
+        q_name: str = None,
+        q_group: str = None,
+        **kwargs,
+    ) -> list[dict]:
+        """
+        callback function to process a chunk of documents.
+
+        Args:
+            sess (AsyncSession): the current database session
+            chunk (list[dict]): one or more GulpDocument dictionaries
+            chunk_num (int): current chunk number (starting from 0)
+            total_hits (int): total number of hits for the query
+            index (str|None): the index (may be different from operation_id), if any. Defaults to None.
+            last (bool): True if this is the last chunk. Defaults to False.
+            req_id (str|None): the originating request id, if any. Defaults to None.
+            q_name (str|None): query name, if any. Defaults to None.
+            q_group (str|None): query group, if any. Defaults to None.
+            **kwargs: additional arguments passed to the callback
+        Returns:
+            list[dict]: the processed chunk of documents
+        """
+        ...
+        ...
