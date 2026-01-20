@@ -6,6 +6,8 @@
 
 # docker Installation
 
+> **WARNING**: for any issue refer to [troubleshooting.md](./troubleshooting.md)
+
 ## pull latest image directly from docker hub
 
 > **WARNING**: this **may** be outdated, rebuild it following the docs below or use the [dev install](./install_dev.md) instead.
@@ -30,6 +32,7 @@ docker run mentatis/gulp-core:latest
 2. build `gulp-core` image
 
   ~~~bash
+  cd ./gulp
   # to rebuild, add --no-cache flag ...
   export $(grep -v '^#' .env | xargs)
   docker buildx build --progress=plain --build-arg _PYTHON_VERSION=$PYTHON_VERSION --build-arg _VERSION=$(git describe --tags --always) --build-arg _MUTY_VERSION=$(cd muty-python && git describe --tags --always && cd ..) --rm -t gulp-core .
@@ -46,16 +49,16 @@ you have to just provide your `GULP_WORKING_DIR` to the image, with a valid [gul
 ~~~bash
 # supplying GULP_IMAGE is optional, either the latest is pulled from our registry.
 # starts gulp backend and dev tools (--profile dev), ui must be run separately
-GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
+GULP_IMAGE=gulp-core:latest GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
 
 # also run the ui (--profile gui) in a container
-GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gui --profile dev up
+GULP_IMAGE=gulp-core:latest GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gui --profile dev up
 
 # add extra arguments to pass on the gulp commandline with EXTRA_ARGS, i.e. to tweak log-level
-EXTRA_ARGS="--log-level warning" GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gui --profile dev up
+EXTRA_ARGS="--log-level warning" GULP_IMAGE=gulp-core:latest GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gui --profile dev up
 
 # run gulp service only, oneshot (--rm)
-GULP_IMAGE=mentatis/gulp-core GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose run -p 8080:8080 --rm gulp gulp --log-level warning
+GULP_IMAGE=gulp-core:latest GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose run -p 8080:8080 --rm gulp gulp --log-level warning
 ~~~
 
 multiple profiles (one or more) may be specified using on the `docker compose` command line:

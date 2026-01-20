@@ -53,6 +53,9 @@
 
   simply go to vscode's `Ports` tab and remove the port forwarding for `8089`.
 
+- if you have issues starting gulp in docker environment, doublecheck each service's URL in gulp_cfg.json : i.e. it has been reported that redis doesn't like localhost but wants the container name in the URL string.
+Specifically, replace i.e.redis://:Gulp1234!@localhost:6379/0 with redis://:Gulp1234!@redis:6379/0  in redis_url.
+
 ### devcontainer
 
 if you see an error like the following:
