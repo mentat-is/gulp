@@ -9,7 +9,6 @@
     - [5. install gulp](#5-install-gulp)
     - [6. run](#6-run)
     - [7. optional: installing extra plugins](#7-optional-installing-extra-plugins)
-  - [install using the setup script](#install-using-the-setup-script)
   - [install the client](#install-the-client)
   - [troubleshoot](#troubleshoot)
   - [extras](#extras)
@@ -137,20 +136,6 @@ GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 gulp
 ### 7. optional: installing extra plugins
 
 plugins are just files, so it is enough to copy/symlink extra plugins in `$GULP_WORKING_DIR/plugins` and `$GULP_WORKING_DIR/mapping_files`
-
-## install using the setup script
-
-> **THIS IS CURRENTLY BROKEN AND NOT SUPPORTED**
-
-installation of a development environment can be done using the [setup.sh](https://github.com/mentat-is/gulp/blob/develop/setup.sh) script.
-
-```bash
-curl https://raw.githubusercontent.com/mentat-is/gulp/refs/heads/develop/setup.sh -o gulp_setup.sh
-chmod +x gulp_setup.sh
-sudo ./gulp_setup.sh --dev -d ./gulp
-```
-
-if your OS is not supported please refer to the [manual installation](<#manual installation>) instructions below.
 
 ## install the client
 
