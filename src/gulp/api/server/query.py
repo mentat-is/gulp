@@ -538,7 +538,6 @@ async def process_queries(
             # ignore if force_ignore_missing_ws is set
             if not q_options.force_ignore_missing_ws:
                 raise
-            
 
         if stats and stats.status == GulpRequestStatus.CANCELED.value:
             MutyLogger.get_instance().warning(
@@ -668,7 +667,7 @@ async def process_queries(
                     # ignore if force_ignore_missing_ws is set
                     if not q_options.force_ignore_missing_ws:
                         raise
-                    
+
             if req_canceled:
                 # request is canceled, stop processing more batches
                 MutyLogger.get_instance().warning(
@@ -801,7 +800,7 @@ async def _preview_query(
 
 
 @router.post(
-    "/aggregation_query",
+    "/query_aggregation",
     response_model=JSendResponse,
     tags=["query"],
     response_model_exclude_none=True,
@@ -838,7 +837,7 @@ aggregations query Gulp with a raw OpenSearch DSL query.
 - `q` must be one aggregation querie with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
 """,
 )
-async def aggregation_query_handler(
+async def query_aggregation_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     q: Annotated[
@@ -1429,7 +1428,9 @@ async def query_sigma_handler(
             user_id = s.user.id
 
             # convert sigma rule/s using pysigma
-            queries: list[GulpQuery] = await GulpServer.get_instance().spawn_worker_task(
+            queries: list[
+                GulpQuery
+            ] = await GulpServer.get_instance().spawn_worker_task(
                 sigmas_to_queries_wrapper,
                 user_id,
                 operation_id,
@@ -1442,9 +1443,10 @@ async def query_sigma_handler(
                 services,
                 categories,
                 tags,
-                False, # no paths
-                False, # no count, create queries
-                wait=True)
+                False,  # no paths
+                False,  # no count, create queries
+                wait=True,
+            )
 
             if q_options.preview_mode:
                 # preview mode, return sync
