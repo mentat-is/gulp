@@ -9,12 +9,11 @@ The plugin adds an `/example_extension` API endpoint that:
 1. Handles PUT requests
 2. Creates an example stats entry in the database
 3. Spawns a task in a worker process
-4. Demonstrates message passing between processes using shared queues
 
 Extension plugins in Gulp are:
 - Automatically loaded from `PLUGIN_DIR/extension` at startup
 - Initialized in the main process context
-- Able to extend the API through `GulpRestServer.get_instance().add_api_route()`
+- Able to extend the API through `GulpServer.get_instance().add_api_route()`
 - Optionally re-initialized in worker processes if they support pickling
 
 This example serves as a template for developing custom extensions for the Gulp framework.
@@ -31,9 +30,9 @@ from muty.log import MutyLogger
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
-from gulp.api.rest.structs import APIDependencies
-from gulp.api.rest_api import GulpRestServer
-from gulp.api.ws_api import WSDATA_COLLAB_UPDATE, GulpWsSharedQueue
+from gulp.api.server.structs import APIDependencies
+from gulp.api.server_api import GulpServer
+from gulp.api.ws_api import WSDATA_COLLAB_UPDATE, GulpRedisBroker
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.process import GulpProcess
 
@@ -42,12 +41,13 @@ class Plugin(GulpPluginBase):
     def __init__(
         self,
         path: str,
+        module_name: str,
         pickled: bool = False,
         **kwargs,
     ) -> None:
 
         # extensions may support pickling to be able to be re-initialized in worker processes
-        super().__init__(path, pickled, **kwargs)
+        super().__init__(path, module_name, pickled, **kwargs)
         MutyLogger.get_instance().debug(
             "path=%s, pickled=%r, kwargs=%s" % (path, pickled, kwargs)
         )
@@ -79,14 +79,14 @@ class Plugin(GulpPluginBase):
             "IN WORKER PROCESS, for user_id=%s, operation_id=%s, ws_id=%s, req_id=%s"
             % (user_id, operation_id, ws_id, req_id)
         )
-        wsq = GulpWsSharedQueue.get_instance()
-        await wsq.put(
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put(
             WSDATA_COLLAB_UPDATE,
             req_id=req_id,
             ws_id=ws_id,
             operation_id=operation_id,
             user_id="dummy",
-            data={"hello": "world"},
+            d={"hello": "world"},
         )
         return {"done": True}
 
@@ -107,16 +107,15 @@ class Plugin(GulpPluginBase):
         # create an example stats
         async with GulpCollab.get_instance().session() as sess:
             try:
-                await GulpRequestStats.create(
-                    token=None,
-                    ws_id=ws_id,
+                await GulpRequestStats.create_or_get(
+                    sess=sess,
                     req_id=req_id,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                    operation_id=operation_id,
                     object_data={
                         "source_total": 33,
                     },
-                    operation_id=operation_id,
-                    sess=sess,
-                    user_id=user_id,
                 )
 
             except Exception as ex:
@@ -146,7 +145,7 @@ class Plugin(GulpPluginBase):
 
     def _add_api_routes(self):
         # add /example_extension API
-        GulpRestServer.get_instance().add_api_route(
+        GulpServer.get_instance().add_api_route(
             "/example_extension",
             self.example_extension_handler,
             methods=["PUT"],
@@ -176,7 +175,7 @@ class Plugin(GulpPluginBase):
         operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
         context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
         ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-        req_id: Annotated[str, Depends(APIDependencies.ensure_req_id)] = None,
+        req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     ) -> JSendResponse:
         try:
             async with GulpCollab.get_instance().session() as sess:
@@ -184,9 +183,9 @@ class Plugin(GulpPluginBase):
 
                 # spawn coroutine in the main process, will run asap
                 coro = self._example_task(
-                    s.user_id, operation_id, context_id, ws_id, req_id
+                    s.user.id, operation_id, context_id, ws_id, req_id
                 )
-                await GulpRestServer.get_instance().spawn_bg_task(coro)
+                GulpServer.spawn_bg_task(coro)
                 return JSendResponse.pending(req_id=req_id)
         except Exception as ex:
             raise JSendException(req_id=req_id) from ex
@@ -194,8 +193,8 @@ class Plugin(GulpPluginBase):
     def desc(self) -> str:
         return "Extension example."
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.EXTENSION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.EXTENSION
 
     def display_name(self) -> str:
         return "extension_example"

@@ -11,6 +11,7 @@ for the Gulp ingestion pipeline, converting network packet data into searchable 
 
 import orjson
 import os
+import string
 import pathlib
 from typing import Any, override
 
@@ -28,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -41,9 +41,10 @@ from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 muty.os.check_and_install_package("scapy", ">=2.6.1,<3")
 from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
 
+
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def desc(self) -> str:
@@ -104,7 +105,7 @@ class Plugin(GulpPluginBase):
                     pass
 
             # make sure we have a valid json serializable dict
-            for field, value in fields.items():
+            for field, value in fields.copy().items():
                 if value is None:
                     # no need to map a None value
                     continue
@@ -112,6 +113,7 @@ class Plugin(GulpPluginBase):
                 if isinstance(value, bytes):
                     # print(field, value, "bytes found, hexing")
                     fields[field] = value.hex()
+                    # fields[field+"_ascii"] = ''.join([chr(b) if 32 <= b <= 126 else "." for b in value])
                 elif isinstance(value, EDecimal):
                     # print(field, value, "edecimal found, normalizing")
                     fields[field] = float(value.normalize(20))
@@ -162,15 +164,17 @@ class Plugin(GulpPluginBase):
         ns: str = str(muty.time.float_to_nanos_from_unix_epoch(float(normalized)))
         timestamp: str = muty.time.ensure_iso8601(ns)
 
-        # print(f"TEST IS {dir(event_code)}")
-        # print(f"NAME: {type(event_code.name)} ")
-        # #TODO: check if member_descriptor if so get value and/or place "unknown"
+        d["gulp.packet_hexdump"] = "".join(
+            [chr(b) if 32 <= b <= 126 else "." for b in record.build()]
+        )
+
+        hex = record.build().hex()
         return GulpDocument(
             self,
             operation_id=self._operation_id,
             context_id=self._context_id,
             source_id=self._source_id,
-            event_original=record.build().hex(),
+            event_original=hex,
             event_sequence=record_idx,
             timestamp=timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
@@ -195,81 +199,58 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
 
-        try:
-            file_format = self._plugin_params.custom_parameters.get("format")
-            if file_format is None:
-                # attempt to get format from source name (TODO: do it by checking bytes header instead?)
-                file_format = pathlib.Path(file_path).suffix.lower()[1:]
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
-            # check if a valid input was received/inferred
-            if file_format in ["cap", "pcap"]:
-                file_format = "pcap"
-            elif file_format in ["pcapng"]:
-                file_format = "pcapng"
-            else:
-                # fallback to pcap
-                file_format = "pcap"
+        file_format = self._plugin_params.custom_parameters.get("format")
+        if file_format is None:
+            # attempt to get format from source name (TODO: do it by checking bytes header instead?)
+            file_format = pathlib.Path(file_path).suffix.lower()[1:]
 
+        # check if a valid input was received/inferred
+        if file_format in ["cap", "pcap"]:
+            file_format = "pcap"
+        elif file_format in ["pcapng"]:
+            file_format = "pcapng"
+        else:
+            # fallback to pcap
+            file_format = "pcap"
+
+        MutyLogger.get_instance().debug(
+            "detected file format: %s for file %s" % (file_format, file_path)
+        )
+
+        MutyLogger.get_instance().debug("parsing file: %s" % (file_path))
+        if file_format == "pcapng":
             MutyLogger.get_instance().debug(
-                "detected file format: %s for file %s" % (file_format, file_path)
+                "using PcapNgReader reader on file: %s" % (file_path)
             )
-
-            MutyLogger.get_instance().debug("parsing file: %s" % (file_path))
-            if file_format == "pcapng":
-                MutyLogger.get_instance().debug(
-                    "using PcapNgReader reader on file: %s" % (file_path)
-                )
-                parser = PcapNgReader(file_path)
-            else:
-                MutyLogger.get_instance().debug(
-                    "using PcapReader reader on file: %s" % (file_path)
-                )
-                parser = PcapReader(file_path)
-            # TODO: support other scapy file readers like ERF?
-        except Exception as ex:
-            # cannot parse this file at all
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+            parser = PcapNgReader(file_path)
+        else:
+            MutyLogger.get_instance().debug(
+                "using PcapReader reader on file: %s" % (file_path)
+            )
+            parser = PcapReader(file_path)
+        # TODO: support other scapy file readers like ERF?
 
         doc_idx = 0
-        try:
-            for pkt in parser:
-                try:
-                    await self.process_record(pkt, doc_idx, flt=flt)
-                except (RequestCanceledError, SourceCanceledError) as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    await self._source_failed(ex)
-                    break
-                except PreviewDone:
-                    # preview done, stop processing
-                    pass
-                doc_idx += 1
+        for pkt in parser:
+            await self.process_record(pkt, doc_idx, flt=flt)
+            doc_idx += 1
 
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+        return stats.status

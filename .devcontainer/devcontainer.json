@@ -10,22 +10,18 @@
         "codezombiech.gitignore",
         "DavidAnson.vscode-markdownlint",
         "dracula-theme.theme-dracula",
-        "earshinov.permute-lines",
         "eliostruyf.vscode-hide-comments",
         "foxundermoon.shell-format",
         "fuadpashayev.bottom-terminal",
         "Gerrnperl.outline-map",
         "github.copilot-chat",
-        "github.copilot",
+        "github.vscode-github-actions",
+        "GitHub.vscode-pull-request-github",
         "Gruntfuggly.todo-tree",
         "kevinkyang.auto-comment-blocks",
-        "ms-azuretools.vscode-docker",
         "ms-python.black-formatter",
         "ms-python.isort",
-        "ms-python.pylint",
         "ms-python.python",
-        "ms-python.vscode-python-envs",
-        "ms-vscode.cpptools",
         "ms-vscode.cpptools-extension-pack",
         "oderwat.indent-rainbow",
         "tamasfe.even-better-toml",
@@ -44,16 +40,12 @@
   "privileged": true,
   "mounts": [
     "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind,consistency=cached",
-
     "source=${localWorkspaceFolder}/../gulp-paid-plugins,target=${containerWorkspaceFolder}/gulp-paid-plugins,type=bind,consistency=cached",
-    "source=${localWorkspaceFolder}/../slurp,target=${containerWorkspaceFolder}/slurp,type=bind,consistency=cached",
-    "source=${localWorkspaceFolder}/../gulp-sdk-python,target=${containerWorkspaceFolder}/gulp-sdk-python,type=bind,consistency=cached",
-
+    "source=${localWorkspaceFolder}/../gulpui-web,target=${containerWorkspaceFolder}/gulpui-web,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/gulp,target=/home/vscode/.config/gulp,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulp-paid-plugins/src/gulp-paid-plugins/plugins,target=/home/vscode/.config/gulp/plugins,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files,target=/home/vscode/.config/gulp/mapping_files,type=bind,consistency=cached",
-
-    "source=${localEnv:HOME}/.config/fish,target=/home/vscode/.config/fish,type=bind,consistency=cached"
+    "source=${localEnv:HOME}/.config/fish,target=/home/vscode/.config/fish,type=bind,consistency=cached",
   ],
   "remoteEnv": {
     "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"

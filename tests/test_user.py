@@ -1,29 +1,33 @@
 import asyncio
+import os
+
 import pytest
 import pytest_asyncio
-from muty.log import MutyLogger
-
-from gulp_client.common import _ensure_test_operation
+from gulp_client.common import _cleanup_test_operation, _ensure_test_operation
 from gulp_client.db import GulpAPIDb
+from gulp_client.note import GulpAPINote
+from gulp_client.object_acl import GulpAPIObjectACL
 from gulp_client.operation import GulpAPIOperation
 from gulp_client.query import GulpAPIQuery
-from gulp_client.user import GulpAPIUser
 from gulp_client.test_values import (
-    TEST_OPERATION_ID,
     TEST_CONTEXT_ID,
+    TEST_OPERATION_ID,
+    TEST_REQ_ID,
     TEST_SOURCE_ID,
     TEST_WS_ID,
-    TEST_REQ_ID,
 )
-from gulp_client.note import GulpAPINote
-from gulp_client.operation import GulpAPIOperation
+from gulp_client.user import GulpAPIUser
+from muty.log import MutyLogger
+
 from gulp.api.collab.structs import GulpCollabFilter
-from gulp_client.object_acl import GulpAPIObjectACL
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
-    await _ensure_test_operation()
+    if os.getenv("SKIP_RESET", "0") == "1":
+        await _cleanup_test_operation()
+    else:
+        await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -34,6 +38,9 @@ async def test_user():
 
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
+
+    editor_token = await GulpAPIUser.login("editor", "editor")
+    assert editor_token
 
     # test user creation
     test_user_id = "test_user"
@@ -52,7 +59,7 @@ async def test_user():
     users = await GulpAPIUser.user_list(admin_token)
     assert users and len(users) >= 1
 
-    # test user update
+    # test admin updating other user
     updated = await GulpAPIUser.user_update(
         admin_token,
         test_user_id,
@@ -99,25 +106,51 @@ async def test_user():
         guest_token, user_id="editor", password="Hacked#1234!", expected_status=401
     )
 
-    # guest should be able to get their own details
-    guest_data = await GulpAPIUser.user_get_by_id(guest_token)
-    assert guest_data["id"] == "guest"
-
-    # guest should be able to update their own password or email
+    # admin should be able to update editor
+    admin_token = await GulpAPIUser.login("admin", "admin")
     updated = await GulpAPIUser.user_update(
-        guest_token,
+        admin_token,
+        user_id="editor",
         password="Password#1234!",
         email="mynewemail@email.com",
     )
     assert updated["email"] == "mynewemail@email.com"
+    t = await GulpAPIUser.logout(admin_token)
+    assert t == admin_token
+    editor_token = await GulpAPIUser.login("editor", "Password#1234!")
+    assert editor_token
 
-    # set back to normal
+    # guest should be able to get their own details
+    guest_data = await GulpAPIUser.user_get_by_id(guest_token)
+    assert guest_data["id"] == "guest"
+
+    # editor should be able to update their own password or email
     updated = await GulpAPIUser.user_update(
-        guest_token,
-        password="guest",
+        editor_token,
+        password="Password#6789!",
+        email="mynewemail@email.com",
     )
     assert updated["email"] == "mynewemail@email.com"
 
+    # set back password to editor
+    updated = await GulpAPIUser.user_update(
+        editor_token,
+        password="editor",
+        expected_status=401,  # previously updated password, session invalidated
+    )
+
+    # so we need to login again and it will work
+    editor_token = await GulpAPIUser.login("editor", "Password#6789!")
+    assert editor_token
+    updated = await GulpAPIUser.user_update(
+        editor_token,
+        password="editor",
+    )
+    assert updated["email"] == "mynewemail@email.com"
+
+    # and session must be disappeared again
+    editor_data = await GulpAPIUser.user_get_by_id(editor_token, expected_status=401)
+ 
     MutyLogger.get_instance().info(test_user.__name__ + " passed")
 
 
@@ -150,10 +183,11 @@ async def test_session_expiration_update():
 
 @pytest.mark.asyncio
 async def test_user_vs_operations():
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
+    if os.getenv("SKIP_RESET", "0") == "0":
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx
 
-    await test_win_evtx()
+        await test_win_evtx()
 
     # login admin, guest
     admin_token = await GulpAPIUser.login("admin", "admin")

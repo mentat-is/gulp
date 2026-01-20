@@ -32,8 +32,6 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
   git clone --recurse-submodules https://github.com/mentat-is/gulp.git
   # clone other repos, i.e. the devteam may want to clone also the paid-plugins repo...
   git clone https://github.com/mentat-is/gulp-paid-plugins
-  # i.e. this is needed to develop gulp clients or just run the tests
-  git clone https://github.com/mentat-is/gulp-sdk-python
   # to develop slurp
   git clone https://github.com/mentat-is/slurp
   ~~~
@@ -48,7 +46,12 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
 
 5. go back in the container and develop as normal.
 
-you may also want to update/edit extensions installed in the container... just do it from vscode in the  `extensions -> dev container: gulp dev container` tab.
+  > ensure to have .venv activated in the terminal (should be automatic when opening a new terminal in vscode, if not do the following):
+  > ~~~bash
+  > source ./.venv/bin/activate
+  > ~~~
+
+  you may also want to update/edit extensions installed in the container... just do it from vscode in the  `extensions -> dev container: gulp dev container` tab.
 
 ## install manually
 
@@ -60,7 +63,7 @@ This depends on your OS, on EndeavourOS(arch):
 
 ~~~bash
 # tested with python 3.12, *may* work with 3.13....
-sudo pacman -S rust python=3.12.7-1 python-virtualenv docker docker-compose docker-buildx jq libpqxx git-lfs github-cli
+sudo pacman -S rust python=3.13 python-virtualenv docker docker-compose docker-buildx jq libpqxx git-lfs github-cli
 
 # setup github cli client
 # NOTE: the following is only for the development team to access private repositories
@@ -90,7 +93,7 @@ git clone --recurse-submodules https://github.com/mentat-is/gulp.git
 cd ./gulp
 # also ensure to start with a clean .venv
 rm -rf ./.venv
-virtualenv --python=/usr/bin/python3.12 ./.venv
+virtualenv --python=/usr/bin/python3.13 ./.venv
 source ./.venv/bin/activate
 ~~~
 
@@ -102,7 +105,7 @@ rm -rf ~/.config/gulp
 mkdir -p ~/.config/gulp
 
 # copy template configuration, edit it in case (pay attention to the debug options!)
-cp ./gulp_cfg_template.json ~/.config/gulp_cfg.json
+cp ./gulp_cfg_template.json ~/.config/gulp/gulp_cfg.json
 ~~~
 
 ### 5. install gulp
@@ -111,10 +114,13 @@ install all packages as editable
 
 ~~~bash
 # install all packages as editable (-e)
-pip3 install -e . && pip3 install -e ./muty-python
+pip3 install -e . && pip3 install -e ./muty-python && pip3 install -e ./gulp-sdk-python
+~~~
 
-# i.e. if you need the api client (tests, develop bridges, ...)
-pip3 install -e ../gulp-sdk-python
+and to update gulp and submodules:
+
+~~~bash
+git pull --recurse-submodules
 ~~~
 
 ### 6. run

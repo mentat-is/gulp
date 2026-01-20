@@ -22,7 +22,7 @@ this guide explains how to perform the integration leveraging the `/ingest_raw` 
 
 ## the raw plugin
 
-when ingesting data using the [/ingest_raw](../src/gulp/api/rest/ingest.py) API or [/ws_ingest_raw](../src/gulp/api/rest/ws.py) WebSocket, by default the [raw plugin](../src/gulp/plugins/raw.py) plugin is used and it expects data chunks as **lists of dictionaries in the GulpDocument format**.
+when ingesting data using the [/ingest_raw](../src/gulp/api/server/ingest.py) API or [/ws_ingest_raw](../src/gulp/api/server/ws.py) WebSocket, by default the [raw plugin](../src/gulp/plugins/raw.py) plugin is used and it expects data chunks as **lists of dictionaries in the GulpDocument format**.
 
 these dictionaries should be created by your agent or bridge application and must include all the required fields in a [GulpDocument](../src/gulp/api/opensearch/structs.py).
 
@@ -56,7 +56,7 @@ examples for both methods are provided in the test code:
 - [/ingest_raw](../tests/ingest/test_ingest.py#async-def-test_raw)
 - [for /ws/ingest_raw](../tests/ingest/test_ingest.py#async-def-test_ws_raw)
 
-> for `/ws/ingest_raw`, [here is the detailed inner working of the endpoint](../src/gulp/api/rest/ws.py#async_def_ws_ingest_raw_handler)
+> for `/ws/ingest_raw`, [here is the detailed inner working of the endpoint](../src/gulp/api/server/ws.py#async_def_ws_ingest_raw_handler)
 
 ### completing raw requests
 

@@ -3,6 +3,7 @@ this is an example enrichment plugin.
 
 it processes every provided documents and adds a bunch of fields, including "enriched": true
 """
+
 from typing import override
 import muty.file
 import muty.log
@@ -23,8 +24,8 @@ class Plugin(GulpPluginBase):
     example enrichment plugin.
     """
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.ENRICHMENT]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.ENRICHMENT
 
     def display_name(self) -> str:
         return "enrich_example"
@@ -33,8 +34,20 @@ class Plugin(GulpPluginBase):
     def desc(self) -> str:
         return "Example enrichment plugin."
 
-    async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
-        for doc in docs:
+    async def _enrich_documents_chunk(
+        self,
+        sess: AsyncSession,
+        chunk: list[dict],
+        chunk_num: int = 0,
+        total_hits: int = 0,
+        index: str = None,
+        last: bool = False,
+        req_id: str = None,
+        q_name: str = None,
+        q_group: str = None,
+        **kwargs,
+    ) -> list[dict]:
+        for doc in chunk:
             doc["enriched"] = True
             doc["gulp.enriched.new_field"] = muty.string.generate_unique()
             doc["gulp.enriched.nested"] = {
@@ -43,7 +56,7 @@ class Plugin(GulpPluginBase):
                 "field3": {"field4": muty.string.generate_unique()},
             }
 
-        return docs
+        return chunk
 
     @override
     async def enrich_documents(
@@ -54,10 +67,10 @@ class Plugin(GulpPluginBase):
         ws_id: str,
         operation_id: str,
         index: str,
-        flt: GulpQueryFilter =None,
+        flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
-        **kwargs
-    ) -> int:
+        **kwargs,
+    ) -> tuple[int, int, list[str], bool]:
         await self._initialize(plugin_params)
         return await super().enrich_documents(
             sess, user_id, req_id, ws_id, operation_id, index, flt, plugin_params
@@ -72,4 +85,6 @@ class Plugin(GulpPluginBase):
         index: str,
         plugin_params: GulpPluginParameters,
     ) -> dict:
-        return await super().enrich_single_document(sess, doc_id, operation_id, index, plugin_params)
+        return await super().enrich_single_document(
+            sess, doc_id, operation_id, index, plugin_params
+        )

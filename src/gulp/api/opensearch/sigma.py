@@ -22,13 +22,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
+from gulp.api.collab_api import GulpCollab
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
-from gulp.api.ws_api import WSDATA_PROGRESS, GulpProgressPacket, GulpWsSharedQueue
+from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.opensearch.structs import GulpQuery
+from gulp.api.ws_api import GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
-from gulp.structs import GulpMappingParameters
-
-from gulp.api.opensearch.query import GulpQuery
+from gulp.structs import GulpMappingParameters, GulpProgressCallback
 
 
 async def _read_sigma_mappings_from_file(
@@ -59,7 +60,7 @@ async def get_sigma_mappings(
     m: GulpMappingParameters,
 ) -> dict[str, GulpSigmaMapping]:
     """
-    get the sigma mappings from the mapping parameters.
+    get sigma_mappings from mapping parameters, handling loading from file if needed.
 
     Args:
         m (GulpMappingParameters): the mapping parameters
@@ -154,7 +155,7 @@ def _use_this_sigma(
         tag_found: bool = False
         if r.tags:
             tag_names = {t.name.lower() for t in r.tags if t.name}
-            if tag_names & tags:
+            if tag_names and tags:
                 tag_found = True
         if not tag_found:
             return None
@@ -201,7 +202,7 @@ def _sigma_rule_to_gulp_query(
                 rule_tags.append(t)
 
     qq: GulpQuery = GulpQuery(
-        name=rule_name,
+        q_name=rule_name,
         sigma_yml=sigma_yml,
         sigma_id=rule_id,
         tags=rule_tags,
@@ -279,6 +280,8 @@ def _map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
         elif field_name in gulp_document_default_fields:
             # if the field is one of the default fields, return it as is with modifier
             return [f"{field_name}{modifier_suffix}"]
+        elif field_name == "*":
+            return ["*"]
         else:
             # return "gulp.unmapped" field
             return [f"{GulpPluginBase.build_unmapped_key(field_name)}{modifier_suffix}"]
@@ -377,7 +380,7 @@ def _map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
         MutyLogger.get_instance().error("failed to parse sigma yaml: %s", e)
         raise
 
-    # create field mapping dictionary from source fields to ecs fields
+    # create field mapping dictionary from source yml fields to mapped fields
     field_mappings = {}
     for source_field, mapping_field in mapping.fields.items():
         if mapping_field.ecs:
@@ -426,9 +429,15 @@ async def sigma_to_tags(sigma: str) -> list[str]:
     get tags from a sigma rule.
 
     Args:
-        plugin (str): the plugin to use
-        sigma (str): the sigma rule YAML
-        plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
+        sess (AsyncSession): the database session
+        path (str): path to the sigma yml file
+        mapping_parameters_cache (dict[str, GulpMappingParameters]): source_id->mapping_parameters cache
+        src_ids (list[str], optional): list of source ids to use. Defaults to None (use all sources in cache)
+        levels (list[str], optional): list of levels to filter by. Defaults to None (use all levels)
+        tags (list[str], optional): list of tags to filter by. Defaults to None (use all tags)
+        products (list[str], optional): list of products to filter by. Defaults to None (use all products)
+        categories (list[str], optional): list of categories to filter by. Defaults to None (use all categories)
+        services (list[str], optional): list of services to filter by. Defaults to None (use all services)
 
     Returns:
         list[str]: the tags extracted from the sigma rule
@@ -439,6 +448,43 @@ async def sigma_to_tags(sigma: str) -> list[str]:
     MutyLogger.get_instance().debug("extracted tags from sigma rule:\n%s", q.tags)
     return q.tags
 
+
+async def sigma_to_severity(sigma: str) -> str:
+    """get sigma severity by sigma rule"""
+    r: SigmaRule = SigmaRule.from_yaml(sigma)
+    return r.level.name.lower()
+
+
+async def sigmas_to_queries_wrapper(user_id: str,
+    operation_id: str,
+    sigmas: list[str],
+    src_ids: list[str] = None,
+    levels: list[str] = None,
+    products: list[str] = None,
+    services: list[str] = None,
+    categories: list[str] = None,
+    tags: list[str] = None,
+    paths: bool = False,
+    count_only: bool = False,
+) -> list["GulpQuery"] | int:
+    """
+    wrapper for sigmas_to_queries to call it with an AsyncSession.
+    """
+    async with GulpCollab.get_instance().session() as sess:
+        return await sigmas_to_queries(
+            sess,
+            user_id,
+            operation_id,
+            sigmas,
+            src_ids=src_ids,
+            levels=levels,
+            products=products,
+            services=services,
+            categories=categories,
+            tags=tags,
+            paths=paths,
+            count_only=count_only,
+        )
 
 async def sigmas_to_queries(
     sess: AsyncSession,
@@ -452,9 +498,8 @@ async def sigmas_to_queries(
     categories: list[str] = None,
     tags: list[str] = None,
     paths: bool = False,
-    req_id: str = None,
-    ws_id: str = None,
-) -> list["GulpQuery"]:
+    count_only: bool = False,
+) -> list["GulpQuery"] | int:
     """
     convert a list of sigma rules to GulpQuery objects.
 
@@ -475,15 +520,15 @@ async def sigmas_to_queries(
         categories (list[str], optional): list of categories to check. Defaults to None.
         tags (list[str], optional): list of tags to check. Defaults to None.
         paths (bool, optional): if True, sigmas are paths to files (will be read). Defaults to False.
-        req_id (str, optional): the request id. Defaults to None.
-        ws_id (str, optional): the websocket id to stream progress updates. Defaults to None.
+        count_only (bool, optional): if True, only return the count of converted queries. Defaults to False.
     Returns:
-        list[GulpQuery]: the list of GulpQuery objects
+        list[GulpQuery]|int: the list of converted GulpQuery objects, or the count if count_only=True
+
     """
 
     backend: Backend = OpensearchLuceneBackend()
     output_format: str = "dsl_lucene"
-
+    count_only_queries: int = 0
     srcs: list[GulpSource] = []
     if not src_ids:
         # get all source ids, if not provided
@@ -494,14 +539,14 @@ async def sigmas_to_queries(
         )
     else:
         # get the given sources
-        srcs = await GulpSource.get_by_ids(sess, src_ids)
+        srcs = await GulpSource.get_by_ids_ordered(sess, src_ids)
         found_ids = {s.id for s in srcs if s}
         for src_id in src_ids:
             if src_id not in found_ids:
                 MutyLogger.get_instance().warning(
                     "source %s not found for user %s, skipping", src_id, user_id
                 )
-    src_ids = [s.id for s in srcs]
+    src_ids: list[str] = [s.id for s in srcs]
     MutyLogger.get_instance().debug(f"src_ids= {src_ids}")
     # precompute source_id->mapping_parameters map
     mp_by_source_id: list = []
@@ -569,27 +614,33 @@ async def sigmas_to_queries(
                     or (rule.logsource.service not in mapping_parameters.sigma_mappings)
                 ):
                     use_sigma_mapping = False
+            else:
+                use_sigma_mapping = False
 
-            # transform the sigma rule considering source mappings: i.e. if the sigma rule have EventId in the conditions, we want it
-            # to be "event.code" in ECS, so we need to apply the mapping first
-            final_sigma_yml: str = _map_sigma_fields_to_ecs(yml, mappings[mapping_id])
-            # MutyLogger.get_instance().debug(
-            #     "sigma_convert_default, final sigma rule yml:\n%s", final_sigma_yml
-            # )
             try:
+                # transform the sigma rule considering source mappings: i.e. if the sigma rule have EventId in the conditions, we want it
+                # to be "event.code" in ECS, so we need to apply the mapping first
+                final_sigma_yml: str = _map_sigma_fields_to_ecs(
+                    yml, mappings[mapping_id]
+                )
+                # MutyLogger.get_instance().debug(
+                #     "sigma_convert_default, final sigma rule yml:\n%s", final_sigma_yml
+                # )
                 qs: list[dict] = backend.convert_rule(
                     SigmaRule.from_yaml(final_sigma_yml), output_format=output_format
                 )
-            except Exception as ex:
+            except:
+                # skip this rule
                 MutyLogger.get_instance().exception(
                     "failed to convert sigma %s ***ORIGINAL***:\n\n%s\n***PATCHED***:%s"
                     % (rule.title or rule.name, yml, final_sigma_yml)
                 )
-                raise ex
+                continue
+
             for q in qs:
                 q_should_query_part: list[dict] = []
 
-                if use_sigma_mapping:
+                if use_sigma_mapping and rule.logsource and rule.logsource.service:
                     # add the logsource specific part
                     sigma_mapping_to_use: GulpSigmaMapping = (
                         mapping_parameters.sigma_mappings[rule.logsource.service]
@@ -621,17 +672,26 @@ async def sigmas_to_queries(
 
             should_part.append(should_dict)
 
+        if count_only:
+            count_only_queries += 1
+            continue
+
         # mapping loop done, build the final query
         if len(should_part) == 1:
-            mapping_should_query: dict = {"query": should_part[0]}
+            final_query_dict: dict = {"query": should_part[0]}
         elif len(should_part) > 1:
-            mapping_should_query: dict = {"query": {"bool": {"should": should_part}}}
+            final_query_dict: dict = {"query": {"bool": {"should": should_part}}}
+
+        # add source ids part
+        flt: GulpQueryFilter = GulpQueryFilter(source_ids=src_ids)
+        final_query_dict = flt.merge_to_opensearch_dsl(final_query_dict)
 
         # build the final GulpQuery
-        final_query: GulpQuery = _sigma_rule_to_gulp_query(
-            rule, yml, mapping_should_query, tags=tags
+        final_gq: GulpQuery = _sigma_rule_to_gulp_query(
+            rule, yml, final_query_dict, tags=tags
         )
-        gulp_queries.append(final_query)
+
+        gulp_queries.append(final_gq)
         MutyLogger.get_instance().info(
             '******* converted sigma rule "%s": current=%d, total=%d *******'
             % (rule.name or rule.title, len(gulp_queries), total)
@@ -640,27 +700,16 @@ async def sigmas_to_queries(
         # for query in gulp_queries:
         #     print(query)
 
-        if count % 100 == 0 and req_id:
-            # check if the request is cancelled
-            canceled = await GulpRequestStats.is_canceled(sess, req_id)
-            if canceled:
-                raise Exception("request canceled")
+    if count_only:
+        MutyLogger.get_instance().warning(
+            "count_only requested, total sigma rules converted to queries: %d",
+            count_only_queries,
+        )
+        return count_only_queries
 
-            if ws_id:
-                # send progress packet to the websocket
-                p = GulpProgressPacket(
-                    total=total,
-                    current=count,
-                    generated_q=len(gulp_queries),
-                    msg="sigma_conversion",
-                )
-                wsq = GulpWsSharedQueue.get_instance()
-                await wsq.put(
-                    type=WSDATA_PROGRESS,
-                    ws_id=ws_id,
-                    user_id=user_id,
-                    req_id=req_id,
-                    data=p.model_dump(exclude_none=True),
-                )
+    if not len(gulp_queries):
+        MutyLogger.get_instance().warning(
+            "no sigma rules converted to queries (all filtered out?)"
+        )
 
     return gulp_queries

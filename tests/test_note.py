@@ -1,21 +1,32 @@
+import asyncio
+import json
+import os
+
 import pytest
 import pytest_asyncio
+import websockets
+from gulp_client.common import _cleanup_test_operation, _ensure_test_operation
+from gulp_client.note import GulpAPINote
+from gulp_client.object_acl import GulpAPIObjectACL
+from gulp_client.test_values import (
+    TEST_CONTEXT_ID,
+    TEST_HOST,
+    TEST_OPERATION_ID,
+    TEST_WS_ID,
+)
+from gulp_client.user import GulpAPIUser
 from muty.log import MutyLogger
 
 from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabFilter
-from gulp_client.common import _ensure_test_operation
-from gulp_client.note import GulpAPINote
-from gulp_client.object_acl import GulpAPIObjectACL
-from gulp_client.user import GulpAPIUser
-from gulp_client.test_values import (
-    TEST_CONTEXT_ID,
-    TEST_OPERATION_ID,
-)
+from gulp.api.ws_api import GulpWsAuthPacket
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
 async def _setup():
-    await _ensure_test_operation()
+    if os.getenv("SKIP_RESET") == "1":
+        await _cleanup_test_operation()
+    else:
+        await _ensure_test_operation()
 
 
 @pytest.mark.asyncio
@@ -23,11 +34,12 @@ async def test_note():
     """
     test notes and ACL
     """
+    if os.getenv("SKIP_RESET") != "1":
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx
 
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
+        await test_win_evtx()
 
-    await test_win_evtx()
     source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
     doc_id = "c8869c95f8e92be5e86d6b1f03a50252"
 
@@ -80,7 +92,7 @@ async def test_note():
         operation_id=TEST_OPERATION_ID,
         context_id=TEST_CONTEXT_ID,
         source_id=source_id,
-        text="pinned note 3",
+        text="doc note 3",
         doc={
             "_id": doc_id,
             "@timestamp": "2021-01-01T00:00:00Z",
@@ -89,7 +101,7 @@ async def test_note():
             "gulp.context_id": TEST_CONTEXT_ID,
             "gulp.source_id": source_id,
         },
-        name="test_pinned_note_3",
+        name="test_doc_note_3",
         tags=["test"],
         color="blue",
     )
@@ -97,6 +109,7 @@ async def test_note():
     # doc filter
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             doc_ids=[doc_id],
             operation_ids=[TEST_OPERATION_ID],
@@ -110,6 +123,7 @@ async def test_note():
     # doc time range filter
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             doc_time_range=(1609459100000000000, 1609459300000000000),
             operation_ids=[TEST_OPERATION_ID],
@@ -123,6 +137,7 @@ async def test_note():
     # time pin filter
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
             context_ids=[TEST_CONTEXT_ID],
@@ -144,6 +159,7 @@ async def test_note():
     # list without filter, 2 notes (was 3, 1 deleted)
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
             context_ids=[TEST_CONTEXT_ID],
@@ -163,6 +179,7 @@ async def test_note():
     )
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
             context_ids=[TEST_CONTEXT_ID],
@@ -182,6 +199,7 @@ async def test_note():
     )
     l = await GulpAPINote.note_list(
         guest_token,
+        TEST_OPERATION_ID,
         GulpCollabFilter(
             operation_ids=[TEST_OPERATION_ID],
             context_ids=[TEST_CONTEXT_ID],
@@ -197,14 +215,14 @@ async def test_note_many():
     """
     test notes and ACL
     """
+    if os.getenv("SKIP_RESET") != "1":
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx
 
-    # ingest some data
-    from tests.ingest.test_ingest import test_win_evtx
+        await test_win_evtx()
 
-    await test_win_evtx()
     source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
-    doc_id = "c8869c95f8e92be5e86d6b1f03a50252"
-
+    
     # create note
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
@@ -231,6 +249,7 @@ async def test_note_many():
     while True:
         l = await GulpAPINote.note_list(
             guest_token,
+            TEST_OPERATION_ID,
             GulpCollabFilter(
                 operation_ids=[TEST_OPERATION_ID],
                 context_ids=[TEST_CONTEXT_ID],
@@ -249,3 +268,96 @@ async def test_note_many():
     assert ll[22]["text"] == "note 22"
     assert ll[-1]["text"] == "note 122"
     MutyLogger.get_instance().info(test_note_many.__name__ + " passed")
+
+
+async def _ws_loop(token: str):
+    _, host = TEST_HOST.split("://")
+    ws_url = f"ws://{host}/ws"
+    test_completed = False
+
+    async with websockets.connect(ws_url) as ws:
+        # connect websocket
+        p: GulpWsAuthPacket = GulpWsAuthPacket(token=token, ws_id=TEST_WS_ID)
+        await ws.send(p.model_dump_json(exclude_none=True))
+
+        # receive responses
+        note_id: str = None
+        try:
+            while True:
+                response = await ws.recv()
+                data = json.loads(response)
+                MutyLogger.get_instance().debug("GulpWsData: %s", json.dumps(data, indent=2))
+
+                if data["type"] == "ws_connected":
+                    # on connection, create, update, delete note
+                    source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
+                    doc_id = "c8869c95f8e92be5e86d6b1f03a50252"
+                    note = await GulpAPINote.note_create(
+                        token,
+                        operation_id=TEST_OPERATION_ID,
+                        context_id=TEST_CONTEXT_ID,
+                        source_id=source_id,
+                        text="simple note",
+                        name="simple_note",
+                        doc={
+                            "_id": doc_id,
+                            "@timestamp": "2021-01-01T00:00:00Z",
+                            "gulp.timestamp": 1609459200000000000,
+                            "gulp.operation_id": TEST_OPERATION_ID,
+                            "gulp.context_id": TEST_CONTEXT_ID,
+                            "gulp.source_id": source_id,
+                        },
+                    )
+
+                    fetched_note = await GulpAPINote.note_get_by_id(token, note["id"])
+                    assert fetched_note["text"] == "simple note"
+                    assert fetched_note["name"] == "simple_note"
+
+                    # update note
+                    await GulpAPINote.note_update(token, note["id"], text="updated simple note")
+                    fetched_note = await GulpAPINote.note_get_by_id(token,
+                        note["id"]
+                    )
+                    assert fetched_note["text"] == "updated simple note"
+
+                    # delete note
+                    await GulpAPINote.note_delete(token, note["id"])
+                    fetched_note = await GulpAPINote.note_get_by_id(
+                        token, note["id"], expected_status=404
+                    )
+                elif data["type"] == "collab_create":
+                    if data["payload"]["obj"]["type"] == COLLABTYPE_NOTE:
+                        # get created note id
+                        note_id = data["payload"]["obj"]["id"]
+                elif data["type"] == "collab_delete":
+                    if data["payload"]["type"] == COLLABTYPE_NOTE and data["payload"]["id"] == note_id:
+                        test_completed = True
+                        break
+
+                await asyncio.sleep(0.1)
+
+        except websockets.exceptions.ConnectionClosed as ex:
+            MutyLogger.get_instance().exception(ex)
+    
+    assert test_completed
+    MutyLogger.get_instance().info("_test_ingest_ws_loop succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_note_ws():
+    """
+    simple note test
+    """
+    if os.getenv("SKIP_RESET") != "1":
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx
+        await test_win_evtx()
+
+    edit_token = await GulpAPIUser.login("editor", "editor")
+    assert edit_token
+
+    # create task for ws
+    await asyncio.create_task(_ws_loop(edit_token))
+    
+    MutyLogger.get_instance().info(test_note_ws.__name__ + " passed")
+

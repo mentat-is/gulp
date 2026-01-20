@@ -11,27 +11,23 @@ Key classes include:
 
 - GulpDocumentFieldAliasHelper: Helper class for managing field aliases in document properties.
 
-- GulpRawDocumentBaseFields: Defines mandatory fields for raw Gulp document records.
-
-- GulpRawDocument: Represents a raw Gulp document with base fields and additional document data.
-
 These structures form the foundation for document handling in the Gulp OpenSearch API.
 """
 
-from typing import Optional, TypeVar, override
+from typing import Annotated, Any, Optional, TypeVar, override
 
 import muty.crypto
+import muty.string
 import muty.time
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
+
 from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
-
-from gulp.structs import GulpPluginParameters
+from gulp.structs import GulpPluginParameters, GulpSortOrder
 
 T = TypeVar("T", bound=GulpBaseDocumentFilter)
-
 
 class GulpBasicDocument(BaseModel):
     model_config = ConfigDict(
@@ -53,37 +49,55 @@ class GulpBasicDocument(BaseModel):
         },
     )
 
-    id: str = Field(
-        description='"_id": the unique identifier of the document.',
-        alias="_id",
-    )
-    timestamp: str = Field(
-        description='"@timestamp": document timestamp, in iso8601 format.',
-        alias="@timestamp",
-    )
-    gulp_timestamp: int = Field(
-        description='"@timestamp": document timestamp in nanoseconds from unix epoch.',
-        alias="gulp.timestamp",
-    )
-    invalid_timestamp: bool = Field(
-        False,
-        description='True if "@timestamp" is invalid and set to 1/1/1970 (the document should be checked, probably ...).',
-        alias="gulp.timestamp_invalid",
-    )
-    operation_id: str = Field(
-        description='"gulp.operation_id": the operation ID the document is associated with.',
-        alias="gulp.operation_id",
-    )
-    context_id: Optional[str] = Field(
-        None,
-        description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
-        alias="gulp.context_id",
-    )
-    source_id: Optional[str] = Field(
-        None,
-        description='"gulp.source_id": the source the document is associated with.',
-        alias="gulp.source_id",
-    )
+    id: Annotated[
+        str,
+        Field(
+            description='"_id": the unique identifier of the document.',
+            alias="_id",
+        ),
+    ]
+    timestamp: Annotated[
+        str,
+        Field(
+            description='"@timestamp": document timestamp, in iso8601 format.',
+            alias="@timestamp",
+        ),
+    ]
+    gulp_timestamp: Annotated[
+        int,
+        Field(
+            description='"@timestamp": document timestamp in nanoseconds from unix epoch.',
+            alias="gulp.timestamp",
+        ),
+    ]
+    invalid_timestamp: Annotated[
+        bool,
+        Field(
+            description='True if "@timestamp" is invalid and set to 1/1/1970 (the document should be checked, probably ...).',
+            alias="gulp.timestamp_invalid",
+        ),
+    ] = False
+    operation_id: Annotated[
+        str,
+        Field(
+            description='"gulp.operation_id": the operation ID the document is associated with.',
+            alias="gulp.operation_id",
+        ),
+    ]
+    context_id: Annotated[
+        str,
+        Field(
+            description='"gulp.context_id": the context (i.e. an host name) the document is associated with.',
+            alias="gulp.context_id",
+        ),
+    ]
+    source_id: Annotated[
+        str,
+        Field(
+            description='"gulp.source_id": the source the document is associated with.',
+            alias="gulp.source_id",
+        ),
+    ]
 
 
 class GulpDocument(GulpBasicDocument):
@@ -117,42 +131,57 @@ class GulpDocument(GulpBasicDocument):
         },
     )
 
-    log_file_path: Optional[str] = Field(
-        None,
-        description='"log.file.path": the original log file name or path.',
-        alias="log.file.path",
-    )
-    agent_type: str = Field(
-        None,
-        description='"agent.type": the ingestion source, i.e. gulp plugin.name().',
-        alias="agent.type",
-    )
-    event_original: Optional[str] = Field(
-        None,
-        description='"event.original": the original event as text.',
-        alias="event.original",
-    )
-    event_sequence: int = Field(
-        0,
-        description='"event.sequence": the sequence number of the document in the source.',
-        alias="event.sequence",
-    )
-    event_code: Optional[str] = Field(
-        "0",
-        description='"event.code": the event code, "0" if missing.',
-        alias="event.code",
-    )
-    gulp_event_code: Optional[int] = Field(
-        0,
-        description='"gulp.event_code": "event.code" as integer.',
-        alias="gulp.event_code",
-    )
-    event_duration: Optional[int] = Field(
-        1,
-        description='"event.duration": the duration of the event in nanoseconds, defaults to 1.',
-        alias="event.duration",
-    )
+    log_file_path: Annotated[
+        Optional[str],
+        Field(
+            description='"log.file.path": the original log file name or path.',
+            alias="log.file.path",
+        ),
+    ] = None
+    agent_type: Annotated[
+        str,
+        Field(
+            description='"agent.type": the ingestion source, i.e. gulp plugin.name().',
+            alias="agent.type",
+        ),
+    ] = None
+    event_original: Annotated[
+        str,
+        Field(
+            description='"event.original": the original event as text.',
+            alias="event.original",
+        ),
+    ] = None
+    event_sequence: Annotated[
+        int,
+        Field(
+            description='"event.sequence": the sequence number of the document in the source.',
+            alias="event.sequence",
+        ),
+    ] = 0
+    event_code: Annotated[
+        str,
+        Field(
+            description='"event.code": the event code, "0" if missing.',
+            alias="event.code",
+        ),
+    ] = "0"
+    gulp_event_code: Annotated[
+        int,
+        Field(
+            description='"gulp.event_code": "event.code" as integer.',
+            alias="gulp.event_code",
+        ),
+    ] = 0
+    event_duration: Annotated[
+        int,
+        Field(
+            description='"event.duration": the duration of the event in nanoseconds, defaults to 1.',
+            alias="event.duration",
+        ),
+    ] = 1
 
+    
     @staticmethod
     def ensure_timestamp(
         timestamp: str, plugin_params: GulpPluginParameters = None
@@ -181,7 +210,7 @@ class GulpDocument(GulpBasicDocument):
         try:
             ns = muty.time.string_to_nanos_from_unix_epoch(timestamp)
 
-            # Timestamp is epoch or before, that's usually a sign of an invalid timestamp
+            # timestamp is epoch or before, that's usually a sign of an invalid timestamp
             if ns <= 0:
                 raise ValueError("timestamp is before unix epoch")
 
@@ -203,7 +232,6 @@ class GulpDocument(GulpBasicDocument):
             MutyLogger.get_instance().error(f"invalid timestamp: {timestamp}, {e}")
             return epoch_start, 0, True
 
-    @override
     def __init__(
         self,
         plugin_instance,
@@ -276,7 +304,7 @@ class GulpDocument(GulpBasicDocument):
             "agent_type": (
                 mapping.agent_type
                 if mapping and mapping.agent_type
-                else plugin_instance.bare_filename
+                else plugin_instance.name
             ),
             "event_original": event_original,
             # force event code from mapping or default to event_code
@@ -311,12 +339,22 @@ class GulpDocument(GulpBasicDocument):
             # flag invalid timestamp
             data["invalid_timestamp"] = True
 
-        # add gulp_event_code (event code as a number)
-        data["gulp_event_code"] = (
-            int(data["event_code"])
-            if data["event_code"].isnumeric()
-            else muty.crypto.hash_xxh64_int(data["event_code"])
-        )
+        # add gulp_event_code (event code as a number), try to find it in cache first
+        from gulp.plugin import DocValueCache        
+        evc = data["event_code"]
+        gulp_evc: int = plugin_instance.doc_value_cache.get_value(evc)
+        if gulp_evc:
+            # cache hit
+            data["gulp_event_code"] = gulp_evc
+        else:
+            # cache miss
+            gulp_evc = (
+                int(data["event_code"])
+                if data["event_code"].isnumeric()
+                else muty.crypto.hash_xxh64_int(data["event_code"])
+            )
+            plugin_instance.doc_value_cache.set_value(evc, gulp_evc)
+            data["gulp_event_code"] = gulp_evc
 
         # id is a hash of the document
         event_sequence = data.get("event_sequence", 0)
@@ -396,74 +434,331 @@ class GulpDocumentFieldAliasHelper:
         }
 
 
-class GulpRawDocumentBaseFields(BaseModel):
+class GulpQueryParameters(BaseModel):
     """
-    the base(=mandatory) fields in a raw GulpDocument record
-    """
+    additional options for a query.
 
-    model_config = ConfigDict(
-        # solves the issue of not being able to populate fields using field name instead of alias
-        populate_by_name=True,
-        extra="allow",
-        json_schema_extra={
-            "examples": [
-                {
-                    "@timestamp": "2021-01-01T00:00:00Z",
-                    "event.original": "raw event content",
-                    "event.code": "1234",
-                }
-            ]
-        },
-    )
-    timestamp: str = Field(
-        ...,
-        description="the document timestamp, in iso8601 format.",
-        alias="@timestamp",
-    )
-    event_original: str = Field(
-        ...,
-        description="the original event as text.",
-        alias="event.original",
-    )
-
-
-class GulpRawDocument(BaseModel):
-    """
-    represents a raw GulpDocument record, consisting of:
-
-    - base_fields: these are the mandatory fields (timestamp, event code, original raw event).
-    - doc: the rest of the document as key/value pairs, to generate the `GulpDocument` with.
+    NOTE: when using with external queries, not all options are guaranteed to be implemented (it is the plugin responsibility to handle them)
     """
 
     model_config = ConfigDict(
         extra="allow",
-        # solves the issue of not being able to populate fields using field name instead of alias
-        populate_by_name=True,
         json_schema_extra={
             "examples": [
                 {
-                    "base_fields": autogenerate_model_example_by_class(
-                        GulpRawDocumentBaseFields
-                    ),
-                    "doc": {
-                        "agent.type": "win_evtx",
-                        "event.original": "raw event content",
-                        "event.sequence": 1,
-                        "event.code": "1234",
-                        "gulp.event_code": 1234,
-                        "event.duration": 1,
-                        "log.file.path": "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx",
+                    "sort": {
+                        "@timestamp": GulpSortOrder.ASC,
+                        "_doc": GulpSortOrder.ASC,
+                        "event.sequence": GulpSortOrder.ASC,
                     },
+                    "fields": ["@timestamp", "event.id"],
+                    "limit": 1000,
+                    "total_limit": 0,
+                    "group": "test",
+                    "preview_mode": False,
+                    "search_after": None,
+                    "highlight_results": True,
                 }
             ]
         },
     )
+    name: Annotated[
+        str,
+        Field(
+            description="the name of the query, used as tag for notes if `create_notes` is set. this is autogenerated if not set, for sigma queries it is set to rule.name (or rule.title or rule.id), depending on what is available.",
+        ),
+    ] = None
+    group: Annotated[
+        str,
+        Field(
+            description="the query group, if any: if set, `WSDATA_QUERY_GROUP_MATCH` with payload=`GulpQueryGroupMatchPacket` is sent on the websocket if all queries in the same request matches.",
+        ),
+    ] = None
+    group_glyph_id: Annotated[
+        Optional[str],
+        Field(
+            description="the query group glyph, if any: `GulpQueryGroupMatchPacket.glyph_id` in `WSDATA_QUERY_GROUP_MATCH` and notes generated by **matched** queries in this group (if `create_notes` is set) will use this glyph id",
+        ),
+    ] = None
+    group_color: Annotated[
+        Optional[str],
+        Field(
+            description="the query group color, if any: `GulpQueryGroupMatchPacket.color `WSDATA_QUERY_GROUP_MATCH` and notes generated by **matched** queries in this group (if `create_notes` is set) will use this color",
+        ),
+    ] = None
+    sort: Annotated[
+        dict[str, GulpSortOrder],
+        Field(
+            description="""
+how to sort results, default=sort by ascending `@timestamp`.
 
-    base_fields: GulpRawDocumentBaseFields = Field(
-        ...,
-        description="the basic fields.",
+- for `external` queries, its the plugin responsibility to handle this.""",
+        ),
+    ] = {}
+    fields: Annotated[
+        list[str] | str,
+        Field(
+            description="""
+the set of fields to include in the returned documents.
+
+- for `external` queries, the plugin should ignore this and always return all fields
+- default=`%s`, use `*` to return all fields.
+"""
+            % (QUERY_DEFAULT_FIELDS),
+        ),
+    ] = None
+    ensure_default_fields: Annotated[
+        bool,
+        Field(
+            description="""
+if set and `fields` is set, ensure the default fields (%s) are included in the returned documents (default=True).
+
+- for `external` queries, its the plugin responsibility to handle this."""
+            % (QUERY_DEFAULT_FIELDS),
+        ),
+    ] = True
+    limit: Annotated[
+        int,
+        Field(
+            ge=1,
+            le=10000,
+            description="""
+for pagination, the maximum number of documents to return **per chunk**, default=1000 (None=return up to 10000 documents per chunk).
+
+- for `external` queries, its the plugin responsibility to handle this.""",
+        ),
+    ] = 1000
+    total_limit: Annotated[
+        int,
+        Field(
+            description="""
+The maximum number of documents to return in total, default=0 (no limit).
+
+NOTE: as documents are returned in chunk of `limit` size, total is intended as a multiple of it. default=0 (no limit).
+""",
+        ),
+    ] = 0
+    search_after: Annotated[
+        list[dict],
+        Field(
+            description="""
+for pagination, this should be set to the `search_after` returned by the previous call.
+
+- check [OpenSearch documentation](https://opensearch.org/docs/latest/search-plugins/searching-data/paginate/#the-search_after-parameter).
+- for `external` queries, this may not be supported (loop handling is responsibility of the plugin).
+""",
+        ),
+    ] = None
+    preview_mode: Annotated[
+        bool,
+        Field(
+            description="""
+if set, the query is **synchronous** and returns the preview chunk of documents, without streaming data on the websocket nor counting data in the stats.
+""",
+        ),
+    ] = False
+    create_notes: Annotated[
+        bool,
+        Field(
+            description="""
+if set, create notes on match with title=query name, tags=["auto"] (plus sigma rule tags if the query comes from a sigma rule)""",
+        ),
+    ] = False
+    notes_color: Annotated[
+        Optional[str],
+        Field(
+            description="""
+the color to use for notes created from this query (if `create_notes` is set).
+""",
+        ),
+    ] = None
+    notes_glyph_id: Annotated[
+        Optional[str],
+        Field(
+            description="""
+the glyph ID to use for notes created from this query (if `create_notes` is set).
+""",
+        ),
+    ] = None
+    highlight_results: Annotated[
+        bool,
+        Field(
+            description="""
+if set, highlights are included in the results (default=False).
+- this is valid only for local queries to Gulp (including sigma queries), it is ignored for `external` queries.
+- may need adjustment to OpenSearch configuration if causing heap exhaustion errors.
+""",
+        ),
+    ] = False
+    add_to_history: Annotated[
+        bool,
+        Field(
+            description="if set, add this/these queries to the query history for the calling user. Default is False."
+        ),
+    ] = False
+
+    force_ignore_missing_ws: Annotated[
+        bool,
+        Field(
+            description="if set, disconnecting client websocket does not stop query/ies processing."
+        ),
+    ] = False
+    def __init__(self, **data: Any) -> None:
+        if "name" not in data or not data["name"]:
+            # autogenerate name
+            data["name"] = "query_%s" % (muty.string.generate_unique())
+        super().__init__(**data)
+
+    def parse(self) -> dict:
+        """
+        Parse the additional options to a dictionary for the OpenSearch/Elasticsearch search api.
+
+        Returns:
+            dict: The parsed dictionary.
+        """
+        n = {}
+
+        # sorting
+        n["sort"] = []
+        if not self.sort:
+            # default sort
+            sort = {
+                "@timestamp": GulpSortOrder.ASC.value,
+                # read the NOTE below...
+                "_doc": GulpSortOrder.ASC.value,
+                "event.sequence": GulpSortOrder.ASC.value,
+            }
+
+        else:
+            # use provided
+            sort = self.sort
+
+        for k, v in sort.items():
+            n["sort"].append({k: {"order": v}})
+            # NOTE: test with VERY VERY large datasets (5M+), and consider to remove "_doc" here this since it may not be needed after all.... event.sequence should be enough.
+            if "_doc" not in sort:
+                # make sure document order is always sorted, use _doc instead of _id for less overhead (CircuitBreakingException error from opensearch)
+                n["sort"].append({"_doc": {"order": v}})
+            if "event.sequence" not in sort:
+                # make sure event.sequence is always sorted
+                n["sort"].append({"event.sequence": {"order": v}})
+
+        # fields to be returned
+        if not self.fields:
+            # default, if not set
+            fields = QUERY_DEFAULT_FIELDS
+        else:
+            # use the given set
+            fields = self.fields
+
+        # n["_source"] = None
+        if fields != "*":
+            # if "*", return all (so we do not set "_source"). either, only return these fields
+            if self.ensure_default_fields:
+                # ensure default fields are included
+                for f in QUERY_DEFAULT_FIELDS:
+                    if f not in fields:
+                        fields.append(f)
+            n["_source"] = fields
+
+        # pagination: doc limit
+        if self.limit:
+            # use provided
+            n["size"] = self.limit
+
+        # pagination: start from
+        if self.search_after:
+            # next chunk from this point
+            n["search_after"] = self.search_after
+
+        # wether to highlight results for the query (warning: may take a lot of memory)
+        if self.highlight_results:
+            n["highlight"] = {"fields": {"*": {}}}
+        # MutyLogger.get_instance().debug("query options: %s" % (orjson.dumps(n, option=orjson.OPT_INDENT_2).decode()))
+        return n
+
+
+class GulpQueryHelpers:
+    """
+    helpers to perform queries
+    """
+
+    @staticmethod
+    def merge_queries(q1: dict, q2: dict) -> dict:
+        """
+        merge two queries into one.
+
+        Args:
+            q1 (dict): the first query
+            q2 (dict): the second query
+
+        Returns:
+            dict: the merged query
+        """
+        # handle empty queries
+        if not q1:
+            return q2
+        if not q2:
+            return q1
+
+        # merge both queries into a bool filter
+        d: dict = dict(query={"bool": {"filter": [q1["query"], q2["query"]]}})
+        return d
+
+
+class GulpQuery(BaseModel):
+    """
+    A query (may be sigma yml or opensearch lucene raw)
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "name": "test",
+                    "id": "test",
+                    "q": {"query": {"match_all": {}}},
+                    "tags": ["test"],
+                    "q_group": "test_group",
+                }
+            ]
+        }
     )
-    doc: dict = Field(
-        ...,
-        description="the document as key/value pairs, to generate the `GulpDocument` with.",
-    )
+    q: Annotated[Any, Field(..., description="the query in the target DSL format.")]
+
+    q_name: Annotated[
+        str, Field(description="the name/title of the query, autogenerated if not set.")
+    ] = None
+    sigma_yml: Annotated[
+        Optional[str],
+        Field(description="if this is a sigma rule, the query in YAML format."),
+    ] = None
+    sigma_id: Annotated[
+        Optional[str],
+        Field(None, description="the id of the sigma rule, if this is a sigma query."),
+    ] = None
+    tags: Annotated[list[str], Field(description="query tags.")] = []
+    q_group: Annotated[
+        Optional[str], Field(description="the group this query belongs to, if any.")
+    ] = None
+
+    def __init__(
+        self,
+        q: Any,
+        q_name: str = None,
+        sigma_yml: str = None,
+        sigma_id: str = None,
+        tags: list[str] = None,
+        q_group: str = None,
+    ) -> None:
+        if not q_name:
+            # autogenerate name
+            self.q_name = "query_%s" % (muty.string.generate_unique())
+        super().__init__(
+            q=q,
+            q_name=q_name,
+            sigma_yml=sigma_yml,
+            sigma_id=sigma_id,
+            tags=tags or [],
+            q_group=q_group,
+        )

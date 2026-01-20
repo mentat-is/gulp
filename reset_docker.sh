@@ -4,6 +4,11 @@ docker compose --profile gulp down
 docker compose --profile dev down
 docker volume rm --force gulp_opensearch_data
 docker volume rm --force gulp_postgres_data
+docker volume rm --force gulp_redis_data
+docker volume rm --force opensearch_data
+docker volume rm --force postgres_data
+docker volume rm --force redis_data
+
 
 echo "[.] reset first run"
 

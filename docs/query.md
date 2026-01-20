@@ -50,6 +50,13 @@ understanding their relationships and the underlying query mechanics is essentia
 
 > **NOTE:** except for `query_external`, all the above endpoints ultimately resolve to `query_raw` internally.
 
+## queuing and preview behavior
+
+- Non-preview queries are enqueued to the Redis task queue and processed by worker processes. Results and progress are streamed back to the caller over the websocket identified by `ws_id`.
+- `preview_mode` queries are executed synchronously and the HTTP response contains a small sample (`preview_mode_num_docs`) of results directly (no websocket events).
+
+This queuing model ensures low-latency preview responses while offloading heavier or multi-query workloads to the worker pool for robust, scalable processing.
+
 ## debugging query issues
 
 for advanced debugging or to understand exactly what is being executed, be sure to run gulp with debug logs enabled using `--log-level debug` command line paramter!

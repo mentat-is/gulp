@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 import aiohttp
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase, GulpPluginType
@@ -42,14 +43,15 @@ class Plugin(GulpPluginBase):
     def __init__(
         self,
         path: str,
+        module_name: str,
         pickled: bool = False,
         **kwargs,
     ) -> None:
-        super().__init__(path, pickled=pickled, **kwargs)
+        super().__init__(path, module_name, pickled=pickled, **kwargs)
         self._whois_cache = {}
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.ENRICHMENT]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.ENRICHMENT
 
     def display_name(self) -> str:
         return "enrich_abuse"
@@ -103,11 +105,23 @@ class Plugin(GulpPluginBase):
         except AttributeError:
             return False
 
-    async def _enrich_documents_chunk(self, docs: list[dict], **kwargs) -> list[dict]:
+    async def _enrich_documents_chunk(
+        self,
+        sess: AsyncSession,
+        chunk: list[dict],
+        chunk_num: int = 0,
+        total_hits: int = 0,
+        index: str = None,
+        last: bool = False,
+        req_id: str = None,
+        q_name: str = None,
+        q_group: str = None,
+        **kwargs,
+    ) -> list[dict]:
         auth_key = self._plugin_params.custom_parameters.get("auth_key")
         dd = []
         url_fields = self._plugin_params.custom_parameters.get("url_fields", [])
-        for doc in docs:
+        for doc in chunk:
             for url_field in url_fields:
                 f = doc.get(url_field)
                 if not f:
@@ -148,6 +162,7 @@ class Plugin(GulpPluginBase):
     async def enrich_documents(
         self,
         sess: AsyncSession,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
@@ -156,7 +171,7 @@ class Plugin(GulpPluginBase):
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
-    ) -> int:
+    ) -> tuple[int, int, list[str], bool]:
         # parse custom parameters
         await self._initialize(plugin_params)
         self._get_auth_key()
@@ -185,7 +200,16 @@ class Plugin(GulpPluginBase):
 
         # enrich
         return await super().enrich_documents(
-            sess, user_id, req_id, ws_id, operation_id, index, flt, plugin_params, rq=qq
+            sess,
+            stats,
+            user_id,
+            req_id,
+            ws_id,
+            operation_id,
+            index,
+            flt,
+            plugin_params,
+            rq=qq,
         )
 
     @override

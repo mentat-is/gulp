@@ -25,18 +25,14 @@ CSV plugin support the following custom parameters in the plugin_params.extra di
 import os
 from typing import override
 from datetime import datetime
-import orjson
 import aiofiles
-import muty.dict
 import muty.os
 import muty.string
-import muty.xml
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -51,8 +47,8 @@ from aiocsv import AsyncDictReader
 
 
 class Plugin(GulpPluginBase):
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     def display_name(self) -> str:
@@ -65,7 +61,7 @@ class Plugin(GulpPluginBase):
     def regex(self) -> str:
         """regex to identify this format"""
         return None
-    
+
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
@@ -146,72 +142,55 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                flt=flt,
-                plugin_params=plugin_params,
-                **kwargs,
-            )
-
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            flt=flt,
+            plugin_params=plugin_params,
+            **kwargs,
+        )
 
         date_format = self._plugin_params.custom_parameters.get("date_format")
         delimiter = self._plugin_params.custom_parameters.get("delimiter")
         encoding = self._plugin_params.custom_parameters.get("encoding")
         dialect = self._plugin_params.custom_parameters.get("dialect")
 
-        doc_idx = 0
-        try:
-            async with aiofiles.open(
-                file_path, mode="r", encoding=encoding, newline=""
-            ) as f:
-                async for line_dict in AsyncDictReader(
-                    f, dialect=dialect, delimiter=delimiter
+        doc_idx: int = 0
+        async with aiofiles.open(
+            file_path, mode="r", encoding=encoding, newline=""
+        ) as f:
+            async for line_dict in AsyncDictReader(
+                f, dialect=dialect, delimiter=delimiter
+            ):
+                # fix dict on first line (remove unicode BOM from keys, if present)
+                fixed_dict = {
+                    muty.string.remove_unicode_bom(k, unenclose=True): v
+                    for k, v in line_dict.items()
+                    if v
+                }
+
+                # print("*****************")
+                # print(fixed_dict)
+                # rebuild line
+                line = delimiter.join(fixed_dict.values())
+                # add original line as __line__
+                fixed_dict["__line__"] = line[:-1]
+
+                if not await self.process_record(
+                    fixed_dict, doc_idx, flt, date_format=date_format
                 ):
-                    # fix dict on first line (remove unicode BOM from keys, if present)
-                    fixed_dict = {
-                        muty.string.remove_unicode_bom(k, unenclose=True): v
-                        for k, v in line_dict.items()
-                        if v
-                    }
+                    # stop processing (preview mode
+                    break
 
-                    # print("*****************")
-                    # print(fixed_dict)
-                    # rebuild line
-                    line = delimiter.join(fixed_dict.values())
-                    # add original line as __line__
-                    fixed_dict["__line__"] = line[:-1]
+                doc_idx += 1
 
-                    try:
-                        await self.process_record(
-                            fixed_dict, doc_idx, flt, date_format=date_format
-                        )
-                    except (RequestCanceledError, SourceCanceledError) as ex:
-                        MutyLogger.get_instance().exception(ex)
-                        await self._source_failed(ex)
-                        break
-                    except PreviewDone:
-                        # preview done, stop processing
-                        break
-
-                    doc_idx += 1
-
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+        return stats.status

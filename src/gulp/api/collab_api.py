@@ -13,13 +13,15 @@ the module handles:
 """
 
 import asyncio
-import orjson
 import os
 import pkgutil
 import re
 from importlib import import_module, resources
 
+import aiofiles
 import muty.file
+import muty.string
+import orjson
 from muty.log import MutyLogger
 from sqlalchemy import Table, insert, text
 from sqlalchemy.ext.asyncio import (
@@ -55,8 +57,7 @@ class GulpCollab:
     _instance: "GulpCollab" = None
 
     def __init__(self):
-        self._initialized: bool = True
-        self._setup_done: bool = False
+        self._initialized: bool = False
         self._engine: AsyncEngine = None
         self._collab_sessionmaker: async_sessionmaker = None
 
@@ -80,32 +81,40 @@ class GulpCollab:
             cls._instance = cls()
         return cls._instance
 
-    async def init(
-        self,
-        force_recreate: bool = False,
-        expire_on_commit: bool = False,
-        main_process: bool = False,
-    ) -> None:
+    @staticmethod
+    def init_mappers() -> None:
         """
-        initializes the collab database connection (create the engine and configure it) in the singleton instance.
+        initializes all the collab mappers by importing all the modules in the gulp.api.collab package.
 
-        if called on an already initialized instance, the existing engine is disposed (shutdown() is called) and a new one is created.
-
-        Args:
-            force_recreate (bool, optional): whether to drop and recreate the database tables. Defaults to False.
-            expire_on_commit (bool, optional): whether to expire sessions returned by session() on commit. Defaults to False.
-            main_process (bool, optional): whether this is the main process. Defaults to False.
+        NOTE: this fixes sqlalchemy errors i.e. when constructing ORM objects outside of gulp (i.e. in tests)
         """
-        url = GulpConfig.get_instance().postgres_url()
-
-        # NOTE: i am not quite sure why this is needed, seems like sqlalchemy needs all the classes to be loaded before accessing the tables.
         package_name = "gulp.api.collab"
         package = import_module(package_name)
         for _, module_name, _ in pkgutil.iter_modules(package.__path__):
             import_module(f"{package_name}.{module_name}")
 
+    async def init(
+        self,
+        force_recreate: bool = False,
+        main_process: bool = False,
+    ) -> None:
+        """
+        initializes the collab database connection (create the engine and configure it) in the singleton instance.
+
+        Args:
+            force_recreate (bool, optional): whether to drop and recreate the database tables. Defaults to False (ignore if not main_process).
+            main_process (bool, optional): whether this is the main process. Defaults to False.
+        """
+        if self._initialized and not force_recreate:
+            # already initialized
+            return
+
+        url = GulpConfig.get_instance().postgres_url()
+
+        # NOTE: i am not quite sure why this is needed, seems like sqlalchemy needs all the classes to be loaded before accessing the tables.
+        GulpCollab.init_mappers()
+
         # ensure no engine is already running, either shutdown it before reinit
-        await self.shutdown()
         if main_process:
             MutyLogger.get_instance().debug("init in MAIN process ...")
             if force_recreate:
@@ -115,14 +124,17 @@ class GulpCollab:
 
             self._engine = await self._create_engine()
             self._collab_sessionmaker = async_sessionmaker(
-                bind=self._engine, expire_on_commit=expire_on_commit
+                bind=self._engine, expire_on_commit=False
             )
             if force_recreate:
                 await self.create_tables()
+                await self.create_default_users()
+                await self.create_default_glyphs()
 
             # check tables exists
             async with self._collab_sessionmaker() as sess:
                 if not await self._check_all_tables_exist(sess):
+                    self._initialized = True  # we're initialized anyway
                     raise SchemaMismatch(
                         "collab database exists but (some) tables are missing."
                     )
@@ -130,10 +142,11 @@ class GulpCollab:
             MutyLogger.get_instance().debug("init in worker process ...")
             self._engine = await self._create_engine()
             self._collab_sessionmaker = async_sessionmaker(
-                bind=self._engine, expire_on_commit=expire_on_commit
+                bind=self._engine, expire_on_commit=False
             )
 
-        self._setup_done = True
+        # init done
+        self._initialized = True
 
     async def _create_engine(self) -> AsyncEngine:
         """
@@ -189,16 +202,37 @@ class GulpCollab:
             # no SSL
             connect_args = {}
 
+        # determine pool size for adaptive configuration, if set. either, use default for pool_size and max_overflow
+        pool_size: int = None
+        max_overflow: int = 10
+        if GulpConfig.get_instance().postgres_adaptive_pool_size():
+            # pool sizing should be based on per-process concurrency (child concurrency),
+            # not multiplied by number of worker processes. previously this used
+            # total_concurrency = num_tasks_per_worker * num_workers which caused
+            # each worker to create a large pool and ultimately exhaust PG max connections.
+            num_tasks_per_worker: int = (
+                GulpConfig.get_instance().concurrency_num_tasks()
+            )
+            # derive a conservative pool size from per-worker concurrency
+            pool_size = min(200, max(10, max(1, num_tasks_per_worker) // 4))
+            max_overflow = min(100, max(10, max(1, num_tasks_per_worker) // 3))
+            MutyLogger.get_instance().debug(
+                "using postgres adaptive pool size, calculated pool_size=%d, max_overflow=%d (num_tasks_per_worker=%d) ..."
+                % (pool_size, max_overflow, num_tasks_per_worker)
+            )
+
         # create engine
-        _engine = create_async_engine(
-            url,
+        kw = dict(
             echo=GulpConfig.get_instance().debug_collab(),
             connect_args=connect_args,
             pool_pre_ping=True,  # Enables connection health checks
             pool_recycle=3600,  # Recycle connections after 1 hour
-            max_overflow=10,  # Allow up to 10 additional connections
+            max_overflow=max_overflow,
             pool_timeout=30,  # Wait up to 30 seconds for available connection
         )
+        if pool_size:
+            kw["pool_size"] = pool_size
+        _engine = create_async_engine(url, **kw)
 
         MutyLogger.get_instance().info(
             "engine %s created/initialized, url=%s ..." % (_engine, url)
@@ -214,7 +248,7 @@ class GulpCollab:
         Returns:
             AsyncSession: The session to the collab database
         """
-        if not self._setup_done:
+        if not self._initialized:
             raise Exception("collab not initialized, call GulpCollab().init() first!")
 
         return self._collab_sessionmaker()
@@ -233,9 +267,7 @@ class GulpCollab:
                 "shutting down collab database engine and invalidate existing connections ..."
             )
             await self._engine.dispose()
-        self._setup_done = False
-        self._engine = None
-        self._collab_sessionmaker = None
+        self._initialized = False
 
     @staticmethod
     async def db_exists(url: str) -> bool:
@@ -314,12 +346,8 @@ class GulpCollab:
                     """
                     CREATE OR REPLACE FUNCTION delete_expired_stats_rows() RETURNS void AS $$
                     BEGIN
-                        WITH deleted AS (
                             DELETE FROM request_stats
-                            WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0
-                            RETURNING id
-                        )
-                        DELETE FROM task WHERE req_id IN (SELECT id FROM deleted);
+                            WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
                     END;
                     $$ LANGUAGE plpgsql;
             """
@@ -384,32 +412,35 @@ class GulpCollab:
             await conn.run_sync(GulpCollabBase.metadata.create_all)
         await self._setup_collab_expirations()
 
-    async def get_table_names(self) -> list[str]:
+    async def get_table_names(self, sess: AsyncEngine) -> list[str]:
         """
         retrieves all table names from the database (public schema) using raw sql query.
+
+        Args:
+            sess (AsyncEngine): The database session to use.
 
         Returns:
             list[str]: list of table names in the public schema.
         """
-        async with self._engine.begin() as conn:
-            # query to get all table names from public schema
-            result = await conn.execute(
-                text(
-                    "SELECT table_name FROM information_schema.tables "
-                    "WHERE table_schema = 'public' AND table_type = 'BASE TABLE';"
-                )
+        # query to get all table names from public schema
+        result = await sess.execute(
+            text(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_type = 'BASE TABLE';"
             )
-            # extract table names from result
-            tables = [row[0] for row in result.fetchall()]
+        )
+        # extract table names from result
+        tables = [row[0] for row in result.fetchall()]
         return tables
 
     async def clear_tables(
-        self, tables: list[str] = None, exclude: list[str] = None
+        self, sess: AsyncSession, tables: list[str] = None, exclude: list[str] = None
     ) -> None:
         """
         clears (delete data without dropping the table) the database tables
 
         Args:
+            sess (AsyncSession): The database session to use.
             tables (list[str], optional): The list of tables to clear. Defaults to None (meaning all tables will be cleared).
             exclude (list[str], optional): The list of tables to exclude from clearing. Defaults to None.
         """
@@ -417,18 +448,17 @@ class GulpCollab:
             # clear all tables
             tables = await self.get_table_names()
 
-        async with self._engine.begin() as conn:
-            for t in tables:
-                if exclude and t in exclude:
-                    MutyLogger.get_instance().debug(
-                        "---> skipping clearing table: %s (excluded)" % (t)
-                    )
-                    continue
-
-                MutyLogger.get_instance().debug("clearing table: %s ..." % (t))
-                await conn.execute(
-                    text('TRUNCATE TABLE "%s" RESTART IDENTITY CASCADE;' % (t))
+        for t in tables:
+            if exclude and t in exclude:
+                MutyLogger.get_instance().debug(
+                    "---> skipping clearing table: %s (excluded)" % (t)
                 )
+                continue
+
+            MutyLogger.get_instance().debug("clearing table: %s ..." % (t))
+            await sess.execute(
+                text('TRUNCATE TABLE "%s" RESTART IDENTITY CASCADE;' % (t))
+            )
 
     async def create_default_users(self) -> None:
         """
@@ -447,11 +477,13 @@ class GulpCollab:
         from gulp.api.collab.user_group import GulpUserGroup
 
         async with self._collab_sessionmaker() as sess:
+            sess: AsyncSession
+
             # create user groups
             from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 
             # create admin user, which is the root of everything else
-            admin_user: GulpUser = await GulpUser.create(
+            admin_user: GulpUser = await GulpUser.create_user(
                 sess,
                 "admin",
                 "admin",
@@ -462,41 +494,18 @@ class GulpCollab:
             # admin_session = await GulpUser.login(sess, "admin", "admin", None, None)
 
             # create other users
-            _ = await GulpUser.create(
+            _ = await GulpUser.create_user(
                 sess,
                 user_id="guest",
                 password="guest",
             )
-            _ = await GulpUser.create(
+            group: GulpUserGroup = await GulpUserGroup.create_internal(
                 sess,
-                user_id="editor",
-                password="editor",
-                permission=PERMISSION_MASK_EDIT,
-            )
-            _ = await GulpUser.create(
-                sess,
-                user_id="ingest",
-                password="ingest",
-                permission=PERMISSION_MASK_INGEST,
-            )
-            _ = await GulpUser.create(
-                sess,
-                user_id="power",
-                password="power",
-                permission=PERMISSION_MASK_DELETE,
-            )
-
-            # pylint: disable=protected-access
-            await sess.refresh(admin_user)
-            group: GulpUserGroup = await GulpUserGroup._create_internal(
-                sess,
+                admin_user.id,
+                name=ADMINISTRATORS_GROUP_ID,
                 obj_id=ADMINISTRATORS_GROUP_ID,
-                object_data={
-                    "name": ADMINISTRATORS_GROUP_ID,
-                    "permission": [GulpUserPermission.ADMIN],
-                },
-                owner_id=admin_user.id,
                 private=False,
+                permission=[GulpUserPermission.ADMIN],
             )
 
             # add admin to administrators group
@@ -523,10 +532,6 @@ class GulpCollab:
                 ).decode()
             )
 
-    @staticmethod
-    def to_camel_case(name: str) -> str:
-        return re.sub(r"(?:^|[-_])([a-zA-Z0-9])", lambda m: m.group(1).upper(), name)
-
     async def _load_icons(self, sess: AsyncSession, user_id: str) -> None:
         """
         load icons from the included zip file
@@ -539,56 +544,25 @@ class GulpCollab:
         from gulp.api.collab.glyph import GulpGlyph
 
         assets_path = resources.files("gulp.api.collab.assets")
-        zip_path = muty.file.safe_path_join(assets_path, "icons.zip")
+        icon_path = muty.file.safe_path_join(assets_path, "icons.txt")
 
-        # unzip to temp dir
-        unzipped_dir: str = None
+        glyphs: list[dict] = []
         try:
-            unzipped_dir = await muty.file.unzip(zip_path, None)
-
-            # load each icon
-            files = await muty.file.list_directory_async(
-                unzipped_dir, "*.svg", case_sensitive=False
-            )
-            MutyLogger.get_instance().debug(
-                "found %d files in %s" % (len(files), unzipped_dir)
-            )
-            glyphs: list[dict] = []
-            l: int = len(files)
-            chunk_size = 256 if l > 256 else l
-
-            for f in files:
-                # read file, get bare filename without extension
-                icon_b = await muty.file.read_file_async(f)
-                bare_filename = os.path.basename(f)
-                bare_filename = os.path.splitext(bare_filename)[0]
-
-                id = bare_filename
-
-                bare_filename = self.to_camel_case(bare_filename.replace(" ", "_"))
-
-                object_data = {
-                    "name": bare_filename,
-                    "img": icon_b,
-                }
-
-                d = GulpGlyph.build_base_object_dict(
-                    object_data,
-                    owner_id=user_id,
-                    obj_id=id.lower(),
-                    private=False,
-                )
-
-                glyphs.append(d)
-
-                if len(glyphs) == chunk_size:
-                    # insert bulk
-                    MutyLogger.get_instance().debug(
-                        "inserting bulk of %d glyphs ..." % (len(glyphs))
+            async with aiofiles.open(icon_path, mode="r", newline="") as f:
+                chunk_size = 256
+                async for row in f:
+                    d = GulpGlyph.build_object_dict(
+                        user_id, name=row.strip(), obj_id=row.strip(), private=False
                     )
-                    await sess.execute(insert(GulpGlyph).values(glyphs))
-                    await sess.commit()
-                    glyphs = []
+
+                    glyphs.append(d)
+                    if len(glyphs) == chunk_size:
+                        # insert bulk
+                        await sess.execute(insert(GulpGlyph).values(glyphs))
+                        MutyLogger.get_instance().debug(
+                            "inserted bulk of %d glyphs ..." % (len(glyphs))
+                        )
+                        glyphs = []
 
             if glyphs:
                 # insert remaining
@@ -596,16 +570,14 @@ class GulpCollab:
                     "last chunk, inserting bulk of %d glyphs ..." % (len(glyphs))
                 )
                 await sess.execute(insert(GulpGlyph).values(glyphs))
-                await sess.commit()
+
+            # load done
+            await sess.commit()
         except Exception as e:
             MutyLogger.get_instance().error(
                 "error loading icons: %s" % (str(e)), exc_info=True
             )
             raise e
-        finally:
-            if unzipped_dir:
-                # remove temp dir
-                await muty.file.delete_file_or_dir_async(unzipped_dir)
 
     async def create_default_glyphs(self) -> None:
         """
@@ -616,26 +588,17 @@ class GulpCollab:
         from gulp.api.collab.user import GulpUser
 
         async with self._collab_sessionmaker() as sess:
+            sess: AsyncSession
+
             # get users
             admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
-            guest_user: GulpUser = await GulpUser.get_by_id(
-                sess, "guest", throw_if_not_found=False
-            )
-            editor_user: GulpUser = await GulpUser.get_by_id(
-                sess, "editor", throw_if_not_found=False
-            )
-            ingest_user: GulpUser = await GulpUser.get_by_id(
-                sess, "ingest", throw_if_not_found=False
-            )
-            power_user: GulpUser = await GulpUser.get_by_id(
-                sess, "power", throw_if_not_found=False
-            )
+            guest_user: GulpUser = await GulpUser.get_by_id(sess, "guest")
 
             # create glyphs from files
             await self._load_icons(sess, admin_user.id)
 
             # get user glyph
-            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "user-round")
+            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "UserCross")
 
             # pylint: disable=protected-access
 
@@ -643,12 +606,6 @@ class GulpCollab:
             admin_user.glyph_id = user_glyph.id
             if guest_user:
                 guest_user.glyph_id = user_glyph.id
-            if editor_user:
-                editor_user.glyph_id = user_glyph.id
-            if ingest_user:
-                ingest_user.glyph_id = user_glyph.id
-            if power_user:
-                power_user.glyph_id = user_glyph.id
             await sess.commit()
 
     async def _check_all_tables_exist(self, sess: AsyncSession) -> bool:

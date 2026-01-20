@@ -8,7 +8,7 @@ from multiprocessing import freeze_support
 import art
 from muty.log import MutyLogger
 
-from gulp.api.rest_api import GulpRestServer
+from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
 
 # just for quick testing from the command line
@@ -37,7 +37,7 @@ def main():
     """
     :return:
     """
-    ver = GulpRestServer.get_instance().version_string()
+    ver = GulpServer.get_instance().version_string()
     installation_dir = os.path.dirname(os.path.realpath(__file__))
     banner = art.text2art("(g)ULP", font="random")
 
@@ -141,7 +141,7 @@ def main():
 
             # default
             print("%s\n%s" % (banner, ver))
-            GulpRestServer.get_instance().start(
+            GulpServer.get_instance().start(
                 logger_file_path=logger_file_path,
                 level=lv,
                 reset_collab=args.reset_collab,

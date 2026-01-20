@@ -1,3 +1,6 @@
 [submodule "muty-python"]
 	path = muty-python
 	url = https://github.com/mentat-is/muty-python
+[submodule "gulp-sdk-python"]
+	path = gulp-sdk-python
+	url = https://github.com/mentat-is/gulp-sdk-python

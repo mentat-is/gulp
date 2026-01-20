@@ -28,7 +28,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -88,8 +87,8 @@ class Plugin(GulpPluginBase):
             ),
         ]
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     @override
     async def _record_to_gulp_document(
@@ -124,9 +123,7 @@ class Plugin(GulpPluginBase):
 
         # apply mappings
         final = {}
-        rec: dict = muty.dict.flatten(
-            d, normalize=pretty, expand_lists=False
-        )
+        rec: dict = muty.dict.flatten(d, normalize=pretty, expand_lists=False)
         for k, v in rec.items():
             if isinstance(v, bytes):
                 v = v.encode(encoding)
@@ -179,56 +176,41 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                plugin_params=plugin_params,
-                flt=flt,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            plugin_params=plugin_params,
+            flt=flt,
+            **kwargs,
+        )
 
         relos = self._plugin_params.custom_parameters.get("include_relocations")
         entropy_check = self._plugin_params.custom_parameters.get("entropy_checks")
         keep_files: bool = self._plugin_params.custom_parameters.get("keep_files")
         keep_warnings: bool = self._plugin_params.custom_parameters.get("keep_warnings")
         encoding: str = self._plugin_params.custom_parameters.get("encoding")
-        
+
         doc_idx = 0
-        try:
-            with pefile.PE(file_path) as pe:
-                try:
-                    await self.process_record(
-                        pe,
-                        doc_idx,
-                        flt=flt,
-                        include_relocations=relos,
-                        entropy_checks=entropy_check,
-                        keep_files=keep_files,
-                        keep_warnings=keep_warnings,
-                        encoding=encoding
-                    )
-                except (RequestCanceledError, SourceCanceledError) as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    await self._source_failed(ex)
-                except PreviewDone:
-                    pass
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+
+        with pefile.PE(file_path) as pe:
+            await self.process_record(
+                pe,
+                doc_idx,
+                flt=flt,
+                include_relocations=relos,
+                entropy_checks=entropy_check,
+                keep_files=keep_files,
+                keep_warnings=keep_warnings,
+                encoding=encoding,
+            )
+
+        return stats.status

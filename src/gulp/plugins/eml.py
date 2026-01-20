@@ -16,6 +16,7 @@ Features:
 The plugin normalizes field names and values for consistent indexing and provides
 configurable decoding of message parts.
 """
+
 import email
 import os
 from email.message import Message
@@ -24,15 +25,11 @@ from typing import Any, override
 import aiofiles
 import muty.crypto
 import muty.dict
-import muty.os
-import muty.string
-import muty.time
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
     GulpRequestStats,
-    PreviewDone,
     RequestCanceledError,
     SourceCanceledError,
 )
@@ -66,8 +63,8 @@ class Plugin(GulpPluginBase):
             )
         ]
 
-    def type(self) -> list[GulpPluginType]:
-        return [GulpPluginType.INGESTION]
+    def type(self) -> GulpPluginType:
+        return GulpPluginType.INGESTION
 
     def _normalize_field(self, name: str) -> str:
         name = name.lower()
@@ -169,45 +166,31 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        try:
-            await super().ingest_file(
-                sess=sess,
-                stats=stats,
-                user_id=user_id,
-                req_id=req_id,
-                ws_id=ws_id,
-                index=index,
-                operation_id=operation_id,
-                context_id=context_id,
-                source_id=source_id,
-                file_path=file_path,
-                original_file_path=original_file_path,
-                flt=flt,
-                plugin_params=plugin_params,
-                **kwargs,
-            )
-        except Exception as ex:
-            await self._source_failed(ex)
-            await self._source_done(flt)
-            return GulpRequestStatus.FAILED
+
+        await super().ingest_file(
+            sess=sess,
+            stats=stats,
+            user_id=user_id,
+            req_id=req_id,
+            ws_id=ws_id,
+            index=index,
+            operation_id=operation_id,
+            context_id=context_id,
+            source_id=source_id,
+            file_path=file_path,
+            original_file_path=original_file_path,
+            flt=flt,
+            plugin_params=plugin_params,
+            **kwargs,
+        )
 
         doc_idx = 0
-        try:
-            async with aiofiles.open(file_path, mode="rb") as file:
-                content = await file.read()
-                message = email.message_from_bytes(content)
-                try:
-                    await self.process_record(message, doc_idx, flt=flt)
-                except (RequestCanceledError, SourceCanceledError) as ex:
-                    MutyLogger.get_instance().exception(ex)
-                    await self._source_failed(ex)
-                except PreviewDone:
-                    # preview done, stop processing
-                    pass
-                doc_idx += 1
-
-        except Exception as ex:
-            await self._source_failed(ex)
-        finally:
-            await self._source_done(flt)
-        return self._stats_status()
+        async with aiofiles.open(file_path, mode="rb") as file:
+            content = await file.read()
+            message = email.message_from_bytes(content)
+            try:
+                await self.process_record(message, doc_idx, flt=flt)
+            except (RequestCanceledError, SourceCanceledError) as ex:
+                MutyLogger.get_instance().exception(ex)
+            doc_idx += 1
+        return stats.status

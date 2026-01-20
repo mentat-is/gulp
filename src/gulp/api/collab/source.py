@@ -25,19 +25,10 @@ class GulpSource(GulpCollabBase, type=COLLABTYPE_SOURCE):
 
     it has always associated a context and an operation, and the tuple composed by the three is unique.
     """
-
-    operation_id: Mapped[str] = mapped_column(
-        ForeignKey("operation.id", ondelete="CASCADE"),
-        doc="The ID of the operation associated with the context.",
-        primary_key=True,
-    )
     context_id: Mapped[str] = mapped_column(
         ForeignKey("context.id", ondelete="CASCADE"),
         doc="The ID of the context associated with this source.",
         primary_key=True,
-    )
-    color: Mapped[Optional[str]] = mapped_column(
-        String, doc="The color of the context."
     )
     plugin: Mapped[Optional[str]] = mapped_column(
         String,
@@ -51,11 +42,11 @@ class GulpSource(GulpCollabBase, type=COLLABTYPE_SOURCE):
     )
 
     @classmethod
-    async def get_by_ids(
+    async def get_by_ids_ordered(
         cls, sess: AsyncSession, source_ids: list[str]
     ) -> list["GulpSource"]:
         """
-        get sources by a list of ids in a single database query
+        get sources by a list of ids, in the same order as requested source_ids.
 
         Args:
             sess (AsyncSession): the database session
