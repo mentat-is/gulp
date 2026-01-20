@@ -136,7 +136,7 @@ services:
     container_name: gulp-web
     restart: on-failure
     ports:
-      - 3000:3000
+      - 3000:80
 
   ftpserver:
     image: delfer/alpine-ftp-server:latest
