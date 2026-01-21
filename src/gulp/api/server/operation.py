@@ -440,12 +440,25 @@ async def operation_list_handler(
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
     ServerUtils.dump_params(params)
     try:
-        d = await GulpOperation.get_by_filter_wrapper(
+        ops = await GulpOperation.get_by_filter_wrapper(
             token,
             flt,
             recursive=True,
         )
-        return JSendResponse.success(req_id=req_id, data=d)
+        
+        # remove mapping_parameters from sources, if any
+        # FIXME: this is a bit hacky, since it still fetches the whole data from the database.
+        # but to optimize it we should change the whole get_by_filter_wrapper mechanism...
+        # anyway this is a rarely used api, so it's ok for now.
+        for op in ops:
+            ctxs = op.get("contexts", [])
+            for ctx in ctxs:
+                srcs = ctx.get("sources", [])
+                for src in srcs:
+                    if "mapping_parameters" in src:
+                        del src["mapping_parameters"]
+
+        return JSendResponse.success(req_id=req_id, data=ops)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -484,13 +497,24 @@ async def context_list_handler(
 
     try:
         flt = GulpCollabFilter(operation_ids=[operation_id])
-        d = await GulpContext.get_by_filter_wrapper(
+        ctxs = await GulpContext.get_by_filter_wrapper(
             token,
             flt,
             operation_id=operation_id,
             recursive=True,
         )
-        return JSendResponse.success(req_id=req_id, data=d)
+
+        # remove mapping parameters from sources, if any
+        # FIXME: this is a bit hacky, since it still fetches the whole data from the database.
+        # but to optimize it we should change the whole get_by_filter_wrapper mechanism...
+        # anyway this is a rarely used api, so it's ok for now.
+        for ctx in ctxs:
+            srcs = ctx.get("sources", [])
+            for src in srcs:
+                if "mapping_parameters" in src:
+                    del src["mapping_parameters"]
+
+        return JSendResponse.success(req_id=req_id, data=ctxs)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
