@@ -446,17 +446,7 @@ async def operation_list_handler(
             recursive=True,
         )
         
-        # remove mapping_parameters from sources, if any
-        # FIXME: this is a bit hacky, since it still fetches the whole data from the database.
-        # but to optimize it we should change the whole get_by_filter_wrapper mechanism...
-        # anyway this is a rarely used api, so it's ok for now.
-        for op in ops:
-            ctxs = op.get("contexts", [])
-            for ctx in ctxs:
-                srcs = ctx.get("sources", [])
-                for src in srcs:
-                    if "mapping_parameters" in src:
-                        del src["mapping_parameters"]
+        # mapping parameters are stored in a dedicated table, no need to strip anything here.
 
         return JSendResponse.success(req_id=req_id, data=ops)
     except Exception as ex:
@@ -504,15 +494,7 @@ async def context_list_handler(
             recursive=True,
         )
 
-        # remove mapping parameters from sources, if any
-        # FIXME: this is a bit hacky, since it still fetches the whole data from the database.
-        # but to optimize it we should change the whole get_by_filter_wrapper mechanism...
-        # anyway this is a rarely used api, so it's ok for now.
-        for ctx in ctxs:
-            srcs = ctx.get("sources", [])
-            for src in srcs:
-                if "mapping_parameters" in src:
-                    del src["mapping_parameters"]
+        # mapping parameters are stored in a dedicated table, no need to strip anything here.
 
         return JSendResponse.success(req_id=req_id, data=ctxs)
     except Exception as ex:

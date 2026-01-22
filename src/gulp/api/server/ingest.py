@@ -751,7 +751,7 @@ async def ingest_file_to_source_handler(
             if plugin_params.is_empty():
                 plugin_params = GulpPluginParameters(
                     mapping_parameters=GulpMappingParameters.model_validate(
-                        src.mapping_parameters
+                        src.mapping_parameters.mapping if src.mapping_parameters else {}
                     )
                 )
             MutyLogger.get_instance().debug(
@@ -985,7 +985,7 @@ async def ingest_file_local_to_source_handler(
             if plugin_params.is_empty():
                 plugin_params = GulpPluginParameters(
                     mapping_parameters=GulpMappingParameters.model_validate(
-                        src.mapping_parameters
+                        src.mapping_parameters.mapping if src.mapping_parameters else {}
                     )
                 )
             payload = GulpIngestPayload(

@@ -552,7 +552,7 @@ async def sigmas_to_queries(
     mp_by_source_id: list = []
     for src in srcs:
         mp_by_source_id.append(
-            GulpMappingParameters.model_validate(src.mapping_parameters)
+            GulpMappingParameters.model_validate(src.mapping_parameters.mapping if src.mapping_parameters else {})
             if src.mapping_parameters
             else GulpMappingParameters()
         )

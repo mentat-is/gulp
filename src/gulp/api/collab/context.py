@@ -16,11 +16,12 @@ Classes:
 from typing import Optional
 
 import muty.crypto
-from muty.log import MutyLogger
 import muty.string
+from muty.log import MutyLogger
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import COLLABTYPE_CONTEXT, GulpCollabBase
 from gulp.structs import GulpMappingParameters
@@ -145,9 +146,13 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             if sigma_mappings:
                 mapping_parameters.sigma_mappings = sigma_mappings
 
-            object_data["mapping_parameters"] = mapping_parameters.model_dump(
-                exclude_none=True
+            # store mapping parameters in the dedicated table and reference it
+            from gulp.api.collab.mapping_parameters import GulpMappingParametersEntry
+
+            mp, _ = await GulpMappingParametersEntry.create_if_not_exists(
+                sess, mapping_parameters.model_dump(exclude_none=True), user_id
             )
+            object_data["mapping_parameters_id"] = mp.id
 
         src = await GulpSource.create_internal(
             sess,
@@ -183,4 +188,5 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             "source=%s, name=%s added to context=%s, src=%s, ctx=%s", src.id, name, self.id, muty.string.make_shorter(str(src),max_len=260), 
             muty.string.make_shorter(str(self), max_len=260)
         )
+        return src, True
         return src, True

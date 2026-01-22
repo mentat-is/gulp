@@ -207,7 +207,7 @@ remove the container with `docker container rm some_container_id` and retry.
 ## postgreSQL
 
 - **always recreate the whole database with `--reset-collab` if startup fails because of updated tables.**
-  - for developers, an example [migration script](../example_migrate_collab.py) is provided to show how to migrate existing data (i.e. `notes`) to a new database schema.
+  - look for migration scripts from/to specific versions in the `collab_migrate` folder: an example [migration script](../collab_migrate/example_migrate_collab.py) is also provided to show how to migrate existing data (i.e. `notes`) to a new database schema.
 
 - error `too many connections already` from postgres usually happens when ingesting too many files at once, and should be handled by tuning the configuration parameters:
   - in postgres configuration, increase `max_connections`

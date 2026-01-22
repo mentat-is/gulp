@@ -3014,13 +3014,15 @@ class GulpPluginBase(ABC):
                     f"cannot find source {self._source_id} to update mapping_parameters"
                 )
                 return
-            await n.update(
+            # create or reuse mapping entry and set the mapping id on the source
+            from gulp.api.collab.mapping_parameters import GulpMappingParametersEntry
+
+            mp, _ = await GulpMappingParametersEntry.create_if_not_exists(
                 self._sess,
-                plugin=self.name,
-                mapping_parameters=self._plugin_params.mapping_parameters.model_dump(
-                    exclude_none=True
-                ),
+                self._plugin_params.mapping_parameters.model_dump(exclude_none=True),
+                self._user_id,
             )
+            await n.update(self._sess, plugin=self.name, mapping_parameters_id=mp.id)
 
     async def update_final_stats_and_flush(
         self, flt: GulpIngestionFilter = None, ex: Exception = None
