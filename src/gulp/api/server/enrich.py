@@ -568,4 +568,3 @@ async def tag_single_id_handler(
 
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-        raise JSendException(req_id=req_id) from ex
