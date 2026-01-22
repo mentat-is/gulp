@@ -1822,6 +1822,7 @@ class GulpOpenSearch:
                 "name": operation.name,
                 "index": operation.index,
                 "id": operation.id,
+                "glyph_id": operation.glyph_id,
                 "contexts": [],
             }
 
@@ -1840,6 +1841,7 @@ class GulpOpenSearch:
                 context_entry = {
                     "name": matching_context.name,
                     "id": matching_context.id,
+                    "glyph_id": matching_context.glyph_id,
                     "doc_count": ctx_bucket["doc_count"],
                     "plugins": [],
                 }
@@ -1867,6 +1869,7 @@ class GulpOpenSearch:
                         source_entry = {
                             "name": matching_source.name,
                             "id": matching_source.id,
+                            "glyph_id": matching_source.glyph_id,
                             "doc_count": src_bucket["doc_count"],
                             "max_event.code": int(
                                 src_bucket["max_event.code"]["value"]
