@@ -268,7 +268,7 @@ class GulpOpenSearch:
             user_id=user_id,
         )
         if f:
-            return f[0].field_types
+            return await f[0].expand_field_types(sess)
 
         return None
 
@@ -306,7 +306,7 @@ class GulpOpenSearch:
             user_id=user_id,
         )
         if f:
-            return f[0].field_types
+            return await f[0].expand_field_types(sess)
 
         return None
 
@@ -539,6 +539,9 @@ class GulpOpenSearch:
                 operation_id,
             )
             return {}
+
+        # canonicalize mapping: sort keys to make the mapping deterministic before storing
+        # filtered_mapping = dict(sorted(filtered_mapping.items()))
 
         # store on database (create or update)
         MutyLogger.get_instance().debug(

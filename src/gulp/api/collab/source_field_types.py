@@ -7,9 +7,7 @@ from typing import override
 import muty.crypto
 from muty.log import MutyLogger
 from sqlalchemy import ForeignKey
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gulp.api.collab.structs import COLLABTYPE_SOURCE_FIELD_TYPES, GulpCollabBase, T
@@ -17,7 +15,7 @@ from gulp.api.collab.structs import COLLABTYPE_SOURCE_FIELD_TYPES, GulpCollabBas
 
 class GulpSourceFieldTypes(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELD_TYPES):
     """
-    represents the field types present in a source on OpenSearch, as returned by GulpOpenSearch.datastream_get_field_types_by_src
+    associates a GulpSource with its field types: represents the field types present in a source on OpenSearch, as returned by GulpOpenSearch.datastream_get_field_types_by_src
     """
 
     operation_id: Mapped[str] = mapped_column(
@@ -34,19 +32,29 @@ class GulpSourceFieldTypes(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELD_TYPES):
         doc="The associated GulpSource, if any.",
         nullable=True,
     )
-    field_types: Mapped[dict] = mapped_column(
-        MutableDict.as_mutable(JSONB),
-        default_factory=dict,
-        doc="""
-a dict representing the type of each field ingested in this source.
-
-{
-    "field1": "type",
-    "field2": "type",
-    ...
-}
-""",
+    # deduplicated reference to `field_types_entries` table storing the actual dicts
+    field_types_id: Mapped[str] = mapped_column(
+        ForeignKey("field_types_entries.id", ondelete="SET NULL"),
+        doc="Reference to a GulpFieldTypesEntry id",
+        nullable=True,
     )
+
+    async def expand_field_types(self, sess: AsyncSession) -> dict:
+        """Return the actual field types dict for this source.
+
+        - If `field_types_id` is present, fetch the corresponding entry and return it.
+        - Otherwise return an empty dict.
+        """
+        if self.field_types_id:
+            from gulp.api.collab.field_types import GulpFieldTypesEntry
+
+            entry = await GulpFieldTypesEntry.get_by_id(
+                sess, self.field_types_id, throw_if_not_found=False
+            )
+            if entry:
+                return entry.field_types
+
+        return {}
 
     @override
     def to_dict(
@@ -74,7 +82,7 @@ a dict representing the type of each field ingested in this source.
     @override
     @classmethod
     async def create(cls, *args, **kwargs):
-        raise TypeError("Use create_source_fields instead")
+        raise TypeError("Use create_or_update_source_field_types instead")
 
     @classmethod
     async def create_or_update_source_field_types(
@@ -113,8 +121,15 @@ a dict representing the type of each field ingested in this source.
         src_field_types: GulpSourceFieldTypes = await cls.get_by_id(
             sess, obj_id, throw_if_not_found=False
         )
+        # create or get deduplicated entry for these field_types
+        from gulp.api.collab.field_types import GulpFieldTypesEntry
+
+        entry, created = await GulpFieldTypesEntry.create_if_not_exists(
+            sess, field_types, user_id
+        )
+
         if src_field_types:
-            # already exists, update it
+            # already exists, update it to point to the deduplicated entry
             MutyLogger.get_instance().debug(
                 "---> updating source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
                 obj_id,
@@ -123,8 +138,13 @@ a dict representing the type of each field ingested in this source.
                 source_id,
                 len(field_types),
             )
-            src_field_types.field_types = field_types
-            return await src_field_types.update(sess)
+            # prefer writing the reference id; keep legacy field_types column untouched for now
+            src_field_types.field_types_id = entry.id
+            await src_field_types.update(sess)
+            # return expanded dict representation
+            d = src_field_types.to_dict()
+            d["field_types"] = entry.field_types
+            return d
 
         MutyLogger.get_instance().debug(
             "---> create source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fieldtypes=%d",
@@ -135,7 +155,7 @@ a dict representing the type of each field ingested in this source.
             len(field_types),
         )
 
-        # create new
+        # create new, store only the reference to the deduplicated entry
         obj: GulpSourceFieldTypes = await cls.create_internal(
             sess,
             user_id,
@@ -144,6 +164,8 @@ a dict representing the type of each field ingested in this source.
             private=False,
             context_id=context_id,
             source_id=source_id,
-            field_types=field_types,
+            field_types_id=entry.id,
         )
-        return obj.to_dict()
+        d = obj.to_dict()
+        d["field_types"] = entry.field_types
+        return d
