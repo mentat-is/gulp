@@ -9,7 +9,7 @@
     - [runtime errors](#runtime-errors)
       - [ingestion](#ingestion)
       - [query](#query)
-  - [postgreSQL](#postgresql)
+  - [collab database (postgreSQL)](#collab-database-postgresql)
   - [websocket](#websocket)
 
 [TOC]
@@ -204,11 +204,12 @@ remove the container with `docker container rm some_container_id` and retry.
   - scale up opensearch nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration **OR**
   - also reducing `parallel_processes_max` **AND/OR** `concurrency_num_tasks` as for ingestion may help
 
-## postgreSQL
+## collab database (postgreSQL)
 
 - **always recreate the whole database with `--reset-collab` if startup fails because of updated tables.**
   - look for migration scripts from/to specific versions in the `collab_migrate` folder: an example [migration script](../collab_migrate/example_migrate_collab.py) is also provided to show how to migrate existing data (i.e. `notes`) to a new database schema.
-
+  - **always backup your data first is wise :)**
+  - **do not forget to restart gulp after the migration is done!**
 - error `too many connections already` from postgres usually happens when ingesting too many files at once, and should be handled by tuning the configuration parameters:
   - in postgres configuration, increase `max_connections`
   - scale up postgreSQL nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration

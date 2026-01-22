@@ -51,6 +51,7 @@ async def migrate_mapping_parameters(db_url: str) -> None:
                             name character varying,
                             time_created bigint,
                             time_updated bigint,
+                            operation_id character varying,
                             glyph_id character varying,
                             description character varying,
                             tags character varying[],
@@ -79,6 +80,15 @@ async def migrate_mapping_parameters(db_url: str) -> None:
                     await session.execute(
                         text(
                             "ALTER TABLE mapping_parameters ADD CONSTRAINT mapping_parameters_glyph_id_fkey FOREIGN KEY (glyph_id) REFERENCES glyph(id) ON DELETE SET NULL;"
+                        )
+                    )
+                res = await session.execute(
+                    text("SELECT 1 FROM pg_constraint WHERE conname = 'mapping_parameters_operation_id_fkey';")
+                )
+                if not res.fetchone():
+                    await session.execute(
+                        text(
+                            "ALTER TABLE mapping_parameters ADD CONSTRAINT mapping_parameters_operation_id_fkey FOREIGN KEY (operation_id) REFERENCES operation(id) ON DELETE CASCADE;"
                         )
                     )
                 print("... done.")
