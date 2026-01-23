@@ -44,7 +44,7 @@ async def test_elasticsearch():
                     response = await ws.recv()
                     data = json.loads(response)
 
-                    if data["type"] == "ws_connected":
+                    if data["type"] == "ws_connected":                        
                         # run test
                         q_options = GulpQueryParameters()
                         q_options.name = "test_external_elasticsearch"
@@ -91,6 +91,8 @@ async def test_elasticsearch():
                             plugin="query_elasticsearch",
                             plugin_params=plugin_params,
                             q_options=q_options,
+                            ws_id=TEST_WS_ID,
+                            req_id="test_query_ext"
                         )
                     elif data["type"] == "query_done":
                         # query done
