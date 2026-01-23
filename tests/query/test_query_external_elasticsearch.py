@@ -28,7 +28,7 @@ async def _setup():
 
 @pytest.mark.asyncio
 async def test_elasticsearch():
-    async def _test_raw_external(token: str):
+    async def _test_elastic_external(token: str):
         _, host = TEST_HOST.split("://")
         ws_url = f"ws://{host}/ws"
         test_completed = False
@@ -44,40 +44,19 @@ async def test_elasticsearch():
                     response = await ws.recv()
                     data = json.loads(response)
 
-                    if data["type"] == "ws_connected":                        
+                    if data["type"] == "ws_connected":
                         # run test
                         q_options = GulpQueryParameters()
                         q_options.name = "test_external_elasticsearch"
                         plugin_params = GulpPluginParameters(
-                            mapping_parameters=GulpMappingParameters(
-                                mappings={
-                                    "test_mapping": GulpMapping(
-                                        fields={
-                                            "gulp.context_id": GulpMappingField(
-                                                ecs="gulp.context_id"
-                                            ),
-                                            "gulp.operation_id": GulpMappingField(
-                                                ecs="gulp.operation_id"
-                                            ),
-                                            "gulp.source_id": GulpMappingField(
-                                                ecs="gulp.source_id"
-                                            ),
-                                            "gulp.event_sequence": GulpMappingField(
-                                                ecs="gulp.event_sequence"
-                                            ),
-                                            "gulp.event_original": GulpMappingField(
-                                                ecs="gulp.event_original"
-                                            ),
-                                        }
-                                    )
-                                }
-                            ),
                             custom_parameters={
                                 "uri": "http://localhost:9200",
                                 "username": "admin",
                                 "password": "Gulp1234!",
                                 "index": TEST_INDEX,
                                 "is_elasticsearch": False,  # we are querying gulp's opensearch
+                                "context_field": "gulp.context_id",
+                                "source_field": "gulp.source_id",
                             },
                         )
 
@@ -92,7 +71,7 @@ async def test_elasticsearch():
                             plugin_params=plugin_params,
                             q_options=q_options,
                             ws_id=TEST_WS_ID,
-                            req_id="test_query_ext"
+                            req_id="test_query_ext",
                         )
                     elif data["type"] == "query_done":
                         # query done
@@ -118,7 +97,7 @@ async def test_elasticsearch():
                 MutyLogger.get_instance().exception(ex)
 
         assert test_completed
-        MutyLogger.get_instance().info(_test_raw_external.__name__ + " succeeded!")
+        MutyLogger.get_instance().info(_test_elastic_external.__name__ + " succeeded!")
 
     # ingest some data
     from tests.ingest.test_ingest import test_win_evtx
@@ -131,4 +110,4 @@ async def test_elasticsearch():
     assert guest_token
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
-    await _test_raw_external(token=ingest_token)
+    await _test_elastic_external(token=ingest_token)

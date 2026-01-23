@@ -113,17 +113,37 @@ class Plugin(GulpPluginBase):
                 name="context_field",
                 type="str",
                 desc="""
-                    the field name containing the context, if None defaults to index name.
+                    name of the field representing the context.
                     """,
-                default_value=None
+                required=True,
+            ),
+            GulpPluginCustomParameter(
+                name="context_type",
+                type="str",
+                desc="""
+                    the field type for context, e.
+                    Check documentation for is_gulp_type
+                    """,
+                default_value="context_id",
+                values=["context_id", "context_name"],
             ),
             GulpPluginCustomParameter(
                 name="source_field",
                 type="str",
                 desc="""
-                    the field name containing the source.
+                    name of the field representing the source.                    
                     """,
-                default_value="gulp.source_id"
+                required=True,
+            ),
+            GulpPluginCustomParameter(
+                name="source_type",
+                type="str",
+                desc="""
+                    the field type for source.
+                    Check documentation for is_gulp_type
+                    """,
+                default_value="source_id",
+                values=["source_id", "source_name"],
             ),
         ]
 
@@ -131,38 +151,62 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
-        source_field = kwargs.get("source_field")
-        context_field = kwargs.get("context_field")
-        
+
         # record is a dict
         doc: dict = muty.dict.flatten(record)
 
         # map any other field
         d = {}
+
         for k, v in doc.items():
             # do not
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
-        # MutyLogger.get_instance().debug(
-        #     "operation_id=%s, doc=\n%s"
-        #     % (
-        #         self._operation_id,
-        #         orjson.dumps(d, option=orjson.OPT_INDENT_2).decode(),
-        #     )
-        # )
-        
-        # create a gulp document
+        # if preview mode is on we must valued context and source with "preview"
+        if self._preview_mode:
+            ctx_id = "preview"
+            src_id = "preview"
+        else:
+
+            src_id = d.get("gulp.source_id")
+            ctx_id = d.get("gulp.source_id")
+            MutyLogger.get_instance().warning(f"src_id: {src_id} -- ctx_id:{ctx_id}")
+            # if source and context are not managed via mapping check gulp plugin parameters
+            # and try to create or get from cache the id for context and source
+            if not src_id and not ctx_id:
+                MutyLogger.get_instance().warning(
+                    f"try to create context and source from custom parameters"
+                )
+                source_field_key = kwargs.get("source_field")
+                source_field_value = record.get(source_field_key)
+                source_type = kwargs.get("source_type")
+                context_field_key = kwargs.get("context_field")
+                context_field_value = record.get(context_field_key)
+                context_type = kwargs.get("context_type")
+
+                if not source_field_value or not context_field_value:
+                    raise Exception("missing source and context field value")
+                ctx_id = await self._context_id_from_doc_value(
+                    context_field_key, context_field_value, context_type == "context_id"
+                )
+                src_id = await self._source_id_from_doc_value(
+                    ctx_id,
+                    source_field_key,
+                    source_field_value,
+                    source_type == "source_id",
+                )
+
         d = GulpDocument(
             self,
             operation_id=self._operation_id,
             event_original=str(record),
             event_sequence=record_idx,
-            context_id=record.get(context_field) or self._plugin_params.custom_parameters["index"],
-            source_id=d[source_field],
-            **d
+            context_id=ctx_id,
+            source_id=src_id,
+            **d,
         )
- 
+
         # MutyLogger.get_instance().debug(d)
         return d
 
@@ -178,7 +222,7 @@ class Plugin(GulpPluginBase):
         q_name: str = None,
         q_group: str = None,
         **kwargs,
-    ) -> list[dict]:       
+    ) -> list[dict]:
         for iter in range(len(chunk)):
             await self.process_record(chunk[iter], iter, **kwargs)
 
@@ -277,10 +321,15 @@ class Plugin(GulpPluginBase):
         total_hits: int = 0
         canceled: bool = False
         last: bool = False
-       
+
         while True:
             docs: list[dict] = []
-            total_hits, docs, search_after, _ = await GulpOpenSearch.get_instance()._search_dsl_internal(
+            (
+                total_hits,
+                docs,
+                search_after,
+                _,
+            ) = await GulpOpenSearch.get_instance()._search_dsl_internal(
                 index, parsed_options, q, el
             )
 
@@ -386,7 +435,9 @@ class Plugin(GulpPluginBase):
         password = self._plugin_params.custom_parameters["password"]
         query_index = self._plugin_params.custom_parameters["index"]
         source_field = self._plugin_params.custom_parameters["source_field"]
+        source_type = self._plugin_params.custom_parameters["source_type"]
         context_field = self._plugin_params.custom_parameters.get("context_field", None)
+        context_type = self._plugin_params.custom_parameters["context_type"]
 
         MutyLogger.get_instance().info(
             "connecting to %s, is_elasticsearch=%r, user=%s"
@@ -438,7 +489,9 @@ class Plugin(GulpPluginBase):
                 callback=self._process_record_callback,
                 cb_context=cb_context,
                 context_field=context_field,
-                source_field=source_field
+                source_field=source_field,
+                source_type=source_type,
+                context_type=context_type,
             )
             if total_hits == 0:
                 MutyLogger.get_instance().warning("no results!")
