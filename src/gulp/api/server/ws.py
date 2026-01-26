@@ -36,7 +36,7 @@ from muty.log import MutyLogger
 from pydantic import BaseModel, Field
 
 from gulp.api.collab.operation import GulpOperation
-from gulp.api.collab.stats import GulpIngestionStats, GulpRequestStats
+from gulp.api.collab.stats import GulpIngestionStats, GulpRequestStats, RequestStatsType
 from gulp.api.collab.structs import (
     GulpRequestStatus,
     GulpUserPermission,
@@ -254,6 +254,7 @@ class WsIngestRawWorker:
                                             packet.user_id,
                                             packet.data.operation_id,
                                             ws_id=packet.data.ws_id,
+                                            req_type=RequestStatsType.REQUEST_TYPE_RAW_INGESTION,
                                             never_expire=True,
                                             data=GulpIngestionStats().model_dump(exclude_none=True),
                                         )

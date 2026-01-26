@@ -20,6 +20,7 @@ from gulp_client.common import (
     _test_ingest_generic,
     _test_ingest_ws_loop,
 )
+from gulp_client.db import GulpAPIDb
 from gulp_client.ingest import GulpAPIIngest
 from gulp_client.operation import GulpAPIOperation
 from gulp_client.query import GulpAPIQuery
@@ -259,6 +260,9 @@ async def test_raw(raw_data: list[dict] = None):
     )
 
     if not raw_data:
+        MutyLogger.get_instance().debug("sleeping a bit (ingest_raw returns pending and needs a bit to process) ...")
+        await asyncio.sleep(1)
+
         # ingest another (generate new random data)
         raw_chunk = json.loads(buf)
         MutyLogger.get_instance().debug("ingesting another chunk ...")

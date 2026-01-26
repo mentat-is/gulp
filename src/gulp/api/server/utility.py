@@ -964,4 +964,4 @@ async def mapping_file_list_handler(
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-        raise JSendException(req_id=req_id) from ex
+

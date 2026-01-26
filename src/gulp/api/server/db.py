@@ -454,7 +454,7 @@ async def opensearch_delete_index_handler(
             await GulpOpenSearch.get_instance().datastream_delete(
                 ds=index, throw_on_error=True
             )
-            await GulpInternalEventsManager.get_instance().broadcast_event(
+            await GulpInternalEventsManager.get_instance().dispatch_internal_event(
                 GulpInternalEventsManager.EVENT_DELETE_OPERATION,
                 data=dict(index=index),
                 user_id=user_id,
@@ -536,4 +536,63 @@ async def opensearch_list_index_handler(
             return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
+@router.post(
+    "/opensearch_refresh_index",
+    tags=["db"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {
+                            "index": "test_operation",
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="refreshes an opensearch datastream/index.",
+    description="""
+refreshes the datastream/index `index`, making all operations performed since the last refresh available for search.
+
+- `token` needs `ingest` permission.
+""",
+)
+async def opensearch_refresh_index_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    index: Annotated[
+        str,
+        Query(
+            description="the OpenSearch index (usually equal to `operation_id`)",
+            example="test_operation",
+        ),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # we must have ingest permission
+            await GulpUserSession.check_token(
+                sess, token, permission=GulpUserPermission.INGEST
+            )
+            
+            # refresh the index
+            await GulpOpenSearch.get_instance().index_refresh(index)
+
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={"index": index},
+                )
+            )
+    except Exception as ex:
         raise JSendException(req_id=req_id) from ex

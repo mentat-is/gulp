@@ -75,6 +75,7 @@ class RequestStatsType(StrEnum):
     """
 
     REQUEST_TYPE_INGESTION = "ingest"
+    REQUEST_TYPE_RAW_INGESTION = "raw_ingest"
     REQUEST_TYPE_QUERY = "query"
     REQUEST_TYPE_EXTERNAL_QUERY = "ext_query"
     REQUEST_TYPE_ENRICHMENT = "enrich"
@@ -229,7 +230,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         MutableList.as_mutable(ARRAY(String)),
         default_factory=list,
         doc="A list of errors encountered during the operation.",
-    )
+    )    
     data: Mapped[Optional[dict]] = mapped_column(
         MutableDict.as_mutable(JSONB),
         default_factory=dict,

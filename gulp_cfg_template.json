@@ -48,6 +48,8 @@
   "ingestion_retry_max": 3,
   // how many seconds between ingestion retries on error (default=1)
   "ingestion_retry_delay": 1,
+  // after how many chunks to update raw ingestion stats (default=10)
+  "ingestion_raw_update_stats_chunk_frequency": 10,
   // to "specialize" a gulp (from the redis pub/sub consumer point of view) instance, this instance will drain from the redis pub/sub queue just these task types: example values are [ "ingest", "query", "external_query", "rebase" ] or [] / unset to process all task types.
   "instance_roles": [],
   // client certificate password (not supported, ignored)

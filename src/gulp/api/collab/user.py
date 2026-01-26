@@ -42,8 +42,8 @@ from gulp.api.opensearch.structs import GulpQueryParameters
 from gulp.api.ws_api import (
     WSDATA_USER_LOGIN,
     WSDATA_USER_LOGOUT,
-    GulpUserAccessPacket,
     GulpRedisBroker,
+    GulpUserAccessPacket,
 )
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
@@ -383,7 +383,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             await sess.commit()
 
             # also broadcast to registered plugins
-            await GulpInternalEventsManager.get_instance().broadcast_event(
+            await GulpInternalEventsManager.get_instance().dispatch_internal_event(
                 WSDATA_USER_LOGIN,
                 data=GulpUserAccessPacket(
                     user_id=u.id,
@@ -431,7 +431,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         await sess.commit()
 
         # also broadcast to registered plugins
-        await GulpInternalEventsManager.get_instance().broadcast_event(
+        await GulpInternalEventsManager.get_instance().dispatch_internal_event(
             WSDATA_USER_LOGIN,
             data=GulpUserAccessPacket(
                 user_id=u.id,
@@ -482,7 +482,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         # also broadcast to registered plugins
         from gulp.plugin import GulpInternalEventsManager
 
-        await GulpInternalEventsManager.get_instance().broadcast_event(
+        await GulpInternalEventsManager.get_instance().dispatch_internal_event(
             WSDATA_USER_LOGIN,
             data=GulpUserAccessPacket(
                 user_id=s.id,

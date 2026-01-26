@@ -33,6 +33,7 @@ from gulp.api.collab.stats import (
     GulpRequestStats,
     GulpUpdateDocumentsStats,
     RequestCanceledError,
+    RequestStatsType,
     SourceCanceledError,
 )
 from gulp.api.collab.structs import GulpRequestStatus
@@ -541,18 +542,19 @@ class GulpPluginCache:
 
 class GulpInternalEventsManager:
     """
-    Singleton class to manage internal (local) events
+    Singleton class to manage internal events
 
-    local events are broadcasted by the engine to registered plugins.
+    internal events are broadcasted by the engine to registered plugins.
 
-    a plugin registers to receive local events by calling GulpInternalEventsManager.register(plugin, types) where `types` is a list of event types the plugin is interested in.
+    a plugin registers to receive internal events by calling GulpInternalEventsManager.register(plugin, types) where `types` is a list of event types the plugin is interested in.
 
-    when an event is broadcasted (by core itself or by a plugin, calling GulpInternalEventsManager.broadcast_event), core calls the `internal_event_callback` method of each registered plugin that is interested in the event type.
+    when an event is broadcasted (by core itself or by a plugin, calling GulpInternalEventsManager.dispatch_internal_event), core calls the `internal_event_callback` method of each registered plugin that is interested in the event type.
     """
 
     _instance: "GulpInternalEventsManager" = None
 
     # these events are broadcasted by core itself to registered plugins
+    # further events may be added by plugins through register(): when calling dispatch_internal_event(), only plugins registered to receive the specific event type will receive it.    
     EVENT_LOGIN: str = WSDATA_USER_LOGIN  # data=GulpUserAccessPacket
     EVENT_LOGOUT: str = WSDATA_USER_LOGOUT  # data=GulpUserAccessPacket
     EVENT_INGEST: str = "ingestion"
@@ -592,11 +594,13 @@ class GulpInternalEventsManager:
 
     def register(self, plugin: "GulpPluginBase", types: list[str] = None) -> None:
         """
-        Register a plugin to receive local events.
+        Register a plugin to receive internal events.
+
+        core will then call the plugin's `internal_event_callback` method when an event of the specified types is broadcasted with `dispatch_internal_event`.
 
         Args:
             plugin (GulpPluginBase): The plugin to register.
-            types (list[str], optional): a list of events the plugin is interested in
+            types (list[str], optional): a list of events the plugin is interested in, anyone can emit the event (it's just a string)
         """
         name: str = plugin.name
         if name not in self._plugins.keys():
@@ -605,7 +609,7 @@ class GulpInternalEventsManager:
             )
             self._plugins[name] = {
                 "plugin_instance": plugin,  # the plugin instance
-                "types": types if types else [],
+                "types": types if types else [], # events the plugin may receive in its `internal_event_callback`
             }
         # else:
         #     MutyLogger.get_instance().warning(
@@ -629,7 +633,7 @@ class GulpInternalEventsManager:
                 "plugin %s not registered to receive local events", plugin
             )
 
-    async def broadcast_event(
+    async def dispatch_internal_event(
         self,
         t: str,
         data: dict = None,
@@ -638,10 +642,10 @@ class GulpInternalEventsManager:
         operation_id: str = None,
     ) -> None:
         """
-        Broadcast an event to all plugins registered to receive it.
+        may be called by core or plugins and dispatches an internal event to all plugins registered to receive it (via register()).
 
-        NOTE: this can be used by the main process only.
-        in workers, plugins should call GulpRedisBroker.put() to broadcast an event.
+        NOTE: this can be used by the main process only, which holds the GulpInternalEventsManager singleton.
+        in workers, plugins should call GulpRedisBroker.put_internal_event() instead
 
         Args:
             t: str: the event (must be previously registered with GulpInternalEventsManager.register)
@@ -665,7 +669,7 @@ class GulpInternalEventsManager:
             if t in entry["types"]:
                 try:
                     MutyLogger.get_instance().debug(
-                        "broadcasting event %s to plugin %s", t, p.name
+                        "dispatching internal event %s to plugin %s", t, p.name
                     )
                     await p.internal_event_callback(ev)
                 except Exception as e:
@@ -1205,6 +1209,7 @@ class GulpPluginBase(ABC):
 
         # update cache        
         self.doc_value_cache.set_value(cache_key, context.id)
+
         MutyLogger.get_instance().debug(
             "context name=%s, id=%s added to cache, created=%r", v, context.id, created
         )
@@ -1229,21 +1234,27 @@ class GulpPluginBase(ABC):
             MutyLogger.get_instance().error(
                 "context_id is None, cannot create source for key %s, value %s", k, v
             )
-
             return None
 
         # check cache first
         cache_key: str = f"{context_id}-{k}-{v}"
         cached_source_id = self.doc_value_cache.get_value(cache_key)
         if cached_source_id:
-            # MutyLogger.get_instance().debug("found source %s in cache for context %s, returning id %s",v,context_id, cached_source_id)
+            # MutyLogger.get_instance().debug("found source %s in cache for context %s, returning id %s, cache_key=%s",v,context_id, cached_source_id, cache_key)
             return cached_source_id
 
         # cache miss - create new source (or get existing)
+        # MutyLogger.get_instance().warning("NOT found source %s in cache for cache_key=%s",context_id, cache_key)
 
         # fetch context object
-        context: GulpContext = await GulpContext.get_by_id(self._sess, context_id)
-
+        context: GulpContext = await GulpContext.get_by_id(self._sess, context_id, recursive=True)
+        """if context and force_v_as_source_id:
+            for s in context.sources:
+                if s.id == v:
+                    # MutyLogger.get_instance().warning("*** not found in cache but present in context.sources, cache it now, src_id=%s", s.id)
+                    self.doc_value_cache.set_value(cache_key, s.id)
+                    return s.id"""
+                
         # create source
         mapping_parameters = self._plugin_params.mapping_parameters
         source, created = await context.add_source(
@@ -2039,6 +2050,7 @@ class GulpPluginBase(ABC):
                 if self._preview_mode:
                     d["gulp.source_id"] = "preview"
                 else:
+                    # MutyLogger.get_instance().debug("**** calling source_id_from_doc_value, context_id=%s, k=gulp_source_id, v=%s", context_id, default_src)
                     d["gulp.source_id"] = await self._source_id_from_doc_value(
                         context_id, "gulp.source_id", default_src
                     )
@@ -2336,11 +2348,13 @@ class GulpPluginBase(ABC):
 
                     if gulp_type == "source_name":
                         # get/create the source
+                        # MutyLogger.get_instance().debug("**** calling source_id_from_doc_value, context_id=%s, k=%s, v=%s", ctx_id, source_key, source_value)
                         src_id: str = await self._source_id_from_doc_value(
                             ctx_id, source_key, source_value
                         )
                     else:
                         # directly use the value as source_id
+                        # MutyLogger.get_instance().debug("**** calling source_id_from_doc_value, context_id=%s, k=%s, v=%s, force_v_as_source_id=True", ctx_id, source_key, source_value)
                         src_id: str = await self._source_id_from_doc_value(
                             ctx_id, source_key, source_value, force_v_as_source_id=True
                         )
@@ -3149,10 +3163,11 @@ class GulpPluginBase(ABC):
             and status == GulpRequestStatus.ONGOING
             and not disconnected
         ):
-            if self._raw_flush_count % 10 != 0:
-                # do not update stats and source_fields too frequently on raw
+            # (configurable) update stats frequency on raw ingestion
+            freq: int = GulpConfig.get_instance().ingestion_raw_update_stats_chunk_frequency()
+            if self._raw_flush_count % freq != 0:
                 return status
-
+        
         # update stats
         try:
             MutyLogger.get_instance().debug(
@@ -3212,7 +3227,7 @@ class GulpPluginBase(ABC):
 
     def register_internal_events_callback(self, types: list[str] = None) -> None:
         """
-        Register this plugin to be called by the engine for internal events.
+        Register this plugin to be called by the engine for the given internal events.
 
         - the plugin must implement `internal_event_callback` method to handle the events.
 

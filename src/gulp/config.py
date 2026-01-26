@@ -234,7 +234,17 @@ class GulpConfig:
         n = self._config.get("ingestion_allow_unmapped_fields", True)
         return n
     
-
+    def ingestion_raw_update_stats_chunk_frequency(self) -> int:
+        """
+        Returns after how many chunks to update raw ingestion stats (default=10).
+        """
+        n = self._config.get("ingestion_raw_update_stats_chunk_frequency", 10)
+        if not n:
+            n = 10
+            MutyLogger.get_instance().debug(
+                "using default chunk frequency for raw ingestion stats update=%d" % (n)
+            )
+        return n
     def ingestion_retry_max(self) -> int:
         """
         Returns the maximum number of retries for ingestion.

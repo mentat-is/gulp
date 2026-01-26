@@ -71,9 +71,9 @@ class GulpRedisChannel(StrEnum):
     Redis pubsub channels for websocket communication
     """
 
-    BROADCAST = "broadcast"
-    WORKER_TO_MAIN = "worker_to_main"
-    CLIENT_DATA = "client_data"
+    BROADCAST = "broadcast" # message to be broadcasted across gulp instances
+    WORKER_TO_MAIN = "worker_to_main" # messages from worker processes to main process
+    CLIENT_DATA = "client_data" # messages from the ws_client_data websocket (ui-to-ui)
 
 
 class GulpWsData(BaseModel):
@@ -1577,7 +1577,7 @@ class GulpConnectedSockets:
         # MutyLogger.get_instance().debug(
         #     "routing internal message: type=%s, data=%s", data.type, data.payload
         # )
-        await GulpInternalEventsManager.get_instance().broadcast_event(
+        await GulpInternalEventsManager.get_instance().dispatch_internal_event(
             data.type,
             data=data.payload,
             user_id=data.user_id,
@@ -1588,25 +1588,25 @@ class GulpConnectedSockets:
         self, data: GulpWsData, skip_list: list[str] = None
     ) -> None:
         """
-        Broadcasts message to appropriate connected websockets (local and cross-instance).
+        Broadcasts message to appropriate connected websockets (local and cross-instance) or to the running plugins (for internal messages if internal flag is set)
 
         Args:
             data (GulpWsData): The message to broadcast.
             skip_list (list[str], optional): The list of websocket IDs to skip. Defaults to None.
         """
         if data.internal:
-            # this is an internal message, route to plugins
+            # this is an internal message, route to running plugins
             await self._route_internal_message(data)
             return
 
-        # for broadcast types, publish to Redis so all instances receive it
+        # for broadcast types, publish to Redis so all gulp instances will receive it
         if data.type in GulpRedisBroker.get_instance().broadcast_types:
             redis_client = GulpRedis.get_instance()
             message_dict = data.model_dump(exclude_none=True)
             await redis_client.publish(message_dict)
             # NOTE: we'll still process locally below, the broadcast ensures other instances get it
 
-        # route to local connected websockets
+        # and also route to local connected websockets
         socket_items = list(self._sockets.items())
 
         # collect routing tasks
@@ -1916,7 +1916,7 @@ class GulpRedisBroker:
 
     async def _process_message(self, msg: GulpWsData) -> None:
         """
-        Process a single message and route to appropriate websockets.
+        Process a single message and route to appropriate websockets (or internally to plugins).
 
         Args:
             msg (GulpWsData): The message to process
@@ -2018,10 +2018,12 @@ class GulpRedisBroker:
 
         # determine if this should be broadcast to all instances or just local
         if wsd.type in self.broadcast_types or wsd.internal:
-            # process here
+            # handle in this instance
             if GulpProcess.get_instance().is_main_process():
+                # we're in the main process
                 await self._process_message(wsd)
             else:
+                # we're in a worker, let it pass through redis
                 message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
                 await redis_client.publish(message_dict)
 

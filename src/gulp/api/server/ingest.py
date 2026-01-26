@@ -1024,6 +1024,7 @@ async def _ingest_raw_internal(user_id: str, operation_id: str, index: str, req_
             operation_id,
             ws_id=ws_id,
             never_expire=True,
+            req_type=RequestStatsType.REQUEST_TYPE_RAW_INGESTION,
             data=GulpIngestionStats().model_dump(exclude_none=True),
         )
 

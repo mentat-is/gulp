@@ -259,7 +259,7 @@ async def operation_delete_handler(
 
                 # delete the index
                 await GulpOpenSearch.get_instance().datastream_delete(index)
-                await GulpInternalEventsManager.get_instance().broadcast_event(
+                await GulpInternalEventsManager.get_instance().dispatch_internal_event(
                     GulpInternalEventsManager.EVENT_DELETE_OPERATION,
                     data=dict(index=index),
                     user_id=user_id,
