@@ -1101,6 +1101,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         self,
         sess: AsyncSession,
         ws_id: str = None,
+        req_id: str = None,
         user_id: str = None,
         ws_data: dict = None,
         ws_data_type: str = None,
@@ -1114,6 +1115,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Args:
             sess (AsyncSession): The database session to use: the session will be committed and refreshed after the update.
             ws_id (str, optional): The ID of the websocket connection to send update to the websocket. Defaults to None (no update will be sent)
+            req_id (str, optional): The ID of the request to include in the websocket notification. Defaults to None (ignored if ws_id is None).
             user_id (str, optional): The ID of the user making the request. Defaults to None, ignored if ws_id is not provided (used only for websocket notification).
             ws_data (dict, optional): this is the data sent in `GulpWsData.payload` on the websocket after the object has been updated on database. Defaults to the (serialized) updated object itself. Ignored if ws_id is not provided.
             ws_data_type (str, optional): this is the type in `GulpWsData.type` sent on the websocket. Defaults to WSDATA_COLLAB_UPDATE. Ignored if ws_id is not provided (used only for websocket notification).
@@ -1173,7 +1175,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_id=ws_id,
             user_id=user_id,
             operation_id=data.get("operation_id", None),
-            req_id=self.id,
+            req_id=req_id,
             d=p.model_dump(exclude_none=True, exclude_defaults=True),
             private=private,
         )

@@ -245,7 +245,7 @@ async def note_update_handler(
             obj.edits.append(p.model_dump(exclude_none=True)) # trigger ORM update
             obj.last_editor_id = s.user.id
 
-            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
+            dd: dict = await obj.update(sess, ws_id=ws_id, req_id=req_id, user_id=s.user.id)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

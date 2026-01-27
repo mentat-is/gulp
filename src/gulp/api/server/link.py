@@ -185,7 +185,7 @@ async def link_update_handler(
             if color:
                 obj.color = color
 
-            dd: dict = await obj.update(sess, ws_id=ws_id, user_id=s.user.id)
+            dd: dict = await obj.update(sess, ws_id=ws_id, req_id=req_id, user_id=s.user.id)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

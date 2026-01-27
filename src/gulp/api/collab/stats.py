@@ -329,7 +329,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             stats.time_finished = 0
             if time_expire > 0:
                 stats.time_expire = time_expire
-            await stats.update(sess, ws_id=ws_id, user_id=user_id)
+            await stats.update(sess, ws_id=ws_id, req_id=req_id, user_id=user_id)
             return stats, False
 
         # create new
@@ -429,7 +429,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             self,
         )
         return await self.update(
-            sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
         )
 
     async def set_canceled(
@@ -605,7 +605,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             )
 
         return await super().update(
-            sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
         )
     async def update_updatedocuments_stats(
         self,
@@ -665,7 +665,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             )
         self.data = d.model_dump()
         return await super().update(
-            sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
         )
 
     async def update_query_stats(
@@ -744,5 +744,5 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
         self.data = d.model_dump()
         return await super().update(
-            sess, ws_id=ws_id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
         )
