@@ -20,6 +20,8 @@ to ease developing bridges using python, a [WIP gulp SDK](https://github.com/men
 
 this guide explains how to perform the integration leveraging the `/ingest_raw` and/or the WebSocket endpoint `/ws_ingest_raw` to feed the data from a `gulp bridge`.
 
+> for further documentation, read the [bridge manager plugin documentation](./plugins/bridge_manager.md) and the [bridge manager source code](../src/gulp/plugins/extension/bridge_manager.py).
+
 ## the raw plugin
 
 when ingesting data using the [/ingest_raw](../src/gulp/api/server/ingest.py) API or [/ws_ingest_raw](../src/gulp/api/server/ws.py) WebSocket, by default the [raw plugin](../src/gulp/plugins/raw.py) plugin is used and it expects data chunks as **lists of dictionaries in the GulpDocument format**.
