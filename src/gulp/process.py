@@ -327,7 +327,7 @@ class GulpProcess:
 
             # load extension plugins
             from gulp.api.server_api import GulpServer
-
+            
             await GulpServer.get_instance()._load_extension_plugins()
         else:
             ###############################

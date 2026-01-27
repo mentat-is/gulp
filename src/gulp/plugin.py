@@ -739,6 +739,8 @@ class GulpPluginBase(ABC):
         """
         Initialize a new instance of the class.
 
+        NOTE: a class extending GulpPluginBase should calls super().__init__() in its __init__ before anything else.
+
         Args:
             path (str): The file path associated with the plugin.
             module_name (str): The module name in sys.modules

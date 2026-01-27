@@ -34,10 +34,10 @@ from opensearchpy import AsyncOpenSearch
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats, RequestCanceledError
-from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS
-from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.mapping.models import GulpMappingField
+from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS
 from gulp.api.opensearch.structs import GulpDocument, GulpQueryParameters
+from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import (
     GulpDocumentsChunkCallback,
@@ -74,33 +74,25 @@ class Plugin(GulpPluginBase):
             GulpPluginCustomParameter(
                 name="uri",
                 type="str",
-                desc="""
-                    Elasticsearch/opensearch URI.
-                    """,
+                desc="""Elasticsearch/opensearch URI.""",
                 required=True,
             ),
             GulpPluginCustomParameter(
                 name="username",
                 type="str",
-                desc="""
-                    username
-                    """,
+                desc="""username""",
                 default_value=None,
             ),
             GulpPluginCustomParameter(
                 name="password",
                 type="str",
-                desc="""
-                    password
-                    """,
+                desc="""password""",
                 default_value=None,
             ),
             GulpPluginCustomParameter(
                 name="index",
                 type="str",
-                desc="""
-                    the index to query.
-                    """,
+                desc="""the index to query.""",
                 required=True,
             ),
             GulpPluginCustomParameter(
@@ -112,36 +104,26 @@ class Plugin(GulpPluginBase):
             GulpPluginCustomParameter(
                 name="context_field",
                 type="str",
-                desc="""
-                    name of the field representing the context.
-                    """,
+                desc="""name of the field representing the context.""",
                 required=True,
             ),
             GulpPluginCustomParameter(
                 name="context_type",
                 type="str",
-                desc="""
-                    the field type for context, e.
-                    Check documentation for is_gulp_type
-                    """,
+                desc="""the field type for context (check documentation for is_gulp_type`)""",
                 default_value="context_id",
                 values=["context_id", "context_name"],
             ),
             GulpPluginCustomParameter(
                 name="source_field",
                 type="str",
-                desc="""
-                    name of the field representing the source.                    
-                    """,
+                desc="""name of the field representing the source.""",
                 required=True,
             ),
             GulpPluginCustomParameter(
                 name="source_type",
                 type="str",
-                desc="""
-                    the field type for source.
-                    Check documentation for is_gulp_type
-                    """,
+                desc="""the field type for source (check documentation for is_gulp_type`)""",
                 default_value="source_id",
                 values=["source_id", "source_name"],
             ),

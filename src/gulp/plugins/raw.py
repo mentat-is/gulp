@@ -8,10 +8,11 @@ NOTE: should this broadcast ingestion internal event ? at the moment, it doesn't
 it would slow down a lot and generate really tons of data on postgres!
 """
 
-import orjson
 from typing import override
-from muty.log import MutyLogger
+
+import orjson
 from muty.dict import flatten
+from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import (
@@ -20,7 +21,7 @@ from gulp.api.collab.stats import (
     SourceCanceledError,
 )
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
@@ -29,7 +30,6 @@ from gulp.structs import (
     GulpPluginCustomParameter,
     GulpPluginParameters,
 )
-from gulp.api.mapping.models import GulpMapping, GulpMappingField
 
 
 class Plugin(GulpPluginBase):
@@ -42,7 +42,6 @@ class Plugin(GulpPluginBase):
     @override
     def desc(self) -> str:
         return """raw GulpDocuments ingestion plugin.
-        
 - documents are expected to have `gulp.context_id` and `gulp.source_id` fields set to existing GulpContext and GulpSource: if they do not exist, they will be created with `name` set to the given id.
 - if `source_id` custom parameter is set, it will override the `gulp.source_id` field in the document.
 """

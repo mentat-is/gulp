@@ -1641,6 +1641,20 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         raise ValueError(f"no class found for collab type={collab_type}")
 
     @classmethod
+    def is_model_registered(cls, model_name: str) -> bool:
+        """
+        Check whether a mapped model with the given class name is registered
+        in the Declarative registry for GulpCollabBase.
+
+        Returns:
+            bool: True if the model is registered, False otherwise.
+        """
+        try:
+            return model_name in cls.registry._class_registry
+        except Exception:
+            return False
+
+    @classmethod
     async def acquire_advisory_lock(cls, sess: AsyncSession, obj_id: str) -> None:
         """
         Acquire an advisory lock
