@@ -25,6 +25,7 @@ Example command line:
 }'
 """
 
+import json
 from typing import Any, override
 
 import muty.os
@@ -153,13 +154,11 @@ class Plugin(GulpPluginBase):
 
             src_id = d.get("gulp.source_id")
             ctx_id = d.get("gulp.source_id")
-            MutyLogger.get_instance().warning(f"src_id: {src_id} -- ctx_id:{ctx_id}")
+            # MutyLogger.get_instance().warning(f"src_id: {src_id} -- ctx_id:{ctx_id}")
             # if source and context are not managed via mapping check gulp plugin parameters
             # and try to create or get from cache the id for context and source
             if not src_id and not ctx_id:
-                MutyLogger.get_instance().warning(
-                    f"try to create context and source from custom parameters"
-                )
+                # MutyLogger.get_instance().warning(f"try to create context and source from custom parameters")
                 source_field_key = kwargs.get("source_field")
                 source_field_value = record.get(source_field_key)
                 source_type = kwargs.get("source_type")
@@ -223,11 +222,15 @@ class Plugin(GulpPluginBase):
             # default sort
             sort = {
                 "@timestamp": GulpSortOrder.ASC.value,
+                "_doc": GulpSortOrder.ASC.value,
             }
 
         else:
             # use provided
             sort = q_options.sort
+
+        if "_doc" not in sort:
+            sort["_doc"] = GulpSortOrder.ASC.value
 
         for k, v in sort.items():
             n["sort"].append({k: {"order": v}})
@@ -338,7 +341,9 @@ class Plugin(GulpPluginBase):
 
             if callback:
                 # call the callback at every chunk
-                print("search_dsl", kwargs)
+                # MutyLogger.get_instance().warning(
+                #     f"Call callback\nchunk_num={chunk_num}\nprocessed={processed}\ntotal_hits={total_hits}"
+                # )
                 await callback(
                     sess,
                     docs,
@@ -450,6 +455,8 @@ class Plugin(GulpPluginBase):
 
         # query
         q_options.fields = "*"
+
+        q_dict = json.loads(q.replace("'", '"'))
         total_hits = 0
         processed = 0
         try:
@@ -458,13 +465,13 @@ class Plugin(GulpPluginBase):
                 "operation_id": operation_id,
                 "ws_id": ws_id,
                 "q_options": q_options,
-                "q": q,
+                "q": q_dict,
                 "total_hits": 0,
             }
             processed, total_hits = await self.search_dsl(
                 sess=sess,
                 index=query_index,
-                q=q,
+                q=q_dict,
                 req_id=req_id,
                 q_options=q_options,
                 el=cl,
