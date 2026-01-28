@@ -425,6 +425,14 @@ class GulpConfig:
         n = self._config.get("debug_ignore_missing_ws", False)
         return n
 
+    def debug_enrich_dry_run(self) -> bool:
+        """
+        Returns whether to enable dry run mode (= do not update data on storage) for enrich plugins (default: False).
+        """
+        n = False
+        if __debug__:
+            n = self._config.get("debug_enrich_dry_run", False)
+        return n
     def debug_no_token_expiration(self) -> bool:
         """
         Returns whether to disable token expiration.

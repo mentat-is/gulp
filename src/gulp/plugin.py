@@ -1504,9 +1504,17 @@ class GulpPluginBase(ABC):
         for d in chunk:
             d.pop("highlight", None)
 
-        updated, _, errors = await GulpOpenSearch.get_instance().update_documents(
-            index, chunk, wait_for_refresh=last
-        )
+        dry_run: bool = GulpConfig.get_instance().debug_enrich_dry_run()
+        if not dry_run:
+            updated, _, errors = await GulpOpenSearch.get_instance().update_documents(
+                index, chunk, wait_for_refresh=last
+            )
+        else:
+            # dry run, simulate ...
+            MutyLogger.get_instance().warning("ENRICH DRY RUN MODE active, no real update will happen!")
+            updated = len(chunk)
+            errors = []
+            
         cb_context["total_updated"] += updated
         cb_context["errors"].extend(errors)
         cb_context["total_hits"] = total_hits
@@ -1684,8 +1692,9 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug("docs=%s" % (docs))
         if not docs:
             raise ValueError(
-                "document %s found but not enriched (check plugin %s)!",
+                "document %s found but not enriched, returned docs len=%s (check plugin %s)!",
                 doc_id,
+                len(docs),
                 self.name,
             )
 
