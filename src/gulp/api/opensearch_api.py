@@ -2113,7 +2113,8 @@ class GulpOpenSearch:
         for hit in hits:
             doc = {**hit["_source"], "_id": hit["_id"]}
             if "highlight" in hit and add_highlight:
-                doc["highlight"] = hit["highlight"]
+                # add the highlight info
+                doc["_highlight"] = hit["highlight"]
             docs.append(doc)
 
         search_after = hits[-1]["sort"]

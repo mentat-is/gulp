@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# this tests also tests update_single_id and update_documents APIs (tag api just forward parameters to update apis without touching them)
+
 import asyncio
 import json
 import os
@@ -7,17 +9,13 @@ import muty.file
 import pytest
 import pytest_asyncio
 import websockets
-from muty.log import MutyLogger
-from gulp.api.collab.stats import GulpRequestStats, GulpUpdateDocumentsStats
-from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp_client.common import (
     GulpAPICommon,
-    _ensure_test_operation,
     _cleanup_test_operation,
+    _ensure_test_operation,
 )
 from gulp_client.enrich import GulpAPIEnrich
 from gulp_client.query import GulpAPIQuery
-from gulp_client.user import GulpAPIUser
 from gulp_client.test_values import (
     TEST_HOST,
     TEST_INDEX,
@@ -25,10 +23,12 @@ from gulp_client.test_values import (
     TEST_REQ_ID,
     TEST_WS_ID,
 )
-from gulp.api.ws_api import (
-    GulpQueryDonePacket,
-    GulpWsAuthPacket,
-)
+from gulp_client.user import GulpAPIUser
+from muty.log import MutyLogger
+
+from gulp.api.collab.stats import GulpRequestStats, GulpUpdateDocumentsStats
+from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 from gulp.structs import GulpPluginParameters
 
 

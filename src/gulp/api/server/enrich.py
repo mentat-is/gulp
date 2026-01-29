@@ -115,7 +115,6 @@ async def _enrich_documents_internal(
                     sess, index, user_id, flt
                 )
 
-
 @router.post(
     "/enrich_documents",
     response_model=JSendResponse,
@@ -284,8 +283,7 @@ async def enrich_single_id_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
-
-async def _tag_documents_chunk(
+async def _update_documents_chunk(
     sess: AsyncSession,
     chunk: list[dict],
     chunk_num: int = 0,
@@ -297,18 +295,18 @@ async def _tag_documents_chunk(
     q_group: str = None,
     **kwargs,
 ) -> list[dict]:
-    """GulpDocumentsChunkCallback to tag each chunk of documents"""
+    """GulpDocumentsChunkCallback to update each chunk of documents"""
     cb_context = kwargs["cb_context"]
-    tags = cb_context["tags"]
+    data = cb_context["update_data"]
     stats: GulpRequestStats = cb_context["stats"]
     ws_id = cb_context["ws_id"]
     flt: GulpQueryFilter = cb_context["flt"]
 
     # tag documents
     for d in chunk:
-        d.update({"gulp.tags": tags})
+        d.update(data)
 
-    MutyLogger.get_instance().debug("tagged %d documents, last=%r", len(chunk), last)
+    MutyLogger.get_instance().debug("updated %d documents, last=%r", len(chunk), last)
 
     # update the documents on opensearch
     # also ensure no highlight field is left from the query
@@ -335,21 +333,27 @@ async def _tag_documents_chunk(
     )
     return chunk
 
-
-async def _tag_documents_internal(
+async def _update_documents_internal(
     user_id: str,
     ws_id: str,
     req_id: str,
     operation_id: str,
     index: str,
     flt: GulpQueryFilter,
-    tags: list[str],
+    data: dict
 ) -> None:
     """
-    called by the tag_documents API entrypoint, runs in a worker process to tag documents
+    called by the update_documents API entrypoint, runs in a worker process to update documents
+
+    data must contain the fields to be updated in the document/s returned by the filter
+    i.e. {
+        "gulp.tags": ["tag1", "tag2"],
+        "custom_field": "custom_value"
+    }
+    will add/update the `gulp.tags` and `custom_field` fields in the matched documents with the new values
     """
 
-    MutyLogger.get_instance().debug("---> _tag_documents_internal")
+    MutyLogger.get_instance().debug("---> _update_documents_internal")
 
     # build query
     if flt.is_empty():
@@ -365,14 +369,14 @@ async def _tag_documents_internal(
     enriched: int = 0
     total_hits: int = 0
     errors: list[str] = []
+
     cb_context = {
         "total_updated": 0,
         "flt": flt,
         "errors": errors,
-        "tags": tags,
+        "update_data": data,
         "ws_id": ws_id,
     }
-    canceled: bool = False
     stats: GulpRequestStats
     async with GulpCollab.get_instance().session() as sess:
         try:
@@ -393,7 +397,7 @@ async def _tag_documents_internal(
                 q,
                 req_id=req_id,
                 q_options=q_options,
-                callback=_tag_documents_chunk,
+                callback=_update_documents_chunk,
                 cb_context=cb_context,
             )
         except Exception as ex:
@@ -416,9 +420,8 @@ async def _tag_documents_internal(
                     sess, index, user_id, flt
                 )
 
-
 @router.post(
-    "/tag_documents",
+    "/update_documents",
     response_model=JSendResponse,
     tags=["enrich"],
     response_model_exclude_none=True,
@@ -435,28 +438,28 @@ async def _tag_documents_internal(
             }
         }
     },
-    summary="Add tags to document/s.",
+    summary="Update documents.",
     description="""
-Tag important documents, so they can be queried back via `gulp.tags` provided via `GulpQueryFilter` as custom key.
+Update documents with the given arbitrary data.
 
 - token must have the `edit` permission.
-- this funciton returns `pending` and the enriched documents are updated in the Gulp `operation_id.index` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
+- this funciton returns `pending` and the enriched documents are updated in the gulp index identified by `operation_id` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
 - `flt.operation_ids` is ignored and set to `[operation_id]`
 
 ### tracking progress
 
-Tagging is an `enrichment`, from gulp's point of view: so, the flow on `ws_id` is the same as the `enrich_documents` API.
+Updating is an `enrichment`, from gulp's point of view: so, the flow on `ws_id` is the same as the `enrich_documents` API.
 
 - `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpUpdateDocumentsStats`, data.req_type=`enrich` (at start)
 - `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpUpdateDocumentsStats` (once every 1000 documents)
 
 """,
 )
-async def tag_documents_handler(
+async def update_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
-    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
+    data: Annotated[list[str], Depends(APIDependencies.param_tags)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
@@ -479,18 +482,134 @@ async def tag_documents_handler(
 
             # offload to a worker process and return pending
             await GulpServer.get_instance().spawn_worker_task(
-                _tag_documents_internal,
+                _update_documents_internal,
                 user_id,
                 ws_id,
                 req_id,
                 operation_id,
                 index,
                 flt,
-                tags,
+                data,
             )
             return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
+@router.post(
+    "/update_single_id",
+    response_model=JSendResponse,
+    tags=["enrich"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                        "data": autogenerate_model_example_by_class(GulpDocument),
+                    }
+                }
+            }
+        }
+    },
+    summary="Updates a single document with arbitrary data.",
+    description="""
+same as `update_documents`, but for a single document.
+
+- token must have the `edit` permission.
+- the enriched document is updated in the gulp's index identified by `operation_id`.
+""",
+)
+async def update_single_id_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    doc_id: Annotated[
+        str,
+        Query(description="the `_id` of the document to update."),
+    ],
+    data: Annotated[dict, Body(description="The data to update the document with.")],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.EDIT
+            )
+            index = op.index
+            user_id = s.user.id
+
+            # get the document
+            doc: dict = await GulpOpenSearch.get_instance().query_single_document(
+                index, doc_id
+            )
+
+            # update the document
+            doc.update(data)
+            await GulpOpenSearch.get_instance().update_documents(
+                index, [doc], wait_for_refresh=True
+            )
+
+            # rebuild source_fields mapping in a worker
+            await GulpServer.get_instance().spawn_worker_task(
+                GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
+                None,  # sess=None to create a temporary one (a worker can't use the current one)
+                index,
+                user_id,
+                operation_id=doc["gulp.operation_id"],
+                context_id=doc["gulp.context_id"],
+                source_id=doc["gulp.source_id"],
+            )
+            return JSONResponse(JSendResponse.success(req_id, data=doc))
+
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+@router.post(
+    "/tag_documents",
+    response_model=JSendResponse,
+    tags=["enrich"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "pending",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                    }
+                }
+            }
+        }
+    },
+    summary="Add tags to document/s.",
+    description="""
+shortcut to `update_documents` to update the given documents with `gulp.tags`.
+""",
+)
+async def tag_documents_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    return await update_documents_handler(
+        token=token,
+        operation_id=operation_id,
+        flt=flt,
+        data={"gulp.tags": tags},
+        ws_id=ws_id,
+        req_id=req_id,
+    )
 
 
 @router.post(
@@ -514,10 +633,7 @@ async def tag_documents_handler(
     },
     summary="Tag a single document.",
     description="""
-same as `tag_documents`, but for a single document.
-
-- token must have the `edit` permission.
-- the enriched document is updated in the Gulp `index`.
+shortcut to `update_single_id` to update the given document with `gulp.tags`.
 """,
 )
 async def tag_single_id_handler(
@@ -530,41 +646,10 @@ async def tag_single_id_handler(
     tags: Annotated[list[str], Body(description="The tags to add.")],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
-    params = locals()
-    ServerUtils.dump_params(params)
-
-    try:
-        async with GulpCollab.get_instance().session() as sess:
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s: GulpUserSession = await GulpUserSession.check_token(
-                sess, token, obj=op, permission=GulpUserPermission.EDIT
-            )
-            index = op.index
-            user_id = s.user.id
-
-            # get the document
-            doc: dict = await GulpOpenSearch.get_instance().query_single_document(
-                index, doc_id
-            )
-
-            # update the document
-            doc["gulp.tags"] = tags
-            await GulpOpenSearch.get_instance().update_documents(
-                index, [doc], wait_for_refresh=True
-            )
-
-            # rebuild source_fields mapping in a worker
-            await GulpServer.get_instance().spawn_worker_task(
-                GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
-                None,  # sess=None to create a temporary one (a worker can't use the current one)
-                index,
-                user_id,
-                operation_id=doc["gulp.operation_id"],
-                context_id=doc["gulp.context_id"],
-                source_id=doc["gulp.source_id"],
-            )
-            return JSONResponse(JSendResponse.success(req_id, data=doc))
-
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
+    return await update_single_id_handler(
+        token=token,
+        operation_id=operation_id,
+        doc_id=doc_id,
+        data={"gulp.tags": tags},
+        req_id=req_id,
+    )
