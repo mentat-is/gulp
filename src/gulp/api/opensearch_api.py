@@ -300,7 +300,7 @@ class GulpOpenSearch:
         )
         if context_id:
             flt.context_ids = [context_id]
-            
+
         f: list[GulpSourceFieldTypes] = await GulpSourceFieldTypes.get_by_filter(
             sess,
             flt,
@@ -455,7 +455,7 @@ class GulpOpenSearch:
         el: AsyncElasticsearch = None,
     ) -> tuple[dict, bool]:
         """
-        create/update GulpSourceFields for the given operation/context/source on the collab database
+        create/update GulpSourceFields for the given operation/context/source on the collab database by parsing the index mapping on opensearch/elasticsearch
 
         WARNING: this call may take long time, so it is better to run it in a background task.
 
