@@ -238,47 +238,13 @@ class GulpOpenSearch:
         properties = res[idx]["mappings"]["properties"]
         return _parse_field_types_internal(properties)
 
-    async def datastream_get_field_types_by_source_id(
-        self,
-        sess: AsyncSession,
-        operation_id: str,
-        source_id: str,
-        user_id: str,
-    ) -> dict:
-        """
-        get source->fieldtypes from the collab database
-
-        Args:
-            sess (AsyncSession): The database session.
-            operation_id (str): The operation ID.
-            source_id (str): The source ID.
-            user_id (str): The user ID.
-        Returns:
-            dict: The mapping dict (same as index_get_mapping with return_raw_result=False), or None if the mapping does not exist
-
-        """
-        flt = GulpCollabFilter(
-            operation_ids=[operation_id],
-            source_ids=[source_id],
-        )
-        f: list[GulpSourceFieldTypes] = await GulpSourceFieldTypes.get_by_filter(
-            sess,
-            flt,
-            throw_if_not_found=False,
-            user_id=user_id,
-        )
-        if f:
-            return await f[0].expand_field_types(sess)
-
-        return None
-
     async def datastream_get_field_types_by_src(
         self,
         sess: AsyncSession,
         operation_id: str,
         source_id: str,
         user_id: str,
-        context_id: str=None,
+        context_id: str = None,
     ) -> dict:
         """
         get source->fieldtypes from the collab database
@@ -300,7 +266,7 @@ class GulpOpenSearch:
         )
         if context_id:
             flt.context_ids = [context_id]
-            
+
         f: list[GulpSourceFieldTypes] = await GulpSourceFieldTypes.get_by_filter(
             sess,
             flt,
@@ -521,9 +487,10 @@ class GulpOpenSearch:
 
             # update filtered_mapping with the current batch of documents
             for doc in docs:
-                for k,v in mapping.items():
-
-                    if k in doc:
+                doc_flatten = muty.dict.flatten(doc)
+                for k, v in mapping.items():
+                    # k = rete_di_casa.source.ip
+                    if k in doc_flatten:
                         if k not in filtered_mapping:
                             filtered_mapping[k] = mapping[k]
 
@@ -549,7 +516,10 @@ class GulpOpenSearch:
         # store on database (create or update)
         MutyLogger.get_instance().debug(
             "***DONE*** datastream_update_source_field_types_by_src, found %d source->fieldtype mappings (src_id=%s, ctx_id=%s, operation_id=%s), storing/updating on collab db...",
-            len(filtered_mapping), source_id, context_id, operation_id,
+            len(filtered_mapping),
+            source_id,
+            context_id,
+            operation_id,
         )
         if sess:
             # session provided
