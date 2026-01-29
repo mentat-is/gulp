@@ -136,12 +136,12 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
 
         # record is a dict
-        doc: dict = muty.dict.flatten(record)
+        # doc: dict = muty.dict.flatten(record)
 
         # map any other field
         d = {}
 
-        for k, v in doc.items():
+        for k, v in record.items():
             # do not
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
@@ -153,7 +153,7 @@ class Plugin(GulpPluginBase):
         else:
 
             src_id = d.get("gulp.source_id")
-            ctx_id = d.get("gulp.source_id")
+            ctx_id = d.get("gulp.context_id")
             # MutyLogger.get_instance().warning(f"src_id: {src_id} -- ctx_id:{ctx_id}")
             # if source and context are not managed via mapping check gulp plugin parameters
             # and try to create or get from cache the id for context and source
@@ -258,6 +258,8 @@ class Plugin(GulpPluginBase):
         if q_options.limit:
             # use provided
             n["size"] = q_options.limit
+        if q_options.total_limit != 0 and q_options.total_limit < q_options.limit:
+            n["size"] = q_options.total_limit
 
         # pagination: start from
         if q_options.search_after:
@@ -298,7 +300,6 @@ class Plugin(GulpPluginBase):
                 el.__class__,
             )
 
-        q_options.limit = 100
         parsed_options = self.parse(q_options)
         processed: int = 0
         chunk_num: int = 0

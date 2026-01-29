@@ -66,7 +66,7 @@ async def test_elasticsearch():
                         await GulpAPIQuery.query_external(
                             token,
                             TEST_OPERATION_ID,
-                            q=TEST_QUERY_RAW,
+                            q=json.dumps(TEST_QUERY_RAW),
                             plugin="query_elasticsearch",
                             plugin_params=plugin_params,
                             q_options=q_options,

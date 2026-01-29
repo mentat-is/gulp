@@ -29,6 +29,7 @@ from gulp.structs import GulpPluginParameters, GulpSortOrder
 
 T = TypeVar("T", bound=GulpBaseDocumentFilter)
 
+
 class GulpBasicDocument(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -181,7 +182,6 @@ class GulpDocument(GulpBasicDocument):
         ),
     ] = 1
 
-    
     @staticmethod
     def ensure_timestamp(
         timestamp: str, plugin_params: GulpPluginParameters = None
@@ -340,7 +340,8 @@ class GulpDocument(GulpBasicDocument):
             data["invalid_timestamp"] = True
 
         # add gulp_event_code (event code as a number), try to find it in cache first
-        from gulp.plugin import DocValueCache        
+        from gulp.plugin import DocValueCache
+
         evc = data["event_code"]
         gulp_evc: int = plugin_instance.doc_value_cache.get_value(evc)
         if gulp_evc:
@@ -603,6 +604,7 @@ if set, highlights are included in the results (default=False).
             description="if set, disconnecting client websocket does not stop query/ies processing."
         ),
     ] = False
+
     def __init__(self, **data: Any) -> None:
         if "name" not in data or not data["name"]:
             # autogenerate name
@@ -665,6 +667,8 @@ if set, highlights are included in the results (default=False).
         if self.limit:
             # use provided
             n["size"] = self.limit
+        if self.total_limit != 0 and self.total_limit < self.limit:
+            n["size"] = self.total_limit
 
         # pagination: start from
         if self.search_after:

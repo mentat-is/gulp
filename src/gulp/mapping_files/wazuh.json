@@ -1,0 +1,375 @@
+{
+    "metadata": {
+        "plugin": [
+            "query_elasticsearch.py"
+        ]
+    },
+    "mappings": {
+        "default": {
+            "agent_type": "wazuh",
+            "description": "wazuh opensearch file mappings",
+            "exclude": [
+                "input",
+                "rule",
+                "manager",
+                "decoder",
+                "GeoLocation",
+                "cluster",
+                "command"
+            ],
+            "fields": {
+                "location": {
+                    "ecs": [
+                        "log.file.path"
+                    ],
+                    "is_gulp_type": "source_name"
+                },
+                "timestamp": {
+                    "ecs": [
+                        "@timestamp"
+                    ]
+                },
+                "agent": {
+                    "flatten_json": true
+                },
+                "agent.ip": {
+                    "ecs": [
+                        "agent.ip"
+                    ]
+                },
+                "agent.name": {
+                    "ecs": [
+                        "gulp.context_id",
+                        "agent.name"
+                    ],
+                    "is_gulp_type": "context_name"
+                },
+                "data": {
+                    "flatten_json": true
+                },
+                "data.action": {
+                    "ecs": [
+                        "event.action"
+                    ]
+                },
+                "data.id": {
+                    "ecs": [
+                        "event.id"
+                    ]
+                },
+                "data.status": {
+                    "ecs": [
+                        "event.outcome"
+                    ]
+                },
+                "data.srcip": {
+                    "ecs": [
+                        "source.ip"
+                    ]
+                },
+                "data.srcport": {
+                    "ecs": [
+                        "source.port"
+                    ]
+                },
+                "data.srcuser": {
+                    "ecs": [
+                        "source.user.name"
+                    ]
+                },
+                "data.dstip": {
+                    "ecs": [
+                        "destination.ip"
+                    ]
+                },
+                "data.dstport": {
+                    "ecs": [
+                        "destination.port"
+                    ]
+                },
+                "data.dstuser": {
+                    "ecs": [
+                        "destination.user.name"
+                    ]
+                },
+                "data.file": {
+                    "ecs": [
+                        "file.path"
+                    ]
+                },
+                "data.url": {
+                    "ecs": [
+                        "url.full"
+                    ]
+                },
+                "data.protocol": {
+                    "ecs": [
+                        "network.protocol"
+                    ]
+                },
+                "data.audit.auid": {
+                    "ecs": [
+                        "user.id"
+                    ]
+                },
+                "data.audit.exe": {
+                    "ecs": [
+                        "process.executable"
+                    ]
+                },
+                "data.audit.pid": {
+                    "ecs": [
+                        "process.pid"
+                    ]
+                },
+                "data.audit.ppid": {
+                    "ecs": [
+                        "process.ppid"
+                    ]
+                },
+                "data.audit.syscall": {
+                    "ecs": [
+                        "process.thread.id"
+                    ]
+                },
+                "data.audit.cwd": {
+                    "ecs": [
+                        "process.working_directory"
+                    ]
+                },
+                "data.audit.directory.name": {
+                    "ecs": [
+                        "file.path"
+                    ]
+                },
+                "data.audit.file.name": {
+                    "ecs": [
+                        "file.path"
+                    ]
+                },
+                "data.aws.accountId": {
+                    "ecs": [
+                        "cloud.account.id"
+                    ]
+                },
+                "data.aws.region": {
+                    "ecs": [
+                        "cloud.region"
+                    ]
+                },
+                "data.aws.source_ip_address": {
+                    "ecs": [
+                        "source.ip"
+                    ]
+                },
+                "data.aws.dstaddr": {
+                    "ecs": [
+                        "destination.ip"
+                    ]
+                },
+                "data.aws.srcaddr": {
+                    "ecs": [
+                        "source.ip"
+                    ]
+                },
+                "data.docker.Actor.Attributes.image": {
+                    "ecs": [
+                        "container.image.name"
+                    ]
+                },
+                "data.docker.Actor.Attributes.name": {
+                    "ecs": [
+                        "container.name"
+                    ]
+                },
+                "data.docker.Type": {
+                    "ecs": [
+                        "container.runtime"
+                    ]
+                },
+                "data.gcp.resource.labels.project_id": {
+                    "ecs": [
+                        "cloud.project.id"
+                    ]
+                },
+                "data.gcp.resource.type": {
+                    "ecs": [
+                        "cloud.service.name"
+                    ]
+                },
+                "data.github.actor": {
+                    "ecs": [
+                        "user.name"
+                    ]
+                },
+                "data.github.repo": {
+                    "ecs": [
+                        "repository.name"
+                    ]
+                },
+                "data.github.org": {
+                    "ecs": [
+                        "organization.name"
+                    ]
+                },
+                "data.netinfo.iface.name": {
+                    "ecs": [
+                        "observer.ingress.interface.name"
+                    ]
+                },
+                "data.netinfo.iface.mac": {
+                    "ecs": [
+                        "host.mac"
+                    ]
+                },
+                "data.netinfo.iface.ipv4.address": {
+                    "ecs": [
+                        "host.ip"
+                    ]
+                },
+                "data.netinfo.iface.ipv4.gateway": {
+                    "ecs": [
+                        "network.forwarded_ip"
+                    ]
+                },
+                "data.os.hostname": {
+                    "ecs": [
+                        "host.hostname"
+                    ]
+                },
+                "data.os.name": {
+                    "ecs": [
+                        "host.os.name"
+                    ]
+                },
+                "data.os.version": {
+                    "ecs": [
+                        "host.os.version"
+                    ]
+                },
+                "data.os.platform": {
+                    "ecs": [
+                        "host.os.platform"
+                    ]
+                },
+                "data.process.name": {
+                    "ecs": [
+                        "process.name"
+                    ]
+                },
+                "data.process.pid": {
+                    "ecs": [
+                        "process.pid"
+                    ]
+                },
+                "data.process.ppid": {
+                    "ecs": [
+                        "process.ppid"
+                    ]
+                },
+                "data.process.args": {
+                    "ecs": [
+                        "process.args"
+                    ]
+                },
+                "data.process.cmd": {
+                    "ecs": [
+                        "process.command_line"
+                    ]
+                },
+                "data.process.start_time": {
+                    "ecs": [
+                        "process.start"
+                    ]
+                },
+                "data.vulnerability.cve": {
+                    "ecs": [
+                        "vulnerability.id"
+                    ]
+                },
+                "data.vulnerability.severity": {
+                    "ecs": [
+                        "vulnerability.severity"
+                    ]
+                },
+                "data.vulnerability.package.name": {
+                    "ecs": [
+                        "vulnerability.package.name"
+                    ]
+                },
+                "data.vulnerability.package.version": {
+                    "ecs": [
+                        "vulnerability.package.version"
+                    ]
+                },
+                "data.vulnerability.title": {
+                    "ecs": [
+                        "vulnerability.description"
+                    ]
+                },
+                "data.win.system.eventID": {
+                    "ecs": [
+                        "winlog.event_id"
+                    ]
+                },
+                "data.win.system.channel": {
+                    "ecs": [
+                        "winlog.channel"
+                    ]
+                },
+                "data.win.system.computer": {
+                    "ecs": [
+                        "host.name"
+                    ]
+                },
+                "data.win.system.message": {
+                    "ecs": [
+                        "message"
+                    ]
+                },
+                "data.win.system.severityValue": {
+                    "ecs": [
+                        "log.level"
+                    ]
+                },
+                "data.win.eventdata.ipAddress": {
+                    "ecs": [
+                        "source.ip",
+                        "client.ip"
+                    ]
+                },
+                "data.win.eventdata.ipPort": {
+                    "ecs": [
+                        "source.port"
+                    ]
+                },
+                "data.win.eventdata.targetUserName": {
+                    "ecs": [
+                        "user.name",
+                        "target.user.name"
+                    ]
+                },
+                "data.win.eventdata.subjectUserName": {
+                    "ecs": [
+                        "user.name"
+                    ]
+                },
+                "data.win.eventdata.logonType": {
+                    "ecs": [
+                        "winlog.logon.type"
+                    ]
+                },
+                "data.win.eventdata.processName": {
+                    "ecs": [
+                        "process.executable"
+                    ]
+                },
+                "data.win.eventdata.parentProcessName": {
+                    "ecs": [
+                        "process.parent.executable"
+                    ]
+                }
+            }
+        }
+    }
+}
