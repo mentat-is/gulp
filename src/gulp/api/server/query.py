@@ -1216,7 +1216,7 @@ async def query_external_handler(
         Any,
         Body(
             description="""a query according to the source language specifications.""",
-            examples=[{"query": {"match_all": {}}}],
+            examples=["""{query": {"match_all": {}}}"""],
         ),
     ],
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
@@ -1825,11 +1825,7 @@ async def query_fields_by_source_handler(
             )
 
             m = await GulpOpenSearch.get_instance().datastream_get_field_types_by_src(
-                sess,
-                operation_id,
-                source_id,
-                user_id,
-                context_id=context_id
+                sess, operation_id, source_id, user_id, context_id=context_id
             )
             if m:
                 # return field types
