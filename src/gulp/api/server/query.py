@@ -1781,9 +1781,11 @@ async def query_operations(
     },
     summary="get source fields=>type mapping.",
     description="""
-get all `key=type` source fields-to-type mappings for the given given `operation_id`, `context_id` and `source_id`.
+get all `key=type` fields-to-type mappings from gulp's opensearch for the given `operation_id`, `context_id` and `source_id`.
 
-- if this api returns an empty mapping, it means the mapping is not yet available: a worker task is spawned to update the mapping in background and the client should retry later (no new task is spawned if one is already running for the same `operation_id`, `context_id` and `source_id`).
+basically, it scans opensearch index mapping and updates the "field_types_entries" and "source_fields" tables on gulp's collab accordingly.
+
+- if this api returns an empty dict, it means the mapping is not yet available: a worker task is then spawned to update the mapping in background and the client should retry later (no new task is spawned if one is already running for the same `operation_id`, `context_id` and `source_id`).
 """,
 )
 async def query_fields_by_source_handler(
