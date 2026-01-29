@@ -1825,9 +1825,9 @@ async def query_fields_by_source_handler(
             m = await GulpOpenSearch.get_instance().datastream_get_field_types_by_src(
                 sess,
                 operation_id,
-                context_id,
                 source_id,
                 user_id,
+                context_id=context_id
             )
             if m:
                 # return field types

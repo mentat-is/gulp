@@ -276,9 +276,9 @@ class GulpOpenSearch:
         self,
         sess: AsyncSession,
         operation_id: str,
-        context_id: str,
         source_id: str,
         user_id: str,
+        context_id: str=None,
     ) -> dict:
         """
         get source->fieldtypes from the collab database
@@ -286,9 +286,9 @@ class GulpOpenSearch:
         Args:
             sess (AsyncSession): The database session.
             operation_id (str): The operation ID.
-            context_id (str): The context ID.
             source_id (str): The source ID.
             user_id (str): The user ID.
+            context_id (str, optional): The context ID.
         Returns:
             dict: The mapping dict (same as index_get_mapping with return_raw_result=False), or None if the mapping does not exist
 
@@ -296,9 +296,11 @@ class GulpOpenSearch:
         # check if if a mapping already exists on the database
         flt = GulpCollabFilter(
             operation_ids=[operation_id],
-            context_ids=[context_id],
             source_ids=[source_id],
         )
+        if context_id:
+            flt.context_ids = [context_id]
+            
         f: list[GulpSourceFieldTypes] = await GulpSourceFieldTypes.get_by_filter(
             sess,
             flt,
@@ -519,7 +521,8 @@ class GulpOpenSearch:
 
             # update filtered_mapping with the current batch of documents
             for doc in docs:
-                for k in mapping.keys():
+                for k,v in mapping.items():
+
                     if k in doc:
                         if k not in filtered_mapping:
                             filtered_mapping[k] = mapping[k]
