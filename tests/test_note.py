@@ -263,7 +263,7 @@ async def test_note_many():
         ll.extend(l)
         offset += 10
 
-    assert len(ll) == 123  # we created 100 notes
+    assert len(ll) == 123  # we created 123 notes
     assert ll[0]["text"] == "note 0"
     assert ll[22]["text"] == "note 22"
     assert ll[-1]["text"] == "note 122"

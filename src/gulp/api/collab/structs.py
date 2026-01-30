@@ -1827,8 +1827,10 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             u: GulpUser = await GulpUser.get_by_id(sess, user_id)
             is_admin = u.is_admin()
             group_ids = [g.id for g in u.groups] if u.groups else []
+            MutyLogger.get_instance().debug("building filter for user_id=%s, is admin=%r, group_ids=%s", user_id, is_admin, group_ids)
         else:
             # no user_id provided, assume admin
+            MutyLogger.get_instance().debug("building filter for admin user (no user_id provided)")
             is_admin = True
 
         # build and run query (ensure eager loading)
