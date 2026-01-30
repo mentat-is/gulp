@@ -39,7 +39,6 @@
                 },
                 "agent.name": {
                     "ecs": [
-                        "gulp.context_id",
                         "agent.name"
                     ],
                     "is_gulp_type": "context_name"
@@ -309,7 +308,8 @@
                 },
                 "data.win.system.eventID": {
                     "ecs": [
-                        "winlog.event_id"
+                        "winlog.event_id",
+                        "event.code"
                     ]
                 },
                 "data.win.system.channel": {

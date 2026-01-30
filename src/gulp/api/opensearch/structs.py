@@ -19,6 +19,7 @@ from typing import Annotated, Any, Optional, TypeVar, override
 import muty.crypto
 import muty.string
 import muty.time
+import math
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
@@ -216,9 +217,11 @@ class GulpDocument(GulpBasicDocument):
 
             if plugin_params and plugin_params.timestamp_offset_msec:
                 # apply offset in milliseconds to the timestamp
-                ns += (
-                    plugin_params.timestamp_offset_msec
-                    * muty.time.MILLISECONDS_TO_NANOSECONDS
+                ns += int(
+                    math.ceil(
+                        plugin_params.timestamp_offset_msec
+                        * muty.time.MILLISECONDS_TO_NANOSECONDS
+                    )
                 )
 
             timestamp = str(ns)
