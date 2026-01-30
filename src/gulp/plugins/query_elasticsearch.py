@@ -7,22 +7,6 @@ handling, context, and source information.
 
 Supports authentication, custom field mapping, timestamp adjustments,
 and works with both Elasticsearch and OpenSearch backends.
-
-Example command line:
-./test_scripts/query_external.py \                                                                                                                    gulp 19:08:53
-    --preview-mode \
-    --q '{ "query": {"match_all": {}} }' \
-    --plugin query_elasticsearch --operation_id test_operation \
-    --plugin_params '{
-        "custom_parameters":  {
-            "uri": "http://localhost:9200",
-            "username": "admin",
-            "password": "Gulp1234!",
-            "index": "test_operation",
-            "is_elasticsearch": false
-        },
-        "override_chunk_size": 200
-}'
 """
 
 import json
@@ -134,6 +118,34 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
+        """
+        Convert an Elasticsearch/OpenSearch record to a GulpDocument.
+
+        This method transforms raw records returned from Elasticsearch/OpenSearch queries
+        into standardized GulpDocument objects with proper context, source, and timestamp
+        handling. It processes field mappings, extracts context and source identifiers,
+        and constructs the final document for ingestion.
+
+        Args:
+            record (Any): A dictionary containing the raw record from Elasticsearch/OpenSearch.
+            record_idx (int): The sequence/index number of this record within the current chunk.
+            **kwargs: Additional keyword arguments including:
+                - context_field (str): Name of the field representing the context
+                - context_type (str): Type for context ('context_id' or 'context_name')
+                - source_field (str): Name of the field representing the source
+                - source_type (str): Type for source ('source_id' or 'source_name')
+
+        Returns:
+            GulpDocument: A fully constructed GulpDocument with mapped fields, context,
+                        source, and timestamp information.
+
+        Behavior:
+            - If in preview mode, assigns 'preview' as both context_id and source_id
+            - Otherwise, attempts to extract context_id and source_id from field mappings
+            - Falls back to creating/retrieving context and source IDs from cache if not in mappings
+            - Raises Exception if required source/context field values are missing
+            - Processes all record fields through _process_key for field mapping
+        """
 
         # record is a dict
         # doc: dict = muty.dict.flatten(record)
@@ -394,6 +406,52 @@ class Plugin(GulpPluginBase):
         q_options: GulpQueryParameters = None,
         **kwargs,
     ) -> tuple[int, int]:
+        """
+        Execute an external query against Elasticsearch/OpenSearch and process results.
+
+        This method orchestrates the complete query workflow: establishes connection to
+        Elasticsearch or OpenSearch, executes a DSL query, processes records through
+        field mappings, and ingests them into Gulp. Handles both preview mode and
+        normal operation modes.
+
+        Args:
+            sess (AsyncSession): SQLAlchemy async database session for storing results.
+            stats (GulpRequestStats): Object for tracking query statistics and progress.
+            user_id (str): ID of the user initiating the query.
+            req_id (str): Unique identifier for this query request (for cancellation tracking).
+            ws_id (str): Workspace ID associated with the query.
+            operation_id (str): ID of the operation being queried.
+            q (Any): Query DSL as a string (e.g., '{"query": {"match_all": {}}}').
+            index (str): Elasticsearch/OpenSearch index name to query.
+            plugin_params (GulpPluginParameters): Plugin configuration including custom parameters:
+                - uri: Elasticsearch/OpenSearch connection URI
+                - username: Authentication username
+                - password: Authentication password
+                - is_elasticsearch: Boolean to choose between Elasticsearch (True) or OpenSearch (False)
+                - context_field: Field name for context extraction
+                - context_type: Context ID type ('context_id' or 'context_name')
+                - source_field: Field name for source extraction
+                - source_type: Source ID type ('source_id' or 'source_name')
+            q_options (GulpQueryParameters, optional): Query options (sorting, filtering, pagination).
+            **kwargs: Additional arguments passed through the pipeline.
+
+        Returns:
+            tuple[int, int]: A tuple of (processed_count, total_hits) where:
+                - processed_count: Number of records processed/ingested
+                - total_hits: Total records matching the query in Elasticsearch/OpenSearch
+                In preview mode, returns (total_hits, preview_data_list)
+
+        Behavior:
+            - Calls parent class query_external() for initialization
+            - Ensures @timestamp field is present in mapping (creates default if missing)
+            - Establishes connection to Elasticsearch or OpenSearch based on configuration
+            - Ensures @timestamp is included in query fields
+            - Parses query string from quoted format to JSON
+            - Invokes search_dsl() to execute paginated query with callbacks
+            - Converts each returned record via _record_to_gulp_document()
+            - Returns preview data if in preview mode, otherwise returns processed/total counts
+            - Handles connection failures gracefully (returns 0,0 unless in preview mode)
+        """
         await super().query_external(
             sess,
             stats,
