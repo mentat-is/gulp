@@ -40,6 +40,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
+from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpPluginParameters
 
@@ -302,7 +303,7 @@ async def _update_documents_chunk(
 ) -> list[dict]:
     """GulpDocumentsChunkCallback to update each chunk of documents"""
     cb_context = kwargs["cb_context"]
-    data = cb_context["update_data"]
+    data = cb_context["data"]
     stats: GulpRequestStats = cb_context["stats"]
     ws_id = cb_context["ws_id"]
     flt: GulpQueryFilter = cb_context["flt"]
@@ -318,9 +319,15 @@ async def _update_documents_chunk(
     for d in chunk:
         d.pop("_highlight", None)
 
-    updated, _, errs = await GulpOpenSearch.get_instance().update_documents(
-        index, chunk, wait_for_refresh=last
-    )
+    dry_run: bool = GulpConfig.get_instance().debug_enrich_dry_run()
+    if dry_run:
+        # dry run, no update
+        updated = len(chunk)
+        errs = []
+    else:
+        updated, _, errs = await GulpOpenSearch.get_instance().update_documents(
+            index, chunk, wait_for_refresh=last
+        )
     num_updated = updated
     cb_context["total_updated"] += num_updated
     cb_context["errors"].extend(errs)
@@ -379,7 +386,7 @@ async def _update_documents_internal(
         "total_updated": 0,
         "flt": flt,
         "errors": errors,
-        "update_data": data,
+        "data": data,
         "ws_id": ws_id,
     }
     stats: GulpRequestStats
@@ -557,20 +564,23 @@ async def update_single_id_handler(
 
             # update the document
             doc.update(data)
-            await GulpOpenSearch.get_instance().update_documents(
-                index, [doc], wait_for_refresh=True
-            )
+            dry_run: bool = GulpConfig.get_instance().debug_enrich_dry_run()
+            if not dry_run:
+                # do not update if dry run is set ....
+                await GulpOpenSearch.get_instance().update_documents(
+                    index, [doc], wait_for_refresh=True
+                )
 
-            # rebuild source_fields mapping in a worker
-            await GulpServer.get_instance().spawn_worker_task(
-                GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
-                None,  # sess=None to create a temporary one (a worker can't use the current one)
-                index,
-                user_id,
-                operation_id=doc["gulp.operation_id"],
-                context_id=doc["gulp.context_id"],
-                source_id=doc["gulp.source_id"],
-            )
+                # rebuild source_fields mapping in a worker
+                await GulpServer.get_instance().spawn_worker_task(
+                    GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
+                    None,  # sess=None to create a temporary one (a worker can't use the current one)
+                    index,
+                    user_id,
+                    operation_id=doc["gulp.operation_id"],
+                    context_id=doc["gulp.context_id"],
+                    source_id=doc["gulp.source_id"],
+                )
             return JSONResponse(JSendResponse.success(req_id, data=doc))
 
     except Exception as ex:

@@ -432,6 +432,10 @@ class GulpConfig:
         n = False
         if __debug__:
             n = self._config.get("debug_enrich_dry_run", False)
+            if n:
+                MutyLogger.get_instance().warning(
+                    "ENRICH DRY RUN MODE active, no real update will happen!"
+                )
         return n
     def debug_no_token_expiration(self) -> bool:
         """

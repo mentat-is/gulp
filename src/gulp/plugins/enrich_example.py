@@ -5,6 +5,7 @@ it processes every provided documents and adds a bunch of fields, including "enr
 """
 
 from typing import override
+
 import muty.file
 import muty.log
 import muty.os
@@ -12,11 +13,11 @@ import muty.string
 import muty.time
 import muty.xml
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.plugin import GulpPluginBase, GulpPluginType
-from gulp.structs import (
-    GulpPluginParameters,
-)
+from gulp.structs import GulpPluginParameters
 
 
 class Plugin(GulpPluginBase):
@@ -56,24 +57,46 @@ class Plugin(GulpPluginBase):
                 "field3": {"field4": muty.string.generate_unique()},
             }
 
-        return chunk
+        return await super()._enrich_documents_chunk(
+            sess,
+            chunk,
+            chunk_num=chunk_num,
+            total_hits=total_hits,
+            index=index,
+            last=last,
+            req_id=req_id,
+            q_name=q_name,
+            q_group=q_group,
+            **kwargs,
+        )
 
     @override
     async def enrich_documents(
         self,
         sess: AsyncSession,
+        stats: GulpRequestStats,
         user_id: str,
         req_id: str,
         ws_id: str,
         operation_id: str,
         index: str,
+        fields: dict,
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> tuple[int, int, list[str], bool]:
         await self._initialize(plugin_params)
         return await super().enrich_documents(
-            sess, user_id, req_id, ws_id, operation_id, index, flt, plugin_params
+            sess,
+            stats,
+            user_id,
+            req_id,
+            ws_id,
+            operation_id,
+            index,
+            fields,
+            flt,
+            plugin_params,
         )
 
     @override
@@ -83,8 +106,10 @@ class Plugin(GulpPluginBase):
         doc_id: str,
         operation_id: str,
         index: str,
+        fields: dict,
         plugin_params: GulpPluginParameters,
     ) -> dict:
+        await self._initialize(plugin_params)
         return await super().enrich_single_document(
-            sess, doc_id, operation_id, index, plugin_params
+            sess, doc_id, operation_id, index, fields, plugin_params
         )

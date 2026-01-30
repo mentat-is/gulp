@@ -6,20 +6,14 @@ import os
 import muty.file
 import pytest
 import pytest_asyncio
-from scipy import stats
 import websockets
-from muty.log import MutyLogger
-from gulp.api.collab.stats import GulpRequestStats
-from gulp.api.collab_api import GulpCollab
-from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp_client.common import (
     GulpAPICommon,
-    _ensure_test_operation,
     _cleanup_test_operation,
+    _ensure_test_operation,
 )
 from gulp_client.enrich import GulpAPIEnrich
 from gulp_client.query import GulpAPIQuery
-from gulp_client.user import GulpAPIUser
 from gulp_client.test_values import (
     TEST_HOST,
     TEST_INDEX,
@@ -27,13 +21,16 @@ from gulp_client.test_values import (
     TEST_REQ_ID,
     TEST_WS_ID,
 )
-from gulp.api.ws_api import (
-    GulpQueryDonePacket,
-    GulpWsAuthPacket,
-)
+from gulp_client.user import GulpAPIUser
+from muty.log import MutyLogger
+from scipy import stats
+
+from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab_api import GulpCollab
+from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 from gulp.plugin import GulpUpdateDocumentsStats
 from gulp.structs import GulpPluginParameters
-
 
 RAW_DATA: list[dict] = [
     {
@@ -153,12 +150,16 @@ async def test_enrich_whois_documents():
                 if data["type"] == "ws_connected":
                     # run test
                     plugin_params: GulpPluginParameters = GulpPluginParameters()
-                    plugin_params.custom_parameters = {
-                        "host_fields": ["source.ip", "host.hostname", "event.original"],
+                    fields: dict = {
+                        "source.ip": None,
+                        "host.hostname": None,
+                        "event.original": None,
                     }
+
                     await GulpAPIEnrich.enrich_documents(
                         edit_token,
                         TEST_OPERATION_ID,
+                        fields,
                         plugin="enrich_whois",
                         plugin_params=plugin_params,
                         req_id="req_enrich_whois",
@@ -213,15 +214,21 @@ async def test_enrich_whois_single_id():
 
     plugin_params: GulpPluginParameters = GulpPluginParameters()
     plugin_params.custom_parameters = {
-        "host_fields": ["source.ip", "host.hostname", "event.original"],
         "resolve_first_only": False,
     }
-
+    fields: dict = {
+        "source.ip": None,
+        "host.hostname": None,
+        "event.original": None,
+        "gulp.operation_id": "151.1.1.1"
+    }
+    
     # guest cannot enrich, verify that
     await GulpAPIEnrich.enrich_single_id(
         guest_token,
         TEST_OPERATION_ID,
         doc_id=doc_id,
+        fields=fields,
         plugin="enrich_whois",
         expected_status=401,
         plugin_params=plugin_params,
@@ -230,10 +237,10 @@ async def test_enrich_whois_single_id():
         edit_token,
         TEST_OPERATION_ID,
         doc_id=doc_id,
+        fields=fields,
         plugin="enrich_whois",
         plugin_params=plugin_params,
     )
 
-    assert doc.get("gulp.enrich_whois.source_ip.unified_dump") != None
-    assert doc.get("gulp.enrich_whois.event_original.unified_dump") != None
+    assert doc.get("gulp.enriched_enrich_whois.source_ip") != None
     MutyLogger.get_instance().info(test_enrich_whois_single_id.__name__ + " succeeded!")

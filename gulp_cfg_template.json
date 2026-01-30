@@ -20,7 +20,7 @@
   "debug_allow_insecure_passwords": false,
   // enable debug for collaboration engine (prints sql queries and more, default=false)
   "debug_collab": false,
-  // enable dry run mode (= do not update data on storage) for enrich plugins (default: false)
+  // enable dry run mode (= do not update data on storage) for enrich/tags/update api (default: false)
   "debug_enrich_dry_run": false,
   // if set, will ignore missing websocket connections (default=false)
   "debug_ignore_missing_ws": false,

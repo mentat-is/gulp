@@ -693,7 +693,7 @@ class GulpQueryHelpers:
     @staticmethod
     def merge_queries(q1: dict, q2: dict) -> dict:
         """
-        merge two queries into one.
+        merge two queries into one (uses "filter").
 
         Args:
             q1 (dict): the first query

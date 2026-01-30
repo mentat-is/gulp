@@ -582,7 +582,7 @@ class GulpInternalEventsManager:
         get the manager instance.
 
         Returns:
-            GulpInternalEventsManager: The local events manager instance.
+            GulpInternalEventsManager: The internal events manager instance.
         """
         if not cls._instance:
             cls._instance = cls()
@@ -590,7 +590,7 @@ class GulpInternalEventsManager:
 
     def clear(self):
         """
-        Clear the local events manager plugins list
+        Clear the internal events manager plugins list
         """
         self._plugins = {}
 
@@ -607,7 +607,7 @@ class GulpInternalEventsManager:
         name: str = plugin.name
         if name not in self._plugins.keys():
             MutyLogger.get_instance().debug(
-                "registering plugin %s to receive local events: %s", name, types
+                "registering plugin %s to receive internal events: %s", name, types
             )
             self._plugins[name] = {
                 "plugin_instance": plugin,  # the plugin instance
@@ -617,24 +617,24 @@ class GulpInternalEventsManager:
             }
         # else:
         #     MutyLogger.get_instance().warning(
-        #         "plugin %s already registered to receive local events" % (name)
+        #         "plugin %s already registered to receive internal events" % (name)
         #     )
 
     def deregister(self, plugin: str) -> None:
         """
-        Stop a plugin from receiving local events.
+        Stop a plugin from receiving internal events.
 
         Args:
             plugin (str): The name of the plugin to unregister.
         """
         if plugin in self._plugins.keys():
             MutyLogger.get_instance().debug(
-                "deregistering plugin %s from receiving local events", plugin
+                "deregistering plugin %s from receiving internal events", plugin
             )
             del self._plugins[plugin]
         else:
             MutyLogger.get_instance().debug(
-                "plugin %s not registered to receive local events", plugin
+                "plugin %s not registered to receive internal events", plugin
             )
 
     async def dispatch_internal_event(
@@ -1447,6 +1447,8 @@ class GulpPluginBase(ABC):
         """
         a GulpDocumentChunkCallback to be implemented by a plugin to enrich a chunk of documents, called by _enrich_documents_chunk_wrapper
 
+        > kwargs["fields"] is set, propagated from the `fields` parameter in the initial plugin call to `enrich_documents` or `enrich_single_document`
+
         NOTE: implementors should process the chunk then call super()._enrich_documents_chunk to allow for stacked plugins.
         """
         u: GulpPluginBase = self
@@ -1516,9 +1518,6 @@ class GulpPluginBase(ABC):
             )
         else:
             # dry run, simulate ...
-            MutyLogger.get_instance().warning(
-                "ENRICH DRY RUN MODE active, no real update will happen!"
-            )
             updated = len(chunk)
             errors = []
 
@@ -1600,7 +1599,7 @@ class GulpPluginBase(ABC):
         self._index = index
 
         # the query must take into account "fields"
-        q: dict = {
+        qq: dict = {
             "query": {
                 "bool": {
                     "should": [],
@@ -1610,46 +1609,35 @@ class GulpPluginBase(ABC):
         }
         for f_name, f_value in fields.items():
             if f_value is None:
-                # field value to be taken from document, must exist and have a non-empty value
-                q["query"]["bool"]["should"].append(
+                # field value to be taken from document, must exist
+                qq["query"]["bool"]["should"].append(
                     {
-                        "bool": {
-                            "must": [
-                                {"exists": {"field": f_name}}
-                            ],
-                            "must_not": [
-                                {"term": {f_name: ""}}
-                            ]
-                        }
+                        "exists": {"field": f_name}
                     }
                 )
             else:
                 # field value provided
-                q["query"]["bool"]["should"].append({"term": {f_name: f_value}})
+                qq["query"]["bool"]["should"].append(
+                    {
+                        "term": {f_name: f_value}
+                    }
+                )
 
-        # check if the caller provided a raw query to be used
-        rq = kwargs.get("rq", None)
+        # check if the caller provided a raw query to be used, if so merge with q
+        if q:
+            MutyLogger.get_instance().debug(
+                "enrich_documents: raw query provided by caller: %s", q
+            )
+            # merge
+            qq = GulpQueryHelpers.merge_queries(qq, q)
         
-        q: dict = {}
-        if not flt:
-            flt = GulpQueryFilter()
-
-        if rq:
-            if flt.is_empty():
-                # raw query provided by the caller
-                q = rq
-            else:
-                # merge raw query and filter
-                qq = flt.to_opensearch_dsl()
-                q = GulpQueryHelpers.merge_queries(qq, rq)
-        else:
-            # no raw query, just filter
-            if flt.is_empty():
-                # match all query
-                q = {"query": {"match_all": {}}}
-            else:
-                # convert filter
-                q = flt.to_opensearch_dsl()
+        # check if we must further filter with GulpQUeryFilter
+        if flt and not flt.is_empty():
+            MutyLogger.get_instance().debug(
+                "enrich_documents: applying GulpQueryFilter: %s", flt
+            )
+            qqq = flt.to_opensearch_dsl()
+            qq = GulpQueryHelpers.merge_queries(qq, qqq)
 
         # force return all fields
         q_options = GulpQueryParameters(fields="*", highlight_results=False)
@@ -1663,15 +1651,17 @@ class GulpPluginBase(ABC):
             "ws_id": ws_id,
         }
         canceled: bool = False
+        MutyLogger.get_instance().debug("enrich query:\n%s", orjson.dumps(qq, option=orjson.OPT_INDENT_2).decode())
         try:
             await GulpOpenSearch.get_instance().search_dsl(
                 sess,
                 index,
-                q,
+                qq,
                 req_id=self._req_id,
                 q_options=q_options,
                 callback=self._enrich_documents_chunk_wrapper,
                 cb_context=cb_context,
+                fields=fields
             )
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
@@ -1736,11 +1726,26 @@ class GulpPluginBase(ABC):
             )
 
         # update the document
+        dry_run: bool = GulpConfig.get_instance().debug_enrich_dry_run()
+        if dry_run:
+            # no update happens, dry run set
+            return docs[0]
         await GulpOpenSearch.get_instance().update_documents(
             index, docs, wait_for_refresh=True
         )
         return docs[0]
 
+    def _build_enriched_field_name(self, field: str) -> str:
+        """
+        build the name of an enriched field based on the original field name and the plugin name
+
+        Args:
+            field (str): the original field name
+        Returns:
+            str: the enriched field name
+        """
+        f: str = field.replace(".", "_") # replace dots
+        return f"gulp.enriched_{self.name}.{f}"
     async def ingest_file(
         self,
         sess: AsyncSession,

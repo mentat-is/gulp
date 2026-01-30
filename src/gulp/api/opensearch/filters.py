@@ -408,22 +408,26 @@ include documents matching the given `gulp.source_id`/s.
             }
         }
 
-    def is_empty(self) -> bool:
+    def is_empty(self, check_operation_ids: bool=True) -> bool:
         """
         Check if the filter is empty.
 
+        Args:
+            check_operation_ids (bool): whether to consider operation_ids in the emptiness check.
         Returns:
             bool: True if the filter is empty, False otherwise.
         """
-        return not any(
-            [
-                self.time_range,
-                self.agent_types,
-                self.operation_ids,
-                self.context_ids,
-                self.source_ids,
-                self.event_codes,
-                self.doc_ids,
-                self.model_extra,
-            ]
-        )
+        to_check= [
+            self.time_range,
+            self.agent_types,
+            self.operation_ids,
+            self.context_ids,
+            self.source_ids,
+            self.event_codes,
+            self.doc_ids,
+            self.model_extra,
+        ]
+        if not check_operation_ids:
+            to_check.remove(self.operation_ids)
+
+        return not any(to_check)

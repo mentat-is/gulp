@@ -34,12 +34,16 @@ Here's an example `GulpDocument` with some enriched fields:
 ```json
 {
   "gulp.timestamp": 1608420324000000000,
-  "gulp.enrich_whois.source_ip.network.country": "DE",
-  "gulp.enrich_whois.source_ip.asn_description": "CLOUVIDER Clouvider - Global ASN, GB",
-  "gulp.enrich_whois.source_ip.asn_country_code": "SC",
-  "gulp.enrich_whois.source_ip.network.end_address": "176.222.58.255",
-    ...
-  "source.ip": "176.222.58.90",
+  "gulp.enriched_enrich_whois.source_ip": [
+    {
+      "whois_input": "176.222.58.90",
+      "network_country": "DE",
+      "asn_description": "CLOUVIDER Clouvider - Global ASN, GB",
+      "asn_country_code": "SC",
+      "network_end_address": "176.222.58.255"
+    }
+  ],
+  "source.ip": "176.222.58.90"
 }
 ```
 
