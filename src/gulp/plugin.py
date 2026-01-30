@@ -1651,7 +1651,7 @@ class GulpPluginBase(ABC):
             "ws_id": ws_id,
         }
         canceled: bool = False
-        MutyLogger.get_instance().debug("enrich query:\n%s", orjson.dumps(qq, option=orjson.OPT_INDENT_2).decode())
+        # MutyLogger.get_instance().debug("enrich query:\n%s", orjson.dumps(qq, option=orjson.OPT_INDENT_2).decode())
         try:
             await GulpOpenSearch.get_instance().search_dsl(
                 sess,
