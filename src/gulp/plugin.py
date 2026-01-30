@@ -422,6 +422,7 @@ class DocValueCache:
     a cache for specific document values, local to the plugin (more specifically, to the process running the plugin).
     this is to be used to avoid recalculating same value every time for the same input (i.e. hashes, derived values, ...)
     """
+
     def __init__(self, cache_size: int = 1000):
         self._cache: dict[str, Any] = {}
         self._max_size: int = cache_size
@@ -434,8 +435,8 @@ class DocValueCache:
             max_size (int): the maximum cache size
         """
         self._max_size = max_size
-        
-    def get_value(self, k: str) -> Any|None:
+
+    def get_value(self, k: str) -> Any | None:
         """
         get a value from the cache
         Args:
@@ -457,6 +458,7 @@ class DocValueCache:
             # reset cache
             self._cache = {}
         self._cache[k] = v
+
 
 class GulpPluginCache:
     """
@@ -554,7 +556,7 @@ class GulpInternalEventsManager:
     _instance: "GulpInternalEventsManager" = None
 
     # these events are broadcasted by core itself to registered plugins
-    # further events may be added by plugins through register(): when calling dispatch_internal_event(), only plugins registered to receive the specific event type will receive it.    
+    # further events may be added by plugins through register(): when calling dispatch_internal_event(), only plugins registered to receive the specific event type will receive it.
     EVENT_LOGIN: str = WSDATA_USER_LOGIN  # data=GulpUserAccessPacket
     EVENT_LOGOUT: str = WSDATA_USER_LOGOUT  # data=GulpUserAccessPacket
     EVENT_INGEST: str = "ingestion"
@@ -609,7 +611,9 @@ class GulpInternalEventsManager:
             )
             self._plugins[name] = {
                 "plugin_instance": plugin,  # the plugin instance
-                "types": types if types else [], # events the plugin may receive in its `internal_event_callback`
+                "types": (
+                    types if types else []
+                ),  # events the plugin may receive in its `internal_event_callback`
             }
         # else:
         #     MutyLogger.get_instance().warning(
@@ -862,7 +866,6 @@ class GulpPluginBase(ABC):
         # mantain a plugin local cache to avoid precomputing the same values every time.
         # core uses it for context_id, source_id, gulp.event_code, plugin can use it while processing records.
         self.doc_value_cache: DocValueCache = DocValueCache()
-
 
     def check_license(self, throw_on_invalid: bool = True) -> bool:
         """
@@ -1191,7 +1194,7 @@ class GulpPluginBase(ABC):
             # MutyLogger.get_instance().debug("found context %s in cache, returning id %s", v, cached_ctx_id)
             # return cached context id
             return cached_ctx_id
-        
+
         # cache miss - create new context (or get existing)
         if not self._operation:
             # we need the operation object, lazy load
@@ -1209,7 +1212,7 @@ class GulpPluginBase(ABC):
             ctx_id=v if force_v_as_context_id else None,
         )
 
-        # update cache        
+        # update cache
         self.doc_value_cache.set_value(cache_key, context.id)
 
         MutyLogger.get_instance().debug(
@@ -1249,14 +1252,16 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().warning("NOT found source %s in cache for cache_key=%s",context_id, cache_key)
 
         # fetch context object
-        context: GulpContext = await GulpContext.get_by_id(self._sess, context_id, recursive=True)
+        context: GulpContext = await GulpContext.get_by_id(
+            self._sess, context_id, recursive=True
+        )
         """if context and force_v_as_source_id:
             for s in context.sources:
                 if s.id == v:
                     # MutyLogger.get_instance().warning("*** not found in cache but present in context.sources, cache it now, src_id=%s", s.id)
                     self.doc_value_cache.set_value(cache_key, s.id)
                     return s.id"""
-                
+
         # create source
         mapping_parameters = self._plugin_params.mapping_parameters
         source, created = await context.add_source(
@@ -1511,10 +1516,12 @@ class GulpPluginBase(ABC):
             )
         else:
             # dry run, simulate ...
-            MutyLogger.get_instance().warning("ENRICH DRY RUN MODE active, no real update will happen!")
+            MutyLogger.get_instance().warning(
+                "ENRICH DRY RUN MODE active, no real update will happen!"
+            )
             updated = len(chunk)
             errors = []
-            
+
         cb_context["total_updated"] += updated
         cb_context["errors"].extend(errors)
         cb_context["total_hits"] = total_hits
@@ -1542,6 +1549,8 @@ class GulpPluginBase(ABC):
         ws_id: str,
         operation_id: str,
         index: str,
+        fields: dict,
+        q: dict = None,
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
@@ -1561,10 +1570,10 @@ class GulpPluginBase(ABC):
             ws_id (str): The websocket ID to stream on
             operation_id (str): id of the operation on collab database.
             index (str): the index to query and enrich
+            fields (dict): the fields to enrich as { "field_name": field_value (will use "field_value" as input for enrichment), "other_field": None (will get value from document["other_field"] as input for enrichment) }
+            q (dict, optional): if any, the plugin may supply a raw query to further refine the documents to be selected for the enrichment. if not set, the engine will select the documents based on fields (all documents having the specified fields set, see `fields`). Defaults to None.
             flt(GulpQueryFilter, optional): a filter to restrict the documents to enrich. Defaults to None.
             plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
-            kwargs: additional keyword arguments:
-                - rq (dict): the raw query used by the engine to select the documents to enrich (will be merged with flt, if any)
 
         Returns:
             tuple[int, int, list[str], bool]: total hits for the query, total enriched documents (may be less than total hits if errors), list of unique errors encountered (if any), and whether the request was canceled
@@ -1590,13 +1599,37 @@ class GulpPluginBase(ABC):
         self._operation_id = operation_id
         self._index = index
 
+        # the query must take into account "fields"
+        q: dict = {
+            "query": {
+                "bool": {
+                    "should": [],
+                    "minimum_should_match": 1,
+                }
+            }
+        }
+        for f_name, f_value in fields.items():
+            if f_value is None:
+                # field value to be taken from document, must exist and have a non-empty value
+                q["query"]["bool"]["should"].append(
+                    {
+                        "bool": {
+                            "must": [
+                                {"exists": {"field": f_name}}
+                            ],
+                            "must_not": [
+                                {"term": {f_name: ""}}
+                            ]
+                        }
+                    }
+                )
+            else:
+                # field value provided
+                q["query"]["bool"]["should"].append({"term": {f_name: f_value}})
+
         # check if the caller provided a raw query to be used
         rq = kwargs.get("rq", None)
-        if not rq:
-            raise ValueError(
-                "enrich_documents: raw query missing, 'rq' must be provided by plugin to core via kwargs"
-            )
-
+        
         q: dict = {}
         if not flt:
             flt = GulpQueryFilter()
@@ -1655,6 +1688,7 @@ class GulpPluginBase(ABC):
         doc_id: str,
         operation_id: str,
         index: str,
+        fields: dict,
         plugin_params: GulpPluginParameters,
     ) -> dict:
         """
@@ -1665,6 +1699,7 @@ class GulpPluginBase(ABC):
             doc (dict): the document to enrich
             operation_id (str): id of the operation on collab database.
             index (str): the index to query
+            fields (dict): the fields to enrich as { "field_name": field_value (will use "field_value" as input for enrichment), "other_field": None (will get value from document["other_field"] as input for enrichment) }
             plugin_params (GulpPluginParameters): the plugin parameters
         Returns:
             dict: the enriched document
@@ -1687,7 +1722,9 @@ class GulpPluginBase(ABC):
 
         # get the document and call the plugin to enrich
         doc = await GulpOpenSearch.get_instance().query_single_document(index, doc_id)
-        docs = await self._enrich_documents_chunk(None, [doc])  # sess not used here
+        docs = await self._enrich_documents_chunk(
+            None, [doc], fields=fields
+        )  # sess not used here
 
         # MutyLogger.get_instance().debug("docs=%s" % (docs))
         if not docs:
@@ -2003,7 +2040,7 @@ class GulpPluginBase(ABC):
         for i, doc in enumerate(docs):
             u: GulpPluginBase = self
             # walk the chain of upper stacked plugins and call each _record_to_gulp_document (from bottom to top)
-            while u._upper_instance != None:                
+            while u._upper_instance != None:
                 docs[i] = await u._upper_record_to_gulp_document_fun(
                     doc, record_idx, **kwargs
                 )
@@ -2269,11 +2306,14 @@ class GulpPluginBase(ABC):
 
         # get field mapping from mappings.mapping_id.fields[source_key] (i.e. { "mappings": { "windows": { "fields": { "AccountDomain": { ... } } } } })
         field_mapping: GulpMappingField = mapping.fields.get(source_key)
-        allow_unmapped_fields: bool =True
-        if not GulpConfig.get_instance().ingestion_allow_unmapped_fields() or not self._plugin_params.override_allow_unmapped_fields:
+        allow_unmapped_fields: bool = True
+        if (
+            not GulpConfig.get_instance().ingestion_allow_unmapped_fields()
+            or not self._plugin_params.override_allow_unmapped_fields
+        ):
             allow_unmapped_fields = False
 
-        if not field_mapping:       
+        if not field_mapping:
             # missing mapping at all (no ecs and no timestamp field)
             if not allow_unmapped_fields:
                 # no umapped fields in the output!
@@ -2284,9 +2324,7 @@ class GulpPluginBase(ABC):
             d = {k: source_value}
             if value_aliases:
                 # apply aliases
-                self._apply_value_aliases(
-                    k, d, value_aliases
-                )
+                self._apply_value_aliases(k, d, value_aliases)
             return d
 
         # determine if this is a timestamp for an extra doc and determine timestamp type, if needed
@@ -3175,10 +3213,12 @@ class GulpPluginBase(ABC):
             and not disconnected
         ):
             # (configurable) update stats frequency on raw ingestion
-            freq: int = GulpConfig.get_instance().ingestion_raw_update_stats_chunk_frequency()
+            freq: int = (
+                GulpConfig.get_instance().ingestion_raw_update_stats_chunk_frequency()
+            )
             if self._raw_flush_count % freq != 0:
                 return status
-        
+
         # update stats
         try:
             MutyLogger.get_instance().debug(

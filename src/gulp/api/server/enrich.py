@@ -54,6 +54,7 @@ async def _enrich_documents_internal(
     operation_id: str,
     index: str,
     plugin: str,
+    fields: dict,
     plugin_params: GulpPluginParameters,
 ) -> None:
     """
@@ -85,8 +86,9 @@ async def _enrich_documents_internal(
                 user_id,
                 req_id,
                 ws_id,
-                operation_id=operation_id,
-                index=index,
+                operation_id,
+                index,
+                fields,
                 flt=flt,
                 plugin_params=plugin_params,
             )
@@ -140,7 +142,7 @@ uses an `enrichment` plugin to augment data in multiple documents.
 - token must have the `edit` permission.
 - this funciton returns `pending` and the enriched documents are updated in the Gulp `operation_id.index` and  streamed on the websocket `ws_id` as `GulpDocumentsChunkPacket`.
 - `flt.operation_ids` is ignored and set to `[operation_id]`
-- `flt` is provided as a `GulpQueryFilter` to select the documents to enrich.
+- `flt` is provided as a `GulpQueryFilter` to select the documents to enrich, i.e. using a `time_range` or `ids`.
 
 ### tracking progress
 
@@ -154,6 +156,7 @@ during enrichment, the following is sent on the websocket `ws_id`:
 async def enrich_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    fields: Annotated[dict, Depends(APIDependencies.param_enrich_fields)],
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
@@ -193,6 +196,7 @@ async def enrich_documents_handler(
                 operation_id,
                 index,
                 plugin,
+                fields, 
                 plugin_params,
             )
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -234,6 +238,7 @@ async def enrich_single_id_handler(
         str,
         Query(description="the `_id` of the document to enrich."),
     ],
+    fields: Annotated[dict, Depends(APIDependencies.param_enrich_fields)],
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
     plugin_params: Annotated[
         GulpPluginParameters,
@@ -262,7 +267,7 @@ async def enrich_single_id_handler(
                 # load plugin and enrich document
                 mod = await GulpPluginBase.load(plugin)
                 doc = await mod.enrich_single_document(
-                    sess, doc_id, operation_id, index, plugin_params
+                    sess, doc_id, operation_id, index, fields, plugin_params
                 )
 
                 # rebuild source_fields mapping in a worker, to free up the API
@@ -459,7 +464,7 @@ async def update_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
-    data: Annotated[list[str], Depends(APIDependencies.param_tags)],
+    data: Annotated[dict, Body(description='The data to update the documents with.', example='{ "gulp.tags": ["tag1","tag2"], "custom_field": "custom_value" }')],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
@@ -529,7 +534,7 @@ async def update_single_id_handler(
         str,
         Query(description="the `_id` of the document to update."),
     ],
-    data: Annotated[dict, Body(description="The data to update the document with.")],
+    data: Annotated[dict, Body(description='The data to update the documents with.', example='{ "gulp.tags": ["tag1","tag2"], "custom_field": "custom_value" }')],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -643,7 +648,7 @@ async def tag_single_id_handler(
         str,
         Query(description="the `_id` of the document to tag."),
     ],
-    tags: Annotated[list[str], Body(description="The tags to add.")],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     return await update_single_id_handler(

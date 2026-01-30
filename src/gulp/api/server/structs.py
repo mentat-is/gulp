@@ -18,6 +18,7 @@ from os import name
 from typing import Annotated, Optional
 
 import muty.string
+from attrs import fields
 from fastapi import Body, File, Header, Query, UploadFile
 from fastapi.exceptions import RequestValidationError
 from llvmlite.tests.test_ir import flt
@@ -190,6 +191,7 @@ id of the websocket to use during a request.
         description="the object id",
         example="obj_id",
     )
+
     @staticmethod
     def param_obj_id(
         obj_id: Annotated[
@@ -200,7 +202,9 @@ id of the websocket to use during a request.
         return obj_id.lower().strip()
 
     @staticmethod
-    def param_obj_id_optional(obj_id: Annotated[str, _OBJ_ID_QUERY_PARAM] = None) -> str:
+    def param_obj_id_optional(
+        obj_id: Annotated[str, _OBJ_ID_QUERY_PARAM] = None,
+    ) -> str:
         return obj_id.strip() if obj_id else None
 
     _USER_ID_QUERY_PARAM = Query(
@@ -517,7 +521,7 @@ to customize `mapping` and specific `plugin` parameters.
         return plugin_params or GulpPluginParameters()
 
     _TAGS_BODY_PARAM = Body(
-        description="tags to be assigned to the object.",
+        description="tags to be assigned to the object/s.",
         example='["tag1","tag2"]',
     )
 
@@ -549,6 +553,35 @@ to customize `mapping` and specific `plugin` parameters.
         ] = None,
     ) -> list[str]:
         return tags or []
+
+    @staticmethod
+    def param_enrich_fields(
+        fields: Annotated[
+            dict,
+            Body(
+                description="""
+    a dict with key/value pairs to be updated (`enriched`) in the document, following this pattern:
+
+    - a field with a None value will trigger `plugin` to get the value from the document and process it with the enrichment source, i.e. { "host.name": None, "ip.address": None } will ask the plugin to enrich the document using values from `host.name` and `ip.address` fields in the document as input to the enrichment source (i.e. requesting whois information)
+    - a field with a value set will trigger `plugin` to process that value with the enrichment source, i.e. { "host.name": "example.com", "ip.address": "8.8.8.8" } will ask the plugin to enrich the document using "example.com" and "8.8.8.8" as input to the enrichment source (i.e. requesting whois information)
+    - a mix of the two is also possible, i.e. { "host.name": None, "ip.address": "8.8.8.8" }
+    """,
+                example={"host.name": None, "ip.address": "8.8.8.8"},
+            ),
+        ],
+    ) -> dict:
+        if not fields:
+            raise RequestValidationError(
+                [
+                    {
+                        "loc": ["body", "fields"],
+                        "msg": "field required",
+                        "type": "value_error.missing",
+                        "input": fields,
+                    }
+                ]
+            )
+        return fields
 
     @staticmethod
     def param_glyph_id_optional(
