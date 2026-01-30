@@ -3,20 +3,28 @@ import os
 import muty.file
 import pytest
 import pytest_asyncio
-from muty.log import MutyLogger
-
 from gulp_client.common import (
     GulpAPICommon,
-    _ensure_test_operation,
     _cleanup_test_operation,
+    _ensure_test_operation,
 )
 from gulp_client.db import GulpAPIDb
+from gulp_client.note import GulpAPINote
+from gulp_client.test_values import (
+    TEST_CONTEXT_ID,
+    TEST_HOST,
+    TEST_INDEX,
+    TEST_OPERATION_ID,
+    TEST_REQ_ID,
+    TEST_WS_ID,
+)
 from gulp_client.user import GulpAPIUser
 from gulp_client.utility import GulpAPIUtility
-from gulp_client.test_values import TEST_HOST, TEST_INDEX, TEST_REQ_ID, TEST_WS_ID
+from muty.log import MutyLogger
+
+from gulp.api.collab.structs import GulpCollabFilter
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
-import os
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -102,3 +110,25 @@ async def test_utility_api():
     assert v
 
     MutyLogger.get_instance().info(test_utility_api.__name__ + " passed")
+
+@pytest.mark.asyncio
+async def test_delete_bulk():
+    from tests.test_note import test_note_many
+
+    # creates 123 notes
+    await test_note_many()  
+
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+
+    #has delete access
+    power_token = await GulpAPIUser.login("power", "power")
+
+    #admin_user = await GulpAPIUser.user_get_by_username("admin")
+    #assert admin_user
+
+    d = await GulpAPIUtility.object_delete_bulk(guest_token, TEST_OPERATION_ID, "note", GulpCollabFilter(context_ids=[TEST_CONTEXT_ID]), expected_status=401)
+    d = await GulpAPIUtility.object_delete_bulk(power_token, TEST_OPERATION_ID, "note", GulpCollabFilter(context_ids=[TEST_CONTEXT_ID]))
+    assert d["deleted"] == 123
+
+    MutyLogger.get_instance().info(test_delete_bulk.__name__ + " passed")

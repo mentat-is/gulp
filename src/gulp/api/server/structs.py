@@ -22,6 +22,7 @@ from attrs import fields
 from fastapi import Body, File, Header, Query, UploadFile
 from fastapi.exceptions import RequestValidationError
 from llvmlite.tests.test_ir import flt
+from muty.log import MutyLogger
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
@@ -385,6 +386,28 @@ id of a request, will be replicated in the response `req_id`.
         ] = None,
     ) -> GulpCollabFilter:
         return flt or GulpCollabFilter()
+
+    @staticmethod
+    def param_collab_flt(
+        flt: Annotated[
+            GulpCollabFilter,
+            Body(
+                description="to filter objects on the collab database.",
+            ),
+        ] = None
+    ) -> GulpCollabFilter:
+        if not flt:
+            raise RequestValidationError(
+                [
+                    {
+                        "loc": ["body", "flt"],
+                        "msg": "field required",
+                        "type": "value_error.missing",
+                        "input": flt,
+                    }
+                ]
+            )
+        return flt
 
     @staticmethod
     def param_ingestion_flt_optional(
