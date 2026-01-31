@@ -172,6 +172,9 @@ class Plugin(GulpPluginBase):
                         # add to cache
                         cache_key: str = f"{self.name}:{h_to_use}:{f}"
                         self.doc_value_cache.set_value(cache_key, hash_data)
+                    
+                    # do not hammer the server ...
+                    await asyncio.sleep(0.5)
 
         return dd
 
