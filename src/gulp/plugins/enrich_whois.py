@@ -56,12 +56,6 @@ class Plugin(GulpPluginBase):
     ) -> None:
         super().__init__(path, module_name, pickled=pickled, **kwargs)
 
-        # Use the shared DocValueCache provided by GulpPluginBase instead of
-        # per-instance dicts. We prefix keys to distinguish cached single-entity
-        # lookups from whole-input lookups.
-        # Note: values are stored as tuples ("__whois_cached__", value) so that
-        # we can cache explicit None values while still detecting cache hits.
-
     def type(self) -> GulpPluginType:
         return GulpPluginType.ENRICHMENT
 

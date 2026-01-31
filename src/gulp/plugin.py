@@ -1588,7 +1588,9 @@ class GulpPluginBase(ABC):
             raise NotImplementedError(
                 "plugin %s does not support enrichment" % (self.name)
             )
-
+        if not fields:
+            raise ValueError("enrich_documents: a non-empty fields parameter is mandatory")
+        
         # initialize these in plugin
         self._user_id = user_id
         self._stats = stats
@@ -1705,6 +1707,9 @@ class GulpPluginBase(ABC):
             raise NotImplementedError(
                 "plugin %s does not support enrichment", self.name
             )
+
+        if not fields:
+            raise ValueError("enrich_single_document: a non-empty fields parameter is mandatory")
 
         self._operation_id = operation_id
         self._index = index
