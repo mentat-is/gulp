@@ -26,6 +26,7 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpQuery
+from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.ws_api import GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -284,7 +285,7 @@ def _map_sigma_fields_to_ecs(sigma_yaml: str, mapping: GulpMapping) -> str:
             return ["*"]
         else:
             # return "gulp.unmapped" field
-            return [f"{GulpPluginBase.build_unmapped_key(field_name)}{modifier_suffix}"]
+            return [f"{GulpOpenSearch.UNMAPPED_PREFIX}.{field_name}{modifier_suffix}"]
 
     def _patch_re_selections(detection: dict) -> dict:
         """

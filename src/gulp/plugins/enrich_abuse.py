@@ -21,6 +21,7 @@ from typing import Optional, override
 from urllib.parse import urlparse
 
 import aiohttp
+import muty.dict
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -189,7 +190,7 @@ class Plugin(GulpPluginBase):
                         f = field_value
                     else:
                         # get from document
-                        f = doc.get(field)
+                        f = muty.dict.get_value_nested(doc, field)
                     if not f:
                         await asyncio.sleep(0.1)  # let other tasks run
                         continue
@@ -203,7 +204,6 @@ class Plugin(GulpPluginBase):
                             # autodetect hash type from length
                             hash_len_map = {
                                 "md5": 32,
-                                "sha1": 40,
                                 "sha256": 64,
                             }
                             if len(f) not in hash_len_map.values():
@@ -231,7 +231,7 @@ class Plugin(GulpPluginBase):
                         abuse_data.pop("query_status", None) 
                         
                         # set data
-                        doc[self._build_enriched_field_name(field)] = abuse_data
+                        doc.update(self._build_or_update_enriched_obj(doc, field, abuse_data))
                         dd.append(doc)
 
                         # add to cache

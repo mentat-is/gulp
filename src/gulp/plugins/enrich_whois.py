@@ -32,7 +32,6 @@ from typing import Any, Optional, override
 
 import muty.dict
 import muty.os
-import orjson
 from ipwhois import IPWhois
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -655,7 +654,8 @@ class Plugin(GulpPluginBase):
                     f = field_value
                 else:
                     # get from document
-                    f = doc.get(field)
+                    MutyLogger.get_instance().debug("getting field '%s' from doc ..." % (field))
+                    f = muty.dict.get_value_nested(doc, field)
                 if not f:
                     await asyncio.sleep(0.1)  # let other tasks run
                     continue
@@ -666,14 +666,7 @@ class Plugin(GulpPluginBase):
                 await asyncio.sleep(0.1)  # let other tasks run
                 if whois_data:
                     enriched = True
-                    doc[
-                        self._build_enriched_field_name(f"{field}")
-                    ] = whois_data
-                    """for key, value in whois_data.items():
-                        if value:
-                            doc[
-                                self._build_enriched_field_name(f"{field}_{key}")
-                            ] = value"""
+                    doc.update(self._build_or_update_enriched_obj(doc, field, whois_data))
             if enriched:
                 # at least one host field was enriched
                 dd.append(doc)

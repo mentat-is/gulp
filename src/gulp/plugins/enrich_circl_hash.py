@@ -7,6 +7,7 @@ from typing import Any, Optional, override
 from urllib.parse import urlparse
 
 import aiohttp
+import muty.dict
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -124,7 +125,7 @@ class Plugin(GulpPluginBase):
                         f = field_value
                     else:
                         # get from document
-                        f = doc.get(field)
+                        f = muty.dict.get_value_nested(doc, field)
                     if not f:
                         await asyncio.sleep(0.1)  # let other tasks run
                         continue
@@ -165,8 +166,8 @@ class Plugin(GulpPluginBase):
                     # check hash on circl
                     hash_data = await self._get_hash(http_sess, f, h_to_use)
                     if hash_data:
-                        # found!
-                        doc[self._build_enriched_field_name(field)] = hash_data
+                        # found!                        
+                        doc.update(self._build_or_update_enriched_obj(doc, field, hash_data))
                         dd.append(doc)
 
                         # add to cache

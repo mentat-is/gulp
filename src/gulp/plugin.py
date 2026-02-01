@@ -1740,17 +1740,6 @@ class GulpPluginBase(ABC):
         )
         return docs[0]
 
-    def _build_enriched_field_name(self, field: str) -> str:
-        """
-        build the name of an enriched field based on the original field name and the plugin name
-
-        Args:
-            field (str): the original field name
-        Returns:
-            str: the enriched field name
-        """
-        f: str = field.replace(".", "_") # replace dots
-        return f"gulp.enriched_{self.name}.{f}"
     async def ingest_file(
         self,
         sess: AsyncSession,
@@ -2137,19 +2126,65 @@ class GulpPluginBase(ABC):
         """
         return self._mappings.get(self._mapping_id, GulpMapping())
 
-    @staticmethod
-    def build_unmapped_key(source_key: str) -> str:
+    def _build_or_update_enriched_obj(self, doc: dict, k: str, v: Any, skip_none: bool = True) -> dict:
         """
-        builds a "gulp.unmapped" key from a source key.
-
+        builds or updates an enriched objject to be set in doc["gulp.enriched"]
+        
         Args:
-            source_key (str): The source key to map.
-        Returns:
-            str: The unmapped key.
+            doc (dict): The document to update.
+            k (str): The key to add.
+            v (any): The value to add.
+            skip_none (bool): whether to skip adding None or empty values, defaults to True.
         """
-        # remove . and spaces from the key
-        sk = source_key.replace(".", "_").replace(" ", "_")
-        return f"{GulpOpenSearch.UNMAPPED_PREFIX}.{sk}"
+        if skip_none and v is None or v == "":
+            # skip empties
+            return {}
+
+        # check if we have an unmapped node yet in the document
+        unmapped_key: str = "gulp.enriched"
+        unmapped: dict = doc.get(unmapped_key, None)
+        if not unmapped:
+            unmapped = {}
+
+        # add a subkey with the plugin name
+        unmapped_subkey = self.name
+        if unmapped.get(unmapped_subkey, None) is None:
+            unmapped[unmapped_subkey] = {}
+
+        # return the whole { "gulp.enriched": { ... } } node back
+        unmapped[unmapped_subkey][k] = v
+        return {
+            unmapped_key: unmapped
+        }
+
+    
+    @staticmethod
+    def build_or_update_unmapped_obj(doc: dict, k: str, v: Any, skip_none: bool = True) -> dict:
+        """
+        builds or updates an unmapped object to be set in doc["gunmapped"]
+        
+        Args:
+            doc (dict): The document to update.
+            k (str): The key to add.
+            v (any): The value to add.
+            skip_none (bool): whether to skip adding None or empty values, defaults to True.
+        """
+        if skip_none and v is None or v == "":
+            # skip empties
+            return {}
+
+        # check if we have an unmapped node yet in the document
+        unmapped_key: str = GulpOpenSearch.UNMAPPED_PREFIX
+        unmapped: dict = doc.get(unmapped_key, None)
+        if not unmapped:
+            unmapped = {}
+
+        # return the whole { "gulp.unmapped": { ... } } node back
+        unmapped[k] = v
+        return {
+            unmapped_key: unmapped
+        }
+
 
     def _try_map_ecs(
         self,
@@ -2168,7 +2203,7 @@ class GulpPluginBase(ABC):
             d (dict): The dict to be updated with the mapped key/value/s
             source_key (str): The source key to map.
             source_value (any): The value to set in the mapped key
-            skip_unmapped (bool): whether to skip unmapped keys, defaults to False(=if mapping not found for source_key, set it as unmapped in the resulting dict).
+            skip_unmapped (bool): whether to skip unmapped keys, defaults to False(i.e. use it to call _try_map_ecs for context/source). either, source_key is added in the `unmapped` object.
             **kwargs: additional keyword arguments
                 - force_type (str, optional): force the type of the mapped key, defaults to None.
         Returns:
@@ -2195,9 +2230,10 @@ class GulpPluginBase(ABC):
         else:
             # fallback, unmapped key (should never happen, means "ecs" is set to "" ...)
             if not skip_unmapped:
-                kk = GulpPluginBase.build_unmapped_key(source_key)
-                d[kk] = source_value
-                set_keys.append(kk)
+                d = GulpPluginBase.build_or_update_unmapped_obj(
+                    d, source_key, source_value
+                )
+                set_keys.append(source_key)
 
         return d, set_keys
 
@@ -2329,9 +2365,10 @@ class GulpPluginBase(ABC):
                 # no umapped fields in the output!
                 return {}
 
-            # generate an unmapped field
-            k: str = GulpPluginBase.build_unmapped_key(source_key)
-            d = {k: source_value}
+            # update the "unmapped" node
+            d = GulpPluginBase.build_or_update_unmapped_obj(
+                doc, source_key, source_value
+            )
             if value_aliases:
                 # apply aliases
                 self._apply_value_aliases(k, d, value_aliases)
@@ -2630,7 +2667,7 @@ class GulpPluginBase(ABC):
             record_idx (int): The index of the record.
             flt (GulpIngestionFilter, optional): The filter to apply during ingestion. Defaults to None.
             wait_for_refresh (bool, optional): Whether to wait for a refresh after ingestion. Defaults to False.
-            kwargs: additional keyword arguments, they will be passed to plugin's `_record_to_gulp_documennt`
+            kwargs: additional keyword arguments, they will be passed to plugin's `_record_to_gulp_document`
 
         Returns:
             bool: True if processing should continue, False if it should stop (i.e. in preview mode and enough documents have been accumulated).

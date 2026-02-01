@@ -227,7 +227,7 @@ async def test_enrich_abuse_single_id():
         plugin_params=plugin_params,
     )
 
-    assert doc.get("gulp.enriched_enrich_abuse.hash_sha256") != None
-    assert doc.get("gulp.enriched_enrich_abuse.hash_new_sha256") != None
+    assert doc["gulp.enriched"]["enrich_abuse"]["hash_sha256"] != None
+    assert doc["gulp.enriched"]["enrich_abuse"]["hash_new_sha256"] != None
     MutyLogger.get_instance().info(test_enrich_abuse_single_id.__name__ + " succeeded!")
 

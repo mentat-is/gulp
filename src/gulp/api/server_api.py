@@ -424,7 +424,7 @@ class GulpServer:
         total_capacity: int = max(1, num_workers * child_concurrency)
         limit: int = total_capacity
         MutyLogger.get_instance().info(
-            "STARTING blocking task loop, max batch size=%d (num_workers=%d, child_concurrency=%d) ...",
+            "STARTING dispatch_tasks loop, max batch size=%d (num_workers=%d, child_concurrency=%d) ...",
             limit,
             num_workers,
             child_concurrency,

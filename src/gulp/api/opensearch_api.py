@@ -707,73 +707,10 @@ class GulpOpenSearch:
                 "source_id": {"type": "keyword"},
                 "timestamp": {"type": "long"},
                 "timestamp_invalid": {"type": "boolean"},
+                "unmapped": {"type": "flat_object" },
+                "enriched": {"type": "flat_object" },
             }
         }
-
-        # add dynamic templates for unmapped fields
-        dtt = []
-
-        ignore_above = GulpConfig.get_instance().index_dynamic_keyword_ignore_above()
-        if not ignore_above:
-            # use default
-            ignore_above = 1024
-
-        MutyLogger.get_instance().debug("index ignore_above: %d", ignore_above)
-
-        # TODO: this may be handy but leave it commented for now ....
-        # dtt.append(
-        #     {
-        #         # all strings as keywords + text
-        #         "all_strings_as_keywords": {
-        #             "match_mapping_type": "string",
-        #             "mapping": {
-        #                 "type": "text",
-        #                 "analyzer": "standard",
-        #                 "fields": {
-        #                     "keyword": {
-        #                         "type": "keyword",
-        #                         "ignore_above": ignore_above,
-        #                     }
-        #                 }
-        #             },
-        #         }
-        #     }
-        # )
-
-        # handle object fields
-        dtt.append(
-            {
-                "objects": {
-                    "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
-                    "match_mapping_type": "object",
-                    "mapping": {"type": "object", "dynamic": True},
-                }
-            }
-        )
-
-        # handle string fields (all unmapped to keyword)
-        dtt.append(
-            {
-                "hex_values": {
-                    "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
-                    "match_pattern": "regex",
-                    "match": "^0[xX][0-9a-fA-F]+$",
-                    "mapping": {"type": "keyword"},
-                }
-            }
-        )
-        dtt.append(
-            {
-                "unmapped_fields": {
-                    "path_match": "%s.*" % (self.UNMAPPED_PREFIX),
-                    "match_mapping_type": "*",
-                    "mapping": {"type": "wildcard", "index_options": "offset"},
-                }
-            }
-        )
-
-        dtt.extend(dt)
-        mappings["dynamic_templates"] = dtt
 
         if apply_patches:
             # only set these if we do not want to use the template as is

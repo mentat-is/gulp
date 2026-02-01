@@ -563,7 +563,7 @@ async def test_csv_stacked():
     # check at least one document ...
     guest_token = await GulpAPIUser.login("guest", "guest")
     doc = await GulpAPIQuery.query_single_id(
-        guest_token, TEST_OPERATION_ID, "903bd0a1ecb33ce4b3fec4a5575c9085"
+        guest_token, TEST_OPERATION_ID, "cb84a978779934a4c2a7436dee98d076"
     )
     assert doc["event.duration"] == 9999
     MutyLogger.get_instance().info(test_csv_stacked.__name__ + " succeeded!")

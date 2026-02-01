@@ -69,11 +69,13 @@ RAW_DATA: list[dict] = [
     {
         "@timestamp": "2019-07-01T00:03:00.000Z",
         "event.code": "test_event_code_4",
-        "event.original": "this is the original event text with ip 185.53.36.36, 104.18.4.215 and host=https://microsoft.com and 3.162.112.100 and ipv6=2001:4860:4801:53::3b and some invalid ipv6=ab12r3::ff:00:32 inside",
+        "event.original": "this is the original event text with ip 185.53.36.36, 104.18.4.215 and host=https://microsoft.com and 3.162.112.100 and ipv6=2001:4860:4801:53::3c and some invalid ipv6=ab12r3::ff:00:32 inside",
         "gulp.context_id": "ac019b190bf8e15588812066161cf74137ab3e97",
         "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
         "gulp.operation_id": "test_operation",
-        "source.ip": "2001:4860:4801:53::3b",
+        "gulp.unmapped": {
+            "source.ip": "2001:4860:4801:53::3b"
+        },
         "event.sequence": 3,
     },
     {
@@ -207,7 +209,7 @@ async def test_enrich_whois_single_id():
 
         await test_raw(RAW_DATA)
 
-    doc_id: str = "d1a00fb20c52958e0b69b63182c89bfa"
+    doc_id: str = "a4f35ba3bfbe5da665e18823294b2343"
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 
@@ -219,7 +221,7 @@ async def test_enrich_whois_single_id():
         "resolve_first_only": False,
     }
     fields: dict = {
-        "source.ip": None,
+        "gulp.unmapped.source.ip": None,
         "host.hostname": None,
         "event.original": None,
         "gulp.operation_id": "151.1.1.1"
@@ -244,5 +246,5 @@ async def test_enrich_whois_single_id():
         plugin_params=plugin_params,
     )
 
-    assert doc.get("gulp.enriched_enrich_whois.source_ip") != None
+    assert doc["gulp.enriched"]["enrich_whois"]["gulp.unmapped.source.ip"] != None
     MutyLogger.get_instance().info(test_enrich_whois_single_id.__name__ + " succeeded!")
