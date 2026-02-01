@@ -78,8 +78,9 @@ class GulpOpenSearch:
 
     _instance: "GulpOpenSearch" = None
 
-    # to be used in dynamic templates
+    # prefixes for data updates (enrich plugins, update api)
     UNMAPPED_PREFIX: str = "gulp.unmapped"
+    ENRICHED_PREFIX: str = "gulp.enriched"
 
     def __init__(self):
         self._opensearch: AsyncOpenSearch = self._get_client()
@@ -470,7 +471,57 @@ class GulpOpenSearch:
 
         # get all the fields/types mapping for this index
         mapping = await self.datastream_get_field_types(index)
-        filtered_mapping = {}
+        filtered_mapping: dict[str, str] = {}
+
+        # flat_object prefixes used throughtout gulp
+        flat_object_prefixes = [GulpOpenSearch.UNMAPPED_PREFIX, "gulp.enriched"]
+
+        def _infer_type(value) -> str:
+            """Infer OpenSearch type from Python value."""
+            if value is None:
+                return "keyword"
+            elif isinstance(value, bool):
+                return "boolean"
+            elif isinstance(value, int):
+                return "integer" if -2147483648 <= value <= 2147483647 else "long"
+            elif isinstance(value, float):
+                return "float"
+            elif isinstance(value, str):
+                return "keyword"
+            elif isinstance(value, list):
+                return "keyword"  # arrays in flat_object are keyword
+            elif isinstance(value, dict):
+                return "object"
+            return "keyword"
+
+        def _is_under_flat_object(path: str) -> bool:
+            """Check if path is under a flat_object prefix."""
+            for prefix in flat_object_prefixes:
+                if path.startswith(prefix + "."):
+                    return True
+            return False
+
+        def _extract_all_fields(obj: dict, parent_path: str = "") -> dict[str, str]:
+            """Recursively extract all field paths and their inferred types from a document."""
+            result: dict[str, str] = {}
+            for key, val in obj.items():
+                path = f"{parent_path}.{key}" if parent_path else key
+
+                # if the path is in the index mapping, use the mapping type
+                if path in mapping:
+                    result[path] = mapping[path]
+                elif _is_under_flat_object(path):
+                    # inner key of a flat_object: always 'keyword' in OS 3.x
+                    result[path] = "keyword"
+                else:
+                    # infer type from value
+                    result[path] = _infer_type(val)
+
+                # recurse into nested dicts (but not lists of dicts for simplicity)
+                if isinstance(val, dict):
+                    result.update(_extract_all_fields(val, path))
+
+            return result
 
         # loop with query_raw until there's data and update filtered_mapping
         processed: int = 0
@@ -485,14 +536,12 @@ class GulpOpenSearch:
             processed += len(docs)
             # MutyLogger.get_instance().debug("processed=%d, total=%d", processed, total_hits)
 
-            # update filtered_mapping with the current batch of documents
+            # update filtered_mapping with all fields from each document (including flat_object inner keys)
             for doc in docs:
-                doc_flatten = muty.dict.flatten(doc)
-                for k, v in mapping.items():
-                    # k = rete_di_casa.source.ip
-                    if k in doc_flatten:
-                        if k not in filtered_mapping:
-                            filtered_mapping[k] = mapping[k]
+                doc_fields = _extract_all_fields(doc)
+                for k, v in doc_fields.items():
+                    if k not in filtered_mapping:
+                        filtered_mapping[k] = v
 
             if processed >= total_hits or not total_hits:
                 # no more results

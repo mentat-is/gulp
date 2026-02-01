@@ -31,6 +31,7 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 from gulp.plugin import GulpUpdateDocumentsStats
 from gulp.structs import GulpPluginParameters
+from gulp.api.opensearch_api import GulpOpenSearch
 
 RAW_DATA: list[dict] = [
     {
@@ -201,6 +202,6 @@ async def test_enrich_circl_hash_single_id():
         plugin_params=plugin_params,
     )
 
-    assert doc["gulp.enriched"]["enrich_circl_hash"]["hash_md5"] != None
-    assert doc["gulp.enriched"]["enrich_circl_hash"]["hash_new_sha256"] != None
+    assert doc[f"{GulpOpenSearch.ENRICHED_PREFIX}"]["enrich_circl_hash"]["hash_md5"] != None
+    assert doc[f"{GulpOpenSearch.ENRICHED_PREFIX}"]["enrich_circl_hash"]["hash_new_sha256"] != None
     MutyLogger.get_instance().info(test_enrich_circl_hash_single_id.__name__ + " succeeded!")

@@ -31,6 +31,7 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 from gulp.plugin import GulpUpdateDocumentsStats
 from gulp.structs import GulpPluginParameters
+from gulp.api.opensearch_api import GulpOpenSearch
 
 RAW_DATA: list[dict] = [
     {
@@ -74,7 +75,10 @@ RAW_DATA: list[dict] = [
         "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
         "gulp.operation_id": "test_operation",
         "gulp.unmapped": {
-            "source.ip": "2001:4860:4801:53::3b"
+            "source.ip": "2001:4860:4801:53::3b",
+            "hello": {
+                "world": 1234
+            }
         },
         "event.sequence": 3,
     },
@@ -246,5 +250,5 @@ async def test_enrich_whois_single_id():
         plugin_params=plugin_params,
     )
 
-    assert doc["gulp.enriched"]["enrich_whois"]["gulp.unmapped.source.ip"] != None
+    assert doc[f"{GulpOpenSearch.ENRICHED_PREFIX}"]["enrich_whois"]["gulp.unmapped.source.ip"] != None
     MutyLogger.get_instance().info(test_enrich_whois_single_id.__name__ + " succeeded!")

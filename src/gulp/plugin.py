@@ -2141,7 +2141,7 @@ class GulpPluginBase(ABC):
             return {}
 
         # check if we have an unmapped node yet in the document
-        unmapped_key: str = "gulp.enriched"
+        unmapped_key: str = GulpOpenSearch.ENRICHED_PREFIX
         unmapped: dict = doc.get(unmapped_key, None)
         if not unmapped:
             unmapped = {}

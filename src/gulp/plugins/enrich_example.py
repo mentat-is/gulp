@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
+from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
 
@@ -50,8 +51,8 @@ class Plugin(GulpPluginBase):
     ) -> list[dict]:
         for doc in chunk:
             doc["enriched"] = True
-            doc["gulp.enriched.new_field"] = muty.string.generate_unique()
-            doc["gulp.enriched.nested"] = {
+            doc[f"{GulpOpenSearch.ENRICHED_PREFIX}.new_field"] = muty.string.generate_unique()
+            doc[f"{GulpOpenSearch.ENRICHED_PREFIX}.nested"] = {
                 "field1": muty.string.generate_unique(),
                 "field2": muty.string.generate_unique(),
                 "field3": {"field4": muty.string.generate_unique()},

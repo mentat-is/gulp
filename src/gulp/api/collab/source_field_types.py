@@ -46,7 +46,7 @@ class GulpSourceFieldTypes(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELD_TYPES):
         - Otherwise return an empty dict.
         """
         if self.field_types_id:
-            from gulp.api.collab.field_types import GulpFieldTypesEntry
+            from gulp.api.collab.field_types_entry import GulpFieldTypesEntry
 
             entry = await GulpFieldTypesEntry.get_by_id(
                 sess, self.field_types_id, throw_if_not_found=False
@@ -122,7 +122,7 @@ class GulpSourceFieldTypes(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELD_TYPES):
             sess, obj_id, throw_if_not_found=False
         )
         # create or get deduplicated entry for these field_types
-        from gulp.api.collab.field_types import GulpFieldTypesEntry
+        from gulp.api.collab.field_types_entry import GulpFieldTypesEntry
 
         entry, created = await GulpFieldTypesEntry.create_if_not_exists(
             sess, field_types, user_id
