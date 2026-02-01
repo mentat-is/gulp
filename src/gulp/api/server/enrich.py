@@ -81,7 +81,7 @@ async def _enrich_documents_internal(
 
             # call plugin, the engine will update stats internally
             mod = await GulpPluginBase.load(plugin)
-            _, enriched, errs, _ = await mod.enrich_documents(
+            _, enriched, errs, canceled = await mod.enrich_documents(
                 sess,
                 stats,
                 user_id,
@@ -94,18 +94,18 @@ async def _enrich_documents_internal(
                 plugin_params=plugin_params,
             )
             errors.extend(errs)
+            
         except Exception as ex:
-            if stats:
-                if not mod:
-                    # close the stats as failed (module load failed)
-                    errors.append(muty.log.exception_to_string(ex))
-                    await stats.set_finished(
-                        sess,
-                        status=GulpRequestStatus.STATUS_FAILED,
-                        errors=errors,
-                        user_id=user_id,
-                        ws_id=ws_id,
-                    )
+            if stats and not isinstance(ex, RequestCanceledError):
+                # close the stats as failed
+                errors.append(muty.log.exception_to_string(ex))
+                await stats.set_finished(
+                    sess,
+                    status=GulpRequestStatus.FAILED,
+                    errors=errors,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                )
             raise
         finally:
             # done

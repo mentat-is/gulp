@@ -16,6 +16,6 @@ From their website:
 
 The plugin supports the following custom parameters in the `custom_parameters` dictionary:
 
-- `hash_type`: the type of hash to lookup, if None detects it from field's name.
-- `compute`: if set to `True` treats `hash_fields` as containing a hexstring of data and computes its `hash_type`, then looks up the resulting hash. *`compute` is ignored if `hash_type=None`*.
+- `hash_type`: the type of hash to lookup (e.g., "md5", "sha1", "sha256"). If not provided, the plugin will attempt to autodetect the hash type based on the value len (i.e. 32 chars for md5, 40 for sha1, 64 for sha256).
+- `compute`: when set to True, computes the hash from a hex-encoded binary value in the field before performing the lookup. Requires `hash_type` to be set.
 

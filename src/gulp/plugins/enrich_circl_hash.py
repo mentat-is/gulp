@@ -55,13 +55,13 @@ class Plugin(GulpPluginBase):
             GulpPluginCustomParameter(
                 name="compute",
                 type="bool",
-                desc="if set, hash value will be computed from raw data (i.e. for ssdeep). If not set, hash value is expected to be already computed and present in the document field (not compatible with `hash_type` auto-detect)",
+                desc="if set, hash value will be computed from raw data (i.e. for ssdeep). If not set, hash value is expected to be already computed and present in the document field.",
                 default_value=False,
             ),
             GulpPluginCustomParameter(
                 name="hash_type",
                 type="str",
-                desc="if not set (default) will autodetect hash type from field name, either this is the hash type (md5,sha1,sha256) used for the field's value. if autodetect is enabled, 'compute' parameter is ignored",
+                desc="if not set (default) will autodetect hash type from hash length, if `compute` is not set. if `compute` is set, it is the hash type to be calculated from raw data. Supported values are `md5`, `sha1` and `sha256`.",
                 default_value=None,
                 values=["md5", "sha1", "sha256"],
             ),
@@ -112,10 +112,10 @@ class Plugin(GulpPluginBase):
         hash_type = self._plugin_params.custom_parameters.get("hash_type")
         compute = self._plugin_params.custom_parameters.get("compute")
         fields: dict = kwargs["fields"]
-        if not hash_type:
-            compute = False  # disable compute if autodetect is enabled
-
-        dd = []
+        if compute and not h_to_use:
+            raise ValueError("when 'compute' is set to True, 'hash_type' must be provided")
+        
+        dd: list[dict] = []
         async with aiohttp.ClientSession() as http_sess:
             for doc in chunk:
                 for field,field_value in fields.items():
@@ -129,34 +129,34 @@ class Plugin(GulpPluginBase):
                         await asyncio.sleep(0.1)  # let other tasks run
                         continue
 
-                    # no hash type was provided, attempt autodetection from field name
                     h_to_use: str = hash_type
-                    if not h_to_use:
-                        # compute is not compatible with auto-detect
-                        MutyLogger.get_instance().debug(
-                            f"autodetecting hash type for field='{field}' with value='{f}'"
-                        )
-                        supported_hashes = ["md5", "sha1", "sha256"]
-                        for s in supported_hashes:
-                            if s in field.lower():
-                                h_to_use = s
-                                break
-
-                        # now check if hash type is compatible with hash length, else skip
+                    if not h_to_use and not compute:
+                        # autodetect hash type from length
                         hash_len_map = {
                             "md5": 32,
                             "sha1": 40,
                             "sha256": 64,
                         }
-                        expected_len = hash_len_map.get(h_to_use)
-                        if len(f) != expected_len:
+                        if len(f) not in hash_len_map.values():
                             MutyLogger.get_instance().warning(
                                 f"unable to autodetect hash type for field='{field}' with value='{f}' (len={len(f)}), skipping"
                             )
                             await asyncio.sleep(0.1)  # let other tasks run, check next field
-                            continue        
-                    
-                    if compute:
+                            continue
+                        for h, l in hash_len_map.items():
+                            if len(f) == l:
+                                h_to_use = h
+                                MutyLogger.get_instance().debug(
+                                    f"autodetected hash type='{h_to_use}' for field='{field}' with value='{f}'"
+                                )
+                                break
+                    elif h_to_use and not compute:
+                        MutyLogger.get_instance().debug(
+                            f"using provided hash type='{h_to_use}' for field='{field}' with value='{f}'"
+                        )
+
+                    elif h_to_use and compute:
+                        # compute hash from raw data
                         MutyLogger.get_instance().debug(
                             f"computing hash for field='{field}' using hash_type='{h_to_use}'"
                         )
@@ -189,12 +189,13 @@ class Plugin(GulpPluginBase):
         operation_id: str,
         index: str,
         fields: dict,
+        q: dict = None,
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> tuple[int, int, list[str], bool]:
         # parse custom parameters
-        self._initialize(plugin_params)
+        await self._initialize(plugin_params)
 
         qq = {
             "query": {

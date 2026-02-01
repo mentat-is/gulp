@@ -41,30 +41,33 @@ RAW_DATA: list[dict] = [
         "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
         "gulp.operation_id": "test_operation",
         "event.sequence": 0,
+        "url.full": "http://117.209.24.146:52152/bin.sh",
         "hash_md5": "1b109efade90ace7d953507adb1f1563",
         "host.hostname": "https://repubblica.it",
     },
     {
         "@timestamp": "2019-07-01T00:01:00.000Z",
-        "event.code": "test_event_code_2",
-        "event.original": "some text",
-        "gulp.context_id": "ac019b190bf8e15588812066161cf74137ab3e97",
-        "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
-        "gulp.operation_id": "test_operation",
-        "event.sequence": 1,
-        "hash_new_sha256": "11b16ba733f2f4f10ac58021eecaf5668551a73e2a1acfae99745c50bfccbb44",
-        "source.ip": "3.162.112.100",
-        "host.hostname": "https://repubblica.it",
-    },
-    {
-        "@timestamp": "2019-07-01T00:02:00.000Z",
         "event.code": "test_event_code_1",
         "event.original": "some text",
         "gulp.context_id": "ac019b190bf8e15588812066161cf74137ab3e97",
         "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
         "gulp.operation_id": "test_operation",
         "event.sequence": 0,
+        "url.full": "http://notexistingdomain.tld/malware.exe",
         "hash_md5": "1b109efade90ace7d953507adb1f1563",
+        "host.hostname": "https://repubblica.it",
+    },
+    {
+        "@timestamp": "2019-07-01T00:02:00.000Z",
+        "event.code": "test_event_code_2",
+        "event.original": "some text",
+        "gulp.context_id": "ac019b190bf8e15588812066161cf74137ab3e97",
+        "gulp.source_id": "de65eb5d6bcac989815acd1adfa0afa183939eda",
+        "gulp.operation_id": "test_operation",
+        "event.sequence": 1,
+        "url.full": "http://ip82-165-181-201.pbiaas.com:8080/i.sh",
+        "hash_sha256": "5a699a644b98c662bb3eb67661a10d738e1b9ba4e1689f138e9dfc4d0f4b37c3",
+        "source.ip": "3.162.112.100",
         "host.hostname": "https://repubblica.it",
     },
 ]
@@ -82,7 +85,7 @@ async def _setup():
 
 
 @pytest.mark.asyncio
-async def test_enrich_circl_hash_documents():
+async def _test_enrich_abuse_documents_internal(query_type: str = "url"):
 
     if os.getenv("SKIP_RESET", "0") == "0":
         # ingest some data
@@ -111,18 +114,28 @@ async def test_enrich_circl_hash_documents():
                 if data["type"] == "ws_connected":
                     # run test
                     plugin_params: GulpPluginParameters = GulpPluginParameters()
-                    fields: dict = {
-                        "hash_md5": None,
-                        "hash_sha256": None,
+                    plugin_params.custom_parameters = {
+                        "query_type": query_type,
                     }
+
+                    if query_type is "url":
+                        fields: dict = {
+                            "url.full": None,
+                        }
+                    else:
+                        # hash
+                        fields: dict = {
+                            "hash_md5": None,
+                            "hash_sha256": None,
+                        }
 
                     await GulpAPIEnrich.enrich_documents(
                         edit_token,
                         TEST_OPERATION_ID,
                         fields,
-                        plugin="enrich_circl_hash",
+                        plugin="enrich_abuse",
                         plugin_params=plugin_params,
-                        req_id="req_enrich_circl_hash",
+                        req_id="req_enrich_abuse",
                     )
                 elif (
                     data["type"] == "stats_update"
@@ -136,14 +149,18 @@ async def test_enrich_circl_hash_documents():
                     MutyLogger.get_instance().info("stats: %s", stats)
 
                     # query done
-                    to_update = 2
-                    if stats.status == "done" and stats_data.updated == to_update:
+                    if query_type == "url":
+                        updated = 2
+                    else:
+                        # hash
+                        updated = 1
+                    if stats.status == "done" and stats_data.updated == updated:
                         test_completed = True
                     else:
                         assert False, (
                             "enrich done, req_id=%s, expected updated=%d but received updated=%d",
                             stats.id,
-                            to_update,
+                            updated,
                             stats_data.updated,
                         )
                     break
@@ -155,18 +172,26 @@ async def test_enrich_circl_hash_documents():
             MutyLogger.get_instance().exception(ex)
 
     assert test_completed
-    MutyLogger.get_instance().info(test_enrich_circl_hash_documents.__name__ + " succeeded!")
+    MutyLogger.get_instance().info(_test_enrich_abuse_documents_internal.__name__ + " succeeded, query_type=%s!" % (query_type))
 
 
 @pytest.mark.asyncio
-async def test_enrich_circl_hash_single_id():
+async def test_enrich_abuse_url_documents():
+    await _test_enrich_abuse_documents_internal(query_type="url")
+
+@pytest.mark.asyncio
+async def test_enrich_abuse_hash_documents():
+    await _test_enrich_abuse_documents_internal(query_type="hash")
+
+@pytest.mark.asyncio
+async def test_enrich_abuse_single_id():
     if os.getenv("SKIP_RESET", "0") == "0":
         # ingest some data
         from tests.ingest.test_ingest import test_raw
 
         await test_raw(RAW_DATA)
 
-    doc_id: str = "3df74aca15dd16fa57966184c196de3c"
+    doc_id: str = "bf16614415f8f86c709df23539796cd8"
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 
@@ -175,11 +200,12 @@ async def test_enrich_circl_hash_single_id():
 
     plugin_params: GulpPluginParameters = GulpPluginParameters()
     plugin_params.custom_parameters = {
-        "resolve_first_only": False,
+        "query_type": "hash",
     }
     fields: dict = {
         "hash_md5": None,
-        "hash_new_sha256": "11b16ba733f2f4f10ac58021eecaf5668551a73e2a1acfae99745c50bfccbb44",
+        "hash_sha256": None,
+        "hash_new_sha256": "5a699a644b98c662bb3eb67661a10d738e1b9ba4e1689f138e9dfc4d0f4b37c3",
     }
     
     # guest cannot enrich, verify that
@@ -188,7 +214,7 @@ async def test_enrich_circl_hash_single_id():
         TEST_OPERATION_ID,
         doc_id=doc_id,
         fields=fields,
-        plugin="enrich_circl_hash",
+        plugin="enrich_abuse",
         expected_status=401,
         plugin_params=plugin_params,
     )
@@ -197,10 +223,11 @@ async def test_enrich_circl_hash_single_id():
         TEST_OPERATION_ID,
         doc_id=doc_id,
         fields=fields,
-        plugin="enrich_circl_hash",
+        plugin="enrich_abuse",
         plugin_params=plugin_params,
     )
 
-    assert doc.get("gulp.enriched_enrich_circl_hash.hash_md5") != None
-    assert doc.get("gulp.enriched_enrich_circl_hash.hash_new_sha256") != None
-    MutyLogger.get_instance().info(test_enrich_circl_hash_single_id.__name__ + " succeeded!")
+    assert doc.get("gulp.enriched_enrich_abuse.hash_sha256") != None
+    assert doc.get("gulp.enriched_enrich_abuse.hash_new_sha256") != None
+    MutyLogger.get_instance().info(test_enrich_abuse_single_id.__name__ + " succeeded!")
+

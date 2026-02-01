@@ -1257,7 +1257,7 @@ class GulpOpenSearch:
                     "%d docs failed ingestion, %d docs skipped: %s",
                     failed,
                     skipped,
-                    muty.string.make_shorter(s, max_len=260),
+                    muty.string.make_shorter(s, max_len=1024),
                 )
 
             # extract successfully ingested documents

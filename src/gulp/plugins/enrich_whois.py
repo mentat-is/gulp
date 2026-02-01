@@ -702,6 +702,7 @@ class Plugin(GulpPluginBase):
         operation_id: str,
         index: str,
         fields: dict,
+        q: dict = None,
         flt: GulpQueryFilter = None,
         plugin_params: GulpPluginParameters = None,
         **kwargs,

@@ -176,12 +176,14 @@ async def test_enrich_whois_documents():
                     MutyLogger.get_instance().info("stats: %s", stats)
 
                     # query done
-                    if stats.status == "done" and stats_data.updated == 7:
+                    updated=7
+                    if stats.status == "done" and stats_data.updated == updated:
                         test_completed = True
                     else:
                         assert False, (
-                            "enrich done, req_id=%s, expected updated=7 but received updated=%d",
+                            "enrich done, req_id=%s, expected updated=%d but received updated=%d",
                             stats.id,
+                            updated,
                             stats_data.updated,
                         )
                     break

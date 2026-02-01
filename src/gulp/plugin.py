@@ -1570,7 +1570,7 @@ class GulpPluginBase(ABC):
             operation_id (str): id of the operation on collab database.
             index (str): the index to query and enrich
             fields (dict): the fields to enrich as { "field_name": field_value (will use "field_value" as input for enrichment), "other_field": None (will get value from document["other_field"] as input for enrichment) }
-            q (dict, optional): if any, the plugin may supply a raw query to further refine the documents to be selected for the enrichment. if not set, the engine will select the documents based on fields (all documents having the specified fields set, see `fields`). Defaults to None.
+            q (dict, optional): if any, the plugin itself may supply a raw query to further refine the documents to be selected for the enrichment. if not set, the engine will select the documents based on fields (all documents having the specified fields set, see `fields`). Defaults to None, ignored when calling the base method.
             flt(GulpQueryFilter, optional): a filter to restrict the documents to enrich. Defaults to None.
             plugin_params (GulpPluginParameters, optional): the plugin parameters. Defaults to None.
 
@@ -1654,23 +1654,23 @@ class GulpPluginBase(ABC):
         }
         canceled: bool = False
         # MutyLogger.get_instance().debug("enrich query:\n%s", orjson.dumps(qq, option=orjson.OPT_INDENT_2).decode())
-        try:
-            await GulpOpenSearch.get_instance().search_dsl(
-                sess,
-                index,
-                qq,
-                req_id=self._req_id,
-                q_options=q_options,
-                callback=self._enrich_documents_chunk_wrapper,
-                cb_context=cb_context,
-                fields=fields
-            )
-        except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
-            errors.append(str(ex))
-            if isinstance(ex, RequestCanceledError):
-                # flag canceled
-                canceled = True
+        # try:
+        await GulpOpenSearch.get_instance().search_dsl(
+            sess,
+            index,
+            qq,
+            req_id=self._req_id,
+            q_options=q_options,
+            callback=self._enrich_documents_chunk_wrapper,
+            cb_context=cb_context,
+            fields=fields
+        )
+        # except Exception as ex:
+        #     MutyLogger.get_instance().exception(ex)
+        #     errors.append(str(ex))
+        #     if isinstance(ex, RequestCanceledError):
+        #         # flag canceled
+        #         canceled = True
 
         return cb_context["total_hits"], cb_context["total_updated"], errors, canceled
 
