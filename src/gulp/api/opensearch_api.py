@@ -38,6 +38,7 @@ from opensearchpy import AsyncOpenSearch, NotFoundError
 from opensearchpy.exceptions import TransportError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gulp.api.collab.field_types_entry import GulpFieldTypesEntry
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.source_field_types import GulpSourceFieldTypes
@@ -570,6 +571,7 @@ class GulpOpenSearch:
             context_id,
             operation_id,
         )
+
         if sess:
             # session provided
             await GulpSourceFieldTypes.create_or_update_source_field_types(

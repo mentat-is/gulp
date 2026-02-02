@@ -116,7 +116,7 @@ async def _enrich_documents_internal(
                 # if we enriched something, update source=>fields mappings on the collab db
                 await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
                     sess, index, user_id, flt
-                )
+                )                
 
 @router.post(
     "/enrich_documents",
