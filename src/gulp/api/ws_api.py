@@ -133,7 +133,7 @@ class GulpWsData(BaseModel):
         ),
     ] = None
 
-    def check_type_in_broadcast_types(self) -> bool:
+    def _check_type_in_broadcast_types_internal(self) -> bool:
         """
         check if a GulpWsData message is of a type that should be broadcasted
 
@@ -168,6 +168,41 @@ class GulpWsData(BaseModel):
             #     self.type,
             # )
             return True
+        return False
+
+    def check_type_in_broadcast_types(self) -> bool:
+        """
+        Cached wrapper around `_check_type_in_broadcast_types_internal` to avoid repeated
+        payload parsing in hot paths.
+        """
+        if hasattr(self, "__broadcast_cached"):
+            return getattr(self, "__broadcast_cached")
+        val = self._check_type_in_broadcast_types_internal()
+        setattr(self, "__broadcast_cached", val)
+        return val
+
+    def cached_model_dump(
+        self,
+        exclude_none: bool = False,
+        exclude_defaults: bool = False,
+        by_alias: bool = False,
+    ) -> dict:
+        """
+        Return a cached result of `model_dump` for common parameter combinations.
+        Caches per-instance to avoid repeated serialization in hot paths.
+        """
+        key = (bool(exclude_none), bool(exclude_defaults), bool(by_alias))
+        cache = getattr(self, "__model_dump_cache", None)
+        if cache is None:
+            cache = {}
+            setattr(self, "__model_dump_cache", cache)
+        if key in cache:
+            return cache[key]
+        val = self.model_dump(
+            exclude_none=exclude_none, exclude_defaults=exclude_defaults, by_alias=by_alias
+        )
+        cache[key] = val
+        return val
         
         # MutyLogger.get_instance().warning(
         #     "GulpWsData.check_type_in_broadcast_types(): type=%s is NOT in broadcast types",
@@ -1309,11 +1344,9 @@ class GulpConnectedSockets:
         self._sockets: dict[str, GulpConnectedSocket] = {}
         # cache websocket ownership lookups to reduce Redis load
         self._ws_server_cache: dict[str, tuple[str, float]] = {}
-        # ttl for cache entries, for quick invalidation
-        self._ws_server_cache_ttl: float = (
-            1.0  # GulpConfig.get_instance().ws_server_cache_ttl()
-        )
-
+        # ttl for cache entries
+        self._ws_server_cache_ttl: float = GulpConfig.get_instance().ws_server_cache_ttl()
+        
     def get_cached_server(self, ws_id: str) -> Optional[str]:
         """
         return cached websocket ownership if the entry is still valid
@@ -1587,32 +1620,30 @@ class GulpConnectedSockets:
             return False
         
         # all checks passed, send the message
-        message = data.model_dump(
+        message = data.cached_model_dump(
             exclude_none=True, exclude_defaults=True, by_alias=True
         )
         # MutyLogger.get_instance().debug(
         #     "routing message: data.ws_id=%s, target_ws_id=%s: %s", data.ws_id, target_ws.ws_id, muty.string.make_shorter(str(message), max_len=260)
         # )
         
-        # isolate slow client enqueue using task to prevent blocking fan-out to other clients
-        async def enqueue_and_disconnect_on_failure():
-            try:
-                success = await target_ws.enqueue_message(message)
-                if not success:
-                    # client failed to keep up within timeout - disconnect it
-                    MutyLogger.get_instance().warning(
-                        "disconnecting unresponsive ws_id=%s after enqueue failure",
-                        target_ws.ws_id,
-                    )
-                    await self.remove(target_ws.ws_id)
-            except Exception as ex:
-                MutyLogger.get_instance().exception(
-                    "failed to route message to ws_id=%s: %s", target_ws.ws_id, ex
+        # perform the enqueue and handle slow/unresponsive clients inline
+        try:
+            success = await target_ws.enqueue_message(message)
+            if not success:
+                # client failed to keep up within timeout - disconnect it
+                MutyLogger.get_instance().warning(
+                    "disconnecting unresponsive ws_id=%s after enqueue failure",
+                    target_ws.ws_id,
                 )
-        
-        # create task to isolate this enqueue from the broadcast loop
-        asyncio.create_task(enqueue_and_disconnect_on_failure())
-        return True
+                await self.remove(target_ws.ws_id)
+                return False
+            return True
+        except Exception as ex:
+            MutyLogger.get_instance().exception(
+                "failed to route message to ws_id=%s: %s", target_ws.ws_id, ex
+            )
+            return False
 
     async def _route_internal_message(self, data: GulpWsData) -> None:
         """
@@ -1635,7 +1666,7 @@ class GulpConnectedSockets:
         )
 
     async def route_message(
-        self, data: GulpWsData, skip_list: list[str] = None
+        self, data: GulpWsData, skip_list: list[str] = None, skip_redis_publish: bool = False
     ) -> None:
         """
         route message to appropriate connected websockets (local and cross-instance) or to the running plugins (for internal messages if internal flag is set)
@@ -1643,6 +1674,7 @@ class GulpConnectedSockets:
         Args:
             data (GulpWsData): The message to broadcast.
             skip_list (list[str], optional): The list of websocket IDs to skip. Defaults to None.
+            skip_redis_publish (bool, optional): If True, skips publishing to Redis. Defaults to False.
         """
         if data.internal:
             # this is an internal message, route to running plugins
@@ -1650,9 +1682,10 @@ class GulpConnectedSockets:
             return
 
         # for broadcast types, publish to Redis so all gulp instances will receive it
-        if data.check_type_in_broadcast_types():
+        # unless caller already published (skip_redis_publish)
+        if not skip_redis_publish and data.check_type_in_broadcast_types():
             redis_client = GulpRedis.get_instance()
-            message_dict = data.model_dump(exclude_none=True)
+            message_dict = data.cached_model_dump(exclude_none=True)
             await redis_client.publish(message_dict)
             # NOTE: we'll still process locally below, the broadcast ensures other instances get it
 
@@ -1956,7 +1989,7 @@ class GulpRedisBroker:
         try:
             wsd = GulpWsData.model_validate(message)
             if channel == GulpRedisChannel.WORKER_TO_MAIN.value:
-                await GulpConnectedSockets.get_instance().route_message(wsd)
+                await GulpConnectedSockets.get_instance().route_message(wsd, skip_redis_publish=True)
             elif channel == GulpRedisChannel.BROADCAST.value:
                 # only process if we have this websocket or it's a broadcast type
                 server_id = await redis_client.ws_get_server(wsd.ws_id)
@@ -1966,7 +1999,7 @@ class GulpRedisBroker:
                     server_id == redis_client.server_id
                     or wsd.check_type_in_broadcast_types()
                 ):
-                    await GulpConnectedSockets.get_instance().route_message(wsd)
+                    await GulpConnectedSockets.get_instance().route_message(wsd, skip_redis_publish=True)
         except Exception as ex:
             MutyLogger.get_instance().error("error processing pubsub message: %s", ex)
 
@@ -2000,7 +2033,7 @@ class GulpRedisBroker:
             
             # send message
             try:
-                await cws.enqueue_message(msg.model_dump(exclude_none=True))
+                await cws.enqueue_message(msg.cached_model_dump(exclude_none=True))
                 MutyLogger.get_instance().debug(
                     "routed cross-instance client_data to ws_id=%s", cws.ws_id
                 )
@@ -2036,7 +2069,7 @@ class GulpRedisBroker:
 
                 # send message
                 try:
-                    await cws.enqueue_message(msg.model_dump(exclude_none=True))
+                    await cws.enqueue_message(msg.cached_model_dump(exclude_none=True))
                     MutyLogger.get_instance().debug(
                         "routed cross-instance client_data to ws_id=%s", cws.ws_id
                     )
@@ -2059,14 +2092,14 @@ class GulpRedisBroker:
         from gulp.process import GulpProcess
 
         redis_client = GulpRedis.get_instance()
-        message_dict = wsd.model_dump(exclude_none=True)
+        message_dict = wsd.cached_model_dump(exclude_none=True)
 
         # determine if this should be broadcast to all instances or just local
         if wsd.check_type_in_broadcast_types() or wsd.internal:
             # handle in this instance
             if GulpProcess.get_instance().is_main_process():
                 # we're in the main process
-                await GulpConnectedSockets.get_instance().route_message(wsd)
+                await GulpConnectedSockets.get_instance().route_message(wsd, skip_redis_publish=True)
             else:
                 # we're in a worker, let it pass through redis
                 message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value

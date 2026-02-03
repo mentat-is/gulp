@@ -1060,16 +1060,16 @@ class GulpConfig:
         """
         Returns the TTL in seconds for cached websocket ownership lookups.
 
-        Default: 1 second.
+        Default: 5 seconds.
         """
-        ttl = self._config.get("ws_server_cache_ttl", 1.0)
+        ttl = self._config.get("ws_server_cache_ttl", 5.0)
         try:
             ttl = float(ttl)
         except (TypeError, ValueError):
-            ttl = 1.0
+            ttl = 5.0
 
         if ttl <= 0:
-            ttl = 1.0
+            ttl = 5.0
         return ttl    
     
     def redis_compression_enabled(self) -> bool:
