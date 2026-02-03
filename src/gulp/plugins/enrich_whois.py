@@ -69,9 +69,9 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
-                name="whois_fields",
+                name="returned_fields",
                 type="list",
-                desc="list of whois fields to keep (only used if full_dump is set to false)",
+                desc="list of returned whois fields to keep (only used if full_dump is set to false)",
                 default_value=[
                     "asn_country_code",
                     "asn_description",
@@ -83,7 +83,7 @@ class Plugin(GulpPluginBase):
             GulpPluginCustomParameter(
                 name="full_dump",
                 type="bool",
-                desc="get all the whois information (ignore whois_fields)",
+                desc="keep the whole information returned (ignore `returned_fields`)",
                 default_value=False,
             ),
             GulpPluginCustomParameter(
@@ -482,9 +482,9 @@ class Plugin(GulpPluginBase):
                 await asyncio.sleep(0.1)  # let other tasks run
                 continue  # skip to next entity
 
-            # filter fields based on custom parameters ("whois_fields", "full_dump")
+            # filter fields based on custom parameters ("returned_fields", "full_dump")
             to_keep: Optional[list[str]] = self._plugin_params.custom_parameters.get(
-                "whois_fields"
+                "returned_fields"
             )
             full_dump: Optional[bool] = self._plugin_params.custom_parameters.get(
                 "full_dump"
@@ -527,14 +527,14 @@ class Plugin(GulpPluginBase):
         return final_combined_enriched_data
 
     def _filter_fields_with_wildcards(
-        self, flattened_enriched, whois_fields, full_dump=False
+        self, flattened_enriched, returned_fields, full_dump=False
     ) -> dict:
         """
-        Filter a flattened JSON object based on whois_fields patterns.
+        Filter a flattened JSON object based on returned_fields patterns.
 
         Args:
             flattened_enriched: Already flattened JSON object (dict)
-            whois_fields: List of fields to keep, supporting wildcards with ".*"
+            returned_fields: List of fields to keep, supporting wildcards with ".*"
             full_dump: If True, return the original object without filtering
 
         Returns:
@@ -547,7 +547,7 @@ class Plugin(GulpPluginBase):
         exact_patterns = set()
         wildcard_prefixes = set()
 
-        for pattern in whois_fields:
+        for pattern in returned_fields:
             if pattern.endswith(".*"):
                 wildcard_prefixes.add(pattern[:-2])  # Store prefix without '.*'
             else:
