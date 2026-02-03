@@ -2078,11 +2078,17 @@ class GulpOpenSearch:
                     # disable hightlights
                     options["highlight"] = None
 
+                error_info: str = "ERR=%s\nquery: %s\noptions: %s" % (
+                    str(ex),
+                    orjson.dumps(q, option=orjson.OPT_INDENT_2).decode(),
+                    orjson.dumps(options, option=orjson.OPT_INDENT_2).decode(),
+                )
                 MutyLogger.get_instance().warning(
-                    "CIRCUIT BREAKER EXCEPTION HIT! trying query chunk size=%d (prev=%d) due, attempt=%d",
+                    "CIRCUIT BREAKER EXCEPTION HIT! trying query chunk size=%d (prev=%d) due, attempt=%d\nerror info:\n%s",
                     new_size,
                     size,
                     cb_attempts,
+                    error_info,
                 )
                 await asyncio.sleep(1)
                 continue

@@ -63,7 +63,7 @@ class GulpMappingParametersEntry(GulpCollabBase, type=COLLABTYPE_MAPPING_PARAMET
         """Delete mapping entries with no referencing sources and return deleted count."""
         # delete mapping_parameters where not exists (select 1 from source where source.mapping_parameters_id = mapping_parameters.id)
         from gulp.api.collab.source import GulpSource
-
+        await cls.acquire_advisory_lock(sess, "__del_orphaned_mapping_parameters__")                
         delete_stmt = delete(cls).where(
             ~exists(select(GulpSource.id).where(GulpSource.mapping_parameters_id == cls.id))
         )

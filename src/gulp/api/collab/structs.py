@@ -950,6 +950,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         )
 
         # insert the row using core insert so we don't instantiate the mapped class for persistence
+        await cls.acquire_advisory_lock(sess, obj_id)        
         insert_stmt = insert(cls).values(**d).returning(*cls.__table__.c)
         # execute the insert and obtain the inserted row
         res = await sess.execute(insert_stmt)
@@ -1429,6 +1430,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # will except if the group do not exist!
         from gulp.api.collab.user_group import GulpUserGroup
 
+        await self.__class__.acquire_advisory_lock(sess, self.id)
         await GulpUserGroup.get_by_id(sess, group_id)
         if group_id in self.granted_user_group_ids:
             MutyLogger.get_instance().warning(
@@ -1439,7 +1441,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         MutyLogger.get_instance().debug(
             "adding granted user group %s to object %s", group_id, self.id
         )
-        await self.__class__.acquire_advisory_lock(sess, self.id)
         self.granted_user_group_ids.append(group_id)
         await sess.commit()
 
@@ -1458,6 +1459,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # will except if the group do not exist!
         from gulp.api.collab.user_group import GulpUserGroup
 
+        await self.__class__.isory_lock(sess, self.id)
         await GulpUserGroup.get_by_id(sess, group_id)
         if group_id not in self.granted_user_group_ids:
             MutyLogger.get_instance().warning(
@@ -1469,7 +1471,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             "removing granted user group %s from object %s", group_id, self.id
         )
 
-        await self.__class__.acquire_advisory_lock(sess, self.id)
         self.granted_user_group_ids.remove(group_id)
         await sess.commit()
 
@@ -1488,6 +1489,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # will except if the user do not exist!
         from gulp.api.collab.user import GulpUser
 
+        await self.__class__.acquire_advisory_lock(sess, self.id)
         await GulpUser.get_by_id(sess, user_id)
         if user_id in self.granted_user_ids:
             MutyLogger.get_instance().warning(
@@ -1499,7 +1501,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             "adding granted user %s to object %s", user_id, self.id
         )
 
-        await self.__class__.acquire_advisory_lock(sess, self.id)
         self.granted_user_ids.append(user_id)
         await sess.commit()
 
@@ -1519,6 +1520,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # will except if the user do not exist!
         from gulp.api.collab.user import GulpUser
 
+        await self.__class__.acquire_advisory_lock(sess, self.id)
         await GulpUser.get_by_id(sess, user_id)
 
         if user_id not in self.granted_user_ids:
@@ -1530,7 +1532,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         MutyLogger.get_instance().info(
             "removing granted user %s from object %s", user_id, self.id
         )
-        await self.__class__.acquire_advisory_lock(sess, self.id)
         self.granted_user_ids.remove(user_id)
         await sess.commit()
 

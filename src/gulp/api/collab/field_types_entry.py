@@ -63,7 +63,7 @@ class GulpFieldTypesEntry(GulpCollabBase, type=COLLABTYPE_FIELD_TYPES):
         """Delete field types entries with no referencing source_field_types and return deleted count."""
         # delete field_types_entries where not exists (select 1 from source_field_types where source_field_types.field_types_id = field_types_entries.id)
         from gulp.api.collab.source_field_types import GulpSourceFieldTypes
-
+        await cls.acquire_advisory_lock(sess, "__del_orphaned_field_types_entries__")                
         delete_stmt = delete(cls).where(
             ~exists(
                 select(GulpSourceFieldTypes.id).where(GulpSourceFieldTypes.field_types_id == cls.id)

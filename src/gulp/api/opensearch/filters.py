@@ -16,7 +16,8 @@ fields to include in query results.
 """
 
 from enum import IntEnum
-from typing import Optional, override, Annotated
+from typing import Annotated, Optional, override
+
 import orjson
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -48,11 +49,7 @@ class GulpBaseDocumentFilter(BaseModel):
                     "time_range": [
                         1551385571023173120,
                         1551446406878338048,
-                    ],
-                    "query_string_parameters": {
-                        "analyze_wildcard": True,
-                        "default_field": "_id",
-                    },
+                    ]
                 }
             ]
         },
@@ -69,16 +66,6 @@ a tuple representing a `gulp.timestamp` range `[ start, end ]`.
 """,
         ),
     ] = None
-
-    query_string_parameters: Annotated[
-        dict,
-        Field(
-            description="""
-additional parameters to be applied to the resulting `query_string` query, according to [opensearch documentation](https://opensearch.org/docs/latest/query-dsl/full-text/query-string)
-
-""",
-        ),
-    ] = {}
 
     @override
     def __str__(self) -> str:
@@ -173,7 +160,7 @@ class GulpQueryFilter(GulpBaseDocumentFilter):
     """
     a GulpQueryFilter defines a filter for the query API.
 
-    - query is built using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query.
+    - query is built using a filtered bool query with terms/range filters.
     - further extra key=value pairs are allowed and are intended as k: list[str]|str:
         if it is a list of values, an OR clause is built, otherwise an equality clause is built, i.e.
         - `{"event.code": ["5152", "5156"]}` becomes `(event.code: 5152 OR event.code: 5156)`
@@ -247,143 +234,99 @@ include documents matching the given `gulp.source_id`/s.
     def __str__(self) -> str:
         return super().__str__()
 
-    def _query_string_build_or_clauses(self, field: str, values: list) -> str:
-        if not values:
-            return ""
-
-        qs = "("
-        for v in values:
-            # if isinstance(v, str):
-            #     # only enclose if there is a space in the value
-            #     vv = muty.string.enclose(v) if " " in v else v
-            # else:
-            #     vv = v
-
-            qs += f"{field}: {v} OR "
-
-        qs = qs[:-4]  # remove last " OR "
-        qs += ")"
-        return qs
-
-    def _query_string_build_eq_clause(self, field: str, v: int | str) -> str:
-        qs = f"{field}: {v}"
-        return qs
-
-    def _query_string_build_gte_clause(self, field: str, v: int) -> str:
-        qs = f"{field}: >={v}"
-        return qs
-
-    def _query_string_build_lte_clause(self, field: str, v: int) -> str:
-        qs = f"{field}: <={v}"
-        return qs
-
-    def _query_string_build_exists_clause(self, field: str, exist: bool) -> str:
-        if exist:
-            qs = f"_exists_: {field}"
-        else:
-            qs = f"NOT _exists_: {field}"
-        return qs
-
     def to_opensearch_dsl(self) -> dict:
         """
-        convert to a query in OpenSearch DSL format using [query_string](https://opensearch.org/docs/latest/query-dsl/full-text/query-string/) query
+        convert to a query in OpenSearch DSL format using bool query with terms and range filters
 
-                Returns:
+        Returns:
             dict: a ready to be used query object for the search API, like:
             ```json
             {
                 "query": {
-                    "query_string": {
-                        "query": "agent.type: \"winlogbeat\" AND gulp.operation_id: \"test\" AND gulp.context_id: \"testcontext\" AND gulp.source_id: \"test.log\" AND _id: \"testid\" AND event.original: \"test event\" AND event.code: \"5152\" AND @timestamp: >=1609459200000 AND @timestamp: <=1609545600000",
-                        "analyze_wildcard": true,
-                        "default_field": "_id"
+                    "bool": {
+                        "filter": [
+                            {
+                                "terms": {
+                                    "gulp.source_id": ["value1", "value2", ...]
+                                }
+                            },
+                            {
+                                "range": {
+                                    "gulp.timestamp": {
+                                        "gte": 1609459200000,
+                                        "lte": 1609545600000
+                                    }
+                                }
+                            }
+                        ]
                     }
                 }
             }
             ```
         """
 
-        def _build_clauses():
-            # disable not-an-iterable and non-subscribtable:
-            # checks are in place and the pydantic model enforces the type
-            # pylint: disable=E1133,E1136
-            clauses: list[str] = []
+        def _build_filters():
+            filters: list[dict] = []
 
             if self.agent_types:
-                clauses.append(
-                    self._query_string_build_or_clauses("agent.type", self.agent_types)
-                )
+                filters.append({"terms": {"agent.type": self.agent_types}})
+            
             if self.operation_ids:
-                clauses.append(
-                    self._query_string_build_or_clauses(
-                        "gulp.operation_id", self.operation_ids
-                    )
-                )
+                filters.append({"terms": {"gulp.operation_id": self.operation_ids}})
+            
             if self.context_ids:
-                clauses.append(
-                    self._query_string_build_or_clauses(
-                        "gulp.context_id", self.context_ids
-                    )
-                )
+                filters.append({"terms": {"gulp.context_id": self.context_ids}})
+            
             if self.source_ids:
-                clauses.append(
-                    self._query_string_build_or_clauses(
-                        "gulp.source_id", self.source_ids
-                    )
-                )
+                filters.append({"terms": {"gulp.source_id": self.source_ids}})
+            
             if self.doc_ids:
-                clauses.append(self._query_string_build_or_clauses("_id", self.doc_ids))
+                filters.append({"terms": {"_id": self.doc_ids}})
 
             if self.event_codes:
-                clauses.append(
-                    self._query_string_build_or_clauses("event.code", self.event_codes)
-                )
+                filters.append({"terms": {"event.code": self.event_codes}})
+            
             if self.time_range and len(self.time_range) == 2:
-                # simple >=, <= clauses
+                # range query
                 field = "gulp.timestamp"
+                range_clause = {}
                 if self.time_range[0] > 0:
-                    clauses.append(
-                        self._query_string_build_gte_clause(field, self.time_range[0])
-                    )
+                    range_clause["gte"] = self.time_range[0]
                 if self.time_range[1] > 0:
-                    clauses.append(
-                        self._query_string_build_lte_clause(field, self.time_range[1])
-                    )
+                    range_clause["lte"] = self.time_range[1]
+                if range_clause:
+                    filters.append({"range": {field: range_clause}})
+            
             if self.model_extra:
                 # extra fields
                 for k, v in self.model_extra.items():
                     if isinstance(v, list):
-                        # OR clauses
-                        clauses.append(self._query_string_build_or_clauses(k, v))
+                        # terms query for lists
+                        filters.append({"terms": {k: v}})
                     else:
-                        # equality
-                        clauses.append(self._query_string_build_eq_clause(k, v))
+                        # term query for single values
+                        filters.append({"term": {k: v}})
 
-            # only return non-empty clauses
-            clauses = [c for c in clauses if c and c.strip()]
-            # print(clauses)
-            return clauses
+            return filters
 
-        # build the query struct
-        #
-        # NOTE: default_field: _id below is an attempt to fix "field expansion matches too many fields"
-        # https://discuss.elastic.co/t/no-detection-of-fields-in-query-string-query-strings-results-in-field-expansion-matches-too-many-fields/216137/2
-        # (caused by "default_field" which by default is "*" and the query string is incorrectly parsed when parenthesis are used as we do, maybe this could be fixed in a later opensearch version as it is in elasticsearch)
-        query_dict = {
-            "query": {
-                "query_string": {
-                    # all clauses are ANDed, if none return all
-                    "query": " AND ".join(filter(None, _build_clauses())) or "*",
-                    "analyze_wildcard": True,
-                    "default_field": "_id",
+        filters = _build_filters()
+        
+        # build the query struct using bool filter
+        if filters:
+            query_dict = {
+                "query": {
+                    "bool": {
+                        "filter": filters
+                    }
                 }
             }
-        }
-
-        q_string = query_dict["query"]["query_string"]
-        if self.query_string_parameters:
-            # add provided parameters
-            q_string.update(self.query_string_parameters)
+        else:
+            # empty filter, match all
+            query_dict = {
+                "query": {
+                    "match_all": {}
+                }
+            }
 
         # MutyLogger.get_instance().debug('resulting query=%s' % (orjson.dumps(query_dict, option=orjson.OPT_INDENT_2).decode()))
         return query_dict
@@ -397,16 +340,32 @@ include documents matching the given `gulp.source_id`/s.
         Returns:
             dict: the merged query.
         """
-        return {
-            "query": {
-                "bool": {
-                    "filter": [
-                        self.to_opensearch_dsl()["query"],
-                        dsl["query"],
-                    ]
-                }
-            }
-        }
+        # build merged bool-filter combining both this filter's clauses and
+        # the provided DSL's filter clauses where possible
+        merged_filters: list[dict] = []
+
+        our_q = self.to_opensearch_dsl().get("query", {})
+        # if our query is a bool filter, extract its filters
+        if isinstance(our_q, dict) and "bool" in our_q and "filter" in our_q["bool"]:
+            merged_filters.extend(our_q["bool"]["filter"])
+        else:
+            # if it's match_all or other query, include it as-is if present
+            if our_q and not ("match_all" in our_q):
+                merged_filters.append(our_q)
+
+        # now merge the provided DSL's query
+        other_q = dsl.get("query", {})
+        if isinstance(other_q, dict) and "bool" in other_q and "filter" in other_q["bool"]:
+            merged_filters.extend(other_q["bool"]["filter"])
+        else:
+            if other_q and not ("match_all" in other_q):
+                merged_filters.append(other_q)
+
+        if merged_filters:
+            return {"query": {"bool": {"filter": merged_filters}}}
+
+        # nothing to filter, return match_all
+        return {"query": {"match_all": {}}}
 
     def is_empty(self, check_operation_ids: bool=True) -> bool:
         """
