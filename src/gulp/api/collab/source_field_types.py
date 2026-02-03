@@ -144,6 +144,9 @@ class GulpSourceFieldTypes(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELD_TYPES):
             # return expanded dict representation
             d = src_field_types.to_dict()
             d["field_types"] = entry.field_types
+
+            # when updating, layout may have changed so check for orphaned entries to delete in the deduplicated table
+            await GulpFieldTypesEntry.delete_orphaned(sess)
             return d
 
         MutyLogger.get_instance().debug(
@@ -168,4 +171,5 @@ class GulpSourceFieldTypes(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELD_TYPES):
         )
         d = obj.to_dict()
         d["field_types"] = entry.field_types
+
         return d
