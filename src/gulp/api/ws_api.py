@@ -144,14 +144,15 @@ class GulpWsData(BaseModel):
             bool
         """
         payload: dict = self.payload or {}
-        if isinstance(payload, dict):
-            # single
-            payload_data: dict = payload.get("obj", {})
-        elif isinstance(payload, list):
-            # bulk
-            payload_data: dict = payload[0] if len(payload) > 0 else {}
+        payload_data: dict = payload.get("obj", {})
 
-        payload_data_type = payload_data.get("type", None) # i.e. note
+        if isinstance(payload_data, dict):
+            # single
+            payload_data_type = payload_data.get("type", None) # i.e. note
+        elif isinstance(payload_data, list):
+            # bulk
+            payload_data_type = payload_data[0].get("type", None) if len(payload_data) > 0 else None
+
         if payload_data_type and payload_data_type in GulpRedisBroker.get_instance().broadcast_types:
             # MutyLogger.get_instance().debug(
             #     "GulpWsData.check_type_in_broadcast_types(): payload_data_type=%s is in broadcast types",
