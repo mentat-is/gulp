@@ -229,7 +229,7 @@ async def operation_update_handler(
 async def operation_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    ws_id: Annotated[Optional[str], Depends(APIDependencies.param_ws_id_optional)] = None,
     delete_data: Annotated[
         Optional[bool],
         Query(
@@ -571,7 +571,7 @@ async def context_get_by_id_handler(
 async def context_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    ws_id: Annotated[Optional[str], Depends(APIDependencies.param_ws_id_optional)] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     delete_data: Annotated[
         Optional[bool],
@@ -640,12 +640,12 @@ async def context_create_handler(
             example="test_context",
         ),
     ],
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
-    color: Annotated[str, Depends(APIDependencies.param_color_optional)],
+    ws_id: Annotated[Optional[str], Depends(APIDependencies.param_ws_id_optional)] = None,
+    color: Annotated[Optional[str], Depends(APIDependencies.param_color_optional)] = None,
     glyph_id: Annotated[
         str,
         Depends(APIDependencies.param_glyph_id_optional),
-    ],
+    ] = None,
     fail_if_exists: Annotated[
         Optional[bool],
         Query(
@@ -868,10 +868,7 @@ async def source_create_handler(
             example="test_source",
         ),
     ],
-    ws_id: Annotated[
-        str,
-        Depends(APIDependencies.param_ws_id),
-    ],
+    ws_id: Annotated[Optional[str],Depends(APIDependencies.param_ws_id_optional)] = None,
     fail_if_exists: Annotated[
         Optional[bool],
         Query(
@@ -948,8 +945,8 @@ async def source_update_handler(
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
     ws_id: Annotated[
         str,
-        Depends(APIDependencies.param_ws_id),
-    ],
+        Depends(APIDependencies.param_ws_id_optional)
+    ]=None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
     description: Annotated[
         Optional[str],
@@ -1021,7 +1018,7 @@ async def source_update_handler(
 async def source_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id_optional)] = None,
     delete_data: Annotated[
         Optional[bool],
         Query(

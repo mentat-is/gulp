@@ -969,10 +969,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # commit the transaction after successful insert + re-query
         await sess.commit()
 
-        if not ws_id:
-            # no websocket, return the instance
-            return instance
-
         from gulp.api.ws_api import GulpCollabCreatePacket, GulpRedisBroker
 
         if not ws_data_type:
@@ -1143,14 +1139,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # commit
         await sess.commit()
         MutyLogger.get_instance().debug(
-            "---> updated (type=%s): %s",
+            "---> updated (type=%s, ws_id=%s): %s",
             self.type,
+            ws_id,
             muty.string.make_shorter(str(updated_dict),max_len=260)
         )
-
-        if not ws_id:
-            # no websocket ID provided, return
-            return updated_dict
 
         # send update to websocket
         from gulp.api.ws_api import GulpCollabUpdatePacket, GulpRedisBroker
@@ -1212,10 +1205,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         try:
             await self.__class__.acquire_advisory_lock(sess, obj_id)
             MutyLogger.get_instance().debug(
-                "deleting object %s.%s, operation=%s",
+                "deleting object %s.%s, operation=%s, ws_id=%s",
                 self.__class__,
                 obj_id,
                 operation_id,
+                ws_id
             )
             await sess.delete(self)
             await sess.commit()
@@ -1226,10 +1220,6 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 # swallow exception, manually rollback
                 await sess.rollback()
                 return None
-
-        if not ws_id:
-            # done
-            return
 
         # notify the websocket of the deletion
         from gulp.api.ws_api import GulpCollabDeletePacket, GulpRedisBroker

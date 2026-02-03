@@ -162,19 +162,25 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
     ) -> str:
         return token.strip()
 
+    _WS_ID_QUERY_PARAM = Query(
+        description="the websocket id",
+        example="test_ws",
+    )
+
     @staticmethod
     def param_ws_id(
         ws_id: Annotated[
             str,
-            Query(
-                description="""
-id of the websocket to use during a request.
-""",
-                example="test_ws",
-            ),
+            Query(description="the websocket id", example="test_ws"),
         ],
     ) -> str:
         return ws_id.strip()
+
+    @staticmethod
+    def param_ws_id_optional(
+        ws_id: Annotated[str, Query(description="the websocket id. if not set, will broadcasting of the result will happen on all connected websockets.", example="test_ws")] = None,
+    ) -> str:
+        return ws_id.strip() if ws_id else None
 
     @staticmethod
     def param_group_id(

@@ -133,6 +133,47 @@ class GulpWsData(BaseModel):
         ),
     ] = None
 
+    def check_type_in_broadcast_types(self) -> bool:
+        """
+        check if a GulpWsData message is of a type that should be broadcasted
+
+        Args:
+            data (GulpWsData): the message to check
+
+        Returns:
+            bool
+        """
+        payload: dict = self.payload or {}
+        if isinstance(payload, dict):
+            # single
+            payload_data: dict = payload.get("obj", {})
+        elif isinstance(payload, list):
+            # bulk
+            payload_data: dict = payload[0] if len(payload) > 0 else {}
+
+        payload_data_type = payload_data.get("type", None) # i.e. note
+        if payload_data_type and payload_data_type in GulpRedisBroker.get_instance().broadcast_types:
+            # MutyLogger.get_instance().debug(
+            #     "GulpWsData.check_type_in_broadcast_types(): payload_data_type=%s is in broadcast types",
+            #     payload_data_type,
+            # )
+            return True
+        
+            
+        # resort to plain data type
+        if self.type in GulpRedisBroker.get_instance().broadcast_types:
+            # MutyLogger.get_instance().debug(
+            #     "GulpWsData.check_type_in_broadcast_types(): type=%s is in broadcast types",
+            #     self.type,
+            # )
+            return True
+        
+        # MutyLogger.get_instance().warning(
+        #     "GulpWsData.check_type_in_broadcast_types(): type=%s is NOT in broadcast types",
+        #     self.type,
+        # )
+        return False
+
 
 class GulpCollabCreatePacket(BaseModel):
     """
@@ -1491,8 +1532,8 @@ class GulpConnectedSockets:
             )
 
         return len(self._sockets)
-
-    async def _route_message(
+        
+    async def _check_message_routing_rules_and_route(
         self, data: GulpWsData, target_ws: GulpConnectedSocket
     ) -> bool:
         """
@@ -1515,33 +1556,41 @@ class GulpConnectedSockets:
 
         # route only to WS_DEFAULT sockets: these are the sockets used by the UI for receiving most of the data (collab objects and chunks), corresponding to the ws_id in most of the API calls
         if target_ws.socket_type != GulpWsType.WS_DEFAULT:
+            # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing target_ws.socket_type=%s",data.ws_id, target_ws.socket_type)
             return False
 
         # check type filter
         if target_ws.types and data.type not in target_ws.types:
+            # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing data.type=%s", data.ws_id, data.type)
             return False
 
         # check operation filter
         if target_ws.operation_ids and data.operation_id not in target_ws.operation_ids:
+            # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing data.operation_id=%s", data.ws_id, data.operation_id)
             return False
 
         # handle private messages
-        if data.private and data.type != WSDATA_USER_LOGIN:
+        if data.ws_id and data.private and data.type != WSDATA_USER_LOGIN:
             if target_ws.ws_id != data.ws_id:
+                # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing private message to data.ws_id=%s", data.ws_id, target_ws.ws_id)
                 return False
 
-        # check message distribution rules (broadcast only the specified types or if ws_id matches)
-        if data.type not in GulpRedisBroker.get_instance().broadcast_types and (
-            data.ws_id and target_ws.ws_id != data.ws_id
-        ):
+        if data.ws_id and target_ws.ws_id != data.ws_id:
+            # force ws_id
+            # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing non-broadcast message to target.ws_id=%s due to ws_id mismatch", data.ws_id, target_ws.ws_id)
             return False
-
+        
+        if not data.check_type_in_broadcast_types() and not data.ws_id:
+            # non-broadcast type and no ws_id specified, not routing
+            # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing non-broadcast message to target.ws_id=%s due to non-broadcast type", data.ws_id, target_ws.ws_id)
+            return False
+        
         # all checks passed, send the message
         message = data.model_dump(
             exclude_none=True, exclude_defaults=True, by_alias=True
         )
         # MutyLogger.get_instance().debug(
-        #     "routing message to ws_id=%s: %s", target_ws.ws_id, message
+        #     "routing message: data.ws_id=%s, target_ws_id=%s: %s", data.ws_id, target_ws.ws_id, muty.string.make_shorter(str(message), max_len=260)
         # )
         
         # isolate slow client enqueue using task to prevent blocking fan-out to other clients
@@ -1584,11 +1633,11 @@ class GulpConnectedSockets:
             operation_id=data.operation_id,
         )
 
-    async def broadcast_message(
+    async def route_message(
         self, data: GulpWsData, skip_list: list[str] = None
     ) -> None:
         """
-        Broadcasts message to appropriate connected websockets (local and cross-instance) or to the running plugins (for internal messages if internal flag is set)
+        route message to appropriate connected websockets (local and cross-instance) or to the running plugins (for internal messages if internal flag is set)
 
         Args:
             data (GulpWsData): The message to broadcast.
@@ -1600,7 +1649,7 @@ class GulpConnectedSockets:
             return
 
         # for broadcast types, publish to Redis so all gulp instances will receive it
-        if data.type in GulpRedisBroker.get_instance().broadcast_types:
+        if data.check_type_in_broadcast_types():
             redis_client = GulpRedis.get_instance()
             message_dict = data.model_dump(exclude_none=True)
             await redis_client.publish(message_dict)
@@ -1615,7 +1664,7 @@ class GulpConnectedSockets:
         for ws_id, connected_socket in socket_items:
             if skip_list and ws_id in skip_list:
                 continue
-            tasks.append(self._route_message(data, connected_socket))
+            tasks.append(self._check_message_routing_rules_and_route(data, connected_socket))
             ws_ids.append(ws_id)
 
         if tasks:
@@ -1646,15 +1695,21 @@ class GulpRedisBroker:
         # these are the fixed broadcast types that are always sent to all connected websockets
         # keep as a set for fast membership checks
         self.broadcast_types: set[str] = {
-            WSDATA_COLLAB_CREATE,
-            WSDATA_COLLAB_UPDATE,
-            WSDATA_COLLAB_DELETE,
+            #WSDATA_COLLAB_CREATE,
+            #WSDATA_COLLAB_UPDATE,
+            #WSDATA_COLLAB_DELETE,
             WSDATA_REBASE_DONE,
             WSDATA_INGEST_SOURCE_DONE,
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,
-        }
+            "note",
+            "link",
+            "highlight",
+            "context",
+            "source"
 
+        }
+        
         # internal state
         self._initialized: bool = True
 
@@ -1900,7 +1955,7 @@ class GulpRedisBroker:
         try:
             wsd = GulpWsData.model_validate(message)
             if channel == GulpRedisChannel.WORKER_TO_MAIN.value:
-                await self._process_message(wsd)
+                await GulpConnectedSockets.get_instance().route_message(wsd)
             elif channel == GulpRedisChannel.BROADCAST.value:
                 # only process if we have this websocket or it's a broadcast type
                 server_id = await redis_client.ws_get_server(wsd.ws_id)
@@ -1908,22 +1963,11 @@ class GulpRedisBroker:
                 # check if this message is for this instance (we have the websocket) or if it's a broadcast type
                 if (
                     server_id == redis_client.server_id
-                    or wsd.type in self.broadcast_types
+                    or wsd.check_type_in_broadcast_types()
                 ):
-                    await self._process_message(wsd)
+                    await GulpConnectedSockets.get_instance().route_message(wsd)
         except Exception as ex:
             MutyLogger.get_instance().error("error processing pubsub message: %s", ex)
-
-    async def _process_message(self, msg: GulpWsData) -> None:
-        """
-        Process a single message and route to appropriate websockets (or internally to plugins).
-
-        Args:
-            msg (GulpWsData): The message to process
-        """
-        cws = GulpConnectedSockets.get_instance().get(msg.ws_id)
-        if cws or msg.internal:
-            await GulpConnectedSockets.get_instance().broadcast_message(msg)
 
     async def _process_client_data_message(self, msg: GulpWsData) -> None:
         """
@@ -2017,11 +2061,11 @@ class GulpRedisBroker:
         message_dict = wsd.model_dump(exclude_none=True)
 
         # determine if this should be broadcast to all instances or just local
-        if wsd.type in self.broadcast_types or wsd.internal:
+        if wsd.check_type_in_broadcast_types() or wsd.internal:
             # handle in this instance
             if GulpProcess.get_instance().is_main_process():
                 # we're in the main process
-                await self._process_message(wsd)
+                await GulpConnectedSockets.get_instance().route_message(wsd)
             else:
                 # we're in a worker, let it pass through redis
                 message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
@@ -2033,7 +2077,7 @@ class GulpRedisBroker:
             await redis_client.publish(message_dict)
         elif GulpProcess.get_instance().is_main_process():
             # main process: directly process locally
-            await self._process_message(wsd)
+            await GulpConnectedSockets.get_instance().route_message(wsd)
         else:
             # worker process: publish to main process of this instance
             message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
@@ -2099,7 +2143,7 @@ class GulpRedisBroker:
 
         # verify websocket is alive (check Redis registry)
 
-        if not force_ignore_missing_ws:
+        if not force_ignore_missing_ws and ws_id:
             if not await GulpConnectedSocket.is_alive(ws_id):
                 raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
         # create the message
