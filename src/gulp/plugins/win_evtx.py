@@ -146,12 +146,9 @@ class Plugin(GulpPluginBase):
                 for key, value in current_value.items():
                     if value is not None:
                         stack.append((value, current_path_segments + [key]))
-            elif isinstance(current_value, list):
-                for i, item in enumerate(current_value):
-                    if item is not None:
-                        stack.append((item, current_path_segments + [str(i)]))
             else:
-                # it's a leaf node
+                # it's a leaf or a list node
+                # list of object cannot managed in unmapped but must to be placed inside nested field
                 if current_value != "":
                     await self._process_leaf(
                         ",,".join(current_path_segments),
@@ -167,11 +164,9 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
 
         event_original: str = record["data"]
-
         # parse record
         js_record = orjson.loads(event_original)
         d = await self._parse_dict(js_record, **kwargs)
-
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)

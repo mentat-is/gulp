@@ -758,8 +758,8 @@ class GulpOpenSearch:
                 "source_id": {"type": "keyword"},
                 "timestamp": {"type": "long"},
                 "timestamp_invalid": {"type": "boolean"},
-                "unmapped": {"type": "flat_object" },
-                "enriched": {"type": "flat_object" },
+                "unmapped": {"type": "flat_object"},
+                "enriched": {"type": "flat_object"},
             }
         }
 
@@ -769,8 +769,8 @@ class GulpOpenSearch:
             # mappings['numeric_detection'] = True
             # mappings['dynamic'] = False
 
-            mappings["numeric_detection"] = False
-            mappings["date_detection"] = False
+            mappings["numeric_detection"] = True
+            mappings["date_detection"] = True
             mappings["properties"]["@timestamp"] = {
                 "type": "date_nanos",
                 "format": "strict_date_optional_time_nanos",
