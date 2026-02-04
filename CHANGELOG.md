@@ -1,10 +1,11 @@
-# v1.5
+# v1.6.0
 
 ## major changes
 
-core: introdu:cing redis instead of a shared multiprocessing queue to exchange messages core<->workers (major speedup and less memory usage!)
+core: introducing redis instead of a shared multiprocessing queue to exchange messages core<->workers (major speedup and less memory usage!)
 core: scaling horizontally using multiple instances of the core running simultaneously
 plugins: allow caching and reusing values through `DocValueCache` in `plugin.py` (major speedup when used properly)
+core: properly structured `GulpDocument`
 api/ws: introducing WebSocket API for real-time ingestion `/ingest_ws_raw` (allow i.e. real-time ingestion from network sensors, try https://github.com/mentat-is/slurp-ebpf)
 
 ## changes/improvements
