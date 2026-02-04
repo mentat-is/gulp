@@ -268,7 +268,7 @@ async def operation_delete_handler(
 
             # delete the operation itself
             MutyLogger.get_instance().info(
-                "deleting operation_id=%s ..." % operation_id
+                "deleting operation_id=%s, ws_id=%s ..." % (operation_id, ws_id)
             )
             await op.delete(sess, ws_id=ws_id, req_id=req_id, user_id=user_id)
 
@@ -710,7 +710,7 @@ async def context_create_handler(
 async def context_update_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
-    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id_optional)]=None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
     description: Annotated[
         Optional[str],

@@ -1214,6 +1214,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             await sess.delete(self)
             await sess.commit()
         except Exception as e:
+            MutyLogger.get_instance().error(e)
             if raise_on_error:
                 raise e
             else:
@@ -1235,6 +1236,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=obj_id, type=self.type)
             data = p.model_dump()
 
+        MutyLogger.get_instance().debug(
+            "notifying websocket of deletion: type=%s, ws_id=%s, data=%s",
+            ws_data_type,
+            ws_id,
+            muty.string.make_shorter(str(data),max_len=260)
+        )
         redis_broker = GulpRedisBroker.get_instance()
         await redis_broker.put(
             t=ws_data_type,

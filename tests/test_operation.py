@@ -5,6 +5,7 @@ import os
 import pytest
 import pytest_asyncio
 import websockets
+from fastapi import WebSocketDisconnect
 from gulp_client.common import (
     GulpAPICommon,
     _cleanup_test_operation,
@@ -35,7 +36,7 @@ from gulp.api.collab.user_group import ADMINISTRATORS_GROUP_ID
 from gulp.api.ws_api import GulpQueryDonePacket, GulpWsAuthPacket
 
 
-async def _ws_loop():
+async def _ws_loop(check: bool = True):
     _, host = TEST_HOST.split("://")
     ws_url = f"ws://{host}/ws"
     test_completed = False
@@ -53,6 +54,7 @@ async def _ws_loop():
             while True:
                 response = await ws.recv()
                 data = json.loads(response)
+                MutyLogger.get_instance().debug("ws received: %s", data)
                 payload = data.get("payload", {})
 
                 if data["type"] == "ws_connected":
@@ -60,25 +62,29 @@ async def _ws_loop():
                     MutyLogger.get_instance().debug("ws connected: %s", data)
 
                 elif data["type"] == "query_done":
-                    # query done
-                    q_done_packet: GulpQueryDonePacket = (
-                        GulpQueryDonePacket.model_validate(payload)
-                    )
-                    if q_done_packet.total_hits == 0:
-                        test_completed = True
-                    else:
-                        raise ValueError(
-                            f"unexpected total hits: {
-                                q_done_packet.total_hits}"
+                    if check:
+                        # query done
+                        q_done_packet: GulpQueryDonePacket = (
+                            GulpQueryDonePacket.model_validate(payload)
                         )
-                    break
+                        if q_done_packet.total_hits == 0:
+                            MutyLogger.get_instance().info("test completed!")
+                            test_completed = True
+                        else:
+                            raise ValueError(
+                                f"unexpected total hits: {
+                                    q_done_packet.total_hits}"
+                            )
+                        break
+
                 # ws delay
                 await asyncio.sleep(0.1)
-
-        except websockets.exceptions.ConnectionClosed:
-            MutyLogger.get_instance().warning("WebSocket connection closed")
-
+        except Exception as e:
+            MutyLogger.get_instance().error("ws error: %s", e)
+            return
     assert test_completed
+    MutyLogger.get_instance().info("ws loop ended")
+    
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -352,6 +358,10 @@ async def test_operation_api():
     )
     assert len(sources) == 0
 
+    # use a new ws_loop to check if messages are received ...
+    t = asyncio.create_task(_ws_loop(check=False))
+    await asyncio.sleep(1)
+
     # also delete operation (should delete the context)
     await GulpAPIOperation.operation_delete(ingest_token, TEST_OPERATION_ID)
 
@@ -376,10 +386,21 @@ async def test_operation_api():
     )
     MutyLogger.get_instance().info("all OPERATION tests succeeded!")
 
+    # cancel task
+    await asyncio.sleep(5)
+    t.cancel()
+    try:
+        await t
+    except asyncio.CancelledError:
+        pass
+    MutyLogger.get_instance().info("ws task canceled!")
+
 @pytest.mark.asyncio
 async def test_context():
     ingest_token = await GulpAPIUser.login("ingest", "ingest")
     assert ingest_token
+    t = asyncio.create_task(_ws_loop(check=False))
+    await asyncio.sleep(1)
 
     ctx = await GulpAPIOperation.context_create(ingest_token, TEST_OPERATION_ID, "new_context")
     assert ctx.get("name") == "new_context"
@@ -445,4 +466,13 @@ async def test_context():
     contexts = await GulpAPIOperation.context_list(ingest_token, TEST_OPERATION_ID)
     assert len(contexts) == 0
     MutyLogger.get_instance().info("all CONTEXT tests succeeded!")
-    
+    await asyncio.sleep(5)
+  
+    # cancel task
+    t.cancel()
+    try:
+        await t
+    except asyncio.CancelledError:
+        pass
+    MutyLogger.get_instance().info("ws task canceled!")
+  

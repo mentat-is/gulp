@@ -145,6 +145,9 @@ class GulpWsData(BaseModel):
         """
         payload: dict = self.payload or {}
         payload_data: dict = payload.get("obj", {})
+        if self.type == WSDATA_COLLAB_DELETE:
+            # special case for delete, as payload is not under "obj"
+            payload_data = payload
 
         if isinstance(payload_data, dict):
             # single
@@ -1740,7 +1743,8 @@ class GulpRedisBroker:
             "link",
             "highlight",
             "context",
-            "source"
+            "source",
+            "operation"
 
         }
         
