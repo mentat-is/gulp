@@ -78,6 +78,8 @@ Requires the following configuration in the GULP configuration file:
 "ai_configuration": {
 	// The default model to use.
 	"default_model": "your_default_model_here",
+	// LLM api base url
+    "api_base_url": "https://openrouter.ai/api/v1",
 	// Insert your OpenRouter API key here.
 	"openrouter_key": "sk-or-your-openrouter-api-key",
 }

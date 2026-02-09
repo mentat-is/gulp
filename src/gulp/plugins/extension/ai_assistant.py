@@ -12,7 +12,8 @@ Requires the following configuration in the GULP configuration file:
 "ai_configuration": {
     // The default model to use.
     "default_model": "your_default_model_here",
-
+    // LLM api base url
+    "api_base_url": "https://openrouter.ai/api/v1",
     // Insert your OpenRouter API key here.
     "openrouter_key": "sk-or-your-openrouter-api-key",
 }
@@ -88,6 +89,7 @@ class Plugin(GulpPluginBase):
 
     _api_key: str = None
     _model: str = None
+    _api_base_url: str = None
 
     _PROMPT = """# Role and Goal
     You are a security analyst. Your task is to analyze a set of log events provided in a JSON array. The logs come from different systems (like firewalls, web servers, and Windows endpoints).
@@ -178,6 +180,9 @@ class Plugin(GulpPluginBase):
             if ai_configuration:
                 self._api_key = ai_configuration.get("openrouter_key", None)
                 self._model = ai_configuration.get("default_model")
+                self._api_base_url = ai_configuration.get(
+                    "api_base_url", "https://openrouter.ai/api/v1"
+                )
             if not self._api_key:
                 raise Exception(
                     "'ai_configuration/openrouter_key' missing in the configuration file!"
@@ -280,7 +285,7 @@ up to 10 dictionary created from GulpDocuments, dictionary must to be contains:
         user_id,
         prompt: str,
     ):
-        url = "https://openrouter.ai/api/v1/chat/completions"
+        url = f"{self._api_base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",

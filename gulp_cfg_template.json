@@ -94,7 +94,7 @@
   "redis_compression_threshold": 256,
   // redis pubsub max chunk size (default=128kb)
   "redis_pubsub_max_chunk_size": 128,
-    // redis url (may be overridden by GULP_REDIS_URL environment variable)
+  // redis url (may be overridden by GULP_REDIS_URL environment variable)
   "redis_url": "redis://:Gulp1234!@localhost:6379/0",
   // delete pending request stats on the collab database on gulp shutdown (default=true)
   "stats_delete_pending_on_shutdown": true,
@@ -122,8 +122,10 @@
   // ai plugin configuration
   "ai_configuration": {
     // The default model to use.
-    "default_model": "your_default_model_here",
+    "default_model": "",
+    // LLM api base url
+    "api_base_url": "https://openrouter.ai/api/v1",
     // Insert your OpenRouter API key here.
-    "openrouter_key": "sk-or-your-openrouter-api-key",
+    "openrouter_key": ""
   }
 }
