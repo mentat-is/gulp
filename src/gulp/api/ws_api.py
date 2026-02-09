@@ -143,7 +143,7 @@ class GulpWsData(BaseModel):
         Returns:
             bool
         """
-        payload: dict = self.payload or {}
+        payload: dict = self.payload if isinstance(self.payload, dict) else {}
         payload_data: dict = payload.get("obj", {})
         if self.type == WSDATA_COLLAB_DELETE:
             # special case for delete, as payload is not under "obj"
