@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     ARRAY,
     BIGINT,
+    Boolean,
     ColumnElement,
     Delete,
     ForeignKey,
@@ -150,7 +151,8 @@ class GulpCollabFilter(BaseModel):
     defines filter to be applied to all objects in the collaboration system.
 
     - custom fields can be provided in addition through model_extra, i.e. GulpCollabFilter(custom_list_field=["val1","val2"], custom_field="myval").
-      if a list is provided, it will match if any of the values match (OR)
+      if a list is provided, it will match if any of the values match (OR).
+      Only string value is allowed
     - wildcards ("*", escape to match literal "*") are supported for most of the strings field except noted.
     - if "grant_user_ids" and/or "grant_user_group_ids" are provided, only objects with the defined grants will be returned.
     - all matches are case insensitive
@@ -290,6 +292,32 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
     @override
     def __str__(self) -> str:
         return self.model_dump_json(exclude_none=True)
+
+    def _bool_case(self, col, value: str) -> ColumnElement[bool]:
+        """
+        Convert string filter value to boolean.
+        Accepts: 'true', 'false', '1', '0' (case-insensitive).
+
+        Args:
+            value: The string value to convert.
+
+        Returns:
+            bool: The converted boolean value.
+
+        Raises:
+            ValueError: If the value cannot be converted to a boolean.
+        """
+        normalized_value = None
+        if isinstance(value, bool):
+            normalized_value = value
+        if isinstance(value, str):
+            if value.lower() in ("true", "1", "yes"):
+                normalized_value = True
+            elif value.lower() in ("false", "0", "no"):
+                normalized_value = False
+        if normalized_value is None:
+            raise ValueError(f"Cannot convert '{value}' to boolean")
+        return col == normalized_value
 
     def _case_insensitive_or_ilike(self, col, values: list) -> ColumnElement[bool]:
         """
@@ -434,9 +462,13 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
 
                     # check if column type is ARRAY using SQLAlchemy's inspection
                     is_array = isinstance(getattr(col, "type", None), ARRAY)
+                    is_bool = isinstance(getattr(col, "type", None), Boolean)
                     if is_array:
                         # if it's an array, use array overlap (matches if any element matches)
                         q = q.filter(self._case_insensitive_or_ilike(k, v))
+                    elif is_bool:
+                        # if it's a boolean column, convert string value to boolean and apply filter
+                        q = q.filter(self._bool_case(col, v))
                     else:
                         # either a simple column, use case insensitive OR ilike match
                         q = q.filter(self._case_insensitive_or_ilike(col, v))
