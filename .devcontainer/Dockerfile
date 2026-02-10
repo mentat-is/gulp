@@ -2,7 +2,9 @@
 FROM mcr.microsoft.com/vscode/devcontainers/python:3.13-bullseye
 
 # Install OS dependencies
-RUN apt update && export DEBIAN_FRONTEND=noninteractive && \
+RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /usr/share/keyrings/yarn-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/yarn-keyring.gpg] https://dl.yarnpkg.com/debian stable main" | tee /etc/apt/sources.list.d/yarn.list > /dev/null && \
+    apt update && export DEBIAN_FRONTEND=noninteractive && \
     apt -y install --no-install-recommends \
     rustc \
     libsystemd-dev \
