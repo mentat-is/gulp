@@ -2,7 +2,7 @@
 A plugin for processing and ingesting ZIP files into GULP.
 
 This plugin extracts files from ZIP archives, processes their metadata, and converts them into GulpDocument objects.
-It supports password-protected ZIP files, custom encoding settings, and hash calculation for extracted content.
+It supports password-protected ZIP files and hash calculation for extracted content.
 
 Features:
 - Extraction of files from ZIP archives
@@ -33,6 +33,7 @@ from gulp.api.collab.stats import (
     SourceCanceledError,
 )
 from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
@@ -58,12 +59,6 @@ class Plugin(GulpPluginBase):
                 name="password",
                 type="str",
                 desc="password to decrypt the zip file",
-            ),
-            GulpPluginCustomParameter(
-                name="encoding",
-                type="str",
-                desc="encoding to use to decode strings",
-                default_value="utf8",
             ),
             GulpPluginCustomParameter(
                 name="hashes",
@@ -196,9 +191,11 @@ class Plugin(GulpPluginBase):
             **kwargs,
         )
 
+        mapping: GulpMapping = self.selected_mapping()
+        encoding = mapping.default_encoding or "utf-8"
+
         keep_files = self._plugin_params.custom_parameters.get("keep_files")
         password = self._plugin_params.custom_parameters.get("password")
-        encoding = self._plugin_params.custom_parameters.get("encoding")
         hashes = self._plugin_params.custom_parameters.get("hashes")
         chunk_size = self._plugin_params.custom_parameters.get("chunk_size")
         doc_idx = 0

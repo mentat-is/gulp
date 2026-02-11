@@ -51,17 +51,6 @@ class Plugin(GulpPluginBase):
         return GulpPluginType.INGESTION
 
     @override
-    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
-        return [
-            GulpPluginCustomParameter(
-                name="encoding",
-                type="str",
-                desc="encoding to use",
-                default_value="utf-8",
-            ),
-        ]
-
-    @override
     async def _record_to_gulp_document(
         self, record: dict[str, Any], record_idx: int, **kwargs
     ) -> GulpDocument:
@@ -150,7 +139,8 @@ class Plugin(GulpPluginBase):
         )
 
         doc_idx = 0
-        encoding = self._plugin_params.custom_parameters.get("encoding")
+        mapping: GulpMapping = self.selected_mapping()
+        encoding = mapping.default_encoding or "utf-8"
         async with aiofiles.open(
             file_path, mode="r", encoding=encoding, newline=""
         ) as f:

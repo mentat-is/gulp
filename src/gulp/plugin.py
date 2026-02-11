@@ -1589,8 +1589,10 @@ class GulpPluginBase(ABC):
                 "plugin %s does not support enrichment" % (self.name)
             )
         if not fields:
-            raise ValueError("enrich_documents: a non-empty fields parameter is mandatory")
-        
+            raise ValueError(
+                "enrich_documents: a non-empty fields parameter is mandatory"
+            )
+
         # initialize these in plugin
         self._user_id = user_id
         self._stats = stats
@@ -1612,18 +1614,10 @@ class GulpPluginBase(ABC):
         for f_name, f_value in fields.items():
             if f_value is None:
                 # field value to be taken from document, must exist
-                qq["query"]["bool"]["should"].append(
-                    {
-                        "exists": {"field": f_name}
-                    }
-                )
+                qq["query"]["bool"]["should"].append({"exists": {"field": f_name}})
             else:
                 # field value provided
-                qq["query"]["bool"]["should"].append(
-                    {
-                        "term": {f_name: f_value}
-                    }
-                )
+                qq["query"]["bool"]["should"].append({"term": {f_name: f_value}})
 
         # check if the caller provided a raw query to be used, if so merge with q
         if q:
@@ -1632,7 +1626,7 @@ class GulpPluginBase(ABC):
             )
             # merge
             qq = GulpQueryHelpers.merge_queries(qq, q)
-        
+
         # check if we must further filter with GulpQUeryFilter
         if flt and not flt.is_empty():
             MutyLogger.get_instance().debug(
@@ -1663,7 +1657,7 @@ class GulpPluginBase(ABC):
             q_options=q_options,
             callback=self._enrich_documents_chunk_wrapper,
             cb_context=cb_context,
-            fields=fields
+            fields=fields,
         )
         # except Exception as ex:
         #     MutyLogger.get_instance().exception(ex)
@@ -1709,7 +1703,9 @@ class GulpPluginBase(ABC):
             )
 
         if not fields:
-            raise ValueError("enrich_single_document: a non-empty fields parameter is mandatory")
+            raise ValueError(
+                "enrich_single_document: a non-empty fields parameter is mandatory"
+            )
 
         self._operation_id = operation_id
         self._index = index
@@ -2126,10 +2122,12 @@ class GulpPluginBase(ABC):
         """
         return self._mappings.get(self._mapping_id, GulpMapping())
 
-    def _build_or_update_enriched_obj(self, doc: dict, k: str, v: Any, skip_none: bool = True) -> dict:
+    def _build_or_update_enriched_obj(
+        self, doc: dict, k: str, v: Any, skip_none: bool = True
+    ) -> dict:
         """
         builds or updates an enriched objject to be set in doc["gulp.enriched"]
-        
+
         Args:
             doc (dict): The document to update.
             k (str): The key to add.
@@ -2153,16 +2151,15 @@ class GulpPluginBase(ABC):
 
         # return the whole { "gulp.enriched": { ... } } node back
         unmapped[unmapped_subkey][k] = v
-        return {
-            unmapped_key: unmapped
-        }
+        return {unmapped_key: unmapped}
 
-    
     @staticmethod
-    def build_or_update_unmapped_obj(doc: dict, k: str, v: Any, skip_none: bool = True) -> dict:
+    def build_or_update_unmapped_obj(
+        doc: dict, k: str, v: Any, skip_none: bool = True
+    ) -> dict:
         """
         builds or updates an unmapped object to be set in doc["gunmapped"]
-        
+
         Args:
             doc (dict): The document to update.
             k (str): The key to add.
@@ -2181,10 +2178,7 @@ class GulpPluginBase(ABC):
 
         # return the whole { "gulp.unmapped": { ... } } node back
         unmapped[k] = v
-        return {
-            unmapped_key: unmapped
-        }
-
+        return {unmapped_key: unmapped}
 
     def _try_map_ecs(
         self,
@@ -2317,6 +2311,20 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug("r_type=%s, successfully mapped dict=%s", r_type, d)
         return d
 
+    def _get_timestamp_format_for_default_timestamp(self):
+        """gets the timestamp format for the default "@timestamp" field in the currently used mapping, if any, by looking in the mapping for the field with ecs="@timestamp" """
+        timestamp_format: str = None
+        mapping = self.selected_mapping()
+        for _,d in mapping.fields.items():
+            d: GulpMappingField
+            if isinstance(d.ecs,str) and d.ecs == "@timestamp":
+                timestamp_format = d.timestamp_format
+                break
+            elif isinstance(d.ecs,list) and "@timestamp" in d.ecs:
+                timestamp_format = d.timestamp_format
+                break
+        return timestamp_format
+    
     async def _process_key(
         self, source_key: str, source_value: Any, doc: dict, **kwargs
     ) -> dict:
@@ -2525,7 +2533,7 @@ class GulpPluginBase(ABC):
             source_value = int(source_value * field_mapping.multiplier)
 
         if is_timestamp:
-            # this field represents a timestamp to be handled
+            # this field represents a timestamp to be handled and turned into nanoseconds-from-unix-epoch
             # NOTE: a field mapped as "@timestamp" (AND ONLY THAT) needs `is_timestamp` set ONLY IF its type is different than `generic` (i.e. if it is a `chrome` or `windows_filetime` timestamp)
             # this is because `@timestamp` is a special field handled directly by the engine.
             if is_timestamp == "chrome":
@@ -2542,8 +2550,10 @@ class GulpPluginBase(ABC):
                 )
                 force_type = "int"
             elif is_timestamp == "generic":
-                # this is a generic timestamp, turn it into a string and nanoseconds. no offset applied here, yet
-                _, ns, _ = GulpDocument.ensure_timestamp(str(source_value))
+                # this is a generic timestamp (string/numeric, mnust be known by python datetime parser), turn it into nanoseconds. no offset applied here, yet
+                _, ns, _ = GulpDocument.ensure_timestamp(
+                    str(source_value), format_string=field_mapping.timestamp_format
+                )
                 source_value = ns
                 force_type = "int"
             else:
@@ -2779,7 +2789,8 @@ class GulpPluginBase(ABC):
         additional_mappings: dict[str, GulpMapping] = None,
     ) -> GulpPluginParameters:
         """
-        ensure plugin_params is not None and optionally set mapping parameters if not already set.
+        ensure plugin_params is not None and has mapping_parameters set, either from plugin_params.mapping_parameters or from the provided mapping_file/mappings/mapping_id/additional_mapping_files/additional_mappings.
+        each parameter is set in plugin_params.mapping_parameters only if plugin_params.mapping_parameters is empty, otherwise it is used to override the corresponding parameter in plugin_params.mapping_parameters.
 
         Args:
             plugin_params (GulpPluginParameters, optional): the plugin parameters. If None, a default one will be created.
@@ -2792,6 +2803,7 @@ class GulpPluginBase(ABC):
             GulpPluginParameters: the ensured plugin parameters.
         """
         if not plugin_params:
+            # initialize as empty
             plugin_params = GulpPluginParameters()
 
         if plugin_params.mapping_parameters.is_empty():
@@ -2974,7 +2986,7 @@ class GulpPluginBase(ABC):
 
     async def _initialize(self, plugin_params: GulpPluginParameters = None) -> None:
         """
-        initialize mapping and plugin custom parameters
+        initialize plugin's copy of mapping and plugin custom parameters with the provided plugin_params or with the default one if not provided.
 
         this sets self._mappings, self._mapping_id, self._plugin_params (the plugin specific parameters), self._index_type_mapping
 

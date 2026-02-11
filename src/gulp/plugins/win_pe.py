@@ -56,12 +56,6 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
-                name="encoding",
-                type="str",
-                desc="encoding to use",
-                default_value="utf-8",
-            ),
-            GulpPluginCustomParameter(
                 name="include_relocations",
                 type="bool",
                 desc="include base relocations information",
@@ -197,7 +191,8 @@ class Plugin(GulpPluginBase):
         entropy_check = self._plugin_params.custom_parameters.get("entropy_checks")
         keep_files: bool = self._plugin_params.custom_parameters.get("keep_files")
         keep_warnings: bool = self._plugin_params.custom_parameters.get("keep_warnings")
-        encoding: str = self._plugin_params.custom_parameters.get("encoding")
+        mapping: GulpMapping = self.selected_mapping()
+        encoding = mapping.default_encoding or "utf-8"
 
         doc_idx = 0
 

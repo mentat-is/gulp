@@ -11,9 +11,6 @@ Features:
 - Preserves original log entries while extracting structured fields
 - Handles file processing asynchronously with proper error handling
 
-The plugin supports custom parameters including:
-- date_format: Format string for parsing date/time fields (default: "%m/%d/%y %H:%M:%S")
-
 Usage:
 This plugin is registered as a GulpPluginType.INGESTION plugin and can be used
 to process IIS access logs through the Gulp ingestion pipeline.
@@ -58,22 +55,6 @@ class Plugin(GulpPluginBase):
         """regex to identify this format"""
         return None
 
-    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
-        return [
-            # GulpPluginCustomParameter(
-            #     name="log_format",
-            #     type="str",
-            #     desc="log format to parse (IIS, W3C or NCSA) defaults to IIS",
-            #     default_value="IIS",
-            # ),
-            GulpPluginCustomParameter(
-                name="date_format",
-                type="str",
-                desc="date format string to use",
-                default_value="%m/%d/%y %H:%M:%S",
-            ),
-        ]
-
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
@@ -104,6 +85,7 @@ class Plugin(GulpPluginBase):
             event[k] = fields[i].lstrip()
 
         d = {}
+  
         # map timestamp manually
         time_str = " ".join([event["Date"], event["Time"]])
         timestamp: str = datetime.datetime.strptime(time_str, date_format).isoformat()
@@ -161,9 +143,8 @@ class Plugin(GulpPluginBase):
             **kwargs,
         )
 
-        date_format = self._plugin_params.custom_parameters.get(
-            "date_format", "%m/%d/%y %H:%M:%S"
-        )
+        # get the timestamp format to be used, or use a default
+        date_format = self._get_timestamp_format_for_default_timestamp() or "%m/%d/%y %H:%M:%S"
         doc_idx = 0
 
         async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:

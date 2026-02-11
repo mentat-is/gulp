@@ -53,18 +53,6 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
-                name="encoding",
-                type="str",
-                desc="encoding to use",
-                default_value=None,
-            ),
-            GulpPluginCustomParameter(
-                name="date_format",
-                type="str",
-                desc="format string to parse the timestamp field, if null try autoparse",
-                default_value=None,
-            ),
-            GulpPluginCustomParameter(
                 name="regex",
                 type="str",
                 desc="regex to apply - must use named groups",
@@ -84,16 +72,12 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
         event: Match = record
         line = kwargs.get("line")
-        date_format = kwargs.get("date_format")
 
         d: dict = {}
         # print("---> mapping = %s" % (self.selected_mapping().model_dump_json(indent=2)))
 
         # map
         rec: dict = event.groupdict()
-        timestamp: str = None
-        if date_format:
-            timestamp = datetime.strptime(rec.pop("timestamp"), date_format).isoformat()
         for k, v in rec.items():
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
@@ -105,7 +89,6 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=line,
             event_sequence=record_idx,
-            timestamp=timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
@@ -153,8 +136,8 @@ class Plugin(GulpPluginBase):
             **kwargs,
         )
 
-        encoding = self._plugin_params.custom_parameters.get("encoding")
-        date_format = self._plugin_params.custom_parameters.get("date_format")
+        mapping: GulpMapping = self.selected_mapping()
+        encoding = mapping.default_encoding or "utf-8"
         flags = self._plugin_params.custom_parameters.get("flags")
         regex = self._plugin_params.custom_parameters.get("regex")
         regex = re.compile(regex, flags)
@@ -179,7 +162,7 @@ class Plugin(GulpPluginBase):
                 m = regex.match(line)
                 if m:
                     await self.process_record(
-                        m, doc_idx, flt=flt, line=line, date_format=date_format
+                        m, doc_idx, flt=flt, line=line
                     )
                 else:
                     # no match

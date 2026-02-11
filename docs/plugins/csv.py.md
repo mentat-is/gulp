@@ -24,8 +24,6 @@ When used in standalone mode (called directly during ingestion), you simply need
 
 The CSV plugin supports the following custom parameters in the `custom_parameters` dictionary:
 
-- `encoding`: Specifies the character encoding to use when opening the file (default="utf-8")
-- `date_format`: Format string to parse the timestamp field; if null, tries autoparse (default=None)
 - `delimiter`: Defines the character used to separate values in the CSV file (default=",")
 - `dialect`: Specifies which of Python's supported CSV dialects to use:
   - 'excel': Standard Excel CSV format (default)

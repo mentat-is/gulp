@@ -24,9 +24,12 @@ from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
 
-from gulp.api.mapping.models import GulpMapping
+from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
 from gulp.structs import GulpPluginParameters, GulpSortOrder
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from gulp.plugin import GulpPluginBase
 
 T = TypeVar("T", bound=GulpBaseDocumentFilter)
 
@@ -185,7 +188,7 @@ class GulpDocument(GulpBasicDocument):
 
     @staticmethod
     def ensure_timestamp(
-        timestamp: str, plugin_params: GulpPluginParameters = None
+        timestamp: str, plugin_params: GulpPluginParameters = None, format_string: str = None
     ) -> tuple[str, int, bool]:
         """
         ensure we have a proper iso8601 timestamp and return the timestamp in nanoseconds from unix epoch.
@@ -197,6 +200,7 @@ class GulpDocument(GulpBasicDocument):
                 - any string format supported by python dateutil.parser
 
             plugin_params (GulpPluginParameters, optional): The plugin parameters, used to get i.e. the timestamp offset if defined. Defaults to None.
+            format_string (str, optional): The format string to use with dateutil.parser.parse. Defaults to None.
         Returns:
             tuple[str, int, bool]: The timestamp in iso8601 format, the timestamp in nanoseconds from unix epoch, and a boolean indicating if the timestamp is invalid.
         """
@@ -209,7 +213,7 @@ class GulpDocument(GulpBasicDocument):
 
         ns: int = 0
         try:
-            ns = muty.time.string_to_nanos_from_unix_epoch(timestamp)
+            ns = muty.time.string_to_nanos_from_unix_epoch(timestamp, format_string=format_string)
 
             # timestamp is epoch or before, that's usually a sign of an invalid timestamp
             if ns <= 0:
@@ -237,7 +241,7 @@ class GulpDocument(GulpBasicDocument):
 
     def __init__(
         self,
-        plugin_instance,
+        plugin_instance: "GulpPluginBase",
         operation_id: str | int,
         event_original: str,
         context_id: str = None,
@@ -329,12 +333,17 @@ class GulpDocument(GulpBasicDocument):
         ts_nanos: int = 0
         invalid: bool = False
 
+        timestamp_format: str = None
         if not timestamp:
-            # if not explicitly passed by the plugin, this is expected to be in **kwargs as "@timestamp" (turned to "timestamp" by GulpDocumentFieldAliasHelper)
+            # if not explicitly passed by the plugin, this is expected to be in **kwargs as "timestamp" (aliased from "@timestamp" by GulpDocumentFieldAliasHelper)
             timestamp: str = data.get("timestamp", 0)
+            if timestamp:
+                # get the timestamp_format corresponding to the currently used mapping, if any
+                timestamp_format = plugin_instance._get_timestamp_format_for_default_timestamp()
 
         ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
-            str(timestamp), plugin_params=plugin_instance._plugin_params
+            str(timestamp), plugin_params=plugin_instance._plugin_params,
+            format_string=timestamp_format,
         )
         data["timestamp"] = ts
         data["gulp_timestamp"] = ts_nanos

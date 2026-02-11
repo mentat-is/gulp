@@ -729,13 +729,12 @@ async def test_lin_syslog():
     MutyLogger.get_instance().info(test_lin_syslog.__name__ + " (auth.log) succeeded!")
 
 
-# @pytest.mark.asyncio
-# disabled for now, too long (it works, anyway)
+@pytest.mark.asyncio
 async def test_json_list():
     current_dir = os.path.dirname(os.path.realpath(__file__))
 
     # list
-    files = [os.path.join(current_dir, "../../samples/json/million_logs.json")]
+    files = [os.path.join(current_dir, "../../samples/json/test_list.json")]
     mp = GulpMappingParameters(
         mappings={
             "test_mapping": GulpMapping(
@@ -747,7 +746,7 @@ async def test_json_list():
         custom_parameters={"mode": "list"},
         mapping_parameters=mp,
     )
-    await _test_ingest_generic(files, "json", 1000000, plugin_params=plugin_params)
+    await _test_ingest_generic(files, "json", 1783, plugin_params=plugin_params)
     MutyLogger.get_instance().info(test_json.__name__ + " (list) succeeded!")
 
 

@@ -27,7 +27,6 @@ When used in standalone mode, the ZIP plugin processes archive files directly, c
 The ZIP plugin supports the following custom parameters in the `custom_parameters` dictionary:
 
 - `password`: Password to decrypt the zip file (default=None)
-- `encoding`: Encoding to use to decode strings (default="utf8")
 - `hashes`: Algorithms to use to calculate hash of zip files content (default=["sha1"])
 - `chunk_size`: Size of chunks used when reading files (default=2048)
 - `keep_files`: If True, event.original will contain the file extracted from the zip (default=False)

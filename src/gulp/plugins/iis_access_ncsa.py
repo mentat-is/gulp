@@ -4,9 +4,6 @@ IIS Access (NCSA) log parser plugin for Gulp.
 This plugin processes IIS access logs in NCSA format, parsing each line
 into structured fields such as remote host, username, timestamp, HTTP verb,
 status code, and bytes sent.
-
-The plugin supports custom date formatting through the 'date_format' parameter,
-defaulting to '%d/%b/%Y:%H:%M:%S %z'.
 """
 
 import datetime
@@ -44,16 +41,6 @@ class Plugin(GulpPluginBase):
     def regex(self) -> str:
         """regex to identify this format"""
         return None
-
-    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
-        return [
-            GulpPluginCustomParameter(
-                name="date_format",
-                type="str",
-                desc="date format string to use",
-                default_value="%d/%b/%Y:%H:%M:%S %z",
-            ),
-        ]
 
     @override
     async def _record_to_gulp_document(
@@ -144,9 +131,8 @@ class Plugin(GulpPluginBase):
             **kwargs,
         )
 
-        date_format = self._plugin_params.custom_parameters.get(
-            "date_format", "%d/%b/%Y:%H:%M:%S %z"
-        )
+        # get the timestamp format to be used, or use a default
+        date_format = self._get_timestamp_format_for_default_timestamp() or "%d/%b/%Y:%H:%M:%S %z"
         doc_idx = 0
         async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
             async for l in log_src:

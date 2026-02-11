@@ -178,6 +178,15 @@ class GulpMappingParameters(BaseModel):
         """
         check if mapping parameters are empty.
 
+        a GulpMappingParameters is considered empty if all of the following are true:
+
+        - `mappings` is empty
+        - `mapping_file` is None or empty
+        - `sigma_mappings` is empty
+        - `mapping_id` is None or empty
+        - `additional_mapping_files` is empty
+        - `additional_mappings` is empty
+
         Returns:
             bool: True if all parameters are None, False otherwise
         """
@@ -188,6 +197,7 @@ class GulpMappingParameters(BaseModel):
             or not self.additional_mapping_files
             or not self.additional_mappings
         ):
+            # we have some mappings
             return False
 
         MutyLogger.get_instance().warning("mapping parameters are empty")

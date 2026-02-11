@@ -8,7 +8,6 @@ request method, path, status, size, referrer, and user agent.
 The plugin supports:
 - Parsing Apache access.log files in CLF format
 - Converting log entries to structured GulpDocument objects
-- Custom date format specification
 - Query parameter extraction from URLs
 - Field normalization for Elasticsearch compatibility
 
@@ -60,22 +59,12 @@ class Plugin(GulpPluginBase):
         """regex to identify this format"""
         return None
 
-    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
-        return [
-            GulpPluginCustomParameter(
-                name="date_format",
-                type="str",
-                desc="server date log format",
-                default_value="%d/%b/%Y:%H:%M:%S %z",
-            ),
-        ]
-
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         pattern = kwargs.get("regex")
-
+        date_format = kwargs.get("date_format")
         matches: re.Match = pattern.match(record.strip("\n"))
         if not matches:
             return None
@@ -111,9 +100,7 @@ class Plugin(GulpPluginBase):
         time_str = event.pop("datetime")
         timestamp = datetime.datetime.strptime(
             time_str,
-            self._plugin_params.custom_parameters.get(
-                "date_format", "%d/%b/%Y:%H:%M:%S %z"
-            ),
+            date_format,
         ).isoformat()
 
         # map
@@ -203,11 +190,13 @@ class Plugin(GulpPluginBase):
         doc_idx = 0
         l: list[dict] = []
 
+        # get the timestamp format to be used, or use a default
+        date_format = self._get_timestamp_format_for_default_timestamp() or "%d/%b/%Y:%H:%M:%S %z"
         async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
             async for l in log_src:
                 l = l.strip()
                 if not l:
                     continue
-                await self.process_record(l, doc_idx, flt=flt, regex=pattern)
+                await self.process_record(l, doc_idx, flt=flt, regex=pattern, date_format=date_format)
                 doc_idx += 1
         return stats.status

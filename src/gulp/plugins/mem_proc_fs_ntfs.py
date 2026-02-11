@@ -14,6 +14,7 @@ from typing import override, Any, Optional
 from muty.log import MutyLogger
 
 from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import (
     GulpPluginBase,
@@ -38,17 +39,6 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S %Z"
 
 
 class Plugin(GulpPluginBase):
-
-    @override
-    def custom_parameters(self) -> list[GulpPluginCustomParameter]:
-        return [
-            GulpPluginCustomParameter(
-                name="encoding",
-                type="str",
-                desc="encoding to use",
-                default_value="utf-8",
-            ),
-        ]
 
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
@@ -146,7 +136,8 @@ class Plugin(GulpPluginBase):
             **kwargs,
         )
         doc_idx = 0
-        encoding = self._plugin_params.custom_parameters.get("encoding")
+        mapping: GulpMapping = self.selected_mapping()
+        encoding = mapping.default_encoding or "utf-8"
         async with aiofiles.open(
             file_path, mode="r", encoding=encoding, newline=""
         ) as f:

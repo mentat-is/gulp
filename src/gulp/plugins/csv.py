@@ -17,7 +17,6 @@ in stacked mode, we simply run the stacked plugin, which in turn use the CSV plu
 
 CSV plugin support the following custom parameters in the plugin_params.extra dictionary:
 
-- `encoding`: encoding to use when opening the file (default="utf-8")
 - `delimiter`: set the delimiter for the CSV file (default=",")
 - `dialect`: python's csv supported dialect to use ('excel', 'excel-tab', 'unix')
 """
@@ -37,6 +36,7 @@ from gulp.api.collab.stats import (
     SourceCanceledError,
 )
 from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
@@ -66,18 +66,6 @@ class Plugin(GulpPluginBase):
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
-                name="encoding",
-                type="str",
-                desc="encoding to use",
-                default_value="utf-8",
-            ),
-            GulpPluginCustomParameter(
-                name="date_format",
-                type="str",
-                desc="format string to parse the timestamp field, if null try autoparse",
-                default_value=None,
-            ),
-            GulpPluginCustomParameter(
                 name="delimiter",
                 type="str",
                 desc="delimiter for the CSV file",
@@ -95,8 +83,6 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: dict, record_idx: int, **kwargs
     ) -> GulpDocument:
-        date_format = kwargs.get("date_format")
-
         # MutyLogger.get_instance().debug("processing record:\n%s" % (orjson.dumps(record, option=orjson.OPT_INDENT_2).decode()))
 
         # get raw csv line (then remove it)
@@ -109,10 +95,6 @@ class Plugin(GulpPluginBase):
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
-        timestamp: str = None
-        if date_format:
-            timestamp = datetime.strptime(d["@timestamp"], date_format).isoformat()
-
         return GulpDocument(
             self,
             operation_id=self._operation_id,
@@ -120,7 +102,6 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=event_original,
             event_sequence=record_idx,
-            timestamp=timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
@@ -159,9 +140,9 @@ class Plugin(GulpPluginBase):
             **kwargs,
         )
 
-        date_format = self._plugin_params.custom_parameters.get("date_format")
+        mapping: GulpMapping = self.selected_mapping()
+        encoding = mapping.default_encoding or "utf-8"
         delimiter = self._plugin_params.custom_parameters.get("delimiter")
-        encoding = self._plugin_params.custom_parameters.get("encoding")
         dialect = self._plugin_params.custom_parameters.get("dialect")
 
         doc_idx: int = 0
@@ -186,7 +167,7 @@ class Plugin(GulpPluginBase):
                 fixed_dict["__line__"] = line[:-1]
 
                 if not await self.process_record(
-                    fixed_dict, doc_idx, flt, date_format=date_format
+                    fixed_dict, doc_idx, flt
                 ):
                     # stop processing (preview mode
                     break

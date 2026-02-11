@@ -4,6 +4,7 @@ import random
 import datetime
 import uuid
 import os
+import argparse
 
 
 def generate_log_record(index, base_time):
@@ -69,4 +70,22 @@ def generate_log_file(num_records, output_file):
 
 
 if __name__ == "__main__":
-    generate_log_file(num_records=1000000, output_file="million_logs.json")
+    parser = argparse.ArgumentParser(description="Generate a JSON list of fake log records")
+    parser.add_argument(
+        "-n",
+        "--num-records",
+        type=int,
+        default=1000000,
+        help="number of records to generate (default: 1000000, 1 million)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        dest="output_file",
+        default="million_logs.json",
+        help='output file path (default: "million_logs.json")',
+    )
+
+    args = parser.parse_args()
+
+    generate_log_file(num_records=args.num_records, output_file=args.output_file)

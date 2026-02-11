@@ -541,6 +541,8 @@ Here's a commented example mapping file, further details in the [model definitio
       "default_context": "my_default_ctx",
       // if the document, in the end of processing, does not have "gulp.source_id" set, a default source is created with this name
       "default_source": "my_default_src",
+      // default encoding for strings for plugins using this mapping (https://docs.python.org/3/library/codecs.html#standard-encodings). if not set, the plugin itself will decide which encoding to use (usually "utf-8"...).
+      "default_encoding": "utf-8",
 
       // "fields" represents the fields (= keys in the source document) to map
       //
@@ -550,7 +552,7 @@ Here's a commented example mapping file, further details in the [model definitio
       // 2. if `flatten_json` is set, processing stops here and the value is a JSON object which fields gets flattened, recursively, as "source_key.field.inner_field.another_inner_field" and such (and each is processed independently then, i.e. can be assigned mapping and options)
       // 3. if `force_type` is set, source[key] value is forced to this type
       // 4. if `multiplier` is set, source[key] value is multiplied by this value.
-      // 5. if `is_timestamp` is set, source[key] value is converted to nanoseconds from the unix epoch according to type ("generic", "chrome", "windows_filetime")
+      // 5. if `is_timestamp` is set, source[key] value is converted to nanoseconds from the unix epoch according to type ("generic", "chrome", "windows_filetime"). if the type is "generic" and "timestamp_format" is set, the given format is used to parse the timestamp string.
       // 6. if 'extra_doc_with_event_code' is set on a field, step 7 is ignored and an additional document is created with the given `event.code` and `@timestamp` set to the value of the field.
       // 7. finally, source[key] value transformed from the steps above is mapped to ECS one or more fields as defined in `ecs`, resulting in one or more fields in the resulting document.
       // 8. in the very end, if "value_aliases" is set, the value is replaced according to the aliases defined in the mapping file before being returned
@@ -561,6 +563,7 @@ Here's a commented example mapping file, further details in the [model definitio
         "TheField": {
           // this may be a string or a []: this allows mapping a single field to one or more target document fields.
           // in this example, whenever in the source document "field" is found, its mapped to "gulp.html.form.field.name" in the resulting document.
+          // NOTE: mapping to "@timestamp" is a special case here since it is used by gulp to set the document timestamp: it is not necessary to specify "is_timestamp" for "@timestamp" since it's implicit, but it is possible to specify "timestamp_format" and "multiplier" if needed.
           "ecs": "gulp.html.form.field.name"
         },
         "value": {
@@ -590,9 +593,10 @@ Here's a commented example mapping file, further details in the [model definitio
         "date_created": {
           // since in gulp every document needs at least a "@timestamp", either it is mapped here to a field or it is the responsibility of the plugin to set it.
           // the engine, with the plugin's cooperation if needed, will take care of the necessary conversion ("@timestamp" is stored as an ISO-8601 string) and also generates `gulp.timestamp` as `nanoseconds from unix epoch`.
+          // NOTE: "@timestamp" supports numeric and standard timestamp strings (as python dateutil parser supports): to support custom time format, also set "timestamp_format" here (for "@timestamp" there is no need to also set "is_timestamp" to "generic" since it's implicit).
           "ecs": "@timestamp",
           // this is a special flag to indicate the **original** timestamp (prior to gulp's processing) is an int or a numeric string and needs to be multiplied: this may also be a fraction (i.e. 0.5) to indicate division.
-          "multiplier": 1000000000
+          "multiplier": 1000000000,
         },
         "a_chrome_timestamp": {
           "ecs": "chrome_ts",
@@ -605,6 +609,12 @@ Here's a commented example mapping file, further details in the [model definitio
           // any of these will be converted to nanoseconds from the unix epoch.
           "is_timestamp": "chrome"
         },
+        "another_timestamp_string": {
+          "ecs": "date.started",
+          "is_timestamp": "generic",
+          // if "timestamp_format" and "is_timestamp is set to "generic", the engine uses this format to parse the timestamp string in the source document: if it failes (or timestamp_format is not set), it falls back to a dateutil parser which supports a wide variety of formats.
+          "timestamp_format": "%Y-%m-%d %H:%M:%S"
+        }
         "date_last_used": {
           // if "extra_doc_with_event_code" is set, this field represents a timestamp and a further document will be generated alongside the `main` document.
           //

@@ -57,7 +57,12 @@ if set, the corresponding value is a JSON object (or string) and will be flatten
             description="if set and > 1, the corresponding value is multiplied by this value.",
         ),
     ] = None
-
+    timestamp_format: Annotated[
+        Optional[str],
+        Field(
+            description="if set, the corresponding value is parsed with this format string using 'dateutil.datetime.strptime' (e.g. `%%Y-%%m-%%d %%H:%%M:%%S` for `2023-01-01 12:00:00`). if not set, the value is parsed with 'dateutil.parser.parse' with default settings.",
+        ),
+    ] = None
     is_timestamp: Annotated[
         Optional[Literal["chrome", "windows_filetime", "generic"]],
         Field(
@@ -111,7 +116,7 @@ class GulpMapping(BaseModel):
     """
     defines a logsource -> gulp document mapping
     """
-
+    
     model_config = ConfigDict(
         extra="allow",
         json_schema_extra={
@@ -197,6 +202,12 @@ class GulpMapping(BaseModel):
         ),
     ] = None
 
+    default_encoding: Annotated[
+        Optional[str],
+        Field(
+            description="if set, this is the encoding the plugin should use when reading the source data to apply this mapping (e.g. when the mapping is applied to a file source). if not set, the plugin uses its default encoding (e.g. utf-8).",
+        ),
+    ] = None
 
 class GulpMappingFileMetadata(BaseModel):
     """
@@ -293,7 +304,7 @@ class GulpMappingFile(BaseModel):
         dict[str, GulpMapping],
         Field(
             ...,
-            description="defined mappings for this mapping file, key is the `mapping_id`",
+            description="defined mappings for this mapping file, each key is a `mapping_id` (i.e. 'windows') that can be used to refer to the mapping in the plugin configuration.",
             min_length=1,
         ),
     ]
