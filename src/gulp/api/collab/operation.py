@@ -216,47 +216,52 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         if not ctx_id:
             ctx_id = GulpContext.make_context_id_key(self.id, name)
 
-        await GulpContext.acquire_advisory_lock(sess, self.id)
+        # Acquire lock for the specific context id. `create_internal` commits the session
+        # (which releases transaction-scoped advisory locks); acquiring the lock on the
+        # `ctx_id` serializes context creation without relying on the operation-level lock
+        # which could be released prematurely by nested commits.
+        async with GulpContext.advisory_lock(sess, ctx_id):
+            # check if context exists
+            ctx: GulpContext = await GulpContext.get_by_id(
+                sess, obj_id=ctx_id, throw_if_not_found=False
+            )
+            if ctx:
+                # release transaction-scoped advisory lock acquired above
+                await sess.commit()
+                # MutyLogger.get_instance().debug(
+                #     "context %s already added to operation %s", name, self.id
+                # )
+                return ctx, False
 
-        # check if context exists
-        ctx: GulpContext = await GulpContext.get_by_id(
-            sess, obj_id=ctx_id, throw_if_not_found=False
-        )
-        if ctx:
-            # MutyLogger.get_instance().debug(
-            #     "context %s already added to operation %s", name, self.id
-            # )
-            return ctx, False
+            # MutyLogger.get_instance().warning("creating new context: %s, id=%s", name, obj_id)
 
-        # MutyLogger.get_instance().warning("creating new context: %s, id=%s", name, obj_id)
+            # create new context and link it to operation
+            ctx = await GulpContext.create_internal(
+                sess,
+                user_id=user_id,
+                name=name,
+                operation_id=self.id,
+                color=color,
+                glyph_id=glyph_id or "Box",
+                obj_id=ctx_id,
+                ws_id=ws_id,
+                req_id=req_id,
+                private=False,
+            )
 
-        # create new context and link it to operation
-        ctx = await GulpContext.create_internal(
-            sess,
-            user_id=user_id,
-            name=name,
-            operation_id=self.id,
-            color=color,
-            glyph_id=glyph_id or "Box",
-            obj_id=ctx_id,
-            ws_id=ws_id,
-            req_id=req_id,
-            private=False,
-        )
+            # add same grants to the context as the operation
+            # TODO: at the moment, keep contexts public (ACL checks are only done operation-wide)
+            # for u in self.granted_user_ids:
+            #     await ctx.add_user_grant(sess, u)
+            # for g in self.granted_user_group_ids:
+            #     await ctx.add_group_grant(sess, g)
+            await sess.commit()
+            await sess.refresh(self)
 
-        # add same grants to the context as the operation
-        # TODO: at the moment, keep contexts public (ACL checks are only done operation-wide)
-        # for u in self.granted_user_ids:
-        #     await ctx.add_user_grant(sess, u)
-        # for g in self.granted_user_group_ids:
-        #     await ctx.add_group_grant(sess, g)
-        await sess.commit()
-        await sess.refresh(self)
-
-        MutyLogger.get_instance().debug(
-            "context %s added to operation %s: %s", name, self.id, ctx
-        )
-        return ctx, True
+            MutyLogger.get_instance().debug(
+                "context %s added to operation %s: %s", name, self.id, ctx
+            )
+            return ctx, True
 
     @override
     async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:

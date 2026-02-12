@@ -206,10 +206,8 @@ class GulpCollab:
         pool_size: int = None
         max_overflow: int = 10
         if GulpConfig.get_instance().postgres_adaptive_pool_size():
-            # pool sizing should be based on per-process concurrency (child concurrency),
-            # not multiplied by number of worker processes. previously this used
-            # total_concurrency = num_tasks_per_worker * num_workers which caused
-            # each worker to create a large pool and ultimately exhaust PG max connections.
+            # derive pool size from the number of tasks per worker, with some reasonable limits to avoid too small or too large pool sizes. 
+            # this is a heuristic and can be adjusted based on performance testing and expected workloads.
             num_tasks_per_worker: int = (
                 GulpConfig.get_instance().concurrency_num_tasks()
             )

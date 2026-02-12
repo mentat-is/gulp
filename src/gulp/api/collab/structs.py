@@ -21,6 +21,7 @@ while inheriting common persistence and access control capabilities.
 """
 
 # pylint: disable=too-many-lines
+from contextlib import asynccontextmanager
 import re
 from enum import StrEnum
 from typing import Annotated, List, Optional, TypeVar, override
@@ -53,6 +54,7 @@ from sqlalchemy import (
     select,
     text,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import (
@@ -926,6 +928,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         ws_data: dict = None,
         req_id: str = None,
         extra_object_data: dict = None,
+        on_conflict: str | None = None,
+        return_conflict_status: bool = False,
         **kwargs,
     ) -> T:
         """
@@ -951,9 +955,15 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ws_data_type (str, optional): this is the type in `GulpWsData.type` sent on the websocket. Defaults to WSDATA_COLLAB_CREATE. Ignored if ws_id is not provided (used only for websocket notification).
             ws_data (dict, optional): value of GulpWsData.payload sent on the websocket. Defaults to the created object.
             extra_object_data (dict, optional): Additional data to include in the object dictionary, to avoid clash with main parameters passed explicitly (i.e. ws_id, ...). Defaults to None.
+            on_conflict (str, optional): conflict handling mode. Supported modes: "do_nothing" (if a conflict occurs, do not insert and return the existing object). Defaults to None (no conflict handling, raise on conflict).
+            return_conflict_status (bool, optional): whether to return a boolean indicating if the object was created or if a conflict occurred (only applicable if `on_conflict` is set). Defaults to False (only return the object).
             **kwargs: Additional attributes to include in the object.
         Returns:
             T: The created instance of the class.
+            or, if on_conflict=="do_nothing" and a conflict occurs (i.e. an object with the same ID already exists):
+            T: The existing instance of the class with the conflicting ID.
+            bool: True if the object was created, False if a conflict occurred and the existing object was returned (only if `return_conflict_status` is True). 
+            
         Raises:
             Exception: If there is an error during the creation or storage process.
         """
@@ -981,25 +991,52 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             "creating object in table=%s, dict=%s", cls.__tablename__, muty.string.make_shorter(str(d),max_len=260)
         )
 
-        # insert the row using core insert so we don't instantiate the mapped class for persistence
-        await cls.acquire_advisory_lock(sess, obj_id)        
-        insert_stmt = insert(cls).values(**d).returning(*cls.__table__.c)
-        # execute the insert and obtain the inserted row
-        res = await sess.execute(insert_stmt)
-        row = res.fetchone()
-        if not row:
-            raise Exception("failed to insert object into table %s" % cls.__tablename__)
+        async with cls.advisory_lock(sess, obj_id):
+            # insert the row using core insert so we don't instantiate the mapped class for persistence
 
-        # build eager loading options and re-query the instance so relationships are loaded via ORM
-        loading_options = cls._build_eager_loading_options()
-        instance = (
-            await sess.execute(
-                select(cls).options(*loading_options).where(cls.id == d["id"])
-            )
-        ).scalar_one()
+            # allow optional conflict-handling modes (only supported mode for now: "do_nothing")
+            if on_conflict == "do_nothing":
+                insert_stmt = (
+                    pg_insert(cls)
+                    .values(**d)
+                    .on_conflict_do_nothing(index_elements=[cls.id.name])
+                    .returning(*cls.__table__.c)
+                )
+            else:
+                insert_stmt = insert(cls).values(**d).returning(*cls.__table__.c)
 
-        # commit the transaction after successful insert + re-query
-        await sess.commit()
+            # execute the insert and obtain the inserted row (row==None may mean conflict when on_conflict=="do_nothing")
+            res = await sess.execute(insert_stmt)
+            row = res.fetchone()
+
+            if not row:
+                if on_conflict == "do_nothing":
+                    # conflict => fetch existing instance and return it (keep consistent commit behaviour)
+                    loading_options = cls._build_eager_loading_options()
+                    instance = (
+                        await sess.execute(
+                            select(cls).options(*loading_options).where(cls.id == d["id"])
+                        )
+                    ).scalar_one_or_none()
+                    if not instance:
+                        raise Exception("failed to create or fetch object %s" % d["id"])
+                    await sess.commit()
+                    if return_conflict_status:
+                        return instance, False
+                    return instance
+                # otherwise raise as before
+                raise Exception("failed to insert object into table %s" % cls.__tablename__)
+
+            # inserted successfully — re-query as ORM instance so relationships are loaded
+            loading_options = cls._build_eager_loading_options()
+            instance = (
+                await sess.execute(
+                    select(cls).options(*loading_options).where(cls.id == d["id"])
+                )
+            ).scalar_one()
+
+            # commit the transaction after successful insert + re-query
+            await sess.commit()
 
         from gulp.api.ws_api import GulpCollabCreatePacket, GulpRedisBroker
 
@@ -1028,6 +1065,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             d=p.model_dump(exclude_none=True, exclude_defaults=True),
             private=private,
         )
+
+        if return_conflict_status:
+            return instance, True
         return instance
 
     @classmethod
@@ -1152,30 +1192,30 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             dict: The updated object as a dictionary.
         """
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        kwargs.pop("id", None)  # id cannot be updated
+        async with self.__class__.advisory_lock(sess, self.id):
+            kwargs.pop("id", None)  # id cannot be updated
 
-        # update vaues skipping None
-        for k, v in kwargs.items():
-            # only update if the value is not None and different from the current value
-            if v is not None and getattr(self, k, None) != v:
-                # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
-                setattr(self, k, v)
+            # update vaues skipping None
+            for k, v in kwargs.items():
+                # only update if the value is not None and different from the current value
+                if v is not None and getattr(self, k, None) != v:
+                    # MutyLogger.get_instance().debug(f"setattr: {k}={v}")
+                    setattr(self, k, v)
 
-        # ensure time_updated is set
-        self.time_updated = muty.time.now_msec()
+            # ensure time_updated is set
+            self.time_updated = muty.time.now_msec()
 
-        private = self.is_private()
-        updated_dict = self.to_dict(nested=True, exclude_none=True)
+            private = self.is_private()
+            updated_dict = self.to_dict(nested=True, exclude_none=True)
 
-        # commit
-        await sess.commit()
-        MutyLogger.get_instance().debug(
-            "---> updated (type=%s, ws_id=%s): %s",
-            self.type,
-            ws_id,
-            muty.string.make_shorter(str(updated_dict),max_len=260)
-        )
+            # commit
+            await sess.commit()
+            MutyLogger.get_instance().debug(
+                "---> updated (type=%s, ws_id=%s): %s",
+                self.type,
+                ws_id,
+                muty.string.make_shorter(str(updated_dict),max_len=260)
+            )
 
         # send update to websocket
         from gulp.api.ws_api import GulpCollabUpdatePacket, GulpRedisBroker
@@ -1235,16 +1275,16 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         obj_id: str = self.id
         operation_id: str = self.operation_id
         try:
-            await self.__class__.acquire_advisory_lock(sess, obj_id)
-            MutyLogger.get_instance().debug(
-                "deleting object %s.%s, operation=%s, ws_id=%s",
-                self.__class__,
-                obj_id,
-                operation_id,
-                ws_id
-            )
-            await sess.delete(self)
-            await sess.commit()
+            async with self.__class__.advisory_lock(sess, obj_id):
+                MutyLogger.get_instance().debug(
+                    "deleting object %s.%s, operation=%s, ws_id=%s",
+                    self.__class__,
+                    obj_id,
+                    operation_id,
+                    ws_id
+                )
+                await sess.delete(self)
+                await sess.commit()
         except Exception as e:
             MutyLogger.get_instance().error(e)
             if raise_on_error:
@@ -1459,19 +1499,19 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # will except if the group do not exist!
         from gulp.api.collab.user_group import GulpUserGroup
 
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        await GulpUserGroup.get_by_id(sess, group_id)
-        if group_id in self.granted_user_group_ids:
-            MutyLogger.get_instance().warning(
-                "user group %s already granted on object %s", group_id, self.id
-            )
-            return
+        async with self.__class__.advisory_lock(sess, self.id):
+            await GulpUserGroup.get_by_id(sess, group_id)
+            if group_id in self.granted_user_group_ids:
+                MutyLogger.get_instance().warning(
+                    "user group %s already granted on object %s", group_id, self.id
+                )
+                return
 
-        MutyLogger.get_instance().debug(
-            "adding granted user group %s to object %s", group_id, self.id
-        )
-        self.granted_user_group_ids.append(group_id)
-        await sess.commit()
+            MutyLogger.get_instance().debug(
+                "adding granted user group %s to object %s", group_id, self.id
+            )
+            self.granted_user_group_ids.append(group_id)
+            await sess.commit()
 
     async def remove_group_grant(self, sess: AsyncSession, group_id: str) -> None:
         """
@@ -1488,20 +1528,20 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # will except if the group do not exist!
         from gulp.api.collab.user_group import GulpUserGroup
 
-        await self.__class__.isory_lock(sess, self.id)
-        await GulpUserGroup.get_by_id(sess, group_id)
-        if group_id not in self.granted_user_group_ids:
-            MutyLogger.get_instance().warning(
-                "user group %s not in granted list on object %s", group_id, self.id
+        async with self.__class__.advisory_lock(sess, self.id):
+            await GulpUserGroup.get_by_id(sess, group_id)
+            if group_id not in self.granted_user_group_ids:
+                MutyLogger.get_instance().warning(
+                    "user group %s not in granted list on object %s", group_id, self.id
+                )
+                return
+
+            MutyLogger.get_instance().info(
+                "removing granted user group %s from object %s", group_id, self.id
             )
-            return
 
-        MutyLogger.get_instance().info(
-            "removing granted user group %s from object %s", group_id, self.id
-        )
-
-        self.granted_user_group_ids.remove(group_id)
-        await sess.commit()
+            self.granted_user_group_ids.remove(group_id)
+            await sess.commit()
 
     async def add_user_grant(self, sess: AsyncSession, user_id: str) -> None:
         """
@@ -1518,20 +1558,20 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # will except if the user do not exist!
         from gulp.api.collab.user import GulpUser
 
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        await GulpUser.get_by_id(sess, user_id)
-        if user_id in self.granted_user_ids:
-            MutyLogger.get_instance().warning(
-                "user %s already granted on object %s", user_id, self.id
+        async with self.__class__.advisory_lock(sess, self.id):
+            await GulpUser.get_by_id(sess, user_id)
+            if user_id in self.granted_user_ids:
+                MutyLogger.get_instance().warning(
+                    "user %s already granted on object %s", user_id, self.id
+                )
+                return
+
+            MutyLogger.get_instance().debug(
+                "adding granted user %s to object %s", user_id, self.id
             )
-            return
 
-        MutyLogger.get_instance().debug(
-            "adding granted user %s to object %s", user_id, self.id
-        )
-
-        self.granted_user_ids.append(user_id)
-        await sess.commit()
+            self.granted_user_ids.append(user_id)
+            await sess.commit()
 
     async def remove_user_grant(self, sess: AsyncSession, user_id: str) -> None:
         """
@@ -1549,20 +1589,20 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # will except if the user do not exist!
         from gulp.api.collab.user import GulpUser
 
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        await GulpUser.get_by_id(sess, user_id)
+        async with self.__class__.advisory_lock(sess, self.id):
+            await GulpUser.get_by_id(sess, user_id)
 
-        if user_id not in self.granted_user_ids:
-            MutyLogger.get_instance().warning(
-                "user %s not in granted list on object %s", user_id, self.id
+            if user_id not in self.granted_user_ids:
+                MutyLogger.get_instance().warning(
+                    "user %s not in granted list on object %s", user_id, self.id
+                )
+                return
+
+            MutyLogger.get_instance().info(
+                "removing granted user %s from object %s", user_id, self.id
             )
-            return
-
-        MutyLogger.get_instance().info(
-            "removing granted user %s from object %s", user_id, self.id
-        )
-        self.granted_user_ids.remove(user_id)
-        await sess.commit()
+            self.granted_user_ids.remove(user_id)
+            await sess.commit()
 
     def is_owner(self, user_id: str) -> bool:
         """
@@ -1626,13 +1666,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         """
 
         # private object = only owner or admin can see it
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        self.granted_user_ids = [self.user_id]
-        self.granted_user_group_ids = []
-        await sess.commit()
-        MutyLogger.get_instance().info(
-            "object %s is now PRIVATE to user %s", self.id, self.user_id
-        )
+        async with self.__class__.advisory_lock(sess, self.id):
+            self.granted_user_ids = [self.user_id]
+            self.granted_user_group_ids = []
+            await sess.commit()
+            MutyLogger.get_instance().info(
+                "object %s is now PRIVATE to user %s", self.id, self.user_id
+            )
 
     async def make_public(self, sess: AsyncSession) -> None:
         """
@@ -1644,12 +1684,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         Returns:
             None
         """
-        await self.__class__.acquire_advisory_lock(sess, self.id)
-        # clear all granted users and groups
-        self.granted_user_group_ids = []
-        self.granted_user_ids = []
-        await sess.commit()
-        MutyLogger.get_instance().info("object %s is now PUBLIC", self.id)
+        async with self.__class__.advisory_lock(sess, self.id):
+            # clear all granted users and groups
+            self.granted_user_group_ids = []
+            self.granted_user_ids = []
+            await sess.commit()
+            MutyLogger.get_instance().info("object %s is now PUBLIC", self.id)
 
     @staticmethod
     def object_type_to_class(collab_type: str) -> T:
@@ -1703,6 +1743,27 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         except OperationalError as e:
             MutyLogger.get_instance().error("failed to acquire advisory lock: %s", e)
             raise e
+
+    @classmethod
+    @asynccontextmanager
+    async def advisory_lock(cls, sess: AsyncSession, obj_id: str):
+        """Context manager that acquires an advisory lock and guarantees rollback
+        on exception so the transaction-scoped advisory lock is always released.
+
+        Usage:
+            async with MyModel.advisory_lock(sess, obj_id):
+                # protected work
+
+        This preserves the existing `acquire_advisory_lock` API for callers that
+        need the raw lock call.
+        """
+        await cls.acquire_advisory_lock(sess, obj_id)
+        try:
+            yield
+        except Exception:
+            # ensure transaction-scoped advisory lock is released on error
+            await sess.rollback()
+            raise
 
     @staticmethod
     async def get_obj_id_by_table(

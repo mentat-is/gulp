@@ -115,39 +115,41 @@ class GulpSourceFieldTypes(GulpCollabBase, type=COLLABTYPE_SOURCE_FIELD_TYPES):
         """
         obj_id = muty.crypto.hash_xxh128(f"{operation_id}{context_id}{source_id}")
 
-        await GulpSourceFieldTypes.acquire_advisory_lock(sess, obj_id)
-
-        # check if the the source fields entry already exists
-        src_field_types: GulpSourceFieldTypes = await cls.get_by_id(
-            sess, obj_id, throw_if_not_found=False
-        )
-        # create or get deduplicated entry for these field_types
+        # Prepare/get deduplicated field-types entry before acquiring the object lock.
+        # `create_if_not_exists` may commit internally; doing it first avoids a nested
+        # commit that would release transaction-scoped locks acquired on `obj_id`.
         from gulp.api.collab.field_types_entry import GulpFieldTypesEntry
 
         entry, created = await GulpFieldTypesEntry.create_if_not_exists(
             sess, field_types, user_id
         )
 
-        if src_field_types:
-            # already exists, update it to point to the deduplicated entry
-            MutyLogger.get_instance().debug(
-                "---> updating source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
-                obj_id,
-                operation_id,
-                context_id,
-                source_id,
-                len(field_types),
+        async with GulpSourceFieldTypes.advisory_lock(sess, obj_id):
+            # check if the the source fields entry already exists
+            src_field_types: GulpSourceFieldTypes = await cls.get_by_id(
+                sess, obj_id, throw_if_not_found=False
             )
-            # prefer writing the reference id; keep legacy field_types column untouched for now
-            src_field_types.field_types_id = entry.id
-            await src_field_types.update(sess)
-            # return expanded dict representation
-            d = src_field_types.to_dict()
-            d["field_types"] = entry.field_types
 
-            # when updating, layout may have changed so check for orphaned entries to delete in the deduplicated table
-            await GulpFieldTypesEntry.delete_orphaned(sess)
-            return d
+            if src_field_types:
+                # already exists, update it to point to the deduplicated entry
+                MutyLogger.get_instance().debug(
+                    "---> updating source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fields=%d",
+                    obj_id,
+                    operation_id,
+                    context_id,
+                    source_id,
+                    len(field_types),
+                )
+                # prefer writing the reference id; keep legacy field_types column untouched for now
+                src_field_types.field_types_id = entry.id
+                await src_field_types.update(sess)
+                # return expanded dict representation
+                d = src_field_types.to_dict()
+                d["field_types"] = entry.field_types
+
+                # when updating, layout may have changed so check for orphaned entries to delete in the deduplicated table
+                await GulpFieldTypesEntry.delete_orphaned(sess)
+                return d
 
         MutyLogger.get_instance().debug(
             "---> create source_field_types: id=%s, operation_id=%s, context_id=%s, source_id=%s, # of fieldtypes=%d",

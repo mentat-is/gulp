@@ -108,8 +108,6 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         try:
             from gulp.api.collab.user import GulpUser
 
-            # await GulpUserSession.acquire_advisory_lock(sess, "admin")
-
             # the "admin" user always exists
             admin_user: GulpUser = await GulpUser.get_by_id(sess, obj_id="admin")
             if admin_user.session:
@@ -124,7 +122,6 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
             return admin_session
         finally:
             pass
-            # await GulpUserSession.release_advisory_lock(sess, "admin")
 
     async def update_expiration_time(
         self, sess: AsyncSession, is_admin: bool, update_id: bool = False

@@ -234,7 +234,7 @@ async def _query_raw_chunk_callback(
 
 async def run_query_task(t: dict) -> None:
     """
-    runs in a worker process and executes a queued query task.
+    runs in a worker process and executes a queued query task, which may contain one or more queries.
 
     Expected task dict (same shape used by enqueue in handlers):
       {
@@ -470,6 +470,112 @@ async def run_query(
         )
 
 
+async def run_query_batch(
+    user_id: str,
+    req_id: str,
+    operation_id: str,
+    ws_id: str,
+    queries: list[dict] | list[GulpQuery],
+    q_options: GulpQueryParameters | dict,
+    index: str = None,
+    plugin: str = None,
+    plugin_params: GulpPluginParameters | dict = None,
+    ignore_failures: bool = False,
+) -> list[tuple[int, int, str, bool] | Exception]:
+    """Run a list of queries inside a single worker process.
+
+    Returns a list with one entry per query: either (processed, hits, q_name, canceled)
+    or an Exception instance for that query.
+    This function also performs the aggregated stats update for non-external queries.
+    """
+    MutyLogger.get_instance().debug(
+        "---> run_query_batch: user_id=%s, req_id=%s, operation_id=%s, ws_id=%s, num_queries=%d",
+        user_id,
+        req_id,
+        operation_id,
+        ws_id,
+        len(queries),
+    )
+
+    # normalize inputs
+    q_options_input = (
+        GulpQueryParameters.model_validate(q_options)
+        if isinstance(q_options, dict)
+        else q_options
+    )
+    plugin_params_input = (
+        GulpPluginParameters.model_validate(plugin_params)
+        if isinstance(plugin_params, dict)
+        else plugin_params
+    )
+
+    per_query_results: list[tuple[int, int, str, bool] | Exception] = []
+
+    # execute each query sequentially inside this worker (keeps per-query websocket packets unchanged)
+    for q_item in queries:
+        try:
+            gq = (
+                GulpQuery.model_validate(q_item)
+                if isinstance(q_item, dict)
+                else q_item
+            )
+        except Exception as ex:
+            MutyLogger.get_instance().exception("invalid query in batch: %s", ex)
+            per_query_results.append(ex)
+            continue
+
+        # copy q_options and set per-query name
+        q_opts = deepcopy(q_options_input)
+        q_opts.name = gq.q_name
+
+        try:
+            # reuse run_query worker logic (runs the single query and emits WSDATA_QUERY_DONE)
+            res = await run_query(
+                user_id=user_id,
+                req_id=req_id,
+                operation_id=operation_id,
+                ws_id=ws_id,
+                gq=gq,
+                q_options=q_opts,
+                index=index,
+                plugin=plugin,
+                plugin_params=plugin_params_input,
+            )
+            per_query_results.append(res)
+        except Exception as ex:
+            MutyLogger.get_instance().exception("error running query in batch: %s", ex)
+            per_query_results.append(ex)
+            # continue to next query
+
+    # aggregated stats update for non-external (opensearch) queries
+    if not plugin:
+        try:
+            async with GulpCollab.get_instance().session() as sess:
+                stats = await GulpRequestStats.get_by_id(sess, req_id)
+                if stats:
+                    total_hits = sum(r[1] for r in per_query_results if isinstance(r, tuple))
+                    completed = sum(r[0] for r in per_query_results if isinstance(r, tuple))
+                    errors = [muty.log.exception_to_string(r) for r in per_query_results if isinstance(r, Exception)]
+                    try:
+                        await stats.update_query_stats(
+                            sess,
+                            user_id=user_id,
+                            ws_id=ws_id,
+                            hits=total_hits,
+                            inc_completed=completed,
+                            errors=errors,
+                            ignore_failures=ignore_failures,
+                        )
+                    except WebSocketDisconnect:
+                        # ignore if force_ignore_missing_ws is set
+                        if not q_options_input.force_ignore_missing_ws:
+                            raise
+        except Exception:
+            MutyLogger.get_instance().exception("error updating aggregated stats in run_query_batch")
+
+    return per_query_results
+
+
 async def process_queries(
     sess: AsyncSession,
     user_id: str,
@@ -485,7 +591,7 @@ async def process_queries(
     ignore_failures: bool = False,
 ) -> bool:
     """
-    runs in a background task and spawns workers to process queries, batching them if needed.
+    runs in a background task and spawns workers to process (one or more) queries, batching them if needed.
 
     index, plugin, plugin_params are used for external queries only
 
@@ -569,7 +675,7 @@ async def process_queries(
                 u: GulpUser = await GulpUser.get_by_id(sess, user_id)
                 await u.add_query_history_entry_batch(sess, history)
 
-        # 2. batch queries and gather results: spawn a worker for each query and wait them all.
+        # 2. batch queries and gather results: submit the whole batch to a single worker (worker will run each query)
         # NOTE: for query_external, we will always have just one query to run
         batch_size: int = len(queries)
         if len(queries) > GulpConfig.get_instance().concurrency_num_tasks():
@@ -584,50 +690,59 @@ async def process_queries(
         results: list[tuple[int, int, str, bool] | Exception] = []
         matched_queries: dict[str, int] = {}
         for i in range(0, len(queries), batch_size):
-            # run one batch
+            # run one batch entirely inside a single worker process
             batch: list[GulpQuery] = queries[i : i + batch_size]
-            coros = []
-            for gq in batch:
-                q_opts = deepcopy(
-                    q_options
-                )  # we must copy and put the query name, the rest of the structure is unchanged for every query
-                q_opts.name = gq.q_name
-                run_query_args = dict(
-                    user_id=user_id,
-                    req_id=req_id,
-                    operation_id=operation_id,
-                    ws_id=ws_id,
-                    gq=gq,
-                    q_options=q_opts,
-                    index=index,
-                    plugin=plugin,
-                    plugin_params=plugin_params,
-                )
-                # MutyLogger.get_instance().debug("about to run _run_query with: %s", run_query_args)
-                coros.append(
-                    GulpProcess.get_instance().process_pool.apply(
-                        run_query, kwds=run_query_args
-                    )
-                )
 
-            # gather results for this batch and accumulate
+            # prepare payloads for the worker
+            run_query_batch_args = dict(
+                user_id=user_id,
+                req_id=req_id,
+                operation_id=operation_id,
+                ws_id=ws_id,
+                queries=[q.model_dump(exclude_none=True) for q in batch],
+                q_options=q_options.model_dump(exclude_none=True),
+                index=index,
+                plugin=plugin,
+                plugin_params=(plugin_params.model_dump(exclude_none=True) if plugin_params else None),
+                ignore_failures=ignore_failures,
+            )
+
+            # submit a single worker task for the whole batch
+            coros = [
+                GulpProcess.get_instance().process_pool.apply(
+                    run_query_batch, kwds=run_query_batch_args
+                )
+            ]
+
+            # gather results for this batch (worker returns a list of per-query results)
             batching_step_reached = True
             MutyLogger.get_instance().debug(
-                "gathering results for %d queries ...", len(coros)
+                "gathering results for batch of %d queries ...", len(batch)
             )
             batch_res = await asyncio.gather(*coros, return_exceptions=True)
-            results.extend(batch_res)
 
-            # check results
+            # the worker should return a list of results (one entry per query)
+            if batch_res and isinstance(batch_res[0], list):
+                per_query_results = batch_res[0]
+            elif batch_res and isinstance(batch_res[0], Exception):
+                # worker-level exception: treat whole batch as failed
+                per_query_results = [batch_res[0]]
+            else:
+                # unexpected shape
+                per_query_results = batch_res
+
+            # extend global results with per-query results
+            for r in per_query_results:
+                results.append(r)
+
+            # aggregate per-query results for local handling (group match, cancellation, errors)
             total_hits: int = 0
             total_processed: int = 0
             errors: list[str] = []
-            for r in batch_res:
+            for r in per_query_results:
                 if isinstance(r, tuple) and len(r) == 4:
-                    # we have a result
                     processed, hits, q_name, canceled = r
                     if hits > 0 and q_options.group:
-                        # increment matches for this query
                         if not matched_queries.get(q_name):
                             matched_queries[q_name] = 0
                         MutyLogger.get_instance().debug(
@@ -638,38 +753,18 @@ async def process_queries(
                     total_processed += processed
                     total_hits += hits
                     if canceled:
-                        # the whole request has been canceled
                         req_canceled = True
                 elif isinstance(r, Exception):
-                    # we have an error
                     if "RequestCanceledError" in str(r):
-                        # request is canceled
                         req_canceled = True
 
                     err = muty.log.exception_to_string(r)
                     if err not in errors:
                         errors.append(err)
 
-            if not plugin and stats:
-                # for default (non-external queries), update request stats, will auto-finalize the stats when completion is detected (all queries completed or request canceled)
-                # in external queries, stats is updated by the ingestion loop
-                try:
-                    await stats.update_query_stats(
-                        sess,
-                        user_id=user_id,
-                        ws_id=ws_id,
-                        hits=total_hits,
-                        inc_completed=len(coros),
-                        errors=errors,
-                        ignore_failures=ignore_failures,
-                    )
-                except WebSocketDisconnect:
-                    # ignore if force_ignore_missing_ws is set
-                    if not q_options.force_ignore_missing_ws:
-                        raise
+            # NOTE: stats update for non-external queries is performed inside the worker (aggregated)
 
             if req_canceled:
-                # request is canceled, stop processing more batches
                 MutyLogger.get_instance().warning(
                     "request canceled, stop processing batches!"
                 )

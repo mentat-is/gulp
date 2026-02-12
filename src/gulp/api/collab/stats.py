@@ -294,43 +294,44 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 time_expire = time_updated + msecs_to_expiration
             # MutyLogger.get_instance().debug("now=%s, setting stats %s time_expire to %s", time_updated, req_id, time_expire)
 
-        await GulpRequestStats.acquire_advisory_lock(sess, req_id)
-
-        # check if the stats already exists
-        stats: GulpRequestStats = await cls.get_by_id(
-            sess, obj_id=req_id, throw_if_not_found=False
-        )
-        if stats:
-            MutyLogger.get_instance().debug(
-                "---> create_or_get_existing: req_id=%s, already existing, updating...",
-                req_id,
+        async with cls.advisory_lock(sess, req_id):
+            # check if the stats already exists
+            stats: GulpRequestStats = await cls.get_by_id(
+                sess, obj_id=req_id, throw_if_not_found=False
             )
-            if stats.req_type == RequestStatsType.REQUEST_TYPE_QUERY.value and data:
-                # update data
-                existing_d = GulpQueryStats.model_validate(stats.data)
-                new_d = GulpQueryStats.model_validate(data)
-                if existing_d and new_d:
-                    # existing_d.num_queries += new_d.num_queries
-                    existing_d.completed_queries += new_d.completed_queries                    
-                    existing_d.failed_queries += new_d.failed_queries
-                    stats.data = existing_d.model_dump()                    
-
-            if stats.status != GulpRequestStatus.ONGOING.value:
-                MutyLogger.get_instance().warning(
-                    "existing stats %s is already finished with status=%s, not updating status or expiration time",
+            if stats:
+                MutyLogger.get_instance().debug(
+                    "---> create_or_get_existing: req_id=%s, already existing, updating...",
                     req_id,
-                    stats.status,
                 )
+                if stats.req_type == RequestStatsType.REQUEST_TYPE_QUERY.value and data:
+                    # update data
+                    existing_d = GulpQueryStats.model_validate(stats.data)
+                    new_d = GulpQueryStats.model_validate(data)
+                    if existing_d and new_d:
+                        # existing_d.num_queries += new_d.num_queries
+                        existing_d.completed_queries += new_d.completed_queries                    
+                        existing_d.failed_queries += new_d.failed_queries
+                        stats.data = existing_d.model_dump()                    
+
+                if stats.status != GulpRequestStatus.ONGOING.value:
+                    MutyLogger.get_instance().warning(
+                        "existing stats %s is already finished with status=%s, not updating status or expiration time",
+                        req_id,
+                        stats.status,
+                    )
+                    # release transaction-scoped advisory lock acquired above
+                    await sess.commit()
+                    return stats, False
+                
+                # update existing stats as ongoing, and update time_expire if needed
+                stats.status = GulpRequestStatus.ONGOING.value
+                stats.time_updated = time_updated
+                stats.time_finished = 0
+                if time_expire > 0:
+                    stats.time_expire = time_expire
+                await stats.update(sess, ws_id=ws_id, req_id=req_id, user_id=user_id)
                 return stats, False
-            
-            # update existing stats as ongoing, and update time_expire if needed
-            stats.status = GulpRequestStatus.ONGOING.value
-            stats.time_updated = time_updated
-            stats.time_finished = 0
-            if time_expire > 0:
-                stats.time_expire = time_expire
-            await stats.update(sess, ws_id=ws_id, req_id=req_id, user_id=user_id)
-            return stats, False
 
         # create new
         try:
@@ -407,30 +408,29 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         Returns:
             dict: the updated stats
         """
-        await GulpRequestStats.acquire_advisory_lock(sess, self.id)
+        async with self.__class__.advisory_lock(sess, self.id):
+            if status:
+                # force this status
+                self.status = status.value
+            self.time_finished = muty.time.now_msec()
+            if errors:
+                # add errors
+                self.errors.extend(errors or [])
+            if time_expire:
+                self.time_expire = time_expire
+            if data:
+                self.data = data
 
-        if status:
-            # force this status
-            self.status = status.value
-        self.time_finished = muty.time.now_msec()
-        if errors:
-            # add errors
-            self.errors.extend(errors or [])
-        if time_expire:
-            self.time_expire = time_expire
-        if data:
-            self.data = data
-
-        MutyLogger.get_instance().info(
-            "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
-            self.status,
-            (self.time_finished - self.time_created)
-            // 1000,  # time elapsed in seconds
-            self,
-        )
-        return await self.update(
-            sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
-        )
+            MutyLogger.get_instance().info(
+                "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
+                self.status,
+                (self.time_finished - self.time_created)
+                // 1000,  # time elapsed in seconds
+                self,
+            )
+            return await self.update(
+                sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            )
 
     async def set_canceled(
         self,
@@ -523,90 +523,82 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             dict: the updated stats
         """
         # more than one process may be working on this request (multiple ingestion with the same req_id)
-        await GulpRequestStats.acquire_advisory_lock(sess, self.id)
-        await sess.refresh(self)
-        # if self.status != GulpRequestStatus.ONGOING.value:
-        #     MutyLogger.get_instance().warning(
-        #         "UPDATE IGNORED! request %s is already done/failed/canceled, status=%s",
-        #         self.id,
-        #         self.status,
-        #     )
-        #     await sess.commit()  # release the lock
-        #     return self.to_dict()
+        async with self.__class__.advisory_lock(sess, self.id):
+            await sess.refresh(self)
 
-        # update
-        if errors:
-            for e in errors:
-                if isinstance(e, Exception):
-                    e = muty.log.exception_to_string(e)
-                if e not in self.errors:
-                    self.errors.append(e)
+            # update
+            if errors:
+                for e in errors:
+                    if isinstance(e, Exception):
+                        e = muty.log.exception_to_string(e)
+                    if e not in self.errors:
+                        self.errors.append(e)
 
-        d: GulpIngestionStats = (
-            GulpIngestionStats.model_validate(self.data) or GulpIngestionStats()
-        )
-        d.records_ingested += records_ingested
-        d.records_skipped += records_skipped
-        d.records_processed += records_processed
-        d.records_failed += records_failed
-        if source_finished or set_expiration:
-            # this request is done, compute status value
-            d.source_processed += 1
-            if status and status in [GulpRequestStatus.FAILED.value, GulpRequestStatus.CANCELED.value,]:
-                # if the request is canceled or failed, mark one more source as failed
-                d.source_failed += 1
-
-            MutyLogger.get_instance().debug("source_processed=%d, source_total=%d for request %s", d.source_processed, d.source_total, self.id) 
-            if d.source_processed >= d.source_total or ws_disconnected:
-                MutyLogger.get_instance().debug(
-                    "all sources processed for request %s, processed=%d, total=%d (ws_disconnected=%r)",
-                    self.id,
-                    d.source_processed,
-                    d.source_total,
-                    ws_disconnected,
-                )
-                
-                # request is finished
-                self.time_finished = muty.time.now_msec()
-
-                # do not change status if it is canceled
-                if self.status != GulpRequestStatus.CANCELED.value:
-                    if d.source_failed == d.source_total:
-                        # if all sources failed, mark the request as failed
-                        MutyLogger.get_instance().error(
-                            "all sources failed for request %s, marking as FAILED",
-                            self.id,
-                        )
-                        self.status = GulpRequestStatus.FAILED.value
-                    else:
-                        self.status = GulpRequestStatus.DONE.value
-                    if status:
-                        # force set status
-                        self.status = status.value
-
-            if set_expiration:
-                # set expiration time based on config
-                MutyLogger.get_instance().debug(
-                    "setting expiration after completion of request %s", self.id
-                )
-                msecs_to_expiration: int = (
-                    GulpConfig.get_instance().stats_ttl() * 1000
-                )
-                if msecs_to_expiration > 0:
-                    self.time_expire = muty.time.now_msec() + msecs_to_expiration
-
-        self.data = d.model_dump()
-        if self.status != GulpRequestStatus.ONGOING.value:
-            MutyLogger.get_instance().info(
-                "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
-                self.status,
-                (self.time_finished - self.time_created) // 1000,
-                self,
+            d: GulpIngestionStats = (
+                GulpIngestionStats.model_validate(self.data) or GulpIngestionStats()
             )
+            d.records_ingested += records_ingested
+            d.records_skipped += records_skipped
+            d.records_processed += records_processed
+            d.records_failed += records_failed
+            if source_finished or set_expiration:
+                # this request is done, compute status value
+                d.source_processed += 1
+                if status and status in [GulpRequestStatus.FAILED.value, GulpRequestStatus.CANCELED.value,]:
+                    # if the request is canceled or failed, mark one more source as failed
+                    d.source_failed += 1
 
-        return await super().update(
-            sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
-        )
+                MutyLogger.get_instance().debug("source_processed=%d, source_total=%d for request %s", d.source_processed, d.source_total, self.id) 
+                if d.source_processed >= d.source_total or ws_disconnected:
+                    MutyLogger.get_instance().debug(
+                        "all sources processed for request %s, processed=%d, total=%d (ws_disconnected=%r)",
+                        self.id,
+                        d.source_processed,
+                        d.source_total,
+                        ws_disconnected,
+                    )
+                    
+                    # request is finished
+                    self.time_finished = muty.time.now_msec()
+
+                    # do not change status if it is canceled
+                    if self.status != GulpRequestStatus.CANCELED.value:
+                        if d.source_failed == d.source_total:
+                            # if all sources failed, mark the request as failed
+                            MutyLogger.get_instance().error(
+                                "all sources failed for request %s, marking as FAILED",
+                                self.id,
+                            )
+                            self.status = GulpRequestStatus.FAILED.value
+                        else:
+                            self.status = GulpRequestStatus.DONE.value
+                        if status:
+                            # force set status
+                            self.status = status.value
+
+                if set_expiration:
+                    # set expiration time based on config
+                    MutyLogger.get_instance().debug(
+                        "setting expiration after completion of request %s", self.id
+                    )
+                    msecs_to_expiration: int = (
+                        GulpConfig.get_instance().stats_ttl() * 1000
+                    )
+                    if msecs_to_expiration > 0:
+                        self.time_expire = muty.time.now_msec() + msecs_to_expiration
+
+            self.data = d.model_dump()
+            if self.status != GulpRequestStatus.ONGOING.value:
+                MutyLogger.get_instance().info(
+                    "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
+                    self.status,
+                    (self.time_finished - self.time_created) // 1000,
+                    self,
+                )
+
+            return await super().update(
+                sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            )
     async def update_updatedocuments_stats(
         self,
         sess: AsyncSession,
@@ -633,40 +625,40 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         Returns:
             dict: the updated stats
         """
-        await GulpRequestStats.acquire_advisory_lock(sess, self.id)
-        await sess.refresh(self)
+        async with self.__class__.advisory_lock(sess, self.id):
+            await sess.refresh(self)
 
-        # update
-        d: GulpUpdateDocumentsStats = (
-            GulpUpdateDocumentsStats.model_validate(self.data)
-            or GulpUpdateDocumentsStats()
-        )
-        d.updated += updated
-        d.total_hits = total_hits
-        if errors:
-            for e in errors:
-                if e not in self.errors:
-                    self.errors.append(e)
-        if flt:
-            d.flt = GulpQueryFilter.model_validate(flt.model_dump())
-        if last:
-            # last update, finalize stats
-            if self.status != GulpRequestStatus.CANCELED.value:
-                if d.updated < d.total_hits and self.errors:
-                    self.status = GulpRequestStatus.FAILED.value
-                else:
-                    self.status = GulpRequestStatus.DONE.value
-            self.time_finished = muty.time.now_msec()
-            MutyLogger.get_instance().info(
-                "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
-                self.status,
-                (self.time_finished - self.time_created) // 1000,
-                self,
+            # update
+            d: GulpUpdateDocumentsStats = (
+                GulpUpdateDocumentsStats.model_validate(self.data)
+                or GulpUpdateDocumentsStats()
             )
-        self.data = d.model_dump()
-        return await super().update(
-            sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
-        )
+            d.updated += updated
+            d.total_hits = total_hits
+            if errors:
+                for e in errors:
+                    if e not in self.errors:
+                        self.errors.append(e)
+            if flt:
+                d.flt = GulpQueryFilter.model_validate(flt.model_dump())
+            if last:
+                # last update, finalize stats
+                if self.status != GulpRequestStatus.CANCELED.value:
+                    if d.updated < d.total_hits and self.errors:
+                        self.status = GulpRequestStatus.FAILED.value
+                    else:
+                        self.status = GulpRequestStatus.DONE.value
+                self.time_finished = muty.time.now_msec()
+                MutyLogger.get_instance().info(
+                    "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
+                    self.status,
+                    (self.time_finished - self.time_created) // 1000,
+                    self,
+                )
+            self.data = d.model_dump()
+            return await super().update(
+                sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            )
 
     async def update_query_stats(
         self,
@@ -694,55 +686,55 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         Returns:
             dict: the updated stats
         """
-        await GulpRequestStats.acquire_advisory_lock(sess, self.id)
-        await sess.refresh(self)
+        async with self.__class__.advisory_lock(sess, self.id):
+            await sess.refresh(self)
 
-        # update
-        d: GulpQueryStats = (
-            GulpQueryStats.model_validate(self.data) or GulpQueryStats()
-        )
-
-        d.total_hits += hits
-        if errors:
-            for e in errors:
-                if e not in self.errors:
-                    self.errors.append(e)
-        if self.status != GulpRequestStatus.CANCELED.value:
-            # some queries completed
-            d.completed_queries += inc_completed
-            d.failed_queries += len(errors or [])
-
-            MutyLogger.get_instance().info(
-                "**QUERY REQ=%s num queries completed=%d/%d**, current total failed=%d, current total hits=%d",
-                self.id,
-                d.completed_queries,
-                d.num_queries,
-                d.failed_queries,
-                d.total_hits,
+            # update
+            d: GulpQueryStats = (
+                GulpQueryStats.model_validate(self.data) or GulpQueryStats()
             )
 
-            # if the query has not been canceled
-            if d.completed_queries >= d.num_queries:
-                final_status = GulpRequestStatus.DONE.value
-                if not ignore_failures and d.failed_queries > 0:
-                    final_status = GulpRequestStatus.FAILED.value
-                else:
-                    # set failed only if all queries failed
-                    if d.failed_queries == d.num_queries:
-                        final_status = GulpRequestStatus.FAILED.value
+            d.total_hits += hits
+            if errors:
+                for e in errors:
+                    if e not in self.errors:
+                        self.errors.append(e)
+            if self.status != GulpRequestStatus.CANCELED.value:
+                # some queries completed
+                d.completed_queries += inc_completed
+                d.failed_queries += len(errors or [])
 
-                # the whole req is finished
-                self.time_finished = muty.time.now_msec()
-                self.status = final_status
-                # get time elapsed in seconds
                 MutyLogger.get_instance().info(
-                    "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
-                    self.status,
-                    (self.time_finished - self.time_created) // 1000,
-                    self,
+                    "**QUERY REQ=%s num queries completed=%d/%d**, current total failed=%d, current total hits=%d",
+                    self.id,
+                    d.completed_queries,
+                    d.num_queries,
+                    d.failed_queries,
+                    d.total_hits,
                 )
 
-        self.data = d.model_dump()
-        return await super().update(
-            sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
-        )
+                # if the query has not been canceled
+                if d.completed_queries >= d.num_queries:
+                    final_status = GulpRequestStatus.DONE.value
+                    if not ignore_failures and d.failed_queries > 0:
+                        final_status = GulpRequestStatus.FAILED.value
+                    else:
+                        # set failed only if all queries failed
+                        if d.failed_queries == d.num_queries:
+                            final_status = GulpRequestStatus.FAILED.value
+
+                    # the whole req is finished
+                    self.time_finished = muty.time.now_msec()
+                    self.status = final_status
+                    # get time elapsed in seconds
+                    MutyLogger.get_instance().info(
+                        "**FINISHED** status=%s, elapsed_time=%ds, stats=%s",
+                        self.status,
+                        (self.time_finished - self.time_created) // 1000,
+                        self,
+                    )
+
+            self.data = d.model_dump()
+            return await super().update(
+                sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+            )
