@@ -62,6 +62,7 @@ from gulp.api.ws_api import (
     GulpWsError,
     GulpWsErrorPacket,
     GulpWsIngestPacket,
+    GulpRedisChannel,
     GulpWsType,
 )
 from gulp.config import GulpConfig
@@ -819,45 +820,22 @@ class GulpAPIWebsocket:
                 data = GulpWsData(
                     timestamp=muty.time.now_msec(),
                     type=WSDATA_CLIENT_DATA,
-                    ws_id=ws.ws_id,
+                    # do NOT set `ws_id` to the sender — leaving it `None` makes the
+                    # message a broadcast so other connected `ws_client_data`
+                    # sockets can receive it (matches client expectations).
+                    ws_id=None,
                     user_id=user_id,
                     operation_id=client_ui_data.operation_id,
                     payload=client_ui_data.model_dump(exclude_none=True),
                 )
 
-                # route to connected client_data websockets
-                s = GulpConnectedSockets.get_instance()
-
-                for _, cws in s.sockets().items():
-                    if (
-                        ws.ws_id == cws.ws_id
-                        or cws.socket_type != GulpWsType.WS_CLIENT_DATA
-                        # filter by operation_id if set (empty list means accept all)
-                        or (
-                            client_ui_data.operation_id
-                            and cws.operation_ids
-                            and client_ui_data.operation_id not in cws.operation_ids
-                        )
-                        # filter by user_id if set
-                        or (
-                            client_ui_data.target_user_ids
-                            and user_id not in client_ui_data.target_user_ids
-                        )
-                    ):
-                        # skip this ws
-                        continue
-                    try:
-                        # use enqueue_message to properly handle queuing and connection state
-                        await cws.enqueue_message(data.model_dump(exclude_none=True))
-                    except Exception as ex:
-                        MutyLogger.get_instance().error(
-                            f"error enqueuing data to ws_id={cws.ws_id}: {ex}"
-                        )
+                # route to connected client_data websockets using shared server-side filter
+                await GulpRedisBroker.get_instance()._process_client_data_message(data)
                 # publish to other instances via dedicated client_data Redis channel
                 try:
                     redis_client = GulpRedis.get_instance()
                     msg = data.model_dump(exclude_none=True)
-                    msg["__channel__"] = "client_data"
+                    msg["__channel__"] = GulpRedisChannel.CLIENT_DATA.value
                     msg["__server_id__"] = redis_client.server_id
                     msg["__sender_ws_id__"] = ws.ws_id
                     # publish to dedicated channel
@@ -865,8 +843,8 @@ class GulpAPIWebsocket:
                         "publishing client_data to Redis: ws_id=%s, operation_id=%s",
                         ws.ws_id, client_ui_data.operation_id
                     )
-                    await redis_client.client().publish(
-                        GulpRedis.CLIENT_DATA_CHANNEL, orjson.dumps(msg)
+                    await GulpRedis.get_instance().publish(
+                        msg, channel=GulpRedisChannel.CLIENT_DATA.redis_channel_name()
                     )
                 except Exception as ex:
                     MutyLogger.get_instance().warning(

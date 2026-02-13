@@ -49,15 +49,16 @@ class GulpWsMetadata(BaseModel):
     ]
 
 
+# module-local Redis channel names (class-level constants removed; use GulpRedisChannel as canonical source)
+_MAIN_REDIS_CHANNEL = "gulpredis"
+_CLIENT_DATA_REDIS_CHANNEL = "gulpredis:client_data"
+
 class GulpRedis:
     """
     Singleton class to manage Redis connections and operations.
     """
 
     _instance: "GulpRedis" = None
-    CHANNEL = "gulpredis"
-    # dedicated channel for client_data cross-instance routing
-    CLIENT_DATA_CHANNEL = "gulpredis:client_data"
     # redis set key to track known task types (members are task_type strings)
     TASK_TYPES_SET = "gulp:queue:types"
     # redis stream key prefix for task streams (one stream per task_type)
@@ -76,9 +77,19 @@ class GulpRedis:
         self._task_queue_key: str = "gulp:queue:tasks"
         # ttl for stored large payloads (seconds)
         self.PUBLISH_LARGE_PAYLOAD_TTL: int = 5 * 60  # 5 min, it should be consumed quickly
-        # sliding window for publish rate limiting
+        # sliding window for publish rate limiting (legacy value kept for config)
         self._publish_times: deque[float] = deque()
         self._publish_rate_limit: int = 100  # msgs per second
+
+        # Token-bucket for publish backpressure (replaces sliding-window sleep behavior)
+        # - `_token_bucket_rate` : refill rate (tokens/sec) — defaults to `_publish_rate_limit`
+        # - `_token_bucket_capacity` : max burst capacity (tokens)
+        # - `_token_bucket_tokens` : current available tokens (float)
+        # - `_token_bucket_last` : last refill timestamp
+        self._token_bucket_rate: float = float(self._publish_rate_limit)
+        self._token_bucket_capacity: float = max(1.0, float(self._publish_rate_limit) * 2.0)
+        self._token_bucket_tokens: float = float(self._token_bucket_capacity)
+        self._token_bucket_last: float = time.monotonic()
         
         # metrics tracking
         self._metrics_publish_count: int = 0
@@ -322,13 +333,17 @@ class GulpRedis:
             return GulpWsMetadata.model_validate(orjson.loads(data))
         return None
 
-    async def publish(self, message: dict) -> None:
+    async def publish(self, message: dict, channel: str | None = None) -> None:
         """
         Publish a message on redis pubsub.
 
         Args:
             message (dict): The message to publish (must be a GulpWsData dict)
+            channel (str|None): Redis pubsub channel name to publish to. If None, uses main channel.
         """
+        # determine redis channel name
+        channel_to_use = channel or _MAIN_REDIS_CHANNEL
+
         # serialize message
         payload = orjson.dumps(message)
         compression_threshold: int = GulpConfig.get_instance().redis_compression_threshold() * 1024
@@ -354,7 +369,7 @@ class GulpRedis:
                         compressed_flag = True
                     except Exception:
                         MutyLogger.get_instance().exception("failed to compress large payload, falling back to direct publish")
-                        await self._redis.publish(GulpRedis.CHANNEL, payload)
+                        await self._redis.publish(channel_to_use, payload)
                         return
                 else:
                     # store uncompressed bytes
@@ -380,29 +395,16 @@ class GulpRedis:
                 }
                 pointer_bytes = orjson.dumps(pointer_message)
 
-                # prepare lua script to atomically set all chunk keys with TTL and publish the pointer
-                # ARGV layout: chunk1..chunkN, pointer_json, ttl_seconds, channel
-                lua_lines = [
-                    "local n = #KEYS\n",
-                    "local ttl = tonumber(ARGV[n+2])\n",
-                    "for i=1,n do\n",
-                    "  redis.call('SET', KEYS[i], ARGV[i], 'EX', ttl)\n",
-                    "end\n",
-                    "redis.call('PUBLISH', ARGV[n+3], ARGV[n+1])\n",
-                    "return 1\n",
-                ]
-                lua = "".join(lua_lines)
+                # use a pipelined SET+EX calls followed by PUBLISH instead of Lua to avoid per-message
+                # Lua script compilation overhead. Pipelines give similar atomicity for our use case
+                # (all commands executed together) and are faster in practice.
                 try:
-                    # build args: chunk bytes..., pointer_bytes, ttl, channel
-                    args = []
-                    for c in chunks:
-                        args.append(c)
-                    args.append(pointer_bytes)
-                    args.append(str(self.PUBLISH_LARGE_PAYLOAD_TTL))
-                    args.append(GulpRedis.CHANNEL)
+                    pipe = self._redis.pipeline(transaction=True)
+                    for i, c in enumerate(chunks):
+                        pipe.set(chunk_keys[i], c, ex=self.PUBLISH_LARGE_PAYLOAD_TTL)
+                    pipe.publish(channel_to_use, pointer_bytes)
+                    await pipe.execute()
 
-                    # execute lua atomically
-                    await self._redis.eval(lua, len(chunk_keys), *chunk_keys, *args)
                     self._metrics_chunked_publish_count += 1
                     MutyLogger.get_instance().warning(
                         "published large %s message stored in %d chunks base=%s total_size=%d bytes (stored=%d)",
@@ -415,15 +417,17 @@ class GulpRedis:
                     return
                 except Exception:
                     MutyLogger.get_instance().exception(
-                        "failed to atomically store/publish chunked payload, falling back to per-key store"
+                        "pipeline store/publish failed for chunked payload, attempting non-transactional fallback"
                     )
-                    # fallback: attempt per-key store then publish pointer (best effort)
+                    # fallback: best-effort non-transactional pipeline (may succeed on partial failures)
                     try:
+                        pipe = self._redis.pipeline(transaction=False)
                         for i, c in enumerate(chunks):
-                            await self._redis.set(chunk_keys[i], c, ex=self.PUBLISH_LARGE_PAYLOAD_TTL)
-                        await self._redis.publish(GulpRedis.CHANNEL, pointer_bytes)
+                            pipe.set(chunk_keys[i], c, ex=self.PUBLISH_LARGE_PAYLOAD_TTL)
+                        pipe.publish(channel_to_use, pointer_bytes)
+                        await pipe.execute()
                         MutyLogger.get_instance().warning(
-                            "published large %s message stored (fallback) in %d chunks base=%s",
+                            "published large %s message stored (fallback non-atomic) in %d chunks base=%s",
                             "compressed" if compressed_flag else "uncompressed",
                             num_chunks,
                             base_key,
@@ -431,26 +435,84 @@ class GulpRedis:
                         return
                     except Exception:
                         MutyLogger.get_instance().exception(
-                            "failed to store chunked payload in Redis, falling back to direct publish"
+                            "failed to store chunked payload in Redis (pipeline fallback), falling back to direct publish"
                         )
 
         except Exception:
             MutyLogger.get_instance().exception("error handling large publish payload")
 
         # default: publish inline
-        await self._redis.publish(GulpRedis.CHANNEL, payload)
+        await self._redis.publish(channel_to_use, payload)
 
     async def _apply_publish_backpressure(self) -> None:
-        """Simple sliding-window rate limiter to avoid flooding Redis pubsub."""
-        now = time.monotonic()
-        self._publish_times.append(now)
-        cutoff = now - 1.0
-        while self._publish_times and self._publish_times[0] < cutoff:
-            self._publish_times.popleft()
+        """Token-bucket rate limiter to avoid flooding Redis pubsub.
 
-        if len(self._publish_times) > self._publish_rate_limit:
-            # sleep just enough to drop under limit
-            await asyncio.sleep(0.01)
+        Replenishes tokens at `_token_bucket_rate` per second up to
+        `_token_bucket_capacity`. Each publish consumes one token. If no
+        token is available the coroutine waits (non-busy) until enough
+        tokens accumulate. This provides smooth steady-state rate
+        limiting with bounded bursts.
+        """
+        now = time.monotonic()
+
+        # refill tokens based on elapsed time
+        elapsed = now - self._token_bucket_last
+        if elapsed > 0:
+            self._token_bucket_tokens = min(
+                self._token_bucket_capacity,
+                self._token_bucket_tokens + elapsed * self._token_bucket_rate,
+            )
+            self._token_bucket_last = now
+
+        # check aggregate websocket queue utilization and apply end-to-end throttling
+        try:
+            from gulp.api.ws_api import GulpConnectedSockets
+
+            depth = GulpConnectedSockets.get_instance().aggregate_queue_utilization()
+            throttle_threshold = GulpConfig.get_instance().ws_throttle_threshold()
+            if depth > throttle_threshold:
+                # progressive delay up to ws_throttle_max_delay() based on pressure above threshold
+                max_delay = GulpConfig.get_instance().ws_throttle_max_delay()
+                pressure_above = (depth - throttle_threshold) / (1.0 - throttle_threshold)
+                delay = max_delay * pressure_above
+                MutyLogger.get_instance().warning(
+                    "publish backpressure throttling: agg_queue_util=%.2f threshold=%.2f delay=%.3fs",
+                    depth,
+                    throttle_threshold,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+        except Exception:
+            # best-effort: if we can't inspect socket queues, proceed with normal token-bucket
+            MutyLogger.get_instance().exception("failed to evaluate aggregate queue utilization for backpressure")
+
+        # if token available, consume and return immediately
+        if self._token_bucket_tokens >= 1.0:
+            self._token_bucket_tokens -= 1.0
+            return
+
+        # compute time to wait until next token is available
+        needed = 1.0 - self._token_bucket_tokens
+        wait_time = needed / self._token_bucket_rate if self._token_bucket_rate > 0 else 0.01
+
+        # wait (in small increments to be responsive to wakeups)
+        # cap single sleep to 0.1s to remain responsive under contention
+        while self._token_bucket_tokens < 1.0:
+            await asyncio.sleep(min(wait_time, 0.1))
+            now = time.monotonic()
+            elapsed = now - self._token_bucket_last
+            if elapsed > 0:
+                self._token_bucket_tokens = min(
+                    self._token_bucket_capacity,
+                    self._token_bucket_tokens + elapsed * self._token_bucket_rate,
+                )
+                self._token_bucket_last = now
+            # recompute remaining wait_time
+            needed = max(0.0, 1.0 - self._token_bucket_tokens)
+            wait_time = needed / self._token_bucket_rate if self._token_bucket_rate > 0 else 0.01
+
+        # consume token and continue
+        self._token_bucket_tokens -= 1.0
     
     def _log_metrics_if_needed(self) -> None:
         """Log pub/sub metrics periodically for monitoring."""
@@ -489,15 +551,21 @@ class GulpRedis:
 
         # unsubscribe from both channels
         try:
-            await self._pubsub.unsubscribe(GulpRedis.CHANNEL, GulpRedis.CLIENT_DATA_CHANNEL)
+            # build list of channels that were subscribed and attempt to unsubscribe
+            channels = [_MAIN_REDIS_CHANNEL, _CLIENT_DATA_REDIS_CHANNEL]
+
+            # include per-server channel if set
+            if self.server_id:
+                channels.append(f"{_MAIN_REDIS_CHANNEL}:server:{self.server_id}")
+
+            await self._pubsub.unsubscribe(*channels)
         except Exception:
             # ignore errors during unsubscribe
             pass
 
         MutyLogger.get_instance().info(
-            "unsubscribed from channels: %s, %s, server_id=%s",
-            GulpRedis.CHANNEL,
-            GulpRedis.CLIENT_DATA_CHANNEL,
+            "unsubscribed from channels: %s, server_id=%s",
+            channels,
             self.server_id,
         )
 
@@ -511,8 +579,13 @@ class GulpRedis:
         Args:
             callback: Async function fun(d: dict) to call with each message dict
         """
-        # subscribe to both channels using a single pubsub subscription
-        await self._pubsub.subscribe(GulpRedis.CHANNEL, GulpRedis.CLIENT_DATA_CHANNEL)
+        # subscribe to main channel and client_data channel;
+        channels = [_MAIN_REDIS_CHANNEL, _CLIENT_DATA_REDIS_CHANNEL]
+        # subscribe to main channel plus per-server targeted channel
+        if self.server_id:
+            channels.append(f"{_MAIN_REDIS_CHANNEL}:server:{self.server_id}")
+
+        await self._pubsub.subscribe(*channels)
 
         task = asyncio.create_task(
             self._subscriber_loop("multiple", callback),
@@ -521,9 +594,8 @@ class GulpRedis:
         self._subscriber_task = task
 
         MutyLogger.get_instance().info(
-            "subscribed to channels: %s, %s, server_id=%s",
-            GulpRedis.CHANNEL,
-            GulpRedis.CLIENT_DATA_CHANNEL,
+            "subscribed to channels: %s, server_id=%s",
+            channels,
             self.server_id,
         )
 
@@ -539,10 +611,14 @@ class GulpRedis:
             MutyLogger.get_instance().exception("error closing pubsub before recreate")
 
         self._pubsub = self._redis.pubsub()
-        await self._pubsub.subscribe(GulpRedis.CHANNEL, GulpRedis.CLIENT_DATA_CHANNEL)
+        # resubscribe to the same set of channels as `subscribe()` (main + client_data + per-server)
+        channels = [_MAIN_REDIS_CHANNEL, _CLIENT_DATA_REDIS_CHANNEL]
+        if self.server_id:
+            channels.append(f"{_MAIN_REDIS_CHANNEL}:server:{self.server_id}")
+        await self._pubsub.subscribe(*channels)
 
         MutyLogger.get_instance().warning(
-            "pubsub connection recreated and resubscribed: %s, %s", GulpRedis.CHANNEL, GulpRedis.CLIENT_DATA_CHANNEL
+            "pubsub connection recreated and resubscribed: %s", channels
         )
 
     async def _subscriber_loop(
@@ -559,8 +635,8 @@ class GulpRedis:
         """
         MutyLogger.get_instance().debug(
             "starting subscriber loop for channels: %s, %s",
-            GulpRedis.CHANNEL,
-            GulpRedis.CLIENT_DATA_CHANNEL,
+            _MAIN_REDIS_CHANNEL,
+            _CLIENT_DATA_REDIS_CHANNEL,
         )
 
         try:
@@ -589,7 +665,6 @@ class GulpRedis:
                             # Continue processing instead of terminating the loop
 
                     backoff = 1.0
-                    await asyncio.sleep(0.05)
 
                 except asyncio.CancelledError:
                     MutyLogger.get_instance().debug("subscriber loop cancelled")
@@ -613,8 +688,8 @@ class GulpRedis:
         except asyncio.CancelledError:
             MutyLogger.get_instance().info(
                 "subscriber loop stopped for channels: %s, %s",
-                GulpRedis.CHANNEL,
-                GulpRedis.CLIENT_DATA_CHANNEL,
+                _MAIN_REDIS_CHANNEL,
+                _CLIENT_DATA_REDIS_CHANNEL,
             )
 
     def task_queue_key(self) -> str:

@@ -17,6 +17,7 @@ from gulp.api.ws_api import (
     GulpClientDataPacket,
     GulpWsAuthPacket,
     GulpWsData,
+    GulpRedisChannel,
 )
 
 
@@ -99,6 +100,8 @@ async def test_ws_client_data_end_to_end():
         msg = wsd.model_dump(exclude_none=True)
         msg['__server_id__'] = 'remote-test-server'
         msg['__sender_ws_id__'] = 'remote-sender'
+        # explicit channel metadata required by new pubsub routing (Phase 4)
+        msg['__channel__'] = GulpRedisChannel.CLIENT_DATA.value
 
         publish_result = await r.publish('gulpredis:client_data', orjson.dumps(msg))
         assert isinstance(publish_result, int)
