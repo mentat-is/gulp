@@ -406,36 +406,35 @@ class GulpConfig:
         """
         Returns whether to enable the collaborative API debug mode (prints SQL queries, etc...), default is False.
         """
-        n = False
-        if __debug__:
-            n = self._config.get("debug_collab", False)
+        n = self._config.get("debug_collab", False)
+        if n:
+            MutyLogger.get_instance().warning(
+                "!!!WARNING!!! COLLAB API DEBUG MODE ACTIVE!"
+            )
         return n
 
     def debug_ignore_missing_ws(self) -> bool:
         """
         Returns whether to ignore missing websocket connection (default: False).
         """
-        force_check_ws: str = os.getenv("GULP_FORCE_CHECK_WS", "0")
-
-        if int(force_check_ws) == 0:
-            # on integration test, skip
-            if self.is_integration_test():
-                MutyLogger.get_instance().warning("IGNORING MISSING WEBSOCKET CONNECTIONS FOR INTEGRATION TESTS!")
-                return True
-        n = self._config.get("debug_ignore_missing_ws", False)
+        # on integration test, skip
+        if self.is_integration_test():
+            n = True
+        else:
+            n = self._config.get("debug_ignore_missing_ws", False)
+        if n:
+            MutyLogger.get_instance().warning("!!!WARNING!!! IGNORING MISSING WEBSOCKET CONNECTIONS!")
         return n
 
     def debug_enrich_dry_run(self) -> bool:
         """
         Returns whether to enable dry run mode (= do not update data on storage) for enrich plugins (default: False).
         """
-        n = False
-        if __debug__:
-            n = self._config.get("debug_enrich_dry_run", False)
-            if n:
-                MutyLogger.get_instance().warning(
-                    "ENRICH DRY RUN MODE active, no real update will happen!"
-                )
+        n = self._config.get("debug_enrich_dry_run", False)
+        if n:
+            MutyLogger.get_instance().warning(
+                "!!!WARNING!!! ENRICH DRY RUN MODE active, no real update will happen!"
+            )
         return n
     def debug_no_token_expiration(self) -> bool:
         """
@@ -443,19 +442,29 @@ class GulpConfig:
 
         if GULP_INTEGRATION_TEST is set, this will be disabled (token expiration untouched).
         """
-        n = False
+        if self.is_integration_test():
+            return False
 
-        if __debug__:
-            if self.is_integration_test():
-                return False
-
-            n = self._config.get("debug_no_token_expiration", False)
-            if n:
-                MutyLogger.get_instance().warning(
-                    "!!!WARNING!!! debug_no_token_expiration is set to True !"
-                )
+        n = self._config.get("debug_no_token_expiration", False)
+        if n:
+            MutyLogger.get_instance().warning(
+                "!!!WARNING!!! debug_no_token_expiration is set to True !"
+            )
         return n
+    
+    def debug_redis_log_metrics(self) -> bool:
+        """
+        Returns whether to enable logging of Redis pub/sub metrics.
 
+        default: False
+        """
+        n = self._config.get("debug_redis_log_metrics", False)
+        if n:
+            MutyLogger.get_instance().warning(
+                "!!!WARNING!!! debug_redis_log_metrics is set to True!"
+            )
+        return n
+    
     def stats_ttl(self) -> int:
         """
         Returns the number of seconds stats are kept.

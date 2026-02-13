@@ -30,9 +30,9 @@ from gulp.structs import GulpPluginParameters
 
 class GulpWsType(StrEnum):
     # the type of the websocket
-    WS_DEFAULT = "default"
-    WS_INGEST = "ingest"
-    WS_CLIENT_DATA = "client_data"
+    WS_DEFAULT = "default" # default websocket for logged in users, used for most interactions including collab updates, stats updates, user login/logout, etc. (basically all except ingest and inter-ui communications)
+    WS_INGEST = "ingest" # for ws_raw_ingest_api
+    WS_CLIENT_DATA = "client_data" # for inter-ui communications
 
 
 # data types for the websocket
@@ -304,10 +304,6 @@ class GulpCollabDeletePacket(BaseModel):
     model_config = ConfigDict(json_schema_extra={"examples": [{"id": "the id"}]})
     type: Annotated[str, Field(description="The deleted collab object type.")]
     id: Annotated[str, Field(description="The deleted collab object ID.")]
-
-
-class redis_brokerueueFullException(Exception):
-    """Exception raised when queue is full after retries"""
 
 
 class GulpUserAccessPacket(BaseModel):
@@ -1841,10 +1837,19 @@ class GulpRedisBroker:
                 # only retrieve chunks if:
                 # 1) we are the server that stored them (chunk_server_id == our server_id), OR
                 # 2) the message is explicitly targeted to a ws_id we own
+                # 
+                # NOTE: for BROADCAST messages, all instances need the payload, but we use
+                # GET instead of GET+DEL to allow multiple reads, relying on TTL for cleanup
                 should_retrieve = False
+                use_getdel = True  # whether to delete chunks after retrieval
+                
                 if chunk_server_id == redis_client.server_id:
                     # we stored these chunks, we should retrieve them
                     should_retrieve = True
+                elif redis_channel == GulpRedis.CHANNEL and channel == GulpRedisChannel.BROADCAST.value:
+                    # broadcast messages: retrieve without deleting (multiple instances need it)
+                    should_retrieve = True
+                    use_getdel = False
                 else:
                     # check if the message targets a websocket we own
                     target_ws_id = message.get("ws_id")
@@ -1857,28 +1862,39 @@ class GulpRedisBroker:
                     # this node should not retrieve chunks - another node will handle it
                     # log at debug level to avoid flooding logs
                     MutyLogger.get_instance().debug(
-                        "skipping chunk retrieval for ptr=%s (chunk_server_id=%s, our_server_id=%s)",
+                        "skipping chunk retrieval for ptr=%s (chunk_server_id=%s, our_server_id=%s, redis_channel=%s)",
                         ptr,
                         chunk_server_id,
                         redis_client.server_id,
+                        redis_channel,
                     )
                     # leave message as-is with pointer, don't process further
                     return
 
                 try:
-                    # If pointer contains __chunks, try atomic multi-GET+DEL for all chunk keys
+                    # If pointer contains __chunks, retrieve all chunk keys
                     chunks = pl.get("__chunks")
                     compressed_flag = pl.get("__compressed", False)
                     if chunks and int(chunks) > 0:
                         keys = [f"{ptr}:{i}" for i in range(int(chunks))]
 
-                        lua_multi = (
-                            "local n = #KEYS\n"
-                            "local vals = {}\n"
-                            "for i=1,n do local v = redis.call('GET', KEYS[i]); if not v then return nil end; vals[i]=v end\n"
-                            "for i=1,n do redis.call('DEL', KEYS[i]) end\n"
-                            "return table.concat(vals)\n"
-                        )
+                        if use_getdel:
+                            # Atomic GET+DEL for exclusive retrieval (non-broadcast messages)
+                            lua_multi = (
+                                "local n = #KEYS\n"
+                                "local vals = {}\n"
+                                "for i=1,n do local v = redis.call('GET', KEYS[i]); if not v then return nil end; vals[i]=v end\n"
+                                "for i=1,n do redis.call('DEL', KEYS[i]) end\n"
+                                "return table.concat(vals)\n"
+                            )
+                        else:
+                            # GET-only for broadcast messages (multiple instances need it, TTL handles cleanup)
+                            lua_multi = (
+                                "local n = #KEYS\n"
+                                "local vals = {}\n"
+                                "for i=1,n do local v = redis.call('GET', KEYS[i]); if not v then return nil end; vals[i]=v end\n"
+                                "return table.concat(vals)\n"
+                            )
 
                         stored = None
                         for attempt in range(3):
@@ -1924,11 +1940,17 @@ class GulpRedisBroker:
                                 ptr,
                             )
                     else:
-                        # single-key pointer handling: atomic GET+DEL for single key
-                        lua = (
-                            "local v = redis.call('GET', KEYS[1]);"
-                            "if v then redis.call('DEL', KEYS[1]) end; return v"
-                        )
+                        # single-key pointer handling
+                        if use_getdel:
+                            # Atomic GET+DEL for single key
+                            lua = (
+                                "local v = redis.call('GET', KEYS[1]);"
+                                "if v then redis.call('DEL', KEYS[1]) end; return v"
+                            )
+                        else:
+                            # GET-only for broadcast
+                            lua = "return redis.call('GET', KEYS[1])"
+                        
                         stored = None
                         for attempt in range(3):
                             try:

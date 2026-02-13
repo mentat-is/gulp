@@ -71,7 +71,7 @@ from gulp.structs import ObjectNotFound
 
 router = APIRouter()
 
-# default TTL for idle streams (seconds) — stream deleted only after this much inactivity
+# default TTL for idle streams (seconds) — redis stream deleted only after this much inactivity
 STREAM_TTL = 3600
 
 

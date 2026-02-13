@@ -94,7 +94,6 @@ from gulp.api.ws_api import (
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
     GulpRedisBroker,
-    redis_brokerueueFullException,
 )
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -554,7 +553,7 @@ async def run_query_batch(
                 stats = await GulpRequestStats.get_by_id(sess, req_id)
                 if stats:
                     total_hits = sum(r[1] for r in per_query_results if isinstance(r, tuple))
-                    completed = sum(r[0] for r in per_query_results if isinstance(r, tuple))
+                    completed = len(queries)# sum(1 for r in per_query_results if isinstance(r, tuple))
                     errors = [muty.log.exception_to_string(r) for r in per_query_results if isinstance(r, Exception)]
                     try:
                         await stats.update_query_stats(

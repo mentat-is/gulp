@@ -26,6 +26,8 @@
   "debug_ignore_missing_ws": false,
   // prevent token expiration for debugging purposes, ignored if debug_allow_any_token_as_admin is set to true (default=false)
   "debug_no_token_expiration": false,
+  // enable logging of Redis pub/sub metrics (default=false)
+  "debug_redis_log_metrics": false,
   // enforce https
   "https_enforce": false,
   // enforce client certificates signed by gulp-ca for https

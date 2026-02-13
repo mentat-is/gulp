@@ -79,6 +79,14 @@ class GulpRedis:
         # sliding window for publish rate limiting
         self._publish_times: deque[float] = deque()
         self._publish_rate_limit: int = 100  # msgs per second
+        
+        # metrics tracking
+        self._metrics_publish_count: int = 0
+        self._metrics_publish_bytes: int = 0
+        self._metrics_chunked_publish_count: int = 0
+        self._metrics_subscriber_errors: int = 0
+        self._metrics_last_log_time: float = 0
+        self._metrics_log_interval: float = 300.0  # log every 5 minutes
 
     def __new__(cls):
         """
@@ -327,6 +335,11 @@ class GulpRedis:
         pubsub_max_chunk_size: int = GulpConfig.get_instance().redis_pubsub_max_chunk_size() * 1024
 
         await self._apply_publish_backpressure()
+        
+        # update metrics
+        self._metrics_publish_count += 1
+        self._metrics_publish_bytes += len(payload)
+        self._log_metrics_if_needed()
 
         # if payload is too large, compress, chunk and store it in Redis then publish a small pointer
         try:
@@ -390,6 +403,7 @@ class GulpRedis:
 
                     # execute lua atomically
                     await self._redis.eval(lua, len(chunk_keys), *chunk_keys, *args)
+                    self._metrics_chunked_publish_count += 1
                     MutyLogger.get_instance().warning(
                         "published large %s message stored in %d chunks base=%s total_size=%d bytes (stored=%d)",
                         "compressed" if compressed_flag else "uncompressed",
@@ -437,6 +451,29 @@ class GulpRedis:
         if len(self._publish_times) > self._publish_rate_limit:
             # sleep just enough to drop under limit
             await asyncio.sleep(0.01)
+    
+    def _log_metrics_if_needed(self) -> None:
+        """Log pub/sub metrics periodically for monitoring."""
+        now = time.monotonic()
+        if now - self._metrics_last_log_time >= self._metrics_log_interval:
+            if self._metrics_publish_count > 0:
+                avg_msg_size = self._metrics_publish_bytes // self._metrics_publish_count
+                MutyLogger.get_instance().info(
+                    "Redis pub/sub metrics (last %.0fs): published=%d msgs, total_bytes=%d, avg_msg_size=%d bytes, "
+                    "chunked=%d, subscriber_errors=%d",
+                    self._metrics_log_interval,
+                    self._metrics_publish_count,
+                    self._metrics_publish_bytes,
+                    avg_msg_size,
+                    self._metrics_chunked_publish_count,
+                    self._metrics_subscriber_errors,
+                )
+                # reset counters
+                self._metrics_publish_count = 0
+                self._metrics_publish_bytes = 0
+                self._metrics_chunked_publish_count = 0
+                self._metrics_subscriber_errors = 0
+            self._metrics_last_log_time = now
 
     async def unsubscribe(self) -> None:
         """
@@ -543,12 +580,13 @@ class GulpRedis:
                             d["__redis_channel__"] = actual_channel
                             await callback(d)
                         except Exception as ex:
+                            self._metrics_subscriber_errors += 1
                             MutyLogger.get_instance().exception(
                                 "ERROR in subscriber callback for channel %s: %s",
                                 actual_channel,
                                 ex,
                             )
-                            raise ex
+                            # Continue processing instead of terminating the loop
 
                     backoff = 1.0
                     await asyncio.sleep(0.05)
