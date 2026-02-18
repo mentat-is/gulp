@@ -2315,16 +2315,16 @@ class GulpPluginBase(ABC):
         """gets the timestamp format for the default "@timestamp" field in the currently used mapping, if any, by looking in the mapping for the field with ecs="@timestamp" """
         timestamp_format: str = None
         mapping = self.selected_mapping()
-        for _,d in mapping.fields.items():
+        for _, d in mapping.fields.items():
             d: GulpMappingField
-            if isinstance(d.ecs,str) and d.ecs == "@timestamp":
+            if isinstance(d.ecs, str) and d.ecs == "@timestamp":
                 timestamp_format = d.timestamp_format
                 break
-            elif isinstance(d.ecs,list) and "@timestamp" in d.ecs:
+            elif isinstance(d.ecs, list) and "@timestamp" in d.ecs:
                 timestamp_format = d.timestamp_format
                 break
         return timestamp_format
-    
+
     async def _process_key(
         self, source_key: str, source_value: Any, doc: dict, **kwargs
     ) -> dict:
@@ -3011,12 +3011,12 @@ class GulpPluginBase(ABC):
 
         # parse the custom parameters
         await self._parse_custom_parameters()
-        pt: GulpPluginType = self.type()
-        if pt in [GulpPluginType.EXTENSION, GulpPluginType.ENRICHMENT]:
-            MutyLogger.get_instance().debug(
-                "plugin %s type=%s, no mappings needed", self.name, pt
-            )
-            return
+        # pt: GulpPluginType = self.type()
+        # if pt in [GulpPluginType.EXTENSION, GulpPluginType.ENRICHMENT]:
+        #     MutyLogger.get_instance().debug(
+        #         "plugin %s type=%s, no mappings needed", self.name, pt
+        #     )
+        #     return
 
         # setup mappings
         # in a lower stacked plugin this is already set by the upper with setup_stacked_plugin()
