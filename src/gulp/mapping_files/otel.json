@@ -1,0 +1,1020 @@
+{
+    "metadata": {
+        "plugin": [
+            "otel_receiver.py"
+        ]
+    },
+    "mappings": {
+        "default": {
+            "event_code": "process.name",
+            "agent_type": "otel_collector",
+            "fields": {                
+                "endTimeUnixNano": {
+                    "extra_doc_with_event_code": "autofill_date_end_time"
+                },
+                "gulp.context_name":{                    
+                    "is_gulp_type": "context_name"
+                },
+                "gulp.source_name":{                    
+                    "is_gulp_type": "source_name"
+                },
+                "k8s.pod.label": {
+                    "ecs": [
+                        "labels"
+                    ]
+                },
+                "container.label": {
+                    "ecs": [
+                        "container.labels"
+                    ]
+                },
+                "client.address": {
+                    "ecs": [
+                        "client.address"
+                    ]
+                },
+                "client.port": {
+                    "ecs": [
+                        "client.port"
+                    ]
+                },
+                "cloud.account.id": {
+                    "ecs": [
+                        "cloud.account.id"
+                    ]
+                },
+                "cloud.availability_zone": {
+                    "ecs": [
+                        "cloud.availability_zone"
+                    ]
+                },
+                "cloud.provider": {
+                    "ecs": [
+                        "cloud.provider"
+                    ]
+                },
+                "cloud.region": {
+                    "ecs": [
+                        "cloud.region"
+                    ]
+                },
+                "cloud.platform": {
+                    "ecs": [
+                        "cloud.service.name"
+                    ]
+                },
+                "container.cpu.usage": {
+                    "ecs": [
+                        "container.cpu.usage"
+                    ]
+                },
+                "container.id": {
+                    "ecs": [
+                        "container.id"
+                    ]
+                },
+                "container.image.repo_digests": {
+                    "ecs": [
+                        "container.image.hash.all"
+                    ]
+                },
+                "container.image.name": {
+                    "ecs": [
+                        "container.image.name"
+                    ]
+                },
+                "container.image.tags": {
+                    "ecs": [
+                        "container.image.tag"
+                    ]
+                },
+                "container.memory.usage": {
+                    "ecs": [
+                        "container.memory.usage"
+                    ]
+                },
+                "container.name": {
+                    "ecs": [
+                        "container.name"
+                    ]
+                },
+                "container.runtime.name": {
+                    "ecs": [
+                        "container.runtime"
+                    ]
+                },
+                "Not applicable.": {
+                    "ecs": [
+                        "transaction.id"
+                    ]
+                },
+                "destination.address": {
+                    "ecs": [
+                        "destination.address"
+                    ]
+                },
+                "destination.port": {
+                    "ecs": [
+                        "destination.port"
+                    ]
+                },
+                "device.id": {
+                    "ecs": [
+                        "device.id"
+                    ]
+                },
+                "device.manufacturer": {
+                    "ecs": [
+                        "device.manufacturer"
+                    ]
+                },
+                "device.model.identifier": {
+                    "ecs": [
+                        "device.model.identifier"
+                    ]
+                },
+                "device.model.name": {
+                    "ecs": [
+                        "device.model.name"
+                    ]
+                },
+                "dns.answers": {
+                    "ecs": [
+                        "dns.answers"
+                    ]
+                },
+                "dns.question.name": {
+                    "ecs": [
+                        "dns.question.name"
+                    ]
+                },
+                "exception.message": {
+                    "ecs": [
+                        "error.message"
+                    ]
+                },
+                "exception.stacktrace": {
+                    "ecs": [
+                        "error.stack_trace"
+                    ]
+                },
+                "error.type": {
+                    "ecs": [
+                        "error.type"
+                    ]
+                },
+                "faas.coldstart": {
+                    "ecs": [
+                        "faas.coldstart"
+                    ]
+                },
+                "faas.invocation_id": {
+                    "ecs": [
+                        "faas.execution"
+                    ]
+                },
+                "faas.name": {
+                    "ecs": [
+                        "faas.name"
+                    ]
+                },
+                "faas.trigger": {
+                    "ecs": [
+                        "faas.trigger.type"
+                    ]
+                },
+                "faas.version": {
+                    "ecs": [
+                        "faas.version"
+                    ]
+                },
+                "file.accessed": {
+                    "ecs": [
+                        "file.accessed"
+                    ]
+                },
+                "file.attributes": {
+                    "ecs": [
+                        "file.attributes"
+                    ]
+                },
+                "file.created": {
+                    "ecs": [
+                        "file.created"
+                    ]
+                },
+                "file.changed": {
+                    "ecs": [
+                        "file.ctime"
+                    ]
+                },
+                "file.directory": {
+                    "ecs": [
+                        "file.directory"
+                    ]
+                },
+                "file.extension": {
+                    "ecs": [
+                        "file.extension"
+                    ]
+                },
+                "file.fork_name": {
+                    "ecs": [
+                        "file.fork_name"
+                    ]
+                },
+                "file.group.id": {
+                    "ecs": [
+                        "file.gid"
+                    ]
+                },
+                "file.group.name": {
+                    "ecs": [
+                        "file.group"
+                    ]
+                },
+                "file.inode": {
+                    "ecs": [
+                        "file.inode"
+                    ]
+                },
+                "file.mode": {
+                    "ecs": [
+                        "file.mode"
+                    ]
+                },
+                "file.modified": {
+                    "ecs": [
+                        "file.mtime"
+                    ]
+                },
+                "file.name": {
+                    "ecs": [
+                        "file.name"
+                    ]
+                },
+                "file.owner.name": {
+                    "ecs": [
+                        "file.owner"
+                    ]
+                },
+                "file.path": {
+                    "ecs": [
+                        "file.path"
+                    ]
+                },
+                "file.size": {
+                    "ecs": [
+                        "file.size"
+                    ]
+                },
+                "file.symbolic_link.target_path": {
+                    "ecs": [
+                        "file.target_path"
+                    ]
+                },
+                "file.owner.id": {
+                    "ecs": [
+                        "file.uid"
+                    ]
+                },
+                "gen_ai.agent.description": {
+                    "ecs": [
+                        "gen_ai.agent.description"
+                    ]
+                },
+                "gen_ai.agent.id": {
+                    "ecs": [
+                        "gen_ai.agent.id"
+                    ]
+                },
+                "gen_ai.agent.name": {
+                    "ecs": [
+                        "gen_ai.agent.name"
+                    ]
+                },
+                "gen_ai.operation.name": {
+                    "ecs": [
+                        "gen_ai.operation.name"
+                    ]
+                },
+                "gen_ai.output.type": {
+                    "ecs": [
+                        "gen_ai.output.type"
+                    ]
+                },
+                "gen_ai.request.choice.count": {
+                    "ecs": [
+                        "gen_ai.request.choice.count"
+                    ]
+                },
+                "gen_ai.request.encoding_formats": {
+                    "ecs": [
+                        "gen_ai.request.encoding_formats"
+                    ]
+                },
+                "gen_ai.request.frequency_penalty": {
+                    "ecs": [
+                        "gen_ai.request.frequency_penalty"
+                    ]
+                },
+                "gen_ai.request.max_tokens": {
+                    "ecs": [
+                        "gen_ai.request.max_tokens"
+                    ]
+                },
+                "gen_ai.request.model": {
+                    "ecs": [
+                        "gen_ai.request.model"
+                    ]
+                },
+                "gen_ai.request.presence_penalty": {
+                    "ecs": [
+                        "gen_ai.request.presence_penalty"
+                    ]
+                },
+                "gen_ai.request.seed": {
+                    "ecs": [
+                        "gen_ai.request.seed"
+                    ]
+                },
+                "gen_ai.request.stop_sequences": {
+                    "ecs": [
+                        "gen_ai.request.stop_sequences"
+                    ]
+                },
+                "gen_ai.request.temperature": {
+                    "ecs": [
+                        "gen_ai.request.temperature"
+                    ]
+                },
+                "gen_ai.request.top_k": {
+                    "ecs": [
+                        "gen_ai.request.top_k"
+                    ]
+                },
+                "gen_ai.request.top_p": {
+                    "ecs": [
+                        "gen_ai.request.top_p"
+                    ]
+                },
+                "gen_ai.response.finish_reasons": {
+                    "ecs": [
+                        "gen_ai.response.finish_reasons"
+                    ]
+                },
+                "gen_ai.response.id": {
+                    "ecs": [
+                        "gen_ai.response.id"
+                    ]
+                },
+                "gen_ai.response.model": {
+                    "ecs": [
+                        "gen_ai.response.model"
+                    ]
+                },
+                "gen_ai.provider.name": {
+                    "ecs": [
+                        "gen_ai.system"
+                    ]
+                },
+                "gen_ai.token.type": {
+                    "ecs": [
+                        "gen_ai.token.type"
+                    ]
+                },
+                "gen_ai.tool.call.id": {
+                    "ecs": [
+                        "gen_ai.tool.call.id"
+                    ]
+                },
+                "gen_ai.tool.name": {
+                    "ecs": [
+                        "gen_ai.tool.name"
+                    ]
+                },
+                "gen_ai.tool.type": {
+                    "ecs": [
+                        "gen_ai.tool.type"
+                    ]
+                },
+                "gen_ai.usage.input_tokens": {
+                    "ecs": [
+                        "gen_ai.usage.input_tokens"
+                    ]
+                },
+                "gen_ai.usage.output_tokens": {
+                    "ecs": [
+                        "gen_ai.usage.output_tokens"
+                    ]
+                },
+                "geo.locality.name": {
+                    "ecs": [
+                        "geo.city_name"
+                    ]
+                },
+                "geo.continent.code": {
+                    "ecs": [
+                        "geo.continent_code"
+                    ]
+                },
+                "geo.country.iso_code": {
+                    "ecs": [
+                        "geo.country_iso_code"
+                    ]
+                },
+                "geo.location.lat": {
+                    "ecs": [
+                        "geo.location"
+                    ]
+                },
+                "geo.location.lon": {
+                    "ecs": [
+                        "geo.location"
+                    ]
+                },
+                "geo.postal_code": {
+                    "ecs": [
+                        "geo.postal_code"
+                    ]
+                },
+                "geo.region.iso_code": {
+                    "ecs": [
+                        "geo.region_iso_code"
+                    ]
+                },
+                "host.arch": {
+                    "ecs": [
+                        "host.architecture"
+                    ]
+                },
+                "system.cpu.utilization": {
+                    "ecs": [
+                        "host.cpu.usage"
+                    ]
+                },
+                "system.disk.io": {
+                    "ecs": [
+                        "host.disk.write.bytes"
+                    ]
+                },
+                "host.id": {
+                    "ecs": [
+                        "host.id"
+                    ]
+                },
+                "host.ip": {
+                    "ecs": [
+                        "host.ip"
+                    ]
+                },
+                "host.mac": {
+                    "ecs": [
+                        "host.mac"
+                    ]
+                },
+                "host.name": {
+                    "ecs": [
+                        "host.name"
+                    ]
+                },
+                "system.network.io": {
+                    "ecs": [
+                        "host.network.ingress.bytes"
+                    ]
+                },
+                "system.network.packet.count": {
+                    "ecs": [
+                        "host.network.ingress.packets"
+                    ]
+                },
+                "host.type": {
+                    "ecs": [
+                        "host.type"
+                    ]
+                },
+                "system.uptime": {
+                    "ecs": [
+                        "host.uptime"
+                    ]
+                },
+                "http.request.body.size": {
+                    "ecs": [
+                        "http.request.body.bytes"
+                    ]
+                },
+                "http.request.size": {
+                    "ecs": [
+                        "http.request.bytes"
+                    ]
+                },
+                "http.request.method_original": {
+                    "ecs": [
+                        "http.request.method"
+                    ]
+                },
+                "http.response.body.size": {
+                    "ecs": [
+                        "http.response.body.bytes"
+                    ]
+                },
+                "http.response.size": {
+                    "ecs": [
+                        "http.response.bytes"
+                    ]
+                },
+                "http.response.status_code": {
+                    "ecs": [
+                        "http.response.status_code"
+                    ]
+                },
+                "network.protocol.name": {
+                    "ecs": [
+                        "network.protocol"
+                    ]
+                },
+                "network.protocol.version": {
+                    "ecs": [
+                        "http.version"
+                    ]
+                },
+                "log.file.path": {
+                    "ecs": [
+                        "log.file.path"
+                    ]
+                },
+                "severity_text": {
+                    "ecs": [
+                        "log.level"
+                    ]
+                },
+                "network.transport": {
+                    "ecs": [
+                        "network.transport"
+                    ]
+                },
+                "network.type": {
+                    "ecs": [
+                        "network.type"
+                    ]
+                },
+                "os.description": {
+                    "ecs": [
+                        "os.full"
+                    ]
+                },
+                "os.name": {
+                    "ecs": [
+                        "os.name"
+                    ]
+                },
+                "os.version": {
+                    "ecs": [
+                        "os.version"
+                    ]
+                },
+                "process.command_args": {
+                    "ecs": [
+                        "process.args"
+                    ]
+                },
+                "process.args_count": {
+                    "ecs": [
+                        "process.args_count"
+                    ]
+                },
+                "process.command_line": {
+                    "ecs": [
+                        "process.command_line"
+                    ]
+                },
+                "process.executable.path": {
+                    "ecs": [
+                        "process.executable"
+                    ]
+                },
+                "process.real_user.id": {
+                    "ecs": [
+                        "process.real_user.id"
+                    ]
+                },
+                "process.saved_user.id": {
+                    "ecs": [
+                        "process.saved_user.id"
+                    ]
+                },
+                "process.user.id": {
+                    "ecs": [
+                        "process.user.id"
+                    ]
+                },
+                "process.interactive": {
+                    "ecs": [
+                        "process.interactive"
+                    ]
+                },
+                "process.real_user.name": {
+                    "ecs": [
+                        "process.real_user.name"
+                    ]
+                },
+                "process.saved_user.name": {
+                    "ecs": [
+                        "process.saved_user.name"
+                    ]
+                },
+                "process.user.name": {
+                    "ecs": [
+                        "process.user.name"
+                    ]
+                },
+                "process.group_leader.pid": {
+                    "ecs": [
+                        "process.group_leader.pid"
+                    ]
+                },
+                "process.pid": {
+                    "ecs": [
+                        "process.pid"
+                    ]
+                },
+                "process.session_leader.pid": {
+                    "ecs": [
+                        "process.session_leader.pid"
+                    ]
+                },
+                "process.title": {
+                    "ecs": [
+                        "process.title"
+                    ]
+                },
+                "process.uptime": {
+                    "ecs": [
+                        "process.uptime"
+                    ]
+                },
+                "process.vpid": {
+                    "ecs": [
+                        "process.vpid"
+                    ]
+                },
+                "process.working_directory": {
+                    "ecs": [
+                        "process.working_directory"
+                    ]
+                },
+                "server.address": {
+                    "ecs": [
+                        "server.address"
+                    ]
+                },
+                "server.port": {
+                    "ecs": [
+                        "server.port"
+                    ]
+                },
+                "deployment.environment.name": {
+                    "ecs": [
+                        "service.environment"
+                    ]
+                },
+                "service.name": {
+                    "ecs": [
+                        "service.name"
+                    ]
+                },
+                "service.instance.id": {
+                    "ecs": [
+                        "service.node.name"
+                    ]
+                },
+                "service.version": {
+                    "ecs": [
+                        "service.version"
+                    ]
+                },
+                "source.address": {
+                    "ecs": [
+                        "source.address"
+                    ]
+                },
+                "source.port": {
+                    "ecs": [
+                        "source.port"
+                    ]
+                },
+                "tls.cipher": {
+                    "ecs": [
+                        "tls.cipher"
+                    ]
+                },
+                "tls.client.certificate": {
+                    "ecs": [
+                        "tls.client.certificate"
+                    ]
+                },
+                "tls.client.certificate_chain": {
+                    "ecs": [
+                        "tls.client.certificate_chain"
+                    ]
+                },
+                "tls.client.hash.md5": {
+                    "ecs": [
+                        "tls.client.hash.md5"
+                    ]
+                },
+                "tls.client.hash.sha1": {
+                    "ecs": [
+                        "tls.client.hash.sha1"
+                    ]
+                },
+                "tls.client.hash.sha256": {
+                    "ecs": [
+                        "tls.client.hash.sha256"
+                    ]
+                },
+                "tls.client.issuer": {
+                    "ecs": [
+                        "tls.client.issuer"
+                    ]
+                },
+                "tls.client.ja3": {
+                    "ecs": [
+                        "tls.client.ja3"
+                    ]
+                },
+                "tls.client.not_after": {
+                    "ecs": [
+                        "tls.client.not_after"
+                    ]
+                },
+                "tls.client.not_before": {
+                    "ecs": [
+                        "tls.client.not_before"
+                    ]
+                },
+                "tls.client.subject": {
+                    "ecs": [
+                        "tls.client.subject"
+                    ]
+                },
+                "tls.client.supported_ciphers": {
+                    "ecs": [
+                        "tls.client.supported_ciphers"
+                    ]
+                },
+                "tls.curve": {
+                    "ecs": [
+                        "tls.curve"
+                    ]
+                },
+                "tls.established": {
+                    "ecs": [
+                        "tls.established"
+                    ]
+                },
+                "tls.next_protocol": {
+                    "ecs": [
+                        "tls.next_protocol"
+                    ]
+                },
+                "tls.resumed": {
+                    "ecs": [
+                        "tls.resumed"
+                    ]
+                },
+                "tls.server.certificate": {
+                    "ecs": [
+                        "tls.server.certificate"
+                    ]
+                },
+                "tls.server.certificate_chain": {
+                    "ecs": [
+                        "tls.server.certificate_chain"
+                    ]
+                },
+                "tls.server.hash.md5": {
+                    "ecs": [
+                        "tls.server.hash.md5"
+                    ]
+                },
+                "tls.server.hash.sha1": {
+                    "ecs": [
+                        "tls.server.hash.sha1"
+                    ]
+                },
+                "tls.server.hash.sha256": {
+                    "ecs": [
+                        "tls.server.hash.sha256"
+                    ]
+                },
+                "tls.server.issuer": {
+                    "ecs": [
+                        "tls.server.issuer"
+                    ]
+                },
+                "tls.server.ja3s": {
+                    "ecs": [
+                        "tls.server.ja3s"
+                    ]
+                },
+                "tls.server.not_after": {
+                    "ecs": [
+                        "tls.server.not_after"
+                    ]
+                },
+                "tls.server.not_before": {
+                    "ecs": [
+                        "tls.server.not_before"
+                    ]
+                },
+                "tls.server.subject": {
+                    "ecs": [
+                        "tls.server.subject"
+                    ]
+                },
+                "span_id": {
+                    "ecs": [
+                        "span.id"
+                    ]
+                },
+                "trace_id": {
+                    "ecs": [
+                        "trace.id"
+                    ]
+                },
+                "url.domain": {
+                    "ecs": [
+                        "url.domain"
+                    ]
+                },
+                "url.extension": {
+                    "ecs": [
+                        "url.extension"
+                    ]
+                },
+                "url.fragment": {
+                    "ecs": [
+                        "url.fragment"
+                    ]
+                },
+                "url.full": {
+                    "ecs": [
+                        "url.full"
+                    ]
+                },
+                "url.original": {
+                    "ecs": [
+                        "url.original"
+                    ]
+                },
+                "url.path": {
+                    "ecs": [
+                        "url.path"
+                    ]
+                },
+                "url.port": {
+                    "ecs": [
+                        "url.port"
+                    ]
+                },
+                "url.query": {
+                    "ecs": [
+                        "url.query"
+                    ]
+                },
+                "url.registered_domain": {
+                    "ecs": [
+                        "url.registered_domain"
+                    ]
+                },
+                "url.scheme": {
+                    "ecs": [
+                        "url.scheme"
+                    ]
+                },
+                "url.subdomain": {
+                    "ecs": [
+                        "url.subdomain"
+                    ]
+                },
+                "url.top_level_domain": {
+                    "ecs": [
+                        "url.top_level_domain"
+                    ]
+                },
+                "user.email": {
+                    "ecs": [
+                        "user.email"
+                    ]
+                },
+                "user.full_name": {
+                    "ecs": [
+                        "user.full_name"
+                    ]
+                },
+                "user.hash": {
+                    "ecs": [
+                        "user.hash"
+                    ]
+                },
+                "user.id": {
+                    "ecs": [
+                        "user.id"
+                    ]
+                },
+                "user.name": {
+                    "ecs": [
+                        "user.name"
+                    ]
+                },
+                "user.roles": {
+                    "ecs": [
+                        "user.roles"
+                    ]
+                },
+                "user_agent.name": {
+                    "ecs": [
+                        "user_agent.name"
+                    ]
+                },
+                "user_agent.original": {
+                    "ecs": [
+                        "user_agent.original"
+                    ]
+                },
+                "user_agent.version": {
+                    "ecs": [
+                        "user_agent.version"
+                    ]
+                },
+                "_UID": {
+                    "ecs": [
+                        "user.id"
+                    ]
+                },
+                "_GID": {
+                    "ecs": [
+                        "group.id"
+                    ]
+                },
+                "_COMM": {
+                    "ecs": [
+                        "process.name"
+                    ]
+                },
+                "_EXE": {
+                    "ecs": [
+                        "process.executable"
+                    ]
+                },
+                "_CMDLINE": {
+                    "ecs": [
+                        "process.command_line"
+                    ]
+                },
+                "_SYSTEMD_UNIT": {
+                    "ecs": [
+                        "systemd.unit"
+                    ]
+                },
+                "_SYSTEMD_SLICE": {
+                    "ecs": [
+                        "systemd.slice"
+                    ]
+                },
+                "_SYSTEMD_CGROUP": {
+                    "ecs": [
+                        "systemd.cgroup"
+                    ]
+                },
+                "_HOSTNAME": {
+                    "ecs": [
+                        "host.hostname"
+                    ]
+                },
+                "_TRANSPORT": {
+                    "ecs": [
+                        "log.syslog.facility.name"
+                    ]
+                },
+                "SYSLOG_IDENTIFIER": {
+                    "ecs": [
+                        "syslog.identifier",
+                        "service.name"
+                    ]
+                },
+                "SYSLOG_FACILITY": {
+                    "ecs": [
+                        "log.syslog.facility.code"
+                    ]
+                },
+                "PRIORITY": {
+                    "ecs": [
+                        "log.syslog.priority"
+                    ]
+                }
+            }
+        }
+    }
+}
