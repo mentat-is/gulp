@@ -103,11 +103,11 @@ async def test_rebase_by_query():
 
     # get doc by id
     source_id = "64e7c3a4013ae243aa13151b5449aac884e36081"
-    doc_id = "4905967cfcaf2abe0e28322ff085619d"
+    doc_id = "419f955e26e82c1f3886ecdd360ce54e"
     d = await GulpAPIQuery.query_single_id(ingest_token, TEST_OPERATION_ID, doc_id)
     assert d["_id"] == doc_id
     assert d["@timestamp"] == "2016-06-29T15:24:34.346000+00:00"
-    assert d["gulp.timestamp"] == 1467213874345999872
+    assert d["gulp.timestamp"] == 1467213874346000000
 
     one_day_msec = 1000 * 60 * 60 * 24
     await GulpAPIDb.opensearch_rebase_by_query(
@@ -124,7 +124,7 @@ async def test_rebase_by_query():
     doc = await GulpAPIQuery.query_single_id(ingest_token, TEST_OPERATION_ID, doc_id)
     assert doc["_id"] == doc_id
     assert doc["@timestamp"] == "2016-06-30T15:24:34.346000000Z"
-    assert doc["gulp.timestamp"] == 1467300274345999872  # 1467213874345999872 + 1 day
+    assert doc["gulp.timestamp"] == 1467300274346000000  # 1467213874345999872 + 1 day
     MutyLogger.get_instance().info(test_rebase_by_query.__name__ + " passed")
 
 

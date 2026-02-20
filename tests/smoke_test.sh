@@ -65,7 +65,7 @@ if [ $? -ne 0 ]; then
     goto __fail
 fi
 
-python3 -m pytest -x -v -s ./tests/enrich/test_tag_documents.py
+python3 -m pytest -x -v -s ./tests/test_tag_documents.py
 if [ $? -ne 0 ]; then
     echo "test_ingest_preview failed"
     goto __fail

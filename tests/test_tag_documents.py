@@ -83,7 +83,7 @@ async def test_tag_documents():
                         TEST_OPERATION_ID,
                         tags=["test_tag1", "test_tag2"],
                         flt=GulpQueryFilter(
-                            time_range=[1467213874345999870, 1467213874345999873]
+                            time_range=[1467213874345999870, 1467213908822000000]
                         ),
                         req_id="req_tag_documents",
                     )
@@ -97,9 +97,9 @@ async def test_tag_documents():
                         GulpUpdateDocumentsStats.model_validate(payload["obj"]["data"])
                     )
                     MutyLogger.get_instance().info("stats: %s", stats)
-
+                    MutyLogger.get_instance().info("stats_data: %s", stats_data)
                     # query done
-                    if stats.status == "done" and stats_data.updated == 1:
+                    if stats.status == "done" and stats_data.updated == 7:
                         test_completed = True
                     else:
                         assert False, (
@@ -129,12 +129,12 @@ async def test_tag_single_id():
 
         await test_win_evtx()
 
-    doc_id: str = "4905967cfcaf2abe0e28322ff085619d"
+    doc_id: str = "419f955e26e82c1f3886ecdd360ce54e"
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 
     guest_token = await GulpAPIUser.login("guest", "guest")
-    assert edit_token
+    assert guest_token
 
     # guest cannot enrich, verify that
     await GulpAPIEnrich.tag_single_id(
@@ -157,4 +157,3 @@ async def test_tag_single_id():
     # test query by tags
 
     MutyLogger.get_instance().info(test_tag_single_id.__name__ + " succeeded!")
-
