@@ -3011,12 +3011,12 @@ class GulpPluginBase(ABC):
 
         # parse the custom parameters
         await self._parse_custom_parameters()
-        # pt: GulpPluginType = self.type()
-        # if pt in [GulpPluginType.EXTENSION, GulpPluginType.ENRICHMENT]:
-        #     MutyLogger.get_instance().debug(
-        #         "plugin %s type=%s, no mappings needed", self.name, pt
-        #     )
-        #     return
+        pt: GulpPluginType = self.type()
+        if pt == GulpPluginType.ENRICHMENT:
+            MutyLogger.get_instance().debug(
+                "plugin %s type=%s, no mappings needed", self.name, pt
+            )
+            return
 
         # setup mappings
         # in a lower stacked plugin this is already set by the upper with setup_stacked_plugin()
