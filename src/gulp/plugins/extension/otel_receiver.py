@@ -219,14 +219,14 @@ class Plugin(GulpPluginBase):
             records = self._get_flatten_logs(resource_logs)
 
             # Spawn background ingestion task to avoid blocking the HTTP request
-            GulpServer.spawn_bg_task(
-                self._ingest_ot_record(
-                    user_id=user_session.user_id,
-                    operation_id=operation_id,
-                    index=operation.index,
-                    req_id=req_id,
-                    records=records,
-                )
+            await GulpServer.get_instance().spawn_worker_task(
+                self._ingest_ot_record,
+                user_session.user_id,
+                operation_id,
+                operation.index,
+                req_id,
+                records,
+                wait=True,
             )
             return JSONResponse(JSendResponse.success())
 
@@ -270,14 +270,14 @@ class Plugin(GulpPluginBase):
             records: list[dict[str, Any]] = []
             resource_logs = payload.get("resourceMetrics", [])
             records = self._get_flatten_metrics(resource_logs)
-            GulpServer.spawn_bg_task(
-                self._ingest_ot_record(
-                    user_id=user_session.user_id,
-                    operation_id=operation_id,
-                    index=operation.index,
-                    req_id=req_id,
-                    records=records,
-                )
+            await GulpServer.get_instance().spawn_worker_task(
+                self._ingest_ot_record,
+                user_session.user_id,
+                operation_id,
+                operation.index,
+                req_id,
+                records,
+                wait=True,
             )
             return JSONResponse(JSendResponse.success())
 
@@ -321,14 +321,14 @@ class Plugin(GulpPluginBase):
             resource_logs = payload.get("resourceSpans", [])
             records = self._get_flatten_spans(resource_logs)
 
-            GulpServer.spawn_bg_task(
-                self._ingest_ot_record(
-                    user_id=user_session.user_id,
-                    operation_id=operation_id,
-                    index=operation.index,
-                    req_id=req_id,
-                    records=records,
-                )
+            await GulpServer.get_instance().spawn_worker_task(
+                self._ingest_ot_record,
+                user_session.user_id,
+                operation_id,
+                operation.index,
+                req_id,
+                records,
+                wait=True,
             )
             return JSONResponse(JSendResponse.success())
 
@@ -419,8 +419,6 @@ class Plugin(GulpPluginBase):
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
-        MutyLogger.get_instance().warning(f"\n--------\nd: {d}\ntimestamp: {time_str}")
-
         # create and return the GulpDocument
         return GulpDocument(
             self,
@@ -501,9 +499,7 @@ class Plugin(GulpPluginBase):
 
             # parse JSON into a Python object
             payload = json.loads(body_bytes)
-            MutyLogger.get_instance().warning(
-                f"payload:\n-------\n{payload}\n----------"
-            )
+            MutyLogger.get_instance().debug(f"payload:\n-------\n{payload}\n----------")
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
             raise JSendException() from ex
@@ -666,7 +662,6 @@ class Plugin(GulpPluginBase):
                         record["metric_name"] = metric_name
                         record["timeUnixNano"] = timestamp
 
-                        record["gulp.source_name"] = gulp_source
                         doc["metrics"].append(record)
 
         return list(grouped_docs.values())
@@ -796,7 +791,7 @@ class Plugin(GulpPluginBase):
 
         # 0. Highest priority: allow a forced `gulp.source` provided by the collector
         if flattened_attrs.get("gulp.source"):
-            return flattened_attrs["gulp.source"]
+            return flattened_attrs.pop("gulp.source")
 
         # 1. Logic for LOGS
         if signal_type == "log":
@@ -831,7 +826,7 @@ class Plugin(GulpPluginBase):
 
     def _get_context_name(self, resource_flatten):
         if resource_flatten.get("gulp.context"):
-            return resource_flatten["gulp.context"]
+            return resource_flatten.pop("gulp.context")
 
         return (
             resource_flatten.get("host.name")
