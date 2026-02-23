@@ -33,6 +33,12 @@ Other headers (e.g., proxy or network headers) depend on your environment.
 
 The plugin uses a mapping file (default `otel.json`) to translate flattened fields into the internal document model. Update or provide a custom mapping file to control how fields are mapped into `GulpDocument`.
 
+### Open Telemtry Metrics
+
+For Metric open telemetry logs gulp grouped into a single document  the datapoints that share the same timestamp/context/source/scope.
+This grouping reduces the number of documents by aggregating metrics that belong together in time and context.
+Each grouped document contains a `metrics` list with per-datapoint records (with `metric_name`, `metric_type`, value fields, etc.).
+
 ## Context and source extraction
 
 The plugin attempts to determine a context name and a source name from the OTLP payload. These fallbacks are applied in order:

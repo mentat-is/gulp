@@ -531,27 +531,52 @@ class Plugin(GulpPluginBase):
             return (s, operation)
 
     def _get_flatten_logs(self, resource_logs: list[dict]) -> list[dict[str, Any]]:
+        """
+            The function expects OTLP log JSON structured as a list of `resourceLogs`.
+            Each `resourceLog` contains a `resource` object (holding resource-level attributes) and `scopeLogs`.
+            Each `scopeLog` contains a `logRecords` list with individual `logRecord` objects (their `body`, `attributes`, timestamps, and other fields).
+
+            For each `resourceLog` the code flattens resource attributes with `_flatten_attributes` and computes a `gulp.context_name` via `_get_context_name`.
+            It then iterates each `scopeLog` and each `logRecord`, extracting `body` and `attributes`, flattening both (the body with `_get_body_values` and attributes via
+            `_flatten_attributes`) and merging them with the base `log` dict and resource-level attributes. The merge produces a single-level dict
+            representing the full enriched event. The function also computes a `gulp.source_name` using `_get_gulp_source` so that downstream
+            mappings can route the document appropriately.
+
+        RESULTS :
+            Returns a list of flattened dictionaries, each representing a
+            log-ready document. Each dict contains merged keys from resource,
+            log, attributes and body values, and includes keys like
+            `timeUnixNano`, `event_original`, `gulp.context_name` and
+            `gulp.source_name`.
+        """
+
         results = []
 
         for r_log in resource_logs:
+            # resource-level metadata (service.name, host, etc.)
             resource = r_log.get("resource", {})
-            # flatten resource attributes into a simple dict
+            # flatten resource attributes into a simple dict for merging
             resource_flatten = self._flatten_attributes(resource.get("attributes", []))
+            # compute a context/name for these logs based on resource attrs
             gulp_context = self._get_context_name(resource_flatten)
 
             scope_logs = r_log.get("scopeLogs", [])
             for scope_log in scope_logs:
                 logs = scope_log.get("logRecords")
                 for log in logs:
-                    # extract and flatten body and attributes for the log record
+                    # Extract the structured body (may be a kvlistValue or primitive)
+                    # and the record attributes. We pop them from `log` to avoid
+                    # keeping nested structures and then flatten both.
                     body = log.pop("body", None)
                     attributes = log.pop("attributes", [])
                     body_flatten = self._get_body_values(body)
                     log_flatten = self._flatten_attributes(attributes)
 
-                    # combine resource, log, attributes and body values into a single record
+                    # Merge resource-level, log-level and body/attribute-derived
+                    # key/values into a single document that mapping expects.
                     record = resource_flatten | log | log_flatten | body_flatten
                     record["gulp.context_name"] = gulp_context
+                    # Determine a reasonable source name (file, service, unit, ...)
                     gulp_source = self._get_gulp_source("log", record)
                     record["gulp.source_name"] = gulp_source
 
@@ -562,6 +587,24 @@ class Plugin(GulpPluginBase):
     def _get_flatten_metrics(
         self, resource_metrics: list[dict]
     ) -> list[dict[str, Any]]:
+        """
+            OTLP metrics arrive as `resourceMetrics` where each item contains a `resource` dict and `scopeMetrics`.
+            Each `scopeMetric` includes one or more `metrics`, and each `metric` contains typed payloads (e.g. `gauge`, `sum`, `histogram`, `summary`)
+            that expose `dataPoints`.
+
+            The function iterates each resource and scope, flattens resource attributes and computes context/source.
+            For each metric it determines the metric type and extracts its `dataPoints`.
+            Each datapoint is flattened (labels/attributes) and combined with the resource-level attributes.
+            Datapoints that share the same timestamp/context/source/scope are grouped into a single document
+            (using `group_key`) — this reduces the number of documents by aggregating metrics that belong together in time and context.
+            Each grouped document contains a `metrics` list with per-datapoint records (with `metric_name`, `metric_type`, value fields, etc.).
+
+        RESULTS:
+            Returns a list of grouped metric documents.
+            Each document has top-level metadata (`timeUnixNano`, `gulp.context_name`,`gulp.source_name`, `event`)
+            and a `metrics` array containing the flattened datapoint records ready for ingestion.
+        """
+
         grouped_docs = {}
         for resource_metric in resource_metrics:
             # retrieve resource information to enrich metrics and compute context/source
@@ -578,6 +621,7 @@ class Plugin(GulpPluginBase):
                     metric_name = metric.get("name")
                     metric_type = "unknown"
                     data_points = []
+                    # Determine where datapoints live depending on metric type
                     if "gauge" in metric:
                         data_points = metric["gauge"].get("dataPoints", [])
                         metric_type = "gauge"
@@ -585,18 +629,26 @@ class Plugin(GulpPluginBase):
                         data_points = metric["sum"].get("dataPoints", [])
                         metric_type = "counter"
                     elif "histogram" in metric:
-                        data_points = metric["sum"].get("dataPoints", [])
+                        # histograms may encode buckets; we extract datapoints
+                        data_points = metric.get("histogram", {}).get("dataPoints", [])
+                        metric_type = "histogram"
                     elif "summary" in metric:
-                        data_points = metric["sum"].get("dataPoints", [])
+                        data_points = metric.get("summary", {}).get("dataPoints", [])
+                        metric_type = "summary"
 
                     for dp in data_points:
-                        # timestamp used as key for grouping metrics that share the same time and context
+                        # Use the datapoint timestamp as a primary grouping key so
+                        # that multiple metrics from the same resource/scope at
+                        # the same instant are combined into one document.
                         timestamp = dp.pop("timeUnixNano")
 
+                        # group_key collates scope, context and source with the timestamp
                         group_key = (
                             f"{timestamp}_{scope_name}-{gulp_context}_{gulp_source}"
                         )
                         if group_key not in grouped_docs:
+                            # Create a new grouped document that will hold
+                            # multiple metric datapoints for this instant/context
                             grouped_docs[group_key] = {
                                 "timeUnixNano": timestamp,
                                 "gulp.context_name": gulp_context,
@@ -606,6 +658,8 @@ class Plugin(GulpPluginBase):
                             }
                         doc = grouped_docs[group_key]
 
+                        # Flatten datapoint attributes (labels) and merge with
+                        # resource-level attributes and datapoint fields
                         dp_flatten = self._flatten_attributes(dp.pop("attributes", []))
                         record = resource_flatten | dp_flatten | dp
                         record["metric_type"] = metric_type
@@ -618,9 +672,24 @@ class Plugin(GulpPluginBase):
         return list(grouped_docs.values())
 
     def _get_flatten_spans(self, resource_spans: list[dict]) -> list[dict[str, Any]]:
+        """
+            OTLP traces are represented as `resourceSpans`.
+            Each `resourceSpan` has a `resource` (attributes) and `scopeSpans`.
+            Each `scopeSpan` contains a `spans` list where each span includes timing (start/end), attributes, events and other trace-specific fields.
+
+            The function flattens resource attributes and computes a context name.
+            For every span it pops the `startTimeUnixNano` to use as the document timestamp, flattens span attributes and merges resource, span fields and flattened attributes into a single record.
+            It sets `timeUnixNano`, `gulp.context_name`, and determines a `gulp.source_name` via `_get_gulp_source`.
+
+        RESULTS
+            Returns a list of flattened span documents that include span metadata (trace/span ids, names), timing (`timeUnixNano`) and
+            enriched context/source information suitable for ingestion.
+        """
+
         results = []
 
         for r_span in resource_spans:
+            # Resource-level attributes for the span (service, environment, ...)
             resource = r_span.get("resource", {})
             resource_flatten = self._flatten_attributes(resource.get("attributes", []))
             gulp_context = self._get_context_name(resource_flatten)
@@ -629,12 +698,18 @@ class Plugin(GulpPluginBase):
             for scope_span in scope_logs:
                 spans = scope_span.get("spans", [])
                 for span in spans:
-                    # use span start time as the event timestamp
+                    # Use start time as the event timestamp for ingestion.
+                    # We `pop` it from `span` to avoid duplicating nested
+                    # structures — the start time becomes `timeUnixNano` on the
+                    # resulting document.
                     timestamp = span.pop("startTimeUnixNano")
+                    # Flatten span attributes (e.g. db.system, messaging.system)
                     span_attr = self._flatten_attributes(span.pop("attributes", []))
+                    # Merge resource-level, span fields and flattened attrs
                     record = resource_flatten | span | span_attr
                     record["timeUnixNano"] = timestamp
                     record["gulp.context_name"] = gulp_context
+                    # Determine a meaningful source for the span
                     gulp_source = self._get_gulp_source("span", span_attr)
                     record["gulp.source_name"] = gulp_source
                     results.append(record)
