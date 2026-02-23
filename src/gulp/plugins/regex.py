@@ -64,6 +64,12 @@ class Plugin(GulpPluginBase):
                 desc="flags to apply to regex",
                 default_value=re.NOFLAG,
             ),
+            GulpPluginCustomParameter(
+                name="timestamp_format",
+                type="str",
+                desc="date format for the `@timestamp` field, if not supported by the underlying datetime.parser",
+                example="%Y-%m-%dT%H:%M:%S.%fZ",
+            ),
         ]
 
     @override
@@ -72,12 +78,16 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
         event: Match = record
         line = kwargs.get("line")
+        timestamp_format = kwargs.get("timestamp_format")
 
         d: dict = {}
         # print("---> mapping = %s" % (self.selected_mapping().model_dump_json(indent=2)))
 
         # map
         rec: dict = event.groupdict()
+        ts: str = rec.pop("timestamp")
+        if ts and timestamp_format:         
+            ts: str = datetime.strptime(ts, timestamp_format).isoformat()
         for k, v in rec.items():
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
@@ -89,6 +99,7 @@ class Plugin(GulpPluginBase):
             source_id=self._source_id,
             event_original=line,
             event_sequence=record_idx,
+            timestamp=ts,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
         )
@@ -140,6 +151,7 @@ class Plugin(GulpPluginBase):
         encoding = mapping.default_encoding or "utf-8"
         flags = self._plugin_params.custom_parameters.get("flags")
         regex = self._plugin_params.custom_parameters.get("regex")
+        timestamp_format = self._plugin_params.custom_parameters.get("timestamp_format")
         regex = re.compile(regex, flags)
 
         # make sure we have at least 1 named group
@@ -153,7 +165,7 @@ class Plugin(GulpPluginBase):
                 valid = True
 
         if not valid:
-            return GulpRequestStatus.FAILED
+           raise ValueError("regex must have at least one named group called 'timestamp'")
 
         # we can process!
         doc_idx = 0
@@ -162,7 +174,7 @@ class Plugin(GulpPluginBase):
                 m = regex.match(line)
                 if m:
                     await self.process_record(
-                        m, doc_idx, flt=flt, line=line
+                        m, doc_idx, flt=flt, line=line, timestamp_format=timestamp_format
                     )
                 else:
                     # no match

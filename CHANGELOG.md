@@ -1,3 +1,27 @@
+# v1.6.2
+
+## new features
+
+- realtime ingestion supported in the UI
+- new plugin: `otel_receiver` to ingest OpenTelemetry traces, logs and metrics from an OpenTelemetry Collector
+
+## improvements
+
+- core/query: major boost in parallel query handling and overall performance improvements (Redis)
+- core/collab: refactored advisory locks to be more robust and performant (PostgreSQL)
+- core/mapping: added `mapping.fields.timestamp_format` and `mapping.default_encoding` to the mapping engine, to respectively use a default timestamp format string and string encoding
+
+## unresolved issues
+
+`timestamp_format` in `plugin_params` is currently **NOT SUPPORTED** in the UI: in the `regex` plugin it is workarounded passing it via `plugin_params.custom_parameters`, other plugins using it (i.e. `apache_access_clf`) have hardcoded defaults (which is, of course, not ideal and will be fixed ASAP when the UI issue is resolved).
+
+# v1.6.1
+
+## fixes
+
+- solves issues with the devcontainer (https://github.com/yarnpkg/yarn/issues/9216)
+- some minor fixes
+
 # v1.6.0
 
 ## major changes
