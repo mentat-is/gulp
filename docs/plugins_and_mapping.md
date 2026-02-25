@@ -11,6 +11,7 @@
   - [plugin internals](#plugin-internals)
     - [multiprocessing and concurrency](#multiprocessing-and-concurrency)
     - [ingestion plugins](#ingestion-plugins)
+      - [chunk callbacks](#chunk-callbacks)
     - [enrichment plugins](#enrichment-plugins)
     - [external plugins](#external-plugins)
       - [call external plugins](#call-external-plugins)
@@ -253,6 +254,12 @@ sequenceDiagram
 
     Base-->>Engine: Send completion status
 ~~~
+
+#### chunk callbacks
+
+`GulpPluginParameters._doc_chunk_callback` is a callback that can be set (usually by an `extension` plugin performing ingestion, but may be set also by `ingestion` or `external` plugins).
+
+this is meant to process documents **after** being ingested into OpenSearch (i.e. to send alerts if certain conditions are met).
 
 ### enrichment plugins
 

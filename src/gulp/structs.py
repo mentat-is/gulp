@@ -222,138 +222,6 @@ class GulpMappingParameters(BaseModel):
         return hash(self._stringify())
 
 
-class GulpPluginParameters(BaseModel):
-    """
-    parameters for a plugin, to be passed to ingest and query_external API.
-
-    additional custom parameters defined in GulpPlugin.custom_parameters may be added to the "model_extra" field, they will be passed to the plugin as is.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        json_schema_extra={
-            "examples": [
-                {
-                    "mapping_parameters": autogenerate_model_example_by_class(
-                        GulpMappingParameters
-                    ),
-                    "override_chunk_size": 1000,
-                    "custom_parameters": {
-                        "some_custom_param": "some_value",
-                        "some_custom_param_2": "some_value_2",
-                    },
-                }
-            ]
-        },
-    )
-    mapping_parameters: Annotated[
-        Optional[GulpMappingParameters],
-        Field(
-            description="mapping parameters for the plugin.",
-        ),
-    ] = Field(default_factory=GulpMappingParameters)
-    override_chunk_size: Annotated[
-        Optional[int],
-        Field(
-            description="""this is used to override, on a request basis, the bufferized size of chunk before flushing to OpenSearch and possibly send to websocket.
-            by default, this is set as configuration 'ingestion_documents_chunk_size' and can be overridden here i.e. when OpenSearch or websocket complains about too big chunks.""",
-        ),
-    ] = None
-    override_allow_unmapped_fields: Annotated[
-        bool,
-        Field(
-            description="""overrides, on a request basis, `ingestion_allow_unmapped_fields` in the configuration, to disable `gulp.unmapped` values generations during ingestion (default=True=allow).
-            read the configuration documentation for more details (disabling may affect sigma rules matching)'
-            """,
-        ),
-    ] = True
-    timestamp_offset_msec: Annotated[
-        int,
-        Field(
-            description="if not 0, this is used to offset document `@timestamp` (and `gulp.timestamp`) by the given number of milliseconds (positive or negative).",
-        ),
-    ] = 0
-    custom_parameters: Annotated[
-        dict,
-        Field(
-            description="additional plugin-specific custom parameters.",
-        ),
-    ] = Field(default_factory=dict)
-    preview_mode: Annotated[
-        bool,
-        Field(
-            description="if True, the plugin should run in preview mode (return synchronously a chunk of data)"
-        ),
-    ] = False
-
-    def is_empty(self) -> bool:
-        """
-        check if **ALL** plugin parameters are empty.
-
-        Returns:
-            bool: True if all parameters are None/empty, False otherwise
-        """
-        if (
-            self.mapping_parameters.is_empty()
-            and not self.custom_parameters
-            and not self.override_chunk_size
-            and not self.timestamp_offset_msec
-        ):
-            return True
-        return False
-
-
-class GulpPluginCustomParameter(GulpAPIParameter):
-    """
-    this is used **by the UI only** through the `plugin_list` API, which calls each plugin `custom_parameters()` entrypoint to get custom parameters name/type/description/default if defined.
-
-    to pass custom parameters to a plugin via GulpPluginParameters, just use the `name` field as the key in the `GulpPluginParameters.custom_parameters` dictionary:
-
-    ~~~js
-    {
-        // example GulpPluginParameters
-        "mapping_file": "mftecmd_csv.json",
-        "mappings": { "record": { "fields": { "timestamp": { "type": "datetime" } } } },
-        "mapping_id": "record",
-        "custom_parameters": {
-            "some_custom_param": "some_value",
-            "some_custom_param_2": "some_value_2"
-        }
-    }
-    ~~~
-
-    after `_initialize()` is called, the custom parameters will be available in `self._plugin_params.custom_parameters` field.
-
-    ~~~python
-    v = self._plugin_params.custom_parameters["some_custom_param"]
-    ~~~
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        json_schema_extra={
-            "examples": [
-                {
-                    "name": "ignore_mapping",
-                    "type": "bool",
-                    "default_value": False,
-                    "desc": "ignore mapping file and leave the field as is.",
-                    "required": True,
-                }
-            ]
-        },
-    )
-
-
-class GulpSortOrder(StrEnum):
-    """
-    specifies the sort types for API accepting the "sort" parameter
-    """
-
-    ASC = "asc"
-    DESC = "desc"
-
-
 class GulpProgressCallback(Protocol):
     """
     callback protocol for generic progress updates
@@ -422,3 +290,143 @@ class GulpDocumentsChunkCallback(Protocol):
         """
         ...
         ...
+
+class GulpPluginParameters(BaseModel):
+    """
+    parameters for a plugin, to be passed to ingest and query_external API.
+
+    additional custom parameters defined in GulpPlugin.custom_parameters may be added to the "model_extra" field, they will be passed to the plugin as is.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "mapping_parameters": autogenerate_model_example_by_class(
+                        GulpMappingParameters
+                    ),
+                    "override_chunk_size": 1000,
+                    "custom_parameters": {
+                        "some_custom_param": "some_value",
+                        "some_custom_param_2": "some_value_2",
+                    },
+                }
+            ]
+        },
+    )
+    mapping_parameters: Annotated[
+        Optional[GulpMappingParameters],
+        Field(
+            description="mapping parameters for the plugin.",
+        ),
+    ] = Field(default_factory=GulpMappingParameters)
+    override_chunk_size: Annotated[
+        Optional[int],
+        Field(
+            description="""this is used to override, on a request basis, the bufferized size of chunk before flushing to OpenSearch and possibly send to websocket.
+            by default, this is set as configuration 'ingestion_documents_chunk_size' and can be overridden here i.e. when OpenSearch or websocket complains about too big chunks.""",
+        ),
+    ] = None
+    override_allow_unmapped_fields: Annotated[
+        bool,
+        Field(
+            description="""overrides, on a request basis, `ingestion_allow_unmapped_fields` in the configuration, to disable `gulp.unmapped` values generations during ingestion (default=True=allow).
+            read the configuration documentation for more details (disabling may affect sigma rules matching)'
+            """,
+        ),
+    ] = True
+    timestamp_offset_msec: Annotated[
+        int,
+        Field(
+            description="if not 0, this is used to offset document `@timestamp` (and `gulp.timestamp`) by the given number of milliseconds (positive or negative).",
+        ),
+    ] = 0
+    custom_parameters: Annotated[
+        dict,
+        Field(
+            description="additional plugin-specific custom parameters.",
+        ),
+    ] = Field(default_factory=dict)
+    preview_mode: Annotated[
+        bool,
+        Field(
+            description="if True, the plugin should run in preview mode (return synchronously a chunk of data)"
+        ),
+    ] = False
+
+    _doc_chunk_callback: Annotated[
+        GulpDocumentsChunkCallback,
+        Field(
+            description="internal use: callback to be set internally (i.e. by an extension plugin calling the `raw` plugin) to process documents chunk AFTER being ingested in OpenSearch, ignored in preview mode.",
+        ),
+    ] = None
+    def is_empty(self) -> bool:
+        """
+        check if **ALL** plugin parameters are empty.
+
+        Returns:
+            bool: True if all parameters are None/empty, False otherwise
+        """
+        if (
+            self.mapping_parameters.is_empty()
+            and not self.custom_parameters
+            and not self.override_chunk_size
+            and not self.timestamp_offset_msec
+        ):
+            return True
+        return False
+
+
+class GulpPluginCustomParameter(GulpAPIParameter):
+    """
+    this is used **by the UI only** through the `plugin_list` API, which calls each plugin `custom_parameters()` entrypoint to get custom parameters name/type/description/default if defined.
+
+    to pass custom parameters to a plugin via GulpPluginParameters, just use the `name` field as the key in the `GulpPluginParameters.custom_parameters` dictionary:
+
+    ~~~js
+    {
+        // example GulpPluginParameters
+        "mapping_file": "mftecmd_csv.json",
+        "mappings": { "record": { "fields": { "timestamp": { "type": "datetime" } } } },
+        "mapping_id": "record",
+        "custom_parameters": {
+            "some_custom_param": "some_value",
+            "some_custom_param_2": "some_value_2"
+        }
+    }
+    ~~~
+
+    after `_initialize()` is called, the custom parameters will be available in `self._plugin_params.custom_parameters` field.
+
+    ~~~python
+    v = self._plugin_params.custom_parameters["some_custom_param"]
+    ~~~
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "name": "ignore_mapping",
+                    "type": "bool",
+                    "default_value": False,
+                    "desc": "ignore mapping file and leave the field as is.",
+                    "required": True,
+                }
+            ]
+        },
+    )
+
+
+class GulpSortOrder(StrEnum):
+    """
+    specifies the sort types for API accepting the "sort" parameter
+    """
+
+    ASC = "asc"
+    DESC = "desc"
+
+
+

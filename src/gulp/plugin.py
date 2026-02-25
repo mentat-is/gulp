@@ -1171,6 +1171,23 @@ class GulpPluginBase(ABC):
         self._records_skipped_total += skipped
         self._records_ingested_total += ingested
         self._records_failed_total += failed
+        
+        # call _doc_chunk_callback if set in plugin_params, respecting plugin stacking
+        if ingested_docs and not self._preview_mode:
+            current_plugin: GulpPluginBase = self
+            while current_plugin is not None:
+                if current_plugin._plugin_params._doc_chunk_callback:
+                    await current_plugin._plugin_params._doc_chunk_callback(
+                        sess=self._sess,
+                        ws_id=self._ws_id,
+                        index=self._index,
+                        user_id=self._user_id,
+                        operation_id=self._operation_id,
+                        req_id=self._req_id,
+                        docs=ingested_docs,
+                    )
+                current_plugin = current_plugin._upper_instance
+        
         return skipped, ingested, failed
 
     async def _context_id_from_doc_value(
@@ -2018,30 +2035,6 @@ class GulpPluginBase(ABC):
         """
         raise NotImplementedError("not implemented!")
 
-    async def _process_with_stacked_plugin(
-        self, docs: list[dict], record_idx: int, **kwargs
-    ) -> list[dict]:
-        """
-        processes documents with stacked plugin.
-
-        Args:
-            docs (list[dict]): documents to process
-            record_idx (int): the index of the record
-            kwargs: additional keyword arguments
-
-        Returns:
-            list[dict]: processed documents
-        """
-        for i, doc in enumerate(docs):
-            u: GulpPluginBase = self
-            # walk the chain of upper stacked plugins and call each _record_to_gulp_document (from bottom to top)
-            while u._upper_instance != None:
-                docs[i] = await u._upper_record_to_gulp_document_fun(
-                    doc, record_idx, **kwargs
-                )
-                u = u._upper_instance
-        return docs
-
     async def _record_to_gulp_documents_wrapper(
         self, record: Any, record_idx: int, **kwargs
     ) -> list[dict]:
@@ -2067,7 +2060,14 @@ class GulpPluginBase(ABC):
 
         # apply upper plugin processing if stacked
         if self._upper_record_to_gulp_document_fun:
-            docs = await self._process_with_stacked_plugin(docs, record_idx, **kwargs)
+            for i, doc in enumerate(docs):
+                u: GulpPluginBase = self
+                # walk the chain of upper stacked plugins and call each _record_to_gulp_document (from bottom to top)
+                while u._upper_instance != None:
+                    docs[i] = await u._upper_record_to_gulp_document_fun(
+                        doc, record_idx, **kwargs
+                    )
+                    u = u._upper_instance
 
         # walk generated documents and ensure they have context_id and source_id set
         mapping: GulpMapping = self.selected_mapping()
