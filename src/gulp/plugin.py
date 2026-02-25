@@ -1172,12 +1172,12 @@ class GulpPluginBase(ABC):
         self._records_ingested_total += ingested
         self._records_failed_total += failed
         
-        # call _doc_chunk_callback if set in plugin_params, respecting plugin stacking
+        # call _docs_chunk_callback if set in plugin_params, respecting plugin stacking
         if ingested_docs and not self._preview_mode:
             current_plugin: GulpPluginBase = self
             while current_plugin is not None:
-                if current_plugin._plugin_params._doc_chunk_callback:
-                    await current_plugin._plugin_params._doc_chunk_callback(
+                if current_plugin._plugin_params._docs_chunk_callback:
+                    await current_plugin._plugin_params._docs_chunk_callback(
                         sess=self._sess,
                         ws_id=self._ws_id,
                         index=self._index,

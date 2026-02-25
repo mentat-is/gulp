@@ -118,8 +118,8 @@ then, different methods may be implemented:
 - `ingest_file`: implemented in `ingestion` plugins, this is the entrypoint to ingest a file.
   - look in [win_evtx](../src/gulp/plugins/win_evtx.py) for a complete example.
 
-- `ingest_raw`: may be implemented in `ingestion` plugins to allow ingestion of `raw` data, which the plugin turns into proper `GulpDocuments`
-  - this is currently used only by the [raw](../src/gulp/plugins/raw.py) plugin.
+- `ingest_raw`: may be implemented in plugirequiring data ingestion from a raw buffer.
+  - the [`raw`](../src/gulp/plugins/raw.py) plugin ingests pre-processed `GulpDocuments`
 
 - `query_external`: implemented by `external` plugins, queries and ingest from an external source.
   - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
@@ -257,9 +257,9 @@ sequenceDiagram
 
 #### chunk callbacks
 
-`GulpPluginParameters._doc_chunk_callback` is a callback that can be set (usually by an `extension` plugin performing ingestion, but may be set also by `ingestion` or `external` plugins).
+`GulpPluginParameters._docs_chunk_callback` is an `internal-only` (not usable via the REST API `plugin_params`) callback that can be set to process documents **after** being ingested into OpenSearch (i.e. to send alerts if certain conditions are met).
 
-this is meant to process documents **after** being ingested into OpenSearch (i.e. to send alerts if certain conditions are met).
+> usually this is set by an `extension` plugin performing ingestion via the `GulpPluginBase.ingest_raw` method, but may also be set by a stacked `ingestion` or `external` plugins: the upper plugin may just set `GulpPluginParameters._doc_chunk_callback` then call `ingest_file`/`query_external` in the lower plugin to perform the ingestion.
 
 ### enrichment plugins
 
@@ -326,6 +326,8 @@ sequenceDiagram
     Base-->>Engine: Send completion status
 ~~~
 
+> note that from gulp's point of view, an `external` plugin is just like an `ingestion` plugin which source is external and queried via `query_external` instead of `ingest_file`, so the flow is very similar to the one described above for `ingestion` plugins.
+> 
 #### call external plugins
 
 to query an external source with an `external plugin`, a client uses the `query_external` API:

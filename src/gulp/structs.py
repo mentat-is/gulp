@@ -355,10 +355,10 @@ class GulpPluginParameters(BaseModel):
         ),
     ] = False
 
-    _doc_chunk_callback: Annotated[
+    _docs_chunk_callback: Annotated[
         GulpDocumentsChunkCallback,
         Field(
-            description="internal use: callback to be set internally (i.e. by an extension plugin calling the `raw` plugin) to process documents chunk AFTER being ingested in OpenSearch, ignored in preview mode.",
+            description="internal use: callback to be set internally (i.e. by an extension plugin implementing `ingest_raw`) to process documents chunk AFTER being ingested in OpenSearch, ignored in preview mode.",
         ),
     ] = None
     def is_empty(self) -> bool:
