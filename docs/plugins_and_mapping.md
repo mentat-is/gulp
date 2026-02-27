@@ -118,7 +118,7 @@ then, different methods may be implemented:
 - `ingest_file`: implemented in `ingestion` plugins, this is the entrypoint to ingest a file.
   - look in [win_evtx](../src/gulp/plugins/win_evtx.py) for a complete example.
 
-- `ingest_raw`: may be implemented in plugirequiring data ingestion from a raw buffer.
+- `ingest_raw`: may be implemented in plugi requiring data ingestion from a raw buffer.
   - the [`raw`](../src/gulp/plugins/raw.py) plugin ingests pre-processed `GulpDocuments`
 
 - `query_external`: implemented by `external` plugins, queries and ingest from an external source.

@@ -557,10 +557,15 @@ class GulpInternalEventsManager:
 
     # these events are broadcasted by core itself to registered plugins
     # further events may be added by plugins through register(): when calling dispatch_internal_event(), only plugins registered to receive the specific event type will receive it.
+    
+    # an user logged in
     EVENT_LOGIN: str = WSDATA_USER_LOGIN  # data=GulpUserAccessPacket
+    # an user logged out
     EVENT_LOGOUT: str = WSDATA_USER_LOGOUT  # data=GulpUserAccessPacket
-    EVENT_INGEST: str = "ingestion"
-    EVENT_DELETE_OPERATION: str = "delete_operation"
+    # ingestion of a source has been completed
+    EVENT_SOURCE_INGESTED: str = "ingestion" # data=GulpIngestInternalEvent
+    # an operation is deleted
+    EVENT_DELETE_OPERATION: str = "delete_operation" # data= {"index": index}
 
     def __init__(self):
         self._initialized: bool = True
@@ -1024,7 +1029,7 @@ class GulpPluginBase(ABC):
         # )
         redis_broker = GulpRedisBroker.get_instance()
         await redis_broker.put_internal_event(
-            GulpInternalEventsManager.EVENT_INGEST,
+            GulpInternalEventsManager.EVENT_SOURCE_INGESTED,
             user_id=self._user_id,
             operation_id=self._operation_id,
             req_id=self._req_id,
