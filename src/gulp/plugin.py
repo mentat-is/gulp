@@ -328,6 +328,13 @@ class GulpPluginEntry(BaseModel):
         ),
     ] = None
 
+    protected: Annotated[
+        bool,
+        Field(
+            description="Whether the plugin is protected by license check (set only in licensed plugins).",
+        ),
+    ] = False
+
     # HTML frame to be rendered in the UI
     ui: Annotated[
         Optional[str],
@@ -872,6 +879,9 @@ class GulpPluginBase(ABC):
         # core uses it for context_id, source_id, gulp.event_code, plugin can use it while processing records.
         self.doc_value_cache: DocValueCache = DocValueCache()
 
+        # whether the plugin is protected by license check
+        self._protected = False
+
     def check_license(self, throw_on_invalid: bool = True) -> bool:
         """
         stub method for license checking, overridden by make_paid.py for paid plugins.
@@ -911,17 +921,17 @@ class GulpPluginBase(ABC):
         """
         return ""
 
-    def tables(self) -> list[str]:
-        """
-        Returns a list of collab tables created by the plugin, if any.
-        """
-        return []
-
     def desc(self) -> str:
         """
         Returns a description of the plugin.
         """
         return ""
+
+    def tables(self) -> list[str]:
+        """
+        Returns a list of collab tables created by the plugin, if any.
+        """
+        return []
 
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         """
@@ -1036,7 +1046,7 @@ class GulpPluginBase(ABC):
             data=ev.model_dump(),
         )
 
-    async def flush_buffer_and_send_to_ws(
+    async def _flush_buffer_and_send_to_ws(
         self,
         flt: GulpIngestionFilter = None,
         wait_for_refresh: bool = False,
@@ -2617,7 +2627,7 @@ class GulpPluginBase(ABC):
             "_flush_and_check_thresholds called, plugin=%s", self.name
         )
         # flush buffer
-        skipped, ingested, failed = await self.flush_buffer_and_send_to_ws(
+        skipped, ingested, failed = await self._flush_buffer_and_send_to_ws(
             flt, wait_for_refresh
         )
 
@@ -3211,7 +3221,7 @@ class GulpPluginBase(ABC):
 
         try:
             # flush the last chunk
-            skipped, ingested, failed = await self.flush_buffer_and_send_to_ws(
+            skipped, ingested, failed = await self._flush_buffer_and_send_to_ws(
                 flt,
                 wait_for_refresh=True,
             )
@@ -3692,6 +3702,7 @@ class GulpPluginBase(ABC):
                         tags=p.tags(),
                         version=p.version(),
                         data=p.data(),
+                        protected=p._protected
                     )
 
                     l.append(entry)
