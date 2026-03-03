@@ -879,9 +879,6 @@ class GulpPluginBase(ABC):
         # core uses it for context_id, source_id, gulp.event_code, plugin can use it while processing records.
         self.doc_value_cache: DocValueCache = DocValueCache()
 
-        # whether the plugin is protected by license check
-        self._protected = False
-
     def check_license(self, throw_on_invalid: bool = True) -> bool:
         """
         stub method for license checking, overridden by make_paid.py for paid plugins.
@@ -3702,7 +3699,7 @@ class GulpPluginBase(ABC):
                         tags=p.tags(),
                         version=p.version(),
                         data=p.data(),
-                        protected=p._protected
+                        protected=hasattr(p, "_protected")
                     )
 
                     l.append(entry)
