@@ -355,7 +355,7 @@ class GulpPluginParameters(BaseModel):
         ),
     ] = False
 
-    _docs_chunk_callback: Annotated[
+    _chunk_ingestion_callback: Annotated[
         GulpDocumentsChunkCallback,
         Field(
             description="internal use: callback to be set internally (i.e. by an extension plugin implementing `ingest_raw`) to process documents chunk AFTER being ingested in OpenSearch, ignored in preview mode.",
