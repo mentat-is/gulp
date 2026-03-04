@@ -1110,6 +1110,13 @@ class GulpConfig:
         n = self._config.get("redis_pubsub_max_chunk_size", 128)
         return n
     
+    def plugin_allow_load_examples(self) -> bool:
+        """
+        Returns whether to enable loading of plugins which filename starts with "example_" (default: False).
+        """
+        n = self._config.get("plugin_allow_load_example", False)
+        return n
+
     def plugin_cache_enabled(self) -> bool:
         """
         Returns whether to enable the plugin cache (default: True).

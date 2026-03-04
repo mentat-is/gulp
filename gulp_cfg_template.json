@@ -68,6 +68,8 @@
   "parallel_processes_max": 0,
   // respawn a process after this number of tasks: set to -1 to never respawn processes, every other value < 100 will be set to 100 (default=100)
   "parallel_processes_respawn_after_tasks": 100,
+  // enable/disable loading of plugins which filename starts with "example_" (i.e. to avoid loading example extensions...), default=false (no load)
+  "plugin_allow_load_examples": false,
   // enable cache for plugins (faster loading)
   "plugin_cache_enabled": true,
   // how many documents to return in preview mode (default=100)

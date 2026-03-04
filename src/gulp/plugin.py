@@ -573,6 +573,9 @@ class GulpInternalEventsManager:
     EVENT_SOURCE_INGESTED: str = "ingestion" # data=GulpIngestInternalEvent
     # an operation is deleted
     EVENT_DELETE_OPERATION: str = "delete_operation" # data= {"index": index}
+    # a chunk of documents has been ingested and pushed to the websocket
+    # data is a :class:`GulpChunkIngestedInternalEvent`
+    EVENT_CHUNK_INGESTED: str = "chunk_ingested"
 
     def __init__(self):
         self._initialized: bool = True
@@ -1199,7 +1202,33 @@ class GulpPluginBase(ABC):
                         operation_id=self._operation_id,
                     )
                 current_plugin = current_plugin._upper_instance
-        
+
+            # publish a global internal event for any interested extension plugins
+            # plugins registering for this event will receive the same data passed below.
+            try:
+                redis_broker = GulpRedisBroker.get_instance()
+                payload = {
+                    "chunk": ingested_docs,
+                    "index": self._index,
+                    "req_id": self._req_id,
+                    "ws_id": self._ws_id,
+                    "user_id": self._user_id,
+                    "operation_id": self._operation_id,
+                    "plugin": self.name,
+                }
+                await redis_broker.put_internal_event(
+                    GulpInternalEventsManager.EVENT_CHUNK_INGESTED,
+                    user_id=self._user_id,
+                    operation_id=self._operation_id,
+                    req_id=self._req_id,
+                    data=payload,
+                )
+            except Exception:
+                # best-effort, do not interrupt ingestion if event cannot be sent
+                MutyLogger.get_instance().exception(
+                    "failed to publish GulpInternalEventsManager.EVENT_CHUNK_INGESTED!"
+                )
+
         return skipped, ingested, failed
 
     async def _context_id_from_doc_value(
@@ -3415,6 +3444,7 @@ class GulpPluginBase(ABC):
             cache_mode (GulpPluginCacheMode, optional): The cache mode. Defaults to GulpPluginCacheMode.DEFAULT.
             **kwargs: Additional keyword arguments ("pickled", only when running in worker process).
         """
+
         # this is set in __reduce__(), which is called when the plugin is pickled(=loaded in another process)
         # pickled=True: running in worker
         # pickled=False: running in main process
@@ -3425,9 +3455,14 @@ class GulpPluginBase(ABC):
         path = GulpPluginBase.path_from_plugin(
             plugin, extension, raise_if_not_found=True
         )
-
-        # try to get plugin from cache
         internal_plugin_name = os.path.splitext(os.path.basename(path))[0]
+
+        # check if we're allowed to load example plugins (just noise in production ...)
+        load_examples: bool = GulpConfig.get_instance().plugin_allow_load_examples()
+        if not load_examples and internal_plugin_name.lower().startswith("example_"):
+            raise FileNotFoundError(f"loading example plugin {plugin} is not allowed by config!")
+        
+        # try to get plugin from cache
         force_load_from_disk: bool = False
         # if path.endswith(".pyc" or path.endswith(".pyc")):
         #     # compiled file, always load from disk

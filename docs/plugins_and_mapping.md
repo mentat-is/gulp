@@ -11,7 +11,7 @@
   - [plugin internals](#plugin-internals)
     - [multiprocessing and concurrency](#multiprocessing-and-concurrency)
     - [ingestion plugins](#ingestion-plugins)
-      - [chunk callbacks](#chunk-callbacks)
+      - [chunk ingestion callbacks](#chunk-ingestion-callbacks)
     - [enrichment plugins](#enrichment-plugins)
     - [external plugins](#external-plugins)
       - [call external plugins](#call-external-plugins)
@@ -255,12 +255,23 @@ sequenceDiagram
     Base-->>Engine: Send completion status
 ~~~
 
-#### chunk callbacks
+#### chunk ingestion callbacks
 
-`GulpPluginParameters._docs_chunk_callback` is an `internal-only` (not usable via the REST API `plugin_params`) callback that can be set to process documents **after** being ingested into OpenSearch (i.e. to send alerts if certain conditions are met).
+There are two flavours of chunk ingestion callbacks:
 
-> usually this is set by an `extension` plugin performing ingestion via the `GulpPluginBase.ingest_raw` method, but may also be set by a stacked `ingestion` or `external` plugins: the upper plugin may just set `GulpPluginParameters._doc_chunk_callback` then call `ingest_file`/`query_external` in the lower plugin to perform the ingestion.
+1. **Request‑scoped** callbacks – `GulpPluginParameters._chunk_ingestion_callback` is an `internal-only` (not usable through `plugin_params` in the REST API)
+  callback that can be set to process documents **after** being ingested into OpenSearch (i.e. to send alerts if certain conditions are met). These are
+  installed on a per-request basis by setting `GulpPluginParameters._chunk_ingestion_callback`.
+  The callback is executed in the worker process that handles the ingestion and **only affects the current request**.
+  
+  > usually this is set by an `extension` plugin performing ingestion via the `GulpPluginBase.ingest_raw` method, but may also be set by a stacked `ingestion` or `external` plugins: the upper plugin may just set `GulpPluginParameters._chunk_ingestion_callback` then call `ingest_file`/`query_external` in the lower plugin to perform the ingestion.
 
+2. **Global ingestion callbacks** – allows `extension` plugins to receive every ingested chunk from every running plugin/s, regardless of which request produced it. 
+ 
+A global callback lives in an `extension` plugin that registers for the `GulpInternalEventsManager.EVENT_CHUNK_INGESTED` internal event. The engine publishes this event in the main process immediately after a chunk is pushed to OpenSearch and the matching websocket packet has been queued. 
+Any plugin that registers for the event will have its `internal_event_callback` called in registration order; there is no limitation on the number of callbacks. The payload of the event is the same data dict passed to request-scoped callbacks, with the addition of a `plugin` field indicating which plugin ingested the chunk.
+
+an example is provided in [example_chunk_callbacks](../src/gulp/plugins/extension/example_chunk_callbacks.py) plugin.
 ### enrichment plugins
 
 enrichment plugins takes one or more `GulpDocuments` and returns them augmented with extra data: they are meant to work on data already stored in gulp's Opensearch.
@@ -327,7 +338,7 @@ sequenceDiagram
 ~~~
 
 > note that from gulp's point of view, an `external` plugin is just like an `ingestion` plugin which source is external and queried via `query_external` instead of `ingest_file`, so the flow is very similar to the one described above for `ingestion` plugins.
-> 
+>
 #### call external plugins
 
 to query an external source with an `external plugin`, a client uses the `query_external` API:
@@ -338,7 +349,6 @@ to query an external source with an `external plugin`, a client uses the `query_
 4. optionally pass the `q_options` parameter, which controls how the query is performed (*not all parameters may be supported by the plugin*)
 
 > look at [test_elasticsearch](../tests/query/test_query_external_elasticsearch.py) in the query tests for an example usage
-
 
 ### extension plugins
 
@@ -451,7 +461,7 @@ sometimes, it may be useful to directly specify the mappings when calling a plug
 - **additional_mapping_files**: this allows to specify a list of tuples `(mapping_file,mapping_id)`, i.e. `[("windows.json", "windows")]` to extend the mapping obtained via `mapping_file` or `mappings`.
   one or more [GulpMapping](../src/gulp/api/mapping/models.py) to be used are choosen from each `tuple.mapping_file`,`tuple.mapping_id` in the given list and **merged with the mappings already selected by the engine via `GulpMappingParameters.mapping_file` or `ulpMappingParameters.mappings`.
 
--  **additional_mappings**: same as for `additional_mapping_files` but specifies the mappings directly without using files.
+- **additional_mappings**: same as for `additional_mapping_files` but specifies the mappings directly without using files.
 
 example setup of [GulpPluginParameters](../src/gulp/structs.py) for an advanced mapping:
 
