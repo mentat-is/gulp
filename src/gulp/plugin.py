@@ -89,19 +89,6 @@ class GulpPluginType(StrEnum):
     UI = "ui"
 
 
-class GulpPluginObservableType(StrEnum):
-    """
-    specifies the base observable type
-    """
-
-    IP = "ip"
-    DOMAIN = "domain"
-    URL = "url"
-    MAIL = "mail"
-    HASH = "hash"
-    MAC = "mac"
-
-
 class GulpPluginCacheMode(StrEnum):
     """
     specifies the plugin cache mode

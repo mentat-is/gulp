@@ -68,9 +68,9 @@ class Plugin(GulpPluginBase):
     @override
     def data(self) -> dict:
         result = {
-            GulpPluginObservableType.IP: {"ecs_fields": [""], "regexp": ""},
-            GulpPluginObservableType.DOMAIN: {"ecs_fields": [""], "regexp": ""},
-            GulpPluginObservableType.URL: {"ecs_fields": [""], "regexp": ""},
+            "ip": {"ecs_fields": [""], "regexp": ""},
+            "domain": {"ecs_fields": [""], "regexp": ""},
+            "url": {"ecs_fields": [""], "regexp": ""},
         }
         return result
 

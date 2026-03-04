@@ -53,7 +53,7 @@ class Plugin(GulpPluginBase):
     @override
     def data(self) -> dict:
         result = {
-            GulpPluginObservableType.HASH: {"ecs_fields": [""], "regexp": ""},
+            "hash": {"ecs_fields": [""], "regexp": ""},
         }
         return result
 
