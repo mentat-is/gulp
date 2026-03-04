@@ -89,6 +89,19 @@ class GulpPluginType(StrEnum):
     UI = "ui"
 
 
+class GulpPluginObservableType(StrEnum):
+    """
+    specifies the base observable type
+    """
+
+    IP = "ip"
+    DOMAIN = "domain"
+    URL = "url"
+    MAIL = "mail"
+    HASH = "hash"
+    MAC = "mac"
+
+
 class GulpPluginCacheMode(StrEnum):
     """
     specifies the plugin cache mode
@@ -564,15 +577,15 @@ class GulpInternalEventsManager:
 
     # these events are broadcasted by core itself to registered plugins
     # further events may be added by plugins through register(): when calling dispatch_internal_event(), only plugins registered to receive the specific event type will receive it.
-    
+
     # an user logged in
     EVENT_LOGIN: str = WSDATA_USER_LOGIN  # data=GulpUserAccessPacket
     # an user logged out
     EVENT_LOGOUT: str = WSDATA_USER_LOGOUT  # data=GulpUserAccessPacket
     # ingestion of a source has been completed
-    EVENT_SOURCE_INGESTED: str = "ingestion" # data=GulpIngestInternalEvent
+    EVENT_SOURCE_INGESTED: str = "ingestion"  # data=GulpIngestInternalEvent
     # an operation is deleted
-    EVENT_DELETE_OPERATION: str = "delete_operation" # data= {"index": index}
+    EVENT_DELETE_OPERATION: str = "delete_operation"  # data= {"index": index}
     # a chunk of documents has been ingested and pushed to the websocket
     # data is a :class:`GulpChunkIngestedInternalEvent`
     EVENT_CHUNK_INGESTED: str = "chunk_ingested"
@@ -1186,7 +1199,7 @@ class GulpPluginBase(ABC):
         self._records_skipped_total += skipped
         self._records_ingested_total += ingested
         self._records_failed_total += failed
-        
+
         # call _chunk_ingestion_callback if set in plugin_params, respecting plugin stacking
         if ingested_docs and not self._preview_mode:
             current_plugin: GulpPluginBase = self
@@ -3460,8 +3473,10 @@ class GulpPluginBase(ABC):
         # check if we're allowed to load example plugins (just noise in production ...)
         load_examples: bool = GulpConfig.get_instance().plugin_allow_load_examples()
         if not load_examples and internal_plugin_name.lower().startswith("example_"):
-            raise FileNotFoundError(f"loading example plugin {plugin} is not allowed by config!")
-        
+            raise FileNotFoundError(
+                f"loading example plugin {plugin} is not allowed by config!"
+            )
+
         # try to get plugin from cache
         force_load_from_disk: bool = False
         # if path.endswith(".pyc" or path.endswith(".pyc")):
@@ -3734,7 +3749,7 @@ class GulpPluginBase(ABC):
                         tags=p.tags(),
                         version=p.version(),
                         data=p.data(),
-                        protected=hasattr(p, "_protected")
+                        protected=hasattr(p, "_protected"),
                     )
 
                     l.append(entry)

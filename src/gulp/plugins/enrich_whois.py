@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.plugin import GulpPluginBase, GulpPluginObservableType, GulpPluginType
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
@@ -64,6 +64,15 @@ class Plugin(GulpPluginBase):
     @override
     def desc(self) -> str:
         return "whois enrichment plugin"
+
+    @override
+    def data(self) -> dict:
+        result = {
+            GulpPluginObservableType.IP: {"ecs_fields": [""], "regexp": ""},
+            GulpPluginObservableType.DOMAIN: {"ecs_fields": [""], "regexp": ""},
+            GulpPluginObservableType.URL: {"ecs_fields": [""], "regexp": ""},
+        }
+        return result
 
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
@@ -138,7 +147,9 @@ class Plugin(GulpPluginBase):
 
             # store a wrapper so that a cached None can be distinguished from
             # a missing key
-            self.doc_value_cache.set_value(cache_key, ("__whois_cached__", enriched_entity_data))
+            self.doc_value_cache.set_value(
+                cache_key, ("__whois_cached__", enriched_entity_data)
+            )
             return enriched_entity_data
         except Exception as ex:
             # log the exception and store None in the cache to avoid repeated lookups
@@ -148,7 +159,9 @@ class Plugin(GulpPluginBase):
             self.doc_value_cache.set_value(cache_key, ("__whois_cached__", None))
             return None
 
-    async def _extract_entities_with_regex(self, text_input: str) -> list[tuple[str, bool, str]]:
+    async def _extract_entities_with_regex(
+        self, text_input: str
+    ) -> list[tuple[str, bool, str]]:
         """
         extracts potential ip addresses (v4 and v6), hostnames, and urls from a generic text string using regex.
         attempts to resolve hostnames to ip addresses.
@@ -315,7 +328,9 @@ class Plugin(GulpPluginBase):
                             resolved_ip: str = addr_info_tuple[4][
                                 0
                             ]  # ip is the first element of sockaddr
-                            entities_for_rdap.add((resolved_ip.lower(), True, entity_str.lower()))
+                            entities_for_rdap.add(
+                                (resolved_ip.lower(), True, entity_str.lower())
+                            )
                             # MutyLogger.get_instance().debug(f"resolved '{entity_str}' to '{resolved_ip}'")
                             if resolve_first_only:
                                 # just use the first only
@@ -324,17 +339,23 @@ class Plugin(GulpPluginBase):
                         # MutyLogger.get_instance().warning(
                         #     f"getaddrinfo returned empty for hostname: '{entity_str}', attempting rdap with hostname itself."
                         # )
-                        entities_for_rdap.add((entity_str.lower(), True, entity_str.lower()))
+                        entities_for_rdap.add(
+                            (entity_str.lower(), True, entity_str.lower())
+                        )
                 except socket.gaierror:
                     # MutyLogger.get_instance().warning(
                     #     f"could not resolve regex-extracted hostname: '{entity_str}' (gaierror), attempting rdap with hostname itself."
                     # )
-                    entities_for_rdap.add((entity_str.lower(), True, entity_str.lower()))
+                    entities_for_rdap.add(
+                        (entity_str.lower(), True, entity_str.lower())
+                    )
                 except Exception as e:
                     # MutyLogger.get_instance().error(
                     #     f"error resolving hostname '{entity_str}': {e}, attempting rdap with hostname itself."
                     # )
-                    entities_for_rdap.add((entity_str.lower(), True, entity_str.lower()))  # add the hostname itself
+                    entities_for_rdap.add(
+                        (entity_str.lower(), True, entity_str.lower())
+                    )  # add the hostname itself
 
         # MutyLogger.get_instance().debug(f"final entities for rdap after regex extraction and resolution: {entities_for_rdap}")
         return entities_for_rdap
@@ -423,7 +444,9 @@ class Plugin(GulpPluginBase):
             # MutyLogger.get_instance().debug(f"processing as single entity: '{single_target_entity}'")
             # if it's already an ip, add it directly
             if self._is_ip_field(single_target_entity):
-                final_entities_for_rdap.append((single_target_entity, False, single_target_entity))
+                final_entities_for_rdap.append(
+                    (single_target_entity, False, single_target_entity)
+                )
             else:
                 # it's a hostname, try to resolve (without blocking the event loop)
                 try:
@@ -433,14 +456,20 @@ class Plugin(GulpPluginBase):
                         socket.gethostbyname,
                         single_target_entity,
                     )
-                    final_entities_for_rdap.append((resolved_ip, True, single_target_entity))
-                    MutyLogger.get_instance().debug(f"resolved single entity hostname '{single_target_entity}', ip='{resolved_ip}'")
+                    final_entities_for_rdap.append(
+                        (resolved_ip, True, single_target_entity)
+                    )
+                    MutyLogger.get_instance().debug(
+                        f"resolved single entity hostname '{single_target_entity}', ip='{resolved_ip}'"
+                    )
 
                 except socket.gaierror:
                     MutyLogger.get_instance().warning(
                         f"could not resolve single entity hostname: '{single_target_entity}', attempting rdap with hostname itself."
                     )
-                    final_entities_for_rdap.append((single_target_entity, True, single_target_entity))  # add hostname itself for rdap
+                    final_entities_for_rdap.append(
+                        (single_target_entity, True, single_target_entity)
+                    )  # add hostname itself for rdap
 
             # if single entity processing yields no actual entity for lookup
             if not final_entities_for_rdap:
@@ -453,9 +482,7 @@ class Plugin(GulpPluginBase):
             # MutyLogger.get_instance().debug(f"treating input as generic text for regex extraction: '{original_input[:100]}...'")
 
             # extract entities using regex
-            extracted_entities = await self._extract_entities_with_regex(
-                original_input
-            )
+            extracted_entities = await self._extract_entities_with_regex(original_input)
             # extend our list with the extracted tuples (lookup_entity, orig_is_hostname, orig_value)
             final_entities_for_rdap.extend(extracted_entities)
 
@@ -465,7 +492,9 @@ class Plugin(GulpPluginBase):
             self.doc_value_cache.set_value(main_cache_key, ("__whois_cached__", None))
             return None
 
-        MutyLogger.get_instance().debug(f"final set of entities for rdap lookup for original_input={original_input}: {final_entities_for_rdap}")
+        MutyLogger.get_instance().debug(
+            f"final set of entities for rdap lookup for original_input={original_input}: {final_entities_for_rdap}"
+        )
 
         # 3. perform whois for each unique entity and combine results into a LIST of entries
         final_combined_enriched_data: list[dict[str, Any]] = []
@@ -505,8 +534,12 @@ class Plugin(GulpPluginBase):
                 continue  # skip to next entity
 
             # Build entry as a dict with explicit whois_input field to avoid using IPs as keys
-            whois_key: str = "whois_input_hostname" if orig_is_hostname else "whois_input"
-            sanitized: dict[str, Any] = {k.replace(".", "_"): v for k, v in filtered_data_for_entity.items()}
+            whois_key: str = (
+                "whois_input_hostname" if orig_is_hostname else "whois_input"
+            )
+            sanitized: dict[str, Any] = {
+                k.replace(".", "_"): v for k, v in filtered_data_for_entity.items()
+            }
             entry: dict[str, Any] = {whois_key: orig_value}
             entry.update(sanitized)
             final_combined_enriched_data.append(entry)
@@ -523,7 +556,9 @@ class Plugin(GulpPluginBase):
 
         # cache the final combined result and return it
         # MutyLogger.get_instance().debug(f"whois enriched for input='{original_input[:100]}...', final entries count: {len(final_combined_enriched_data)}")
-        self.doc_value_cache.set_value(main_cache_key, ("__whois_cached__", final_combined_enriched_data))
+        self.doc_value_cache.set_value(
+            main_cache_key, ("__whois_cached__", final_combined_enriched_data)
+        )
         return final_combined_enriched_data
 
     def _filter_fields_with_wildcards(
@@ -641,32 +676,40 @@ class Plugin(GulpPluginBase):
         q_group: str = None,
         **kwargs,
     ) -> list[dict]:
-        MutyLogger.get_instance().debug("kwargs: %s, num_docs=%d" % (kwargs, len(chunk)))
+        MutyLogger.get_instance().debug(
+            "kwargs: %s, num_docs=%d" % (kwargs, len(chunk))
+        )
         dd = []
         fields: dict = kwargs["fields"]
         for doc in chunk:
             # TODO: when opensearch will support runtime mappings, this can be removed and done with "highlight" queries.
             # either, we may also add text mappings to ip fields in the index template..... but keep it as is for now...
             enriched: bool = False
-            for field,field_value in fields.items():
+            for field, field_value in fields.items():
                 if field_value:
                     # value provided
                     f = field_value
                 else:
                     # get from document
-                    MutyLogger.get_instance().debug("getting field '%s' from doc ..." % (field))
+                    MutyLogger.get_instance().debug(
+                        "getting field '%s' from doc ..." % (field)
+                    )
                     f = muty.dict.get_value_nested(doc, field)
                 if not f:
                     await asyncio.sleep(0.1)  # let other tasks run
                     continue
 
                 # append flattened whois data to the document
-                MutyLogger.get_instance().debug("fetching whois for field '%s': '%s' ..." % (field, f))
+                MutyLogger.get_instance().debug(
+                    "fetching whois for field '%s': '%s' ..." % (field, f)
+                )
                 whois_data = await self._get_whois(f)
                 await asyncio.sleep(0.1)  # let other tasks run
                 if whois_data:
                     enriched = True
-                    doc.update(self._build_or_update_enriched_obj(doc, field, whois_data))
+                    doc.update(
+                        self._build_or_update_enriched_obj(doc, field, whois_data)
+                    )
             if enriched:
                 # at least one host field was enriched
                 dd.append(doc)
@@ -712,14 +755,18 @@ class Plugin(GulpPluginBase):
             }
         }
         for f in fields:
-            if f not in [ "event.original"]:
+            if f not in ["event.original"]:
                 # avoid building skip-local-ip query for event.original, just limit to the other fields.
                 # this is because event.original may contain generic text other than just an ip/hostname and this would break the query
-                qq["query"]["bool"]["should"].append(self._build_skip_private_ip_query(f))
+                qq["query"]["bool"]["should"].append(
+                    self._build_skip_private_ip_query(f)
+                )
 
         if not qq["query"]["bool"]["should"]:
             # no valid fields
-            raise ValueError("no valid fields configured for whois enrichment: %s" % (fields))
+            raise ValueError(
+                "no valid fields configured for whois enrichment: %s" % (fields)
+            )
 
         # MutyLogger.get_instance().debug("query: %s" % qq)
         return await super().enrich_documents(

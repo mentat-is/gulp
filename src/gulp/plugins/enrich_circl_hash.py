@@ -15,7 +15,7 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpQueryHelpers, GulpQueryParameters
 from gulp.config import GulpConfig
-from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.plugin import GulpPluginBase, GulpPluginObservableType, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
@@ -51,6 +51,13 @@ class Plugin(GulpPluginBase):
         return "circl.lu hash lookup enrichment plugin"
 
     @override
+    def data(self) -> dict:
+        result = {
+            GulpPluginObservableType.HASH: {"ecs_fields": [""], "regexp": ""},
+        }
+        return result
+
+    @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [
             GulpPluginCustomParameter(
@@ -68,7 +75,9 @@ class Plugin(GulpPluginBase):
             ),
         ]
 
-    async def _get_hash(self, sess: aiohttp.ClientSession, hash: str, hash_type: str) -> Optional[dict]:
+    async def _get_hash(
+        self, sess: aiohttp.ClientSession, hash: str, hash_type: str
+    ) -> Optional[dict]:
         """
         Given a hash get info from circl.lu's db
         """
@@ -82,7 +91,9 @@ class Plugin(GulpPluginBase):
             )
             return cached
 
-        async with sess.get(f"https://hashlookup.circl.lu/lookup/{hash_type}/{hash}") as resp:
+        async with sess.get(
+            f"https://hashlookup.circl.lu/lookup/{hash_type}/{hash}"
+        ) as resp:
             if resp.status == 200:
                 # found!
                 js = await resp.json()
@@ -90,7 +101,7 @@ class Plugin(GulpPluginBase):
                     f"hash found for hash='{hash}' and hash_type='{hash_type}': {js}"
                 )
                 return js
-            
+
             # not found
             MutyLogger.get_instance().warning(
                 f"hash NOT found for hash='{hash}' and hash_type='{hash_type}': status={resp.status}"
@@ -114,12 +125,14 @@ class Plugin(GulpPluginBase):
         compute = self._plugin_params.custom_parameters.get("compute")
         fields: dict = kwargs["fields"]
         if compute and not h_to_use:
-            raise ValueError("when 'compute' is set to True, 'hash_type' must be provided")
-        
+            raise ValueError(
+                "when 'compute' is set to True, 'hash_type' must be provided"
+            )
+
         dd: list[dict] = []
         async with aiohttp.ClientSession() as http_sess:
             for doc in chunk:
-                for field,field_value in fields.items():
+                for field, field_value in fields.items():
                     if field_value:
                         # value provided
                         f = field_value
@@ -142,7 +155,9 @@ class Plugin(GulpPluginBase):
                             MutyLogger.get_instance().warning(
                                 f"unable to autodetect hash type for field='{field}' with value='{f}' (len={len(f)}), skipping"
                             )
-                            await asyncio.sleep(0.1)  # let other tasks run, check next field
+                            await asyncio.sleep(
+                                0.1
+                            )  # let other tasks run, check next field
                             continue
                         for h, l in hash_len_map.items():
                             if len(f) == l:
@@ -166,14 +181,16 @@ class Plugin(GulpPluginBase):
                     # check hash on circl
                     hash_data = await self._get_hash(http_sess, f, h_to_use)
                     if hash_data:
-                        # found!                        
-                        doc.update(self._build_or_update_enriched_obj(doc, field, hash_data))
+                        # found!
+                        doc.update(
+                            self._build_or_update_enriched_obj(doc, field, hash_data)
+                        )
                         dd.append(doc)
 
                         # add to cache
                         cache_key: str = f"{self.name}:{h_to_use}:{f}"
                         self.doc_value_cache.set_value(cache_key, hash_data)
-                    
+
                     # do not hammer the server ...
                     await asyncio.sleep(0.5)
 

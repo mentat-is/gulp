@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.config import GulpConfig
-from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.plugin import GulpPluginBase, GulpPluginObservableType, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
@@ -37,6 +37,7 @@ class Plugin(GulpPluginBase):
     abuse.ch API enrichment plugin
 
     """
+
     def __init__(
         self,
         path: str,
@@ -55,6 +56,14 @@ class Plugin(GulpPluginBase):
     @override
     def desc(self) -> str:
         return "abuse.ch url enrichment plugin"
+
+    @override
+    def data(self) -> dict:
+        result = {
+            GulpPluginObservableType.URL: {"ecs_fields": [""], "regexp": ""},
+            GulpPluginObservableType.HASH: {"ecs_fields": [""], "regexp": ""},
+        }
+        return result
 
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
@@ -91,9 +100,7 @@ class Plugin(GulpPluginBase):
             auth_key = plugin_config.get("auth_key", None)
 
             if not auth_key:
-                raise Exception(
-                    "no auth_key provided for %s" % (self.display_name())
-                )
+                raise Exception("no auth_key provided for %s" % (self.display_name()))
 
         return auth_key
 
@@ -105,7 +112,10 @@ class Plugin(GulpPluginBase):
             )
             return False
         return True
-    async def _get_abuse_url(self, sess: aiohttp.ClientSession, url: str, auth_key: str) -> Optional[dict]:
+
+    async def _get_abuse_url(
+        self, sess: aiohttp.ClientSession, url: str, auth_key: str
+    ) -> Optional[dict]:
         """
         Given an url checks it against abuse.ch APIs
         """
@@ -116,14 +126,14 @@ class Plugin(GulpPluginBase):
         headers = {"Auth-Key": auth_key}
 
         async with aiohttp.ClientSession(headers=headers) as sess:
-            async with sess.post("https://urlhaus-api.abuse.ch/v1/url", data=data) as resp:
+            async with sess.post(
+                "https://urlhaus-api.abuse.ch/v1/url", data=data
+            ) as resp:
                 if resp.status == 200:
                     js = await resp.json()
-                    if not self._check_query_status(js):                        
+                    if not self._check_query_status(js):
                         return None
-                    MutyLogger.get_instance().debug(
-                        f"url found for url='{url}': {js}"
-                    )
+                    MutyLogger.get_instance().debug(f"url found for url='{url}': {js}")
                     return js
 
                 MutyLogger.get_instance().warning(
@@ -131,7 +141,9 @@ class Plugin(GulpPluginBase):
                 )
                 return None
 
-    async def _get_abuse_hash(self, sess: aiohttp.ClientSession, hash_algo: str, h: str, auth_key: str) -> Optional[dict]:
+    async def _get_abuse_hash(
+        self, sess: aiohttp.ClientSession, hash_algo: str, h: str, auth_key: str
+    ) -> Optional[dict]:
         """
         Given an hash checks it against abuse.ch APIs
         """
@@ -139,7 +151,9 @@ class Plugin(GulpPluginBase):
         headers = {"Auth-Key": auth_key}
 
         async with aiohttp.ClientSession(headers=headers) as sess:
-            async with sess.post("https://urlhaus-api.abuse.ch/v1/payload", data=data) as resp:
+            async with sess.post(
+                "https://urlhaus-api.abuse.ch/v1/payload", data=data
+            ) as resp:
                 if resp.status == 200:
                     js = await resp.json()
                     if not self._check_query_status(js):
@@ -148,7 +162,7 @@ class Plugin(GulpPluginBase):
                         f"hash found for hash='{h}' and hash_type='{hash_algo}': {js}"
                     )
                     return js
-                
+
                 MutyLogger.get_instance().warning(
                     f"url not found for url='{h}', status={resp.status}"
                 )
@@ -178,13 +192,13 @@ class Plugin(GulpPluginBase):
         auth_key: str = self._get_auth_key()
         fields: dict = kwargs["fields"]
         hash_type: str = self._plugin_params.custom_parameters.get("hash_type")
-        query_type: str = self._plugin_params.custom_parameters.get("query_type")        
+        query_type: str = self._plugin_params.custom_parameters.get("query_type")
         dd: list[dict] = []
         abuse_data: dict = None
 
         async with aiohttp.ClientSession() as http_sess:
             for doc in chunk:
-                for field,field_value in fields.items():
+                for field, field_value in fields.items():
                     if field_value:
                         # value provided
                         f = field_value
@@ -194,10 +208,10 @@ class Plugin(GulpPluginBase):
                     if not f:
                         await asyncio.sleep(0.1)  # let other tasks run
                         continue
-                    
+
                     if query_type == "url":
                         # get url
-                        abuse_data = await self._get_abuse_url(http_sess, f, auth_key)                        
+                        abuse_data = await self._get_abuse_url(http_sess, f, auth_key)
                     elif query_type == "hash":
                         h_to_use: str = hash_type
                         if not h_to_use:
@@ -210,7 +224,9 @@ class Plugin(GulpPluginBase):
                                 MutyLogger.get_instance().warning(
                                     f"unable to autodetect hash type for field='{field}' with value='{f}' (len={len(f)}), skipping"
                                 )
-                                await asyncio.sleep(0.1)  # let other tasks run, check next field
+                                await asyncio.sleep(
+                                    0.1
+                                )  # let other tasks run, check next field
                                 continue
                             for h, l in hash_len_map.items():
                                 if len(f) == l:
@@ -224,14 +240,18 @@ class Plugin(GulpPluginBase):
                                 f"using provided hash type='{h_to_use}' for field='{field}' with value='{f}'"
                             )
                         # get hash
-                        abuse_data = await self._get_abuse_hash(http_sess, h_to_use, f, auth_key)
+                        abuse_data = await self._get_abuse_hash(
+                            http_sess, h_to_use, f, auth_key
+                        )
 
                     if abuse_data:
                         # remove unneeded fields
-                        abuse_data.pop("query_status", None) 
-                        
+                        abuse_data.pop("query_status", None)
+
                         # set data
-                        doc.update(self._build_or_update_enriched_obj(doc, field, abuse_data))
+                        doc.update(
+                            self._build_or_update_enriched_obj(doc, field, abuse_data)
+                        )
                         dd.append(doc)
 
                         # add to cache
@@ -240,10 +260,9 @@ class Plugin(GulpPluginBase):
                         elif query_type == "hash":
                             cache_key: str = f"{self.name}:{h_to_use}:{f}"
                         self.doc_value_cache.set_value(cache_key, abuse_data)
-                
+
                     # do not hammer the server ...
                     await asyncio.sleep(0.5)
-
 
         return dd
 
