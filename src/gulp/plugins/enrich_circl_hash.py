@@ -15,7 +15,7 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpQueryHelpers, GulpQueryParameters
 from gulp.config import GulpConfig
-from gulp.plugin import GulpPluginBase, GulpPluginObservableType, GulpPluginType
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 

@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.config import GulpConfig
-from gulp.plugin import GulpPluginBase, GulpPluginObservableType, GulpPluginType
+from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 
