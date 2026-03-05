@@ -37,18 +37,26 @@ services:
       - 9200:9200
     volumes:
       - opensearch_data:/usr/share/opensearch/data
+      - certs:/usr/share/opensearch/config/certs
 
-  opensearch-dashboards:
-    profiles: [ "os-dashboards" ]
-    image: opensearchproject/opensearch-dashboards:latest
-    container_name: opensearch-dashboards
+  minio:
+    image: minio/minio:latest
+    profiles: [ "disabled" ]
+    restart: always
     ports:
-      - 5601:5601
+      - 9000:9000      # S3 API
+      - 9001:9001      # Web console
     environment:
-      OPENSEARCH_HOSTS: '["http://os01:9200"]'
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
     depends_on:
       - os01
+    volumes:
+      - minio_data:/mnt/data
+      - certs:/mnt/certs
 
+    command: server /minio/data --console-address ":9001"
+  
   postgres:
     # using an image having pg_cron preinstalled
     # TODO: use the official postgres image and install pg_cron
@@ -57,6 +65,7 @@ services:
     restart: always
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - certs:/pgconf/certs
     ports:
       - 5432:5432
     environment:
@@ -72,33 +81,28 @@ services:
       - 6379:6379
     volumes:
       - redis_data:/data
+      - certs:/etc/certs
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
     command: [ "redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}" ]
 
-  redis-insight:
-    profiles: [ "dev" ]
-    image: redislabs/redisinsight:latest
-    ports:
-      - 5540:5540
-    depends_on:
-      - redis
-
-  elasticvue:
-    profiles: [ "dev" ]
-    image: cars10/elasticvue:latest
-    ports:
-      - 8082:8080
+  ftpserver:
+    image: delfer/alpine-ftp-server:latest
+    container_name: ftpserver
     depends_on:
       - os01
-
-  adminer:
-    profiles: [ "dev" ]
-    image: adminer
-    depends_on:
-      - postgres
+    restart: unless-stopped
     ports:
-      - 8081:8080
+      - 21:21
+      - 21000-21010:21000-21010
+    environment:
+      - USERS=${SFTPD_USER}|${SFTPD_PASSWORD}|/home/gulp/.config/gulp|1000
+      # - TLS_CERT=/home/gulp/.config/gulp/certs/sftpd.pem # server cert + CA
+      # - TLS_KEY=/home/gulp/.config/gulp/certs/sftpd.key # passwordless key
+    volumes:
+      - ${GULP_WORKING_DIR:-~/.config/gulp}:/home/gulp/.config/gulp # gulp_cfg.json and extra plugins goes here
+      - certs:/home/gulp/.config/gulp/certs
+
 
   gulp:
     profiles: [ "gulp", "gui" ]
@@ -106,15 +110,16 @@ services:
     container_name: gulp
     user: gulp
     environment:
-      - GULP_POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      - GULP_OPENSEARCH_URL=http://${OPENSEARCH_USER}:${OPENSEARCH_PASSWORD}@os01:9200
+      # - GULP_POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/gulp}
+      # - GULP_OPENSEARCH_URL=http://${OPENSEARCH_USER}:${OPENSEARCH_PASSWORD}@os01:9200
       - GULP_BIND_TO_PORT=${GULP_BIND_TO_PORT:-8080}
       - GULP_BIND_TO_ADDR=${GULP_BIND_TO_ADDR:-0.0.0.0}
     volumes:
-      - ${GULP_WORKING_DIR:-~/.config/gulp}:/home/gulp/.config/gulp # gulp_cfg.json and extra plugins goes here
+      - ${GULP_WORKING_DIR:-~/.config/gulp}:/home/gulp/.config/gulp # gulp_cfg.json, certs, extra mappings and extra plugins goes here
       - ${GULP_WORKING_DIR:-~/.config/gulp}/.local:/home/gulp/.local # to persist user data
       - ${GULP_WORKING_DIR:-~/.config/gulp}/.pip_cache:/home/gulp/.cache/pip # to persist pip cache
       - ${GULP_WORKING_DIR:-~/.config/gulp}/.site_packages:/home/gulp/.local/lib/python${PYTHON_VERSION}/site-packages # to persist installed pip packages
+      - certs:/home/gulp/.config/gulp/certs
     depends_on:
       - postgres
       - os01
@@ -122,7 +127,7 @@ services:
     ports:
       - ${GULP_BIND_TO_PORT:-8080}:${GULP_BIND_TO_PORT:-8080}
 
-    # sleeping for 30 seconds to wait for both gulp/opensearch to be ready
+    # sleeping up to 30 seconds to wait for other services to be ready
     # (seems depends is not enough)
     command: /bin/sh -c "sleep 30 && python3 -m gulp ${EXTRA_ARGS:-}"
 
@@ -139,26 +144,54 @@ services:
     ports:
       - 3000:80
 
-  ftpserver:
-    image: delfer/alpine-ftp-server:latest
-    profiles: [ "gulp", "dev", "gui" ]
-    container_name: ftpserver
+  ########################################
+  # monitoring
+  ########################################
+  redis-insight:
+    profiles: [ "dev" ]
+    image: redislabs/redisinsight:latest
+    ports:
+      - 5540:5540
+    depends_on:
+      - redis
+
+  elasticvue:
+    profiles: [ "dev" ]
+    image: cars10/elasticvue:latest
+    ports:
+      - 8082:8080
     depends_on:
       - os01
-    restart: unless-stopped
+
+  opensearch-dashboards:
+    profiles: [ "os-dashboards" ]
+    image: opensearchproject/opensearch-dashboards:latest
+    container_name: opensearch-dashboards
     ports:
-      - 21:21
-      - 21000-21010:21000-21010
+      - 5601:5601
     environment:
-      - USERS=${SFTPD_USER}|${SFTPD_PASSWORD}|/home/gulp/.config/gulp|1000
-      # - TLS_CERT=/home/gulp/.config/gulp/certs/sftpd.pem # server cert + CA
-      # - TLS_KEY=/home/gulp/.config/gulp/certs/sftpd.key # passwordless key
-    volumes:
-      - ${GULP_WORKING_DIR:-~/.config/gulp}:/home/gulp/.config/gulp # gulp_cfg.json and extra plugins goes here
+      OPENSEARCH_HOSTS: '["http://os01:9200"]'
+    depends_on:
+      - os01
+
+  adminer:
+    profiles: [ "dev" ]
+    image: adminer
+    depends_on:
+      - postgres
+    ports:
+      - 8081:8080
 
 volumes:
   postgres_data:
   opensearch_data:
   redis_data:
+  minio_data:
+  certs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${GULP_WORKING_DIR:-~/.config/gulp}/certs
 
 

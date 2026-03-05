@@ -36,6 +36,8 @@
 
 - if you get any issue starting gulp, try to reset gulp's docker volumes with [this](../reset_docker.sh) script.
 
+- if you have permission issues (i.e. you see from the log that gulp fails creating the required folders under `$GULP_WORKING_DIR`), ensure that the user running the container has proper permissions on the host folders (i.e. `chown -R $USER:$USER $GULP_WORKING_DIR`)
+
 - beware of vscode `Forwarded Ports`: sometimes, you try to start a container that binds to a port already forwarded by vscode, causing conflicts.
 
   i.e. if you see something like:
@@ -53,8 +55,9 @@
 
   simply go to vscode's `Ports` tab and remove the port forwarding for `8089`.
 
-- if you have issues starting gulp in docker environment, doublecheck each service's URL in gulp_cfg.json : i.e. it has been reported that redis doesn't like localhost but wants the container name in the URL string.
-Specifically, replace i.e.redis://:Gulp1234!@localhost:6379/0 with redis://:Gulp1234!@redis:6379/0  in redis_url.
+- if you see gulp cannot connect to services (opensearch, postgresql, redis, ...), doublecheck each service's URL in `gulp_cfg.json`: you should use container's name instead of i.e. `localhost`.
+
+  Specifically, replace i.e. *redis://:Gulp1234!@localhost:6379/0* with *redis://:Gulp1234!@redis:6379/0*  in `redis_url`.
 
 ### devcontainer
 
