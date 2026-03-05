@@ -265,6 +265,7 @@ class GulpCollab:
                 "shutting down collab database engine and invalidate existing connections ..."
             )
             await self._engine.dispose()
+            MutyLogger.get_instance().debug("collab database engine shutdown DONE!")
         self._initialized = False
 
     @staticmethod

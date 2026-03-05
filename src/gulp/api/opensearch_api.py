@@ -179,7 +179,7 @@ class GulpOpenSearch:
             "shutting down opensearch client: %s", self._opensearch
         )
         await self._opensearch.close()
-        MutyLogger.get_instance().debug("opensearch client shutdown")
+        MutyLogger.get_instance().debug("opensearch client shutdown DONE!")
 
     async def check_alive(self) -> None:
         """

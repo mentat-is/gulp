@@ -192,7 +192,7 @@ class GulpRedis:
         try:
             await self._redis.close()
             MutyLogger.get_instance().info(
-                "Redis client %s connection closed", self._redis
+                "Redis client %s connection closed DONE!", self._redis
             )
         except Exception as ex:
             MutyLogger.get_instance().exception("error closing redis client!")

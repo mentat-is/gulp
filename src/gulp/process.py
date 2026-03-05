@@ -19,6 +19,7 @@ This architecture enables Gulp to efficiently handle concurrent requests and dis
 workloads across multiple processes while maintaining consistent state management.
 """
 
+import atexit
 import asyncio
 import os
 import signal
@@ -102,6 +103,38 @@ class GulpProcess:
             cls._instance = cls()
         return cls._instance
 
+    async def worker_cleanup(self) -> None:
+        """
+        cleanup routine called when a worker process terminates.
+
+        override this method in a subclass to perform custom cleanup logic
+        (e.g. flushing buffers, closing connections) when a worker exits.
+        this method runs in the worker's event loop, after all tasks have finished.
+        """
+        MutyLogger.get_instance().info("worker_cleanup called (pid=%d)", os.getpid())
+
+        await self.close_thread_pool(wait=True)
+        await GulpOpenSearch.get_instance().shutdown()
+        await GulpCollab.get_instance().shutdown()
+        await GulpRedis.get_instance().shutdown(main_process=False)
+        await GulpS3.get_instance().shutdown()
+        MutyLogger.get_instance().info("worker_cleanup COMPLETED! (pid=%d)", os.getpid())
+
+    @staticmethod
+    def _worker_finalizer() -> None:
+        """
+        finalizer for a worker process, registered via atexit by _worker_initializer.
+
+        runs :meth:`worker_cleanup` in the same event loop used during worker
+        initialization so that async cleanup code can safely await coroutines.
+        """
+        p = GulpProcess.get_instance()
+        try:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(p.worker_cleanup())
+        except Exception as ex:
+            MutyLogger.get_instance().exception("_worker_finalizer error: %s", ex)
+
     @staticmethod
     def _worker_exception_handler(ex: Exception):
         """
@@ -178,6 +211,9 @@ class GulpProcess:
                     MutyLogger.get_instance().warning("_worker_initializer: failed to INCR spawn key %s", spawn_key)
         except Exception:
             MutyLogger.get_instance().warning("_worker_initializer: redis client not available to INCR spawn key %s", spawn_key)
+
+        # register cleanup to run when this worker process exits
+        atexit.register(GulpProcess._worker_finalizer)
 
         MutyLogger.get_instance().warning(
             "_worker_initializer DONE, server_id=%s, sys.path=%s, logger level=%d, logger_file_path=%s, spawn_key=%s",
