@@ -148,10 +148,6 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "Bridge Manager"
 
-    @override
-    def tables(self) -> list[str]:
-        return [COLLABTYPE_BRIDGES, COLLABTYPE_BRIDGES_TASK]
-
     async def post_init(self, **kwargs):
         if self.is_running_in_main_process():
             MutyLogger.get_instance().debug("adding api routes for bridge_manager plugin ...")

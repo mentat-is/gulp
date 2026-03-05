@@ -38,10 +38,6 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "iis_access_ncsa"
 
-    def regex(self) -> str:
-        """regex to identify this format"""
-        return None
-
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs

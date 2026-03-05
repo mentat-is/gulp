@@ -58,10 +58,6 @@ class Plugin(GulpPluginBase):
     def desc(self) -> str:
         return """generic CSV file processor"""
 
-    def regex(self) -> str:
-        """regex to identify this format"""
-        return None
-
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         return [

@@ -927,12 +927,6 @@ class GulpPluginBase(ABC):
         """
         return ""
 
-    def tables(self) -> list[str]:
-        """
-        Returns a list of collab tables created by the plugin, if any.
-        """
-        return []
-
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
         """
         this is to be used by the UI to list the supported options, and their types, for a plugin.
@@ -949,12 +943,6 @@ class GulpPluginBase(ABC):
         Returns plugin data: this is an arbitrary dictionary that can be used to store any data.
         """
         return {}
-
-    def ui(self) -> str | None:
-        """
-        Returns HTML frame to be rendered in the UI, i.e. for custom plugin panel
-        """
-        return None
 
     def depends_on(self) -> list[str]:
         """
@@ -3729,7 +3717,6 @@ class GulpPluginBase(ABC):
                         type=p.type(),
                         desc=p.desc(),
                         regex=p.regex(),
-                        ui=p.ui(),
                         filename=p.filename,
                         custom_parameters=p.custom_parameters(),
                         depends_on=p.depends_on(),
