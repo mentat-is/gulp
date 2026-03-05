@@ -37,6 +37,7 @@ from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
+from gulp.api.s3_api import GulpS3
 from gulp.api.server.structs import TASK_TYPE_EXTERNAL_QUERY, TASK_TYPE_INGEST, TASK_TYPE_QUERY, TASK_TYPE_REBASE
 from gulp.api.ws_api import GulpConnectedSockets, GulpRedisBroker
 from gulp.config import GulpConfig
@@ -617,9 +618,10 @@ class GulpServer:
             # close clients in the main process
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
-            from gulp.api.redis_api import GulpRedis
+            await GulpS3.get_instance().shutdown()            
 
             # remove this server's consumer entries from Redis streams
+            from gulp.api.redis_api import GulpRedis
             try:
                 await GulpRedis.get_instance().cleanup_consumers_for_server(self.server_id)
             except Exception:
@@ -627,13 +629,12 @@ class GulpServer:
             await GulpRedisBroker.get_instance().shutdown()
             await GulpRedis.get_instance().shutdown()
 
-            # close coro pool in the main process
+            # close thread pool in the main process
             await GulpProcess.get_instance().close_thread_pool()
 
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
         finally:
-            # self._kill_gulp_processes()
             MutyLogger.get_instance().info(
                 "MAIN process cleanup DONE (server_id=%s), just closing process pool is the only thing remaining ...", self.server_id
             )

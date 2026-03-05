@@ -361,6 +361,13 @@ class GulpPluginParameters(BaseModel):
             description="internal use: callback to be set internally (i.e. by an extension plugin implementing `ingest_raw`) to process documents chunk AFTER being ingested in OpenSearch, ignored in preview mode.",
         ),
     ] = None
+
+    store_file: Annotated[
+        bool,
+        Field(
+            description="if True, and if this is a **file** ingestion operation, the file will be stored on the configured storage server prior to be ingested")
+    ] = False
+
     def is_empty(self) -> bool:
         """
         check if **ALL** plugin parameters are empty.

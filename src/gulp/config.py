@@ -757,6 +757,50 @@ class GulpConfig:
             return []
         return roles
     
+    def s3_minio(self) -> bool:
+        """
+        Returns whether the S3-compatible storage is MinIO, which requires some specific handling (e.g. path style access).
+
+        default: True
+        """
+        n = self._config.get("s3_minio", True)
+        return n
+
+    def s3_region(self) -> str:
+        """
+        Returns the region to use when connecting to S3-compatible storage.
+
+        default: us-east-1
+        """
+        n = self._config.get("s3_region", "us-east-1")
+        return n
+    
+    def s3_url(self) -> str:
+        """
+        Returns the s3-compatible storage URL
+
+        Raises:
+            Exception if neither s3_url or GULP_S3_URL is set
+        """
+        n = os.getenv("GULP_S3_URL", None)
+        if not n:
+            n = self._config.get("s3_url", None)
+            if not n:
+                raise Exception(
+                    "s3_url not set (tried configuration and GULP_S3_URL environment_variable)."
+                )
+
+        return n
+
+    def s3_verify_certs(self) -> bool:
+        """
+        Returns whether to verify the certificates when connecting to S3-compatible storage with SSL.
+
+        default: False
+        """
+        n = self._config.get("s3_verify_certs", False)
+        return n
+    
     def opensearch_url(self) -> str:
         """
         Returns the opensearch url

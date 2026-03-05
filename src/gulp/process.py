@@ -34,6 +34,7 @@ from muty.log import MutyLogger
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
+from gulp.api.s3_api import GulpS3
 from gulp.api.ws_api import GulpRedisBroker
 from gulp.config import GulpConfig
 
@@ -63,7 +64,7 @@ class GulpProcess:
         self._log_level: int = None
         self._logger_file_path: str = None
         self._log_to_syslog: bool = False
-        self._main_process: bool = True
+        self._main_process: bool = True        
 
     def __new__(cls) -> "GulpProcess":
         """
@@ -352,6 +353,8 @@ class GulpProcess:
             await GulpCollab.get_instance().init()
             GulpRedis.get_instance().initialize(server_id, main_process=False) # do not initialize pub/sub in worker process, just redis client
 
+        # always connect to storage (both worker/main) since both may need it
+        await GulpS3.get_instance().connect()
 
     def is_main_process(self) -> bool:
         """

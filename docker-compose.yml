@@ -41,7 +41,6 @@ services:
 
   minio:
     image: minio/minio:latest
-    profiles: [ "disabled" ]
     restart: always
     ports:
       - 9000:9000      # S3 API
