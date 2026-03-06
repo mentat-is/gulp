@@ -111,14 +111,14 @@ class GulpProcess:
         (e.g. flushing buffers, closing connections) when a worker exits.
         this method runs in the worker's event loop, after all tasks have finished.
         """
-        MutyLogger.get_instance().info("worker_cleanup called (pid=%d)", os.getpid())
+        MutyLogger.get_instance().warning("worker_cleanup CALLED (pid=%d)", os.getpid())
 
         await self.close_thread_pool(wait=True)
         await GulpOpenSearch.get_instance().shutdown()
         await GulpCollab.get_instance().shutdown()
-        await GulpRedis.get_instance().shutdown(main_process=False)
+        await GulpRedis.get_instance().shutdown()
         await GulpS3.get_instance().shutdown()
-        MutyLogger.get_instance().info("worker_cleanup COMPLETED! (pid=%d)", os.getpid())
+        MutyLogger.get_instance().warning("worker_cleanup COMPLETED! (pid=%d)", os.getpid())
 
     @staticmethod
     def _worker_finalizer() -> None:
@@ -244,11 +244,18 @@ class GulpProcess:
             MutyLogger.get_instance().debug(
                 "closing mp pool %s ..." % (self.process_pool)
             )
+            self.process_pool.close()
+            await asyncio.sleep(2)  # give some time for processes to terminate
+            self.process_pool.terminate()  # terminate immediately instead of waiting for workers to finish their current task, since they may be stuck
+            MutyLogger.get_instance().debug("mp pool terminated!")
+            """    
             try:
                 self.process_pool.close()
-                MutyLogger.get_instance().debug("joining mp pool...")
-                await asyncio.wait_for(self.process_pool.join(), timeout=2)
-                MutyLogger.get_instance().debug("mp pool joined!")
+                self.process_pool.terminate()  # terminate immediately instead of waiting for workers to finish their current task, since they may be stuck
+                #MutyLogger.get_instance().debug("joining mp pool...")
+                #await asyncio.wait_for(self.process_pool.join(), timeout=2)
+                await asyncio.sleep(5)  # give some time for processes to terminate
+                MutyLogger.get_instance().debug("mp pool terminated!")
 
             except asyncio.TimeoutError:
                 # if the graceful join times out, it means workers are stuck.
@@ -260,12 +267,12 @@ class GulpProcess:
                 await asyncio.sleep(1)
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
-
             finally:
                 # clear the reference to the pool
                 self.process_pool = None
                 MutyLogger.get_instance().debug("mp pool closed!")
-
+            """
+            
     async def finish_initialization(
         self,
         server_id: str,
@@ -333,7 +340,7 @@ class GulpProcess:
                     MutyLogger.log_level,
                     MutyLogger.logger_file_path,
                     self._log_to_syslog,
-                ),
+                )
             )
 
             # wait for all workers to be spawned by polling Redis counter

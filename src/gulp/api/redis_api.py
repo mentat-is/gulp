@@ -164,10 +164,13 @@ class GulpRedis:
                 "initialized Redis pub/sub for server_id=%s", server_id
             )
 
-    async def shutdown(self, main_process: bool = True) -> None:
+    async def shutdown(self) -> None:
         """
         close Redis connections and cleanup.
         """
+        from gulp.process import GulpProcess
+        main_process = GulpProcess.get_instance().is_main_process()
+
         if main_process:
             # cancel all subscriber tasks
             try:
@@ -192,7 +195,7 @@ class GulpRedis:
         try:
             await self._redis.close()
             MutyLogger.get_instance().info(
-                "Redis client %s connection closed DONE!", self._redis
+                "Redis client %s connection closed, redis shutdown DONE!, main_process=%r", self._redis, main_process
             )
         except Exception as ex:
             MutyLogger.get_instance().exception("error closing redis client!")

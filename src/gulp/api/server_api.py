@@ -605,7 +605,7 @@ class GulpServer:
                     MutyLogger.get_instance().debug("cancelling poll_tasks task ...")
                     self._poll_tasks_task.cancel()
                     await asyncio.wait_for(self._poll_tasks_task, timeout=5.0)
-                    MutyLogger.get_instance().debug(
+                    MutyLogger.get_instance().warning(
                         "poll_tasks task cancelled successfully"
                     )
                 except asyncio.TimeoutError:
@@ -614,6 +614,12 @@ class GulpServer:
                     )
                 except Exception as e:
                     pass
+
+            # close thread pool in the main process
+            await GulpProcess.get_instance().close_thread_pool()
+
+            # close process pool
+            await GulpProcess.get_instance().close_process_pool()
 
             # close clients in the main process
             await GulpCollab.get_instance().shutdown()
@@ -629,9 +635,6 @@ class GulpServer:
             await GulpRedisBroker.get_instance().shutdown()
             await GulpRedis.get_instance().shutdown()
 
-            # close thread pool in the main process
-            await GulpProcess.get_instance().close_thread_pool()
-
         except Exception as ex:
             MutyLogger.get_instance().exception(ex)
         finally:
@@ -639,8 +642,6 @@ class GulpServer:
                 "MAIN process cleanup DONE (server_id=%s), just closing process pool is the only thing remaining ...", self.server_id
             )
 
-            # close process pool
-            await GulpProcess.get_instance().close_process_pool()
             MutyLogger.get_instance().info(
                 "everything shut down, we can gracefully exit."
             )

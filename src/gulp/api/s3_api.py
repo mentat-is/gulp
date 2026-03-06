@@ -91,7 +91,7 @@ class GulpS3:
         await self._boto_client.__aexit__(None, None, None) 
         self._initialized = False
         from gulp.process import GulpProcess
-        MutyLogger.get_instance().debug("shutdown s3-compatible storage DONE: %s, main_process=%r", self._boto_client, GulpProcess.get_instance().is_main_process())
+        MutyLogger.get_instance().debug("shutdown s3-compatible storage client=%sDONE!, main_process=%r", self._boto_client, GulpProcess.get_instance().is_main_process())
 
     async def create_bucket(self, bucket_name: str=None) -> None:
         """
