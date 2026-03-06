@@ -3673,8 +3673,8 @@ class GulpPluginBase(ABC):
             """
             MutyLogger.get_instance().debug("listing plugins in %s ..." % (path))
             path_extension = os.path.join(path, "extension")
-            plugins = await muty.file.list_directory_async(path, "*.py*")
-            extensions = await muty.file.list_directory_async(path_extension, "*.py*")
+            plugins = await muty.file.list_directory_async(path, "*.py")
+            extensions = await muty.file.list_directory_async(path_extension, "*.py")
             files = plugins + extensions
             for f in files:
                 if "__init__" in f or "__pycache__" in f or "/ui/" in f:
