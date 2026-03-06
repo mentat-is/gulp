@@ -118,6 +118,7 @@ class GulpProcess:
         await GulpCollab.get_instance().shutdown()
         await GulpRedis.get_instance().shutdown()
         await GulpS3.get_instance().shutdown()
+
         MutyLogger.get_instance().warning("worker_cleanup COMPLETED! (pid=%d)", os.getpid())
 
     @staticmethod
@@ -128,6 +129,7 @@ class GulpProcess:
         runs :meth:`worker_cleanup` in the same event loop used during worker
         initialization so that async cleanup code can safely await coroutines.
         """
+        MutyLogger.get_instance().warning("_worker_finalizer CALLED (pid=%d)", os.getpid())
         p = GulpProcess.get_instance()
         try:
             loop = asyncio.get_event_loop()
@@ -214,7 +216,6 @@ class GulpProcess:
 
         # register cleanup to run when this worker process exits
         atexit.register(GulpProcess._worker_finalizer)
-
         MutyLogger.get_instance().warning(
             "_worker_initializer DONE, server_id=%s, sys.path=%s, logger level=%d, logger_file_path=%s, spawn_key=%s",
                 server_id,
