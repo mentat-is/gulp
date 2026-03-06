@@ -245,19 +245,11 @@ class GulpProcess:
             MutyLogger.get_instance().debug(
                 "closing mp pool %s ..." % (self.process_pool)
             )
-            self.process_pool.close()
-            await asyncio.sleep(2)  # give some time for processes to terminate
-            self.process_pool.terminate()  # terminate immediately instead of waiting for workers to finish their current task, since they may be stuck
-            MutyLogger.get_instance().debug("mp pool terminated!")
-            """    
             try:
-                self.process_pool.close()
-                self.process_pool.terminate()  # terminate immediately instead of waiting for workers to finish their current task, since they may be stuck
-                #MutyLogger.get_instance().debug("joining mp pool...")
-                #await asyncio.wait_for(self.process_pool.join(), timeout=2)
-                await asyncio.sleep(5)  # give some time for processes to terminate
-                MutyLogger.get_instance().debug("mp pool terminated!")
-
+                self.process_pool.close()                
+                MutyLogger.get_instance().debug("joining mp pool...")
+                await asyncio.wait_for(self.process_pool.join(), timeout=5)
+                MutyLogger.get_instance().debug("mp pool JOINED!")
             except asyncio.TimeoutError:
                 # if the graceful join times out, it means workers are stuck.
                 MutyLogger.get_instance().warning(
@@ -265,14 +257,13 @@ class GulpProcess:
                 )
                 # forcefully terminate the worker processes
                 self.process_pool.terminate()
-                await asyncio.sleep(1)
+                MutyLogger.get_instance().warning("mp pool FORCED terminated!")
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
             finally:
                 # clear the reference to the pool
                 self.process_pool = None
-                MutyLogger.get_instance().debug("mp pool closed!")
-            """
+                MutyLogger.get_instance().debug("close_process_pool DONE!")
             
     async def finish_initialization(
         self,

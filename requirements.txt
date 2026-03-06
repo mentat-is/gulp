@@ -6,7 +6,6 @@ aiohappyeyeballs==2.6.1
 aiohttp==3.13.3
 aioitertools==0.13.0
 aiomultiprocess==0.9.1
-aiopath==0.7.7
 aioshutil==1.5
 aiosignal==1.4.0
 aiosmtplib==3.0.2
