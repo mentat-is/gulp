@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from gulp.api.mapping.models import GulpMapping, GulpMappingField
 from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFilter
+from gulp.api.s3_api import GulpS3
 from gulp.structs import GulpPluginParameters, GulpSortOrder
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -103,7 +104,13 @@ class GulpBasicDocument(BaseModel):
             alias="gulp.source_id",
         ),
     ]
-
+    storage_id: Annotated[
+        Optional[str],
+        Field(
+            description='"gulp.storage_id": the id of the document in the storage, if any (i.e. s3 object name if file is stored in s3).',
+            alias="gulp.storage_id",
+        )
+    ] = None
 
 class GulpDocument(GulpBasicDocument):
     """
@@ -131,6 +138,7 @@ class GulpDocument(GulpBasicDocument):
                     "gulp.event_code": 1234,
                     "event.duration": 1,
                     "log.file.path": "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx",
+                    "gulp.storage_id": "user_id/req_id/operation_id/context_id/source_id/file_name",
                 }
             ]
         },
@@ -351,6 +359,12 @@ class GulpDocument(GulpBasicDocument):
             # flag invalid timestamp
             data["invalid_timestamp"] = True
 
+        if plugin_instance._plugin_params and plugin_instance._plugin_params.store_file:
+            # if the file is stored in s3, we set the storage_id to the s3 object name, so it can be retrieved later if needed
+            data["storage_id"] = GulpS3.build_object_name(
+                data.get("log_file_path", "_"), operation_id, ctx_id, src_id, plugin_instance._user_id, plugin_instance._req_id
+            )
+        
         # add gulp_event_code (event code as a number), try to find it in cache first
         from gulp.plugin import DocValueCache
 
@@ -379,7 +393,7 @@ class GulpDocument(GulpBasicDocument):
         super().__init__(**data)
 
     def __repr__(self) -> str:
-        return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation_id={self.operation_id}, context_id={self.context_id}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, source_id={self.source_id}"
+        return f"GulpDocument(timestamp={self.timestamp}, gulp_timestamp={self.gulp_timestamp}, operation_id={self.operation_id}, context_id={self.context_id}, agent_type={self.agent_type}, event_sequence={self.event_sequence}, event_code={self.event_code}, event_duration={self.event_duration}, source_id={self.source_id}, storage_id={self.storage_id})"
 
     @override
     def model_dump(

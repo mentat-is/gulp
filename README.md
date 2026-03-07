@@ -93,6 +93,7 @@ the following environment variables may be set to override configuration options
 - `GULP_OPENSEARCH_URL`: if set, overrides `opensearch_url` in the configuration to.
 - `GULP_POSTGRES_URL`: if set, overrides `postgres_url` in the configuration.
 - `GULP_REDIS_URL`: if set, overrides `redis_url` in the configuration.
+- `GULP_S3_URL`: if set, overrides `s3_url` in the configuration.
 - `GULP_INTEGRATION_TEST`: **TEST ONLY**, this must be set to 1 during integration testing (i.e. client api) to disable debug features which may interfere.
 
 ### exposed services
@@ -129,7 +130,13 @@ the following environment variables may be set to override configuration options
 
 - [redis insight on http://localhost:5540](http://localhost:8002) to manage redis  (use `--profile dev`)
 
+#### MinIO
 
+- [minio on http://localhost:9000](http://localhost:9000)
+
+  - **user/pwd: `admin/Gulp1234!`**
+  - this is used as S3-compatible filestore for plugins which may need it.
+  
 #### sftpd
 
 - [vsftpd on port 21(ftp) or 21000 (sftp)](ftp://localhost:21) to manage files in `$GULP_WORKING_DIR`
@@ -158,7 +165,7 @@ to use SSL, the following configuration options and files variables may be provi
   - `$GULP_WORKING_DIR/certs/postgres.pem`: client certificate for Gulp to connect to PostgreSQL server
   - `$GULP_WORKING_DIR/certs/postgres.key`: client certificate key
 
-# gulp
+#### gulp
 
 - Gulp configuration
   - `https_enforce`: set to `true` to enforce connection to Gulp only through HTTPS
@@ -168,11 +175,15 @@ to use SSL, the following configuration options and files variables may be provi
   - `$GULP_WORKING_DIR/certs/gulp.pem`: Gulp server certificate
   - `$GULP_WORKING_DIR/certs/gulp.key`: Gulp server certificate key
 
-# sftpd
+#### sftpd
 
 - certificate files
   - `$GULP_WORKING_DIR/certs/sftpd.pem`: server certificate + CA
   - `$GULP_WORKING_DIR/certs/sftpd.key`: server certificate key
+
+#### redis & minIO
+
+check their specific documentation: basically you have to put certificates in `$GULP_WORKING_DIR/certs`, whcih is [mounted in the containers](./docker-compose.yml), and tweak their configuration.
 
 ## commandline examples
 

@@ -12,6 +12,7 @@
     - [multiprocessing and concurrency](#multiprocessing-and-concurrency)
     - [ingestion plugins](#ingestion-plugins)
       - [chunk ingestion callbacks](#chunk-ingestion-callbacks)
+      - [file storage](#file-storage)
     - [enrichment plugins](#enrichment-plugins)
     - [external plugins](#external-plugins)
       - [call external plugins](#call-external-plugins)
@@ -223,7 +224,9 @@ sequenceDiagram
     participant Plugin as Plugin
     participant Parser as Format parser
     participant Mapper as Field Mapper
-
+    participant MinIO as File Storage
+    
+    Engine->>MinIO: upload if plugin_params.store_file is set
     Engine->>Plugin: ingest_file(file_path)
     Plugin->>Base: super().ingest_file()
     Base-->>Plugin: Initialize state
@@ -272,6 +275,44 @@ A global callback lives in an `extension` plugin that registers for the `GulpInt
 Any plugin that registers for the event will have its `internal_event_callback` called in registration order; there is no limitation on the number of callbacks. The payload of the event is the same data dict passed to request-scoped callbacks, with the addition of a `plugin` field indicating which plugin ingested the chunk.
 
 an example is provided in [example_chunk_callbacks](../src/gulp/plugins/extension/example_chunk_callbacks.py) plugin.
+
+#### file storage
+
+a plugin may decide to store file on the provided `MinIO` instance via `GulpPluginParameters.store_file`: if this is set, file is uploaded by the engine to the filestore *prior* to call plugin's `ingest_file` method.
+
+file storage is helpful when the original file itself is binary and is needed for the investigation: usually the plugin should set `GulpPluginParameters.sre_file` to `True` in `ingest_file` prior to calling engine's `ingest_file`:
+
+  ~~~python
+  @override
+  async def ingest_file(
+    self,
+    sess: AsyncSession,
+    stats: GulpRequestStats,
+    user_id: str,
+    req_id: str,
+    ws_id: str,
+    index: str,
+    operation_id: str,
+    context_id: str,
+    source_id: str,
+    file_path: str,
+    original_file_path: str = None,
+    flt: GulpIngestionFilter = None,
+    plugin_params: GulpPluginParameters = None,
+    **kwargs,
+) -> GulpRequestStatus:
+    # typical ingest_file setup ...
+    plugin_params = self._ensure_plugin_params(
+        plugin_params, mapping_file="windows.json"
+    )
+    # set store_file and call super
+    plugin_params.store_file=True
+    await super().ingest_file(...)
+    
+    # rest of the plugin code as normal ...
+    # ...
+  ~~~
+
 ### enrichment plugins
 
 enrichment plugins takes one or more `GulpDocuments` and returns them augmented with extra data: they are meant to work on data already stored in gulp's Opensearch.

@@ -28,9 +28,13 @@ ingestion
 
 collab[(PostgreSQL
   collaboration DB)]
+
 redis[(Redis
   task queue & pub/sub)]
 
+minio[(MinIO
+  file storage
+)]
 extension_plugin[ExtensionPlugins
   i.e. extend API,
     add functionality,
@@ -66,6 +70,7 @@ bridges<-->|ingest| gulp
 gulp <-->|extend api| extension_plugin
 gulp -->|ingest| plugin
 plugin-.ingest.->opensearch
+plugin -->|store files| minio
 gulp<--query-->opensearch
 gulp<-->|query|external_plugin<-->|query|external_source
 external_plugin-->|ingest|opensearch
@@ -78,6 +83,10 @@ Task queue and pub/sub:
 - Ingestion requests enqueue task dictionaries on a Redis list (key `gulp:queue:tasks`).
 - The main process polls the Redis queue and dispatches tasks to worker processes.
 - Redis pub/sub is used for WebSocket fan-out and inter-instance coordination.
+
+File storage:
+
+a `minIO` instance is provided to allow plugins to store files (i.e. binary files) which could not be stored on OpenSearch directly.
 
 All components are based on the [muty utility library](https://github.com/mentat-is/muty-python)
 

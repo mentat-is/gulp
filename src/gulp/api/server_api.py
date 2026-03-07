@@ -251,6 +251,7 @@ class GulpServer:
         from gulp.api.server.user_group import router as user_group_router
         from gulp.api.server.utility import router as utility_router
         from gulp.api.server.ws import router as ws_router
+        from gulp.api.server.storage import router as storage_router
 
         self._app.include_router(db_router)
         self._app.include_router(operation_router)
@@ -266,7 +267,8 @@ class GulpServer:
         self._app.include_router(utility_router)
         self._app.include_router(query_router)
         self._app.include_router(enrich_router)
-
+        self._app.include_router(storage_router)
+        
     def add_api_route(self, path: str, handler: callable, **kwargs):
         """
         add a new API route, just bridges to FastAPI.add_api_route
@@ -412,7 +414,7 @@ class GulpServer:
 
     async def _dispatch_tasks(self):
         """
-        Blocking task loop using Redis BLPOP for ingestion tasks.
+        Blocking task loop using Redis BLPOP for long running tasks that need to be dispatched to workers, such as ingest and query tasks.
         Waits for a task, then drains up to concurrency limit and dispatches to workers.
         """
         from gulp.api.server.db import run_rebase_task
@@ -796,6 +798,4 @@ class GulpServer:
         )
         with open(check_first_run_file, "w", encoding="utf-8") as f:
             f.write("gulp!")
-        return True
-        return True
         return True

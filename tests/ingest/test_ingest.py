@@ -471,7 +471,7 @@ async def test_ingest_offset():
 
 
 @pytest.mark.asyncio
-async def test_win_evtx(file_path: str = None, skip_checks: bool = False):
+async def test_win_evtx(file_path: str = None, skip_checks: bool = False, plugin_params: GulpPluginParameters=None):
     current_dir = os.path.dirname(os.path.realpath(__file__))
     samples_dir = os.path.join(current_dir, "../../samples/win_evtx")
     if file_path is None:
@@ -494,6 +494,7 @@ async def test_win_evtx(file_path: str = None, skip_checks: bool = False):
         operation_id=TEST_OPERATION_ID,
         context_name=TEST_CONTEXT_NAME,
         plugin="win_evtx",
+        plugin_params=plugin_params,
     )
 
     await t

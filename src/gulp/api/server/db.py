@@ -40,6 +40,7 @@ from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
+from gulp.api.s3_api import GulpS3
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import TASK_TYPE_REBASE, APIDependencies
 from gulp.api.server_api import GulpServer
@@ -53,7 +54,7 @@ router: APIRouter = APIRouter()
 
 async def db_reset() -> None:
     """
-    resets the collab database (deletes everything, including operations (deleting their data on OpenSearch))
+    resets the collab database (deletes everything, including operations (deleting their data on OpenSearch and files on storage, if any))
 
     NOTE: must be called on the main process!
 
@@ -71,6 +72,9 @@ async def db_reset() -> None:
 
             # delete the whole datastream
             await GulpOpenSearch.get_instance().datastream_delete(op.index)
+
+            # delete files on storage if any
+            await GulpS3.get_instance().delete_by_tags({"operation_id": op.id})
 
             # delete the operation itself
             await op.delete(sess)

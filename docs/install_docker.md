@@ -64,11 +64,12 @@ GULP_IMAGE=gulp-core:latest GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valeri
 
 multiple profiles (one or more) may be specified using on the `docker compose` command line:
 
+> opensearch, postgresql, minio, redis, sftpd are always run regardless of the profile.
+
 - `--profile gui`: run gulp-web client ui
-- `--profile gulp`: run opensearch, postgresql, sftpd, gulp
-- `--profile dev`: run opensearch, postgresql, sftpd , adminer, elasticvue
-- `--profile os-dashboards`: run opensearch, opensearch-dahsboards
-- *no profile specified: just `opensearch` and `postgresql` are run*
+- `--profile gulp`: also run gulp
+- `--profile dev`: also run adminer, elasticvue, redis-insight
+- `--profile os-dashboards`: also run opensearch-dahsboards
 
 of course, you may provide your own compose file to suit your particular configuration (multiple OpenSearch nodes, ...).
 

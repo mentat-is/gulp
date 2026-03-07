@@ -17,6 +17,7 @@ and preview mode for testing without persistence.
 """
 
 import os
+import asyncio
 from copy import deepcopy
 from typing import Annotated, Any, Optional
 
@@ -25,7 +26,6 @@ import muty.log
 import muty.pydantic
 import muty.string
 import orjson
-import aiobotocore
 from contextlib import asynccontextmanager
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -46,6 +46,7 @@ from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
+from gulp.api.s3_api import GulpS3
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import (
     TASK_TYPE_INGEST,
@@ -227,7 +228,6 @@ _DESC_SOURCE_NAME = """
 """
 _EXAMPLE_SOURCE_NAME = "test_source"
 
-
 async def _ingest_file_internal(
     user_id: str,
     req_id: str,
@@ -256,6 +256,7 @@ async def _ingest_file_internal(
     mod: GulpPluginBase = None
     ctx_id: str = None
     src_id: str = None
+
     if payload.plugin_params.preview_mode:
         MutyLogger.get_instance().warning(
             "***PREVIEW MODE*** ingestion for file=%s", file_path
@@ -348,8 +349,19 @@ async def _ingest_file_internal(
             return status, []
         finally:
             if mod:
+                upload_task = mod.upload_task
                 await mod.unload()
+
+            # ensure background upload is finished before deleting the file. we don't want to
+            # remove the file while it's still being transferred. only do this when
+            # delete_after is requested.
             if delete_after:
+                if upload_task:
+                    try:
+                        await upload_task
+                    except Exception:
+                        # ignore errors from upload, deletion should happen regardless
+                        pass
                 # delete file
                 await muty.file.delete_file_or_dir_async(file_path)
 

@@ -335,6 +335,7 @@ class GulpProcess:
                 )
             )
 
+
             # wait for all workers to be spawned by polling Redis counter
             MutyLogger.get_instance().debug("waiting for all processes to be spawned ...")
             start_time = time.time()
@@ -355,7 +356,7 @@ class GulpProcess:
                     raise TimeoutError("timeout waiting for workers to spawn")
                     
                 await asyncio.sleep(0.1)
-
+            
             MutyLogger.get_instance().debug("all %d processes spawned!", spawned_count)
 
             MutyLogger.get_instance().warning(
@@ -389,8 +390,10 @@ class GulpProcess:
             GulpRedis.get_instance().initialize(server_id, main_process=False) # do not initialize pub/sub in worker process, just redis client
 
         # always connect to storage (both worker/main) since both may need it
-        await GulpS3.get_instance().connect()
-
+        if self._main_process:
+            # ensure the "gulp" bucket exists in the storage, creating it if it doesn't exist and we have permissions to create it
+            await GulpS3.get_instance().create_bucket()
+            
     def is_main_process(self) -> bool:
         """
         returns whether this is the main gulp process.

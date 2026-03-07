@@ -18,6 +18,7 @@ from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpUserPe
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.s3_api import GulpS3
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.plugin import GulpInternalEventsManager
@@ -265,6 +266,9 @@ async def operation_delete_handler(
                     user_id=user_id,
                     req_id=req_id,
                 )
+
+                # delete data from storage (files with operation_id tag)                
+                await GulpS3.get_instance().delete_by_tags({"operation_id": operation_id})
 
             # delete the operation itself
             MutyLogger.get_instance().info(
@@ -598,6 +602,9 @@ async def context_delete_handler(
                 await GulpOpenSearch.get_instance().delete_data_by_context(
                     op.index, ctx.operation_id, context_id
                 )
+
+                # delete data from storage (files with operation_id, context_id tags)                
+                await GulpS3.get_instance().delete_by_tags({"operation_id": ctx.operation_id, "context_id": context_id})
 
             # ok, delete context
             await ctx.delete(sess, ws_id=ws_id, req_id=ws_id, user_id=s.user.id)
@@ -1044,6 +1051,10 @@ async def source_delete_handler(
                     f"deleting data related to operation_id={src.operation_id}, context_id={
                         src.context_id}, source_id={source_id} on index={op.index} ..."
                 )
+                
+                # delete data from storage (files with operation_id, context_id, source_id tags)
+                await GulpS3.get_instance().delete_by_tags({"operation_id": src.operation_id, "context_id": src.context_id, "source_id": source_id})
+
                 await GulpOpenSearch.get_instance().delete_data_by_source(
                     op.index, src.operation_id, src.context_id, source_id
                 )
