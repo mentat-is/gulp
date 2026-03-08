@@ -252,3 +252,22 @@ async def test_enrich_whois_single_id():
 
     assert doc[f"{GulpOpenSearch.ENRICHED_PREFIX}"]["enrich_whois"]["gulp.unmapped.source.ip"] != None
     MutyLogger.get_instance().info(test_enrich_whois_single_id.__name__ + " succeeded!")
+
+
+@pytest.mark.asyncio
+async def test_enrich_remove():
+    if os.getenv("SKIP_RESET", "0") == "0":
+        await test_enrich_whois_single_id()
+    
+    edit_token = await GulpAPIUser.login("editor", "editor")
+    assert edit_token
+
+    # remove enrichment, should return num_deleted=1
+    res = await GulpAPIEnrich.enrich_remove(
+        edit_token,
+        TEST_OPERATION_ID,
+        flt=GulpQueryFilter(context_ids=["ac019b190bf8e15588812066161cf74137ab3e97"]),
+    )
+    assert res["num_deleted"] == 1
+    MutyLogger.get_instance().info(test_enrich_remove.__name__ + " succeeded!")
+

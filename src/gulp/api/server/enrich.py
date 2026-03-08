@@ -694,6 +694,8 @@ async def tag_single_id_handler(
     summary="Remove enriched data from documents.",
     description="""
 shortcut to `update_documents` to remove enriched data from the given documents.
+
+- token must have the `edit` permission.
 """,
 )
 async def enrich_remove_handler(
@@ -736,6 +738,7 @@ async def enrich_remove_handler(
                 base = {"exists": {"field": "gulp.enriched"}}
             else:
                 inner = flt.to_opensearch_dsl()["query"]
+                MutyLogger.get_instance().debug("inner=%s" % (inner))
                 # wrap in bool must with exists
                 base = {"bool": {"must": [inner, {"exists": {"field": "gulp.enriched"}}]}}
             base_query: dict = base
