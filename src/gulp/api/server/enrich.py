@@ -668,3 +668,100 @@ async def tag_single_id_handler(
         data={"gulp.tags": tags},
         req_id=req_id,
     )
+
+
+@router.post(
+    "/enrich_remove",
+    response_model=JSendResponse,
+    tags=["enrich"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                        "data": {
+                            "num_deleted": 123
+                        }
+                    }
+                }
+            }
+        }
+    },
+    summary="Remove enriched data from documents.",
+    description="""
+shortcut to `update_documents` to remove enriched data from the given documents.
+""",
+)
+async def enrich_remove_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    """Remove the `gulp.enriched` field from documents matching the filter.
+
+    The handler enforces the operation ACL and then issues an OpenSearch
+    update_by_query request which executes a painless script removing the
+    field.  The number of modified documents is returned in the `num_deleted`
+    field of the response data.
+    """
+
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # enforce operation_id on the filter
+            flt.operation_ids = [operation_id]
+
+            # check permission
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.EDIT
+            )
+            index = op.index
+
+            # build base query from filter. we also add an `exists` clause
+            # so that OpenSearch only updates docs which actually have the
+            # `gulp.enriched` field, reducing the number of documents the
+            # painless script executes on.
+            base = None
+            if flt.is_empty():
+                # only the exists predicate
+                base = {"exists": {"field": "gulp.enriched"}}
+            else:
+                inner = flt.to_opensearch_dsl()["query"]
+                # wrap in bool must with exists
+                base = {"bool": {"must": [inner, {"exists": {"field": "gulp.enriched"}}]}}
+            base_query: dict = base
+            MutyLogger.get_instance().debug("enrich_remove_handler: base_query=%s", base_query)
+            script = (
+                "if (ctx._source.containsKey('gulp.enriched')) {"
+                " ctx._source.remove('gulp.enriched'); }"
+            )
+
+            # prepare request parameters
+            params_body: dict = {
+                "script": {"source": script, "lang": "painless"},
+                "query": base_query,
+            }
+
+            params_qs: dict = {"conflicts": "proceed", "wait_for_completion": "true", "refresh": "true"}
+            headers: dict = {"accept": "application/json", "content-type": "application/json"}
+
+            # execute the update_by_query
+            res = await GulpOpenSearch.get_instance()._opensearch.update_by_query(
+                index=index, body=params_body, params=params_qs, headers=headers
+            )
+
+            num_deleted = res.get("updated", 0)
+            data = {"num_deleted": num_deleted}
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=data))
+
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex

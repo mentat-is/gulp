@@ -119,7 +119,7 @@ async def _test_enrich_abuse_documents_internal(query_type: str = "url"):
                         "query_type": query_type,
                     }
 
-                    if query_type is "url":
+                    if query_type == "url":
                         fields: dict = {
                             "url.full": None,
                         }
