@@ -3059,23 +3059,26 @@ class GulpPluginBase(ABC):
         )
 
         if self.type() == GulpPluginType.INGESTION and not self._plugin_params.preview_mode and self._plugin_params.store_file:
-            # start the upload concurrently so we can ingest the file while it's being uploaded
-            # keep a handle so we can wait for it before deleting the file later.
-            async def _upload_wrapper():
-                try:
-                    await self._upload_file_task(
-                        self._original_file_path,
-                        self._operation_id,
-                        self._context_id,
-                        self._source_id,
-                        self._user_id,
-                        self._req_id
-                    )
-                except Exception as ex:
-                    MutyLogger.get_instance().exception(
-                        "***ERROR*** in background upload task: %s", ex
-                    )
-            self.upload_task = asyncio.create_task(_upload_wrapper())
+            if self._upper_instance:
+                MutyLogger.get_instance().warning("plugin %s is stacked, skipping upload handling (done in the upper)!", self.filename)
+            else:
+                # start the upload concurrently so we can ingest the file while it's being uploaded
+                # keep a handle so we can wait for it before deleting the file later.
+                async def _upload_wrapper():
+                    try:
+                        await self._upload_file_task(
+                            self._original_file_path,
+                            self._operation_id,
+                            self._context_id,
+                            self._source_id,
+                            self._user_id,
+                            self._req_id
+                        )
+                    except Exception as ex:
+                        MutyLogger.get_instance().exception(
+                            "***ERROR*** in background upload task: %s", ex
+                        )
+                self.upload_task = asyncio.create_task(_upload_wrapper())
 
         # parse the custom parameters
         await self._parse_custom_parameters()
