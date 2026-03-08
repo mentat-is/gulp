@@ -410,7 +410,7 @@ async def test_query_gulp_export_json():
     # q_options.limit = 500
     # q_options.total_limit = 500
 
-    flt: GulpQueryFilter = GulpQueryFilter(time_range=(1467213874345999999, 0))
+    flt: GulpQueryFilter = GulpQueryFilter(time_range=(1467213874346199999, 0))
 
     path = await GulpAPIQuery.query_gulp_export_json(
         guest_token,

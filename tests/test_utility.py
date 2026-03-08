@@ -1,6 +1,7 @@
 import os
 
 import muty.file
+import tempfile
 import pytest
 import pytest_asyncio
 from gulp_client.common import (
@@ -67,11 +68,14 @@ async def test_mapping_files_api():
 async def test_plugins_api():
     guest_token = await GulpAPIUser.login("guest", "guest")
     assert guest_token
+    admin_token = await GulpAPIUser.login("admin", "admin")
+    assert admin_token
 
     test_plugin = "csv.py"
     test_plugin_path = os.path.join(
         GulpConfig.get_instance().path_plugins_extra(), test_plugin
     )
+    # ensure there is no csv plugin in the extra path
     await muty.file.delete_file_or_dir_async(test_plugin_path)
 
     l = await GulpAPIUtility.plugin_list(guest_token)
@@ -91,11 +95,15 @@ async def test_plugins_api():
     assert found
 
     # get the sample test ui plugin
-    tsx = await GulpAPIUtility.ui_plugin_get("example_ui_plugin.tsx")
-    assert tsx and isinstance(
-        tsx["content"], str
-    )  # base64 encoded string, the plugin TSX content
-    assert tsx["filename"] == "example_ui_plugin.tsx"
+    tmp_path = os.path.join(tempfile.gettempdir(), "example_ui_plugin.tsx")
+    try:
+        tsx_path = await GulpAPIUtility.plugin_download(admin_token, "example_ui_plugin.tsx", tmp_path, plugin_type="ui")
+        content: bytes = await muty.file.read_file_async(tsx_path)
+        content_str: str = content.decode("utf-8").strip()
+        assert content_str== "{}"
+
+    finally:
+        await muty.file.delete_file_or_dir_async(tmp_path)
     MutyLogger.get_instance().info(test_plugins_api.__name__ + " passed")
 
 

@@ -2,7 +2,7 @@ import os
 import pytest
 import pytest_asyncio
 from muty.log import MutyLogger
-
+import tempfile
 from gulp.api.collab.structs import COLLABTYPE_GLYPH, GulpCollabFilter
 from gulp_client.common import _ensure_test_operation
 from gulp_client.user import GulpAPIUser
@@ -27,10 +27,35 @@ async def test_storage():
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 
-    # list and delete files
+    # list files
     d = await GulpAPIStorage.storage_list_files(token=guest_token, operation_id=TEST_OPERATION_ID, expected_status=401)
     d = await GulpAPIStorage.storage_list_files(token=edit_token, operation_id=TEST_OPERATION_ID)
     assert len(d["objects"]) == 1
+
+    # download the stored object using the client helper
+    storage_id = d["objects"][0]["storage_id"]
+    download_path = os.path.join(tempfile.gettempdir(), "downloaded.bin")
+    
+    # ensure any stale file is removed
+    try:
+        os.remove(download_path)
+    except OSError:
+        pass
+    try:
+        path = await GulpAPIStorage.storage_file_get_by_id(
+            token=edit_token,
+            operation_id=TEST_OPERATION_ID,
+            storage_id=storage_id,
+            local_path=download_path,
+        )
+        assert path == download_path
+        assert os.path.exists(download_path) and os.path.getsize(download_path) > 0
+    finally:
+        try:
+            os.remove(download_path)
+        except OSError:
+            pass
+        
     d = await GulpAPIStorage.storage_list_files(token=edit_token, operation_id="notexist", expected_status=404)
     d = await GulpAPIStorage.storage_delete_by_tags(token=edit_token, operation_id=TEST_OPERATION_ID, context_id=TEST_CONTEXT_ID)
     assert d["num_deleted"] == 1
