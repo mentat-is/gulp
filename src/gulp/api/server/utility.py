@@ -20,8 +20,8 @@ from typing import Annotated, Literal
 import muty.file
 import orjson
 import psutil
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,7 +43,7 @@ from gulp.api.server.structs import APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
-from gulp.structs import ObjectNotFound
+from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 
 router: APIRouter = APIRouter()
 
@@ -737,6 +737,204 @@ async def plugin_list_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+@router.post(
+        "/plugin_upload",
+        tags=["plugin"],
+        response_model=JSendResponse,
+        response_model_exclude_none=True,
+        responses={
+            200: {
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "status": "success",
+                            "timestamp_msec": 1734609216840,
+                            "req_id": "8494de7b-e722-437a-a1c7-80341a0f3b27",
+                            "data": {
+                                "file_paths": [
+                                    "GULP_WORKING_DIR/plugins/ui/test_plugin.py",
+                                ],
+                            },
+                        }
+                    }
+                }
+            }
+        },
+        summary="upload one or more plugin files.",
+        description="""
+- token needs `admin` permission.
+- files are saved under `GULP_WORKING_DIR/plugins/<type>` (type defaults to `default`).
+""",
+)
+async def plugin_upload_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    files: Annotated[
+        list[UploadFile],
+        File(description="the plugin file(s) to upload. For ui plugins, multiple files may be uploaded."),
+    ],
+    plugin_type: Annotated[Literal["default","extension","ui"], Query(description="the plugin type.")]= "default",
+    fail_if_exists: Annotated[
+        bool,
+        Query(
+            description="if set to true, the upload will fail if a file with the same name already exists. otherwise, it will be overwritten."
+        ),
+    ] = False,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSendResponse:
+    params = locals()
+    params.pop("files", None)
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+        # determine destination directory based on plugin type
+        extra_path = GulpConfig.get_instance().path_plugins_extra()
+        if not extra_path:
+            raise Exception("plugins extra path not set")
+
+        if plugin_type in ("extension", "ui"):
+            dest_dir = os.path.join(extra_path, plugin_type)
+        else:
+            dest_dir = extra_path
+        os.makedirs(dest_dir, exist_ok=True)
+
+        # write each file
+        saved: list[str] = []
+        for up in files:
+            content = await up.read()
+            filename = up.filename
+            save_path = os.path.join(dest_dir, filename)
+            if fail_if_exists and await muty.file.exists_async(save_path):
+                raise ObjectAlreadyExists(
+                    f"file with name {filename} already exists in {dest_dir}"
+                )
+            await muty.file.write_file_async(save_path, content)
+            saved.append(save_path)
+
+        return JSONResponse(JSendResponse.success(req_id=req_id, data={"file_paths": saved}))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+@router.delete(
+    "/plugin_delete",
+    tags=["plugin"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1734609216840,
+                        "req_id": "8494de7b-e722-437a-a1c7-80341a0f3b27",
+                        "data": {
+                            "deleted": True,
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="delete a plugin file.",
+    description="""
+- token needs `admin` permission.
+- file is deleted from `GULP_WORKING_DIR/plugins` directory (or the subdirectory corresponding to the `plugin_type`) if found.
+""",
+)
+async def plugin_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    filename: Annotated[
+        str,
+        Query(description='filename of the plugin to delete, i.e. "my_plugin.py"'),
+    ],
+    plugin_type: Annotated[
+        Literal["default", "extension", "ui"],
+        Query(description="the plugin type."),
+    ] = "default",
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+        extra_path = GulpConfig.get_instance().path_plugins_extra()
+
+        # construct candidate paths
+        subdir = plugin_type if plugin_type in ("extension", "ui") else ""
+        file_path = os.path.join(extra_path, subdir, filename) if subdir else os.path.join(extra_path, filename)
+        if not await muty.file.exists_async(file_path):
+            raise ObjectNotFound(
+                "file with name %s not found in %s, type=%s" %
+                (filename, extra_path, plugin_type)
+            )
+
+        await muty.file.delete_file_async(file_path)
+        return JSONResponse(JSendResponse.success(req_id=req_id, data={"deleted": True}))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+@router.get(
+    "/plugin_download",
+    tags=["plugin"],
+    response_class=FileResponse,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        # plugin file content (streamed as download)
+                    }
+                }
+            }
+        }
+    },
+    summary="download a plugin file.",
+    description="""
+- token needs `admin` permission.
+- file is read from `GULP_WORKING_DIR/plugins` directory (or the subdirectory
+  corresponding to the `plugin_type`) if found, first checking the extra path
+  then the default installation path.
+""",
+)
+async def plugin_download_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    filename: Annotated[
+        str,
+        Query(description='filename of the plugin to download, i.e. "my_plugin.py"'),
+    ],
+    plugin_type: Annotated[
+        Literal["default", "extension", "ui"],
+        Query(description="the plugin type."),
+    ] = "default",
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> FileResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+        extra_path = GulpConfig.get_instance().path_plugins_extra()
+        default_path = GulpConfig.get_instance().path_plugins_default()
+
+        # construct candidate paths
+        subdir = plugin_type if plugin_type in ("extension", "ui") else ""
+        file_path = os.path.join(extra_path, subdir, filename) if subdir else os.path.join(extra_path, filename)
+        if not await muty.file.exists_async(file_path):
+            file_path = os.path.join(default_path, subdir, filename) if subdir else os.path.join(default_path, filename)
+            if not await muty.file.exists_async(file_path):
+                raise ObjectNotFound(
+                    "file with name %s not found in both %s and %s, type=%s" %
+                    (filename, extra_path, default_path, plugin_type)
+                )
+
+        return FileResponse(path=file_path, media_type="application/octet-stream", filename=filename)
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
 
 @router.get(
     "/ui_plugin_list",
@@ -786,82 +984,6 @@ async def ui_plugin_list_handler(
                 d: dict = p.model_dump(exclude_none=True)
                 ll.append(d)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=ll))
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
-
-
-@router.get(
-    "/ui_plugin_get",
-    tags=["plugin"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: {
-            "content": {
-                "application/json": {
-                    "example": {
-                        "status": "success",
-                        "timestamp_msec": 1701546711919,
-                        "req_id": "ddfc094f-4a5b-4a23-ad1c-5d1428b57706",
-                        "data": {
-                            "filename": "win_evtx.py",
-                            "path": "/opt/gulp/plugins/win_evtx.py",
-                            "content": "base64 file content here",
-                        },
-                    }
-                }
-            }
-        }
-    },
-    summary="download UI plugin",
-    description="""
-- file is read from `GULP_WORKING_DIR/plugins/ui` directory if found, either from the main installation directory in `plugins/ui`.
-- file content is returned as base64.
-""",
-)
-async def ui_plugin_get_handler(
-    plugin: Annotated[
-        str,
-        Query(
-            description='filename of the plugin to retrieve content for, i.e. "plugin.tsx"'
-        ),
-    ],
-    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
-) -> JSendResponse:
-    ServerUtils.dump_params(locals())
-
-    try:
-        extra_path = GulpConfig.get_instance().path_plugins_extra()
-        default_path = GulpConfig.get_instance().path_plugins_default()
-        plugin_path: str = None
-        if extra_path:
-            # build the extra path
-            plugin_path = os.path.join(extra_path, "ui", plugin.lower())
-            if not os.path.exists(plugin_path):
-                # if not found in extra_path, try default path
-                plugin_path = None
-        if not plugin_path:
-            # use default path
-            plugin_path = os.path.join(default_path, "ui", plugin.lower())
-            if not os.path.exists(plugin_path):
-                raise ObjectNotFound(
-                    "%s not found both in %s or %s" % (plugin, extra_path, default_path)
-                )
-
-        # read file content
-        f = await muty.file.read_file_async(plugin_path)
-        filename = os.path.basename(plugin_path)
-
-        return JSONResponse(
-            JSendResponse.success(
-                req_id=req_id,
-                data={
-                    "filename": filename,
-                    "path": plugin_path,
-                    "content": base64.b64encode(f).decode(),
-                },
-            )
-        )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1019,3 +1141,256 @@ async def mapping_file_list_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+@router.post(
+    "/mapping_file_upload",
+    tags=["mapping"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1735294441540,
+                        "req_id": "test_req",
+                        "data": {
+                            "path": "GULP_WORKING_DIR/mapping_files/custom_mapping.json",
+                        }
+                    }
+                }
+            }
+        }
+    },
+    summary="upload a mapping file.",
+    description="""
+- token needs `admin` permission.
+- file is saved to `GULP_WORKING_DIR/mapping_files` directory.
+""",
+)
+async def mapping_file_upload_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    file: Annotated[UploadFile, File(description="the mapping file to upload")],
+    fail_if_exists: Annotated[
+        bool,
+        Query(
+            description="if set to true, the upload will fail if a file with the same name already exists. otherwise, it will be overwritten."
+        ),
+    ] = False,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSendResponse:
+    params = locals()
+    params.pop("file", None)
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+        # save file to mapping_files directory
+        content = await file.read()
+        filename = file.filename
+        mapping_extra_path = GulpConfig.get_instance().path_mapping_files_extra()
+        save_path = os.path.join(mapping_extra_path, filename)
+
+        if fail_if_exists and await muty.file.exists_async(save_path):
+            raise ObjectAlreadyExists(
+                "file with name %s already exists in %s" % (filename, mapping_extra_path)
+            )
+
+        await muty.file.write_file_async(save_path, content)
+        return JSONResponse(JSendResponse.success(req_id=req_id, data={"path": save_path}))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+@router.get(
+    "/mapping_file_download",
+    tags=["mapping"],
+    response_class=FileResponse,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        # mapping file content (streamed as download)
+                    }
+                }
+            }
+        }
+    },
+    summary="download a mapping file.",
+    description="""
+- token needs `admin` permission.
+- file is read from `GULP_WORKING_DIR/mapping_files` directory if found, either from the main installation directory in `mapping_files`.
+""",
+)
+async def mapping_file_download_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    filename: Annotated[
+        str,
+        Query(description='filename of the mapping file to download, i.e. "custom_mapping.json"'),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> FileResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+        extra_path = GulpConfig.get_instance().path_mapping_files_extra()
+        default_path = GulpConfig.get_instance().path_mapping_files_default()
+
+        file_path = os.path.join(extra_path, filename)
+        if not await muty.file.exists_async(file_path):
+            file_path = os.path.join(default_path, filename)
+            if not await muty.file.exists_async(file_path):
+                raise ObjectNotFound(
+                    "file with name %s not found in both %s and %s" % (filename, extra_path, default_path)
+                )
+
+        return FileResponse(path=file_path, media_type="application/json", filename=filename)
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+    
+@router.delete(
+    "/mapping_file_delete",
+    tags=["mapping"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1735294441540,
+                        "req_id": "test_req",
+                        "data": {
+                            "file_path": "GULP_WORKING_DIR/mapping_files/custom_mapping.json",
+                        }
+                    }
+                }
+            }
+        }
+    },
+    summary="delete a mapping file.",
+    description="""
+- token needs `admin` permission.
+- file is deleted from `GULP_WORKING_DIR/mapping_files` directory.
+""",
+)
+async def mapping_file_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    filename: Annotated[
+        str,
+        Query(description='filename of the mapping file to delete, i.e. "custom_mapping.json"'),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+        extra_path = GulpConfig.get_instance().path_mapping_files_extra()
+        file_path = os.path.join(extra_path, filename)
+        if not await muty.file.exists_async(file_path):
+            raise ObjectNotFound(
+                "file with name %s not found in %s" % (filename, extra_path)
+            )
+
+        await muty.file.delete_file_async(file_path)
+        return JSONResponse(JSendResponse.success(req_id=req_id, data={"file_path": file_path}))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+@router.post(
+    "/config_upload",
+    tags=["config"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1735294441540,
+                        "req_id": "test_req",
+                        "data": {
+                            "file_path": "GULP_WORKING_DIR/gulp_cfg.json",                            
+                        }
+                    }
+                }
+            }
+        }
+    },
+    summary="upload a config file.",
+    description="""
+- token needs `admin` permission.
+- file is saved to `GULP_WORKING_DIR/gulp_cfg.json`.
+- gulp must be restarted for the new config to take effect.
+""",
+)
+async def config_upload_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    file: Annotated[UploadFile, File(description="the config file to upload")],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSendResponse:
+    params = locals()
+    params.pop("file", None)
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+        # save file to working directory as gulp_cfg.json
+        content = await file.read()
+        filename = "gulp_cfg.json"
+        save_path = os.path.join(GulpConfig.get_instance().path_working_dir(), filename)
+
+        await muty.file.write_file_async(save_path, content)
+        return JSONResponse(JSendResponse.success(req_id=req_id, data={"file_path": save_path}))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+                        
+@router.get(
+    "/config_download",
+    tags=["config"],
+    response_class=FileResponse,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        # mapping file content (streamed as download)
+                    }
+                }
+            }
+        }
+    },
+    summary="download the current config file.",
+    description="""
+- token needs `admin` permission.
+- file is read from `GULP_WORKING_DIR/gulp_cfg.json`.
+""",
+)
+async def config_download_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> FileResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            await GulpUserSession.check_token(sess, token, GulpUserPermission.ADMIN)
+
+        file_path = os.path.join(GulpConfig.get_instance().path_working_dir(), "gulp_cfg.json")
+        if not await muty.file.exists_async(file_path):
+            raise ObjectNotFound(
+                "config file not found in %s" % (file_path)
+            )
+
+        return FileResponse(path=file_path, media_type="application/json", filename="gulp_cfg.json")
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex

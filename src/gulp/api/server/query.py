@@ -2014,11 +2014,15 @@ async def _export_json_internal(
     "/query_gulp_export_json",
     response_model=JSendResponse,
     tags=["query"],
-    response_model_exclude_none=True,
+    response_class=FileResponse,
     responses={
         200: {
             "content": {
-                "application/json": {"examples": {"default": {"value": {"docs": [{}]}}}}
+                "application/json": {
+                    "example": {
+                        # array of results (the query export content)
+                    }
+                }
             }
         }
     },

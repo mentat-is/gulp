@@ -195,13 +195,14 @@ async def storage_list_files_handler(
 @router.get(
     "/storage_get_file_by_id",
     tags=["storage"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
+    response_class=FileResponse,
     responses={
         200: {
             "content": {
                 "application/octet-stream": {
-                    "example": "binary content of the file"
+                    "example": {
+                        # file content
+                    }
                 }
             }
         }
