@@ -310,7 +310,10 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-
+        # set store_file and call super
+        plugin_params = self._ensure_plugin_params(plugin_params)
+        # set store_file and call super
+        plugin_params.store_file = True
         await super().ingest_file(
             sess=sess,
             stats=stats,

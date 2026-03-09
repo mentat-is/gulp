@@ -280,7 +280,7 @@ an example is provided in [example_chunk_callbacks](../src/gulp/plugins/extensio
 
 a plugin may decide to store file on the provided `MinIO` instance via `GulpPluginParameters.store_file`: if this is set, file is uploaded by the engine to the filestore *prior* to call plugin's `ingest_file` method.
 
-file storage is helpful when the original file itself is binary and is needed for the investigation: usually the plugin should set `GulpPluginParameters.sre_file` to `True` in `ingest_file` prior to calling engine's `ingest_file`:
+file storage is helpful when the original file itself is binary and is needed for the investigation: usually the plugin should set `GulpPluginParameters.store_file` to `True` in `ingest_file` prior to calling engine's `ingest_file`:
 
   ~~~python
   @override
