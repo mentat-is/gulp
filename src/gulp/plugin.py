@@ -882,7 +882,7 @@ class GulpPluginBase(ABC):
         # mantain a plugin local cache to avoid precomputing the same values every time.
         # core uses it for context_id, source_id, gulp.event_code, plugin can use it while processing records.
         self.doc_value_cache: DocValueCache = DocValueCache()
-        
+
         # to keep track of upload and delete file later in _ingest_file_internal
         self.upload_task: asyncio.Task | None = None
 
@@ -3017,19 +3017,32 @@ class GulpPluginBase(ABC):
                 f"got index type mappings with {len(self._index_type_mapping)} entries"
             )
 
-    async def _upload_file_task(self, file_path: str, operation_id: str, context_id: str, source_id: str,  user_id: str, req_id: str):
+    async def _upload_file_task(
+        self,
+        file_path: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        user_id: str,
+        req_id: str,
+    ):
         """
         run during ingestion if "store_file" parameter is set: stores the ingested file in the s3-compatible storage
         """
         obj_name: str = GulpS3.build_object_name(
-            file_path, operation_id, context_id, source_id, user_id, req_id,
+            file_path,
+            operation_id,
+            context_id,
+            source_id,
+            user_id,
+            req_id,
         )
         t: dict = {
             "operation_id": operation_id,
             "user_id": user_id,
             "req_id": req_id,
             "context_id": context_id,
-            "source_id": source_id
+            "source_id": source_id,
         }
         await GulpS3.get_instance().upload_file(file_path, object_name=obj_name, tags=t)
 
@@ -3058,26 +3071,34 @@ class GulpPluginBase(ABC):
             ).decode(),
         )
 
-        if self.type() == GulpPluginType.INGESTION and not self._plugin_params.preview_mode and self._plugin_params.store_file:
+        if (
+            self.type() == GulpPluginType.INGESTION
+            and not self._plugin_params.preview_mode
+            and self._plugin_params.store_file
+        ):
             if self._upper_instance:
-                MutyLogger.get_instance().warning("plugin %s is stacked, skipping upload handling (done in the upper)!", self.filename)
+                MutyLogger.get_instance().warning(
+                    "plugin %s is stacked, skipping upload handling (done in the upper)!",
+                    self.filename,
+                )
             else:
                 # start the upload concurrently so we can ingest the file while it's being uploaded
                 # keep a handle so we can wait for it before deleting the file later.
                 async def _upload_wrapper():
                     try:
                         await self._upload_file_task(
-                            self._original_file_path,
+                            self._file_path,
                             self._operation_id,
                             self._context_id,
                             self._source_id,
                             self._user_id,
-                            self._req_id
+                            self._req_id,
                         )
                     except Exception as ex:
                         MutyLogger.get_instance().exception(
                             "***ERROR*** in background upload task: %s", ex
                         )
+
                 self.upload_task = asyncio.create_task(_upload_wrapper())
 
         # parse the custom parameters
@@ -3375,7 +3396,7 @@ class GulpPluginBase(ABC):
                 source_finished=source_finished,
                 ws_disconnected=disconnected,
             )
-            
+
             # update source field types (in background)
             from gulp.api.server_api import GulpServer
 

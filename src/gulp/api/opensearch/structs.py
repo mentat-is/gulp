@@ -29,6 +29,7 @@ from gulp.api.opensearch.filters import QUERY_DEFAULT_FIELDS, GulpBaseDocumentFi
 from gulp.api.s3_api import GulpS3
 from gulp.structs import GulpPluginParameters, GulpSortOrder
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from gulp.plugin import GulpPluginBase
 
@@ -109,8 +110,9 @@ class GulpBasicDocument(BaseModel):
         Field(
             description='"gulp.storage_id": the id of the document in the storage, if any (i.e. s3 object name if file is stored in s3).',
             alias="gulp.storage_id",
-        )
+        ),
     ] = None
+
 
 class GulpDocument(GulpBasicDocument):
     """
@@ -196,7 +198,9 @@ class GulpDocument(GulpBasicDocument):
 
     @staticmethod
     def ensure_timestamp(
-        timestamp: str, plugin_params: GulpPluginParameters = None, format_string: str = None
+        timestamp: str,
+        plugin_params: GulpPluginParameters = None,
+        format_string: str = None,
     ) -> tuple[str, int, bool]:
         """
         ensure we have a proper iso8601 timestamp and return the timestamp in nanoseconds from unix epoch.
@@ -221,7 +225,9 @@ class GulpDocument(GulpBasicDocument):
 
         ns: int = 0
         try:
-            ns = muty.time.string_to_nanos_from_unix_epoch(timestamp, format_string=format_string)
+            ns = muty.time.string_to_nanos_from_unix_epoch(
+                timestamp, format_string=format_string
+            )
 
             # timestamp is epoch or before, that's usually a sign of an invalid timestamp
             if ns <= 0:
@@ -347,10 +353,13 @@ class GulpDocument(GulpBasicDocument):
             timestamp: str = data.get("timestamp", 0)
             if timestamp:
                 # get the timestamp_format corresponding to the currently used mapping, if any
-                timestamp_format = plugin_instance._get_timestamp_format_for_default_timestamp()
+                timestamp_format = (
+                    plugin_instance._get_timestamp_format_for_default_timestamp()
+                )
 
         ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
-            str(timestamp), plugin_params=plugin_instance._plugin_params,
+            str(timestamp),
+            plugin_params=plugin_instance._plugin_params,
             format_string=timestamp_format,
         )
         data["timestamp"] = ts
@@ -362,9 +371,14 @@ class GulpDocument(GulpBasicDocument):
         if plugin_instance._plugin_params and plugin_instance._plugin_params.store_file:
             # if the file is stored in s3, we set the storage_id to the s3 object name, so it can be retrieved later if needed
             data["storage_id"] = GulpS3.build_object_name(
-                data.get("log_file_path", "_"), operation_id, ctx_id, src_id, plugin_instance._user_id, plugin_instance._req_id
+                plugin_instance._file_path,
+                operation_id,
+                ctx_id,
+                src_id,
+                plugin_instance._user_id,
+                plugin_instance._req_id,
             )
-        
+
         # add gulp_event_code (event code as a number), try to find it in cache first
         from gulp.plugin import DocValueCache
 
