@@ -137,11 +137,6 @@ the following environment variables may be set to override configuration options
   - **user/pwd: `admin/Gulp1234!`**
   - this is used as S3-compatible filestore for plugins which may need it.
   
-#### sftpd
-
-- [vsftpd on port 21(ftp) or 21000 (sftp)](ftp://localhost:21) to manage files in `$GULP_WORKING_DIR`
-  - **user/pwd: `gulp/Gulp1234!`**
-
 ### SSL
 
 to use SSL, the following configuration options and files variables may be provided:
@@ -174,12 +169,6 @@ to use SSL, the following configuration options and files variables may be provi
   - `$GULP_WORKING_DIR/certs/gulp-ca.pem`: Gulp CA
   - `$GULP_WORKING_DIR/certs/gulp.pem`: Gulp server certificate
   - `$GULP_WORKING_DIR/certs/gulp.key`: Gulp server certificate key
-
-#### sftpd
-
-- certificate files
-  - `$GULP_WORKING_DIR/certs/sftpd.pem`: server certificate + CA
-  - `$GULP_WORKING_DIR/certs/sftpd.key`: server certificate key
 
 #### redis & minIO
 

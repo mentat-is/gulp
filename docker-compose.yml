@@ -86,6 +86,7 @@ services:
     command: [ "redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}" ]
 
   ftpserver:
+    profiles: [ "extra" ]
     image: delfer/alpine-ftp-server:latest
     container_name: ftpserver
     depends_on:
@@ -163,7 +164,7 @@ services:
       - os01
 
   opensearch-dashboards:
-    profiles: [ "os-dashboards" ]
+    profiles: [ "extra" ]
     image: opensearchproject/opensearch-dashboards:latest
     container_name: opensearch-dashboards
     ports:

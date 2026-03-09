@@ -79,6 +79,7 @@ bridges<-->|fetch| external_source
 ```
 
 Task queue and pub/sub:
+
 - gULP uses Redis for both the ingestion task queue and lightweight pub/sub.
 - Ingestion requests enqueue task dictionaries on a Redis list (key `gulp:queue:tasks`).
 - The main process polls the Redis queue and dispatches tasks to worker processes.
@@ -86,9 +87,9 @@ Task queue and pub/sub:
 
 File storage:
 
-a `minIO` instance is provided to allow plugins to store files (i.e. binary files) which could not be stored on OpenSearch directly.
+a `minIO` instance is provided to allow `ingestion` plugins to store files (i.e. binary files) which could not be stored on OpenSearch directly: note that this affects `file ingestion` operations only (no `ingest_raw/ws_ingest_raw`).
 
-All components are based on the [muty utility library](https://github.com/mentat-is/muty-python)
+> Most of the gulp core components uses the [muty utility library](https://github.com/mentat-is/muty-python) to abstract common operations and primitives.
 
 ```mermaid
 flowchart TB
