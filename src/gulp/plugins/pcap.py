@@ -39,10 +39,20 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("scapy", ">=2.6.1,<3")
-from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader
+from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader, load_layer
+
+load_layer("tls")
+from scapy.layers.tls.all import TLSClientHello, TLS_Ext_ServerName
 
 
 class Plugin(GulpPluginBase):
+
+    # Fields that may contain body/request text content
+    BODY_FIELDS = {"load", "payload", "body", "data", "msg"}
+
+    # Minimum ratio of printable ASCII characters to consider content as text
+    TEXT_PRINTABLE_THRESHOLD = 0.75
+
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
 
@@ -70,63 +80,168 @@ class Plugin(GulpPluginBase):
             )
         ]
 
-    def _pkt_to_dict(self, p: Packet) -> dict:
-        """Transform a packet to a dict
+    @staticmethod
+    def _is_text_content(data: bytes) -> bool:
+        """Check if a byte sequence is likely text content (>= 75% printable ASCII).
 
         Args:
-            p (Packet): packet to transform
+            data (bytes): byte sequence to check
 
         Returns:
-            dict: json serializable dict
+            bool: True if the content is likely text
+        """
+        if not data:
+            return False
+        printable_set = set(string.printable.encode("ascii"))
+        printable_count = sum(1 for b in data if b in printable_set)
+        return (printable_count / len(data)) >= Plugin.TEXT_PRINTABLE_THRESHOLD
+
+    def _pkt_to_dict(self, p: Packet) -> dict:
+        """
+        Converts a scapy packet into a flat dictionary suitable for ECS mapping.
+        Extracts text, and intercepts TLS Handshakes to extract the SNI (Server Name Indication).
         """
         d = {}
 
         for layer in p.layers():
+            layer_instance = p.getlayer(layer)
             layer_name = layer.__name__
-            d[layer_name] = {}
 
-            # get field names and map attributes
-            field_names = [field.name for field in p.getlayer(layer_name).fields_desc]
+            field_names = [field.name for field in layer_instance.fields_desc]
 
-            # MutyLogger.get_instance().debug(f"Dissecting layer: {layer_name}")
-            # MutyLogger.get_instance().debug(f"Field names: {field_names}")
-
-            fields = {}
             for field_name in field_names:
                 try:
-                    fields[field_name] = getattr(p.getlayer(layer_name), field_name)
-                    # MutyLogger.get_instance().debug(f"Fields: {field_name} -> {getattr(layer, field_name)}")
+                    value = getattr(layer_instance, field_name)
+                    if value is None or not value:
+                        continue
 
-                # pylint: disable=W0612
+                    flat_key = f"{layer_name}.{field_name}"
+                    if isinstance(value, bytes):
+                        decoded_val: str = ""
+                        if self._is_text_content(value):
+                            decoded_val = value.decode("utf-8", errors="replace")
+                        else:
+                            decoded_val = value.hex()
+
+                        if field_name not in self.BODY_FIELDS:
+                            d[flat_key] = decoded_val
+
+                    elif hasattr(value, "flagrepr"):
+                        d[flat_key] = value.flagrepr()
+                    else:
+                        if field_name not in self.BODY_FIELDS:
+                            d[flat_key] = str(value)
                 except Exception as ex:
-                    # skip fields that cannot be accessed
-                    # MutyLogger.get_instance().exception(ex)
-                    # MutyLogger.get_instance().debug(f"Fields: {field_name} failed to access ({ex})")
-                    pass
+                    MutyLogger.get_instance().error(
+                        f"error in _pkt_to_dict, value: {value} "
+                    )
+                    raise
 
-            # make sure we have a valid json serializable dict
-            for field, value in fields.copy().items():
-                if value is None:
-                    # no need to map a None value
-                    continue
+        # intercept tls client hello to extract the sni (domain name) in cleartext
+        # this lookup is o(n) on the layers list, which is very fast
+        if p.haslayer(TLSClientHello):
+            try:
+                tls_hello = p.getlayer(TLSClientHello)
 
-                if isinstance(value, bytes):
-                    # print(field, value, "bytes found, hexing")
-                    fields[field] = value.hex()
-                    # fields[field+"_ascii"] = ''.join([chr(b) if 32 <= b <= 126 else "." for b in value])
-                elif isinstance(value, EDecimal):
-                    # print(field, value, "edecimal found, normalizing")
-                    fields[field] = float(value.normalize(20))
-                elif isinstance(value, FlagValue):
-                    fields[field] = value.flagrepr()
-                else:
-                    # fall back to str
-                    fields[field] = str(value)
+                # the sni is stored as an extension within the client hello message
+                if hasattr(tls_hello, "ext") and tls_hello.ext:
+                    for ext in tls_hello.ext:
+                        # verify if the extension is the server name indication
+                        if isinstance(ext, TLS_Ext_ServerName) and hasattr(
+                            ext, "servernames"
+                        ):
+                            if ext.servernames:
+                                # extract and decode the raw bytes of the domain name
+                                raw_sni = ext.servernames[0].servername
+                                if isinstance(raw_sni, bytes):
+                                    # use errors='ignore' to prevent ingestion crash on malformed certs
+                                    sni_str = raw_sni.decode("utf-8", errors="ignore")
+                                    # assign to a custom key that we will map in pcap.json
+                                    d["TLS.sni"] = sni_str
+                                    break
+            except Exception as ex:
+                # log the error but do not crash the pipeline on malformed tls packets
+                MutyLogger.get_instance().debug(f"failed to parse tls sni: {ex}")
 
-            d[layer_name].update(fields)
+        # intercept dns traffic over udp/tcp to extract clean domain names and responses
+        # dns is heavily used for data exfiltration and c2 beacons
+        if p.haslayer("DNS"):
+            try:
+                dns_layer = p.getlayer("DNS")
 
-        # if this fails it is most likely a TypeError because of non JSON serializable type
-        orjson.dumps(d)
+                # gracefully skip evaluation if there are no questions (avoids scapy dissection bugs)
+                # using getattr with a default of 0 prevents hasattr from triggering deep dissection
+                if getattr(dns_layer, "qdcount", 0) > 0:
+                    qd = getattr(dns_layer, "qd", None)
+                    if qd is not None:
+                        raw_qname = getattr(qd, "qname", None)
+                        if isinstance(raw_qname, bytes):
+                            clean_domain = raw_qname.decode(
+                                "utf-8", errors="ignore"
+                            ).rstrip(".")
+                            d["DNS.qd"] = clean_domain
+
+                # gracefully skip evaluation if there are no answers
+                if getattr(dns_layer, "ancount", 0) > 0:
+                    an = getattr(dns_layer, "an", None)
+                    if an is not None:
+                        raw_rdata = getattr(an, "rdata", None)
+                        if isinstance(raw_rdata, bytes):
+                            clean_answer = raw_rdata.decode("utf-8", errors="ignore")
+                            d["DNS.an"] = clean_answer
+                        elif isinstance(raw_rdata, list):
+                            # handling lists (e.g., txt records with multiple strings)
+                            d["DNS.an"] = ", ".join(
+                                [
+                                    b.decode("utf-8", errors="ignore")
+                                    for b in raw_rdata
+                                    if isinstance(b, bytes)
+                                ]
+                            )
+                        elif raw_rdata is not None:
+                            d["DNS.an"] = str(raw_rdata)
+
+                # gracefully extract authority records (ns)
+                if getattr(dns_layer, "nscount", 0) > 0:
+                    ns = getattr(dns_layer, "ns", None)
+                    if ns is not None:
+                        # extract the authoritative domain name
+                        raw_rrname = getattr(ns, "rrname", None)
+                        if isinstance(raw_rrname, bytes):
+                            clean_rrname = raw_rrname.decode(
+                                "utf-8", errors="ignore"
+                            ).rstrip(".")
+
+                            # if it's a soa (start of authority) record, extract the primary nameserver
+                            if hasattr(ns, "mname") and isinstance(ns.mname, bytes):
+                                clean_mname = ns.mname.decode(
+                                    "utf-8", errors="ignore"
+                                ).rstrip(".")
+                                d["DNS.ns"] = (
+                                    f"SOA: {clean_rrname} (Primary NS: {clean_mname})"
+                                )
+
+                            # if it's a standard ns (name server) delegation record
+                            elif hasattr(ns, "rdata") and isinstance(ns.rdata, bytes):
+                                clean_rdata = ns.rdata.decode(
+                                    "utf-8", errors="ignore"
+                                ).rstrip(".")
+                                d["DNS.ns"] = f"NS: {clean_rrname} -> {clean_rdata}"
+
+                            # fallback to just the domain name if other fields are missing
+                            else:
+                                d["DNS.ns"] = clean_rrname
+            except IndexError:
+                # scapy's dns label decompression throws IndexError on truncated pcaps.
+                # we silently ignore this as it's a known artifact of incomplete network captures.
+                pass
+
+            except Exception as ex:
+                # prevent pipeline block on corrupted dns packets (often seen in dns amplification attacks)
+                MutyLogger.get_instance().debug(
+                    f"failed to parse dns layer: {ex}\n dns_layer: {dns_layer}"
+                )
+
         return d
 
     @override
@@ -135,10 +250,7 @@ class Plugin(GulpPluginBase):
     ) -> GulpDocument:
 
         # process record
-        # MutyLogger.get_instance().debug(record)
         evt_json = self._pkt_to_dict(record)
-        # evt_str: str = record.show2(dump=True)
-        # MutyLogger.get_instance().debug(evt_str)
 
         # use the last layer as gradient (all TCP packets are gonna be the same color, etc)
         d: dict = {}
@@ -151,11 +263,8 @@ class Plugin(GulpPluginBase):
             last_layer  # TODO: this sometimes is a Packet_metadata class instead of layer
         )
 
-        # event_code = str(muty.crypto.hash_xxh64_int(last_layer))
-        flattened = muty.dict.flatten(evt_json)
-
-        # map
-        for k, v in flattened.items():
+        # map fields through the mapping engine
+        for k, v in evt_json.items():
             mapped = await self._process_key(k, v, d, **kwargs)
             d.update(mapped)
 
@@ -164,17 +273,19 @@ class Plugin(GulpPluginBase):
         ns: str = str(muty.time.float_to_nanos_from_unix_epoch(float(normalized)))
         timestamp: str = muty.time.ensure_iso8601(ns)
 
-        d["gulp.packet_hexdump"] = "".join(
-            [chr(b) if 32 <= b <= 126 else "." for b in record.build()]
-        )
-
-        hex = record.build().hex()
+        event_original = f"""network.protocol: {d.get("network.protocol","")}
+        source.address: {d.get("source.address","")}
+        source.port: {d.get("source.port","")}
+        source.mac: {d.get("source.mac","")}
+        destination.address: {d.get("destination.address","")}
+        destination.port: {d.get("destination.port","")}
+        destination.mac: {d.get("destination.mac","")}"""
         return GulpDocument(
             self,
             operation_id=self._operation_id,
             context_id=self._context_id,
             source_id=self._source_id,
-            event_original=hex,
+            event_original=event_original,
             event_sequence=record_idx,
             timestamp=timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),

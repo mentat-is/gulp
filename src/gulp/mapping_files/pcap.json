@@ -1,0 +1,134 @@
+{
+    "metadata": {
+        "plugin": [
+            "pcap.py"
+        ]
+    },
+    "mappings": {
+        "default": {
+            "description": "PCAP/PCAPNG packet capture mapping to ECS fields (L2/L3/L4 headers, text body, DNS)",
+            "agent_type": "pcap",
+            "fields": {
+                "Ether.src": {
+                    "ecs": [
+                        "source.mac"
+                    ]
+                },
+                "Ether.dst": {
+                    "ecs": [
+                        "destination.mac"
+                    ]
+                },
+                "IP.src": {
+                    "ecs": [
+                        "source.address"
+                    ]
+                },
+                "IP.dst": {
+                    "ecs": [
+                        "destination.address"
+                    ]
+                },
+                "IP.proto": {
+                    "ecs": [
+                        "network.iana_number"
+                    ],
+                    "force_type": "int"
+                },
+                "IP.len": {
+                    "ecs": [
+                        "network.bytes"
+                    ],
+                    "force_type": "int"
+                },
+                "IPv6.src": {
+                    "ecs": [
+                        "source.address"
+                    ]
+                },
+                "IPv6.dst": {
+                    "ecs": [
+                        "destination.address"
+                    ]
+                },
+                "ARP.psrc": {
+                    "ecs": [
+                        "source.address"
+                    ]
+                },
+                "ARP.pdst": {
+                    "ecs": [
+                        "destination.address"
+                    ]
+                },
+                "ARP.hwsrc": {
+                    "ecs": [
+                        "source.mac"
+                    ]
+                },
+                "ARP.hwdst": {
+                    "ecs": [
+                        "destination.mac"
+                    ]
+                },
+                "TCP.sport": {
+                    "ecs": [
+                        "source.port"
+                    ],
+                    "force_type": "int"
+                },
+                "TCP.dport": {
+                    "ecs": [
+                        "destination.port"
+                    ],
+                    "force_type": "int"
+                },
+                "UDP.sport": {
+                    "ecs": [
+                        "source.port"
+                    ],
+                    "force_type": "int"
+                },
+                "UDP.dport": {
+                    "ecs": [
+                        "destination.port"
+                    ],
+                    "force_type": "int"
+                },
+                "DNS.qd": {
+                    "ecs": [
+                        "dns.question.name"
+                    ],
+                    "force_type": "str"
+                },
+                "DNS.an": {
+                    "ecs": [
+                        "dns.answers.data"
+                    ],
+                    "force_type": "str"
+                },
+                "DNS.opcode": {
+                    "ecs": [
+                        "dns.op_code"
+                    ]
+                },
+                "DNS.rcode": {
+                    "ecs": [
+                        "dns.response_code"
+                    ]
+                },
+                "top_layer": {
+                    "ecs": [
+                        "network.protocol"
+                    ]
+                },
+                "TLS.sni": {
+                    "ecs": [
+                        "tls.client.server_name"
+                    ],
+                    "force_type": "str"
+                }
+            }
+        }
+    }
+}

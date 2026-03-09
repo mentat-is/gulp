@@ -260,7 +260,9 @@ async def test_raw(raw_data: list[dict] = None):
     )
 
     if not raw_data:
-        MutyLogger.get_instance().debug("sleeping a bit (ingest_raw returns pending and needs a bit to process) ...")
+        MutyLogger.get_instance().debug(
+            "sleeping a bit (ingest_raw returns pending and needs a bit to process) ..."
+        )
         await asyncio.sleep(1)
 
         # ingest another (generate new random data)
@@ -569,6 +571,7 @@ async def test_csv_stacked():
     assert doc["event.duration"] == 9999
     MutyLogger.get_instance().info(test_csv_stacked.__name__ + " succeeded!")
 
+
 @pytest.mark.asyncio
 async def test_csv_stacked_on_stacked():
     current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -583,7 +586,10 @@ async def test_csv_stacked_on_stacked():
         )
     )
     await _test_ingest_generic(
-        files, "stacked_on_stacked_example", check_ingested=10, plugin_params=plugin_params
+        files,
+        "stacked_on_stacked_example",
+        check_ingested=10,
+        plugin_params=plugin_params,
     )
 
     # check at least one document ...
@@ -593,6 +599,7 @@ async def test_csv_stacked_on_stacked():
     )
     assert doc["event.duration"] == 9997
     MutyLogger.get_instance().info(test_csv_stacked.__name__ + " succeeded!")
+
 
 @pytest.mark.skipif(
     platform.system() == "Darwin", reason="systemd journal tests not supported on macOS"
@@ -659,7 +666,10 @@ async def test_pcap():
     files = [
         os.path.join(current_dir, "../../samples/pcap/220614_ip_flags_google.pcapng")
     ]
-    await _test_ingest_generic(files, "pcap", 58)
+    plugin_params = GulpPluginParameters(
+        mapping_parameters=GulpMappingParameters(mapping_file="pcap.json"),
+    )
+    await _test_ingest_generic(files, "pcap", 58, plugin_params=plugin_params)
     MutyLogger.get_instance().info(test_pcap.__name__ + " succeeded!")
 
 
