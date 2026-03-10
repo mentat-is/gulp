@@ -2,13 +2,14 @@
 
 ## new features
 
-- architecture: filestore via `minio` S3-compatible storage, which can be used by plugins to store files (e.g. PCAPs, extracted files, ...)
+- architecture: filestore via `minio` S3-compatible storage to be used by plugins to store binary files needed for the analysis (configuration must be updated, check the `gulp_cfg_template.json`)
 - architecture: removed `sftpd` from the default set of microservices (a management console may use the new API endpoints instead)
+- plugins/pcap: reworked to use the filestore
 - core/api: new API endpoints, `remove_enrich` to remove enriched data, endpoints to manage plugin/config/mapping files (`plugin_delete`, `plugin_upload`, `plugin_download`, `config_upload`, `config_download`, `mapping_file_delete_upload`), `mapping_file_download`, `mapping_file_delete`, endpoints to manage files from storage (`storage_delete_by_id`, `storage_get_file_by_id`, `storage_delete_by_tags`, `storage_list_files`)
 
 ## bugfixes
 
-- fixed a very long standing bug which leaked resources at every `ingest` operation and prevented clean shutdown of workers.
+- **fixed a very long standing bug which leaked resources at every `ingest` operation and prevented clean shutdown of workers**.
 
 # v1.6.2
 
