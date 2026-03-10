@@ -426,7 +426,7 @@ async def enhance_document_map_create_handler(
         if not glyph_id and not color:
             raise ValueError("At least one of glyph_id or color must be provided.")
 
-        obj_id: str = muty.crypto.hash_sha1(str(gulp_event_code)+plugin+(str(glyph_id) if glyph_id else "")+(color if color else ""))
+        obj_id: str = muty.crypto.hash_sha1(str(gulp_event_code)+plugin)
         d = await GulpEnhanceDocumentMap.create(
             token,
             permission=[GulpUserPermission.EDIT],
