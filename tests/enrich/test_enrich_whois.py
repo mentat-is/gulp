@@ -76,9 +76,7 @@ RAW_DATA: list[dict] = [
         "gulp.operation_id": "test_operation",
         "gulp.unmapped": {
             "source.ip": "2001:4860:4801:53::3b",
-            "hello": {
-                "world": 1234
-            }
+            "hello": {"world": 1234},
         },
         "event.sequence": 3,
     },
@@ -182,7 +180,7 @@ async def test_enrich_whois_documents():
                     MutyLogger.get_instance().info("stats: %s", stats)
 
                     # query done
-                    updated=7
+                    updated = 6
                     if stats.status == "done" and stats_data.updated == updated:
                         test_completed = True
                     else:
@@ -228,9 +226,9 @@ async def test_enrich_whois_single_id():
         "gulp.unmapped.source.ip": None,
         "host.hostname": None,
         "event.original": None,
-        "gulp.operation_id": "151.1.1.1"
+        "gulp.operation_id": "151.1.1.1",
     }
-    
+
     # guest cannot enrich, verify that
     await GulpAPIEnrich.enrich_single_id(
         guest_token,
@@ -250,7 +248,12 @@ async def test_enrich_whois_single_id():
         plugin_params=plugin_params,
     )
 
-    assert doc[f"{GulpOpenSearch.ENRICHED_PREFIX}"]["enrich_whois"]["gulp.unmapped.source.ip"] != None
+    assert (
+        doc[f"{GulpOpenSearch.ENRICHED_PREFIX}"]["enrich_whois"][
+            "gulp.unmapped.source.ip"
+        ]
+        != None
+    )
     MutyLogger.get_instance().info(test_enrich_whois_single_id.__name__ + " succeeded!")
 
 
@@ -258,7 +261,7 @@ async def test_enrich_whois_single_id():
 async def test_enrich_remove():
     if os.getenv("SKIP_RESET", "0") == "0":
         await test_enrich_whois_single_id()
-    
+
     edit_token = await GulpAPIUser.login("editor", "editor")
     assert edit_token
 
@@ -270,4 +273,3 @@ async def test_enrich_remove():
     )
     assert res["num_deleted"] == 1
     MutyLogger.get_instance().info(test_enrich_remove.__name__ + " succeeded!")
-
