@@ -86,7 +86,7 @@ class Plugin(GulpPluginBase):
         # map
         rec: dict = event.groupdict()
         ts: str = rec.pop("timestamp")
-        if ts and timestamp_format:         
+        if ts and timestamp_format:
             ts: str = datetime.strptime(ts, timestamp_format).isoformat()
         for k, v in rec.items():
             mapped = await self._process_key(k, v, d, **kwargs)
@@ -122,14 +122,7 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
-        plugin_params = self._ensure_plugin_params(
-            plugin_params,
-            mappings={
-                "default": GulpMapping(
-                    fields={"@timestamp": GulpMappingField(ecs="@timestamp")}
-                )
-            },
-        )
+
         await super().ingest_file(
             sess=sess,
             stats=stats,
@@ -165,7 +158,9 @@ class Plugin(GulpPluginBase):
                 valid = True
 
         if not valid:
-           raise ValueError("regex must have at least one named group called 'timestamp'")
+            raise ValueError(
+                "regex must have at least one named group called 'timestamp'"
+            )
 
         # we can process!
         doc_idx = 0
@@ -174,7 +169,11 @@ class Plugin(GulpPluginBase):
                 m = regex.match(line)
                 if m:
                     await self.process_record(
-                        m, doc_idx, flt=flt, line=line, timestamp_format=timestamp_format
+                        m,
+                        doc_idx,
+                        flt=flt,
+                        line=line,
+                        timestamp_format=timestamp_format,
                     )
                 else:
                     # no match
