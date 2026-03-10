@@ -1,3 +1,6 @@
+"""
+storage management API: manage files on S3-compatible instance
+"""
 import tempfile
 from typing import Annotated, Optional
 

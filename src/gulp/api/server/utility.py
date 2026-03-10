@@ -6,6 +6,7 @@ It includes various endpoints for:
 - Server management (restart, status, garbage collection)
 - Plugin management (list, get, upload, delete)
 - Mapping file management (list, get, upload, delete)
+- Configuration management
 - Version information
 
 These endpoints support system administration, debugging, and customizing
@@ -24,11 +25,14 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
+import muty.crypto
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gulp.api.collab.enhance_doc_map import GulpEnhanceDocumentMap
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import (
+    COLLABTYPE_ENHANCE_DOCUMENT_MAP,
     COLLABTYPE_NOTE,
     GulpCollabBase,
     GulpCollabFilter,
@@ -373,6 +377,260 @@ async def object_delete_bulk_handler(
             obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
             deleted = await obj_class.delete_by_filter(sess, flt, s.user_id)
             return JSendResponse.success(req_id=req_id, data={"deleted": deleted})
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.post(
+    "/enhance_document_map_create",
+    tags=["utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpEnhanceDocumentMap.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="creates an enhance document map entry.",
+    description="""
+creates a `enhance_document_map` entry: those allows the UI to map a `gulp_event_code` in a specific plugin to a `glyph_id` and/or a `color` for enhanced visualization.
+
+- `token` needs `edit` permission.
+""",
+)
+async def enhance_document_map_create_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    gulp_event_code: Annotated[
+        int,
+        Query(description="the `gulp.event_code` to enhance."),
+    ],
+    plugin: Annotated[
+        str,
+        Query(description="the plugin to enhance the `gulp.event_code` in."),
+    ],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
+    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        if not glyph_id and not color:
+            raise ValueError("At least one of glyph_id or color must be provided.")
+
+        obj_id: str = muty.crypto.hash_sha1(str(gulp_event_code)+plugin+(str(glyph_id) if glyph_id else "")+(color if color else ""))
+        d = await GulpEnhanceDocumentMap.create(
+            token,
+            permission=[GulpUserPermission.EDIT],
+            private=False,
+            gulp_event_code=gulp_event_code,
+            plugin=plugin,
+            glyph_id=glyph_id,
+            color=color,
+            obj_id=obj_id
+        )
+        return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.patch(
+    "/enhance_document_map_update",
+    tags=["utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpEnhanceDocumentMap.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="updates an enhance document map entry.",
+    description="""
+- `token` needs `edit` permission.
+""",
+)
+async def enhance_document_map_update_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
+    glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
+    color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        if not any(
+            [
+                glyph_id is not None,
+                color is not None,
+            ]
+        ):
+            raise ValueError(
+                "At least one of glyph_id or color must be provided."
+            )
+
+        async with GulpCollab.get_instance().session() as sess:
+            obj: GulpEnhanceDocumentMap
+            _, obj, _ = await GulpEnhanceDocumentMap.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                permission=GulpUserPermission.EDIT,
+            )
+
+            if glyph_id is not None:
+                obj.glyph_id = glyph_id
+            if color is not None:
+                obj.color = color
+
+            dd: dict = await obj.update(sess)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.delete(
+    "/enhance_document_map_delete",
+    tags=["utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"id": "obj_id"},
+                    }
+                }
+            }
+        }
+    },
+    summary="deletes an enhance document map entry.",
+    description="""
+- `token` needs `edit` permission.
+""",
+)
+async def enhance_document_map_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        await GulpEnhanceDocumentMap.delete_by_id_wrapper(
+            token,
+            obj_id,
+            permission=GulpUserPermission.EDIT,
+        )
+        return JSendResponse.success(req_id=req_id, data={"id": obj_id})
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.get(
+    "/enhance_document_map_get_by_id",
+    tags=["utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": GulpEnhanceDocumentMap.example(),
+                    }
+                }
+            }
+        }
+    },
+    summary="gets an enhance document map entry.",
+)
+async def enhance_document_map_get_by_id_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSendResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            obj: GulpEnhanceDocumentMap
+            _, obj, _ = await GulpEnhanceDocumentMap.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+            )
+            return JSendResponse.success(
+                req_id=req_id, data=obj.to_dict(exclude_none=True)
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.post(
+    "/enhance_document_map_list",
+    tags=["utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": [
+                            GulpEnhanceDocumentMap.example(),
+                        ],
+                    }
+                }
+            }
+        }
+    },
+    summary="lists enhance document map entries, optionally using a filter.",
+    description="""
+- `you may use `flt.gulp_event_code` (**as string**) and `flt.plugin` to filter the entries. if not set, all entries are returned.
+""",
+)
+async def enhance_document_map_list_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    flt: Annotated[
+        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    flt.operation_ids = None
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
+    ServerUtils.dump_params(params)
+    try:
+        d = await GulpEnhanceDocumentMap.get_by_filter_wrapper(
+            token,
+            flt,
+        )
+        return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

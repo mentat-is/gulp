@@ -39,6 +39,7 @@ from sqlalchemy import (
     ColumnElement,
     Delete,
     ForeignKey,
+    Integer,
     Select,
     String,
     Tuple,
@@ -129,6 +130,7 @@ COLLABTYPE_NOTE = "note"
 COLLABTYPE_HIGHLIGHT = "highlight"
 COLLABTYPE_STORY = "story"
 COLLABTYPE_LINK = "link"
+COLLABTYPE_ENHANCE_DOCUMENT_MAP = "enhance_document_map"
 COLLABTYPE_REQUEST_STATS = "request_stats"
 COLLABTYPE_USER_DATA = "user_data"
 COLLABTYPE_USER_SESSION = "user_session"
@@ -465,12 +467,16 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                     # check if column type is ARRAY using SQLAlchemy's inspection
                     is_array = isinstance(getattr(col, "type", None), ARRAY)
                     is_bool = isinstance(getattr(col, "type", None), Boolean)
+                    is_number = isinstance(getattr(col, "type", None), (BIGINT, Integer))  # treat numbers as strings for filtering with wildcards
                     if is_array:
                         # if it's an array, use array overlap (matches if any element matches)
                         q = q.filter(self._case_insensitive_or_ilike(k, v))
                     elif is_bool:
                         # if it's a boolean column, convert string value to boolean and apply filter
                         q = q.filter(self._bool_case(col, v))
+                    elif is_number:
+                        # if it's a number column, convert to string and apply case-insensitive match with wildcards support
+                        q = q.filter(self._case_insensitive_or_ilike(func.cast(col, String), v))
                     else:
                         # either a simple column, use case insensitive OR ilike match
                         q = q.filter(self._case_insensitive_or_ilike(col, v))
