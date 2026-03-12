@@ -106,6 +106,20 @@
   "redis_compression_threshold": 256,
   // redis pubsub max chunk size (default=128kb)
   "redis_pubsub_max_chunk_size": 128,
+  // idle time in milliseconds after which pending stream messages can be auto-claimed by another consumer (default=60000ms = 60s)
+  "redis_task_autoclaim_idle_ms": 60000,
+  // approximate max length for task streams, trimmed on XADD (default=10000)
+  "redis_stream_task_maxlen": 10000,
+  // approximate max length for critical events stream (default=10000)
+  "redis_stream_critical_events_maxlen": 10000,
+  // heartbeat TTL in seconds for node liveness detection (default=30)
+  "redis_heartbeat_ttl": 30,
+  // heartbeat update interval in seconds (default=10)
+  "redis_heartbeat_interval": 10.0,
+  // TTL in seconds for websocket metadata/lookup keys in Redis (default=300 = 5 minutes)
+  "redis_ws_key_ttl": 300,
+  // max Redis connections per process for redis-py async pool (0=unlimited, default=0)
+  "redis_max_connections": 0,
   // redis url (may be overridden by GULP_REDIS_URL environment variable)
   "redis_url": "redis://:Gulp1234!@redis:6379/0",
   // delete pending request stats on the collab database on gulp shutdown (default=true)

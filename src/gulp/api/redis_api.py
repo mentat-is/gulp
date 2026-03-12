@@ -74,6 +74,18 @@ class GulpRedis:
     STREAM_CRITICAL_EVENTS_GROUP = "gulp:stream:critical_events:group"
     # event types routed through the critical events stream instead of pub/sub
     CRITICAL_EVENT_TYPES: set[str] = {"ingest_source_done", "query_done", "query_group_done"}
+    # idle time (ms) after which a pending message can be auto-claimed by another consumer
+    TASK_AUTOCLAIM_IDLE_MS: int = 60_000  # 60 seconds
+    # approximate max length for task streams (trimmed on XADD)
+    STREAM_TASK_MAXLEN: int = 10_000
+    # approximate max length for critical events stream
+    STREAM_CRITICAL_EVENTS_MAXLEN: int = 10_000
+    # heartbeat key prefix and TTL for node liveness detection
+    HEARTBEAT_KEY_PREFIX: str = "gulp:heartbeat"
+    HEARTBEAT_TTL: int = 30  # seconds — key expires if not refreshed
+    HEARTBEAT_INTERVAL: float = 10.0  # seconds between heartbeat updates
+    # TTL for websocket metadata and lookup keys (seconds)
+    WS_KEY_TTL: int = 300  # 5 minutes, refreshed periodically by live connections
 
     def __init__(self):
         self._redis: redis.Redis = None
@@ -111,6 +123,10 @@ class GulpRedis:
 
         # timestamp of last aggregate utilization update (main process only)
         self._last_utilization_update: float = 0.0
+        # timestamp of last heartbeat update (main process only)
+        self._last_heartbeat_update: float = 0.0
+        # timestamp of last autoclaim sweep (main process only)
+        self._last_autoclaim_time: float = 0.0
         # cached utilization value for workers (read from Redis)
         self._cached_queue_utilization: float = 0.0
         self._cached_queue_utilization_time: float = 0.0
@@ -165,15 +181,29 @@ class GulpRedis:
         # determine instance roles from configuration
         self._instance_roles = GulpConfig.get_instance().instance_roles()
 
+        # load configurable Redis constants
+        cfg = GulpConfig.get_instance()
+        GulpRedis.TASK_AUTOCLAIM_IDLE_MS = cfg.redis_task_autoclaim_idle_ms()
+        GulpRedis.STREAM_TASK_MAXLEN = cfg.redis_stream_task_maxlen()
+        GulpRedis.STREAM_CRITICAL_EVENTS_MAXLEN = cfg.redis_stream_critical_events_maxlen()
+        GulpRedis.HEARTBEAT_TTL = cfg.redis_heartbeat_ttl()
+        GulpRedis.HEARTBEAT_INTERVAL = cfg.redis_heartbeat_interval()
+        GulpRedis.WS_KEY_TTL = cfg.redis_ws_key_ttl()
+
         # create redis client
         url: str = GulpConfig.get_instance().redis_url()
-        self._redis = redis.Redis.from_url(url, decode_responses=False)
+        max_connections = cfg.redis_max_connections()
+        redis_kwargs: dict[str, Any] = {"decode_responses": False}
+        if max_connections > 0:
+            redis_kwargs["max_connections"] = max_connections
+        self._redis = redis.Redis.from_url(url, **redis_kwargs)
         url_parts = urlparse(url)
         MutyLogger.get_instance().info(
-            "client %s connected to Redis at %s:%d",
+            "client %s connected to Redis at %s:%d (max_connections=%s)",
             self._redis,
             url_parts.hostname,
             url_parts.port,
+            max_connections if max_connections > 0 else "unlimited",
         )
 
         if main_process:
@@ -272,11 +302,12 @@ class GulpRedis:
         await self._redis.set(
             metadata_key,
             orjson.dumps(metadata.model_dump()),
+            ex=self.WS_KEY_TTL,
         )
 
         # store ws_id -> server_id lookup mapping
         lookup_key = self._get_ws_lookup_key(ws_id)
-        await self._redis.set(lookup_key, self.server_id.encode())
+        await self._redis.set(lookup_key, self.server_id.encode(), ex=self.WS_KEY_TTL)
 
         MutyLogger.get_instance().debug(
             "registered websocket: ws_id=%s, server_id=%s",
@@ -335,6 +366,54 @@ class GulpRedis:
             deleted_total,
         )
         return deleted_total > 0
+
+    async def ws_refresh_ttl(self, ws_id: str) -> None:
+        """
+        Refresh the TTL on websocket metadata and lookup keys for a live connection.
+
+        Args:
+            ws_id (str): The websocket id
+        """
+        try:
+            metadata_key = self._get_ws_metadata_key(ws_id)
+            lookup_key = self._get_ws_lookup_key(ws_id)
+            pipe = self._redis.pipeline(transaction=False)
+            pipe.expire(metadata_key, self.WS_KEY_TTL)
+            pipe.expire(lookup_key, self.WS_KEY_TTL)
+            await pipe.execute()
+        except Exception:
+            MutyLogger.get_instance().exception(
+                "error refreshing TTL for ws_id=%s", ws_id
+            )
+
+    async def ws_refresh_all_ttls(self) -> None:
+        """
+        Refresh TTLs for all websocket keys owned by this server.
+        Called periodically by the main process.
+        """
+        pattern = f"gulp:ws:metadata:{self.server_id}:*"
+        try:
+            cursor = 0
+            while True:
+                cursor, keys = await self._redis.scan(cursor=cursor, match=pattern, count=200)
+                if keys:
+                    pipe = self._redis.pipeline(transaction=False)
+                    for key in keys:
+                        pipe.expire(key, self.WS_KEY_TTL)
+                        # also refresh the lookup key
+                        # extract ws_id from metadata key: gulp:ws:metadata:{server_id}:{ws_id}
+                        try:
+                            key_str = key.decode() if isinstance(key, bytes) else key
+                            ws_id = key_str.rsplit(":", 1)[-1]
+                            lookup_key = self._get_ws_lookup_key(ws_id)
+                            pipe.expire(lookup_key, self.WS_KEY_TTL)
+                        except Exception:
+                            pass
+                    await pipe.execute()
+                if cursor == 0:
+                    break
+        except Exception:
+            MutyLogger.get_instance().exception("error refreshing ws key TTLs")
 
     async def ws_get_server(self, ws_id: str) -> str:
         """
@@ -603,6 +682,60 @@ class GulpRedis:
             # best-effort
             pass
 
+    async def _update_heartbeat(self) -> None:
+        """Update the heartbeat key for this server instance.
+
+        Called periodically from the main process subscriber loop so that
+        other nodes can detect liveness.
+        """
+        now = time.monotonic()
+        if now - self._last_heartbeat_update < self.HEARTBEAT_INTERVAL:
+            return
+
+        self._last_heartbeat_update = now
+        try:
+            key = f"{self.HEARTBEAT_KEY_PREFIX}:{self.server_id}"
+            await self._redis.set(key, b"1", ex=self.HEARTBEAT_TTL)
+        except Exception:
+            # best-effort
+            pass
+
+    async def is_server_alive(self, server_id: str) -> bool:
+        """Check if a server instance is alive by checking its heartbeat key.
+
+        Args:
+            server_id (str): The server instance ID to check.
+
+        Returns:
+            bool: True if the server's heartbeat key exists.
+        """
+        try:
+            key = f"{self.HEARTBEAT_KEY_PREFIX}:{server_id}"
+            return bool(await self._redis.exists(key))
+        except Exception:
+            return False
+
+    async def _periodic_ws_ttl_refresh(self) -> None:
+        """Periodically refresh TTLs on all ws keys owned by this server.
+
+        Runs at half the WS_KEY_TTL interval to ensure keys don't expire
+        while connections are still alive.
+        """
+        now = time.monotonic()
+        # refresh at half the TTL interval
+        refresh_interval = self.WS_KEY_TTL / 2.0
+        if not hasattr(self, "_last_ws_ttl_refresh"):
+            self._last_ws_ttl_refresh = 0.0
+        if now - self._last_ws_ttl_refresh < refresh_interval:
+            return
+
+        self._last_ws_ttl_refresh = now
+        try:
+            await self.ws_refresh_all_ttls()
+        except Exception:
+            # best-effort
+            pass
+
     async def critical_event_enqueue(self, message: dict) -> None:
         """Enqueue a critical event onto the Redis stream for at-least-once delivery.
 
@@ -617,6 +750,8 @@ class GulpRedis:
             await self._redis.xadd(
                 self.STREAM_CRITICAL_EVENTS,
                 {"data": payload},
+                maxlen=self.STREAM_CRITICAL_EVENTS_MAXLEN,
+                approximate=True,
             )
         except Exception:
             MutyLogger.get_instance().exception(
@@ -919,6 +1054,10 @@ class GulpRedis:
                     # periodically publish aggregate queue utilization for worker backpressure
                     await self._update_queue_utilization_key()
 
+                    # periodically refresh heartbeat and ws key TTLs
+                    await self._update_heartbeat()
+                    await self._periodic_ws_ttl_refresh()
+
                 except asyncio.CancelledError:
                     MutyLogger.get_instance().debug("subscriber loop cancelled")
                     raise
@@ -990,7 +1129,10 @@ class GulpRedis:
         stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{ttype}"
         try:
             # add to stream under field 'data'
-            await self._redis.xadd(stream_key, {"data": payload})
+            await self._redis.xadd(
+                stream_key, {"data": payload},
+                maxlen=self.STREAM_TASK_MAXLEN, approximate=True,
+            )
             # record known task type
             await self._redis.sadd(GulpRedis.TASK_TYPES_SET, ttype)
         except Exception:
@@ -1184,6 +1326,99 @@ class GulpRedis:
             MutyLogger.get_instance().exception("error in task_pop_blocking: %s", ex)
             await asyncio.sleep(0.5)
             return None
+
+    async def task_autoclaim_stale(self) -> list[dict]:
+        """
+        Reclaim pending messages that have been idle longer than TASK_AUTOCLAIM_IDLE_MS
+        from dead or slow consumers, using XAUTOCLAIM.
+
+        Returns:
+            list[dict]: Decoded task dicts that were reclaimed.
+        """
+        items: list[dict] = []
+
+        # determine streams to check
+        keys: list[str] = []
+        if self._instance_roles:
+            for r in self._instance_roles:
+                keys.append(f"{GulpRedis.STREAM_TASK_PREFIX}:{r}")
+        else:
+            try:
+                types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
+                if types:
+                    for t in types:
+                        if isinstance(t, bytes):
+                            t = t.decode()
+                        keys.append(f"{GulpRedis.STREAM_TASK_PREFIX}:{t}")
+            except Exception:
+                pass
+
+        for stream in keys:
+            try:
+                # XAUTOCLAIM: claim idle messages and return them to this consumer
+                # Returns (next_start_id, [(msg_id, fields), ...], [deleted_ids])
+                result = await self._redis.xautoclaim(
+                    stream,
+                    GulpRedis.STREAM_CONSUMER_GROUP,
+                    self.server_id,
+                    min_idle_time=GulpRedis.TASK_AUTOCLAIM_IDLE_MS,
+                    start_id="0-0",
+                    count=50,
+                )
+                if not result or not result[1]:
+                    continue
+
+                claimed_msgs = result[1]
+                ids_to_del: list = []
+                for msg_id, fields in claimed_msgs:
+                    if not fields:
+                        # message was deleted from stream but still in PEL; skip
+                        continue
+                    raw = fields.get(b"data") if isinstance(fields, dict) else fields.get("data")
+                    if raw is None:
+                        ids_to_del.append(msg_id)
+                        continue
+                    try:
+                        d = orjson.loads(raw)
+                        items.append(d)
+                        ids_to_del.append(msg_id)
+                    except Exception:
+                        MutyLogger.get_instance().error(
+                            "invalid payload in autoclaimed message %s on %s", msg_id, stream
+                        )
+                        ids_to_del.append(msg_id)
+
+                # ack + del reclaimed messages (they'll be re-dispatched by caller)
+                if ids_to_del:
+                    try:
+                        pipe = self._redis.pipeline(transaction=False)
+                        pipe.xack(stream, GulpRedis.STREAM_CONSUMER_GROUP, *ids_to_del)
+                        pipe.xdel(stream, *ids_to_del)
+                        await pipe.execute()
+                    except Exception:
+                        MutyLogger.get_instance().exception(
+                            "failed to ack/del autoclaimed messages on %s", stream
+                        )
+
+                if claimed_msgs:
+                    MutyLogger.get_instance().warning(
+                        "autoclaimed %d stale message(s) from stream %s (idle > %dms)",
+                        len(claimed_msgs), stream, GulpRedis.TASK_AUTOCLAIM_IDLE_MS,
+                    )
+
+            except ResponseError as ex:
+                if "NOGROUP" in str(ex):
+                    pass  # group doesn't exist yet, nothing to reclaim
+                else:
+                    MutyLogger.get_instance().exception(
+                        "error during xautoclaim on %s: %s", stream, ex
+                    )
+            except Exception:
+                MutyLogger.get_instance().exception(
+                    "error during task_autoclaim_stale on %s", stream
+                )
+
+        return items
 
     async def task_purge_by_filter(
         self, operation_id: str | None = None, req_id: str | None = None

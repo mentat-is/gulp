@@ -1153,6 +1153,72 @@ class GulpConfig:
         """
         n = self._config.get("redis_pubsub_max_chunk_size", 128)
         return n
+
+    def redis_task_autoclaim_idle_ms(self) -> int:
+        """
+        Returns the idle time in milliseconds after which pending stream messages
+        can be auto-claimed by another consumer.
+
+        Default: 60000 (60 seconds)
+        """
+        return self._config.get("redis_task_autoclaim_idle_ms", 60000)
+
+    def redis_stream_task_maxlen(self) -> int:
+        """
+        Returns the approximate max length for task streams (trimmed on XADD).
+
+        Default: 10000
+        """
+        return self._config.get("redis_stream_task_maxlen", 10000)
+
+    def redis_stream_critical_events_maxlen(self) -> int:
+        """
+        Returns the approximate max length for the critical events stream.
+
+        Default: 10000
+        """
+        return self._config.get("redis_stream_critical_events_maxlen", 10000)
+
+    def redis_heartbeat_ttl(self) -> int:
+        """
+        Returns the heartbeat TTL in seconds for node liveness detection.
+
+        Default: 30
+        """
+        return self._config.get("redis_heartbeat_ttl", 30)
+
+    def redis_heartbeat_interval(self) -> float:
+        """
+        Returns the heartbeat update interval in seconds.
+
+        Default: 10.0
+        """
+        return self._config.get("redis_heartbeat_interval", 10.0)
+
+    def redis_ws_key_ttl(self) -> int:
+        """
+        Returns the TTL in seconds for websocket metadata/lookup keys in Redis.
+
+        Default: 300 (5 minutes)
+        """
+        return self._config.get("redis_ws_key_ttl", 300)
+
+    def redis_max_connections(self) -> int:
+        """
+        Returns the maximum number of Redis connections per process for the
+        redis-py async connection pool.
+
+        Default: 0 (unlimited / redis-py default behavior).
+        """
+        n = self._config.get("redis_max_connections", 0)
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            n = 0
+
+        if n < 0:
+            n = 0
+        return n
     
     def plugin_allow_load_examples(self) -> bool:
         """

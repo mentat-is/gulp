@@ -14,6 +14,7 @@ import asyncio
 import os
 import ssl
 import sys
+import time
 from typing import Any, Awaitable, Callable, Coroutine, Sequence
 
 import asyncio_atexit
@@ -436,6 +437,28 @@ class GulpServer:
         try:
             while True:
                 try:
+                    # periodically reclaim stale messages from dead consumers
+                    redis_inst = GulpRedis.get_instance()
+                    now = time.monotonic()
+                    if now - redis_inst._last_autoclaim_time >= 30.0:
+                        redis_inst._last_autoclaim_time = now
+                        try:
+                            reclaimed = await redis_inst.task_autoclaim_stale()
+                            if reclaimed:
+                                MutyLogger.get_instance().warning(
+                                    "re-dispatching %d autoclaimed stale task(s)", len(reclaimed)
+                                )
+                                for obj in reclaimed:
+                                    ttype = obj.get("task_type")
+                                    if ttype == TASK_TYPE_INGEST:
+                                        await self.spawn_worker_task(run_ingest_file_task, obj)
+                                    elif ttype == TASK_TYPE_QUERY or ttype == TASK_TYPE_EXTERNAL_QUERY:
+                                        self.spawn_bg_task(run_query_task(obj), name=f"query_task_{muty.string.generate_unique()}")
+                                    elif ttype == TASK_TYPE_REBASE:
+                                        self.spawn_bg_task(run_rebase_task(obj), name=f"rebase_task_{muty.string.generate_unique()}")
+                        except Exception:
+                            MutyLogger.get_instance().exception("error during task autoclaim sweep")
+
                     # block for first task (up to 5s) to avoid busy waiting
                     first = await GulpRedis.get_instance().task_pop_blocking(timeout=5)
                     if first is None:

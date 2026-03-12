@@ -2271,7 +2271,17 @@ class GulpRedisBroker:
             await redis_client.publish(message_dict, channel=publish_channel)
             return
 
-        # Targeted / non-broadcast: route locally only
+        # Targeted / non-broadcast: route locally, or forward to owning server if ws is remote
+        if wsd.ws_id:
+            target_server = await redis_client.ws_get_server(wsd.ws_id)
+            if target_server and target_server != redis_client.server_id:
+                # websocket lives on another server — publish to its targeted channel
+                message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
+                message_dict["__server_id__"] = redis_client.server_id
+                target_channel = f"{_MAIN_REDIS_CHANNEL}:server:{target_server}"
+                await redis_client.publish(message_dict, channel=target_channel)
+                return
+
         await GulpConnectedSockets.get_instance().route_message(wsd)
         return
 
