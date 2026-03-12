@@ -1151,7 +1151,7 @@ class GulpPluginBase(ABC):
                 d=chunk.model_dump(exclude_none=True),
             )
             self._chunks_ingested += 1
-            if self._chunks_ingested % 50 == 0 or self._last_raw_chunk:
+            if self._chunks_ingested % 50 == 0 or self._last_raw_chunk and self._raw_ingestion:
                 payload = GulpIngestRawProgress(
                     last=self._last_raw_chunk,
                 )
