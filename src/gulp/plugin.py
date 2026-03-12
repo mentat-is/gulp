@@ -3074,6 +3074,7 @@ class GulpPluginBase(ABC):
 
         if (
             self.type() == GulpPluginType.INGESTION
+            and not self._raw_ingestion
             and not self._plugin_params.preview_mode
             and self._plugin_params.store_file
         ):
