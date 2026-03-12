@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.redis_api import GulpRedis
+from gulp.api.redis_api import GulpRedis, _MAIN_REDIS_CHANNEL
 from gulp.config import GulpConfig
 from gulp.structs import GulpPluginParameters
 
@@ -1865,6 +1865,10 @@ class GulpRedisBroker:
 
         # subscribe to worker->main channel
         await redis_client.subscribe(self._handle_pubsub_message)
+
+        # start critical events consumer (at-least-once delivery for completion events)
+        await redis_client.start_critical_events_consumer(self._handle_pubsub_message)
+
         MutyLogger.get_instance().info("GulpRedisBroker initialized!")
 
     async def shutdown(self) -> None:
@@ -2236,6 +2240,11 @@ class GulpRedisBroker:
 
         # worker -> always forward to main process (preserve original payload metadata)
         if not is_main:
+            # critical event types use Redis Streams for at-least-once delivery
+            if wsd.type in GulpRedis.CRITICAL_EVENT_TYPES:
+                message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
+                await redis_client.critical_event_enqueue(message_dict)
+                return
             message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
             await redis_client.publish(message_dict)
             return

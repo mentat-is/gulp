@@ -15,7 +15,7 @@ import redis.asyncio as redis
 from muty.log import MutyLogger
 from pydantic import BaseModel, Field
 from redis.asyncio.client import PubSub
-from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import ConnectionError as RedisConnectionError, ResponseError
 
 from gulp.config import GulpConfig
 
@@ -65,11 +65,21 @@ class GulpRedis:
     STREAM_TASK_PREFIX = "gulp:stream:tasks"
     # consumer group name for task streams
     STREAM_CONSUMER_GROUP = "gulp:stream:group:tasks"
+    # redis key for broadcasting aggregate websocket queue utilization from main to workers
+    WS_QUEUE_UTILIZATION_KEY = "gulp:ws:queue_utilization"
+    # how often (seconds) the main process updates the utilization key
+    WS_QUEUE_UTILIZATION_UPDATE_INTERVAL: float = 1.0
+    # redis stream + consumer group for critical websocket events (at-least-once delivery)
+    STREAM_CRITICAL_EVENTS = "gulp:stream:critical_events"
+    STREAM_CRITICAL_EVENTS_GROUP = "gulp:stream:critical_events:group"
+    # event types routed through the critical events stream instead of pub/sub
+    CRITICAL_EVENT_TYPES: set[str] = {"ingest_source_done", "query_done", "query_group_done"}
 
     def __init__(self):
         self._redis: redis.Redis = None
         self._pubsub: PubSub = None
         self._subscriber_task: asyncio.Task = None
+        self._critical_events_task: asyncio.Task = None
         self.server_id: str = None
         # list of roles assigned to this server instance (e.g. ['ingest', 'query'])
         self._instance_roles: list[str] = []
@@ -98,6 +108,16 @@ class GulpRedis:
         self._metrics_subscriber_errors: int = 0
         self._metrics_last_log_time: float = 0
         self._metrics_log_interval: float = 300.0  # log every 5 minutes
+
+        # timestamp of last aggregate utilization update (main process only)
+        self._last_utilization_update: float = 0.0
+        # cached utilization value for workers (read from Redis)
+        self._cached_queue_utilization: float = 0.0
+        self._cached_queue_utilization_time: float = 0.0
+        # semaphore to limit concurrent message handler tasks in subscriber loop
+        self._handler_semaphore: asyncio.Semaphore = asyncio.Semaphore(16)
+        # track in-flight handler tasks for cleanup
+        self._handler_tasks: set[asyncio.Task] = set()
 
     def __new__(cls):
         """
@@ -183,6 +203,17 @@ class GulpRedis:
                 MutyLogger.get_instance().warning("timeout cancelling subscriber task!")
             except Exception as ex:
                 MutyLogger.get_instance().exception("error cancelling subscriber task!")
+
+            # cancel critical events consumer task
+            try:
+                if self._critical_events_task:
+                    self._critical_events_task.cancel()
+                    await asyncio.wait_for(self._critical_events_task, timeout=5.0)
+                    MutyLogger.get_instance().debug("cancelled critical events consumer task!")
+            except asyncio.TimeoutError:
+                MutyLogger.get_instance().warning("timeout cancelling critical events consumer task!")
+            except Exception as ex:
+                MutyLogger.get_instance().exception("error cancelling critical events consumer task!")
 
             # close pubsub
             try:
@@ -469,9 +500,7 @@ class GulpRedis:
 
         # check aggregate websocket queue utilization and apply end-to-end throttling
         try:
-            from gulp.api.ws_api import GulpConnectedSockets
-
-            depth = GulpConnectedSockets.get_instance().aggregate_queue_utilization()
+            depth = await self._get_queue_utilization()
             throttle_threshold = GulpConfig.get_instance().ws_throttle_threshold()
             if depth > throttle_threshold:
                 # progressive delay up to ws_throttle_max_delay() based on pressure above threshold
@@ -516,7 +545,219 @@ class GulpRedis:
 
         # consume token and continue
         self._token_bucket_tokens -= 1.0
-    
+
+    async def _get_queue_utilization(self) -> float:
+        """Get aggregate websocket queue utilization.
+
+        In the main process, reads directly from GulpConnectedSockets.
+        In worker processes, reads the shared Redis key published by the main process.
+
+        Returns:
+            float: utilization between 0.0 and 1.0
+        """
+        from gulp.process import GulpProcess
+
+        if GulpProcess.get_instance().is_main_process():
+            from gulp.api.ws_api import GulpConnectedSockets
+            return GulpConnectedSockets.get_instance().aggregate_queue_utilization()
+
+        # worker process: read cached value or fetch from Redis
+        now = time.monotonic()
+        # cache for 0.5s to avoid per-publish Redis round-trips
+        if now - self._cached_queue_utilization_time < 0.5:
+            return self._cached_queue_utilization
+
+        try:
+            val = await self._redis.get(self.WS_QUEUE_UTILIZATION_KEY)
+            if val is not None:
+                self._cached_queue_utilization = float(val)
+            else:
+                self._cached_queue_utilization = 0.0
+        except Exception:
+            # on error, use last known value
+            pass
+        self._cached_queue_utilization_time = now
+        return self._cached_queue_utilization
+
+    async def _update_queue_utilization_key(self) -> None:
+        """Write the current aggregate websocket queue utilization to Redis.
+
+        Called periodically from the main process subscriber loop so that
+        worker processes can read the value for end-to-end backpressure.
+        """
+        now = time.monotonic()
+        if now - self._last_utilization_update < self.WS_QUEUE_UTILIZATION_UPDATE_INTERVAL:
+            return
+
+        self._last_utilization_update = now
+        try:
+            from gulp.api.ws_api import GulpConnectedSockets
+            depth = GulpConnectedSockets.get_instance().aggregate_queue_utilization()
+            # SET with short TTL so stale values expire if main process dies
+            await self._redis.set(
+                self.WS_QUEUE_UTILIZATION_KEY,
+                str(depth),
+                ex=10,
+            )
+        except Exception:
+            # best-effort
+            pass
+
+    async def critical_event_enqueue(self, message: dict) -> None:
+        """Enqueue a critical event onto the Redis stream for at-least-once delivery.
+
+        Used for event types that must not be silently lost (e.g. ingest_source_done,
+        query_done, query_group_done).
+
+        Args:
+            message (dict): The GulpWsData message dict to enqueue.
+        """
+        payload = orjson.dumps(message)
+        try:
+            await self._redis.xadd(
+                self.STREAM_CRITICAL_EVENTS,
+                {"data": payload},
+            )
+        except Exception:
+            MutyLogger.get_instance().exception(
+                "failed to enqueue critical event to stream, falling back to pub/sub"
+            )
+            # fallback: publish via pub/sub (at-most-once) so it's not silently lost
+            await self.publish(message)
+
+    async def _critical_events_consumer_loop(
+        self,
+        callback: Callable[[dict], Any],
+    ) -> None:
+        """Consumer loop for the critical events stream.
+
+        Reads messages with XREADGROUP, processes them via callback, then ACKs+DELs.
+        Runs in the main process only.
+        """
+        consumer_name = self.server_id
+        group = self.STREAM_CRITICAL_EVENTS_GROUP
+        stream = self.STREAM_CRITICAL_EVENTS
+
+        # ensure consumer group exists (retry a few times to handle startup races)
+        for _attempt in range(5):
+            try:
+                await self._redis.xgroup_create(stream, group, id="0", mkstream=True)
+                break
+            except ResponseError as e:
+                if "BUSYGROUP" in str(e):
+                    # group already exists — fine
+                    break
+                MutyLogger.get_instance().warning(
+                    "xgroup_create attempt %d failed: %s", _attempt + 1, e
+                )
+                await asyncio.sleep(1.0)
+            except Exception as e:
+                MutyLogger.get_instance().warning(
+                    "xgroup_create attempt %d failed: %s", _attempt + 1, e
+                )
+                await asyncio.sleep(1.0)
+
+        MutyLogger.get_instance().info(
+            "starting critical events consumer loop (stream=%s, group=%s, consumer=%s)",
+            stream, group, consumer_name,
+        )
+
+        backoff: float = 1.0
+        try:
+            while True:
+                try:
+                    # block for up to 250ms, then loop to check for cancellation
+                    entries = await self._redis.xreadgroup(
+                        group,
+                        consumer_name,
+                        streams={stream: ">"},
+                        count=32,
+                        block=250,
+                        noack=False,
+                    )
+                    if not entries:
+                        backoff = 1.0
+                        continue
+
+                    for stream_name, msgs in entries:
+                        for msg_id, fields in msgs:
+                            raw = fields.get(b"data") if isinstance(fields, dict) else fields.get("data")
+                            if raw is None:
+                                # ack + del malformed message
+                                pipe = self._redis.pipeline(transaction=False)
+                                pipe.xack(stream_name, group, msg_id)
+                                pipe.xdel(stream_name, msg_id)
+                                await pipe.execute()
+                                continue
+
+                            try:
+                                d: dict = orjson.loads(raw)
+                                await callback(d)
+                            except Exception as ex:
+                                MutyLogger.get_instance().exception(
+                                    "error processing critical event msg_id=%s: %s",
+                                    msg_id, ex,
+                                )
+                            # acknowledge and delete after processing
+                            try:
+                                pipe = self._redis.pipeline(transaction=False)
+                                pipe.xack(stream_name, group, msg_id)
+                                pipe.xdel(stream_name, msg_id)
+                                await pipe.execute()
+                            except Exception:
+                                MutyLogger.get_instance().exception(
+                                    "failed to ack/del critical event msg_id=%s", msg_id
+                                )
+
+                    backoff = 1.0
+                except asyncio.CancelledError:
+                    raise
+                except (RedisConnectionError, asyncio.IncompleteReadError) as ex:
+                    MutyLogger.get_instance().warning(
+                        "critical events consumer: redis connection error, will retry: %s", ex
+                    )
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2.0, 30.0)
+                except ResponseError as ex:
+                    if "NOGROUP" in str(ex):
+                        MutyLogger.get_instance().warning(
+                            "critical events consumer: group missing, re-creating: %s", ex
+                        )
+                        try:
+                            await self._redis.xgroup_create(stream, group, id="0", mkstream=True)
+                        except ResponseError as ge:
+                            if "BUSYGROUP" not in str(ge):
+                                MutyLogger.get_instance().warning("re-create group failed: %s", ge)
+                        except Exception as ge:
+                            MutyLogger.get_instance().warning("re-create group failed: %s", ge)
+                        await asyncio.sleep(1.0)
+                    else:
+                        MutyLogger.get_instance().exception(
+                            "error in critical events consumer loop: %s", ex
+                        )
+                        await asyncio.sleep(1.0)
+                except Exception as ex:
+                    MutyLogger.get_instance().exception(
+                        "error in critical events consumer loop: %s", ex
+                    )
+                    await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            MutyLogger.get_instance().info("critical events consumer loop stopped")
+
+    async def start_critical_events_consumer(
+        self,
+        callback: Callable[[dict], Any],
+    ) -> None:
+        """Start the critical events consumer loop as a background task.
+
+        Args:
+            callback: Async function to call with each critical event message dict.
+        """
+        self._critical_events_task = asyncio.create_task(
+            self._critical_events_consumer_loop(callback),
+            name=f"gulpredis-critical-events-{self.server_id}",
+        )
+
     def _log_metrics_if_needed(self) -> None:
         """Log pub/sub metrics periodically for monitoring."""
         now = time.monotonic()
@@ -647,7 +888,7 @@ class GulpRedis:
             while True:
                 try:
                     message: dict = await self._pubsub.get_message(
-                        ignore_subscribe_messages=True, timeout=1.0
+                        ignore_subscribe_messages=True, timeout=0.25
                     )
                     if message:
                         actual_channel = message.get("channel")
@@ -657,7 +898,13 @@ class GulpRedis:
                         try:
                             d: dict = orjson.loads(message["data"])
                             d["__redis_channel__"] = actual_channel
-                            await callback(d)
+                            # dispatch as concurrent task to avoid head-of-line blocking
+                            await self._handler_semaphore.acquire()
+                            task = asyncio.create_task(
+                                self._guarded_callback(callback, d, actual_channel)
+                            )
+                            self._handler_tasks.add(task)
+                            task.add_done_callback(self._handler_tasks.discard)
                         except Exception as ex:
                             self._metrics_subscriber_errors += 1
                             MutyLogger.get_instance().exception(
@@ -668,6 +915,9 @@ class GulpRedis:
                             # Continue processing instead of terminating the loop
 
                     backoff = 1.0
+
+                    # periodically publish aggregate queue utilization for worker backpressure
+                    await self._update_queue_utilization_key()
 
                 except asyncio.CancelledError:
                     MutyLogger.get_instance().debug("subscriber loop cancelled")
@@ -694,6 +944,25 @@ class GulpRedis:
                 _MAIN_REDIS_CHANNEL,
                 _CLIENT_DATA_REDIS_CHANNEL,
             )
+            # wait for in-flight handler tasks to finish
+            if self._handler_tasks:
+                await asyncio.gather(*self._handler_tasks, return_exceptions=True)
+
+    async def _guarded_callback(
+        self, callback: Callable[[dict], Any], d: dict, channel: str
+    ) -> None:
+        """Run callback under semaphore guard, releasing on completion."""
+        try:
+            await callback(d)
+        except Exception as ex:
+            self._metrics_subscriber_errors += 1
+            MutyLogger.get_instance().exception(
+                "ERROR in subscriber callback for channel %s: %s",
+                channel,
+                ex,
+            )
+        finally:
+            self._handler_semaphore.release()
 
     def task_queue_key(self) -> str:
         """Return the Redis key used for the task queue."""

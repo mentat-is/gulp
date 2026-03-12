@@ -1113,16 +1113,16 @@ class GulpConfig:
         """
         Returns the TTL in seconds for cached websocket ownership lookups.
 
-        Default: 300 seconds (5 minutes).
+        Default: 5.0 seconds.
         """
-        ttl = self._config.get("ws_server_cache_ttl", 300.0)
+        ttl = self._config.get("ws_server_cache_ttl", 5.0)
         try:
             ttl = float(ttl)
         except (TypeError, ValueError):
-            ttl = 300.0
+            ttl = 5.0
 
         if ttl <= 0:
-            ttl = 300.0
+            ttl = 5.0
         return ttl    
 
 
