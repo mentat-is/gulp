@@ -9,6 +9,8 @@ serves as a bridge between Sigma rules and Gulp's search capabilities.
 from typing import TYPE_CHECKING
 
 import aiofiles.os
+import hashlib
+import json
 import muty.file
 import muty.string
 import orjson
@@ -18,6 +20,8 @@ from sigma.backends.opensearch import OpensearchLuceneBackend
 from sigma.conversion.base import Backend
 from sigma.rule import SigmaRule
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from gulp.api.redis_api import GulpRedis
 
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import GulpRequestStats
@@ -99,6 +103,76 @@ async def get_sigma_mappings(
         )
         return None
     return sigma_mappings
+
+
+def _make_sigma_cache_key(
+    yml: str,
+    src_ids: list[str],
+    levels: list[str],
+    products: list[str],
+    services: list[str],
+    categories: list[str],
+    tags: list[str],
+    mapping_parameters: list[GulpMappingParameters],
+) -> str:
+    """Return a stable cache key for a given sigma rule & conversion parameters."""
+
+    # use a stable JSON representation of the inputs so the key is deterministic
+    obj = {
+        "yml_sha": hashlib.sha256(yml.encode("utf-8")).hexdigest(),
+        "src_ids": sorted(src_ids or []),
+        "levels": sorted(levels or []),
+        "products": sorted(products or []),
+        "services": sorted(services or []),
+        "categories": sorted(categories or []),
+        "tags": sorted(tags or []),
+        # mapping parameters can be large; reduce to a stable representation
+        # and sort the serialized forms to avoid cache misses due to source ordering
+        "mapping_parameters": sorted(
+            [
+                json.dumps(mp.model_dump(exclude_none=True), sort_keys=True, separators=(",", ":"))
+                for mp in mapping_parameters
+            ]
+        ),
+    }
+    serialized = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "gulp:sigma_cache:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+async def _cache_get(
+    key: str,
+) -> dict | None:
+    """retrieve converted sigma query from cache if available and not expired, to avoid repeated conversions of the same rule with the same parameters."""
+
+    try:
+        client = GulpRedis.get_instance().client()
+        raw = await client.get(key)
+        if not raw:
+            # MutyLogger.get_instance().debug("sigma cache miss key=%s", key)
+            return None
+        # MutyLogger.get_instance().debug("sigma cache hit key=%s", key)
+        return orjson.loads(raw)
+    except Exception:
+        MutyLogger.get_instance().exception("error reading sigma cache key %s", key)
+        return None
+
+
+async def _cache_set(
+    key: str,
+    value: dict,
+    ttl: int | None = None,
+) -> None:
+    """store converted sigma query in cache to avoid repeated conversions of the same rule with the same parameters."""
+
+    if ttl is None:
+        # get ttl from configuration
+        ttl = GulpConfig.get_instance().redis_sigma_cache_ttl()
+
+    try:
+        client = GulpRedis.get_instance().client()
+        await client.set(key, orjson.dumps(value), ex=ttl)
+    except Exception:
+        MutyLogger.get_instance().exception("error setting sigma cache key %s", key)
 
 
 def _use_this_sigma(
@@ -585,6 +659,28 @@ async def sigmas_to_queries(
     for yml in yamls:
         count += 1
 
+        cache_key = _make_sigma_cache_key(
+            yml=yml,
+            src_ids=src_ids,
+            levels=levels,
+            products=products,
+            services=services,
+            categories=categories,
+            tags=tags,
+            mapping_parameters=mp_by_source_id,
+        )
+
+        # check if we have a cached converted query for this rule with the same parameters
+        cached = await _cache_get(cache_key)
+        if cached is not None:
+            # MutyLogger.get_instance().debug("cache hit for sigma rule %d/%d: %s (count_only=%r)", count, total, cache_key, count_only)            
+            if count_only:
+                count_only_queries += cached.get("count", 0)
+                continue
+            for qd in cached.get("queries", []):
+                gulp_queries.append(GulpQuery.model_validate(qd))
+            continue
+
         # check if the rule has to be used
         rule: SigmaRule = _use_this_sigma(
             yml,
@@ -595,9 +691,16 @@ async def sigmas_to_queries(
             tags=tags,
         )
         if not rule:
+            # store cache with count 0 to avoid re-processing the same rule with the same parameters in the future
+            await _cache_set(cache_key, {"count": 0})
+            continue
+
+        if count_only:
+            count_only_queries += 1
             continue
 
         should_part: list[dict] = []
+        per_rule_queries: list[dict] = []
         for mapping_parameters in my_mapping:
             # loop for every unique mapping parameters set
             mappings: dict[str, GulpMapping]
@@ -673,11 +776,12 @@ async def sigmas_to_queries(
 
             should_part.append(should_dict)
 
-        if count_only:
-            count_only_queries += 1
+        # mapping loop done, build the final query
+        if not should_part:
+            # nothing could be converted for this rule; cache to avoid re-processing
+            await _cache_set(cache_key, {"count": 0, "queries": []})
             continue
 
-        # mapping loop done, build the final query
         if len(should_part) == 1:
             final_query_dict: dict = {"query": should_part[0]}
         elif len(should_part) > 1:
@@ -693,6 +797,18 @@ async def sigmas_to_queries(
         )
 
         gulp_queries.append(final_gq)
+        per_rule_queries.append(final_gq.model_dump(exclude_none=True))
+
+        # cache the converted rule to avoid repeated conversions
+        await _cache_set(
+            cache_key,
+            {
+                "count": len(per_rule_queries),
+                "queries": per_rule_queries,
+            },
+
+        )
+
         MutyLogger.get_instance().info(
             '******* converted sigma rule "%s": current=%d, total=%d *******'
             % (rule.name or rule.title, len(gulp_queries), total)

@@ -1203,6 +1203,20 @@ class GulpConfig:
         """
         return self._config.get("redis_ws_key_ttl", 300)
 
+    def redis_sigma_cache_ttl(self) -> int:
+        """Returns the TTL in seconds for cached converted sigma queries.
+
+        Default: 60 seconds.
+        """
+        ttl = self._config.get("redis_sigma_cache_ttl", 300)
+        try:
+            ttl = int(ttl)
+        except (TypeError, ValueError):
+            ttl = 300
+        if ttl <= 0:
+            ttl = 300
+        return ttl
+
     def redis_max_connections(self) -> int:
         """
         Returns the maximum number of Redis connections per process for the
