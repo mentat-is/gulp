@@ -6,6 +6,8 @@ docker volume rm --force gulp_opensearch_data
 docker volume rm --force gulp_postgres_data
 docker volume rm --force gulp_redis_data
 docker volume rm --force gulp_minio_data
+docker volume rm --force gulp_prometheus_data
+docker volume rm --force gulp_grafana_data
 docker volume rm --force gulp_certs
 
 echo "[.] reset first run"

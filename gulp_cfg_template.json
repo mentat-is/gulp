@@ -147,6 +147,10 @@
   "ws_rate_limit_delay": 0.01,
   // ttl in seconds for cached websocket ownership lookups, to avoid frequent redis lookups (default=5.0 seconds)
   "ws_server_cache_ttl": 5.0,
+  // enable prometheus metrics endpoint (default=false). when enabled, a /metrics endpoint is exposed for Prometheus scraping.
+  "prometheus_enabled": false,
+  // interval in seconds for collecting gauge metrics (e.g. stream depths, pool stats) (default=15)
+  "prometheus_collect_interval": 15,
   // ai plugin configuration
   "ai_configuration": {
     // The default model to use.

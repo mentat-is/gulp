@@ -319,6 +319,11 @@ class GulpProcess:
                 raise
 
             # start workers
+            # ensure PROMETHEUS_MULTIPROC_DIR is set before forking so workers inherit it
+            if GulpConfig.get_instance().prometheus_enabled():
+                from gulp.api.prometheus_api import _ensure_multiproc_dir
+                _ensure_multiproc_dir()
+
             # each worker will call finish_initialization as well and INCR the spawn_key
             self.process_pool = AioProcessPool(
                 exception_handler=GulpProcess._worker_exception_handler,

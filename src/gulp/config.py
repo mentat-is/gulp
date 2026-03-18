@@ -1269,3 +1269,15 @@ class GulpConfig:
         default_path = GulpConfig.get_instance().path_mapping_files_default()
         p = muty.file.safe_path_join(default_path, filename)
         return p
+
+    def prometheus_enabled(self) -> bool:
+        """
+        Returns whether Prometheus metrics endpoint is enabled (default: False).
+        """
+        return self._config.get("prometheus_enabled", False)
+
+    def prometheus_collect_interval(self) -> int:
+        """
+        Returns the interval in seconds for collecting gauge metrics (default: 15).
+        """
+        return self._config.get("prometheus_collect_interval", 15)

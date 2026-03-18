@@ -148,7 +148,7 @@ services:
   # monitoring
   ########################################
   redis-insight:
-    profiles: [ "dev" ]
+    profiles: [ "dev", "metrics" ]
     image: redislabs/redisinsight:latest
     ports:
       - 5540:5540
@@ -156,7 +156,7 @@ services:
       - redis
 
   elasticvue:
-    profiles: [ "dev" ]
+    profiles: [ "dev", "metrics" ]
     image: cars10/elasticvue:latest
     ports:
       - 8082:8080
@@ -175,18 +175,45 @@ services:
       - os01
 
   adminer:
-    profiles: [ "dev" ]
+    profiles: [ "dev", "metrics" ]
     image: adminer
     depends_on:
       - postgres
     ports:
       - 8081:8080
 
+  grafana:
+    profiles: [ "metrics" ]
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - 3000:3000
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+  prometheus:
+    profiles: [ "metrics" ]
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - 9090:9090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+      
 volumes:
   postgres_data:
   opensearch_data:
   redis_data:
   minio_data:
+  prometheus_data:
+  grafana_data:
   certs:
     driver: local
     driver_opts:

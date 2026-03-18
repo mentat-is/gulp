@@ -469,6 +469,16 @@ class GulpRedis:
         self._metrics_publish_bytes += len(payload)
         self._log_metrics_if_needed()
 
+        # update Prometheus counters
+        try:
+            from gulp.api.prometheus_api import GulpMetrics
+            GulpMetrics.redis_publish_total.inc()
+            GulpMetrics.redis_publish_bytes_total.inc(len(payload))
+            if ":server:" in channel_to_use:
+                GulpMetrics.redis_targeted_publish_total.inc()
+        except Exception:
+            pass
+
         # if payload is too large, compress, chunk and store it in Redis then publish a small pointer
         try:
             if len(payload) > compression_threshold:
@@ -519,6 +529,11 @@ class GulpRedis:
                     await pipe.execute()
 
                     self._metrics_chunked_publish_count += 1
+                    try:
+                        from gulp.api.prometheus_api import GulpMetrics
+                        GulpMetrics.redis_chunked_publish_total.inc()
+                    except Exception:
+                        pass
                     MutyLogger.get_instance().warning(
                         "published large %s message stored in %d chunks base=%s total_size=%d bytes (stored=%d)",
                         "compressed" if compressed_flag else "uncompressed",
@@ -981,6 +996,12 @@ class GulpRedis:
     async def _recreate_pubsub(self) -> None:
         """Recreate pubsub connection and resubscribe after errors."""
         try:
+            from gulp.api.prometheus_api import GulpMetrics
+            GulpMetrics.redis_pubsub_reconnect_total.inc()
+        except Exception:
+            pass
+
+        try:
             if self._pubsub:
                 try:
                     await self._pubsub.close()
@@ -1042,6 +1063,11 @@ class GulpRedis:
                             task.add_done_callback(self._handler_tasks.discard)
                         except Exception as ex:
                             self._metrics_subscriber_errors += 1
+                            try:
+                                from gulp.api.prometheus_api import GulpMetrics
+                                GulpMetrics.redis_subscriber_errors_total.inc()
+                            except Exception:
+                                pass
                             MutyLogger.get_instance().exception(
                                 "ERROR in subscriber callback for channel %s: %s",
                                 actual_channel,
@@ -1095,6 +1121,11 @@ class GulpRedis:
             await callback(d)
         except Exception as ex:
             self._metrics_subscriber_errors += 1
+            try:
+                from gulp.api.prometheus_api import GulpMetrics
+                GulpMetrics.redis_subscriber_errors_total.inc()
+            except Exception:
+                pass
             MutyLogger.get_instance().exception(
                 "ERROR in subscriber callback for channel %s: %s",
                 channel,

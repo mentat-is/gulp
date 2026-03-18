@@ -1282,6 +1282,17 @@ class GulpOpenSearch:
                 failed,
             )
 
+        # update Prometheus counters
+        try:
+            from gulp.api.prometheus_api import GulpMetrics
+            GulpMetrics.opensearch_bulk_docs_total.inc(len(ingested_docs))
+            if failed:
+                GulpMetrics.opensearch_bulk_errors_total.inc(failed)
+            if skipped:
+                GulpMetrics.opensearch_bulk_skipped_total.inc(skipped)
+        except Exception:
+            pass
+
         return skipped, ingested_docs, failed
 
     async def opensearch_cancel_task(self, task_id: str) -> bool:

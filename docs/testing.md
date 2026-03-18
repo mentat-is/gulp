@@ -3,6 +3,7 @@
   - [running tests](#running-tests)
   - [ingestion tool](#ingestion-tool)
   - [query external tool](#query-external-tool)
+  - [observability](#observability)
 
 # testing gulp
 
@@ -92,3 +93,7 @@ a similar tool is available to manually test `external queries`: [query_external
         "additional_mapping_files": [[ "windows.json", "windows" ]]
     }'
 ~~~
+
+## observability
+
+See [docs/observability.md](./observability.md) for details on enabling Prometheus metrics and connecting Grafana for dashboards.

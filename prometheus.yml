@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "gulp"
+    # Prometheus runs in Docker, so "localhost" would point to the Prometheus
+    # container itself. Use the host gateway to scrape a gULP instance exposed
+    # on host port 8080 (e.g. running from the devcontainer).
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+    metrics_path: "/metrics"

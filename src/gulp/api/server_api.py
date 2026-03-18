@@ -357,6 +357,10 @@ class GulpServer:
             JSendException, self._bad_request_exception_handler
         )
 
+        # set up Prometheus metrics (if enabled)
+        from gulp.api.prometheus_api import setup_prometheus
+        setup_prometheus(self._app)
+
         # add routers in other modules
         self._add_routers()
 
@@ -597,6 +601,14 @@ class GulpServer:
         coro = GulpProcess.get_instance().process_pool.apply(
             func, args=args, kwds=kwargs
         )
+
+        # update Prometheus counter
+        try:
+            from gulp.api.prometheus_api import GulpMetrics
+            GulpMetrics.worker_tasks_spawned_total.inc()
+        except Exception:
+            pass
+
         if wait:
             # wait for result
             try:
@@ -767,6 +779,17 @@ class GulpServer:
         # start the dequeue task for long running tasks
         self._poll_tasks_task = asyncio.create_task(self._dispatch_tasks())
 
+        # start Prometheus gauge collection loop (main process only)
+        if GulpConfig.get_instance().prometheus_enabled():
+            from gulp.api.prometheus_api import GulpMetrics
+            metrics = GulpMetrics.get_instance()
+            from gulp.api.server_api import GulpServer as _GS
+            metrics.server_info.info({
+                "version": _GS.get_instance().version_string(),
+                "server_id": self.server_id,
+            })
+            await metrics.start_collect_loop()
+
         # wait for termination
         try:
             self._lifespan_task = asyncio.current_task()
@@ -775,6 +798,12 @@ class GulpServer:
             MutyLogger.get_instance().warning(
                 "CancelledError caught in _lifespan handler!"
             )
+
+        # stop Prometheus gauge collection
+        if GulpConfig.get_instance().prometheus_enabled():
+            from gulp.api.prometheus_api import GulpMetrics, cleanup_prometheus
+            await GulpMetrics.get_instance().stop_collect_loop()
+            cleanup_prometheus()
 
         # cleaning up will be done through _cleanup called via atexit
         MutyLogger.get_instance().info("gulp shutting down!")

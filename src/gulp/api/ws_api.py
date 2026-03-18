@@ -1527,6 +1527,14 @@ class GulpConnectedSockets:
             ws_id,
             len(self._sockets),
         )
+
+        # update Prometheus gauge
+        try:
+            from gulp.api.prometheus_api import GulpMetrics
+            GulpMetrics.ws_connected_sockets.set(len(self._sockets))
+        except Exception:
+            pass
+
         return connected_socket
 
     async def remove(self, ws_id: str) -> None:
@@ -1564,6 +1572,13 @@ class GulpConnectedSockets:
             ws_id,
             len(self._sockets),
         )
+
+        # update Prometheus gauge
+        try:
+            from gulp.api.prometheus_api import GulpMetrics
+            GulpMetrics.ws_connected_sockets.set(len(self._sockets))
+        except Exception:
+            pass
 
     def sockets(self) -> dict[str, GulpConnectedSocket]:
         """
@@ -1936,6 +1951,13 @@ class GulpRedisBroker:
                 if not should_retrieve:
                     # this node should not retrieve chunks - another node will handle it
                     # log at debug level to avoid flooding logs
+                    try:
+                        from gulp.api.prometheus_api import GulpMetrics
+                        GulpMetrics.ws_payload_pointer_resolve_total.labels(
+                            outcome="skipped_not_owner"
+                        ).inc()
+                    except Exception:
+                        pass
                     MutyLogger.get_instance().debug(
                         "skipping chunk retrieval for ptr=%s (chunk_server_id=%s, our_server_id=%s, redis_channel=%s)",
                         ptr,
@@ -1999,6 +2021,13 @@ class GulpRedisBroker:
                                 if data_bytes:
                                     full_msg = orjson.loads(data_bytes)
                                     message = full_msg
+                                    try:
+                                        from gulp.api.prometheus_api import GulpMetrics
+                                        GulpMetrics.ws_payload_pointer_resolve_total.labels(
+                                            outcome="resolved"
+                                        ).inc()
+                                    except Exception:
+                                        pass
                                 else:
                                     MutyLogger.get_instance().warning(
                                         "failed to decode stored chunks for base=%s",
@@ -2010,6 +2039,13 @@ class GulpRedisBroker:
                                     ptr,
                                 )
                         else:
+                            try:
+                                from gulp.api.prometheus_api import GulpMetrics
+                                GulpMetrics.ws_payload_pointer_resolve_total.labels(
+                                    outcome="missing"
+                                ).inc()
+                            except Exception:
+                                pass
                             MutyLogger.get_instance().warning(
                                 "large payload chunked pointer missing in Redis for base=%s",
                                 ptr,
@@ -2039,16 +2075,37 @@ class GulpRedisBroker:
                             try:
                                 full_msg = orjson.loads(stored)
                                 message = full_msg
+                                try:
+                                    from gulp.api.prometheus_api import GulpMetrics
+                                    GulpMetrics.ws_payload_pointer_resolve_total.labels(
+                                        outcome="resolved"
+                                    ).inc()
+                                except Exception:
+                                    pass
                             except Exception:
                                 MutyLogger.get_instance().exception(
                                     "failed to decode stored large payload for key=%s",
                                     ptr,
                                 )
                         else:
+                            try:
+                                from gulp.api.prometheus_api import GulpMetrics
+                                GulpMetrics.ws_payload_pointer_resolve_total.labels(
+                                    outcome="missing"
+                                ).inc()
+                            except Exception:
+                                pass
                             MutyLogger.get_instance().warning(
                                 "large payload pointer missing in Redis for key=%s", ptr
                             )
                 except Exception:
+                    try:
+                        from gulp.api.prometheus_api import GulpMetrics
+                        GulpMetrics.ws_payload_pointer_resolve_total.labels(
+                            outcome="error"
+                        ).inc()
+                    except Exception:
+                        pass
                     MutyLogger.get_instance().exception(
                         "error fetching and deleting large payload pointer %s from Redis",
                         ptr,
@@ -2111,6 +2168,11 @@ class GulpRedisBroker:
                         was_set = await redis_client._redis.set(dedup_key, b"1", ex=30, nx=True)
                         if not was_set:
                             # already seen, skip processing
+                            try:
+                                from gulp.api.prometheus_api import GulpMetrics
+                                GulpMetrics.ws_broadcast_dedup_dropped_total.inc()
+                            except Exception:
+                                pass
                             return
                 except Exception:
                     # best-effort: if Redis dedup check fails, fall back to normal processing
@@ -2280,6 +2342,11 @@ class GulpRedisBroker:
                 message_dict["__server_id__"] = redis_client.server_id
                 target_channel = f"{_MAIN_REDIS_CHANNEL}:server:{target_server}"
                 await redis_client.publish(message_dict, channel=target_channel)
+                try:
+                    from gulp.api.prometheus_api import GulpMetrics
+                    GulpMetrics.ws_remote_forward_total.inc()
+                except Exception:
+                    pass
                 return
 
         await GulpConnectedSockets.get_instance().route_message(wsd)
