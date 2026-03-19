@@ -98,7 +98,8 @@ the following environment variables may be set to override configuration options
 
 ### exposed services
 
-> using the default [docker-compose.yml](./docker-compose.yml)
+> using the default [docker-compose.yml](./docker-compose.yml) with no profile set.
+> further profiles (i.e. `dev`, `metrics`) may expose additional services, check the compose file for details.
 
 #### gulp
 

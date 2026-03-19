@@ -157,14 +157,18 @@ Gulp offers several deployment options to fit different environments.
   * **Manual Installation:** Step-by-step instructions are provided for manual setup.
 * **Configuration:** Gulp's behavior is controlled through a central `gulp_cfg.json` file, which allows for customization of database connections, OpenSearch endpoints, logging, and more.
 
-## 7. Licensing
+## 7. Observability
+
+Gulp includes features for monitoring and observability via Prometheus metrics.
+
+## 8. Licensing
 
 Gulp is released under a dual-license model.
 
 * **AGPLv3:** The open-source version is licensed under the GNU Affero General Public License v3.0.
 * **Commercial License:** A commercial license is available from Mentat Solutions s.r.l. for users who require different licensing terms.
 
-## 8. References
+## 9. References
 
 * **GitHub Repository:** [https://github.com/mentat-is/gulp](https://github.com/mentat-is/gulp)
 * **Architecture Documentation:** [docs/architecture.md](./docs/architecture.md)
