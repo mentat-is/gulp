@@ -74,7 +74,10 @@ async def db_reset() -> None:
             await GulpOpenSearch.get_instance().datastream_delete(op.index)
 
             # delete files on storage if any
-            await GulpS3.get_instance().delete_by_tags({"operation_id": op.id})
+            try:
+                await GulpS3.get_instance().delete_by_tags({"operation_id": op.id})
+            except Exception as ex:
+                MutyLogger.get_instance().exception(ex)
 
             # delete the operation itself
             await op.delete(sess)
@@ -113,6 +116,7 @@ async def _rebase_callback(
         errors=errors,
         last=last,
     )
+
 
 async def run_rebase_task(t: dict) -> None:
     """
@@ -177,6 +181,7 @@ async def run_rebase_task(t: dict) -> None:
 
     except Exception as ex:
         MutyLogger.get_instance().exception("error in run_rebase_task: %s", ex)
+
 
 async def _rebase_by_query_internal(
     req_id: str,
@@ -368,9 +373,11 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
                 "params": {
                     "index": index,
                     "offset_msec": offset_msec,
-                    "flt": flt.model_dump(exclude_none=True)
-                    if hasattr(flt, "model_dump")
-                    else flt,
+                    "flt": (
+                        flt.model_dump(exclude_none=True)
+                        if hasattr(flt, "model_dump")
+                        else flt
+                    ),
                     "script": script,
                 },
             }
@@ -541,6 +548,7 @@ async def opensearch_list_index_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.post(
     "/opensearch_refresh_index",
     tags=["db"],
@@ -588,7 +596,7 @@ async def opensearch_refresh_index_handler(
             await GulpUserSession.check_token(
                 sess, token, permission=GulpUserPermission.INGEST
             )
-            
+
             # refresh the index
             await GulpOpenSearch.get_instance().index_refresh(index)
 
