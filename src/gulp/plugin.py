@@ -3510,12 +3510,15 @@ class GulpPluginBase(ABC):
         )
         internal_plugin_name = os.path.splitext(os.path.basename(path))[0]
 
-        # check if we're allowed to load example plugins (just noise in production ...)
-        load_examples: bool = GulpConfig.get_instance().plugin_allow_load_examples()
-        if not load_examples and internal_plugin_name.lower().startswith("example_"):
-            raise FileNotFoundError(
-                f"loading example plugin {plugin} is not allowed by config!"
-            )
+        # check if we're allowed to load this plugin: if internal_plugin_name matches one of the patterns in the
+        # disabled list, loading is disabled
+        disabled_list: list[str] = GulpConfig.get_instance().plugin_disabled()
+        if disabled_list:
+            for pattern in disabled_list:
+                if pattern.lower() in internal_plugin_name.lower():
+                    raise FileNotFoundError(
+                        f"loading plugin '{plugin}' is DISABLED by config!"
+                    )
 
         # try to get plugin from cache
         force_load_from_disk: bool = False

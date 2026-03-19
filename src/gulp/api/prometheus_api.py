@@ -339,13 +339,6 @@ class GulpMetrics:
                 except Exception:
                     pass
 
-            # critical events stream
-            try:
-                ce_len = await redis_client.xlen(GulpRedis.STREAM_CRITICAL_EVENTS)
-                self.redis_stream_depth.labels(stream="critical_events").set(ce_len)
-            except Exception:
-                pass
-
             # cluster liveness from heartbeat keys
             try:
                 live_servers = 0

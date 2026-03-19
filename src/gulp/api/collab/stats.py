@@ -342,7 +342,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 sess,
                 user_id,
                 operation_id=operation_id,
-                private=True,  # stats are private
+                private=False,
                 obj_id=req_id,  # id is the request id
                 ws_id=ws_id,
                 status=GulpRequestStatus.ONGOING.value,

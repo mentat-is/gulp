@@ -1171,14 +1171,6 @@ class GulpConfig:
         """
         return self._config.get("redis_stream_task_maxlen", 10000)
 
-    def redis_stream_critical_events_maxlen(self) -> int:
-        """
-        Returns the approximate max length for the critical events stream.
-
-        Default: 10000
-        """
-        return self._config.get("redis_stream_critical_events_maxlen", 10000)
-
     def redis_heartbeat_ttl(self) -> int:
         """
         Returns the heartbeat TTL in seconds for node liveness detection.
@@ -1233,6 +1225,15 @@ class GulpConfig:
         if n < 0:
             n = 0
         return n
+    
+    def plugin_disabled(self) -> list[str]:
+        """
+        Returns the list of disabled plugins (default: empty list).
+        """
+        disabled = self._config.get("plugin_disabled", [])
+        if not isinstance(disabled, list):
+            disabled = []
+        return disabled
     
     def plugin_allow_load_examples(self) -> bool:
         """

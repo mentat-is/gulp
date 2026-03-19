@@ -183,6 +183,7 @@ class GulpWsData(BaseModel):
         """
         payload: dict = self.payload if isinstance(self.payload, dict) else {}
         payload_data: dict = payload.get("obj", {})
+        req_type: str = None
         if self.type == WSDATA_COLLAB_DELETE:
             # special case for delete, as payload is not under "obj"
             payload_data = payload
@@ -190,6 +191,7 @@ class GulpWsData(BaseModel):
         if isinstance(payload_data, dict):
             # single
             payload_data_type = payload_data.get("type", None) # i.e. note
+            req_type: str = payload.get("req_type")
         elif isinstance(payload_data, list):
             # bulk
             payload_data_type = payload_data[0].get("type", None) if len(payload_data) > 0 else None
@@ -201,9 +203,12 @@ class GulpWsData(BaseModel):
             # )
             return True
         
-            
+        t: str = self.type        
+        if req_type:
+            # special case for stats, we check "req_type" instead of type
+            t = req_type
         # resort to plain data type
-        if self.type in GulpRedisBroker.get_instance().broadcast_types:
+        if t in GulpRedisBroker.get_instance().broadcast_types:
             # MutyLogger.get_instance().debug(
             #     "GulpWsData.check_type_in_broadcast_types(): type=%s is in broadcast types",
             #     self.type,
@@ -1676,20 +1681,23 @@ class GulpConnectedSockets:
             # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing data.operation_id=%s", data.ws_id, data.operation_id)
             return False
 
+        # check if this must be broadcasted
+        is_bt_type: bool = data.check_type_in_broadcast_types()
+
         # handle private messages
         if data.ws_id and data.private and data.type != WSDATA_USER_LOGIN:
             if target_ws.ws_id != data.ws_id:
                 # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing private message to data.ws_id=%s", data.ws_id, target_ws.ws_id)
                 return False
 
-        if data.ws_id and target_ws.ws_id != data.ws_id:
-            # force ws_id
-            # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing non-broadcast message to target.ws_id=%s due to ws_id mismatch", data.ws_id, target_ws.ws_id)
-            return False
-        
-        if not data.check_type_in_broadcast_types() and not data.ws_id:
+        """if not data.check_type_in_broadcast_types(): # and not data.ws_id:
             # non-broadcast type and no ws_id specified, not routing
             # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing non-broadcast message to target.ws_id=%s due to non-broadcast type", data.ws_id, target_ws.ws_id)
+            return False"""
+        
+        if data.ws_id and (target_ws.ws_id != data.ws_id and not is_bt_type):
+            # force ws_id
+            # MutyLogger.get_instance().warning("***** data.ws_id=%s, not routing non-broadcast message to target.ws_id=%s due to ws_id mismatch", data.ws_id, target_ws.ws_id)
             return False
         
         # all checks passed, send the message
@@ -1767,8 +1775,7 @@ class GulpConnectedSockets:
             # attach metadata so receiving instances can detect channel and origin
             message_dict["__channel__"] = GulpRedisChannel.BROADCAST.value
             message_dict["__server_id__"] = redis_client.server_id
-            publish_channel = GulpRedisChannel.BROADCAST.redis_channel_name()
-            await redis_client.publish(message_dict, channel=publish_channel)
+            await redis_client.publish(message_dict, channel=GulpRedisChannel.BROADCAST.redis_channel_name())
             # NOTE: we'll still process locally below, the broadcast ensures other instances get it
 
         # and also route to local connected websockets
@@ -1816,6 +1823,8 @@ class GulpRedisBroker:
             #WSDATA_COLLAB_DELETE,
             WSDATA_REBASE_DONE,
             WSDATA_INGEST_SOURCE_DONE,
+            WSDATA_QUERY_DONE,
+            WSDATA_QUERY_GROUP_DONE,
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,
             "note",
@@ -1823,7 +1832,11 @@ class GulpRedisBroker:
             "highlight",
             "context",
             "source",
-            "operation"
+            "operation",
+            "ingest",
+            "enrich",
+            "raw_ingest",
+            "ext_query"
 
         }
         
@@ -1881,9 +1894,6 @@ class GulpRedisBroker:
 
         # subscribe to worker->main channel
         await redis_client.subscribe(self._handle_pubsub_message)
-
-        # start critical events consumer (at-least-once delivery for completion events)
-        await redis_client.start_critical_events_consumer(self._handle_pubsub_message)
 
         MutyLogger.get_instance().info("GulpRedisBroker initialized!")
 
@@ -2309,13 +2319,9 @@ class GulpRedisBroker:
 
         # worker -> always forward to main process (preserve original payload metadata)
         if not is_main:
-            # critical event types use Redis Streams for at-least-once delivery
-            if wsd.type in GulpRedis.CRITICAL_EVENT_TYPES:
-                message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
-                await redis_client.critical_event_enqueue(message_dict)
-                return
+            worker_to_main_channel = redis_client.worker_to_main_channel()
             message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
-            await redis_client.publish(message_dict)
+            await redis_client.publish(message_dict, channel=worker_to_main_channel)
             return
 
         # MAIN PROCESS: decide routing based on explicit channel or broadcast-type check
@@ -2347,7 +2353,7 @@ class GulpRedisBroker:
                 # websocket lives on another server — publish to its targeted channel
                 message_dict["__channel__"] = GulpRedisChannel.WORKER_TO_MAIN.value
                 message_dict["__server_id__"] = redis_client.server_id
-                target_channel = f"{_MAIN_REDIS_CHANNEL}:server:{target_server}"
+                target_channel = redis_client.worker_to_main_channel(target_server)
                 await redis_client.publish(message_dict, channel=target_channel)
                 if GulpConfig.get_instance().prometheus_enabled():
                     # track cross-instance forwards for targeted messages
