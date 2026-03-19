@@ -45,7 +45,7 @@ from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
-
+from gulp.api.prometheus_api import GulpMetrics, cleanup_prometheus
 
 class GulpServer:
     """
@@ -602,12 +602,12 @@ class GulpServer:
             func, args=args, kwds=kwargs
         )
 
-        # update Prometheus counter
-        try:
-            from gulp.api.prometheus_api import GulpMetrics
-            GulpMetrics.worker_tasks_spawned_total.inc()
-        except Exception:
-            pass
+        if GulpConfig.get_instance().prometheus_enabled():
+            # update Prometheus counter
+            try:
+                GulpMetrics.worker_tasks_spawned_total.inc()
+            except Exception:
+                pass
 
         if wait:
             # wait for result
@@ -646,7 +646,7 @@ class GulpServer:
                         "poll_tasks task cancelled successfully"
                     )
                 except asyncio.TimeoutError:
-                    MutyLogger.get_instance.warning(
+                    MutyLogger.get_instance().warning(
                         "poll_tasks task cancellation timed out"
                     )
                 except Exception as e:
@@ -781,11 +781,9 @@ class GulpServer:
 
         # start Prometheus gauge collection loop (main process only)
         if GulpConfig.get_instance().prometheus_enabled():
-            from gulp.api.prometheus_api import GulpMetrics
             metrics = GulpMetrics.get_instance()
-            from gulp.api.server_api import GulpServer as _GS
             metrics.server_info.info({
-                "version": _GS.get_instance().version_string(),
+                "version": self.version_string(),
                 "server_id": self.server_id,
             })
             await metrics.start_collect_loop()
@@ -801,7 +799,6 @@ class GulpServer:
 
         # stop Prometheus gauge collection
         if GulpConfig.get_instance().prometheus_enabled():
-            from gulp.api.prometheus_api import GulpMetrics, cleanup_prometheus
             await GulpMetrics.get_instance().stop_collect_loop()
             cleanup_prometheus()
 

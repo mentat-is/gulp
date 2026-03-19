@@ -319,11 +319,6 @@ class GulpProcess:
                 raise
 
             # start workers
-            # ensure PROMETHEUS_MULTIPROC_DIR is set before forking so workers inherit it
-            if GulpConfig.get_instance().prometheus_enabled():
-                from gulp.api.prometheus_api import _ensure_multiproc_dir
-                _ensure_multiproc_dir()
-
             # each worker will call finish_initialization as well and INCR the spawn_key
             self.process_pool = AioProcessPool(
                 exception_handler=GulpProcess._worker_exception_handler,
@@ -378,7 +373,7 @@ class GulpProcess:
             # in the worker process, initialize redis, opensearch and collab clients (main process already did it)
             # we must initialize mutylogger here
             MutyLogger.get_instance(
-                "gulp-worker-%d" % (os.getpid()),
+                name="gulp-worker-%d" % (os.getpid()),
                 logger_file_path=logger_file_path,
                 log_to_syslog=log_to_syslog,
                 level=log_level,

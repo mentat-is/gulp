@@ -5,7 +5,6 @@ This module provides a singleton class `GulpRedis` for managing asynchronous Red
 import asyncio
 import time
 import zlib
-from collections import deque
 from typing import Annotated, Any, Callable, Optional
 from urllib.parse import urlparse
 
@@ -16,7 +15,7 @@ from muty.log import MutyLogger
 from pydantic import BaseModel, Field
 from redis.asyncio.client import PubSub
 from redis.exceptions import ConnectionError as RedisConnectionError, ResponseError
-
+from gulp.api.prometheus_api import GulpMetrics
 from gulp.config import GulpConfig
 
 
@@ -99,8 +98,6 @@ class GulpRedis:
         self._task_queue_key: str = "gulp:queue:tasks"
         # ttl for stored large payloads (seconds)
         self.PUBLISH_LARGE_PAYLOAD_TTL: int = 5 * 60  # 5 min, it should be consumed quickly
-        # sliding window for publish rate limiting (legacy value kept for config)
-        self._publish_times: deque[float] = deque()
         self._publish_rate_limit: int = 100  # msgs per second
 
         # Token-bucket for publish backpressure (replaces sliding-window sleep behavior)
@@ -112,14 +109,6 @@ class GulpRedis:
         self._token_bucket_capacity: float = max(1.0, float(self._publish_rate_limit) * 2.0)
         self._token_bucket_tokens: float = float(self._token_bucket_capacity)
         self._token_bucket_last: float = time.monotonic()
-        
-        # metrics tracking
-        self._metrics_publish_count: int = 0
-        self._metrics_publish_bytes: int = 0
-        self._metrics_chunked_publish_count: int = 0
-        self._metrics_subscriber_errors: int = 0
-        self._metrics_last_log_time: float = 0
-        self._metrics_log_interval: float = 300.0  # log every 5 minutes
 
         # timestamp of last aggregate utilization update (main process only)
         self._last_utilization_update: float = 0.0
@@ -463,21 +452,16 @@ class GulpRedis:
         pubsub_max_chunk_size: int = GulpConfig.get_instance().redis_pubsub_max_chunk_size() * 1024
 
         await self._apply_publish_backpressure()
-        
-        # update metrics
-        self._metrics_publish_count += 1
-        self._metrics_publish_bytes += len(payload)
-        self._log_metrics_if_needed()
 
-        # update Prometheus counters
-        try:
-            from gulp.api.prometheus_api import GulpMetrics
-            GulpMetrics.redis_publish_total.inc()
-            GulpMetrics.redis_publish_bytes_total.inc(len(payload))
-            if ":server:" in channel_to_use:
-                GulpMetrics.redis_targeted_publish_total.inc()
-        except Exception:
-            pass
+        if GulpConfig.get_instance().prometheus_enabled():
+            # update Prometheus counters
+            try:
+                GulpMetrics.redis_publish_total.inc()
+                GulpMetrics.redis_publish_bytes_total.inc(len(payload))
+                if ":server:" in channel_to_use:
+                    GulpMetrics.redis_targeted_publish_total.inc()
+            except Exception:
+                pass
 
         # if payload is too large, compress, chunk and store it in Redis then publish a small pointer
         try:
@@ -528,12 +512,12 @@ class GulpRedis:
                     pipe.publish(channel_to_use, pointer_bytes)
                     await pipe.execute()
 
-                    self._metrics_chunked_publish_count += 1
-                    try:
-                        from gulp.api.prometheus_api import GulpMetrics
-                        GulpMetrics.redis_chunked_publish_total.inc()
-                    except Exception:
-                        pass
+                    if GulpConfig.get_instance().prometheus_enabled():
+                        # update Prometheus counter for chunked publishes
+                        try:
+                            GulpMetrics.redis_chunked_publish_total.inc()
+                        except Exception:
+                            pass
                     MutyLogger.get_instance().warning(
                         "published large %s message stored in %d chunks base=%s total_size=%d bytes (stored=%d)",
                         "compressed" if compressed_flag else "uncompressed",
@@ -908,29 +892,6 @@ class GulpRedis:
             name=f"gulpredis-critical-events-{self.server_id}",
         )
 
-    def _log_metrics_if_needed(self) -> None:
-        """Log pub/sub metrics periodically for monitoring."""
-        now = time.monotonic()
-        if now - self._metrics_last_log_time >= self._metrics_log_interval:
-            if self._metrics_publish_count > 0:
-                avg_msg_size = self._metrics_publish_bytes // self._metrics_publish_count
-                MutyLogger.get_instance().info(
-                    "Redis pub/sub metrics (last %.0fs): published=%d msgs, total_bytes=%d, avg_msg_size=%d bytes, "
-                    "chunked=%d, subscriber_errors=%d",
-                    self._metrics_log_interval,
-                    self._metrics_publish_count,
-                    self._metrics_publish_bytes,
-                    avg_msg_size,
-                    self._metrics_chunked_publish_count,
-                    self._metrics_subscriber_errors,
-                )
-                # reset counters
-                self._metrics_publish_count = 0
-                self._metrics_publish_bytes = 0
-                self._metrics_chunked_publish_count = 0
-                self._metrics_subscriber_errors = 0
-            self._metrics_last_log_time = now
-
     async def unsubscribe(self) -> None:
         """
         unsubscribe from the redis pubsub channel
@@ -995,11 +956,12 @@ class GulpRedis:
 
     async def _recreate_pubsub(self) -> None:
         """Recreate pubsub connection and resubscribe after errors."""
-        try:
-            from gulp.api.prometheus_api import GulpMetrics
-            GulpMetrics.redis_pubsub_reconnect_total.inc()
-        except Exception:
-            pass
+        if GulpConfig.get_instance().prometheus_enabled():
+            # update Prometheus counter for pubsub reconnects
+            try:
+                GulpMetrics.redis_pubsub_reconnect_total.inc()
+            except Exception:
+                pass
 
         try:
             if self._pubsub:
@@ -1062,12 +1024,12 @@ class GulpRedis:
                             self._handler_tasks.add(task)
                             task.add_done_callback(self._handler_tasks.discard)
                         except Exception as ex:
-                            self._metrics_subscriber_errors += 1
-                            try:
-                                from gulp.api.prometheus_api import GulpMetrics
-                                GulpMetrics.redis_subscriber_errors_total.inc()
-                            except Exception:
-                                pass
+                            if GulpConfig.get_instance().prometheus_enabled():
+                                # update Prometheus counter for subscriber callback errors
+                                try:
+                                    GulpMetrics.redis_subscriber_errors_total.inc()
+                                except Exception:
+                                    pass
                             MutyLogger.get_instance().exception(
                                 "ERROR in subscriber callback for channel %s: %s",
                                 actual_channel,
@@ -1120,12 +1082,12 @@ class GulpRedis:
         try:
             await callback(d)
         except Exception as ex:
-            self._metrics_subscriber_errors += 1
-            try:
-                from gulp.api.prometheus_api import GulpMetrics
-                GulpMetrics.redis_subscriber_errors_total.inc()
-            except Exception:
-                pass
+            if GulpConfig.get_instance().prometheus_enabled():
+                # update Prometheus counter for subscriber callback errors  
+                try:
+                    GulpMetrics.redis_subscriber_errors_total.inc()
+                except Exception:
+                    pass
             MutyLogger.get_instance().exception(
                 "ERROR in subscriber callback for channel %s: %s",
                 channel,

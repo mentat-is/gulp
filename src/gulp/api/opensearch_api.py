@@ -37,6 +37,7 @@ from muty.log import MutyLogger
 from opensearchpy import AsyncOpenSearch, NotFoundError
 from opensearchpy.exceptions import TransportError
 from sqlalchemy.ext.asyncio import AsyncSession
+from gulp.api.prometheus_api import GulpMetrics
 
 from gulp.api.collab.field_types_entry import GulpFieldTypesEntry
 from gulp.api.collab.note import GulpNote
@@ -1282,16 +1283,16 @@ class GulpOpenSearch:
                 failed,
             )
 
-        # update Prometheus counters
-        try:
-            from gulp.api.prometheus_api import GulpMetrics
-            GulpMetrics.opensearch_bulk_docs_total.inc(len(ingested_docs))
-            if failed:
-                GulpMetrics.opensearch_bulk_errors_total.inc(failed)
-            if skipped:
-                GulpMetrics.opensearch_bulk_skipped_total.inc(skipped)
-        except Exception:
-            pass
+        if GulpConfig.get_instance().prometheus_enabled():
+            # update Prometheus counters        
+            try:
+                GulpMetrics.opensearch_bulk_docs_total.inc(len(ingested_docs))
+                if failed:
+                    GulpMetrics.opensearch_bulk_errors_total.inc(failed)
+                if skipped:
+                    GulpMetrics.opensearch_bulk_skipped_total.inc(skipped)
+            except Exception:
+                pass
 
         return skipped, ingested_docs, failed
 

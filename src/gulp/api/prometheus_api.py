@@ -16,29 +16,18 @@ from muty.log import MutyLogger
 
 from gulp.config import GulpConfig
 
-# ── Setup PROMETHEUS_MULTIPROC_DIR before importing prometheus_client ──
-# This MUST happen before any prometheus_client import so that worker
-# processes (forked later) inherit the env var and use file-backed metrics.
-_multiproc_dir: str = None
-
-
-def _ensure_multiproc_dir() -> str:
-    """Ensure PROMETHEUS_MULTIPROC_DIR is set; create a temp dir if needed."""
-    global _multiproc_dir
-    d = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
-    if d:
-        os.makedirs(d, exist_ok=True)
-        _multiproc_dir = d
-        return d
-    d = tempfile.mkdtemp(prefix="gulp_prometheus_")
-    os.environ["PROMETHEUS_MULTIPROC_DIR"] = d
-    _multiproc_dir = d
-    return d
-
-
-# ── Prometheus imports (after env var is guaranteed) ──
-# Ensure env var is set at module import time, before prometheus_client is imported.
-_ensure_multiproc_dir()
+# ── Ensure PROMETHEUS_MULTIPROC_DIR is set before importing prometheus_client ──
+# Workers write counters (OpenSearch ingestion, Redis publish, etc.) so
+# multiprocess mode is required for correct metric aggregation at /metrics.
+_prom_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+if _prom_dir:
+    os.makedirs(_prom_dir, exist_ok=True)
+else:
+    _prom_dir = tempfile.mkdtemp(prefix="gulp_prometheus_")
+    MutyLogger.get_instance(name="gulp").debug(
+        "created Prometheus multiprocess temp dir: %s", _prom_dir
+    )
+    os.environ["PROMETHEUS_MULTIPROC_DIR"] = _prom_dir
 
 from prometheus_client import (
     CollectorRegistry,
@@ -54,6 +43,20 @@ class GulpMetrics:
     """Singleton holding all Prometheus metric objects for gULP."""
 
     _instance: "GulpMetrics" = None
+    # directory where prometheus_client writes per-process metric files;
+    # retained so cleanup_prometheus() can remove it on shutdown.
+    _multiproc_dir: str = _prom_dir
+
+    @classmethod
+    def cleanup_multiproc_dir(cls) -> None:
+        """Delete the multiprocess metrics dir if it was auto-created by us."""
+        if cls._multiproc_dir and os.path.isdir(cls._multiproc_dir):
+            MutyLogger.get_instance().debug(
+                "cleaning up Prometheus multiprocess temp dir: %s", cls._multiproc_dir
+            )
+            if cls._multiproc_dir.startswith(tempfile.gettempdir()):
+                shutil.rmtree(cls._multiproc_dir, ignore_errors=True)
+            cls._multiproc_dir = None
 
     # ── Redis pub/sub ──
     redis_publish_total = Counter(
@@ -472,7 +475,6 @@ def setup_prometheus(app) -> None:
         return
 
     MutyLogger.get_instance().info("Enabling Prometheus metrics endpoint...")
-    _ensure_multiproc_dir()
 
     from prometheus_fastapi_instrumentator import Instrumentator
 
@@ -501,9 +503,4 @@ def setup_prometheus(app) -> None:
 
 def cleanup_prometheus() -> None:
     """Clean up multiprocess temp directory on shutdown."""
-    global _multiproc_dir
-    if _multiproc_dir and os.path.isdir(_multiproc_dir):
-        # only remove if we created it (i.e. it's in the system temp dir)
-        if _multiproc_dir.startswith(tempfile.gettempdir()):
-            shutil.rmtree(_multiproc_dir, ignore_errors=True)
-        _multiproc_dir = None
+    GulpMetrics.cleanup_multiproc_dir()
