@@ -183,7 +183,6 @@ class GulpWsData(BaseModel):
         """
         payload: dict = self.payload if isinstance(self.payload, dict) else {}
         payload_data: dict = payload.get("obj", {})
-        req_type: str = None
         if self.type == WSDATA_COLLAB_DELETE:
             # special case for delete, as payload is not under "obj"
             payload_data = payload
@@ -191,7 +190,6 @@ class GulpWsData(BaseModel):
         if isinstance(payload_data, dict):
             # single
             payload_data_type = payload_data.get("type", None) # i.e. note
-            req_type: str = payload.get("req_type")
         elif isinstance(payload_data, list):
             # bulk
             payload_data_type = payload_data[0].get("type", None) if len(payload_data) > 0 else None
@@ -204,9 +202,7 @@ class GulpWsData(BaseModel):
             return True
         
         t: str = self.type        
-        if req_type:
-            # special case for stats, we check "req_type" instead of type
-            t = req_type
+
         # resort to plain data type
         if t in GulpRedisBroker.get_instance().broadcast_types:
             # MutyLogger.get_instance().debug(
@@ -1823,7 +1819,6 @@ class GulpRedisBroker:
             #WSDATA_COLLAB_DELETE,
             WSDATA_REBASE_DONE,
             WSDATA_INGEST_SOURCE_DONE,
-            WSDATA_QUERY_DONE,
             WSDATA_QUERY_GROUP_DONE,
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,
@@ -1833,11 +1828,6 @@ class GulpRedisBroker:
             "context",
             "source",
             "operation",
-            "ingest",
-            "enrich",
-            "raw_ingest",
-            "ext_query"
-
         }
         
         # internal state
