@@ -25,6 +25,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from gulp.api.collab.source import GulpSource
 from gulp.api.collab.structs import COLLABTYPE_CONTEXT, GulpCollabBase
 from gulp.structs import GulpMappingParameters
+from gulp.api.collab.stats import GulpRequestStats
+
 
 
 class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
@@ -112,6 +114,22 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
         Returns:
             tuple(GulpSource, bool): The source added (or already existing) and a flag indicating if the source was added
         """
+        async def _update_ingestion_stats_sources(src: GulpSource) -> None:
+            if not req_id:
+                return
+
+            stats = await GulpRequestStats.get_by_id(
+                sess, obj_id=req_id, throw_if_not_found=False
+            )
+            if stats:
+                await stats.add_ingestion_source(
+                    sess,
+                    context_id=self.id,
+                    source_id=src.id,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                )
+
         # consider just the last part of the name if it's a path
         bare_name = name.split("/")[-1]
         if not src_id:
@@ -150,6 +168,7 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             )
             if src:
                 MutyLogger.get_instance().debug(f"source {src.id}, name={name} already exists in context {self.id}.")
+                await _update_ingestion_stats_sources(src)
                 # release transaction-scoped advisory lock acquired above
                 await sess.commit()
                 return src, False
@@ -198,4 +217,5 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
                 "source=%s, name=%s added to context=%s, src=%s, ctx=%s", src.id, name, self.id, muty.string.make_shorter(str(src),max_len=260), 
                 muty.string.make_shorter(str(self), max_len=260)
             )
+            await _update_ingestion_stats_sources(src)
             return src, True

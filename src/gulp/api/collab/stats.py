@@ -96,6 +96,7 @@ class GulpIngestionStats(BaseModel):
                     "source_total": 2,
                     "source_processed": 1,
                     "source_failed": 0,
+                    "sources": [["ctx1", "src1"]],
                     "records_processed": 100,
                     "records_ingested": 90,
                     "records_skipped": 5,
@@ -114,6 +115,12 @@ class GulpIngestionStats(BaseModel):
     source_failed: Annotated[
         int, Field(description="Number of failed sources in this request.")
     ] = 0
+    sources: Annotated[
+        list[tuple[str, str]],
+        Field(
+            description="List of (context_id, source_id) pairs associated with this request.",
+        ),
+    ] = Field(default_factory=list)
     records_processed: Annotated[
         int, Field(description="Number of processed records (includes all sources).")
     ] = 0
@@ -470,6 +477,45 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             ws_id=ws_id,
         )
         return self.to_dict()
+
+    async def add_ingestion_source(
+        self,
+        sess: AsyncSession,
+        context_id: str,
+        source_id: str,
+        user_id: str = None,
+        ws_id: str = None,
+    ) -> dict:
+        """
+        Add a (context_id, source_id) pair to ingestion stats if not already present.
+
+        Tuples are stored in JSONB and therefore serialized as JSON arrays.
+        """
+        if self.req_type not in [
+            RequestStatsType.REQUEST_TYPE_INGESTION.value,
+            RequestStatsType.REQUEST_TYPE_RAW_INGESTION.value,
+        ]:
+            return self.to_dict(exclude_none=True)
+
+        async with self.__class__.advisory_lock(sess, self.id):
+            await sess.refresh(self)
+
+            d: GulpIngestionStats = (
+                GulpIngestionStats.model_validate(self.data) or GulpIngestionStats()
+            )
+            source_pair = (context_id, source_id)
+            if source_pair in d.sources:
+                return self.to_dict(exclude_none=True)
+
+            d.sources.append(source_pair)
+            self.data = d.model_dump(mode="json")
+            return await super().update(
+                sess,
+                ws_id=ws_id,
+                req_id=self.id,
+                user_id=user_id,
+                ws_data_type=WSDATA_STATS_UPDATE,
+            )
 
     @staticmethod
     async def purge_ongoing_requests(server_id: str):
