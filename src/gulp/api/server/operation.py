@@ -13,8 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.source import GulpSource
-from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpUserPermission
+from gulp.api.collab.structs import GulpCollabBase, GulpCollabFilter, GulpRequestStatus, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
@@ -237,6 +238,12 @@ async def operation_delete_handler(
             description="also deletes the related data on the given opensearch `index`."
         ),
     ] = True,
+    force_delete: Annotated[
+        Optional[bool],
+        Query(
+            description="if `True`, forces the deletion of the operation even if there are running requests."
+        ),
+    ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
@@ -248,6 +255,23 @@ async def operation_delete_handler(
             s, op, _ = await GulpOperation.get_by_id_wrapper(
                 sess, token, operation_id, permission=GulpUserPermission.INGEST
             )
+
+            if not force_delete:
+                # disallow deleting an operation while requests are still running.
+                running_requests: list[GulpRequestStats] = await GulpRequestStats.get_by_filter(
+                    sess,
+                    flt=GulpCollabFilter(
+                        operation_ids=[operation_id],
+                        status=GulpRequestStatus.ONGOING.value,
+                    ),
+                    throw_if_not_found=False,
+                )
+                if running_requests:
+                    running_request_ids = sorted({r.id for r in running_requests if r and r.id})
+                    raise ValueError(
+                        "cannot delete operation %s: %d running requests found: %s"
+                        % (operation_id, len(running_request_ids), running_request_ids)
+                    )
 
             index = op.index
             user_id = s.user.id
