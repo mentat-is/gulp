@@ -2085,6 +2085,9 @@ class GulpOpenSearch:
                 size = options["size"]
                 if size > min_cb_limit:
                     new_size: int = max(min_cb_limit, max(1, size // 2))
+                else:
+                    # keep current chunk size when already at/below the minimum limit
+                    new_size = size
                 options["size"] = new_size
                 if GulpConfig.get_instance().query_circuit_breaker_disable_highlights():
                     # disable hightlights
@@ -2149,15 +2152,22 @@ class GulpOpenSearch:
             return False
 
         def _contains_marker(payload: Optional[object]) -> bool:
-            marker = "circuit_breaking_exception"
+            markers = [
+                "circuit_breaking_exception",
+                "matches too many fields",
+                "field expansion for [*]",
+            ]
             if payload is None:
                 return False
             if isinstance(payload, str):
-                return marker in payload.lower()
+                payload_str = payload.lower()
+                return any(marker in payload_str for marker in markers)
             try:
-                return marker in json.dumps(payload).lower()
+                payload_str = json.dumps(payload).lower()
+                return any(marker in payload_str for marker in markers)
             except Exception:
-                return marker in str(payload).lower()
+                payload_str = str(payload).lower()
+                return any(marker in payload_str for marker in markers)
 
         if _contains_marker(err.error):
             return True

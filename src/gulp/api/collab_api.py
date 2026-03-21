@@ -346,7 +346,8 @@ class GulpCollab:
                     CREATE OR REPLACE FUNCTION delete_expired_stats_rows() RETURNS void AS $$
                     BEGIN
                             DELETE FROM request_stats
-                            WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
+                            WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0
+                            AND status != 'ongoing';
                     END;
                     $$ LANGUAGE plpgsql;
             """
