@@ -81,9 +81,9 @@ def _read_img_file(file: UploadFile) -> bytes:
 async def glyph_create_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     private: Annotated[bool, Depends(APIDependencies.param_private_optional)],
-    img: Annotated[UploadFile, File(description="an image file.")] = None,
+    img: Annotated[UploadFile, File(description="an optional image file. if not set, name is used and the client should be able to resolve it to an existing glyph.")] = None,
     name: Annotated[
-        str, Field(description="an optional name, either the uploaded filename is used")
+        str, Field(description="an optional name, either the uploaded filename is used if present, or the client should be able to resolve it to an existing glyph if img is not provided.")
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
@@ -91,7 +91,13 @@ async def glyph_create_handler(
     params["img"] = img.filename
     ServerUtils.dump_params(params)
     try:
-        data = _read_img_file(img)
+        if not img and not name:
+            raise ValueError("At least one of img or name must be provided.")
+        if img:
+            data = _read_img_file(img)
+        else:   
+            data = None
+            
         d: dict = await GulpGlyph.create(
             token,
             name=name,

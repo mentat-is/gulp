@@ -348,6 +348,7 @@ async def _ingest_file_internal(
             await mod.broadcast_ingest_internal_event()
             return status, []
         finally:
+            upload_task = None
             if mod:
                 upload_task = mod.upload_task
                 await mod.unload()

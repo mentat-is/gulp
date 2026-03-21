@@ -882,7 +882,7 @@ async def plugin_delete_handler(
                 (filename, extra_path, plugin_type)
             )
 
-        await muty.file.delete_file_async(file_path)
+        await muty.file.delete_file_or_dir_async(file_path)
         return JSONResponse(JSendResponse.success(req_id=req_id, data={"deleted": True}))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -1309,7 +1309,7 @@ async def mapping_file_delete_handler(
                 "file with name %s not found in %s" % (filename, extra_path)
             )
 
-        await muty.file.delete_file_async(file_path)
+        await muty.file.delete_file_or_dir_async(file_path)
         return JSONResponse(JSendResponse.success(req_id=req_id, data={"file_path": file_path}))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

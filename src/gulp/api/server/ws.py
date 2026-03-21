@@ -619,7 +619,7 @@ class GulpAPIWebsocket:
                 try:
                     await websocket.close()
                 except:
-                    MutyLogger.get_instance().exception("error closing websocket")
+                    MutyLogger.get_instance().exception("error closing websocket, likely already closed (ws_id=%s)", ws_id)
                     pass
             MutyLogger.get_instance().debug("socket %s, type=%s closed!", ws_id, socket_type)
 
