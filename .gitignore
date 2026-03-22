@@ -26,7 +26,6 @@ src/gulp/libgulp
 
 # misc
 .github/agents
-.github/**/*instructions.md
 export.csv
 export.json
 gulp_cfg.json
