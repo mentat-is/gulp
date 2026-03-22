@@ -360,7 +360,24 @@ class Plugin(GulpPluginBase):
         # MutyLogger.get_instance().debug(f"final entities for rdap after regex extraction and resolution: {entities_for_rdap}")
         return entities_for_rdap
 
-    async def _get_whois(self, original_input: str) -> Optional[list[dict[str, Any]]]:
+    def _normalize_whois_input(self, raw_input: Any) -> Optional[str]:
+        """Normalize enrichment input to a safe string value for WHOIS lookups."""
+        if raw_input is None:
+            return None
+        if isinstance(raw_input, bool):
+            # Booleans are not valid WHOIS targets.
+            return None
+        if isinstance(raw_input, bytes):
+            try:
+                decoded = raw_input.decode("utf-8", errors="ignore").strip()
+            except Exception:
+                return None
+            return decoded or None
+
+        normalized = str(raw_input).strip()
+        return normalized or None
+
+    async def _get_whois(self, original_input: Any) -> Optional[list[dict[str, Any]]]:
         """
         Processes the original input string to extract entities (IPs or hostnames) and performs WHOIS lookups.
 
@@ -382,6 +399,15 @@ class Plugin(GulpPluginBase):
             A list of enriched WHOIS dicts for the input, or None if no entities were found or an error occurred.
 
         """
+        normalized_input: Optional[str] = self._normalize_whois_input(original_input)
+        if not normalized_input:
+            MutyLogger.get_instance().warning(
+                "skipping whois lookup for unsupported input value: %r",
+                original_input,
+            )
+            return None
+        original_input = normalized_input
+
         MutyLogger.get_instance().debug(
             f"requesting whois for input='{original_input[:100]}...'"
         )
@@ -686,7 +712,7 @@ class Plugin(GulpPluginBase):
             # either, we may also add text mappings to ip fields in the index template..... but keep it as is for now...
             enriched: bool = False
             for field, field_value in fields.items():
-                if field_value:
+                if field_value is not None:
                     # value provided
                     f = field_value
                 else:

@@ -95,11 +95,19 @@ async def storage_delete_by_tags_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # check token on operation
-            s: GulpUserSession
-            s, _, _ = await GulpOperation.get_by_id_wrapper(
-                sess, token, operation_id, GulpUserPermission.EDIT
-            )
+            # if operation_id is provided, enforce object-level ACL on that operation.
+            # Otherwise, only require EDIT permission on the token for global listing.
+            if operation_id:
+                _: GulpUserSession
+                _, _, _ = await GulpOperation.get_by_id_wrapper(
+                    sess, token, operation_id, GulpUserPermission.EDIT
+                )
+            else:
+                await GulpUserSession.check_token(
+                    sess,
+                    token,
+                    permission=GulpUserPermission.EDIT,
+                )
             tags: dict = {}
             if operation_id:
                 tags["operation_id"] = operation_id
@@ -146,7 +154,7 @@ async def storage_delete_by_tags_handler(
 lists files on the filestore providing `operation_id` and/or `context_id`.
 
 - results may be paginated via `continuation_token` and `max_results` query parameters: if so, if results contains a `continuation_token` field, the client can make another request with the same parameters and the returned `continuation_token` to get the next page of results, until no `continuation_token` is returned, which means there is no more result.
-- `token` needs `edit` permission.
+- `token` needs `edit` permission, if no operation_id is provided `admin` permission is required instead.
 """,
 )
 async def storage_list_files_handler(
@@ -174,11 +182,19 @@ async def storage_list_files_handler(
     ServerUtils.dump_params(locals())
     try:
         async with GulpCollab.get_instance().session() as sess:
-            # check token on operation
-            s: GulpUserSession
-            s, _, _ = await GulpOperation.get_by_id_wrapper(
-                sess, token, operation_id, GulpUserPermission.EDIT
-            )
+            # If operation_id is provided, enforce object-level ACL on that operation.
+            # Otherwise, require admin permission for global listing.
+            if operation_id:
+                _: GulpUserSession
+                _, _, _ = await GulpOperation.get_by_id_wrapper(
+                    sess, token, operation_id, GulpUserPermission.EDIT
+                )
+            else:
+                await GulpUserSession.check_token(
+                    sess,
+                    token,
+                    permission=GulpUserPermission.ADMIN,
+                )
             tags: dict = {}
             if operation_id:
                 tags["operation_id"] = operation_id

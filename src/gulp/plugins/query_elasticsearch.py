@@ -515,7 +515,12 @@ class Plugin(GulpPluginBase):
         # query
         q_options.fields = "*"
 
-        q_dict = json.loads(q.replace("'", '"'))
+        if isinstance(q, dict):
+            q_dict = q
+        elif isinstance(q, str):
+            q_dict = json.loads(q.replace("'", '"'))
+        else:
+            raise TypeError(f"unsupported query payload type for query_external: {type(q).__name__}")
         total_hits = 0
         processed = 0
         try:
