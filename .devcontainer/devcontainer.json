@@ -50,5 +50,6 @@
   "remoteEnv": {
     "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"
   },
-  "postCreateCommand": "chmod +x .devcontainer/devsetup.sh && .devcontainer/devsetup.sh"
+  "postCreateCommand": "chmod +x .devcontainer/devsetup.sh && .devcontainer/devsetup.sh",
+  "postStartCommand": "sudo mkdir -p /run/rsyslog && (pgrep -x rsyslogd >/dev/null || sudo rsyslogd)"
 }

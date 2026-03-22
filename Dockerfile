@@ -14,6 +14,7 @@ ARG _USER_UID=1000
 ARG _USER_GID=1000
 RUN groupadd --gid $_USER_GID $_USER_NAME && \
     useradd --uid $_USER_UID --gid $_USER_GID -m $_USER_NAME
+ENV GULP_RUNTIME_USER=${_USER_NAME}
 
 ENV GULP_BIND_TO_PORT=8080
 ENV GULP_BIND_TO_ADDR=0.0.0.0
@@ -26,7 +27,9 @@ RUN apt-get install -y -q \
     vim \
     sed \
     git \
-    curl
+    curl \
+    rsyslog \
+    gosu
 
 WORKDIR /app
 
@@ -52,6 +55,7 @@ COPY ./muty-python/src /app/muty-python/src
 COPY ./muty-python/pyproject.toml /app/muty-python/pyproject.toml
 COPY ./muty-python/README.md /app/muty-python
 COPY ./muty-python/LICENSE.md /app/muty-python
+COPY ./docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # set version passed as build argument
 RUN echo "[.] GULP version: ${_VERSION}" && sed -i "s/version = .*/version = \"$(date +'%Y%m%d')+${_VERSION}\"/" /app/pyproject.toml
@@ -63,9 +67,7 @@ RUN pip3 install --timeout=1000 -e ./muty-python
 
 # set permissions for the non-root user
 RUN chown -R $_USER_NAME:$_USER_NAME /app
-
-# switch to the non-root user
-USER $_USER_NAME
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # should not be necessary but let's keep it for now
 # ENV PYTHONPATH="/app/src:${PYTHONPATH}"
@@ -80,4 +82,5 @@ RUN python3 -m gulp --version
 
 EXPOSE ${GULP_BIND_TO_PORT}
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["gulp", "--log-level", "warning"]

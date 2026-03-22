@@ -122,7 +122,7 @@ def main():
         log_to_syslog = (args.log_to_syslog[0], args.log_to_syslog[1])
     print(". log_to_syslog:", log_to_syslog)
     MutyLogger.get_instance(
-        "gulp", logger_file_path=logger_file_path, level=lv, log_to_syslog=log_to_syslog
+        "gulp", logger_file_path=logger_file_path, level=lv, log_to_syslog=log_to_syslog, reconfigure=True
     )
     if __RUN_TESTS__:
         # test stuff

@@ -11,7 +11,8 @@ RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /usr/sh
     jq \
     inetutils-ping \
     libpqxx-dev \
-    git-lfs
+    git-lfs \
+    rsyslog
 
 # Install pipx
 RUN python3 -m pip install --user pipx && \

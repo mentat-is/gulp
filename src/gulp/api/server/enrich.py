@@ -64,7 +64,7 @@ async def _enrich_documents_internal(
     # MutyLogger.get_instance().debug("---> _enrich_documents_internal")
     errors: list[str] = []
     enriched: int = 0
-    stats: GulpRequestStats
+    stats: GulpRequestStats = None
     mod: GulpPluginBase = None
     async with GulpCollab.get_instance().session() as sess:
         try:
