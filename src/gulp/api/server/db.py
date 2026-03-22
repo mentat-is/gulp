@@ -245,7 +245,7 @@ async def _rebase_by_query_internal(
                         errors.append(muty.log.exception_to_string(ex))
                         await stats.set_finished(
                             sess,
-                            status=GulpRequestStatus.STATUS_FAILED,
+                            status=GulpRequestStatus.FAILED,
                             errors=errors,
                             user_id=user_id,
                             ws_id=ws_id,
