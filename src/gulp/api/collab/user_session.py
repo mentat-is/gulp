@@ -26,6 +26,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from gulp.api.collab.structs import (
     COLLABTYPE_USER_SESSION,
     GulpCollabBase,
+    GulpCollabFilter,
     GulpUserPermission,
     MissingPermission,
     T,
@@ -122,6 +123,29 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
             return admin_session
         finally:
             pass
+    
+    async def get_by_user_id(sess: AsyncSession, user_id: str, throw_if_not_found: bool = True) -> Optional["GulpUserSession"]:
+        """
+        Get the session for a given user ID.
+
+        Args:
+            sess (AsyncSession): The database session to use.
+            user_id (str): The ID of the user whose session to retrieve.
+            throw_if_not_found (bool, optional): If True, raises an exception if no session is found for the user. Defaults to True.
+        Returns:
+            Optional[GulpUserSession]: The user session object if found, or None if not found and throw_if_not_found is False.
+        Raises:
+            ObjectNotFound: If no session is found for the user and throw_if_not_found is True.
+        """
+        l: list[GulpUserSession] = await GulpUserSession.get_by_filter(
+            sess,
+            flt=GulpCollabFilter(session_user_id=user_id),
+            user_id=user_id,
+            throw_if_not_found=throw_if_not_found,
+        )
+        if l:
+            return l[0]
+        return None
 
     async def update_expiration_time(
         self, sess: AsyncSession, is_admin: bool, update_id: bool = False

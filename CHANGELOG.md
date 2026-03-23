@@ -1,3 +1,16 @@
+# v1.6.7
+
+## new features
+
+- architecture: observability via Prometheus metrics and Grafana dashboards (check the `docs/observability.md` for instructions)
+- sdk: integrating new polished python SDK, used for the tests.
+ 
+## bugfixes
+
+- core/logging: fixed syslog logging (integrated rsyslog both in the devcontainer and production Dockerfile deployment)
+- core/redis: multiple fixes to message routing
+- core/all: multiple fixes
+ 
 # v1.6.5
 
 ## new features

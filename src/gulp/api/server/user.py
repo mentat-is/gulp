@@ -209,14 +209,31 @@ async def login_handler(
     password: Annotated[
         str, Body(description="password for authentication.", examples=["admin"])
     ],
+    force: Annotated[bool, Query(description="force login even if already logged in (invalidates logged in session token).")] = True,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ip: str = r.client.host if r.client else "unknown"
     params = locals()
     params.pop("r", None)
     ServerUtils.dump_params(params)
+    s: GulpUserSession = None
     try:
         async with GulpCollab.get_instance().session() as sess:
+            if not force:
+                # check if the user is already logged in: if so, return the existing token
+                s = await GulpUserSession.get_by_user_id(
+                    sess, user_id, throw_if_not_found=False
+                )
+                if s:
+                    MutyLogger.get_instance().warning(
+                        "user %s already logged in!", user_id
+                    )
+                    raise ObjectAlreadyExists(
+                        "user %s already logged in, use force=true to invalidate the existing session and login again."
+                        % user_id
+                    )
+            
+            # ok, perform login
             s = await GulpUser.login(
                 sess,
                 user_id=user_id,
