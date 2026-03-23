@@ -36,6 +36,7 @@ This guide explains how to use the **Bridge Manager** to ingest real-time data f
     - [Required Bridge Endpoints](#required-bridge-endpoints)
     - [`/start_ingestion` Request](#start_ingestion-request)
     - [`/stop_ingestion` Request](#stop_ingestion-request)
+    - [`/health_check` Request](#health_check-request)
     - [Bridge Registration](#bridge-registration)
     - [Sending Data to Gulp](#sending-data-to-gulp)
 
@@ -88,7 +89,8 @@ Bridges are useful when:
 │                   - /stop_ingestion                                     │
 │                   - /delete_ingestion                                   │
 │                   - /list_bridges                                       │
-│                   - /list_ingestion_tasks                               │
+│                   - /list_ingestion_tasks                               |
+|                   - /get_bridge_status                                  │
 └─────────────────────────────────────│───────────────────────────────────┘
                                       │
                     ┌─────────────────┴─────────────────┐
@@ -101,6 +103,7 @@ Bridges are useful when:
           │  Exposes:       │                 │  Exposes:       │
           │  /start_ingest  │                 │  /start_ingest  │
           │  /stop_ingest   │                 │  /stop_ingest   │
+          |  /health_check  |                 |  /health_check  |
           └────────┬────────┘                 └────────┬────────┘
                    │                                   │
                    ▼                                   ▼
@@ -140,8 +143,9 @@ To see all registered bridges:
 ```bash
 curl -X POST "http://localhost:8080/list_bridges" \
   -H "Content-Type: application/json" \
+  -H "Token: YOUR_GULP_TOKEN" \
   -d '{
-    "token": "YOUR_GULP_TOKEN"
+    "flt": {}
   }'
 ```
 
@@ -168,8 +172,9 @@ curl -X POST "http://localhost:8080/list_bridges" \
 Create and start an ingestion task to begin receiving data:
 
 ```bash
-curl -X POST "http://localhost:8080/create_start_ingestion?token=YOUR_GULP_TOKEN&bridge_id=a1b2c3d4e5&operation_id=your-operation-id" \
+curl -X POST "http://localhost:8080/create_start_ingestion?bridge_id=a1b2c3d4e5&operation_id=your-operation-id" \
   -H "Content-Type: application/json" \
+  -H "Token: YOUR_GULP_TOKEN" \
   -d '{
     "plugin": "raw",
     "mapping_parameters": {
@@ -219,15 +224,14 @@ List and monitor running ingestion tasks:
 # List all tasks
 curl -X POST "http://localhost:8080/list_ingestion_tasks" \
   -H "Content-Type: application/json" \
-  -d '{
-    "token": "YOUR_GULP_TOKEN"
-  }'
+  -H "Token: YOUR_GULP_TOKEN" \
+  -d '{}'
 
 # Filter by status
 curl -X POST "http://localhost:8080/list_ingestion_tasks" \
   -H "Content-Type: application/json" \
+  -H "Token: YOUR_GULP_TOKEN" \
   -d '{
-    "token": "YOUR_GULP_TOKEN",
     "flt": {
       "status": "ongoing"
     }
@@ -236,8 +240,8 @@ curl -X POST "http://localhost:8080/list_ingestion_tasks" \
 # Filter by bridge
 curl -X POST "http://localhost:8080/list_ingestion_tasks" \
   -H "Content-Type: application/json" \
+  -H "Token: YOUR_GULP_TOKEN" \
   -d '{
-    "token": "YOUR_GULP_TOKEN",
     "flt": {
       "bridge_id": "a1b2c3d4e5"
     }
@@ -258,8 +262,9 @@ curl -X POST "http://localhost:8080/list_ingestion_tasks" \
 Stop a running ingestion task without deleting it:
 
 ```bash
-curl -X POST "http://localhost:8080/stop_ingestion?token=YOUR_GULP_TOKEN" \
+curl -X POST "http://localhost:8080/stop_ingestion" \
   -H "Content-Type: application/json" \
+  -H "Token: YOUR_GULP_TOKEN" \
   -d '"task123456"'
 ```
 
@@ -270,7 +275,8 @@ The task status will be reset to `null` and can be restarted later.
 Stop and permanently delete an ingestion task:
 
 ```bash
-curl -X DELETE "http://localhost:8080/delete_ingestion?token=YOUR_GULP_TOKEN&bridge_task_id=task123456"
+curl -X DELETE "http://localhost:8080/delete_ingestion?bridge_task_id=task123456" \
+  -H "Token: YOUR_GULP_TOKEN"
 ```
 
 ## API Reference
@@ -283,7 +289,7 @@ Lists all registered bridges. Supports filtering.
 
 | Parameter | Location | Type | Required | Description |
 |-----------|----------|------|----------|-------------|
-| `token` | query/header | string | Yes | Authentication token with INGEST permission |
+| `token` | header | string | Yes | Authentication token with INGEST permission |
 | `flt` | body | `GulpCollabFilter` | No | Filter criteria |
 | `req_id` | query | string | No | Request tracking ID |
 
@@ -310,7 +316,7 @@ Lists ingestion tasks. Supports filtering.
 
 | Parameter | Location | Type | Required | Description |
 |-----------|----------|------|----------|-------------|
-| `token` | query/header | string | Yes | Authentication token with INGEST permission |
+| `token` | header | string | Yes | Authentication token with INGEST permission |
 | `flt` | body | `GulpCollabFilter` | No | Filter criteria |
 | `req_id` | query | string | No | Request tracking ID |
 
@@ -337,7 +343,7 @@ Creates an ingestion task and instructs the bridge to start ingesting data.
 
 | Parameter | Location | Type | Required | Description |
 |-----------|----------|------|----------|-------------|
-| `token` | query/header | string | Yes | Authentication token with INGEST permission |
+| `token` | header | string | Yes | Authentication token with INGEST permission |
 | `bridge_id` | query | string | Yes | ID of the bridge to use |
 | `operation_id` | query | string | Yes | Target Gulp operation ID |
 | `plugin_params` | body | `GulpPluginParameters` | Yes | Ingestion configuration |
@@ -369,7 +375,7 @@ Stops a running ingestion task.
 
 | Parameter | Location | Type | Required | Description |
 |-----------|----------|------|----------|-------------|
-| `token` | query/header | string | Yes | Authentication token with INGEST permission |
+| `token` | header | string | Yes | Authentication token with INGEST permission |
 | `bridge_task_id` | body | string | Yes | Task ID to stop |
 | `req_id` | query | string | No | Request tracking ID |
 
@@ -383,7 +389,7 @@ Stops and deletes an ingestion task.
 
 | Parameter | Location | Type | Required | Description |
 |-----------|----------|------|----------|-------------|
-| `token` | query/header | string | Yes | Authentication token with INGEST permission |
+| `token` | header | string | Yes | Authentication token with INGEST permission |
 | `bridge_task_id` | query | string | Yes | Task ID to delete |
 | `req_id` | query | string | No | Request tracking ID |
 
@@ -471,7 +477,8 @@ The Bridge Manager can be configured via `gulp_cfg.json`:
 
 ## Building a Bridge
 
-If you want to create your own bridge, it must implement the following HTTP endpoints:
+If you want to create your own bridge, you can find an example of bridge code and its documentation [here](https://github.com/mentat-is/gulp-bridge-example).
+You must implement the following HTTP endpoints:
 
 ### Required Bridge Endpoints
 
@@ -479,6 +486,7 @@ If you want to create your own bridge, it must implement the following HTTP endp
 |----------|--------|-------------|
 | `/start_ingestion` | POST | Start ingesting data for a task |
 | `/stop_ingestion` | POST | Stop ingesting data for a task |
+| `/health_check`   | GET | Return bridge status and active task | 
 
 ### `/start_ingestion` Request
 
@@ -507,6 +515,15 @@ Gulp will call this endpoint with:
 {
   "bridge_id": "your_bridge_id",
   "bridge_task_id": "task_id"
+}
+```
+
+### `/health_check` Request
+
+```json
+{
+  "status": "bridge status",
+  "active_tasks_count": 2,
 }
 ```
 

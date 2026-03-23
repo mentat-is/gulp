@@ -21,6 +21,7 @@ to ease developing bridges using python, a [WIP gulp SDK](https://github.com/men
 this guide explains how to perform the integration leveraging the `/ingest_raw` and/or the WebSocket endpoint `/ws_ingest_raw` to feed the data from a `gulp bridge`.
 
 > for further documentation, read the [bridge manager plugin documentation](./plugins/bridge_manager.md) and the [bridge manager source code](../src/gulp/plugins/extension/bridge_manager.py).
+> You can find an example of bridge code and its documentation [here](https://github.com/mentat-is/gulp-bridge-example)
 
 ## the raw plugin
 
