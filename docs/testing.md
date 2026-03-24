@@ -9,7 +9,7 @@
 
 ## prerequisites
 
-ensure [gulp api client sdk](https://github.com/mentat-is/gulp-sdk-python) is installed
+ensure [gulp api client sdk](https://github.com/mentat-is/gulp-sdk) is installed
 
 ~~~bash
 pip3 install -e ./gulp-sdk-python
