@@ -1,0 +1,348 @@
+import asyncio
+import os
+
+import pytest
+import pytest_asyncio
+from gulp_client.common import _cleanup_test_operation, _ensure_test_operation
+from gulp_client.db import GulpAPIDb
+from gulp_client.note import GulpAPINote
+from gulp_client.object_acl import GulpAPIObjectACL
+from gulp_client.operation import GulpAPIOperation
+from gulp_client.query import GulpAPIQuery
+from gulp_client.test_values import (
+    TEST_CONTEXT_ID,
+    TEST_OPERATION_ID,
+    TEST_REQ_ID,
+    TEST_SOURCE_ID,
+    TEST_WS_ID,
+)
+from gulp_client.user import GulpAPIUser
+from muty.log import MutyLogger
+
+from gulp.api.collab.structs import GulpCollabFilter
+
+
+@pytest_asyncio.fixture(scope="function", autouse=True)
+async def _setup():
+    if os.getenv("SKIP_RESET", "0") == "1":
+        await _cleanup_test_operation()
+    else:
+        await _ensure_test_operation()
+
+
+@pytest.mark.asyncio
+async def test_user():
+    # login admin, guest
+    admin_token = await GulpAPIUser.login("admin", "admin")
+    assert admin_token
+
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+
+    editor_token = await GulpAPIUser.login("editor", "editor")
+    assert editor_token
+
+    # test user creation
+    test_user_id = "test_user"
+    test_user_password = "Test123!"
+    try:
+        await GulpAPIUser.user_delete(admin_token, test_user_id)
+    except Exception:
+        pass
+    user = await GulpAPIUser.user_create(
+        admin_token, test_user_id, test_user_password, ["read"], "test@example.com"
+    )
+    assert user.get("email") == "test@example.com"
+    assert user.get("permission") == ["read"]
+
+    # test user listing
+    users = await GulpAPIUser.user_list(admin_token)
+    assert users and len(users) >= 1
+
+    # test admin updating other user
+    updated = await GulpAPIUser.user_update(
+        admin_token,
+        test_user_id,
+        permission=["read", "edit"],
+        email="updated@example.com",
+        user_data={
+            "hello": "world",
+        },
+    )
+    assert updated.get("email") == "updated@example.com"
+    assert updated.get("permission") == ["read", "edit"]
+    assert updated.get("user_data") == {"hello": "world"}
+
+    # test user deletion
+    res = await GulpAPIUser.user_delete(admin_token, test_user_id)
+    assert res["id"] == test_user_id
+
+    # verify deletion
+    _ = await GulpAPIUser.user_get_by_id(admin_token, test_user_id, expected_status=404)
+
+    # logout admin
+    t = await GulpAPIUser.logout(admin_token)
+    assert t == admin_token
+
+    # admin should be logget out, calling any api should return 401
+    await GulpAPIUser.user_list(admin_token, expected_status=401)
+
+    # guest tests now!
+
+    # guest cannot create, list, delete users
+    await GulpAPIUser.user_create(
+        guest_token, "new_user", "Password#1234!", ["read"], expected_status=401
+    )
+    await GulpAPIUser.user_list(guest_token, expected_status=401)
+    await GulpAPIUser.user_delete(guest_token, "editor", expected_status=401)
+
+    # guest should not be able to update its own permission
+    await GulpAPIUser.user_update(
+        guest_token, permission=["read", "edit"], expected_status=401
+    )
+
+    # guest should not be able to update other users
+    await GulpAPIUser.user_update(
+        guest_token, user_id="editor", password="Hacked#1234!", expected_status=401
+    )
+
+    # admin should be able to update editor
+    admin_token = await GulpAPIUser.login("admin", "admin")
+    updated = await GulpAPIUser.user_update(
+        admin_token,
+        user_id="editor",
+        password="Password#1234!",
+        email="mynewemail@email.com",
+    )
+    assert updated["email"] == "mynewemail@email.com"
+    t = await GulpAPIUser.logout(admin_token)
+    assert t == admin_token
+    editor_token = await GulpAPIUser.login("editor", "Password#1234!")
+    assert editor_token
+
+    # guest should be able to get their own details
+    guest_data = await GulpAPIUser.user_get_by_id(guest_token)
+    assert guest_data["id"] == "guest"
+
+    # editor should be able to update their own password or email
+    updated = await GulpAPIUser.user_update(
+        editor_token,
+        password="Password#6789!",
+        email="mynewemail@email.com",
+    )
+    assert updated["email"] == "mynewemail@email.com"
+
+    # set back password to editor
+    updated = await GulpAPIUser.user_update(
+        editor_token,
+        password="editor",
+        expected_status=401,  # previously updated password, session invalidated
+    )
+
+    # so we need to login again and it will work
+    editor_token = await GulpAPIUser.login("editor", "Password#6789!")
+    assert editor_token
+    updated = await GulpAPIUser.user_update(
+        editor_token,
+        password="editor",
+    )
+    assert updated["email"] == "mynewemail@email.com"
+
+    # and session must be disappeared again
+    editor_data = await GulpAPIUser.user_get_by_id(editor_token, expected_status=401)
+ 
+    MutyLogger.get_instance().info(test_user.__name__ + " passed")
+
+
+@pytest.mark.asyncio
+async def test_session_expiration_update():
+    admin_token = await GulpAPIUser.login("admin", "admin")
+    assert admin_token
+
+    # get session expiration time *prev*
+    users = await GulpAPIUser.user_list(admin_token)
+    prev_expiration_time: int = 0
+    current_expiration_time: int = 0
+    for u in users:
+        if u["id"] != "admin":
+            continue
+        prev_expiration_time = u["session"]["time_expire"]
+        break
+
+    # get again, performing another operation causes session expiration time to be updated
+    users = await GulpAPIUser.user_list(admin_token)
+    for u in users:
+        if u["id"] != "admin":
+            continue
+        current_expiration_time = u["session"]["time_expire"]
+        break
+
+    assert current_expiration_time > prev_expiration_time
+    MutyLogger.get_instance().info(test_session_expiration_update.__name__ + " passed")
+
+
+@pytest.mark.asyncio
+async def test_user_vs_operations():
+    if os.getenv("SKIP_RESET", "0") == "0":
+        # ingest some data
+        from tests.ingest.test_ingest import test_win_evtx
+
+        await test_win_evtx()
+
+    # login admin, guest
+    admin_token = await GulpAPIUser.login("admin", "admin")
+    assert admin_token
+
+    guest_token = await GulpAPIUser.login("guest", "guest")
+    assert guest_token
+
+    # test admin user creation
+    test_user_id = "test_admin"
+    test_user_password = "Test123!"
+    try:
+        await GulpAPIUser.user_delete(admin_token, test_user_id)
+    except Exception:
+        pass
+    test_admin = await GulpAPIUser.user_create(
+        admin_token,
+        test_user_id,
+        test_user_password,
+        ["admin"],
+        "testadmin@example.com",
+    )
+    assert test_admin.get("email") == "testadmin@example.com"
+    assert test_admin.get("permission") == ["admin", "read"]
+
+    # test guest user creation
+    test_user_id = "test_user"
+    test_user_password = "Test123!"
+    try:
+        await GulpAPIUser.user_delete(admin_token, test_user_id)
+    except Exception:
+        pass
+    test_user = await GulpAPIUser.user_create(
+        admin_token, test_user_id, test_user_password, ["read"], "testuser@example.com"
+    )
+    assert test_user.get("email") == "testuser@example.com"
+    assert test_user.get("permission") == ["read"]
+
+    # login test users
+    test_admin_token = await GulpAPIUser.login("test_admin", "Test123!")
+    assert test_admin_token
+    test_user_token = await GulpAPIUser.login("test_user", "Test123!")
+    assert test_user_token
+
+    # query operations
+    operations = await GulpAPIQuery.query_operations(admin_token)
+    assert operations and len(operations) == 1
+
+    operations = await GulpAPIQuery.query_operations(test_admin_token)
+    assert operations and len(operations) == 1
+
+    # test_user should not see any operations
+    operations = await GulpAPIQuery.query_operations(test_user_token)
+    assert not operations
+
+    # grant user access to the test operation
+    await GulpAPIObjectACL.object_add_granted_user(
+        admin_token,
+        obj_id=TEST_OPERATION_ID,
+        obj_type="operation",
+        user_id="test_user",
+    )
+
+    # test_user should not see any operations
+    operations = await GulpAPIQuery.query_operations(test_user_token)
+    assert operations and len(operations) == 1
+
+    # remove and retest
+    await GulpAPIObjectACL.object_remove_granted_user(
+        admin_token,
+        obj_id=TEST_OPERATION_ID,
+        obj_type="operation",
+        user_id="test_user",
+    )
+    operations = await GulpAPIQuery.query_operations(test_user_token)
+    assert not operations
+
+    # delete test users
+    res = await GulpAPIUser.user_delete(admin_token, test_user["id"])
+    assert res["id"] == test_user["id"]
+    res = await GulpAPIUser.user_delete(admin_token, test_admin["id"])
+    assert res["id"] == test_admin["id"]
+    MutyLogger.get_instance().info(test_user_vs_operations.__name__ + " passed")
+
+
+@pytest.mark.asyncio
+async def test_user_data():
+    admin_token = await GulpAPIUser.login("admin", "admin")
+    assert admin_token
+
+    ingest_token = await GulpAPIUser.login("ingest", "ingest")
+    assert ingest_token
+
+    # clear whole data first
+    await GulpAPIUser.user_delete_data(admin_token)
+
+    key1 = "custom_key"
+    value = {"hello": "world"}
+    await GulpAPIUser.user_set_data(
+        admin_token,
+        key1,
+        value,
+    )
+
+    # ingest cannot get admin's data
+    await GulpAPIUser.user_get_data(
+        ingest_token,
+        key1,
+        user_id="admin",
+        expected_status=401,
+    )
+
+    data = await GulpAPIUser.user_get_data(
+        admin_token,
+        key1,
+    )
+    assert data == {key1: value}
+
+    # now modify and reget
+    key2 = "custom_key_2"
+    value = {"hello": "new_world", "number": 1234}
+    await GulpAPIUser.user_set_data(
+        admin_token,
+        key2,
+        value,
+    )
+    data = await GulpAPIUser.user_get_data(
+        admin_token,
+        key2,
+    )
+    assert data == {key2: value}
+
+    # try to get whole data
+    data = await GulpAPIUser.user_get_data(admin_token)
+    assert data == {key1: {"hello": "world"}, key2: value}
+
+    # delete key1 and verify key2 still exists
+    await GulpAPIUser.user_delete_data(
+        admin_token,
+        key1,
+    )
+    data = await GulpAPIUser.user_get_data(
+        admin_token,
+        key1,
+        expected_status=404,
+    )
+    data = await GulpAPIUser.user_get_data(
+        admin_token,
+        key2,
+    )
+    assert data == {key2: value}
+
+    # clear whole data
+    await GulpAPIUser.user_delete_data(admin_token)
+    data = await GulpAPIUser.user_get_data(admin_token)
+    assert data == {}
+
+    MutyLogger.get_instance().info(test_user_data.__name__ + " passed")
