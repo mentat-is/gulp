@@ -868,7 +868,7 @@ async def ingest_file_local_handler(
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
-    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True) or GulpPluginParameters()
     ServerUtils.dump_params(params)
 
     # compute local path
@@ -972,7 +972,7 @@ async def ingest_file_local_to_source_handler(
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
-    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True) or GulpPluginParameters()
     ServerUtils.dump_params(params)
 
     # compute local path
