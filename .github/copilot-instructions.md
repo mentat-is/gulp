@@ -9,7 +9,7 @@ Purpose: give an AI coding agent the exact, actionable knowledge it needs to be 
 
 ## Testing & manual QA pointers
 
-- for tests, a gulp instance should be available on localhost:8080. **if you cannot find the instance, you can start it with `gulp --reset-collab --create test_operation`, make sure to run the command inside the venv. any plugin extension startup errors can be ignored**
+- for tests, a gulp instance should be available on localhost:8080. **if you cannot find the instance, you can start it with `gulp --reset-collab --create test_operation`, make sure to run the command inside the venv. any plugin extension startup errors can be ignored. be sure to stop the instance with `gulp --stop` when done.**
 - for authentication, initially only the admin/admin user (admin permissions) and guest/guest (read-only, i.e. no ingestion) are available
 - after authentication, the gulp protocol requires that a websocket connection be started to then be used for (almost) all APIs in the client usage session.
 - for file ingestion tests, use the files in `/gulp/samples/win_evtx` with the "win_evtx" plugin
@@ -64,10 +64,3 @@ Purpose: give an AI coding agent the exact, actionable knowledge it needs to be 
 ## Examples of useful prompts for code changes 🔎
 - "Add an ingestion plugin `foo` that parses X format — create `src/gulp/plugins/foo.py`, tests in `tests/ingest/`, and a mapping file under `mapping_files/`. Follow `win_evtx.py` and `json.py` patterns."
 - "Find tests that rely on GULP_INTEGRATION_TEST and update them to use a temporary operation id."
-
-## Tests & manual QA pointers ✅
-- `test_scripts/ingest.py` and `test_scripts/query_external.py` are used for manual validation of plugins and external queries.
-- `tests/` contains canonical usage patterns — prefer copying test structure from `tests/ingest/test_ingest.py` when adding ingestion tests.
-
----
-If anything below is unclear or you'd like more examples (plugin skeleton, mapping example, or smoke-test run output), tell me which section to expand.

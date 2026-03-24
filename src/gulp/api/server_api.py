@@ -24,6 +24,7 @@ import muty.string
 import muty.version
 import orjson
 import uvicorn
+import signal
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -415,6 +416,17 @@ class GulpServer:
         else:
             # http
             MutyLogger.get_instance().warning("HTTP!")
+            # write pidfile so other invocations can stop this instance
+            try:
+                pidfile = muty.file.safe_path_join(
+                    GulpConfig.get_instance().path_working_dir(), "gulp.pid"
+                )
+                with open(pidfile, "w", encoding="utf-8") as f:
+                    f.write(str(os.getpid()))
+                MutyLogger.get_instance().info("wrote pidfile=%s", pidfile)
+            except Exception:
+                MutyLogger.get_instance().exception("failed to write pidfile")
+
             uvicorn.run(self._app, host=address, port=port)
 
     async def _dispatch_tasks(self):
@@ -682,6 +694,21 @@ class GulpServer:
             MutyLogger.get_instance().info(
                 "everything shut down, we can gracefully exit."
             )
+            # remove pidfile if exists
+            try:
+                pidfile = muty.file.safe_path_join(
+                    GulpConfig.get_instance().path_working_dir(), "gulp.pid"
+                )
+                if os.path.exists(pidfile):
+                    try:
+                        os.remove(pidfile)
+                        MutyLogger.get_instance().info("removed pidfile=%s", pidfile)
+                    except Exception:
+                        MutyLogger.get_instance().exception(
+                            "failed to remove pidfile=%s", pidfile
+                        )
+            except Exception:
+                pass
 
     async def _test(self):
         # to quick test code snippets, called by lifespan_handler

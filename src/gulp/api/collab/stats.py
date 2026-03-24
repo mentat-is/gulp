@@ -362,7 +362,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 ws_data_type=WSDATA_STATS_CREATE,
                 server_id=server_id,
             )
-        except WebSocketDisconnect as e:
+        except Exception as e:
             MutyLogger.get_instance().error(
                 "failed to create stats %s: %s", req_id, e
             )            
