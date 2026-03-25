@@ -111,7 +111,7 @@ install all packages as editable
 
 ~~~bash
 # install all packages as editable (-e)
-pip3 install -e . && pip3 install -e ./muty-python && pip3 install -e ./gulp-sdk-python
+pip3 install -e . && pip3 install -e ./muty-python && pip3 install -e ./gulp-sdk
 ~~~
 
 and to update gulp and submodules:

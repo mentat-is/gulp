@@ -118,7 +118,7 @@ Gulp is designed for seamless integration into existing security ecosystems.
 
     Moreover, a bridge may expose an API to interact itself with other applications (i.e. the `gulp UI`)
 
-> A [WIP Python SDK](https://github.com/mentat-is/gulp-sdk-python) is available to simplify interactions with the Gulp API from Python applications.
+> A [Python SDK](https://github.com/mentat-is/gulp-sdk) is available to simplify interactions with the Gulp API from Python applications.
 
 ```mermaid
 graph TD
