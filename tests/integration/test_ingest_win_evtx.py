@@ -7,6 +7,8 @@ import uuid
 
 import pytest
 
+from gulp.structs import GulpMappingParameters, GulpPluginParameters
+
 
 def _unique_name(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
@@ -69,10 +71,10 @@ async def _preview_total_hits(client, operation_id: str) -> int:
 
 async def _delete_operation_with_retry(client, operation_id: str, timeout: float = 30.0) -> None:
     """Delete operation tolerating transient running-request state."""
-    try:
+    """try:
         await client.plugins.request_delete(operation_id)
     except Exception:
-        pass
+        pass"""
 
     deadline = asyncio.get_running_loop().time() + timeout
     last_exc: Exception | None = None
@@ -206,7 +208,7 @@ async def test_ingest_zip_sample(gulp_base_url, gulp_test_user, gulp_test_passwo
     """
     from gulp_sdk import GulpClient
 
-    zip_path = Path("/gulp/tests/ingest/test_ingest_zip.zip")
+    zip_path = Path("/gulp/tests/test_ingest_zip.zip")
     if not zip_path.exists():
         pytest.skip(f"ZIP fixture missing: {zip_path}")
 
@@ -311,10 +313,11 @@ async def test_ingest_file_to_source(gulp_base_url, gulp_test_user, gulp_test_pa
         op = await client.operations.create(_unique_name("sdk_ingest_to_source"))
         try:
             ctx = await client.operations.context_create(op.id, _unique_name("ctx"))
-            src = await client.operations.source_create(op.id, ctx["id"], _unique_name("src"))
+            src = await client.operations.source_create(op.id, ctx["id"], _unique_name("src"), plugin="win_evtx",
+                                                        plugin_params=GulpPluginParameters(mapping_parameters=GulpMappingParameters(mapping_file="windows.json")))
 
             try:
-                result = await client.ingest.file_to_source(src["id"], str(sample_path))
+                result = await client.ingest.file_to_source(src["id"], str(sample_path), wait=True)
                 assert result.req_id
             except GulpSDKError as exc:
                 pytest.skip(f"ingest.file_to_source unavailable in current server config: {exc}")

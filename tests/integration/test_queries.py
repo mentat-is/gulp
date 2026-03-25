@@ -82,14 +82,19 @@ async def test_query_raw_empty_result(gulp_base_url, gulp_test_user, gulp_test_p
     async with GulpClient(gulp_base_url) as client:
         await client.auth.login(gulp_test_user, gulp_test_password)
         op_id = await _setup_operation(client)
+        qq = { "query": { "match_none": {} } }
         try:
             result = await client.queries.query_raw(
                 operation_id=op_id,
-                q=[{"match_none": {}}],
+                q=[qq],
                 q_options={"limit": 1},
+                wait=True,
+                timeout=120,
             )
-            # Raw JSON result; may be a list or dict — just assert it's non-None
-            assert result is not None
+            # Query is async, wait=True returns terminal request stats
+            print("query_raw result:", result)
+            assert isinstance(result, dict)
+            assert str(result.get("status", "")).lower() in {"done", "failed", "canceled"}
         finally:
             await _teardown_operation(client, op_id)
 
@@ -110,8 +115,11 @@ async def test_query_gulp_empty_result(gulp_base_url, gulp_test_user, gulp_test_
                 operation_id=op_id,
                 flt={},  # no filter → match all (but index is empty)
                 q_options={"limit": 1},
+                wait=True,
+                timeout=120,
             )
-            assert result is not None
+            assert isinstance(result, dict)
+            assert str(result.get("status", "")).lower() in {"done", "failed", "canceled"}
         finally:
             await _teardown_operation(client, op_id)
 
@@ -241,7 +249,7 @@ async def test_query_sigma_with_ingested_sample(gulp_base_url, gulp_test_user, g
     from gulp_sdk import GulpClient, GulpSDKError
 
     sample_path = Path("/gulp/samples/win_evtx/Security_short_selected.evtx")
-    sigma_rule_path = Path("/gulp/tests/query/sigma/match_all.yaml")
+    sigma_rule_path = Path("/gulp/tests/sigma_match_all.yml")
     if not sample_path.exists() or not sigma_rule_path.exists():
         pytest.skip("Required sample fixtures are missing")
 
@@ -270,7 +278,7 @@ async def test_query_sigma_with_ingested_sample(gulp_base_url, gulp_test_user, g
                 assert isinstance(result, dict)
                 data = result.get("data", {})
                 if isinstance(data, dict):
-                    assert int(data.get("total_hits", 0)) >= 0
+                    assert int(data.get("total_hits", 0)) == 7
             except GulpSDKError as exc:
                 pytest.skip(f"query_sigma not available in current server setup: {exc}")
         finally:
@@ -285,7 +293,7 @@ async def test_query_sigma_zip_optional_extension(gulp_base_url, gulp_test_user,
     from gulp_sdk import GulpClient, GulpSDKError
 
     sample_path = Path("/gulp/samples/win_evtx/Security_short_selected.evtx")
-    sigma_zip_path = Path("/gulp/tests/query/sigma/windows_small.zip")
+    sigma_zip_path = Path("/gulp/tests/sigma_windows_small.zip")
     if not sample_path.exists() or not sigma_zip_path.exists():
         pytest.skip("Required sample fixtures are missing")
 
@@ -307,18 +315,19 @@ async def test_query_sigma_zip_optional_extension(gulp_base_url, gulp_test_user,
                     operation_id=op_id,
                     zip_path=str(sigma_zip_path),
                     src_ids=[],
-                    q_options={"create_notes": False, "limit": 50, "name": "sdk_sigma_zip"},
+                    q_options={"create_notes": False, "name": "sdk_sigma_zip"},
+                    wait=True,
+                    timeout=180,
                 )
                 assert isinstance(resp, dict)
-
-                req_id = resp.get("req_id")
-                if req_id:
-                    final_stats = await _wait_request_done(client, req_id)
-                    assert str(final_stats.get("status", "")).lower() in {
-                        "done",
-                        "failed",
-                        "canceled",
-                    }
+                assert str(resp.get("status", "")).lower() in {
+                    "done",
+                    "failed",
+                    "canceled",
+                }
+                # query_sigma_zip in this setup should normally run 14 rules
+                data = resp.get("data") or {}
+                assert int(data.get("completed_queries", 0)) == 14
             except GulpSDKError as exc:
                 msg = str(exc).lower()
                 if "query_sigma_zip" in msg or "notfound" in msg or "404" in msg:

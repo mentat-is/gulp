@@ -270,6 +270,7 @@ async def test_enrich_remove():
         edit_token,
         TEST_OPERATION_ID,
         flt=GulpQueryFilter(context_ids=["ac019b190bf8e15588812066161cf74137ab3e97"]),
+        req_id="req_enrich_remove",
     )
     assert res["num_deleted"] == 1
     MutyLogger.get_instance().info(test_enrich_remove.__name__ + " succeeded!")

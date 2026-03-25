@@ -39,7 +39,7 @@ class GulpMappingParametersEntry(GulpCollabBase, type=COLLABTYPE_MAPPING_PARAMET
 
     @classmethod
     async def create_if_not_exists(
-        cls, sess: AsyncSession, mapping: dict, user_id
+        cls, sess: AsyncSession, mapping: dict, user_id: str, operation_id: str
     ) -> Tuple["GulpMappingParametersEntry", bool]:
         """Create a mapping parameters entry if not exists. Returns (instance, created_bool)."""
         mp_id = await cls._compute_id_from_mapping(mapping)
@@ -57,6 +57,7 @@ class GulpMappingParametersEntry(GulpCollabBase, type=COLLABTYPE_MAPPING_PARAMET
                 user_id=user_id,
                 name=f"mapping_{mp_id}",
                 obj_id=mp_id,
+                operation_id=operation_id,
                 mapping=mapping,
             )
             MutyLogger.get_instance().debug("mapping parameters %s created by %s", mp.id, user_id)

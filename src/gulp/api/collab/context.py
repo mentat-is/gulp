@@ -152,10 +152,11 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
 
             # store mapping parameters in the dedicated table and reference it
             from gulp.api.collab.mapping_parameters import GulpMappingParametersEntry
-
+            # associate mapping parameters with the operation for easier cleanup
+            mpp = mapping_parameters.model_dump(exclude_none=True)
             mp, _ = await GulpMappingParametersEntry.create_if_not_exists(
-                sess, mapping_parameters.model_dump(exclude_none=True), user_id
-            )
+                sess, mpp, user_id, self.operation_id
+            )            
             temp_mapping_parameters_id = mp.id
         else:
             temp_mapping_parameters_id = None

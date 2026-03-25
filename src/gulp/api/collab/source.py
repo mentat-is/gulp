@@ -63,7 +63,7 @@ class GulpSource(GulpCollabBase, type=COLLABTYPE_SOURCE):
         from gulp.api.collab.mapping_parameters import GulpMappingParametersEntry
 
         mp, created = await GulpMappingParametersEntry.create_if_not_exists(
-            sess, mapping, user_id
+            sess, mapping, user_id, self.operation_id
         )
         await self.update(sess, mapping_parameters_id=mp.id)
         return mp.id

@@ -186,6 +186,9 @@ async def test_enrich_documents_optional(gulp_base_url, gulp_test_user, gulp_tes
                     plugin_params={"custom_parameters": {}},
                 )
                 assert isinstance(result, dict)
+                req_id = (result or {}).get("req_id")
+                assert req_id
+                await _wait_request_done(client, str(req_id))
             except GulpSDKError as exc:
                 pytest.skip(f"enrich_documents optional plugin unavailable: {exc}")
         finally:
