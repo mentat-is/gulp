@@ -41,7 +41,7 @@ Purpose: give an AI coding agent the exact, actionable knowledge it needs to be 
 
 ## Configuration & env vars (must-know) ⚙️
 - Primary config template: `gulp_cfg_template.json` → runtime config at `~/.config/gulp/gulp_cfg.json` (or override with `GULP_WORKING_DIR`).
-- Helpful env vars: `GULP_INTEGRATION_TEST`, `GULP_OPENSEARCH_URL`, `GULP_POSTGRES_URL`, `GULP_REDIS_URL`, `GULP_BIND_TO_ADDR`, `GULP_BIND_TO_PORT`.
+- Helpful env vars: `GULP_OPENSEARCH_URL`, `GULP_POSTGRES_URL`, `GULP_REDIS_URL`, `GULP_BIND_TO_ADDR`, `GULP_BIND_TO_PORT`.
 - Worker/concurrency knobs: `parallel_processes_max`, `concurrency_*` in `gulp_cfg.json`.
 
 ## Adding / changing functionality — checklist for PRs ✍️
@@ -63,4 +63,3 @@ Purpose: give an AI coding agent the exact, actionable knowledge it needs to be 
 
 ## Examples of useful prompts for code changes 🔎
 - "Add an ingestion plugin `foo` that parses X format — create `src/gulp/plugins/foo.py`, tests in `tests/ingest/`, and a mapping file under `mapping_files/`. Follow `win_evtx.py` and `json.py` patterns."
-- "Find tests that rely on GULP_INTEGRATION_TEST and update them to use a temporary operation id."

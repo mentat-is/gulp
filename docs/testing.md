@@ -40,8 +40,8 @@ python3 -m pytest -v -s -x ./tests/integration
 # run stress tests only (needs non-free query_sigma_zip plugin)
 python3 -m pytest -v -s -x ./tests/integration/test_stress.py
 
-# run a specific test
-python3 -m pytest -v -s -x ./tests/integration/test_stress.py::test_concurrent_ingest_and_query_same_operation
+# run a specific test, use full windows sigma rules set
+BIG_SIGMAS=1 python3 -m pytest -v -s -x ./tests/integration/test_stress.py::test_concurrent_ingest_and_query_same_operation
 ~~~
 
 or use the provided [run_tests.sh](../test_scripts/run_tests.sh) script to run all tests automatically (or a subset of them)
