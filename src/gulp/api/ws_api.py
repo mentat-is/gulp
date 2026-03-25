@@ -1498,7 +1498,7 @@ class GulpConnectedSockets:
             )
             existing_socket = self._sockets[ws_id]
             await existing_socket.cleanup()
-            del self._sockets[ws_id]
+            # del self._sockets[ws_id] # cleanup causes the websocket loop to terminate, and the loop already calls remove()
 
         # create connected socket instance
         connected_socket = GulpConnectedSocket(

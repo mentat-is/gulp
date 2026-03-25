@@ -110,6 +110,7 @@ async def test_enrich_core_endpoints(gulp_base_url, gulp_test_user, gulp_test_pa
                 wait=True,
             )
             assert isinstance(tag, dict)
+            assert str(tag.get("status", "")).lower() in {"done", "failed", "canceled"}
 
             rem = await client.enrich.enrich_remove(
                 operation_id=op.id,
@@ -184,11 +185,11 @@ async def test_enrich_documents_optional(gulp_base_url, gulp_test_user, gulp_tes
                     fields={"sdk_bulk_whois": "1.1.1.1"},
                     flt={"operation_ids": [op.id]},
                     plugin_params={"custom_parameters": {}},
+                    wait=True,
+                    timeout=300,
                 )
                 assert isinstance(result, dict)
-                req_id = (result or {}).get("req_id")
-                assert req_id
-                await _wait_request_done(client, str(req_id))
+                assert str(result.get("status", "")).lower() in {"done", "failed", "canceled"}
             except GulpSDKError as exc:
                 pytest.skip(f"enrich_documents optional plugin unavailable: {exc}")
         finally:

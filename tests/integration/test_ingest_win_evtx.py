@@ -130,12 +130,14 @@ async def test_ingest_win_evtx_sample(gulp_base_url, gulp_test_user, gulp_test_p
                 plugin_name="win_evtx",
                 file_path=str(sample_path),
                 context_name="sdk_test_context",
+                wait=True,
+                timeout=300,
             )
 
             assert result.req_id
-            assert result.status in {"pending", "success"}
+            assert str(result.status).lower() in {"done", "failed", "canceled", "success"}
 
-            await _wait_for_ingest_stats(client, {result.req_id})
+            # Confirm ingested documents are present via preview query
             assert await _preview_total_hits(client, op.id) == 7
         finally:
             await client.operations.delete(op.id)
@@ -225,10 +227,12 @@ async def test_ingest_zip_sample(gulp_base_url, gulp_test_user, gulp_test_passwo
                 operation_id=op.id,
                 plugin_name="win_evtx",
                 zipfile_path=str(zip_path),
+                wait=True,
+                timeout=300,
             )
             assert result.req_id
+            assert str(result.status).lower() in {"done", "failed", "canceled", "success"}
 
-            await _wait_for_ingest_stats(client, {result.req_id}, timeout=300.0)
             total_hits = await _preview_total_hits(client, op.id)
             assert total_hits > 0
         finally:
@@ -262,10 +266,11 @@ async def test_ingest_raw_and_status(gulp_base_url, gulp_test_user, gulp_test_pa
                     plugin_name="raw",
                     data=raw_docs,
                     params={"last": True},
+                    wait=True,
+                    timeout=300,
                 )
                 assert result.req_id
-                status = await _wait_request_done(client, result.req_id)
-                assert isinstance(status, dict)
+                assert str(result.status).lower() in {"done", "failed", "canceled", "success"}
             except (GulpSDKError, ValueError) as exc:
                 pytest.skip(f"ingest.raw/status unavailable in current server config: {exc}")
         finally:

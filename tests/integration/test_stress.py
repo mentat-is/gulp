@@ -475,3 +475,135 @@ async def test_concurrent_ingest_and_query_same_operation(
         finally:
             await _delete_op(admin_client, op_id)
             await _cleanup_worker_users(admin_client, worker_user_ids)
+
+def _unique(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+async def _teardown_operation(client, operation_id: str) -> None:
+    try:
+        await client.operations.delete(operation_id)
+    except Exception:
+        pass
+
+async def _setup_operation(client) -> str:
+    op = await client.operations.create(_unique("query_test_op"))
+    return op.id
+
+async def _wait_request_done(client, req_id: str, timeout: float = 180.0) -> dict:
+    """Poll request status until it reaches a terminal state."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        try:
+            stats = await client.plugins.request_get(req_id)
+            status = str(stats.get("status", "")).lower()
+            if status in {"done", "failed", "canceled"}:
+                return stats
+        except Exception:
+            # Request stats creation/read can be eventually consistent right after enqueue.
+            pass
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError(f"Timed out waiting request {req_id}")
+        await asyncio.sleep(1.0)
+
+@pytest.mark.integration
+async def test_query_sigma_zip_big_matches_and_notes(gulp_base_url, gulp_test_user, gulp_test_password):
+    """
+    Run query_sigma_zip using the BIG_SIGMAS ruleset and verify progress, matches and notes.
+
+    This test supports a fast path with SKIP_RESET=1 for pre-ingested datasets.
+    """
+    from gulp_sdk import GulpClient, GulpSDKError
+
+    big = os.getenv("BIG_SIGMAS", "0").lower() in {"1", "true", "yes", "on"}
+    sigma_zip_path = Path("/gulp/tests/sigma_windows.zip" if big else "/gulp/tests/sigma_windows_small.zip")
+    expected_completed = 1149 if big else 14
+    expected_matches = 73464 if big else 15
+    expected_ingested = 98633
+
+    sample_dir = Path("/gulp/samples/win_evtx")
+    if not sample_dir.exists() or not sigma_zip_path.exists():
+        pytest.skip("Required sigma or sample fixtures are missing")
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op_id = await _setup_operation(client)
+        try:
+            evtx_files = sorted(sample_dir.rglob("*.evtx"))
+            if not evtx_files:
+                pytest.skip(f"No EVTX samples found in {sample_dir}")
+
+            ingest_tasks = []
+            for file_path in evtx_files:
+                ingest_tasks.append(
+                    client.ingest.file(
+                        operation_id=op_id,
+                        plugin_name="win_evtx",
+                        file_path=str(file_path),
+                        context_name="sdk_sigma_zip_context",
+                    )
+                )
+
+            ingest_results = await asyncio.gather(*ingest_tasks, return_exceptions=True)
+
+            stats_tasks = []
+            for ingest in ingest_results:
+                if isinstance(ingest, Exception):
+                    pytest.skip(f"win_evtx ingest failed: {ingest}")
+                ingest_req_id = getattr(ingest, "req_id", None) or (
+                    ingest.get("req_id") if isinstance(ingest, dict) else None
+                )
+                if ingest_req_id:
+                    stats_tasks.append(_wait_request_done(client, ingest_req_id, timeout=600))
+
+            stats_results = await asyncio.gather(*stats_tasks, return_exceptions=True)
+            tot_ingested: int = 0
+            for stats in stats_results:
+                if isinstance(stats, Exception):
+                    pytest.skip(f"win_evtx status polling failed: {stats}")
+                ingest_status = str(stats.get("status", "")).lower()
+                ingested = stats.get("data", {}).get("records_ingested", 0)
+                tot_ingested += ingested
+                if ingest_status != "done" and ingest_status != "failed":
+                    pytest.skip(
+                        f"win_evtx ingest did not finish successfully (status={ingest_status})"
+                    )
+            assert tot_ingested == expected_ingested, f"Unexpected total ingested count (must be {expected_ingested}): {tot_ingested}"
+
+            try:
+                req_stats = await client.queries.query_sigma_zip(
+                    operation_id=op_id,
+                    zip_path=str(sigma_zip_path),
+                    src_ids=[],
+                    q_options={"create_notes": True, "name": "sdk_sigma_zip_big"},
+                    wait=True,
+                )
+            except GulpSDKError as exc:
+                msg = str(exc).lower()
+                if "query_sigma_zip" in msg or "notfound" in msg or "404" in msg:
+                    pytest.skip("query_sigma_zip extension endpoint not available")
+                pytest.skip(f"query_sigma_zip unavailable in this environment: {exc}")
+
+            assert isinstance(req_stats, dict)
+            status = str(req_stats.get("status", "")).lower()
+            assert status in {"done", "failed", "canceled"}
+
+            data = req_stats.get("data") or {}
+            assert int(data.get("completed_queries", 0)) == expected_completed
+            assert int(data.get("total_hits", 0)) == expected_matches
+
+            # notes check
+            notes = []
+            flt = {"operation_ids": [op_id], "limit": 1000, "offset": 0}
+            while True:
+                chunk = await client.collab.note_list(operation_id=op_id, flt=flt)
+                if not chunk:
+                    break
+                notes.extend(chunk)
+                flt["offset"] += len(chunk)
+
+            assert len(notes) == expected_matches
+
+        finally:
+            await _teardown_operation(client, op_id)
+
+

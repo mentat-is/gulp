@@ -12,30 +12,36 @@
 ensure [gulp api client sdk](https://github.com/mentat-is/gulp-sdk) is installed
 
 ~~~bash
-pip3 install -e ./gulp-sdk-python
+pip3 install -e ./gulp-sdk
 ~~~
 
 start gulp first
 
 ~~~bash
-# run gulp on localhost:8080
-# setting GULP_INTEGRATION_TEST is mandatory when running tests (disables debug features if forgotten activated)
-# we also ensure to start in the most clean way (recreate collab db, create test operation, delete all existing data)
-GULP_INTEGRATION_TEST=1 gulp --reset-collab --create test_operation
+gulp --reset-collab --create test_operation
 ~~~
 
 ## running tests
 
 tests are located in the [tests](../tests) folder and can be run independently, i.e.
 
-> [tests/smoke_test.sh](../tests/smoke_test.sh) is a test script that runs a subset of critical tests in sequence (~10 minutes), stopping at the first failure: it is useful to verify if the main functionalities are working as expected.
+> [stress_test](../tests/integration/test_stress.py) is a test that runs a subset of critical tests in sequence: it is useful to verify if the main functionalities are working as expected.
 
 ~~~bash
-python3 -m pytest -v -s -x ./tests/query/test_query_api.py
-python3 -m pytest -v -s -x ./tests/test_note.py
+# run all
+python3 -m pytest -v -s -x ./tests/
 
-# also specifying the single function to run
-python3 -m pytest -v -s -x ./tests/test_note.py::test_note_many
+# run all with coverage
+pytest -v -s -x --cov=gulp_sdk tests/
+
+# run integration tests only
+python3 -m pytest -v -s -x ./tests/integration
+
+# run stress tests only (needs non-free query_sigma_zip plugin)
+python3 -m pytest -v -s -x ./tests/integration/test_stress.py
+
+# run a specific test
+python3 -m pytest -v -s -x ./tests/integration/test_stress.py::test_concurrent_ingest_and_query_same_operation
 ~~~
 
 or use the provided [run_tests.sh](../test_scripts/run_tests.sh) script to run all tests automatically (or a subset of them)

@@ -18,4 +18,5 @@ if [ ! -d "$_WORKING_DIR" ]; then
   exit 1
 fi
 rm $_WORKING_DIR/.first_run_done
+rm $_WORKING_DIR/gulp.pid
 echo "[.] done"

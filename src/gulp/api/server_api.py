@@ -220,8 +220,13 @@ class GulpServer:
             except:
                 body = ""
 
-        # take the first 1k bytes of the body
+        print_error: bool = True
+        # take the first 1k bytes of the body        
         body = muty.string.make_shorter(str(body), max_len=1024)
+        if '/request_get_by_id' in r.url.path and status_code == 404:
+            # suppress printing of 404s for request_get_by_id to avoid log spam, since it's frequently polled by the client for pending requests
+            print_error = False 
+        # print("***** print_response=%r, r.url.path=%s, status_code=%d, ex=%s" % (print_error, r.url.path, status_code, ex))
         js = JSendResponse.error(
             req_id=req_id,
             ex=ex,
@@ -235,6 +240,7 @@ class GulpServer:
                 }
             },
             name=name,
+            print_response=print_error,
         )
         return JSONResponse(js, status_code=status_code)
 

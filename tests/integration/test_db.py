@@ -120,14 +120,12 @@ async def test_rebase_by_query_optional(gulp_base_url, gulp_test_user, gulp_test
                     ws_id=client.ws_id,
                     offset_msec=1,
                     flt={"operation_ids": [op.id]},
+                    wait=True,
+                    timeout=300,
                 )
                 assert isinstance(result, dict)
-                req_id = result.get("req_id")
-                assert req_id
-                d =  await _wait_request_done(client, str(req_id))
-                assert isinstance(d, dict)
-                assert str(d.get("status", "")).lower() == "done"
-                assert int(d.get("data", {}).get("updated", 0)) == 7
+                assert str(result.get("status", "")).lower() == "done"
+                assert int(result.get("data", {}).get("updated", 0)) == 7
             except GulpSDKError as exc:
                 pytest.skip(f"db.rebase_by_query unavailable in current server config: {exc}")
         finally:

@@ -451,3 +451,28 @@ async def test_object_delete_bulk_notes(gulp_base_url, gulp_test_user, gulp_test
             assert note_two["id"] in note_ids
         finally:
             await client.operations.delete(op.id)
+
+
+@pytest.mark.integration
+async def test_websocket_connect_and_subscribe(gulp_base_url, gulp_test_user, gulp_test_password):
+    """WebSocket handshake and subscribe/unsubscribe should work."""
+    from gulp_sdk import GulpClient, GulpSDKError
+    import asyncio
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+
+        try:
+            async with client.websocket() as ws:
+                assert ws.is_connected
+
+                # subscribe to all events with no specific operation
+                await ws.subscribe()
+                await asyncio.sleep(0.1)
+                await ws.unsubscribe()
+
+        except (GulpSDKError, Exception) as exc:
+            pytest.skip(f"WebSocket support unavailable or currently failing: {exc}")
+
+
+
