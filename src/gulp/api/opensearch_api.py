@@ -1432,8 +1432,9 @@ class GulpOpenSearch:
             )
             hits = res["hits"]["hits"]
             if not hits:
-                # this is the last chunk
+                # finished
                 last = True
+                num_updated = 0 # avoid readding the last chunk if we already updated it in the previous iteration
             else:
                 # call update_by_query on the doc_ids chunk
                 total_hits = res["hits"]["total"]["value"]

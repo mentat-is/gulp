@@ -25,3 +25,18 @@ dependencies = { file = ["requirements.txt"] }
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
+
+# Ensure pytest loads the asyncio plugin when available
+addopts = "-p pytest_asyncio"
+asyncio_mode = "auto"
+minversion = "7.0"
+
+# Match SDK pytest markers to avoid marker warnings
+markers = [
+	"integration: Integration tests (requires live Gulp server)",
+	"e2e: End-to-end tests",
+]
+
+[project.optional-dependencies]
+# Development extras (install with `pip install -e .[dev]` or `pip install .[dev]`)
+dev = ["pytest-asyncio>=0.24.0"]

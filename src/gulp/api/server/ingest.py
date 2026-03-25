@@ -325,7 +325,7 @@ async def _ingest_file_internal(
                 )
             except Exception as ae:
                 if isinstance(ae, AttributeError):
-                    MutyLogger.get_instance().error(ae)
+                    # MutyLogger.get_instance().exception(ae) # exception like 'NoneType' object has no attribute 'status' at return stats.status in plugins is nornmal in preview_mode (no stats generated)
                     # MutyLogger.get_instance().debug("type=%s, %s", type(payload.plugin_params),payload.plugin_params)
                     if payload.plugin_params.preview_mode:
                         # get the accumulated preview chunk and we're done
@@ -376,6 +376,7 @@ async def run_ingest_file_task(t: dict):
     ingest_args: dict = t["params"]
     ingest_args["user_id"] = t["user_id"]
     ingest_args["operation_id"] = t["operation_id"]
+    pp = ingest_args.get("payload", {}) # save for later in case of errors
     ingest_args["payload"] = GulpIngestPayload.model_validate(ingest_args["payload"])
     # MutyLogger.get_instance().debug(
     #     "run_ingest_file_task, t=%s", t)
@@ -383,8 +384,9 @@ async def run_ingest_file_task(t: dict):
     try:
         await _ingest_file_internal(**ingest_args)
     except:
+        ingest_args["payload"] = pp # restore original payload for logging
         MutyLogger.get_instance().exception(
-            "***ERROR*** in run_ingest_file_task, task=%s", muty.string.make_shorter(str(t), max_len=260)
+            "***ERROR*** in run_ingest_file_task, task=%s", orjson.dumps(t, option=orjson.OPT_INDENT_2).decode()
         )
 
 
@@ -849,7 +851,7 @@ async def ingest_file_local_handler(
     ],
     plugin_params: Annotated[
         GulpPluginParameters,
-        Depends(APIDependencies.param_plugin_params),
+        Depends(APIDependencies.param_plugin_params_optional),
     ] = None,
     flt: Annotated[
         GulpIngestionFilter,
@@ -874,8 +876,10 @@ async def ingest_file_local_handler(
     # compute local path
     path = muty.file.safe_path_join(GulpConfig.get_instance().path_ingest_local(), path)
     MutyLogger.get_instance().info("ingesting local file: %s", path)
-
     try:
+        if not await muty.file.exists_async(path):
+            raise FileNotFoundError(f"file not found: {path}")
+
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             op: GulpOperation
@@ -972,7 +976,9 @@ async def ingest_file_local_to_source_handler(
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
-    params["plugin_params"] = plugin_params.model_dump(exclude_none=True) or GulpPluginParameters()
+    if not plugin_params:
+        plugin_params = GulpPluginParameters()
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
     # compute local path
@@ -982,8 +988,10 @@ async def ingest_file_local_to_source_handler(
     MutyLogger.get_instance().info(
         "ingesting local file=%s, to source=%s", path, source_id
     )
-
     try:
+        if not await muty.file.exists_async(path):
+            raise FileNotFoundError(f"file not found: {path}")
+
         async with GulpCollab.get_instance().session() as sess:
             # get source by id and check acl
             s: GulpUserSession
@@ -1282,6 +1290,7 @@ async def _ingest_zip_internal(
                 await sess.commit()
             except Exception as ex:
                 # set finished manually (we haven't reached the ingest loop yet)
+                # MutyLogger.get_instance().exception(ex)
                 await stats.set_finished(
                     sess,
                     GulpRequestStatus.FAILED,
@@ -1547,7 +1556,9 @@ async def ingest_zip_local_handler(
             GulpConfig.get_instance().path_ingest_local(), path
         )
         MutyLogger.get_instance().info("ingesting local ZIP file: %s", path)
-
+        if not await muty.file.exists_async(path):
+            raise FileNotFoundError(f"file not found: {path}")
+        
         async with GulpCollab.get_instance().session() as sess:
             try:
                 # get operation and check acl
@@ -1625,14 +1636,17 @@ async def ingest_local_list_handler(
 
     try:
         async with GulpCollab.get_instance().session() as sess:
-            await GulpUserSession.check_token(
-                sess, token, permission=GulpUserPermission.INGEST
-            )
-
             local_dir: str = GulpConfig.get_instance().path_ingest_local()
             MutyLogger.get_instance().info(
                 "listing local ingestion directory: %s", local_dir
             )
+            if not await muty.file.exists_async(local_dir):
+                raise FileNotFoundError(f"directory not found: {local_dir}")
+
+            await GulpUserSession.check_token(
+                sess, token, permission=GulpUserPermission.INGEST
+            )
+
             l = await muty.file.list_directory_async(
                 local_dir, files_only=True, recursive=True
             )
@@ -1645,5 +1659,4 @@ async def ingest_local_list_handler(
 
             return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
         raise JSendException(req_id=req_id) from ex

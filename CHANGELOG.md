@@ -3,7 +3,8 @@
 ## new features
 
 - architecture: observability via Prometheus metrics and Grafana dashboards (check the `docs/observability.md` for instructions)
-- sdk: integrating new polished python SDK, used for the tests.
+- sdk: integrating new polished python SDK (https://github.com/mentat-is/gulp-sdk), tests are still missing for most of the plugins but the core tests are fully functional (docs/testing.md)
+
  
 ## bugfixes
 

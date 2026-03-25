@@ -3237,6 +3237,7 @@ class GulpPluginBase(ABC):
                 self._sess,
                 self._plugin_params.mapping_parameters.model_dump(exclude_none=True),
                 self._user_id,
+                self._operation_id
             )
             await n.update(self._sess, plugin=self.name, mapping_parameters_id=mp.id)
 

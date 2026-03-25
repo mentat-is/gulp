@@ -26,9 +26,9 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "[.] Installing gulp sdk (for tests, bridges, ...)"
-pip3 install --timeout=1000 -e ./gulp-sdk-python
+pip3 install --timeout=1000 -e ./gulp-sdk
 if [ $? -ne 0 ]; then
-	echo "[-] Failed to install gulp-sdk-python"
+	echo "[-] Failed to install gulp-sdk for python"
 	exit 1
 fi
 

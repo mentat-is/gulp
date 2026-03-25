@@ -14,14 +14,12 @@ while integration with an external application may be done using an [external pl
 so, it is possible to create a `bridge` between gulp and the external application using custom methods (depending on the source) to access the data and then feed it to gulp via the `REST API`.
 
 > ideally, a gulp bridge should be a `microservice` running alongside gulp, possibly exposing itself an API for integration.
->
-
-to ease developing bridges using python, a [WIP gulp SDK](https://github.com/mentat-is/gulp-sdk-python) is in the works.
 
 this guide explains how to perform the integration leveraging the `/ingest_raw` and/or the WebSocket endpoint `/ws_ingest_raw` to feed the data from a `gulp bridge`.
 
 > for further documentation, read the [bridge manager plugin documentation](./plugins/bridge_manager.md) and the [bridge manager source code](../src/gulp/plugins/extension/bridge_manager.py).
 > You can find an example of bridge code and its documentation [here](https://github.com/mentat-is/gulp-bridge-example)
+> also check the [Python SDK](https://github.com/mentat-is/gulp-sdk) for API reference.
 
 ## the raw plugin
 

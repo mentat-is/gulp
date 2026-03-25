@@ -23,7 +23,7 @@ from gulp.api.s3_api import GulpS3
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 from gulp.plugin import GulpInternalEventsManager
-from gulp.structs import ObjectAlreadyExists
+from gulp.structs import GulpPluginParameters, ObjectAlreadyExists
 
 router: APIRouter = APIRouter()
 
@@ -266,6 +266,7 @@ async def operation_delete_handler(
                     ),
                     throw_if_not_found=False,
                 )
+                MutyLogger.get_instance().debug("%d running requests during operation_delete: %s", len(running_requests), running_requests)
                 if running_requests:
                     running_request_ids = sorted({r.id for r in running_requests if r and r.id})
                     raise ValueError(
@@ -899,6 +900,17 @@ async def source_create_handler(
             example="test_source",
         ),
     ],
+    plugin: Annotated[
+        Optional[str],
+        Query(
+            description="name of the plugin related to the source, if applicable.",
+            example="win_evtx",
+        )
+    ] = None,
+    plugin_params: Annotated[
+        GulpPluginParameters,
+        Depends(APIDependencies.param_plugin_params_optional),
+    ] = None,
     ws_id: Annotated[Optional[str],Depends(APIDependencies.param_ws_id_optional)] = None,
     fail_if_exists: Annotated[
         Optional[bool],
@@ -913,7 +925,9 @@ async def source_create_handler(
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
-    ServerUtils.dump_params(locals())
+    params = locals()
+    params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
     try:
         async with GulpCollab.get_instance().session() as sess:
             s: GulpUserSession
@@ -927,7 +941,6 @@ async def source_create_handler(
                 permission=GulpUserPermission.INGEST,
             )
             assert ctx.operation_id == operation_id
-
             src, created = await ctx.add_source(
                 sess,
                 s.user.id,
@@ -935,6 +948,8 @@ async def source_create_handler(
                 ws_id=ws_id,
                 req_id=req_id,
                 color=color,
+                plugin=plugin,
+                mapping_parameters=plugin_params.mapping_parameters,
                 glyph_id=glyph_id,
             )
             if not created and fail_if_exists:

@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from llvmlite.tests.test_ir import flt
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
+import orjson
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.operation import GulpOperation
@@ -106,6 +107,7 @@ async def _rebase_callback(
     errors: list[str] = cb_context["errors"]
     stats: GulpRequestStats = cb_context["stats"]
     ws_id: str = cb_context["ws_id"]
+    # print("******************** rebase callback, total=%d, current=%d, last=%s, errors=%s, status=%s" % (total, current, last, errors, stats.status if stats else None))
     await stats.update_updatedocuments_stats(
         sess,
         user_id=stats.user_id,
@@ -180,8 +182,9 @@ async def run_rebase_task(t: dict) -> None:
         )
 
     except Exception as ex:
-        MutyLogger.get_instance().exception("error in run_rebase_task: %s", ex)
-
+        MutyLogger.get_instance().exception(
+            "***ERROR*** in run_rebase_task, task=%s", orjson.dumps(t, option=orjson.OPT_INDENT_2).decode()
+        )
 
 async def _rebase_by_query_internal(
     req_id: str,
@@ -252,6 +255,11 @@ async def _rebase_by_query_internal(
                         )
                 raise
             finally:
+                MutyLogger.get_instance().debug(
+                    "****** rebase_by_query finished, total_hits=%d, total_updated=%d, errors=%s",
+                    total_hits,
+                    total_updated,
+                    errors)
                 if stats and total_updated >= 0:
                     # send a WSDATA_REBASE_DONE packet to the websocket
                     await GulpRedisBroker.get_instance().put(

@@ -315,8 +315,9 @@ async def run_query_task(t: dict) -> None:
                 ignore_failures=ignore_failures,
             )
     except Exception as ex:
-        MutyLogger.get_instance().exception("error in run_query_task: %s", ex)
-
+        MutyLogger.get_instance().exception(
+            "***ERROR*** in run_query_task, task=%s", orjson.dumps(t, option=orjson.OPT_INDENT_2).decode()
+        )
 
 async def run_query(
     user_id: str,

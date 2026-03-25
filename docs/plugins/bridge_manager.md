@@ -471,7 +471,7 @@ The Bridge Manager can be configured via `gulp_cfg.json`:
 - [Integration Guide](./integration.md) - How bridges feed data to Gulp
 - [Plugins and Mapping](./plugins_and_mapping.md) - Understanding ingestion plugins and field mapping
 - [Architecture](./architecture.md) - Gulp's overall architecture
-- [gulp-sdk-python](https://github.com/mentat-is/gulp-sdk-python) - Python SDK for building bridges
+- [Python SDK](https://github.com/mentat-is/gulp-sdk) - Python SDK for building bridges
 
 ---
 
@@ -558,4 +558,4 @@ curl -X POST "http://gulp-host:8080/ingest_raw?token=INGEST_TOKEN&operation_id=x
 **Via WebSocket:**
 Connect to `ws://gulp-host:8080/ws_ingest_raw` for real-time streaming.
 
-For complete bridge development guidance, see the [gulp-sdk-python](https://github.com/mentat-is/gulp-sdk-python) repository.
+For API reference to build a bridge, see the [Python SDK](https://github.com/mentat-is/gulp-sdk) repository.
