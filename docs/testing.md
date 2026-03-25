@@ -37,7 +37,7 @@ pytest -v -s -x --cov=gulp_sdk tests/
 # run integration tests only
 python3 -m pytest -v -s -x ./tests/integration
 
-# run stress tests only (needs non-free query_sigma_zip plugin)
+# run stress tests only (NOTE: the sigma-zip part needs the non-free query_sigma_zip plugin)
 python3 -m pytest -v -s -x ./tests/integration/test_stress.py
 
 # run a specific test, use full windows sigma rules set
