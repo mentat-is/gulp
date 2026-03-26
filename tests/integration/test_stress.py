@@ -489,22 +489,6 @@ async def _setup_operation(client) -> str:
     op = await client.operations.create(_unique("query_test_op"))
     return op.id
 
-async def _wait_request_done(client, req_id: str, timeout: float = 180.0) -> dict:
-    """Poll request status until it reaches a terminal state."""
-    deadline = asyncio.get_running_loop().time() + timeout
-    while True:
-        try:
-            stats = await client.plugins.request_get(req_id)
-            status = str(stats.get("status", "")).lower()
-            if status in {"done", "failed", "canceled"}:
-                return stats
-        except Exception:
-            # Request stats creation/read can be eventually consistent right after enqueue.
-            pass
-        if asyncio.get_running_loop().time() >= deadline:
-            raise TimeoutError(f"Timed out waiting request {req_id}")
-        await asyncio.sleep(1.0)
-
 @pytest.mark.integration
 async def test_query_sigma_zip_big_matches_and_notes(gulp_base_url, gulp_test_user, gulp_test_password):
     """
@@ -513,6 +497,7 @@ async def test_query_sigma_zip_big_matches_and_notes(gulp_base_url, gulp_test_us
     This test supports a fast path with SKIP_RESET=1 for pre-ingested datasets.
     """
     from gulp_sdk import GulpClient, GulpSDKError
+    from gulp_sdk.websocket import WSMessage, WSMessageType
 
     big = os.getenv("BIG_SIGMAS", "0").lower() in {"1", "true", "yes", "on"}
     sigma_zip_path = Path("/gulp/tests/sigma_windows.zip" if big else "/gulp/tests/sigma_windows_small.zip")
@@ -532,76 +517,217 @@ async def test_query_sigma_zip_big_matches_and_notes(gulp_base_url, gulp_test_us
             if not evtx_files:
                 pytest.skip(f"No EVTX samples found in {sample_dir}")
 
-            ingest_tasks = []
-            for file_path in evtx_files:
-                ingest_tasks.append(
-                    client.ingest.file(
-                        operation_id=op_id,
-                        plugin_name="win_evtx",
-                        file_path=str(file_path),
-                        context_name="sdk_sigma_zip_context",
+            ingest_ws_terminal_by_req: dict[str, dict[str, Any]] = {}
+
+            def _on_ingest_ws_message(message: WSMessage) -> None:
+                if message.type != WSMessageType.STATS_UPDATE.value:
+                    return
+                payload_obj = message.data.get("obj") if isinstance(message.data, dict) else None
+                if not isinstance(payload_obj, dict):
+                    return
+                payload_status = str(payload_obj.get("status", "")).lower()
+                if payload_status in {"done", "failed", "canceled"}:
+                    ingest_ws_terminal_by_req[message.req_id] = payload_obj
+
+            await client.register_ws_message_handler(
+                WSMessageType.STATS_UPDATE, _on_ingest_ws_message
+            )
+            try:
+                ingest_tasks = []
+                for file_path in evtx_files:
+                    ingest_tasks.append(
+                        client.ingest.file(
+                            operation_id=op_id,
+                            plugin_name="win_evtx",
+                            file_path=str(file_path),
+                            context_name="sdk_sigma_zip_context",
+                            wait=True,
+                            timeout=600,
+                        )
                     )
+
+                ingest_results = await asyncio.gather(*ingest_tasks, return_exceptions=True)
+                tot_ingested: int = 0
+                for ingest in ingest_results:
+                    if isinstance(ingest, Exception):
+                        pytest.skip(f"win_evtx ingest failed: {ingest}")
+
+                    ingest_status = str(getattr(ingest, "status", "")).lower()
+                    ingest_req_id = str(getattr(ingest, "req_id", ""))
+                    if ingest_status != "done" and ingest_status != "failed":
+                        pytest.skip(
+                            f"win_evtx ingest did not finish successfully (status={ingest_status})"
+                        )
+
+                    assert ingest_req_id, "Missing req_id for win_evtx ingest request"
+                    ingest_terminal = ingest_ws_terminal_by_req.get(ingest_req_id)
+                    assert ingest_terminal is not None, (
+                        f"Missing terminal STATS_UPDATE websocket notification for ingest req_id={ingest_req_id}"
+                    )
+
+                    ingest_data = ingest_terminal.get("data") or {}
+                    tot_ingested += int(ingest_data.get("records_ingested", 0))
+            finally:
+                client.unregister_ws_message_handler(
+                    WSMessageType.STATS_UPDATE, _on_ingest_ws_message
                 )
 
-            ingest_results = await asyncio.gather(*ingest_tasks, return_exceptions=True)
-
-            stats_tasks = []
-            for ingest in ingest_results:
-                if isinstance(ingest, Exception):
-                    pytest.skip(f"win_evtx ingest failed: {ingest}")
-                ingest_req_id = getattr(ingest, "req_id", None) or (
-                    ingest.get("req_id") if isinstance(ingest, dict) else None
-                )
-                if ingest_req_id:
-                    stats_tasks.append(_wait_request_done(client, ingest_req_id, timeout=600))
-
-            stats_results = await asyncio.gather(*stats_tasks, return_exceptions=True)
-            tot_ingested: int = 0
-            for stats in stats_results:
-                if isinstance(stats, Exception):
-                    pytest.skip(f"win_evtx status polling failed: {stats}")
-                ingest_status = str(stats.get("status", "")).lower()
-                ingested = stats.get("data", {}).get("records_ingested", 0)
-                tot_ingested += ingested
-                if ingest_status != "done" and ingest_status != "failed":
-                    pytest.skip(
-                        f"win_evtx ingest did not finish successfully (status={ingest_status})"
-                    )
             assert tot_ingested == expected_ingested, f"Unexpected total ingested count (must be {expected_ingested}): {tot_ingested}"
 
+            query_req_id = _unique("sigma_zip_req")
+            ws_stats_update_count = 0
+            ws_query_done_count = 0
+            ws_collab_create_count = 0
+            ws_terminal_payload: dict[str, Any] | None = None
+            ws_assertion_errors: list[str] = []
+            query_terminal_event = asyncio.Event()
+            query_timeout = int(os.getenv("GULP_SIGMA_ZIP_TIMEOUT", "600"))
+
+            def _on_query_ws_message(message: WSMessage) -> None:
+                nonlocal ws_stats_update_count, ws_query_done_count, ws_terminal_payload
+                if message.req_id != query_req_id:
+                    return
+                if message.type == WSMessageType.STATS_UPDATE.value:
+                    ws_stats_update_count += 1
+                    payload = message.data.get("obj") if isinstance(message.data, dict) else None
+                    if isinstance(payload, dict):
+                        payload_status = str(payload.get("status", "")).lower()
+                        if payload_status in {"done", "failed", "canceled"}:
+                            ws_terminal_payload = payload
+                            # Validate expected stats immediately inside the callback so
+                            # failures are captured at the moment the terminal packet arrives.
+                            cb_data = payload.get("data") or {}
+                            got_completed = int(cb_data.get("completed_queries", 0))
+                            got_hits = int(cb_data.get("total_hits", 0))
+                            if got_completed != expected_completed:
+                                ws_assertion_errors.append(
+                                    f"completed_queries mismatch in terminal WS payload: "
+                                    f"got {got_completed}, expected {expected_completed}"
+                                )
+                            if got_hits != expected_matches:
+                                ws_assertion_errors.append(
+                                    f"total_hits mismatch in terminal WS payload: "
+                                    f"got {got_hits}, expected {expected_matches}"
+                                )
+                            query_terminal_event.set()
+                elif message.type == WSMessageType.QUERY_DONE.value:
+                    ws_query_done_count += 1
+
+            def _on_collab_create_ws_message(message: WSMessage) -> None:
+                nonlocal ws_collab_create_count
+                # collab_create for query-created notes can be single-object or bulk.
+                payload_obj = message.data.get("obj") if isinstance(message.data, dict) else None
+                if isinstance(payload_obj, dict):
+                    if payload_obj.get("operation_id") == op_id and payload_obj.get("type") == "note":
+                        ws_collab_create_count += 1
+                    return
+
+                if isinstance(payload_obj, list):
+                    for obj in payload_obj:
+                        if not isinstance(obj, dict):
+                            continue
+                        if obj.get("operation_id") == op_id and obj.get("type") == "note":
+                            ws_collab_create_count += 1
+            # Register callback on the websocket BEFORE firing the query so that
+            # no messages are missed.  query_sigma_zip is called with wait=False
+            # and therefore never calls wait_for_request_stats internally, so the
+            # registration must be explicit here.
+            await client.register_ws_message_handler(
+                WSMessageType.STATS_UPDATE, _on_query_ws_message
+            )
+            await client.register_ws_message_handler(
+                WSMessageType.QUERY_DONE, _on_query_ws_message
+            )
+            await client.register_ws_message_handler(
+                WSMessageType.COLLAB_CREATE, _on_collab_create_ws_message
+            )
             try:
-                req_stats = await client.queries.query_sigma_zip(
-                    operation_id=op_id,
-                    zip_path=str(sigma_zip_path),
-                    src_ids=[],
-                    q_options={"create_notes": True, "name": "sdk_sigma_zip_big"},
-                    wait=True,
+                try:
+                    query_resp = await client.queries.query_sigma_zip(
+                        operation_id=op_id,
+                        zip_path=str(sigma_zip_path),
+                        src_ids=[],
+                        q_options={"create_notes": True, "name": "sdk_sigma_zip_big"},
+                        req_id=query_req_id,
+                        wait=False,
+                    )
+                except GulpSDKError as exc:
+                    msg = str(exc).lower()
+                    if "query_sigma_zip" in msg or "notfound" in msg or "404" in msg:
+                        pytest.skip("query_sigma_zip extension endpoint not available")
+                    pytest.skip(f"query_sigma_zip unavailable in this environment: {exc}")
+
+                assert isinstance(query_resp, dict)
+                assert str(query_resp.get("status", "")).lower() == "pending"
+                assert str(query_resp.get("req_id", "")) == query_req_id
+
+                # Wait exclusively for the websocket terminal event — no polling fallback.
+                try:
+                    await asyncio.wait_for(query_terminal_event.wait(), timeout=query_timeout)
+                except asyncio.TimeoutError as exc:
+                    raise AssertionError(
+                        f"query_sigma_zip did not deliver a terminal STATS_UPDATE websocket "
+                        f"notification within {query_timeout}s for req_id={query_req_id}"
+                    ) from exc
+
+            except asyncio.TimeoutError as exc:
+                raise AssertionError(
+                    f"query_sigma_zip did not finish within {query_timeout}s for req_id={query_req_id}"
+                ) from exc
+            finally:
+                client.unregister_ws_message_handler(
+                    WSMessageType.STATS_UPDATE, _on_query_ws_message
                 )
-            except GulpSDKError as exc:
-                msg = str(exc).lower()
-                if "query_sigma_zip" in msg or "notfound" in msg or "404" in msg:
-                    pytest.skip("query_sigma_zip extension endpoint not available")
-                pytest.skip(f"query_sigma_zip unavailable in this environment: {exc}")
+                client.unregister_ws_message_handler(
+                    WSMessageType.QUERY_DONE, _on_query_ws_message
+                )
+                client.unregister_ws_message_handler(
+                    WSMessageType.COLLAB_CREATE, _on_collab_create_ws_message
+                )
 
-            assert isinstance(req_stats, dict)
-            status = str(req_stats.get("status", "")).lower()
-            assert status in {"done", "failed", "canceled"}
+            # ---- assertions on websocket state ----
+            assert ws_assertion_errors == [], (
+                "Stats mismatch detected inside WS terminal callback:\n"
+                + "\n".join(ws_assertion_errors)
+            )
+            assert isinstance(ws_terminal_payload, dict), (
+                f"Expected terminal STATS_UPDATE websocket notification for req_id={query_req_id}"
+            )
+            status = str(ws_terminal_payload.get("status", "")).lower()
+            assert status in {"done", "failed", "canceled"}, (
+                f"Unexpected terminal status={status!r} for req_id={query_req_id}"
+            )
+            assert ws_stats_update_count > 0, (
+                f"Expected STATS_UPDATE websocket notifications for req_id={query_req_id}"
+            )
+            assert ws_query_done_count == expected_completed, (
+                f"Expected exactly {expected_completed} QUERY_DONE websocket notifications "
+                f"for req_id={query_req_id}, got {ws_query_done_count}"
+            )
+            assert ws_collab_create_count == expected_matches, (
+                f"Expected exactly {expected_matches} COLLAB_CREATE note events, got {ws_collab_create_count}"
+            )
 
-            data = req_stats.get("data") or {}
-            assert int(data.get("completed_queries", 0)) == expected_completed
-            assert int(data.get("total_hits", 0)) == expected_matches
+            # Notes cardinality check using paging from offset 0 in batches.
+            # This avoids large offset scans and scales with high note counts.
+            page_size = 10000
+            offset = 0
+            observed_notes = 0
 
-            # notes check
-            notes = []
-            flt = {"operation_ids": [op_id], "limit": 1000, "offset": 0}
             while True:
-                chunk = await client.collab.note_list(operation_id=op_id, flt=flt)
-                if not chunk:
+                batch = await client.collab.note_list(
+                    operation_id=op_id,
+                    flt={"operation_ids": [op_id], "limit": page_size, "offset": offset},
+                )
+                batch_count = len(batch)
+                observed_notes += batch_count
+                if batch_count < page_size:
                     break
-                notes.extend(chunk)
-                flt["offset"] += len(chunk)
+                offset += page_size
 
-            assert len(notes) == expected_matches
+            assert observed_notes == expected_matches, (
+                f"Expected exactly {expected_matches} notes, got {observed_notes}"
+            )
 
         finally:
             await _teardown_operation(client, op_id)

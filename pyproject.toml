@@ -35,6 +35,7 @@ minversion = "7.0"
 markers = [
 	"integration: Integration tests (requires live Gulp server)",
 	"e2e: End-to-end tests",
+	"stress: Stress tests (long-running, resource-intensive tests with ingestion/query)",
 ]
 
 [project.optional-dependencies]

@@ -2155,8 +2155,7 @@ class GulpOpenSearch:
         def _contains_marker(payload: Optional[object]) -> bool:
             markers = [
                 "circuit_breaking_exception",
-                "matches too many fields",
-                "field expansion for [*]",
+                "data too large",
             ]
             if payload is None:
                 return False
