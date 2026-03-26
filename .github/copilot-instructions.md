@@ -1,28 +1,14 @@
-<!-- vscode-markdown-toc -->
-* 1. [Quick context (big picture) 🔧](#Quickcontextbigpicture)
-* 2. [General instructions for coding agents 🤖](#Generalinstructionsforcodingagents)
-* 3. [Testing instructions](#Testinginstructions)
-* 4. [Adding / changing functionality — checklist for PRs ✍️](#AddingchangingfunctionalitychecklistforPRs)
+# gULP — Copilot instructions for coding agents
 
-<!-- vscode-markdown-toc-config
-	numbering=true
-	autoSave=true
-	/vscode-markdown-toc-config -->
-<!-- /vscode-markdown-toc -->
-# gULP — Copilot instructions (for coding agents)
+gULP is a Python FastAPI service + workers that stores documents in OpenSearch and keeps collaboration metadata in PostgreSQL; Redis is used for the task queue & pub/sub. (see `docs/architecture.md`).
 
-Purpose: give an AI coding agent the exact, actionable knowledge it needs to be immediately productive in this repository.
-
-
-##  1. <a name='Quickcontextbigpicture'></a>Quick context (big picture) 🔧
-- gULP is a Python FastAPI service + workers that stores documents in OpenSearch and keeps collaboration metadata in PostgreSQL; Redis is used for the task queue & pub/sub. (see `docs/architecture.md`).
 - Main code lives in `src/gulp/` — important entry points: `src/gulp/__main__.py` (CLI), `src/gulp/api/server_api.py` (FastAPI server), `src/gulp/plugin.py` (plugin base).
 - Separate repositories are symlinked for the client SDK (`gulp-sdk/`), non-free plugins (`gulp-paid-plugins`), and utility library (`muty-python/`).
 
-##  2. <a name='Generalinstructionsforcodingagents'></a>General instructions for coding agents 🤖
+## General instructions for coding agents 🤖
 - **ALWAYS** use memory to track progress and decisions made during implementation
 
-##  3. <a name='Testinginstructions'></a>Testing instructions
+## Testing instructions
 - for tests, a gulp instance should be available on `localhost:8080`. 
   - **if you cannot find the instance, you can start it with `gulp --reset-collab --create test_operation`, make sure to run the command inside the venv. any plugin extension startup errors can be ignored. be sure to stop the instance with `gulp --stop` when done.**
 - for authentication, initially only the `admin/admin` user (admin permissions) and `guest/guest` (read-only, i.e. no ingestion) are available
@@ -36,7 +22,7 @@ Purpose: give an AI coding agent the exact, actionable knowledge it needs to be 
 - **always make sure at the beginning of each test to start from a clean state, for example by creating new operations or new documents with unique IDs, so as not to have interference with pre-existing data or with other tests**
 - **if you suspect bugs in the gulp backend, or if you notice strange behavior during tests, document them, stop and ask for clarifications**
 
-##  4. <a name='AddingchangingfunctionalitychecklistforPRs'></a>Adding / changing functionality — checklist for PRs ✍️
+## Adding / changing functionality — checklist for PRs ✍️
 1. Update or add unit/integration tests under `tests/` (look at `tests/ingest/`, `tests/query/`, `tests/enrich/, `tests/extension/`).
 2. If plugin or mapping changes, add/update mapping in `mapping_files/` and tests that use `GulpMappingParameters`.
 3. If DB schema changes, add migration under `collab_migrate/`.
