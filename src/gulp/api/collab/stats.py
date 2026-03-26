@@ -47,8 +47,6 @@ from gulp.api.collab.structs import (
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.ws_api import (
-    WSDATA_COLLAB_DELETE,
-    WSDATA_QUERY_DONE,
     WSDATA_STATS_CREATE,
     WSDATA_STATS_UPDATE,
     GulpQueryDonePacket,

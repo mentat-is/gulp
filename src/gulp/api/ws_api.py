@@ -34,21 +34,21 @@ from gulp.structs import GulpPluginParameters
 class GulpWsType(StrEnum):
     # the type of the websocket
     WS_DEFAULT = "default" # default websocket for logged in users, used for most interactions including collab updates, stats updates, user login/logout, etc. (basically all except ingest and inter-ui communications)
-    WS_INGEST = "ingest" # for ws_raw_ingest_api
-    WS_CLIENT_DATA = "client_data" # for inter-ui communications
+    WS_INGEST = "ingest" # websocket type for /ws_raw_ingest_api
+    WS_CLIENT_DATA = "client_data" # websocket type for inter-ui communications
 
 
 # data types for the websocket
-WSDATA_ERROR = "ws_error"
-WSDATA_CONNECTED = "ws_connected"  # whenever a websocket connection is established
+WSDATA_ERROR = "ws_error" # GulpWsErrorPacket, for reporting errors on the websocket
+WSDATA_CONNECTED = "ws_connected"  # GulpWsAcknoledgedPacket, whenever a websocket connection is established
 WSDATA_COLLAB_CREATE = (
-    "collab_create"  # GulpCollabCreatePacket, whenever a collab object is created
+    "collab_create"  # GulpCollabCreatePacket, whenever a collab object without a specified `ws_data_type` is created (note,highlight,link,...)
 )
 WSDATA_COLLAB_UPDATE = (
-    "collab_update"  # GulpCollabUpdatePacket, whenever a collab object is updated
+    "collab_update"  # GulpCollabUpdatePacket, whenever a collab object without a specified `ws_data_type` is updated (note,highlight,link,...)
 )
 WSDATA_COLLAB_DELETE = (
-    "collab_delete"  # GulpCollabDeletePacket, whenever a collab object is deleted
+    "collab_delete"  # GulpCollabDeletePacket, whenever a collab object without a specified `ws_data_type` is deleted (note,highlight,link,...)
 )
 WSDATA_STATS_CREATE = (
     "stats_create"  # GulpRequestStats, whenever a stats object is created
@@ -56,18 +56,15 @@ WSDATA_STATS_CREATE = (
 WSDATA_STATS_UPDATE = (
     "stats_update"  # GulpRequestStats, whenever a stats object is updated
 )
-WSDATA_USER_LOGIN = "user_login"  # GulpUserAccessPacket
-WSDATA_USER_LOGOUT = "user_logout"  # GulpUserAccessPacket
-WSDATA_DOCUMENTS_CHUNK = "docs_chunk"  # GulpDocumentsChunkPacket
+WSDATA_USER_LOGIN = "user_login"  # GulpUserAccessPacket, whenever a user is logged in
+WSDATA_USER_LOGOUT = "user_logout"  # GulpUserAccessPacketv, whenever a user is logged out
+WSDATA_DOCUMENTS_CHUNK = "docs_chunk"  # GulpDocumentsChunkPacket, whenever a chunk of GulpDocuments is transmitted over the ws during ingestion or query
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
-WSDATA_INGEST_RAW_PROGRESS = "ingest_raw_progress"  # GulpIngestRawProgress, this is sent in the end of an ingestion operation for realtime
-WSDATA_REBASE_DONE = "rebase_done"  # GulpUpdateDocumentsStats, sent when a rebase operation is done (broadcasted to all websockets)
-WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries
-WSDATA_CLIENT_DATA = "client_data"  # arbitrary content, to be routed to all connected websockets (used by the ui to communicate with other connected clients with its own protocol)
-WSDATA_SOURCE_FIELDS_CHUNK = "source_fields_chunk"
-WSDATA_QUERY_DONE = "query_done"  # this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
-WSDATA_QUERY_GROUP_DONE = "query_group_done"  # this is sent in the end of the query task, being it single or group(i.e. sigma) query
-
+WSDATA_INGEST_RAW_PROGRESS = "ingest_raw_progress"  # GulpIngestRawProgress, this is sent in the end of an ingestion operation for realtime ingestion using `/ingest_raw` API or `/ws_ingest_raw` websocket
+WSDATA_REBASE_DONE = "rebase_done"  # GulpUpdateDocumentsStats, sent when a rebase operation is done via `/opensearch_rebase_by_query` API
+WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries when `GulpQueryParameters.group` has been set
+WSDATA_QUERY_DONE = "query_done"  # GulpQueryDonePacket, this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
+WSDATA_CLIENT_DATA = "client_data"  # arbitrary content, to be routed to all connected websockets having type=`WS_CLIENT_DATA`: this is used by the UI clients to communicate data each other via an ui-specific protocol, the backend just routes the packets.
 
 class GulpRedisChannel(StrEnum):
     """
@@ -1819,7 +1816,6 @@ class GulpRedisBroker:
             #WSDATA_COLLAB_DELETE,
             WSDATA_REBASE_DONE,
             WSDATA_INGEST_SOURCE_DONE,
-            WSDATA_QUERY_GROUP_DONE,
             WSDATA_USER_LOGIN,
             WSDATA_USER_LOGOUT,
             "note",

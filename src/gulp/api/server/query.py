@@ -87,7 +87,6 @@ from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
     WSDATA_QUERY_DONE,
-    WSDATA_QUERY_GROUP_DONE,
     WSDATA_QUERY_GROUP_MATCH,
     GulpConnectedSocket,
     GulpDocumentsChunkPacket,
