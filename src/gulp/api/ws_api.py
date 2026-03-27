@@ -1083,7 +1083,7 @@ class GulpConnectedSocket:
         Returns:
             bool: True if the websocket is alive, False otherwise.
         """
-        if GulpConfig.get_instance().debug_ignore_missing_ws():
+        if GulpConfig.get_instance().ws_ignore_missing():
             return True
 
         connected_sockets = GulpConnectedSockets.get_instance()

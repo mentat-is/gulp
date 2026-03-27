@@ -413,7 +413,7 @@ class GulpConfig:
             )
         return n
 
-    def debug_ignore_missing_ws(self) -> bool:
+    def ws_ignore_missing(self) -> bool:
         """
         Returns whether to ignore missing websocket connection (default: False).
         """
@@ -421,7 +421,7 @@ class GulpConfig:
         if self.is_integration_test():
             n = True
         else:
-            n = self._config.get("debug_ignore_missing_ws", False)
+            n = self._config.get("ws_ignore_missing", False)
         if n:
             MutyLogger.get_instance().warning("!!!WARNING!!! IGNORING MISSING WEBSOCKET CONNECTIONS!")
         return n
