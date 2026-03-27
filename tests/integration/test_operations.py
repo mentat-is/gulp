@@ -134,6 +134,242 @@ async def test_context_create_list_get_delete(gulp_base_url, gulp_test_user, gul
 
 @pytest.mark.integration
 async def test_context_update(gulp_base_url, gulp_test_user, gulp_test_password):
+    """Update a context's color and description."""
+    import uuid
+    from gulp_sdk import GulpClient
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(f"ctx_upd_{uuid.uuid4().hex[:8]}")
+        try:
+            ctx = await client.operations.context_create(
+                op.id, f"ctx_{uuid.uuid4().hex[:6]}"
+            )
+            updated = await client.operations.context_update(
+                ctx["id"], color="#aabbcc", description="Updated context"
+            )
+            assert updated is not None
+            assert updated.get("color") == "#aabbcc"
+        finally:
+            await client.operations.delete(op.id)
+
+
+@pytest.mark.integration
+async def test_context_idempotent_creation(gulp_base_url, gulp_test_user, gulp_test_password):
+    """Test that creating a context with the same name returns the existing one."""
+    import uuid
+    from gulp_sdk import GulpClient
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(f"ctx_idem_{uuid.uuid4().hex[:8]}")
+        try:
+            ctx_name = f"ctx_{uuid.uuid4().hex[:6]}"
+            ctx1 = await client.operations.context_create(op.id, ctx_name)
+            ctx2 = await client.operations.context_create(op.id, ctx_name, fail_if_exists=False)
+            assert ctx1["id"] == ctx2["id"]
+        finally:
+            await client.operations.delete(op.id)
+
+
+# --------------------------------------------------------------------------- #
+# Source CRUD                                                                  #
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.integration
+async def test_source_create_list_get_delete(gulp_base_url, gulp_test_user, gulp_test_password):
+    """Create, list, get, and delete a source within a context."""
+    import uuid
+    from gulp_sdk import GulpClient
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(f"src_test_{uuid.uuid4().hex[:8]}")
+        try:
+            ctx = await client.operations.context_create(
+                op.id, f"ctx_{uuid.uuid4().hex[:6]}"
+            )
+            src = await client.operations.source_create(
+                op.id, ctx["id"], f"src_{uuid.uuid4().hex[:6]}"
+            )
+            assert "id" in src
+
+            sources = await client.operations.source_list(op.id, ctx["id"])
+            assert isinstance(sources, list)
+            assert any(s["id"] == src["id"] for s in sources)
+
+            fetched = await client.operations.source_get(src["id"])
+            assert fetched["id"] == src["id"]
+
+            result = await client.operations.source_delete(src["id"], delete_data=False)
+            assert result is not None
+        finally:
+            await client.operations.delete(op.id)
+
+
+@pytest.mark.integration
+async def test_source_update(gulp_base_url, gulp_test_user, gulp_test_password):
+    """Update a source's color and description."""
+    import uuid
+    from gulp_sdk import GulpClient
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(f"src_upd_{uuid.uuid4().hex[:8]}")
+        try:
+            ctx = await client.operations.context_create(
+                op.id, f"ctx_{uuid.uuid4().hex[:6]}"
+            )
+            src = await client.operations.source_create(
+                op.id, ctx["id"], f"src_{uuid.uuid4().hex[:6]}"
+            )
+            updated = await client.operations.source_update(
+                src["id"], color="#ff0000", description="High priority"
+            )
+            assert updated is not None
+            assert updated.get("color") == "#ff0000"
+        finally:
+            await client.operations.delete(op.id)
+
+
+@pytest.mark.integration
+async def test_source_with_plugin(gulp_base_url, gulp_test_user, gulp_test_password):
+    """Create a source with plugin and mapping parameters."""
+    import uuid
+    from gulp_sdk import GulpClient
+    from gulp.structs import GulpPluginParameters
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(f"src_plugin_{uuid.uuid4().hex[:8]}")
+        try:
+            ctx = await client.operations.context_create(
+                op.id, f"ctx_{uuid.uuid4().hex[:6]}"
+            )
+            plugin_params = GulpPluginParameters(
+                mapping_parameters={
+                    "timestamp_field": "TimeCreated",
+                    "hostname_field": "Computer"
+                }
+            )
+            src = await client.operations.source_create(
+                op.id,
+                ctx["id"],
+                f"src_{uuid.uuid4().hex[:6]}",
+                plugin="win_evtx",
+                plugin_params=plugin_params,
+                color="#00ff00"
+            )
+            assert src.get("plugin") == "win_evtx"
+            assert "id" in src
+        finally:
+            await client.operations.delete(op.id)
+
+
+@pytest.mark.integration
+async def test_source_idempotent_creation(gulp_base_url, gulp_test_user, gulp_test_password):
+    """Test that creating a source with the same name returns the existing one."""
+    import uuid
+    from gulp_sdk import GulpClient
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(f"src_idem_{uuid.uuid4().hex[:8]}")
+        try:
+            ctx = await client.operations.context_create(
+                op.id, f"ctx_{uuid.uuid4().hex[:6]}"
+            )
+            src_name = f"src_{uuid.uuid4().hex[:6]}"
+            src1 = await client.operations.source_create(op.id, ctx["id"], src_name)
+            src2 = await client.operations.source_create(
+                op.id, ctx["id"], src_name, fail_if_exists=False
+            )
+            assert src1["id"] == src2["id"]
+        finally:
+            await client.operations.delete(op.id)
+
+
+# --------------------------------------------------------------------------- #
+# Hierarchical Structure Tests                                                 #
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.integration
+async def test_hierarchical_organization(gulp_base_url, gulp_test_user, gulp_test_password):
+    """Test complete hierarchical structure: operation → context → sources."""
+    import uuid
+    from gulp_sdk import GulpClient
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(f"hier_{uuid.uuid4().hex[:8]}")
+        op_id = op.id
+        
+        try:
+            # Create 2 contexts
+            ctx1 = await client.operations.context_create(
+                op_id, f"host1_{uuid.uuid4().hex[:6]}"
+            )
+            ctx2 = await client.operations.context_create(
+                op_id, f"host2_{uuid.uuid4().hex[:6]}"
+            )
+            
+            # Create 2 sources in each context
+            src1_1 = await client.operations.source_create(
+                op_id, ctx1["id"], f"security_{uuid.uuid4().hex[:6]}"
+            )
+            src1_2 = await client.operations.source_create(
+                op_id, ctx1["id"], f"system_{uuid.uuid4().hex[:6]}"
+            )
+            src2_1 = await client.operations.source_create(
+                op_id, ctx2["id"], f"security_{uuid.uuid4().hex[:6]}"
+            )
+            
+            # Verify hierarchical structure
+            contexts = await client.operations.context_list(op_id)
+            assert len(contexts) >= 2
+            
+            sources_ctx1 = await client.operations.source_list(op_id, ctx1["id"])
+            assert len(sources_ctx1) >= 2
+            
+            sources_ctx2 = await client.operations.source_list(op_id, ctx2["id"])
+            assert len(sources_ctx2) >= 1
+        finally:
+            await client.operations.delete(op_id)
+
+
+# --------------------------------------------------------------------------- #
+# Context CRUD                                                                 #
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.integration
+async def test_context_create_list_get_delete(gulp_base_url, gulp_test_user, gulp_test_password):
+    """Create, list, get, and delete a context within an operation."""
+    import uuid
+    from gulp_sdk import GulpClient
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(f"ctx_test_{uuid.uuid4().hex[:8]}")
+        try:
+            ctx = await client.operations.context_create(
+                op.id, f"ctx_{uuid.uuid4().hex[:6]}"
+            )
+            assert "id" in ctx
+
+            contexts = await client.operations.context_list(op.id)
+            assert isinstance(contexts, list)
+            assert any(c["id"] == ctx["id"] for c in contexts)
+
+            fetched = await client.operations.context_get(ctx["id"])
+            assert fetched["id"] == ctx["id"]
+
+            result = await client.operations.context_delete(ctx["id"], delete_data=False)
+            assert result is not None
+        finally:
+            await client.operations.delete(op.id)
+
+
+@pytest.mark.integration
+async def test_context_update(gulp_base_url, gulp_test_user, gulp_test_password):
     """Update a context's color."""
     import uuid
     from gulp_sdk import GulpClient
