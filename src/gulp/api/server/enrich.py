@@ -289,7 +289,7 @@ async def enrich_single_id_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
-async def _update_documents_chunk(
+async def _modify_documents_chunk(
     sess: AsyncSession,
     chunk: list[dict],
     chunk_num: int = 0,
@@ -301,33 +301,43 @@ async def _update_documents_chunk(
     q_group: str = None,
     **kwargs,
 ) -> list[dict]:
-    """GulpDocumentsChunkCallback to update each chunk of documents"""
+    """GulpDocumentsChunkCallback to modify each chunk of documents"""
     cb_context = kwargs["cb_context"]
-    data = cb_context["data"]
+    mutate_fn = cb_context["mutate_fn"]
     stats: GulpRequestStats = cb_context["stats"]
     ws_id = cb_context["ws_id"]
     flt: GulpQueryFilter = cb_context["flt"]
 
-    # tag documents
+    updated_docs = []
     for d in chunk:
-        d.update(data)
+        if mutate_fn(d):
+            updated_docs.append(d)
 
-    MutyLogger.get_instance().debug("updated %d documents, last=%r", len(chunk), last)
+    MutyLogger.get_instance().debug(
+        "processed %d documents (updated %d), last=%r",
+        len(chunk),
+        len(updated_docs),
+        last,
+    )
 
     # update the documents on opensearch
     # also ensure no highlight field is left from the query
-    for d in chunk:
+    for d in updated_docs:
         d.pop("_highlight", None)
 
     dry_run: bool = GulpConfig.get_instance().debug_enrich_dry_run()
     if dry_run:
-        # dry run, no update
-        updated = len(chunk)
+        updated = len(updated_docs)
         errs = []
     else:
-        updated, _, errs = await GulpOpenSearch.get_instance().update_documents(
-            index, chunk, wait_for_refresh=last
-        )
+        if updated_docs:
+            updated, _, errs = await GulpOpenSearch.get_instance().update_documents(
+                index, updated_docs, wait_for_refresh=last
+            )
+        else:
+            updated = 0
+            errs = []
+
     num_updated = updated
     cb_context["total_updated"] += num_updated
     cb_context["errors"].extend(errs)
@@ -344,6 +354,20 @@ async def _update_documents_chunk(
         last=last,
     )
     return chunk
+
+def _mutate_update_document(data: dict):
+    def _mutate(doc: dict) -> bool:
+        doc.update(data)
+        return True
+
+    return _mutate
+
+def _mutate_untag_document(tags: list[str]):
+    def _mutate(doc: dict) -> bool:
+        return _remove_tags_from_doc(doc, tags)
+
+    return _mutate
+
 
 async def _update_documents_internal(
     user_id: str,
@@ -386,7 +410,7 @@ async def _update_documents_internal(
         "total_updated": 0,
         "flt": flt,
         "errors": errors,
-        "data": data,
+        "mutate_fn": _mutate_update_document(data),
         "ws_id": ws_id,
     }
     stats: GulpRequestStats
@@ -409,7 +433,7 @@ async def _update_documents_internal(
                 q,
                 req_id=req_id,
                 q_options=q_options,
-                callback=_update_documents_chunk,
+                callback=_modify_documents_chunk,
                 cb_context=cb_context,
             )
         except Exception as ex:
@@ -428,6 +452,104 @@ async def _update_documents_internal(
         finally:
             if enriched:
                 # if we enriched something, update source=>fields mappings on the collab db
+                await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
+                    sess, index, user_id, flt
+                )
+
+
+def _remove_tags_from_doc(doc: dict, tags_to_remove: list[str]) -> bool:
+    """Remove tags in tags_to_remove from the document and return whether a change was made."""
+    
+    # Determine tags location(s) in the doc representation
+    current_tags = list(doc.get("gulp.tags"))    
+    if current_tags is None:
+        return False
+
+    if not tags_to_remove:
+        # remove all tags
+        doc.pop("gulp.tags", None)
+        return True
+    
+    # remove the tags to remove from the current tags
+    new_tags = [t for t in current_tags if t not in tags_to_remove]
+    if new_tags == current_tags:
+        return False
+    
+    doc["gulp.tags"] = new_tags
+    return True
+
+
+async def _untag_documents_internal(
+    user_id: str,
+    ws_id: str,
+    req_id: str,
+    operation_id: str,
+    index: str,
+    flt: GulpQueryFilter,
+    tags: list[str],
+) -> None:
+    """
+    called by the untag_documents API entrypoint, runs in a worker process to remove tags from documents
+    """
+
+    MutyLogger.get_instance().debug("---> _untag_documents_internal")
+
+    # build query
+    if flt.is_empty():
+        q = {"query": {"match_all": {}}}
+    else:
+        q = flt.to_opensearch_dsl()
+
+    q_options = GulpQueryParameters(fields="*")
+    stats: GulpRequestStats = None
+    enriched: int = 0
+    total_hits: int = 0
+    errors: list[str] = []
+
+    cb_context = {
+        "total_updated": 0,
+        "flt": flt,
+        "errors": errors,
+        "mutate_fn": _mutate_untag_document(tags),
+        "ws_id": ws_id,
+        "index": index,
+    }
+
+    async with GulpCollab.get_instance().session() as sess:
+        try:
+            stats, _ = await GulpRequestStats.create_or_get_existing(
+                sess,
+                req_id,
+                user_id,
+                operation_id,
+                req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
+                ws_id=ws_id,
+                data=GulpUpdateDocumentsStats().model_dump(exclude_none=True),
+            )
+            cb_context["stats"] = stats
+            enriched, total_hits = await GulpOpenSearch.get_instance().search_dsl(
+                sess,
+                index,
+                q,
+                req_id=req_id,
+                q_options=q_options,
+                callback=_modify_documents_chunk,
+                cb_context=cb_context,
+            )
+        except Exception as ex:
+            if stats and not total_hits:
+                if not isinstance(ex, RequestCanceledError):
+                    errors.append(muty.log.exception_to_string(ex))
+                    await stats.set_finished(
+                        sess,
+                        status=GulpRequestStatus.FAILED,
+                        errors=errors,
+                        user_id=user_id,
+                        ws_id=ws_id,
+                    )
+            raise
+        finally:
+            if enriched:
                 await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
                     sess, index, user_id, flt
                 )
@@ -587,6 +709,68 @@ async def update_single_id_handler(
         raise JSendException(req_id=req_id) from ex
 
 @router.post(
+    "/untag_documents",
+    response_model=JSendResponse,
+    tags=["enrich"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "pending",
+                        "timestamp_msec": 1704380570434,
+                        "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                    }
+                }
+            }
+        }
+    },
+    summary="Remove tags from document/s.",
+    description="""
+shortcut to `untag_documents` semantics to remove `gulp.tags` values from documents.
+""",
+)
+async def untag_documents_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
+    tags: Annotated[list[str], Depends(APIDependencies.param_tags)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            flt.operation_ids = [operation_id]
+
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            s = await GulpUserSession.check_token(
+                sess, token, obj=op, permission=GulpUserPermission.EDIT
+            )
+            user_id = s.user.id
+            index = op.index
+
+            await GulpServer.get_instance().spawn_worker_task(
+                _untag_documents_internal,
+                user_id,
+                ws_id,
+                req_id,
+                operation_id,
+                index,
+                flt,
+                tags,
+            )
+            return JSONResponse(JSendResponse.pending(req_id=req_id))
+
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.post(
     "/tag_documents",
     response_model=JSendResponse,
     tags=["enrich"],
@@ -696,12 +880,14 @@ async def tag_single_id_handler(
 shortcut to `update_documents` to remove enriched data from the given documents.
 
 - token must have the `edit` permission.
+- if no `fields` are provided, `gulp.enriched` field is removed from the GulpDocument/s. either, the specified `fields` are removed from the GulpDocument/s.
 """,
 )
 async def enrich_remove_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
+    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)] = None,
+    fields: Annotated[list[str], Body(description="the enriched fields to remove, e.g. `['field1', 'field2']`.  If not provided, the entire `gulp.enriched` field is removed.")] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     """Remove the `gulp.enriched` field from documents matching the filter.
@@ -728,30 +914,54 @@ async def enrich_remove_handler(
             )
             index = op.index
 
-            # build base query from filter. we also add an `exists` clause
-            # so that OpenSearch only updates docs which actually have the
-            # `gulp.enriched` field, reducing the number of documents the
-            # painless script executes on.
+            # build base query from filter.
+            # if fields are specified, target docs that have at least one of them;
+            # otherwise target docs that have gulp.enriched.
             base = None
-            if flt.is_empty():
-                # only the exists predicate
-                base = {"exists": {"field": "gulp.enriched"}}
+            if fields:
+                exists_clauses = [{"exists": {"field": f}} for f in fields]
+                if flt.is_empty():
+                    if len(exists_clauses) == 1:
+                        base = exists_clauses[0]
+                    else:
+                        base = {"bool": {"should": exists_clauses, "minimum_should_match": 1}}
+                else:
+                    inner = flt.to_opensearch_dsl()["query"]
+                    exists_clause = (
+                        exists_clauses[0]
+                        if len(exists_clauses) == 1
+                        else {"bool": {"should": exists_clauses, "minimum_should_match": 1}}
+                    )
+                    base = {"bool": {"must": [inner, exists_clause]}}
             else:
-                inner = flt.to_opensearch_dsl()["query"]
-                # wrap in bool must with exists
-                base = {"bool": {"must": [inner, {"exists": {"field": "gulp.enriched"}}]}}
+                if flt.is_empty():
+                    base = {"exists": {"field": "gulp.enriched"}}
+                else:
+                    inner = flt.to_opensearch_dsl()["query"]
+                    base = {"bool": {"must": [inner, {"exists": {"field": "gulp.enriched"}}]}}
+
             base_query: dict = base
             MutyLogger.get_instance().debug("enrich_remove_handler: base_query=%s", base_query)
-            script = (
-                "if (ctx._source.containsKey('gulp.enriched')) {"
-                " ctx._source.remove('gulp.enriched'); }"
-            )
+
+            if fields:
+                script = (
+                    "for (f in params.fields) {"
+                    " if (ctx._source.containsKey(f)) { ctx._source.remove(f); }"
+                    " }"
+                )
+            else:
+                script = (
+                    "if (ctx._source.containsKey('gulp.enriched')) {"
+                    " ctx._source.remove('gulp.enriched'); }"
+                )
 
             # prepare request parameters
             params_body: dict = {
                 "script": {"source": script, "lang": "painless"},
                 "query": base_query,
             }
+            if fields:
+                params_body["script"]["params"] = {"fields": fields}
 
             params_qs: dict = {"conflicts": "proceed", "wait_for_completion": "true", "refresh": "true"}
             headers: dict = {"accept": "application/json", "content-type": "application/json"}

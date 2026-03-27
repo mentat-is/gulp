@@ -102,6 +102,10 @@ async def test_enrich_core_endpoints(gulp_base_url, gulp_test_user, gulp_test_pa
                 wait=True,
             )
             assert isinstance(upd, dict)
+            assert str(upd.get("status", "")).lower() == "done"
+
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            assert fetched.get("sdk_enrich_bulk") == "v1"
 
             tag = await client.enrich.tag_documents(
                 operation_id=op.id,
@@ -110,14 +114,57 @@ async def test_enrich_core_endpoints(gulp_base_url, gulp_test_user, gulp_test_pa
                 wait=True,
             )
             assert isinstance(tag, dict)
-            assert str(tag.get("status", "")).lower() in {"done", "failed", "canceled"}
+            assert str(tag.get("status", "")).lower() == "done"
+
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            tags = fetched.get("gulp.tags", [])
+            assert "sdk_enrich_tag" in tags
+
+            # verify enrich_remove with explicit fields target only those fields
+            await client.enrich.update_single_id(
+                operation_id=op.id,
+                doc_id=doc_id,
+                fields={"sdk_enrich_remove_field": "to_remove"},
+            )
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            assert fetched.get("sdk_enrich_remove_field") == "to_remove"
+
+            rem_by_field = await client.enrich.enrich_remove(
+                operation_id=op.id,
+                fields=["sdk_enrich_remove_field"],
+                flt={"operation_ids": [op.id]},
+            )
+            assert isinstance(rem_by_field, dict)
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            assert "sdk_enrich_remove_field" not in fetched
+
+            # enrich with optional enrich_whois plugin before remove
+            try:
+                enriched = await client.enrich.enrich_documents(
+                    operation_id=op.id,
+                    plugin="enrich_whois",
+                    fields={"source.ip": None},
+                    flt={"operation_ids": [op.id]},
+                    plugin_params={"custom_parameters": {}},
+                    wait=True,
+                    timeout=300,
+                )
+                assert isinstance(enriched, dict)
+                assert str(enriched.get("status", "")).lower() in {"done", "failed", "canceled"}
+
+                fetched = await client.queries.query_single_id(op.id, doc_id)
+                assert "gulp.enriched" in fetched
+            except GulpSDKError:
+                pytest.skip("optional enrich_whois plugin unavailable for enrich_remove setup")
 
             rem = await client.enrich.enrich_remove(
                 operation_id=op.id,
-                field="sdk_enrich_bulk",
                 flt={"operation_ids": [op.id]},
             )
             assert isinstance(rem, dict)
+
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            assert "gulp.enriched" not in fetched
 
             # single-id update/tag
             single_upd = await client.enrich.update_single_id(
@@ -127,6 +174,9 @@ async def test_enrich_core_endpoints(gulp_base_url, gulp_test_user, gulp_test_pa
             )
             assert isinstance(single_upd, dict)
 
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            assert fetched.get("sdk_enrich_single") is True
+
             single_tag = await client.enrich.tag_single_id(
                 operation_id=op.id,
                 doc_id=doc_id,
@@ -134,9 +184,30 @@ async def test_enrich_core_endpoints(gulp_base_url, gulp_test_user, gulp_test_pa
             )
             assert isinstance(single_tag, dict)
 
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            tags = []
+            tags = fetched.get("gulp.tags", [])
+            assert "sdk_enrich_single_tag" in tags
+
+            untag = await client.enrich.untag_documents(
+                operation_id=op.id,
+                tags=["sdk_enrich_tag", "sdk_enrich_single_tag"],
+                flt={"operation_ids": [op.id]},
+                wait=True,
+            )
+            assert isinstance(untag, dict)
+            assert str(untag.get("status", "")).lower() in {"done", "failed", "canceled"}
+
             # round-trip read check
             fetched = await client.queries.query_single_id(op.id, doc_id)
             assert isinstance(fetched, dict)
+            tags = []
+            if isinstance(fetched.get("gulp"), dict):
+                tags = fetched.get("gulp", {}).get("tags", [])
+            if not tags:
+                tags = fetched.get("gulp.tags", [])
+            assert "sdk_enrich_tag" not in tags
+            assert "sdk_enrich_single_tag" not in tags
         except GulpSDKError as exc:
             pytest.skip(f"enrich core endpoints unavailable in current server: {exc}")
         finally:
