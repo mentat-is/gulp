@@ -654,6 +654,115 @@ async def user_list_handler(
 
 
 @router.get(
+    "/user_session_list",
+    tags=["user"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": [GulpUserSession.example()],
+                    }
+                }
+            }
+        }
+    },
+    summary="list user sessions.",
+    description="""
+- `token` can list its own session.
+- `token` needs `admin` permission to list sessions of another user or all sessions.
+    """,
+)
+async def user_session_list_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    user_id: Annotated[
+        Optional[str],
+        Query(description="optional user id filter; admin required for other users."),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            s = await GulpUserSession.check_token(sess, token)
+
+            target_user_id = user_id
+            if target_user_id:
+                if not s.user.is_admin() and target_user_id != s.user.id:
+                    raise MissingPermission(
+                        f"only admin can list sessions of other users, user_id={target_user_id}, session_user_id={s.user.id}"
+                    )
+            elif not s.user.is_admin():
+                target_user_id = s.user.id
+
+            if target_user_id:
+                user_session = await GulpUserSession.get_by_user_id(
+                    sess,
+                    target_user_id,
+                    throw_if_not_found=False,
+                )
+                data = [user_session.to_dict(exclude_none=True)] if user_session else []
+            else:
+                data = await GulpUserSession.get_logged_users(sess)
+
+            return JSendResponse.success(req_id=req_id, data=data)
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.delete(
+    "/user_session_delete",
+    tags=["user"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"id": "session_id"},
+                    }
+                }
+            }
+        }
+    },
+    summary="delete a user session.",
+    description="""
+- `token` can delete its own session.
+- `token` needs `admin` permission to delete sessions of other users.
+    """,
+)
+async def user_session_delete_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            s = await GulpUserSession.check_token(sess, token)
+            obj = await GulpUserSession.get_by_id(sess, obj_id)
+
+            if not s.user.is_admin() and obj.session_user_id != s.user.id:
+                raise MissingPermission(
+                    f"only admin can delete sessions of other users, session_id={obj_id}, session_user_id={s.user.id}"
+                )
+
+            await obj.delete(sess)
+            return JSendResponse.success(req_id=req_id, data={"id": obj_id})
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.get(
     "/user_session_keepalive",
     tags=["user"],
     response_model=JSendResponse,
