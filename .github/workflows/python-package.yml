@@ -1,0 +1,79 @@
+name: Python package
+
+on:
+  push:
+    tags: ['v*', 'test-v*']
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    name: Test, lint and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build setuptools_scm[toml] pytest
+
+      # TODO: write proper muty-python tests and enable this step
+      #- name: Run tests
+      #  run: |
+      #    pytest -q
+
+      - name: Build artifacts
+        run: |
+          # Usa sempre git commit hash (node-and-date) per avere versioni univoche in dev/CI
+          export SETUPTOOLS_SCM_LOCAL=node-and-date
+          python -m build
+
+      - name: Check package
+        run: |
+          python -m pip install twine
+          python -m twine check dist/*
+
+  publish:
+    name: Publish to PyPI
+    needs: test
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/test-v')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install packaging dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build setuptools_scm[toml] twine
+
+      - name: Build
+        run: |
+          # Usa sempre git commit hash (node-and-date) anche per rilascio/test
+          export SETUPTOOLS_SCM_LOCAL=node-and-date
+          python -m build
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN_VALERINO }}
+          TWINE_PASSWORD_TEST: ${{ secrets.PYPI_API_TEST_TOKEN_VALERINO }}
+        run: |
+          if [[ "${GITHUB_REF##*/}" == test-v* ]]; then
+            export TWINE_PASSWORD="${TWINE_PASSWORD_TEST}"
+            python -m twine upload --verbose--repository-url https://test.pypi.org/legacy/ dist/*
+          else
+            export TWINE_PASSWORD="${TWINE_PASSWORD}"
+            python -m twine upload --verbose dist/*
+          fi
