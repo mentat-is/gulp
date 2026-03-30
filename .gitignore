@@ -43,3 +43,7 @@ tests/query/sigma/windows
 build_test.sh
 .specstory
 .coverage
+gulp-cli
+muty-python
+gulp-sdk
+*plan*.md
