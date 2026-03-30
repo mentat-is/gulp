@@ -72,7 +72,7 @@ jobs:
         run: |
           if [[ "${GITHUB_REF##*/}" == test-v* ]]; then
             export TWINE_PASSWORD="${TWINE_PASSWORD_TEST}"
-            python -m twine upload --verbose--repository-url https://test.pypi.org/legacy/ dist/*
+            python -m twine upload --verbose --repository-url https://test.pypi.org/legacy/ dist/*
           else
             export TWINE_PASSWORD="${TWINE_PASSWORD}"
             python -m twine upload --verbose dist/*
