@@ -47,3 +47,4 @@ gulp-cli
 muty-python
 gulp-sdk
 *plan*.md
+_version.py

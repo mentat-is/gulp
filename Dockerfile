@@ -47,10 +47,13 @@ COPY ./CONTRIBUTING.md /app
 COPY ./README.md /app
 COPY ./docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-# set version passed as build argument
-RUN echo "[.] GULP version: ${_VERSION}" && sed -i "s/version = .*/version = \"$(date +'%Y%m%d')+${_VERSION}\"/" /app/pyproject.toml
-RUN echo "[.] installing gulp ..."
-RUN pip3 install --timeout=1000 -e .
+# set version passed as build argument and use it for setuptools_scm
+RUN echo "[.] GULP version: ${_VERSION}" && \
+    export GULP_BUILD_VERSION="$(date +'%Y%m%d')+${_VERSION}" && \
+    echo "[.] using setuptools_scm pretend version: ${GULP_BUILD_VERSION}" && \
+    SETUPTOOLS_SCM_PRETEND_VERSION="${GULP_BUILD_VERSION}" \
+    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_MENTAT_GULP="${GULP_BUILD_VERSION}" \
+    pip3 install --timeout=1000 -e .
 
 # set permissions for the non-root user
 RUN chown -R $_USER_NAME:$_USER_NAME /app

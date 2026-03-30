@@ -69,6 +69,8 @@ gulp can be of course [integrated with other applications](./docs/integration.md
 
 install our pypi package and you should be good to go with the backend:
 
+> **WARNING**: pip installation works only with python3.13 (tested) and 3.12 (should work, but not tested yet), 3.14 is currently not supported because some dependencies have not yet released compatible versions.
+
 ~~~bash
 pip3 install mentat-gulp
 ~~~

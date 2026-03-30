@@ -28,9 +28,11 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
 
   ~~~bash
   mkdir ./repos && cd ./repos
-  git clone --recurse-submodules https://github.com/mentat-is/gulp.git
+  git clone https://github.com/mentat-is/gulp.git
+  git clone https://github.com/mentat-is/muty-python.git
+  git clone https://githu8b.com/mentat-is/gulp-sdk.git
   # clone other repos, i.e. the devteam may want to clone also the paid-plugins repo...
-  git clone https://github.com/mentat-is/gulp-paid-plugins
+  git clone https://github.com/mentat-is/gulp-paid-plugins.git
   ~~~
 
 3. in vscode, open the [gulp workspace](../gulp.code-workspace) and it should prompt you to reopen it in the dev container: the devcontainer will be built *first time only*.
@@ -59,7 +61,7 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
 This depends on your OS, on EndeavourOS(arch):
 
 ~~~bash
-# tested with python 3.12, *may* work with 3.13....
+# tested with python 3.12 and 3.13, 3.14 is currently not supported because some dependencies have not yet released compatible versions.
 sudo pacman -S rust python=3.13 python-virtualenv docker docker-compose docker-buildx jq libpqxx git-lfs github-cli
 
 # setup github cli client
@@ -81,7 +83,10 @@ gh auth login
 
 ~~~bash
 mkdir ./repos && cd ./repos
-git clone --recurse-submodules https://github.com/mentat-is/gulp.git
+git clone https://github.com/mentat-is/gulp.git
+git clone https://github.com/mentat-is/muty-python.git
+git clone https://github.com/mentat-is/gulp-sdk.git
+git clone https://github.com/mentat-is/gulp-paid-plugins.git
 ~~~
 
 ### 3. create and enter virtualenv
@@ -112,12 +117,6 @@ install all packages as editable
 ~~~bash
 # install all packages as editable (-e)
 pip3 install -e . && pip3 install -e ./muty-python && pip3 install -e ./gulp-sdk
-~~~
-
-and to update gulp and submodules:
-
-~~~bash
-git pull --recurse-submodules
 ~~~
 
 ### 6. run

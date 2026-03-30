@@ -19,7 +19,7 @@ for repo in "${_repos[@]}"; do
     cd "$_pwd"
 done
 git checkout "$_branch"
-git pull --recurse-submodules
+git pull
 echo "Checked out branch '$_branch' in all repos."
 
 

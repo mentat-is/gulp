@@ -22,11 +22,11 @@ docker run mentatis/gulp-core:latest
 >
 > **it is the responsibility of the devteam, indeed, to keep  `requirements.txt` updated using [update_requirements.sh](../update_requirements_txt.sh) script before committing a stable tag/release on the repository.**
 
-1. clone repositories
+1. clone repository
 
   ~~~bash
   mkdir ./build && cd ./build
-  git clone --recurse-submodules https://github.com/mentat-is/gulp.git
+  git clone https://github.com/mentat-is/gulp.git
   ~~~
 
 2. build `gulp-core` image
