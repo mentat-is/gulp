@@ -67,10 +67,20 @@ gulp can be of course [integrated with other applications](./docs/integration.md
 
 ## installation
 
+install our pypi package and you should be good to go with the backend:
+
+~~~bash
+pip3 install mentat-gulp
+~~~
+
+for other installation types, or for advanced usage, always check the following:
+
 - [docker](<./docs/install_docker.md>)
 - [install from sources/dev setup](./docs/install_dev.md)
 - [installing extra plugins](./docs/install_dev.md#7-optional-installing-extra-plugins)
 
+> pypi/docker registry versions may be outdated... to use the bleeding edge version of gulp, install from sources and use the 'develop' branches.
+ 
 ### clients
 
 [gulp web ui](https://github.com/mentat-is/gulpui-web)

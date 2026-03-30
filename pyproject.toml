@@ -8,7 +8,7 @@ version_scheme = "guess-next-dev"
 local_scheme = "node-and-date"
 
 [project]
-name = "gulp"
+name = "mentat-gulp"
 dynamic= ["version"]
 authors = [{ name = "Mentat", email = "info@mentat.is" }]
 description = "gULP - (generic) Unified Log Processor."
