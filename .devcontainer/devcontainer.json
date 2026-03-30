@@ -44,6 +44,7 @@
     "source=${localWorkspaceFolder}/../gulp-paid-plugins,target=${containerWorkspaceFolder}/gulp-paid-plugins,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../muty-python,target=${containerWorkspaceFolder}/muty-python,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulp-sdk,target=${containerWorkspaceFolder}/gulp-sdk,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/../gulp-cli,target=${containerWorkspaceFolder}/gulp-cli,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulpui-web,target=${containerWorkspaceFolder}/gulpui-web,type=bind,consistency=cached",
     // map the config for development (references the gulp-paid-plugins above for the extra plugins and mapping files)
     "source=${localEnv:HOME}/.config/gulp,target=/home/vscode/.config/gulp,type=bind,consistency=cached",
