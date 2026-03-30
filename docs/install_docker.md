@@ -36,7 +36,7 @@ docker run mentatis/gulp-core:latest
   # to rebuild, add --no-cache flag to the docker buildx line
   cd ./gulp
   export $(grep -v '^#' .env | xargs)
-  docker buildx build --progress=plain --build-arg _PYTHON_VERSION=$PYTHON_VERSION --build-arg _VERSION=$(git describe --tags --always) --build-arg _MUTY_VERSION=$(cd muty-python && git describe --tags --always && cd ..) --rm -t gulp-core .
+  docker buildx build --progress=plain --build-arg _PYTHON_VERSION=$PYTHON_VERSION --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp-core .
   ~~~
 
 ## run with docker-compose
