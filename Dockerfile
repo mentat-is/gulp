@@ -47,10 +47,6 @@ COPY ./LICENSE.AGPL-3.0.md /app
 COPY ./LICENSE.md /app
 COPY ./CONTRIBUTING.md /app
 COPY ./README.md /app
-COPY ./muty-python/src /app/muty-python/src
-COPY ./muty-python/pyproject.toml /app/muty-python/pyproject.toml
-COPY ./muty-python/README.md /app/muty-python
-COPY ./muty-python/LICENSE.md /app/muty-python
 COPY ./docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # set version passed as build argument
@@ -58,8 +54,6 @@ RUN echo "[.] GULP version: ${_VERSION}" && sed -i "s/version = .*/version = \"$
 RUN echo "[.] muty-python version: ${_MUTY_VERSION}" && sed -i "s/version = .*/version = \"$(date +'%Y%m%d')+${_MUTY_VERSION}\"/" /app/muty-python/pyproject.toml
 RUN echo "[.] installing gulp ..."
 RUN pip3 install --timeout=1000 -e .
-RUN echo "[.] installing muty-ptyhon ..."
-RUN pip3 install --timeout=1000 -e ./muty-python
 
 # set permissions for the non-root user
 RUN chown -R $_USER_NAME:$_USER_NAME /app
