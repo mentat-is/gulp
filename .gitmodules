@@ -1,6 +1,0 @@
-[submodule "muty-python"]
-	path = muty-python
-	url = https://github.com/mentat-is/muty-python
-[submodule "gulp-sdk"]
-	path = gulp-sdk
-	url = https://github.com/mentat-is/gulp-sdk
