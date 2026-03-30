@@ -1,0 +1,12 @@
+{
+  "display_name": "Example Send Data",
+  "plugin": "example_send_data",
+  "extension": true,
+  "version": "1.0.0",
+  "desc": "Example plugin for the send_data type. Shows a title and an input field; when clicking Done, it triggers an alert with the entered text.",
+  "path": ".",
+  "filename": "example_send_data.tsx",
+  "type": [
+    "send_data"
+  ]
+}
