@@ -82,7 +82,7 @@ dependencies = [
     "json5==0.9.25",
     "libpff-python==20231205",
     "llvmlite==0.44.0",
-    "lxml==5.3.0",
+    "lxml==6.0.2",
     "MarkupSafe==2.1.5",
     "msoffcrypto-tool==5.4.2",
     "multidict==6.1.0",

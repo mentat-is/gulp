@@ -34,12 +34,8 @@ RUN apt-get install -y -q \
 WORKDIR /app
 
 
-# copy only requirements and pyproject.toml first for better caching
-COPY ./requirements.txt /app/requirements.txt
+# copy only pyproject.toml first for better caching
 COPY ./pyproject.toml /app/pyproject.toml
-
-# install python dependencies
-RUN pip3 install --timeout=1000 -r /app/requirements.txt || true
 
 # now copy the rest of the source and assets
 COPY ./src /app/src
