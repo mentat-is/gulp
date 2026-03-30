@@ -5,8 +5,6 @@ FROM python:${_PYTHON_VERSION}-bullseye
 # Add build arguments
 ARG _VERSION
 ENV _VERSION=${_VERSION}
-ARG _MUTY_VERSION
-ENV _MUTY_VERSION=${_MUTY_VERSION}
 
 # creates a non-root user with the same UID/GID as the build context user if possible
 ARG _USER_NAME=gulp
@@ -51,7 +49,6 @@ COPY ./docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # set version passed as build argument
 RUN echo "[.] GULP version: ${_VERSION}" && sed -i "s/version = .*/version = \"$(date +'%Y%m%d')+${_VERSION}\"/" /app/pyproject.toml
-RUN echo "[.] muty-python version: ${_MUTY_VERSION}" && sed -i "s/version = .*/version = \"$(date +'%Y%m%d')+${_MUTY_VERSION}\"/" /app/muty-python/pyproject.toml
 RUN echo "[.] installing gulp ..."
 RUN pip3 install --timeout=1000 -e .
 
