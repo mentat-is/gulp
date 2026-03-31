@@ -35,8 +35,7 @@ docker run mentatis/gulp-core:latest
   # WARNING: must run in bash compatible shell, i.e. fish doesnt work
   # to rebuild, add --no-cache flag to the docker buildx line
   cd ./gulp
-  export $(grep -v '^#' .env | xargs)
-  docker buildx build --progress=plain --build-arg _PYTHON_VERSION=$PYTHON_VERSION --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp-core .
+  bash -c "export $(grep -v '^#' .env | xargs) && docker buildx build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp-core ."
   ~~~
 
 ## run with docker-compose

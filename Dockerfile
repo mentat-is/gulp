@@ -29,23 +29,25 @@ RUN apt-get install -y -q \
     rsyslog \
     gosu
 
-WORKDIR /app
+WORKDIR /gulp
 
 
 # copy only pyproject.toml first for better caching
-COPY ./pyproject.toml /app/pyproject.toml
+COPY ./pyproject.toml /gulp/pyproject.toml
 
 # now copy the rest of the source and assets
-COPY ./src /app/src
-COPY ./docs /app/docs
-COPY ./gulp_cfg_template.json /app
-COPY ./MANIFEST.in /app
-COPY ./LICENSE.GULP.md /app
-COPY ./LICENSE.AGPL-3.0.md /app
-COPY ./LICENSE.md /app
-COPY ./CONTRIBUTING.md /app
-COPY ./README.md /app
+COPY ./src /gulp/src
+COPY ./docs /gulp/docs
+COPY ./gulp_cfg_template.json /gulp
+COPY ./MANIFEST.in /gulp
+COPY ./LICENSE.GULP.md /gulp
+COPY ./LICENSE.AGPL-3.0.md /gulp
+COPY ./LICENSE.md /gulp
+COPY ./CONTRIBUTING.md /gulp
+COPY ./README.md /gulp
 COPY ./docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY ./tests /gulp/tests
+COPY ./samples /gulp/samples
 
 # set version passed as build argument and use it for setuptools_scm
 RUN echo "[.] GULP version: ${_VERSION}" && \
@@ -56,11 +58,8 @@ RUN echo "[.] GULP version: ${_VERSION}" && \
     pip3 install --timeout=1000 -e .
 
 # set permissions for the non-root user
-RUN chown -R $_USER_NAME:$_USER_NAME /app
+RUN chown -R $_USER_NAME:$_USER_NAME /gulp
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-# should not be necessary but let's keep it for now
-# ENV PYTHONPATH="/app/src:${PYTHONPATH}"
 
 # show python info and installed package list
 RUN echo "[.] python version: " && python3 --version
