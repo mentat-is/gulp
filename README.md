@@ -75,16 +75,26 @@ install our pypi package and run the necessary services via the example [docker-
 set -e
 curl -o .env https://raw.githubusercontent.com/mentat-is/gulp/develop/.env \
   && curl -o docker-compose.yml https://raw.githubusercontent.com/mentat-is/gulp/develop/docker-compose.yml \
-  && python3 -m pip install --user mentat-gulp
-curl https://github.com/mentat-is/gulp/blob/b90a2f1510c0bf382101f29f628fbda7e56c5a00/docker-compose.yml
-pip3 install mentat-gulp
-# then start the docker compose i.e. docker compose up -d to start the necessary services and then run gulp
-# it will create a default configuration in ~/.config/gulp/gulp_cfg.json if not already present and start listening on http://localhost:8080
+  &&pip install mentat-gulp
 ~~~
+
+then, start the docker compose to start the necessary services:
+
+~~~bash
+docker compose up -d
+~~~
+
+and finally start the backend creating a fresh collab database and operation:
+
+~~~bash
+gulp --reset-collab --create some_operation
+~~~
+
+> gulp creates a default configuration in `$HOME/.config/gulp/gulp_cfg.json` if not already present and starts listening on `http://localhost:8080`
 
 for advanced deployment, always check the following:
 
-- [docker](./docs/install_docker.md)
+- [install with docker](./docs/install_docker.md)
 - [install from sources/dev setup](./docs/install_dev.md)
 - [installing extra plugins](./docs/install_dev.md#7-optional-installing-extra-plugins)
 
