@@ -59,7 +59,7 @@
   // s3 region, ignored for minio
   "s3_region": "us-east-1",
   // s3-compatible storage uri, in the format proto://username:password@host:port (may be overridden by GULP_S3_URL environment variable)
-  "s3_url": "http://admin:Gulp1234!@minio:9000",
+  "s3_url": "http://admin:Gulp1234!@localhost:9000",
   // set to use SSL to connect to s3-compatible storage
   "s3_verify_certs": false,
   // client certificate password (not supported, ignored)
@@ -67,7 +67,7 @@
   // how many seconds to wait until timeout (default=60, tune up if you have request timeouts during ingestion/query, 0=no timeout)
   "opensearch_request_timeout": 180,
   // opensearch url (may be overridden by GULP_OPENSEARCH_URL environment variable)
-  "opensearch_url": "http://admin:Gulp1234!@os01:9200",
+  "opensearch_url": "http://admin:Gulp1234!@localhost:9200",
   // set to false to skip server certificate verification
   "opensearch_verify_certs": false,
   // maximum number of processes to be used for the pool (default=0=number of CPU cores)
@@ -87,7 +87,7 @@
   // set to use SSL to connect to postgresql
   "postgres_ssl": false,
   // postgresql address (may be overridden by GULP_POSTGRES_URL environment variable)
-  "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@postgres:5432/gulp",
+  "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@localhost:5432/gulp",
   // set to false to skip server certificate verification
   "postgres_verify_certs": false,
   // number of times to backoff on opensearch query circuit breaker exception (default=5)
@@ -119,7 +119,7 @@
   // max Redis connections per process for redis-py async pool (0=unlimited, default=0)
   "redis_max_connections": 0,
   // redis url (may be overridden by GULP_REDIS_URL environment variable)
-  "redis_url": "redis://:Gulp1234!@redis:6379/0",
+  "redis_url": "redis://:Gulp1234!@localhost:6379/0",
   // delete pending request stats on the collab database on gulp shutdown (default=true)
   "stats_delete_pending_on_shutdown": true,
   // how many seconds before automatically delete non-live stats, default=1 day (86400 seconds))

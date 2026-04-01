@@ -263,7 +263,7 @@ gULP can be scaled by both providing more hardware resources and/or by running m
 
 ### increase concurrency
 
-tune configuration parameters in [gulp_cfg.json](../gulp_cfg_template.json) according to hardware resources available:
+tune configuration parameters in [gulp_cfg.json](../src/gulp/gulp_cfg_template.json) according to hardware resources available:
 
 - `concurrency_num_tasks`
 - `concurrency_opensearch_num_nodes`
@@ -274,7 +274,7 @@ tune configuration parameters in [gulp_cfg.json](../gulp_cfg_template.json) acco
 
 ### scale OpenSearch, PostgreSQL and Redis
 
-just [scale them up as needed](../docker-compose.yml), gULP instances will connect to the cluster as per the configuration in [gulp_cfg.json](../gulp_cfg_template.json).
+just [scale them up as needed](../docker-compose.yml), gULP instances will connect to the cluster as per the configuration in [gulp_cfg.json](../src/gulp/gulp_cfg_template.json).
 
 ### gulp server roles
 

@@ -1,2 +1,3 @@
 include src/gulp/api/collab/assets/*
 include src/gulp/mapping_files/*
+include src/gulp/gulp_cfg_template.json

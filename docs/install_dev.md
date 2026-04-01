@@ -107,7 +107,8 @@ rm -rf ~/.config/gulp
 mkdir -p ~/.config/gulp
 
 # copy template configuration, edit it in case (pay attention to the debug options!)
-cp ./gulp_cfg_template.json ~/.config/gulp/gulp_cfg.json
+# if this is skipped, a copy of the template will be automatically created at first run
+cp ./src/gulp/gulp_cfg_template.json ~/.config/gulp/gulp_cfg.json
 ~~~
 
 ### 5. install gulp

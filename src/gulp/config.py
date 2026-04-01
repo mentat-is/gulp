@@ -118,13 +118,13 @@ class GulpConfig:
         # note that we use prints here since this is called before the logger is initialized
         if not os.path.exists(config_file_path):
             # copy default configuration file
-            src = os.path.abspath(
-                muty.file.safe_path_join(os.getcwd(), "gulp_cfg_template.json")
-            )
+            pkg_dir = os.path.dirname(os.path.abspath(__file__))  # src/gulp/
+            src = os.path.join(pkg_dir, "gulp_cfg_template.json")
+            print("****** configuration file not found at %s, creating it from template %s ..." % (config_file_path, src))
             muty.file.copy_file(src, config_file_path)
             os.chmod(config_file_path, 0o0600)
             print(
-                "****** PID=%d, NO CONFIGURATION FILE FOUND, creating default configuration %s from template ******"
+                "****** PID=%d, NO CONFIGURATION FILE FOUND, created default configuration %s from template ******"
                 % (os.getpid(), config_file_path)
             )
 

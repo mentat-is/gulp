@@ -38,7 +38,6 @@ COPY ./pyproject.toml /gulp/pyproject.toml
 # now copy the rest of the source and assets
 COPY ./src /gulp/src
 COPY ./docs /gulp/docs
-COPY ./gulp_cfg_template.json /gulp
 COPY ./MANIFEST.in /gulp
 COPY ./LICENSE.GULP.md /gulp
 COPY ./LICENSE.AGPL-3.0.md /gulp

@@ -1,16 +1,18 @@
-# v1.6.7
+# v1.6.81
 
 ## new features
 
 - architecture: observability via Prometheus metrics and Grafana dashboards (check the `docs/observability.md` for instructions)
-- sdk: integrating new polished python SDK (https://github.com/mentat-is/gulp-sdk), tests are still missing for most of the plugins but the core tests are fully functional (docs/testing.md)
+- sdk: deprecated the old `gulp-sdk-python` and integrated new polished python SDK available at https://github.com/mentat-is/gulp-sdk, integration tests in /tests as usual (missing most of the old per-plugin tests, will be updated soon)
+- cli: `gulp-cli` is now available to use most of the gulp features from the command line, get it at https://github.com/mentat-is/gulp-cli
+- installation: removed submodules, now included as dependencies and installable from pypi ('gulp-sdk' and 'muty-python' packages). also gulp itself is installable from pypi as 'mentat-gulp' package, check the [installation instructions](./docs/install_dev.md) for details.
+- ci/cd: added github workflows to build pypi packages
 
- 
 ## bugfixes
 
 - core/logging: fixed syslog logging (integrated rsyslog both in the devcontainer and production Dockerfile deployment)
 - core/redis: multiple fixes to message routing
-- core/all: multiple fixes
+- all: multiple fixes
  
 # v1.6.5
 

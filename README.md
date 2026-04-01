@@ -67,17 +67,24 @@ gulp can be of course [integrated with other applications](./docs/integration.md
 
 ## installation
 
-install our pypi package and you should be good to go with the backend:
+install our pypi package and run the necessary services via the example [docker-compose](./docker-compose.yml) and you should be good to go with the backend:
 
-> **WARNING**: pip installation works only with python3.13 (tested) and 3.12 (should work, but not tested yet), 3.14 is currently not supported because some dependencies have not yet released compatible versions.
+> **WARNING**: pip installation works only with python3.13 (tested) and 3.12, 3.14 is currently not supported because some dependencies have not yet released compatible versions.
 
 ~~~bash
+set -e
+curl -o .env https://raw.githubusercontent.com/mentat-is/gulp/develop/.env \
+  && curl -o docker-compose.yml https://raw.githubusercontent.com/mentat-is/gulp/develop/docker-compose.yml \
+  && python3 -m pip install --user mentat-gulp
+curl https://github.com/mentat-is/gulp/blob/b90a2f1510c0bf382101f29f628fbda7e56c5a00/docker-compose.yml
 pip3 install mentat-gulp
+# then start the docker compose i.e. docker compose up -d to start the necessary services and then run gulp
+# it will create a default configuration in ~/.config/gulp/gulp_cfg.json if not already present and start listening on http://localhost:8080
 ~~~
 
-for other installation types, or for advanced usage, always check the following:
+for advanced deployment, always check the following:
 
-- [docker](<./docs/install_docker.md>)
+- [docker](./docs/install_docker.md)
 - [install from sources/dev setup](./docs/install_dev.md)
 - [installing extra plugins](./docs/install_dev.md#7-optional-installing-extra-plugins)
 
@@ -95,7 +102,7 @@ the following environment variables may be set to override configuration options
   - for the override to work, both `GULP_BIND_TO_ADDR` and `GULP_BIND_TO_PORT` must be specified, either the value of one alone is ignored.
 
 - `GULP_WORKING_DIR`: this is the **working directory** for gulp (defaults to `~/.config/gulp`), which contains:
-  - `gulp_cfg.json`: the configuration, initialized with [template](./gulp_cfg_template.json) if not present
+  - `gulp_cfg.json`: the configuration, initialized with [template](./src/gulp/gulp_cfg_template.json) if not present
   - `plugins`: optional extra plugins (have precedence over `$INSTALLDIR/plugins`)
   - `mapping_files`: optional extra mapping files (have precedence over `$INSTALLDIR/mapping_files`)
   - `certs`: optional [SSL](#ssl) certificates for HTTPS

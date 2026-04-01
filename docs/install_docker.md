@@ -42,7 +42,7 @@ docker run mentatis/gulp-core:latest
 
 you can run all the gulp stack on the `local machine` using the provided [docker-compose.yml](../docker-compose.yml), **even though this should be considered a **play-only** setup, not suitable for production**
 
-you have to just provide your `GULP_WORKING_DIR` to the image, with a valid [gulp_cfg.json](../gulp_cfg_template.json) inside, and you're ready to go!
+you have to just provide your `GULP_WORKING_DIR` to the image, with a valid [gulp_cfg.json](../src/gulp/gulp_cfg_template.json) inside, and you're ready to go!
 
 > if a configuration is not provided, a default one will be created in the `GULP_WORKING_DIR` you specified (may need some tweaking afterwards, though).
 

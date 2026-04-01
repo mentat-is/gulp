@@ -160,8 +160,9 @@ gulp = "gulp.__main__:main"
 
 [tool.setuptools]
 include-package-data = true
-packages = ["gulp"]
-package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
