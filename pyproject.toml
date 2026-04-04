@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools_scm]
 write_to = "src/gulp/_version.py"
 version_scheme = "guess-next-dev"
-local_scheme = "node-and-date"
+local_scheme = "no-local-version"
 
 [project]
 name = "mentat-gulp"
@@ -13,7 +13,9 @@ dynamic= ["version"]
 authors = [{ name = "Mentat", email = "info@mentat.is" }]
 description = "gULP - (generic) Unified Log Processor."
 readme = "README.md"
-requires-python = ">=3.12,<3.14" # some dependencies have not yet for 3.14
+license = {text = "AGPL-3.0 and GULP (see LICENSE.md file)"}
+# some dependencies have not yet updated for python 3.14, so we need to limit the supported versions for now
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "aiobotocore==3.2.1",
     "aiofile==3.9.0",
@@ -161,6 +163,7 @@ gulp = "gulp.__main__:main"
 
 [tool.setuptools]
 include-package-data = true
+license-files = []
 
 [tool.setuptools.packages.find]
 where = ["src"]

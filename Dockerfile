@@ -39,8 +39,8 @@ COPY ./pyproject.toml /gulp/pyproject.toml
 COPY ./src /gulp/src
 COPY ./docs /gulp/docs
 COPY ./MANIFEST.in /gulp
-COPY ./LICENSE.GULP.md /gulp
-COPY ./LICENSE.AGPL-3.0.md /gulp
+COPY ./LICENSE.GULP.txt /gulp
+COPY ./LICENSE.AGPL-3.0.txt /gulp
 COPY ./LICENSE.md /gulp
 COPY ./CONTRIBUTING.md /gulp
 COPY ./README.md /gulp

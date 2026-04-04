@@ -30,7 +30,6 @@ jobs:
 
       - name: Build artifacts
         run: |
-          export SETUPTOOLS_SCM_LOCAL=node-and-date
           python -m build
 
       - name: Check package
@@ -59,7 +58,6 @@ jobs:
 
       - name: Build
         run: |
-          export SETUPTOOLS_SCM_LOCAL=node-and-date
           python -m build
 
       - name: Publish to PyPI

@@ -380,6 +380,7 @@ class GulpPluginParameters(BaseModel):
             and not self.custom_parameters
             and not self.override_chunk_size
             and not self.timestamp_offset_msec
+            and not self.store_file
         ):
             return True
         return False

@@ -727,6 +727,7 @@ async def ingest_file_to_source_handler(
     params = locals()
     params.pop("r")
     ServerUtils.dump_params(params)
+    file_path: str = None
 
     try:
         async with GulpCollab.get_instance().session() as sess:
@@ -744,7 +745,6 @@ async def ingest_file_to_source_handler(
             context_name: str = ctx.name
 
             # handle multipart request manually
-            file_path: str
             file_path, payload, result = (
                 await ServerUtils.handle_multipart_chunked_upload(
                     r=r,
