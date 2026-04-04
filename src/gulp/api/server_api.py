@@ -47,7 +47,7 @@ from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 from gulp.api.prometheus_api import GulpMetrics, cleanup_prometheus
-from gulp import __version_full__
+from gulp import __version__, commit_id
 
 class GulpServer:
     """
@@ -96,8 +96,9 @@ class GulpServer:
         Returns:
             str: version string
         """
-        return "gulp_%s,muty_%s" % (
-            __version_full__,
+        ver: str = f"{__version__} ({commit_id})" if commit_id else __version__
+        return "gulp_%s, muty_%s" % (
+            ver,
             muty.version.muty_version(),
         )
 
