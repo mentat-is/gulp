@@ -96,7 +96,7 @@ class GulpServer:
         Returns:
             str: version string
         """
-        return "gulp_%s,muty_%s)" % (
+        return "gulp_%s,muty_%s" % (
             __version_full__,
             muty.version.muty_version(),
         )
