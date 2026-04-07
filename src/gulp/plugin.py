@@ -578,6 +578,7 @@ class GulpInternalEventsManager:
     # data is a :class:`GulpChunkIngestedInternalEvent`
     EVENT_CHUNK_INGESTED: str = "chunk_ingested"
 
+    EVENT_CHUNK_PRE_INGEST: str = "chunk_pre_ingest"  # data is a :class:`GulpDocumentsChunkPacket`, plugins can return {"cancel": True} to stop the chunk from being ingested
     def __init__(self):
         self._initialized: bool = True
 
@@ -660,7 +661,7 @@ class GulpInternalEventsManager:
         user_id: str = None,
         req_id: str = None,
         operation_id: str = None,
-    ) -> None:
+    ) -> dict:
         """
         may be called by core or plugins and dispatches an internal event to all plugins registered to receive it (via register()).
 
@@ -674,7 +675,7 @@ class GulpInternalEventsManager:
             req_id (str): the request id associated with this event.
             operation_id (str, optional): the operation id if applicable. Defaults to None.
         Returns:
-            None
+            dict: Dispatch outcome, including handlers and any callback return values.
         """
         ev: GulpInternalEvent = GulpInternalEvent(
             type=t,
@@ -684,6 +685,11 @@ class GulpInternalEventsManager:
             operation_id=operation_id,
             req_id=req_id,
         )
+
+        handled_by: list[str] = []
+        results: dict[str, Any] = {}
+        errors: dict[str, str] = {}
+
         for _, entry in self._plugins.items():
             p: GulpPluginBase = entry["plugin_instance"]
             if t in entry["types"]:
@@ -691,9 +697,20 @@ class GulpInternalEventsManager:
                     MutyLogger.get_instance().debug(
                         "dispatching internal event %s to plugin %s", t, p.name
                     )
-                    await p.internal_event_callback(ev)
+                    handled_by.append(p.name)
+                    callback_result = await p.internal_event_callback(ev)
+                    # plugins are expected to return dict; keep {} fallback for legacy callbacks.
+                    results[p.name] = callback_result if isinstance(callback_result, dict) else {}
                 except Exception as e:
+                    errors[p.name] = str(e)
                     MutyLogger.get_instance().exception(e)
+
+        return {
+            "event_type": t,
+            "handled_by": handled_by,
+            "results": results,
+            "errors": errors,
+        }
 
 
 class GulpPluginBase(ABC):
@@ -985,14 +1002,17 @@ class GulpPluginBase(ABC):
         """
         return self._preview_chunk
 
-    async def internal_event_callback(self, ev: GulpInternalEvent) -> None:
+    async def internal_event_callback(self, ev: GulpInternalEvent) -> dict:
         """
         this is called by the engine to broadcast an event to the plugin.
 
         Args:
             ev (GulpInternalEvent): the event
+
+        Returns:
+            dict: plugin-specific event handling result.
         """
-        return
+        return {}
 
     async def post_init(self, **kwargs):
         """

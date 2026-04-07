@@ -159,6 +159,16 @@ class GulpWsData(BaseModel):
         ),
     ] = None
 
+    # optional Redis key used for worker->main internal event request/response.
+    # when set, main process writes the internal event dispatch result to this key.
+    response_key: Annotated[
+        Optional[str],
+        Field(
+            description="Optional Redis key used to write back internal event responses.",
+            alias="__response_key__",
+        ),
+    ] = None
+
     def _check_type_in_broadcast_types_internal(self) -> bool:
         """
         Determine whether this message's type should be treated as a broadcast-type.
@@ -1719,7 +1729,7 @@ class GulpConnectedSockets:
             )
             return False
 
-    async def _route_internal_message(self, data: GulpWsData) -> None:
+    async def _route_internal_message(self, data: GulpWsData) -> dict:
         """
         route message NOT to connected clients BUT to the plugins which registered for it
 
@@ -1732,7 +1742,7 @@ class GulpConnectedSockets:
         # MutyLogger.get_instance().debug(
         #     "routing internal message: type=%s, data=%s", data.type, data.payload
         # )
-        await GulpInternalEventsManager.get_instance().dispatch_internal_event(
+        return await GulpInternalEventsManager.get_instance().dispatch_internal_event(
             data.type,
             data=data.payload,
             user_id=data.user_id,
@@ -2135,7 +2145,23 @@ class GulpRedisBroker:
 
                 if final_channel == GulpRedisChannel.INTERNAL.value or wsd.internal:
                     # internal event: dispatch to plugins and propagate to other instances
-                    await GulpConnectedSockets.get_instance()._route_internal_message(wsd)
+                    result = await GulpConnectedSockets.get_instance()._route_internal_message(wsd)
+
+                    # if requested by caller, write back the result for request/response semantics
+                    if wsd.response_key:
+                        try:
+                            # keep key short-lived; caller deletes after reading
+                            await redis_client._redis.set(
+                                wsd.response_key,
+                                orjson.dumps(result or {}),
+                                ex=300,
+                            )
+                        except Exception:
+                            MutyLogger.get_instance().exception(
+                                "error writing internal event response for key=%s",
+                                wsd.response_key,
+                            )
+
                     msg = wsd.cached_model_dump(exclude_none=True)
                     msg["__channel__"] = GulpRedisChannel.INTERNAL.value
                     msg["__server_id__"] = redis_client.server_id
@@ -2352,6 +2378,55 @@ class GulpRedisBroker:
         await GulpConnectedSockets.get_instance().route_message(wsd)
         return
 
+    async def _wait_internal_response(
+        self,
+        response_key: str,
+        timeout: float | None = None,
+        poll_interval: float = 0.05,
+    ) -> dict:
+        """Wait for an internal event response dict written by the main process.
+
+        Args:
+            response_key (str): Redis key where main process writes the response.
+            timeout (float | None): Max seconds to wait. None waits forever.
+            poll_interval (float): Sleep interval between Redis polls.
+
+        Returns:
+            dict: The response dictionary.
+
+        Raises:
+            TimeoutError: If timeout expires before a response is available.
+        """
+        redis_client = GulpRedis.get_instance()
+        start = time.monotonic()
+
+        while True:
+            raw = await redis_client._redis.get(response_key)
+            if raw is not None:
+                # best effort cleanup of rendezvous key once consumed
+                try:
+                    await redis_client._redis.delete(response_key)
+                except Exception:
+                    pass
+
+                try:
+                    parsed = orjson.loads(raw)
+                except Exception:
+                    MutyLogger.get_instance().warning(
+                        "invalid internal event response payload for key=%s",
+                        response_key,
+                    )
+                    return {}
+                return parsed if isinstance(parsed, dict) else {"result": parsed}
+
+            if timeout is not None and timeout >= 0:
+                if (time.monotonic() - start) >= timeout:
+                    raise TimeoutError(
+                        f"timeout waiting for internal event response on key={response_key}"
+                    )
+
+            await asyncio.sleep(poll_interval)
+
     async def put_internal_event(
         self,
         t: str,
@@ -2383,6 +2458,51 @@ class GulpRedisBroker:
             channel=GulpRedisChannel.INTERNAL.value,
         )
         await self._put_common(wsd)
+
+    async def put_internal_event_wait(
+        self,
+        t: str,
+        user_id: str = None,
+        operation_id: str = None,
+        req_id: str = None,
+        data: dict = None,
+        timeout: float | None = None,
+    ) -> dict:
+        """Publish an internal event and wait for the main-process response dict.
+
+        The message is processed in the main process like `put_internal_event`, but this
+        method additionally waits for a response dictionary produced after processing.
+
+        Args:
+            t (str): Internal event type.
+            user_id (str, optional): Event user id.
+            operation_id (str, optional): Event operation id.
+            req_id (str, optional): Event request id.
+            data (dict, optional): Event payload.
+            timeout (float | None): Wait timeout in seconds. None waits forever.
+
+        Returns:
+            dict: Response produced by main-process internal event handling.
+
+        Raises:
+            TimeoutError: If `timeout` elapses before a response is available.
+        """
+        response_key = f"gulp:internal:wait:{muty.string.generate_unique()}"
+
+        wsd = GulpWsData(
+            timestamp=muty.time.now_msec(),
+            type=t,
+            user_id=user_id,
+            req_id=req_id,
+            operation_id=operation_id,
+            payload=data,
+            internal=True,
+            channel=GulpRedisChannel.INTERNAL.value,
+            response_key=response_key,
+        )
+
+        await self._put_common(wsd)
+        return await self._wait_internal_response(response_key=response_key, timeout=timeout)
 
     async def put(
         self,

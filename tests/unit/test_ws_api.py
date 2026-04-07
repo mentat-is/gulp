@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+import orjson
 import pytest
 
 from gulp.api.ws_api import (
@@ -9,6 +10,28 @@ from gulp.api.ws_api import (
     GulpWsData,
     GulpWsType,
 )
+
+
+class _FakeRedisRaw:
+    def __init__(self):
+        self._data: dict[str, bytes] = {}
+
+    async def set(self, key: str, value: bytes, ex: int | None = None):
+        self._data[key] = value
+        return True
+
+    async def get(self, key: str):
+        return self._data.get(key)
+
+    async def delete(self, key: str):
+        existed = 1 if key in self._data else 0
+        self._data.pop(key, None)
+        return existed
+
+
+class _FakeRedisClient:
+    def __init__(self):
+        self._redis = _FakeRedisRaw()
 
 
 @pytest.mark.unit
@@ -92,3 +115,54 @@ def test_gulp_connected_sockets_cache_and_queue_utilization():
     utilization = sockets.aggregate_queue_utilization()
     assert pytest.approx(utilization, rel=1e-6) == 0.25
     assert sockets.num_connected_sockets() == 2
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_put_internal_event_wait_returns_response(monkeypatch):
+    broker = GulpRedisBroker.get_instance()
+    fake_redis = _FakeRedisClient()
+
+    from gulp.api import ws_api as ws_api_module
+
+    monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: fake_redis)
+
+    async def _fake_put_common(wsd: GulpWsData) -> None:
+        await fake_redis._redis.set(
+            wsd.response_key,
+            orjson.dumps({"ok": True, "event_type": wsd.type}),
+            ex=300,
+        )
+
+    monkeypatch.setattr(broker, "_put_common", _fake_put_common)
+
+    result = await broker.put_internal_event_wait(
+        t="unit_wait_event",
+        user_id="tester",
+        timeout=0.5,
+    )
+
+    assert result == {"ok": True, "event_type": "unit_wait_event"}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_put_internal_event_wait_timeout(monkeypatch):
+    broker = GulpRedisBroker.get_instance()
+    fake_redis = _FakeRedisClient()
+
+    from gulp.api import ws_api as ws_api_module
+
+    monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: fake_redis)
+
+    async def _fake_put_common(_wsd: GulpWsData) -> None:
+        return
+
+    monkeypatch.setattr(broker, "_put_common", _fake_put_common)
+
+    with pytest.raises(TimeoutError):
+        await broker.put_internal_event_wait(
+            t="unit_wait_event_timeout",
+            user_id="tester",
+            timeout=0.05,
+        )

@@ -36,7 +36,7 @@ class Plugin(GulpPluginBase):
     def desc(self) -> str:
         return "Registers a post-processing chunk ingestion callback."
 
-    async def internal_event_callback(self, ev):
+    async def internal_event_callback(self, ev) -> dict:
         from gulp.plugin import GulpInternalEventsManager
 
         if ev.type == GulpInternalEventsManager.EVENT_CHUNK_INGESTED:
@@ -51,6 +51,7 @@ class Plugin(GulpPluginBase):
                 f"operation_id={operation_id}, user_id={user_id}, req_id={req_id}, "
                 f"plugin={plugin}"
             )
+        return {}
 
     def type(self) -> GulpPluginType:
         return GulpPluginType.EXTENSION
