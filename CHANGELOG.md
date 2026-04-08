@@ -2,11 +2,12 @@
 
 ## new features
 
-- architecture: observability via Prometheus metrics and Grafana dashboards (check the `docs/observability.md` for instructions)
-- core: added synchronous internal events callback (allows extension plugins to i.e. change chunks of data during ingestion via EVENT_CHUNK_PRE_INGEST event)
-- sdk: deprecated the old `gulp-sdk-python` and integrated new polished python SDK available at https://github.com/mentat-is/gulp-sdk, integration tests in /tests as usual (missing most of the old per-plugin tests, will be updated soon)
-- cli: `gulp-cli` is now available to use most of the gulp features from the command line, get it at https://github.com/mentat-is/gulp-cli
-- installation: removed submodules, now included as dependencies and installable from pypi ('gulp-sdk' and 'muty-python' packages). also gulp itself is installable from pypi as 'mentat-gulp' package, check the [installation instructions](./docs/install_dev.md) for details.
+- architecture: observability via `Prometheus` metrics and `Grafana` dashboards (check the `docs/observability.md` for instructions)
+- core: added `synchronous` internal events callback, allows extension plugins to i.e. change chunks of documents during ingestion via `EVENT_CHUNK_PRE_INGEST` event
+- sdk: deprecated the old `gulp-sdk-python` and integrated new polished python SDK available at https://github.com/mentat-is/gulp-sdk, integration tests in `/tests` as usual (missing most of the old per-plugin tests, will be updated soon)
+- installation: removed submodules, welcome pypi installation! our Mentat's dependencies `gulp-sdk` and `muty-python` packages and also gulp itself (`mentat-gulp`) are now on pypi, check the [installation instructions](./docs/install_dev.md) for details.
+- cli: `gulp-cli` is now available to use most of the gulp features from the command line, get it at https://github.com/mentat-is/gulp-cli or via the `gulp-cli` package on pypi!
+
 - ci/cd: added github workflows to build pypi packages
 
 ## bugfixes
