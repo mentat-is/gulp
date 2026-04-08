@@ -22,8 +22,7 @@ import muty.time
 import orjson
 from fastapi import WebSocketDisconnect
 from muty.log import MutyLogger
-from opensearchpy import Field
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.context import GulpContext
@@ -99,6 +98,51 @@ class GulpPluginCacheMode(StrEnum):
     IGNORE = "ignore"  # always load from disk
     DEFAULT = "default"  # use configuration value (cache enabled/disabled)
 
+class GulpChunkPrePostIngestInternalEvent(BaseModel):
+    """
+    this is sent before/after each chunk ingestion by the engine to plugins registered to the GulpInternalEventsManager.EVENT_CHUNK_PRE/POST_INGEST event
+
+    NOTE: EVENT_CHUNK_PRE_INGEST allows plugins to modify the chunk before ingestion (by returning a modified chunk in the callback, which is run synchronous by the engine)
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "plugin": "win_evtx",
+                    "user_id": "user123",
+                    "operation_id": "op123",
+                    "req_id": "req123",
+                    "chunk": [{"field1": "value1"}, {"field1": "value2"}],
+                }
+            ]
+        },
+    )
+    chunk: Annotated[
+        list[dict], Field(description="The chunk of data being ingested.")
+    ]
+    index: Annotated[
+        str, Field(description="The index the chunk is being ingested to.")
+    ]
+    operation_id: Annotated[
+        str, Field(description="The operation id associated with this ingestion.")
+    ]
+    req_id: Annotated[
+        str, Field(description="The request id associated with this ingestion.")
+    ]
+    ws_id: Annotated[
+        str, Field(description="The WebSocket id associated with this ingestion.")
+    ]
+    user_id: Annotated[
+        str, Field(description="The user id associated with this ingestion.")
+    ]
+    plugin: Annotated[
+        str, Field(description="The plugin performing the ingestion.")
+    ]
+    flt: Annotated[
+        Optional[GulpIngestionFilter], Field(description="The ingestion filter associated with this ingestion.")
+    ] = None
 
 class GulpIngestInternalEvent(BaseModel):
     """
@@ -223,6 +267,41 @@ class GulpInternalEvent(BaseModel):
         ),
     ] = None
 
+class GulpInternalEventResult(BaseModel):
+    """
+    the result of an internal event callback, including the plugin that handled the event, the event type and the callback return value
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={
+            "examples": [
+                {
+                    "plugins": ["win_evtx"],
+                    "event": "chunk_post_ingest",
+                    "result": {"modified_chunk": [{"field1": "value1"}, {"field1": "value2"}]},
+                }
+            ]
+        },
+    )
+    plugins: Annotated[
+        str|list[str],
+        Field(description="The plugin or plugins that handled the event."),
+    ]
+    event: Annotated[
+        str,
+        Field(description="The type of the event."),
+    ]
+    result: Annotated[
+        dict,
+        Field(description="The return value of the callback, if any."),
+    ] = None
+    stop: Annotated[bool,
+        Field(
+            False,
+            description="Whether to stop processing the event with other plugins (i.e. if True, the callback return value will be returned as final result of the event, without calling other plugins' callbacks).",
+        ),
+    ] = False
 
 class GulpPluginEntry(BaseModel):
     """
@@ -549,7 +628,6 @@ class GulpPluginCache:
             MutyLogger.get_instance().debug("removing plugin %s from cache" % (name))
             del self._cache[name]
 
-
 class GulpInternalEventsManager:
     """
     Singleton class to manage internal events
@@ -575,10 +653,12 @@ class GulpInternalEventsManager:
     # an operation is deleted
     EVENT_DELETE_OPERATION: str = "delete_operation"  # data= {"index": index}
     # a chunk of documents has been ingested and pushed to the websocket
-    # data is a :class:`GulpChunkIngestedInternalEvent`
-    EVENT_CHUNK_INGESTED: str = "chunk_ingested"
+    # data is a `GulpChunkPrePostIngestInternalEvent`
+    EVENT_CHUNK_POST_INGEST: str = "chunk_post_ingest"
+    # a chunk of documents is about to be ingested: this event is SYNCHRONOUS (backend wait for its processing)
+    # data is a `GulpChunkPrePostIngestInternalEvent`, callback returns a GulpInternalEventResult with the modified chunk (if applicable)
+    EVENT_CHUNK_PRE_INGEST: str = "chunk_pre_ingest"
 
-    EVENT_CHUNK_PRE_INGEST: str = "chunk_pre_ingest"  # data is a :class:`GulpDocumentsChunkPacket`, plugins can return {"cancel": True} to stop the chunk from being ingested
     def __init__(self):
         self._initialized: bool = True
 
@@ -637,6 +717,17 @@ class GulpInternalEventsManager:
         #         "plugin %s already registered to receive internal events" % (name)
         #     )
 
+    def is_plugin_registered(self, plugin: str) -> bool:
+        """
+        check if a plugin is registered to receive internal events
+
+        Args:
+            plugin (str): the name of the plugin to check
+        Returns:
+            bool: True if the plugin is registered, False otherwise
+        """
+        return plugin in self._plugins.keys()
+    
     def deregister(self, plugin: str) -> None:
         """
         Stop a plugin from receiving internal events.
@@ -663,19 +754,22 @@ class GulpInternalEventsManager:
         operation_id: str = None,
     ) -> dict:
         """
-        may be called by core or plugins and dispatches an internal event to all plugins registered to receive it (via register()).
+        dispatches internal event to all plugins which registered for it: each plugin's `internal_event_callback` is called with the event data, 
+        and the callback return value is fed back to the next plugin as input data (i.e. plugins can modify the event data and pass it to the next plugin).
 
         NOTE: this can be used by the main process only, which holds the GulpInternalEventsManager singleton.
-        in workers, plugins should call GulpRedisBroker.put_internal_event() instead
+
+        in workers, plugins should call GulpRedisBroker.put_internal_event() or GulpRedisBroker.put_internal_wait() 
+        to send internal events to the main process, which will then call this method to dispatch the event to the relevant plugins.
 
         Args:
             t: str: the event (must be previously registered with GulpInternalEventsManager.register)
             data (dict, optional): The data to send with the event (event-specific). Defaults to None.
             user_id (str, optional): the user id associated with this event. Defaults to None.
-            req_id (str): the request id associated with this event.
+            req_id (str, optional): the request id associated with this event. Defaults to None.
             operation_id (str, optional): the operation id if applicable. Defaults to None.
         Returns:
-            dict: Dispatch outcome, including handlers and any callback return values.
+            dict: the result of the event, including the plugins that handled it and the callback return value (if any)
         """
         ev: GulpInternalEvent = GulpInternalEvent(
             type=t,
@@ -686,32 +780,29 @@ class GulpInternalEventsManager:
             req_id=req_id,
         )
 
-        handled_by: list[str] = []
-        results: dict[str, Any] = {}
-        errors: dict[str, str] = {}
-
+        result= GulpInternalEventResult(plugins=[], event=t, result=data)
         for _, entry in self._plugins.items():
             p: GulpPluginBase = entry["plugin_instance"]
             if t in entry["types"]:
+                # if this plugin manages event of t type ...
                 try:
                     MutyLogger.get_instance().debug(
                         "dispatching internal event %s to plugin %s", t, p.name
                     )
-                    handled_by.append(p.name)
-                    callback_result = await p.internal_event_callback(ev)
-                    # plugins are expected to return dict; keep {} fallback for legacy callbacks.
-                    results[p.name] = callback_result if isinstance(callback_result, dict) else {}
+                    res = await p.internal_event_callback(ev)
+                    if res and res.result:
+                        # feed the result back for the next plugin as input
+                        ev.data = res.result
+                        result.plugins.append(p.name)
+                        if res.stop:
+                            # stop here
+                            break
+
+
                 except Exception as e:
-                    errors[p.name] = str(e)
                     MutyLogger.get_instance().exception(e)
 
-        return {
-            "event_type": t,
-            "handled_by": handled_by,
-            "results": results,
-            "errors": errors,
-        }
-
+        return result.model_dump()
 
 class GulpPluginBase(ABC):
     """
@@ -1002,17 +1093,19 @@ class GulpPluginBase(ABC):
         """
         return self._preview_chunk
 
-    async def internal_event_callback(self, ev: GulpInternalEvent) -> dict:
+    async def internal_event_callback(self, ev: GulpInternalEvent) -> GulpInternalEventResult|None:
         """
         this is called by the engine to broadcast an event to the plugin.
+        this is usually called as "fire and forget" by the engine via GulpRedisBroker.put_internal_event(): the plugin will process the callback asynchronously. 
+        but this may also be called synchronously waiting for the return value via GulpRedisBroker.put_internal_event_wait().
 
         Args:
             ev (GulpInternalEvent): the event
 
         Returns:
-            dict: plugin-specific event handling result.
+            GulpInternalEventResult|None: the result of the event processing, meaningful only if the callback is called synchronously via GulpRedisBroker.put_internal_event_wait()
         """
-        return {}
+        return None
 
     async def post_init(self, **kwargs):
         """
@@ -1099,6 +1192,31 @@ class GulpPluginBase(ABC):
 
         # MutyLogger.get_instance().debug(orjson.dumps(self._docs_buffer, option=orjson.OPT_INDENT_2).decode())
         # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d',len(self.buffer))
+        redis_broker = GulpRedisBroker.get_instance()
+        if not self._preview_mode:
+            # send pre-ingest event to allow plugins to modify the chunk before ingestion, this is a SYNCHRONOUS event (core wait for the response before ingesting the chunk)
+            pre_ingest_ev = GulpChunkPrePostIngestInternalEvent(
+                chunk=self._docs_buffer,
+                index=self._index,
+                req_id=self._req_id,
+                ws_id=self._ws_id,
+                user_id=self._user_id,
+                operation_id=self._operation_id,
+                plugin=self.name,
+                flt=flt,
+            )
+
+            result: GulpInternalEventResult = await redis_broker.put_internal_event_wait(
+                GulpInternalEventsManager.EVENT_CHUNK_PRE_INGEST,
+                user_id=self._user_id,
+                operation_id=self._operation_id,
+                req_id=self._req_id,
+                data=pre_ingest_ev.model_dump(exclude_none=True)
+            )
+            if result:
+                # use the (possibly) modified chunk
+                self._docs_buffer = result.result.get("chunk")
+            # MutyLogger.get_instance().warning("res EVENT_CHUNK_PRE_INGEST=%s", result)
 
         # perform ingestion, ingested_docs may be different from self._docs_buffer in the end due to skipped documents
         skipped, ingested_docs, failed = await el.bulk_ingest(
@@ -1161,7 +1279,6 @@ class GulpPluginBase(ABC):
             # MutyLogger.get_instance().debug(
             #     "sending chunk of %d documents to ws_id=%s", len(ws_docs), self._ws_id
             # )
-            redis_broker = GulpRedisBroker.get_instance()
             await redis_broker.put(
                 t=WSDATA_DOCUMENTS_CHUNK,
                 ws_id=self._ws_id,
@@ -1219,22 +1336,22 @@ class GulpPluginBase(ABC):
             # publish a global internal event for any interested extension plugins
             # plugins registering for this event will receive the same data passed below.
             try:
-                redis_broker = GulpRedisBroker.get_instance()
-                payload = {
-                    "chunk": ingested_docs,
-                    "index": self._index,
-                    "req_id": self._req_id,
-                    "ws_id": self._ws_id,
-                    "user_id": self._user_id,
-                    "operation_id": self._operation_id,
-                    "plugin": self.name,
-                }
+                post_ingest_ev = GulpChunkPrePostIngestInternalEvent(
+                    chunk=ingested_docs,
+                    index=self._index,
+                    req_id=self._req_id,
+                    ws_id=self._ws_id,
+                    user_id=self._user_id,
+                    operation_id=self._operation_id,
+                    plugin=self.name,
+                    flt=flt,
+                )
                 await redis_broker.put_internal_event(
-                    GulpInternalEventsManager.EVENT_CHUNK_INGESTED,
+                    GulpInternalEventsManager.EVENT_CHUNK_POST_INGEST,
                     user_id=self._user_id,
                     operation_id=self._operation_id,
                     req_id=self._req_id,
-                    data=payload,
+                    data=post_ingest_ev.model_dump(exclude_none=True),
                 )
             except Exception:
                 # best-effort, do not interrupt ingestion if event cannot be sent
@@ -3459,13 +3576,19 @@ class GulpPluginBase(ABC):
         Args:
             types (list[str], optional): List of event types to register for. Defaults to None, which registers for all events.
         """
+        if self.type() != GulpPluginType.EXTENSION:
+            raise ValueError("only plugins of type EXTENSION can register for internal events!")
         GulpInternalEventsManager.get_instance().register(self, types)
 
     def deregister_internal_events_callback(self) -> None:
         """
         Stop listening to internal events.
         """
-        GulpInternalEventsManager.get_instance().deregister(self.name)
+        if GulpInternalEventsManager.get_instance().is_plugin_registered(self.name):
+            if self.type() != GulpPluginType.EXTENSION:
+                raise ValueError("only plugins of type EXTENSION can deregister for internal events!")
+            
+            GulpInternalEventsManager.get_instance().deregister(self.name)
 
     @staticmethod
     def load_sync(

@@ -130,7 +130,14 @@ async def test_put_internal_event_wait_returns_response(monkeypatch):
     async def _fake_put_common(wsd: GulpWsData) -> None:
         await fake_redis._redis.set(
             wsd.response_key,
-            orjson.dumps({"ok": True, "event_type": wsd.type}),
+            orjson.dumps(
+                {
+                    "plugins": [],
+                    "event": wsd.type,
+                    "result": {"ok": True, "event_type": wsd.type},
+                    "stop": False,
+                }
+            ),
             ex=300,
         )
 
@@ -142,7 +149,10 @@ async def test_put_internal_event_wait_returns_response(monkeypatch):
         timeout=0.5,
     )
 
-    assert result == {"ok": True, "event_type": "unit_wait_event"}
+    assert result.plugins == []
+    assert result.event == "unit_wait_event"
+    assert result.result == {"ok": True, "event_type": "unit_wait_event"}
+    assert result.stop is False
 
 
 @pytest.mark.unit

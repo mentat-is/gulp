@@ -773,7 +773,7 @@ class GulpRedis:
         await self._pubsub.subscribe(*channels)
 
         task = asyncio.create_task(
-            self._subscriber_loop("multiple", callback),
+            self._subscriber_loop("subscriber", callback),
             name=f"gulpredis-sub-{self.server_id}",
         )
         self._subscriber_task = task
@@ -822,7 +822,7 @@ class GulpRedis:
         Internal loop for processing Redis pub/sub messages from multiple channels.
 
         Args:
-            channel_name (str): Descriptive name for logging (e.g., "multiple")
+            channel_name (str): Descriptive name for logging (e.g., "subscriber")
             callback: Function to call with each message
         """
         MutyLogger.get_instance().debug(
@@ -848,6 +848,7 @@ class GulpRedis:
                             d["__redis_channel__"] = actual_channel
                             # dispatch as concurrent task to avoid head-of-line blocking
                             await self._handler_semaphore.acquire()
+                            # calls _handle_pubsub_message releasing the lock in the end
                             task = asyncio.create_task(
                                 self._guarded_callback(callback, d, actual_channel)
                             )

@@ -421,9 +421,9 @@ class GulpConfig:
         if self.is_integration_test():
             n = True
         else:
-            n = self._config.get("ws_ignore_missing", False)
-        if n:
-            MutyLogger.get_instance().warning("!!!WARNING!!! IGNORING MISSING WEBSOCKET CONNECTIONS!")
+            n = self._config.get("ws_ignore_missing", True)
+        """if n:
+            MutyLogger.get_instance().warning("!!!WARNING!!! IGNORING MISSING WEBSOCKET CONNECTIONS!")"""
         return n
 
     def debug_enrich_dry_run(self) -> bool:

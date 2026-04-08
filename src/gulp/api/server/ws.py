@@ -62,7 +62,7 @@ from gulp.api.ws_api import (
     GulpWsError,
     GulpWsErrorPacket,
     GulpWsIngestPacket,
-    GulpRedisChannel,
+    GulpMessageRoutingTarget,
     GulpWsType,
 )
 from gulp.config import GulpConfig
@@ -822,29 +822,27 @@ class GulpAPIWebsocket:
                     type=WSDATA_CLIENT_DATA,
                     # do NOT set `ws_id` to the sender — leaving it `None` makes the
                     # message a broadcast so other connected `ws_client_data`
-                    # sockets can receive it (matches client expectations).
+                    # sockets can receive it
                     ws_id=None,
                     user_id=user_id,
+                    route_target_type=GulpMessageRoutingTarget.CLIENT_DATA.value,
                     operation_id=client_ui_data.operation_id,
                     payload=client_ui_data.model_dump(exclude_none=True),
                 )
 
-                # route to connected client_data websockets using shared server-side filter
-                await GulpRedisBroker.get_instance()._process_client_data_message(data)
+                # route to local connected client_data websockets
+                await GulpRedisBroker.get_instance()._route_message_to_local_client_data_websockets(data)
+
                 # publish to other instances via dedicated client_data Redis channel
                 try:
-                    redis_client = GulpRedis.get_instance()
                     msg = data.model_dump(exclude_none=True)
-                    msg["__channel__"] = GulpRedisChannel.CLIENT_DATA.value
-                    msg["__server_id__"] = redis_client.server_id
-                    msg["__sender_ws_id__"] = ws.ws_id
                     # publish to dedicated channel
                     MutyLogger.get_instance().debug(
                         "publishing client_data to Redis: ws_id=%s, operation_id=%s",
                         ws.ws_id, client_ui_data.operation_id
                     )
                     await GulpRedis.get_instance().publish(
-                        msg, channel=GulpRedisChannel.CLIENT_DATA.redis_channel_name()
+                        msg, channel=GulpMessageRoutingTarget.CLIENT_DATA.redis_channel_name()
                     )
                 except Exception as ex:
                     MutyLogger.get_instance().warning(

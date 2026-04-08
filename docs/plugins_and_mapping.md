@@ -269,10 +269,16 @@ There are two flavours of chunk ingestion callbacks:
   
   > usually this is set by an `extension` plugin performing ingestion via the `GulpPluginBase.ingest_raw` method, but may also be set by a stacked `ingestion` or `external` plugins: the upper plugin may just set `GulpPluginParameters._chunk_ingestion_callback` then call `ingest_file`/`query_external` in the lower plugin to perform the ingestion.
 
-2. **Global ingestion callbacks** – allows `extension` plugins to receive every ingested chunk from every running plugin/s, regardless of which request produced it. 
+2. **Global ingestion callbacks** – allows `extension` plugins to receive every ingested chunk from every running plugin/s, regardless of which request produced it.
  
-A global callback lives in an `extension` plugin that registers for the `GulpInternalEventsManager.EVENT_CHUNK_INGESTED` internal event. The engine publishes this event in the main process immediately after a chunk is pushed to OpenSearch and the matching websocket packet has been queued. 
-Any plugin that registers for the event will have its `internal_event_callback` called in registration order; there is no limitation on the number of callbacks. The payload of the event is the same data dict passed to request-scoped callbacks, with the addition of a `plugin` field indicating which plugin ingested the chunk.
+A global callback lives in an `extension` plugin that registers for one or both of the internal events:
+
+- `GulpInternalEventsManager.EVENT_CHUNK_POST_INGEST` (`chunk_post_ingest`) – published after a chunk is pushed to OpenSearch and the matching websocket packet has been queued.
+- `GulpInternalEventsManager.EVENT_CHUNK_PRE_INGEST` (`chunk_pre_ingest`) – published before a chunk is ingested; this event is synchronous and the engine waits for the callback to return a `GulpInternalEventResult` if it wants to modify the chunk before ingestion.
+
+These callbacks are typically registered in the main process, while worker processes publish the event via Redis after chunk flush. Any plugin that registers for the event will have its `internal_event_callback` called in registration order; there is no limitation on the number of callbacks.
+
+The payload of the event is a `GulpChunkPrePostIngestInternalEvent` containing the chunk, index, request/ws/operation/user ids, and the plugin name. For `EVENT_CHUNK_PRE_INGEST`, the callback may return a modified chunk in `GulpInternalEventResult.result`.
 
 an example is provided in [example_chunk_callbacks](../src/gulp/plugins/extension/example_chunk_callbacks.py) plugin.
 

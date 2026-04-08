@@ -1,8 +1,8 @@
-from typing import override
+from typing import Any, override
 
 from muty.log import MutyLogger
 
-from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.plugin import GulpInternalEvent, GulpInternalEventResult, GulpPluginBase, GulpPluginType
 
 
 class Plugin(GulpPluginBase):
@@ -30,16 +30,16 @@ class Plugin(GulpPluginBase):
             from gulp.plugin import GulpInternalEventsManager
 
             GulpInternalEventsManager.get_instance().register(
-                self, [GulpInternalEventsManager.EVENT_CHUNK_INGESTED]
+                self, [GulpInternalEventsManager.EVENT_CHUNK_POST_INGEST, GulpInternalEventsManager.EVENT_CHUNK_PRE_INGEST]
             )
 
     def desc(self) -> str:
         return "Registers a post-processing chunk ingestion callback."
 
-    async def internal_event_callback(self, ev) -> dict:
+    async def internal_event_callback(self, ev: GulpInternalEvent) -> GulpInternalEventResult|None:
         from gulp.plugin import GulpInternalEventsManager
 
-        if ev.type == GulpInternalEventsManager.EVENT_CHUNK_INGESTED:
+        if ev.type == GulpInternalEventsManager.EVENT_CHUNK_POST_INGEST:
             data = ev.data or {}
             chunk_len = len(data.get("chunk", []))
             operation_id = data.get("operation_id")
@@ -47,11 +47,17 @@ class Plugin(GulpPluginBase):
             req_id = data.get("req_id")
             plugin = data.get("plugin")
             MutyLogger.get_instance().debug(
-                f"extension plugin={self.name} received EVENT_CHUNK_INGESTED: chunk_len={chunk_len}, "
+                f"extension plugin={self.name} received EVENT_CHUNK_POST_INGEST: chunk_len={chunk_len}, "
                 f"operation_id={operation_id}, user_id={user_id}, req_id={req_id}, "
                 f"plugin={plugin}"
             )
-        return {}
+            return None
+        elif ev.type == GulpInternalEventsManager.EVENT_CHUNK_PRE_INGEST:
+            # this is synchronous
+            chunk = ev.data.get("chunk", [])
+            return GulpInternalEventResult(plugins=self.name, event=ev.type, result={"chunk": chunk} if len(chunk) else None)
+            
+        return None
 
     def type(self) -> GulpPluginType:
         return GulpPluginType.EXTENSION

@@ -85,10 +85,6 @@ class GulpMetrics:
     )
 
     # ── Multi-node routing counters ──
-    ws_remote_forward_total = Counter(
-        "gulp_ws_remote_forward_total",
-        "Messages forwarded to a websocket owned by a different server",
-    )
     ws_broadcast_dedup_dropped_total = Counter(
         "gulp_ws_broadcast_dedup_dropped_total",
         "Broadcast messages dropped due to cross-node deduplication",

@@ -130,8 +130,8 @@
   "token_ttl": 604800,
   // if set, websocket delay depends on the number of connected websockets
   "ws_adaptive_rate_limit_delay": true,
-   // if set, missing websocket will not halt the ongoing operation, reconnecting a websocket with the same `ws_id` will continue receiving messages (default=false)
-  "ws_ignore_missing": false,
+   // if set, missing websocket will not halt the ongoing operation, reconnecting a websocket with the same `ws_id` will continue receiving messages (default=true)
+  "ws_ignore_missing": true,
  // maximum size of the websocket message queue per client (default=8192 messages). increase if you get "queue full" warnings in the gulp logs.
   "ws_queue_max_size": 8192,
   // timeout in seconds for blocking enqueue operations: if a message cannot be enqueued within this timeout, the client is considered unresponsive and disconnected (default=5.0 seconds)

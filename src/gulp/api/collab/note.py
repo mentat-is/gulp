@@ -21,8 +21,7 @@ import muty.crypto
 import orjson
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
-from opensearchpy import Field
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Insert, String
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
