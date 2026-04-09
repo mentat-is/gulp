@@ -721,14 +721,17 @@ async def sigmas_to_queries(
             else:
                 use_sigma_mapping = False
 
+            # initialize final_sigma_yml before try block so it's always defined in exception handler
+            final_sigma_yml: str = yml
             try:
                 # transform the sigma rule considering source mappings: i.e. if the sigma rule have EventId in the conditions, we want it
                 # to be "event.code" in ECS, so we need to apply the mapping first
-                final_sigma_yml: str = _map_sigma_fields_to_ecs(
+                final_sigma_yml = _map_sigma_fields_to_ecs(
                     yml, mappings[mapping_id]
                 )
                 # MutyLogger.get_instance().debug(
-                #     "sigma_convert_default, final sigma rule yml:\n%s", final_sigma_yml
+                #     "sigma_convert_default, final sigma rule yml:
+%s", final_sigma_yml
                 # )
                 qs: list[dict] = backend.convert_rule(
                     SigmaRule.from_yaml(final_sigma_yml), output_format=output_format
@@ -736,7 +739,10 @@ async def sigmas_to_queries(
             except:
                 # skip this rule
                 MutyLogger.get_instance().exception(
-                    "failed to convert sigma %s ***ORIGINAL***:\n\n%s\n***PATCHED***:%s"
+                    "failed to convert sigma %s ***ORIGINAL***:
+
+%s
+***PATCHED***:%s"
                     % (rule.title or rule.name, yml, final_sigma_yml)
                 )
                 continue
