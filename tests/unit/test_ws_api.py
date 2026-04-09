@@ -1,11 +1,13 @@
 import asyncio
 import time
+from unittest.mock import AsyncMock, MagicMock
 
 import orjson
 import pytest
 
 from gulp.api.ws_api import (
     GulpConnectedSockets,
+    GulpMessageRoutingTarget,
     GulpRedisBroker,
     GulpWsData,
     GulpWsType,
@@ -32,6 +34,15 @@ class _FakeRedisRaw:
 class _FakeRedisClient:
     def __init__(self):
         self._redis = _FakeRedisRaw()
+
+
+class _FakeConnectedSocket:
+    def __init__(self, ws_id: str, socket_type: GulpWsType = GulpWsType.WS_DEFAULT):
+        self.ws_id = ws_id
+        self.socket_type = socket_type
+        self.types = None
+        self.operation_ids = None
+        self.enqueue_message = AsyncMock(return_value=True)
 
 
 @pytest.mark.unit
@@ -176,3 +187,108 @@ async def test_put_internal_event_wait_timeout(monkeypatch):
             user_id="tester",
             timeout=0.05,
         )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_route_message_to_local_websockets_targets_matching_ws_only():
+    GulpConnectedSockets._instance = None
+    sockets = GulpConnectedSockets.get_instance()
+
+    target_socket = _FakeConnectedSocket("target-ws")
+    other_socket = _FakeConnectedSocket("other-ws")
+    sockets._sockets = {
+        target_socket.ws_id: target_socket,
+        other_socket.ws_id: other_socket,
+    }
+
+    wsd = GulpWsData(timestamp=1, type="docs_chunk", ws_id="target-ws")
+    await sockets.route_message_to_local_websockets(
+        wsd,
+        wsd.model_dump(exclude_none=True),
+    )
+
+    target_socket.enqueue_message.assert_awaited_once()
+    other_socket.enqueue_message.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_route_message_to_local_websockets_keeps_broadcast_fanout_with_ws_id():
+    GulpConnectedSockets._instance = None
+    sockets = GulpConnectedSockets.get_instance()
+
+    first_socket = _FakeConnectedSocket("target-ws")
+    second_socket = _FakeConnectedSocket("other-ws")
+    sockets._sockets = {
+        first_socket.ws_id: first_socket,
+        second_socket.ws_id: second_socket,
+    }
+
+    wsd = GulpWsData(timestamp=1, type="note", ws_id="target-ws")
+    await sockets.route_message_to_local_websockets(
+        wsd,
+        wsd.model_dump(exclude_none=True),
+    )
+
+    first_socket.enqueue_message.assert_awaited_once()
+    second_socket.enqueue_message.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_propagated_internal_event_rebroadcasts_once_and_skips_origin_echo(monkeypatch):
+    from gulp.api import ws_api as ws_api_module
+    import gulp.plugin as plugin_module
+
+    dispatch = AsyncMock(return_value={"ok": True})
+    mock_mgr = MagicMock()
+    mock_mgr.dispatch_internal_event = dispatch
+
+    fake_redis = MagicMock()
+    fake_redis.server_id = "instance-a"
+    fake_redis.publish = AsyncMock()
+    fake_redis.worker_to_main_channel = lambda server_id=None: "gulpredis:server:instance-a"
+    fake_redis._redis = MagicMock()
+    fake_redis._redis.set = AsyncMock(return_value=True)
+
+    mock_sockets = MagicMock()
+    mock_sockets.route_message_to_local_websockets = AsyncMock()
+
+    monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: fake_redis)
+    monkeypatch.setattr(ws_api_module.GulpConnectedSockets, "get_instance", lambda: mock_sockets)
+    monkeypatch.setattr(
+        plugin_module.GulpInternalEventsManager,
+        "get_instance",
+        staticmethod(lambda: mock_mgr),
+    )
+
+    GulpRedisBroker._instance = None
+    broker = GulpRedisBroker.get_instance()
+
+    local_delivery = {
+        "@timestamp": 1,
+        "type": "propagated_event",
+        "internal": True,
+        "propagate_internal": True,
+        "route_target_type": GulpMessageRoutingTarget.WORKER_TO_MAIN.value,
+        "origin_server_id": "instance-a",
+        "__redis_channel__": fake_redis.worker_to_main_channel(),
+        "payload": {"value": 1},
+    }
+    await broker._handle_pubsub_message(dict(local_delivery))
+
+    dispatch.assert_awaited_once()
+    fake_redis.publish.assert_awaited_once()
+    publish_args = fake_redis.publish.await_args
+    assert publish_args.kwargs["channel"] == GulpMessageRoutingTarget.WORKER_TO_MAIN.redis_channel_name()
+    assert publish_args.args[0]["route_target_type"] == GulpMessageRoutingTarget.WORKER_TO_MAIN.value
+    assert publish_args.args[0]["origin_server_id"] == "instance-a"
+    assert publish_args.args[0]["origin_already_processed"] is True
+
+    cluster_echo = dict(publish_args.args[0])
+    cluster_echo["__redis_channel__"] = GulpMessageRoutingTarget.WORKER_TO_MAIN.redis_channel_name()
+    await broker._handle_pubsub_message(dict(cluster_echo))
+
+    dispatch.assert_awaited_once()
+    mock_sockets.route_message_to_local_websockets.assert_not_awaited()

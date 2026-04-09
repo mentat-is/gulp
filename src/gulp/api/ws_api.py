@@ -107,7 +107,7 @@ class GulpWsData(BaseModel):
     private: Annotated[
         bool,
         Field(
-            description="If the data is private, only the websocket `ws_id` receives it. Ignored if `internal` is set.",
+            description="Marks the message as socket-private. Non-broadcast messages with `ws_id` are targeted to that socket regardless; this flag preserves the explicit private intent. Ignored if `internal` is set.",
         ),
     ] = False
     internal: Annotated[
@@ -132,13 +132,19 @@ class GulpWsData(BaseModel):
         Optional[str],
         Field(description="The ID of the server that originated the message."),
     ] = None
+    origin_already_processed: Annotated[
+        bool,
+        Field(
+            description="Internal routing marker used when a propagated internal event has already been dispatched on the origin instance before the cluster-wide rebroadcast.",
+        ),
+    ] = False
     payload: Annotated[
         Optional[Any], Field(description="The data carried by the websocket.")
     ] = None
     ws_id: Annotated[
         Optional[str],
         Field(
-            description="The target WebSocket ID, ignored if `internal` is set. if None, the message is broadcasted to all connected websockets.",
+            description="The target WebSocket ID, ignored if `internal` is set. If None, the message is broadcast to all eligible connected websockets. Broadcast-type messages may still fan out cluster-wide even when `ws_id` is set.",
         ),
     ] = None
     user_id: Annotated[
@@ -1626,6 +1632,9 @@ class GulpConnectedSockets:
         """
         socket_items = list(self._sockets.items())
 
+        # ws-targeted messages are exclusive unless their payload type is marked as broadcast.
+        targeted_ws_only: bool = bool(wsd.ws_id) and not wsd.check_type_in_broadcast_types()
+
         # collect routing tasks
         tasks = []
         ws_ids = []
@@ -1638,7 +1647,7 @@ class GulpConnectedSockets:
             - the target_ws is of type WS_DEFAULT
             - the target_ws types is None or includes data.type
             - the target_ws operation_ids is None or includes data.operation_id
-            - if data.private is True, message is routed if the target_ws.ws_id matches data.ws_id unless it is a login
+            - if data.ws_id is set and the payload is not a broadcast type, route only to the matching websocket
             """
             # route only to WS_DEFAULT sockets: these are the sockets used by the UI for receiving most of the data (collab objects and chunks), corresponding to the ws_id in most of the API calls
             if cws.socket_type != GulpWsType.WS_DEFAULT:
@@ -1655,13 +1664,8 @@ class GulpConnectedSockets:
                 # MutyLogger.get_instance().warning("***** wsd.ws_id=%s, not routing data.operation_id=%s", wsd.ws_id, wsd.operation_id)
                 continue
 
-            # check if this must be broadcasted
-            # is_bt_type: bool = data.check_type_in_broadcast_types()
-
-            # handle private messages, do not route them unless it is a login message
-            if wsd.ws_id and wsd.private and wsd.type != WSDATA_USER_LOGIN:
+            if targeted_ws_only:
                 if cws.ws_id != wsd.ws_id:
-                    # MutyLogger.get_instance().warning("***** wsd.ws_id=%s, not routing private message to wsd.ws_id=%s", wsd.ws_id, cws.ws_id)
                     continue
 
             tasks.append(cws.enqueue_message(wsd_dict))
@@ -2005,7 +2009,25 @@ class GulpRedisBroker:
             wsd = GulpWsData.model_validate(message)
 
             if route_target_type == GulpMessageRoutingTarget.WORKER_TO_MAIN.value:
-                if wsd.internal and (wsd.propagate_internal or origin_server_id == redis_client.server_id):                
+                local_worker_to_main_channel = redis_client.worker_to_main_channel()
+                is_local_worker_to_main_delivery = redis_channel == local_worker_to_main_channel
+                is_cluster_delivery = (
+                    redis_channel
+                    == GulpMessageRoutingTarget.WORKER_TO_MAIN.redis_channel_name()
+                )
+
+                if (
+                    wsd.internal
+                    and wsd.propagate_internal
+                    and is_cluster_delivery
+                    and origin_server_id == redis_client.server_id
+                    and wsd.origin_already_processed
+                ):
+                    # propagated events are already handled locally before rebroadcasting;
+                    # skip the echoed global copy on the origin instance.
+                    return
+
+                if wsd.internal and (wsd.propagate_internal or origin_server_id == redis_client.server_id):
                     # internal messages:
                     # we process internal messages only if they are marked as internal and either the message is 
                     # for this server instance or is to be propagated across instances
@@ -2032,7 +2054,23 @@ class GulpRedisBroker:
                                 "error writing internal event response for key=%s",
                                 wsd.response_key,
                             )
-                        return
+
+                    if (
+                        wsd.propagate_internal
+                        and is_local_worker_to_main_delivery
+                        and origin_server_id == redis_client.server_id
+                    ):
+                        wsd.origin_already_processed = True
+                        wsd.route_target_type = (
+                            GulpMessageRoutingTarget.WORKER_TO_MAIN.value
+                        )
+                        wsd.origin_server_id = origin_server_id
+                        await redis_client.publish(
+                            wsd.model_dump(exclude_none=True),
+                            channel=GulpMessageRoutingTarget.WORKER_TO_MAIN.redis_channel_name(),
+                        )
+
+                    return
                 else:
                     # this also just sends message to single ws_id if ws_id is set
                     await GulpConnectedSockets.get_instance().route_message_to_local_websockets(wsd, message)
