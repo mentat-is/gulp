@@ -362,6 +362,15 @@ class GulpDocument(GulpBasicDocument):
             plugin_params=plugin_instance._plugin_params,
             format_string=timestamp_format,
         )
+        if ts_nanos > 9214646400000000000:
+            # year 2262 in nanoseconds from unix epoch, just to avoid overflow in OpenSearch
+            MutyLogger.get_instance().warning(
+                f"timestamp {ts} ({ts_nanos} ns) is too far in the future, setting to year 2262/01/01 (within OpenSearch limits)"
+            )
+            ts = "2262-01-01T00:00:00Z"
+            ts_nanos = 9214646400000000000
+            invalid = True
+
         data["timestamp"] = ts
         data["gulp_timestamp"] = ts_nanos
         if invalid or ts_nanos == 0:

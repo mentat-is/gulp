@@ -161,7 +161,7 @@ class Plugin(GulpPluginBase):
                                     break
             except Exception as ex:
                 # log the error but do not crash the pipeline on malformed tls packets
-                MutyLogger.get_instance().debug(f"failed to parse tls sni: {ex}")
+                MutyLogger.get_instance().warning(f"failed to parse tls sni: {ex}")
 
         # intercept dns traffic over udp/tcp to extract clean domain names and responses
         # dns is heavily used for data exfiltration and c2 beacons
@@ -234,6 +234,9 @@ class Plugin(GulpPluginBase):
             except IndexError:
                 # scapy's dns label decompression throws IndexError on truncated pcaps.
                 # we silently ignore this as it's a known artifact of incomplete network captures.
+                MutyLogger.get_instance().warning(
+                    "skipping dns layer due to IndexError (likely from truncated pcap): %s" % (dns_layer.summary())
+                )
                 pass
 
             except Exception as ex:
