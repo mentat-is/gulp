@@ -2,7 +2,8 @@ from typing import Any, override
 
 from muty.log import MutyLogger
 
-from gulp.plugin import GulpInternalEvent, GulpInternalEventResult, GulpPluginBase, GulpPluginType
+from gulp.plugin import GulpPluginBase, GulpPluginType
+from gulp.structs import GulpInternalEvent, GulpInternalEventResult
 
 
 class Plugin(GulpPluginBase):
@@ -27,7 +28,7 @@ class Plugin(GulpPluginBase):
             # workers will publish the event via Redis after every chunk is flushed, dispatching happens in the
             # main process.
             MutyLogger.get_instance().debug("registering chunk callback in main process.")
-            from gulp.plugin import GulpInternalEventsManager
+            from gulp.structs import GulpInternalEventsManager
 
             GulpInternalEventsManager.get_instance().register(
                 self, [GulpInternalEventsManager.EVENT_CHUNK_POST_INGEST, GulpInternalEventsManager.EVENT_CHUNK_PRE_INGEST]
@@ -37,7 +38,7 @@ class Plugin(GulpPluginBase):
         return "Registers a post-processing chunk ingestion callback."
 
     async def internal_event_callback(self, ev: GulpInternalEvent) -> GulpInternalEventResult|None:
-        from gulp.plugin import GulpInternalEventsManager
+        from gulp.structs import GulpInternalEventsManager
 
         if ev.type == GulpInternalEventsManager.EVENT_CHUNK_POST_INGEST:
             data = ev.data or {}

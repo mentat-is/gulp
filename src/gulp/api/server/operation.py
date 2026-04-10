@@ -22,7 +22,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.s3_api import GulpS3
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
-from gulp.plugin import GulpInternalEventsManager
+from gulp.structs import GulpInternalEventsManager
 from gulp.structs import GulpPluginParameters, ObjectAlreadyExists
 
 router: APIRouter = APIRouter()

@@ -40,6 +40,7 @@ from gulp.api.ws_api import (
     GulpRedisBroker,
     GulpWsData,
 )
+import gulp.structs
 
 # Two symbolic server identifiers used through baseline tests
 INSTANCE_A = "gulp-instance-A"
@@ -216,7 +217,7 @@ async def test_worker_to_main_internal_routing(
     monkeypatch.setattr(ws_api_module.GulpConnectedSockets, "get_instance", lambda: mock_sockets)
     # patch at class level — the function does `from gulp.plugin import GulpInternalEventsManager`
     monkeypatch.setattr(
-        plugin_module.GulpInternalEventsManager, "get_instance", staticmethod(lambda: mock_mgr)
+        gulp.structs.GulpInternalEventsManager, "get_instance", staticmethod(lambda: mock_mgr)
     )
 
     broker = GulpRedisBroker.get_instance()
@@ -258,7 +259,7 @@ async def test_worker_to_main_internal_response_key_writes_back(monkeypatch):
 
     monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: fake_redis)
     monkeypatch.setattr(
-        plugin_module.GulpInternalEventsManager, "get_instance", staticmethod(lambda: mock_mgr)
+        gulp.structs.GulpInternalEventsManager, "get_instance", staticmethod(lambda: mock_mgr)
     )
 
     response_key = "gulp:internal:wait:test-key-123"
@@ -433,7 +434,7 @@ async def test_stress_internal_fan_out(monkeypatch):
     monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: _fake_redis(INSTANCE_A))
     monkeypatch.setattr(ws_api_module.GulpConnectedSockets, "get_instance", lambda: mock_sockets)
     monkeypatch.setattr(
-        plugin_module.GulpInternalEventsManager, "get_instance", staticmethod(lambda: mock_mgr)
+        gulp.structs.GulpInternalEventsManager, "get_instance", staticmethod(lambda: mock_mgr)
     )
 
     broker = GulpRedisBroker.get_instance()
@@ -487,7 +488,7 @@ async def test_stress_mixed_routing_targets(monkeypatch):
     monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: _fake_redis(INSTANCE_B))
     monkeypatch.setattr(ws_api_module.GulpConnectedSockets, "get_instance", lambda: mock_sockets)
     monkeypatch.setattr(
-        plugin_module.GulpInternalEventsManager, "get_instance", staticmethod(lambda: mock_mgr)
+        gulp.structs.GulpInternalEventsManager, "get_instance", staticmethod(lambda: mock_mgr)
     )
 
     broker = GulpRedisBroker.get_instance()
@@ -634,7 +635,7 @@ async def test_stress_concurrent_response_key_writes(monkeypatch):
 
     monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: fake_redis)
     monkeypatch.setattr(
-        plugin_module.GulpInternalEventsManager, "get_instance", staticmethod(lambda: mock_mgr)
+        gulp.structs.GulpInternalEventsManager, "get_instance", staticmethod(lambda: mock_mgr)
     )
 
     broker = GulpRedisBroker.get_instance()
@@ -703,7 +704,7 @@ async def test_stress_propagated_internal_reaches_all_instances(monkeypatch):
             m.setattr(ws_api_module.GulpRedis, "get_instance", lambda: _fake_redis(server_id))
             m.setattr(ws_api_module.GulpConnectedSockets, "get_instance", lambda: mock_sockets)
             m.setattr(
-                plugin_module.GulpInternalEventsManager,
+                gulp.structs.GulpInternalEventsManager,
                 "get_instance",
                 staticmethod(lambda: mock_mgr),
             )

@@ -57,7 +57,7 @@ WSDATA_STATS_UPDATE = (
     "stats_update"  # GulpRequestStats, whenever a stats object is updated
 )
 WSDATA_USER_LOGIN = "user_login"  # GulpUserAccessPacket, whenever a user is logged in
-WSDATA_USER_LOGOUT = "user_logout"  # GulpUserAccessPacketv, whenever a user is logged out
+WSDATA_USER_LOGOUT = "user_logout"  # GulpUserAccessPacket, whenever a user is logged out
 WSDATA_DOCUMENTS_CHUNK = "docs_chunk"  # GulpDocumentsChunkPacket, whenever a chunk of GulpDocuments is transmitted over the ws during ingestion or query
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
 WSDATA_INGEST_RAW_PROGRESS = "ingest_raw_progress"  # GulpIngestRawProgress, this is sent in the end of an ingestion operation for realtime ingestion using `/ingest_raw` API or `/ws_ingest_raw` websocket
@@ -2032,7 +2032,7 @@ class GulpRedisBroker:
                     # we process internal messages only if they are marked as internal and either the message is 
                     # for this server instance or is to be propagated across instances
                     # internal event from worker: dispatch to plugins
-                    from gulp.plugin import GulpInternalEventsManager
+                    from gulp.structs import GulpInternalEventsManager
                     result = await GulpInternalEventsManager.get_instance().dispatch_internal_event(
                         wsd.type,
                         data=wsd.payload,
@@ -2334,7 +2334,7 @@ class GulpRedisBroker:
         res = await self._wait_internal_response(response_key=response_key, timeout=timeout)
         if res:
             try:
-                from gulp.plugin import GulpInternalEventResult
+                from gulp.structs import GulpInternalEventResult
                 return GulpInternalEventResult.model_validate(res)
             except Exception as e:
                 MutyLogger.get_instance().exception(e)

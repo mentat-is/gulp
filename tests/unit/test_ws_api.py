@@ -239,7 +239,7 @@ async def test_route_message_to_local_websockets_keeps_broadcast_fanout_with_ws_
 @pytest.mark.asyncio
 async def test_propagated_internal_event_rebroadcasts_once_and_skips_origin_echo(monkeypatch):
     from gulp.api import ws_api as ws_api_module
-    import gulp.plugin as plugin_module
+    import gulp.structs as plugin_module
 
     dispatch = AsyncMock(return_value={"ok": True})
     mock_mgr = MagicMock()

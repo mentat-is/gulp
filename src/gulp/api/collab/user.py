@@ -353,7 +353,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             GulpUserSession: The created session object.
         """
         from gulp.api.collab.user_session import GulpUserSession
-        from gulp.plugin import GulpInternalEventsManager
+        from gulp.structs import GulpInternalEventsManager
 
         # ensure atomicity of login
         async with GulpUser.advisory_lock(sess, user_id):
@@ -477,7 +477,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         )
 
         # also broadcast to registered plugins
-        from gulp.plugin import GulpInternalEventsManager
+        from gulp.structs import GulpInternalEventsManager
 
         await GulpInternalEventsManager.get_instance().dispatch_internal_event(
             WSDATA_USER_LOGIN,

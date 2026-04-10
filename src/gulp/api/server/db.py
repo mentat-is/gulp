@@ -47,7 +47,7 @@ from gulp.api.server.structs import TASK_TYPE_REBASE, APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpRedisBroker
 from gulp.config import GulpConfig
-from gulp.plugin import GulpInternalEventsManager
+from gulp.structs import GulpInternalEventsManager
 from gulp.process import GulpProcess
 
 router: APIRouter = APIRouter()

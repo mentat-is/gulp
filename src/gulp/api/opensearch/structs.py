@@ -380,8 +380,6 @@ class GulpDocument(GulpBasicDocument):
             )
 
         # add gulp_event_code (event code as a number), try to find it in cache first
-        from gulp.plugin import DocValueCache
-
         evc = data["event_code"]
         gulp_evc: int = plugin_instance.doc_value_cache.get_value(evc)
         if gulp_evc:
