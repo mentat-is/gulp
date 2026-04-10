@@ -9,10 +9,10 @@ The plugin supports customizable parameters and implements the necessary methods
 for the Gulp ingestion pipeline, converting network packet data into searchable documents.
 """
 
-import orjson
 import os
-import string
 import pathlib
+import re
+import string
 from typing import Any, override
 
 import muty.crypto
@@ -39,9 +39,25 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("scapy", ">=2.6.1,<3")
-from scapy.all import EDecimal, FlagValue, Packet, PcapNgReader, PcapReader, load_layer
+from scapy.all import (
+    BOOTP,
+    DHCP,
+    EDecimal,
+    FlagValue,
+    ICMP,
+    ICMPv6EchoRequest,
+    Packet,
+    PcapNgReader,
+    PcapReader,
+    Raw,
+    TCP,
+    UDP,
+    load_layer,
+)
 
+load_layer("http")
 load_layer("tls")
+from scapy.layers.http import HTTPRequest, HTTPResponse
 from scapy.layers.tls.all import TLSClientHello, TLS_Ext_ServerName
 
 
@@ -52,6 +68,92 @@ class Plugin(GulpPluginBase):
 
     # Minimum ratio of printable ASCII characters to consider content as text
     TEXT_PRINTABLE_THRESHOLD = 0.75
+
+    IGNORED_TOP_LAYERS = {
+        "NoPayload",
+        "Padding",
+        "Packet_metadata",
+        "Packet_metatada",
+        "Raw",
+    }
+
+    PORT_PROTOCOLS = {
+        20: "ftp-data",
+        21: "ftp",
+        22: "ssh",
+        25: "smtp",
+        53: "dns",
+        67: "dhcp",
+        68: "dhcp",
+        69: "tftp",
+        80: "http",
+        88: "kerberos",
+        110: "pop3",
+        123: "ntp",
+        137: "netbios-ns",
+        138: "netbios-dgm",
+        139: "netbios-ssn",
+        143: "imap",
+        161: "snmp",
+        162: "snmptrap",
+        389: "ldap",
+        443: "tls",
+        445: "smb",
+        465: "smtps",
+        514: "syslog",
+        587: "smtp",
+        636: "ldaps",
+        993: "imaps",
+        995: "pop3s",
+        1433: "mssql",
+        1883: "mqtt",
+        3306: "mysql",
+        3389: "rdp",
+        5060: "sip",
+        5061: "sips",
+        5432: "postgresql",
+        5672: "amqp",
+        5900: "vnc",
+        6379: "redis",
+        8080: "http",
+        8443: "tls",
+        8883: "mqtts",
+        9200: "opensearch",
+    }
+
+    HTTP_REQUEST_LINE_RE = re.compile(
+        r"^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|CONNECT|TRACE)\s+(\S+)\s+HTTP/(\d+(?:\.\d+)?)$",
+        re.IGNORECASE,
+    )
+    HTTP_RESPONSE_LINE_RE = re.compile(
+        r"^HTTP/(\d+(?:\.\d+)?)\s+(\d{3})(?:\s+(.*))?$",
+        re.IGNORECASE,
+    )
+    SMTP_COMMAND_RE = re.compile(
+        r"^(EHLO|HELO|MAIL FROM:|RCPT TO:|DATA|QUIT|STARTTLS|AUTH)\b",
+        re.IGNORECASE,
+    )
+    SMTP_RESPONSE_RE = re.compile(r"^[245]\d\d(?:[ -].*)?$", re.IGNORECASE)
+    FTP_COMMAND_RE = re.compile(
+        r"^(USER|PASS|RETR|STOR|LIST|PASV|PORT|QUIT|TYPE|CWD|PWD|DELE|MKD|RMD)\b",
+        re.IGNORECASE,
+    )
+    FTP_RESPONSE_RE = re.compile(r"^[12345]\d\d(?:[ -].*)?$", re.IGNORECASE)
+    POP3_COMMAND_RE = re.compile(
+        r"^(USER|PASS|STAT|LIST|RETR|DELE|NOOP|QUIT|TOP|UIDL|APOP|CAPA|STLS)\b",
+        re.IGNORECASE,
+    )
+    POP3_RESPONSE_RE = re.compile(r"^(\+OK|-ERR)\b", re.IGNORECASE)
+    IMAP_COMMAND_RE = re.compile(
+        r"^[A-Z0-9._-]+\s+(LOGIN|SELECT|EXAMINE|FETCH|STORE|SEARCH|LOGOUT|CAPABILITY|STARTTLS|APPEND|IDLE)\b",
+        re.IGNORECASE,
+    )
+    IMAP_RESPONSE_RE = re.compile(r"^(\*|[A-Z0-9._-]+)\s+(OK|NO|BAD|BYE)\b", re.IGNORECASE)
+    SIP_REQUEST_RE = re.compile(
+        r"^(INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS|MESSAGE|SUBSCRIBE|NOTIFY|INFO|PRACK|UPDATE|REFER)\s+sip:",
+        re.IGNORECASE,
+    )
+    SIP_RESPONSE_RE = re.compile(r"^SIP/2.0\s+\d{3}(?:\s+.*)?$", re.IGNORECASE)
 
     def type(self) -> GulpPluginType:
         return GulpPluginType.INGESTION
@@ -77,6 +179,12 @@ class Plugin(GulpPluginBase):
                 type="str",
                 desc="pcap format (pcap or pcapng)",
                 default_value=None,
+            ),
+            GulpPluginCustomParameter(
+                name="analyze",
+                type="bool",
+                desc="whether to perform additional analysis on packet contents to better detect protocols and add metadata (may not be accurate)",
+                default_value=False,
             )
         ]
 
@@ -247,6 +355,303 @@ class Plugin(GulpPluginBase):
 
         return d
 
+    @staticmethod
+    def _decode_packet_value(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace").strip()
+        return str(value).strip()
+
+    @classmethod
+    def _normalize_layer_name(cls, layer_name: str) -> str:
+        normalized = (layer_name or "").strip()
+        if not normalized:
+            return "unknown"
+
+        aliases = {
+            "HTTP Request": "http",
+            "HTTP Response": "http",
+            "DNS": "dns",
+            "TLS": "tls",
+            "TLS Handshake - Client Hello": "tls",
+            "BOOTP": "dhcp",
+            "DHCP": "dhcp",
+            "ICMP": "icmp",
+            "ICMPv6 Echo Request": "icmpv6",
+        }
+        if normalized in aliases:
+            return aliases[normalized]
+        return normalized.lower().replace(" ", "_")
+
+    @classmethod
+    def _fallback_top_layer(cls, packet: Packet) -> str:
+        for layer in reversed(packet.layers()):
+            layer_name = getattr(layer, "__name__", "")
+            if not layer_name or layer_name in cls.IGNORED_TOP_LAYERS:
+                continue
+            return cls._normalize_layer_name(layer_name)
+
+        last_layer = packet.lastlayer()
+        last_layer_name = getattr(last_layer, "name", None) or last_layer.__class__.__name__
+        return cls._normalize_layer_name(last_layer_name)
+
+    @staticmethod
+    def _get_transport_ports(packet: Packet) -> tuple[int | None, int | None]:
+        transport_layer = packet.getlayer(TCP) or packet.getlayer(UDP)
+        if transport_layer is None:
+            return None, None
+        sport = getattr(transport_layer, "sport", None)
+        dport = getattr(transport_layer, "dport", None)
+        return sport, dport
+
+    @classmethod
+    def _get_payload_bytes(cls, packet: Packet) -> bytes:
+        raw_layer = packet.getlayer(Raw)
+        if raw_layer is None:
+            return b""
+        payload = getattr(raw_layer, "load", b"")
+        return payload if isinstance(payload, bytes) else b""
+
+    @classmethod
+    def _get_payload_text(cls, packet: Packet) -> str:
+        payload = cls._get_payload_bytes(packet)
+        if not payload or not cls._is_text_content(payload):
+            return ""
+        return payload.decode("utf-8", errors="replace")
+
+    @staticmethod
+    def _normalize_http_version(version: str) -> str:
+        if not version:
+            return ""
+        if version.upper().startswith("HTTP/"):
+            return version.split("/", 1)[1]
+        return version
+
+    @staticmethod
+    def _build_http_url(host: str, path: str) -> str:
+        if not path:
+            return ""
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
+        if not host:
+            return ""
+        normalized_path = path if path.startswith("/") else f"/{path}"
+        return f"http://{host}{normalized_path}"
+
+    @classmethod
+    def _extract_http_metadata(cls, packet: Packet, payload_text: str) -> tuple[str | None, dict[str, str]]:
+        request_layer = packet.getlayer(HTTPRequest)
+        response_layer = packet.getlayer(HTTPResponse)
+        fields: dict[str, str] = {}
+
+        if request_layer is not None:
+            method = cls._decode_packet_value(getattr(request_layer, "Method", None))
+            host = cls._decode_packet_value(getattr(request_layer, "Host", None))
+            path = cls._decode_packet_value(getattr(request_layer, "Path", None))
+            version = cls._normalize_http_version(
+                cls._decode_packet_value(getattr(request_layer, "Http_Version", None))
+            )
+            user_agent = cls._decode_packet_value(getattr(request_layer, "User_Agent", None))
+            url = cls._build_http_url(host, path)
+
+            if method:
+                fields["HTTP.request.method"] = method.upper()
+            if host:
+                fields["HTTP.request.host"] = host
+            if path:
+                fields["HTTP.request.path"] = path
+            if url:
+                fields["HTTP.request.url"] = url
+            if version:
+                fields["HTTP.request.version"] = version
+            if user_agent:
+                fields["HTTP.request.user_agent"] = user_agent
+
+        if response_layer is not None:
+            version = cls._normalize_http_version(
+                cls._decode_packet_value(getattr(response_layer, "Http_Version", None))
+            )
+            status_code = cls._decode_packet_value(getattr(response_layer, "Status_Code", None))
+            reason = cls._decode_packet_value(getattr(response_layer, "Reason_Phrase", None))
+            content_type = cls._decode_packet_value(getattr(response_layer, "Content_Type", None))
+
+            if version:
+                fields["HTTP.response.version"] = version
+            if status_code:
+                fields["HTTP.response.status_code"] = status_code
+            if reason:
+                fields["HTTP.response.reason"] = reason
+            if content_type:
+                fields["HTTP.response.content_type"] = content_type
+
+        if fields:
+            return "http", fields
+
+        if not payload_text:
+            return None, {}
+
+        lines = payload_text.splitlines()
+        if not lines:
+            return None, {}
+
+        request_match = cls.HTTP_REQUEST_LINE_RE.match(lines[0].strip())
+        if request_match:
+            method, path, version = request_match.groups()
+            headers: dict[str, str] = {}
+            for line in lines[1:]:
+                stripped = line.strip()
+                if not stripped:
+                    break
+                if ":" not in stripped:
+                    continue
+                header_name, header_value = stripped.split(":", 1)
+                headers[header_name.strip().lower()] = header_value.strip()
+
+            host = headers.get("host", "")
+            user_agent = headers.get("user-agent", "")
+            url = cls._build_http_url(host, path)
+            fields = {
+                "HTTP.request.method": method.upper(),
+                "HTTP.request.path": path,
+                "HTTP.request.version": version,
+            }
+            if host:
+                fields["HTTP.request.host"] = host
+            if user_agent:
+                fields["HTTP.request.user_agent"] = user_agent
+            if url:
+                fields["HTTP.request.url"] = url
+            return "http", fields
+
+        response_match = cls.HTTP_RESPONSE_LINE_RE.match(lines[0].strip())
+        if response_match:
+            version, status_code, reason = response_match.groups()
+            content_type = ""
+            for line in lines[1:]:
+                stripped = line.strip()
+                if not stripped:
+                    break
+                if stripped.lower().startswith("content-type:"):
+                    content_type = stripped.split(":", 1)[1].strip()
+                    break
+
+            fields = {
+                "HTTP.response.version": version,
+                "HTTP.response.status_code": status_code,
+            }
+            if reason:
+                fields["HTTP.response.reason"] = reason
+            if content_type:
+                fields["HTTP.response.content_type"] = content_type
+            return "http", fields
+
+        return None, {}
+
+    @classmethod
+    def _extract_dhcp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+        if not packet.haslayer(DHCP):
+            return None, {}
+
+        dhcp_layer = packet.getlayer(DHCP)
+        fields: dict[str, str] = {}
+        for option in getattr(dhcp_layer, "options", []):
+            if not isinstance(option, tuple) or len(option) < 2:
+                continue
+            option_name, option_value = option[0], option[1]
+            if option_name == "message-type":
+                fields["DHCP.message_type"] = cls._decode_packet_value(option_value).lower()
+            elif option_name == "hostname":
+                fields["DHCP.hostname"] = cls._decode_packet_value(option_value)
+
+        return "dhcp", fields
+
+    @classmethod
+    def _extract_ssh_metadata(cls, payload_text: str) -> tuple[str | None, dict[str, str]]:
+        if not payload_text:
+            return None, {}
+        first_line = payload_text.splitlines()[0].strip()
+        if not first_line.startswith("SSH-"):
+            return None, {}
+        return "ssh", {"SSH.banner": first_line}
+
+    @classmethod
+    def _extract_line_protocol_metadata(
+        cls, packet: Packet, payload_text: str
+    ) -> tuple[str | None, dict[str, str]]:
+        if not payload_text:
+            return None, {}
+
+        first_line = payload_text.splitlines()[0].strip()
+        if not first_line:
+            return None, {}
+
+        sport, dport = cls._get_transport_ports(packet)
+        ports = {port for port in (sport, dport) if port is not None}
+        configs = (
+            ("smtp", cls.SMTP_COMMAND_RE, cls.SMTP_RESPONSE_RE, {25, 465, 587}),
+            ("ftp", cls.FTP_COMMAND_RE, cls.FTP_RESPONSE_RE, {20, 21}),
+            ("pop3", cls.POP3_COMMAND_RE, cls.POP3_RESPONSE_RE, {110, 995}),
+            ("imap", cls.IMAP_COMMAND_RE, cls.IMAP_RESPONSE_RE, {143, 993}),
+            ("sip", cls.SIP_REQUEST_RE, cls.SIP_RESPONSE_RE, {5060, 5061}),
+        )
+
+        for protocol, command_re, response_re, protocol_ports in configs:
+            command_match = command_re.match(first_line)
+            response_match = response_re.match(first_line)
+            if not command_match and not response_match and not (ports & protocol_ports):
+                continue
+
+            fields = {"APP.summary": first_line}
+            if command_match:
+                command = command_match.group(1)
+                if command:
+                    fields["APP.command"] = command.lower()
+            return protocol, fields
+
+        return None, {}
+
+    @classmethod
+    def _infer_protocol_from_ports(cls, packet: Packet) -> str | None:
+        sport, dport = cls._get_transport_ports(packet)
+        for port in (dport, sport):
+            if port in cls.PORT_PROTOCOLS:
+                return cls.PORT_PROTOCOLS[port]
+        return None
+
+    @classmethod
+    def _get_packet_protocol_metadata(
+        cls, packet: Packet, analyze_packet: bool
+    ) -> dict[str, str]:
+        fallback_top_layer = cls._fallback_top_layer(packet)
+        if not analyze_packet:
+            return {"top_layer": fallback_top_layer}
+
+        payload_text = cls._get_payload_text(packet)
+        protocol_extractors = (
+            lambda: cls._extract_http_metadata(packet, payload_text),
+            lambda: ("dns", {}) if packet.haslayer("DNS") else (None, {}),
+            lambda: cls._extract_dhcp_metadata(packet),
+            lambda: ("tls", {}) if packet.haslayer(TLSClientHello) or packet.haslayer("TLS") else (None, {}),
+            lambda: cls._extract_ssh_metadata(payload_text),
+            lambda: cls._extract_line_protocol_metadata(packet, payload_text),
+            lambda: ("icmp", {}) if packet.haslayer(ICMP) else (None, {}),
+            lambda: ("icmpv6", {}) if packet.haslayer(ICMPv6EchoRequest) else (None, {}),
+            lambda: ("arp", {}) if packet.haslayer("ARP") else (None, {}),
+            lambda: ("bootp", {}) if packet.haslayer(BOOTP) and not packet.haslayer(DHCP) else (None, {}),
+        )
+
+        for extractor in protocol_extractors:
+            protocol, fields = extractor()
+            if protocol:
+                return {"top_layer": protocol, **fields}
+
+        port_protocol = cls._infer_protocol_from_ports(packet)
+        if port_protocol:
+            return {"top_layer": port_protocol}
+
+        return {"top_layer": fallback_top_layer}
+
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
@@ -254,17 +659,14 @@ class Plugin(GulpPluginBase):
 
         # process record
         evt_json = self._pkt_to_dict(record)
-
+        analyze_packet: bool = self._plugin_params.custom_parameters.get("analyze", False)
+        evt_json.update(self._get_packet_protocol_metadata(record, analyze_packet))
+        
         # use the last layer as gradient (all TCP packets are gonna be the same color, etc)
         d: dict = {}
         event_code = record.lastlayer()
         last_layer = event_code.name
         d["event.code"] = str(muty.crypto.hash_crc24(last_layer))
-
-        # add top layer name to json
-        evt_json["top_layer"] = (
-            last_layer  # TODO: this sometimes is a Packet_metadata class instead of layer
-        )
 
         # map fields through the mapping engine
         for k, v in evt_json.items():

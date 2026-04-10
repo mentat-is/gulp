@@ -122,6 +122,77 @@
                         "network.protocol"
                     ]
                 },
+                "HTTP.request.method": {
+                    "ecs": [
+                        "http.request.method"
+                    ]
+                },
+                "HTTP.request.host": {
+                    "ecs": [
+                        "url.domain"
+                    ]
+                },
+                "HTTP.request.path": {
+                    "ecs": [
+                        "url.path"
+                    ]
+                },
+                "HTTP.request.url": {
+                    "ecs": [
+                        "url.full"
+                    ]
+                },
+                "HTTP.request.version": {
+                    "ecs": [
+                        "http.version"
+                    ]
+                },
+                "HTTP.request.user_agent": {
+                    "ecs": [
+                        "user_agent.original"
+                    ]
+                },
+                "HTTP.response.status_code": {
+                    "ecs": [
+                        "http.response.status_code"
+                    ],
+                    "force_type": "int"
+                },
+                "HTTP.response.version": {
+                    "ecs": [
+                        "http.version"
+                    ]
+                },
+                "HTTP.response.content_type": {
+                    "ecs": [
+                        "http.response.mime_type"
+                    ]
+                },
+                "DHCP.message_type": {
+                    "ecs": [
+                        "event.action"
+                    ]
+                },
+                "DHCP.hostname": {
+                    "ecs": [
+                        "host.name"
+                    ]
+                },
+                "APP.command": {
+                    "ecs": [
+                        "event.action"
+                    ]
+                },
+                "APP.summary": {
+                    "ecs": [
+                        "message"
+                    ]
+                },
+                "SSH.banner": {
+                    "ecs": [
+                        "message"
+                    ]
+                },
                 "TLS.sni": {
                     "ecs": [
                         "tls.client.server_name"
