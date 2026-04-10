@@ -185,7 +185,19 @@ class Plugin(GulpPluginBase):
                 type="bool",
                 desc="whether to perform additional analysis on packet contents to better detect protocols and add metadata (may not be accurate)",
                 default_value=False,
-            )
+            ),
+            GulpPluginCustomParameter(
+                name="port_destination_only",
+                type="bool",
+                desc="when true, infer protocol from destination ports only; when false, allow source-port fallback",
+                default_value=True,
+            ),
+            GulpPluginCustomParameter(
+                name="wireshark_sequence_alignment",
+                type="bool",
+                desc="when true, shift packet event_sequence by +1 to align with Wireshark frame numbering",
+                default_value=True,
+            ),
         ]
 
     @staticmethod
@@ -612,16 +624,22 @@ class Plugin(GulpPluginBase):
         return None, {}
 
     @classmethod
-    def _infer_protocol_from_ports(cls, packet: Packet) -> str | None:
+    def _infer_protocol_from_ports(
+        cls, packet: Packet, destination_port_only: bool = True
+    ) -> str | None:
         sport, dport = cls._get_transport_ports(packet)
-        for port in (dport, sport):
+        ports_to_check = (dport,) if destination_port_only else (dport, sport)
+        for port in ports_to_check:
             if port in cls.PORT_PROTOCOLS:
                 return cls.PORT_PROTOCOLS[port]
         return None
 
     @classmethod
     def _get_packet_protocol_metadata(
-        cls, packet: Packet, analyze_packet: bool
+        cls,
+        packet: Packet,
+        analyze_packet: bool,
+        destination_port_only: bool = True,
     ) -> dict[str, str]:
         fallback_top_layer = cls._fallback_top_layer(packet)
         if not analyze_packet:
@@ -646,7 +664,9 @@ class Plugin(GulpPluginBase):
             if protocol:
                 return {"top_layer": protocol, **fields}
 
-        port_protocol = cls._infer_protocol_from_ports(packet)
+        port_protocol = cls._infer_protocol_from_ports(
+            packet, destination_port_only=destination_port_only
+        )
         if port_protocol:
             return {"top_layer": port_protocol}
 
@@ -660,7 +680,19 @@ class Plugin(GulpPluginBase):
         # process record
         evt_json = self._pkt_to_dict(record)
         analyze_packet: bool = self._plugin_params.custom_parameters.get("analyze", False)
-        evt_json.update(self._get_packet_protocol_metadata(record, analyze_packet))
+        port_destination_only: bool = self._plugin_params.custom_parameters.get(
+            "port_destination_only", True
+        )
+        wireshark_sequence_alignment: bool = self._plugin_params.custom_parameters.get(
+            "wireshark_sequence_alignment", False
+        )
+        evt_json.update(
+            self._get_packet_protocol_metadata(
+                record,
+                analyze_packet,
+                destination_port_only=port_destination_only,
+            )
+        )
         
         # use the last layer as gradient (all TCP packets are gonna be the same color, etc)
         d: dict = {}
@@ -691,7 +723,7 @@ class Plugin(GulpPluginBase):
             context_id=self._context_id,
             source_id=self._source_id,
             event_original=event_original,
-            event_sequence=record_idx,
+            event_sequence=record_idx + 1 if wireshark_sequence_alignment else record_idx,
             timestamp=timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,

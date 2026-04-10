@@ -1,7 +1,8 @@
 import pytest
-from scapy.all import BOOTP, DHCP, Ether, IP, Raw, TCP, UDP, load_layer
+from scapy.all import BOOTP, DHCP, EDecimal, Ether, IP, Raw, TCP, UDP, load_layer
 
 from gulp.plugins.pcap import Plugin
+from gulp.structs import GulpPluginParameters
 
 
 load_layer("http")
@@ -70,3 +71,59 @@ def test_pcap_protocol_metadata_keeps_layer_based_top_layer_when_analysis_disabl
     metadata = Plugin._get_packet_protocol_metadata(packet, analyze_packet=False)
 
     assert metadata == {"top_layer": "tcp"}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_pcap_event_sequence_aligns_with_wireshark():
+    packet = Ether() / IP(src="192.168.1.2", dst="192.168.1.3") / UDP(sport=1234, dport=5678)
+    plugin = Plugin("/tmp/pcap.py", "gulp.plugins.pcap")
+    plugin._plugin_params = GulpPluginParameters(
+        custom_parameters={"wireshark_sequence_alignment": True}
+    )
+    plugin._operation_id = "op"
+    plugin._context_id = "ctx"
+    plugin._source_id = "src"
+    plugin._file_path = "/tmp/file.pcap"
+    packet.time = EDecimal(1)
+
+    doc = await plugin._record_to_gulp_document(packet, 10)
+    assert doc.event_sequence == 11
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_pcap_event_sequence_default_is_zero_based():
+    packet = Ether() / IP(src="192.168.1.2", dst="192.168.1.3") / UDP(sport=1234, dport=5678)
+    plugin = Plugin("/tmp/pcap.py", "gulp.plugins.pcap")
+    plugin._plugin_params = GulpPluginParameters(custom_parameters={})
+    plugin._operation_id = "op"
+    plugin._context_id = "ctx"
+    plugin._source_id = "src"
+    plugin._file_path = "/tmp/file.pcap"
+    packet.time = EDecimal(1)
+
+    doc = await plugin._record_to_gulp_document(packet, 10)
+    assert doc.event_sequence == 10
+
+
+@pytest.mark.unit
+def test_pcap_protocol_port_inference_defaults_to_destination_only():
+    packet = Ether() / IP(src="10.0.0.2", dst="10.0.0.3") / TCP(sport=80, dport=53000)
+
+    metadata = Plugin._get_packet_protocol_metadata(packet, analyze_packet=True)
+
+    assert metadata == {"top_layer": "tcp"}
+
+
+@pytest.mark.unit
+def test_pcap_protocol_port_inference_can_fallback_to_source_port():
+    packet = Ether() / IP(src="10.0.0.2", dst="10.0.0.3") / TCP(sport=80, dport=53000)
+
+    metadata = Plugin._get_packet_protocol_metadata(
+        packet,
+        analyze_packet=True,
+        destination_port_only=False,
+    )
+
+    assert metadata == {"top_layer": "http"}
