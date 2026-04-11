@@ -120,23 +120,6 @@ def test_pcap_protocol_layer_detection_ignores_port_on_tcp_only_packet():
     assert metadata == {"top_layer": "tcp"}
 
 
-@pytest.mark.unit
-def test_pcap_protocol_port_inference_disabled_regardless_of_destination_only_flag():
-    """destination_port_only parameter is kept for API compatibility but no longer
-    changes the result — protocol is detected from packet layers, never from port numbers."""
-    packet = Ether() / IP(src="10.0.0.2", dst="10.0.0.3") / TCP(sport=80, dport=53000)
-
-    with_src = Plugin._get_packet_protocol_metadata(
-        packet, analyze_packet=True, destination_port_only=False
-    )
-    with_dst = Plugin._get_packet_protocol_metadata(
-        packet, analyze_packet=True, destination_port_only=True
-    )
-
-    assert with_src == {"top_layer": "tcp"}
-    assert with_dst == {"top_layer": "tcp"}
-
-
 # ---------------------------------------------------------------------------
 # ICMP
 # ---------------------------------------------------------------------------

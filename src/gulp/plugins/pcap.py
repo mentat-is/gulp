@@ -702,8 +702,8 @@ class Plugin(GulpPluginBase):
             version = getattr(snmp_layer, "version", None)
             if version is not None:
                 try:
-                    # Keep this field numeric because it maps to network.protocol_version (long).
-                    fields["SNMP.version"] = str(int(version))
+                    # network.protocol_version is always a string.
+                    fields["SNMP.version"] = str(version)
                 except (TypeError, ValueError):
                     # Some malformed captures can expose non-integer ASN.1 payloads.
                     # Skip the version in that case instead of indexing invalid values.
@@ -911,13 +911,12 @@ class Plugin(GulpPluginBase):
                 fields["RIP.command"] = cmd_repr
             version = getattr(rip_layer, "version", None)
             if version is not None:
-                # Keep this field numeric because it maps to network.protocol_version (long).
-                # For malformed packets, ignore non-integer values.
+                # network.protocol_version is always a string.
                 try:
-                    fields["RIP.version"] = str(int(version))
+                    fields["RIP.version"] = str(version)
                 except (TypeError, ValueError):
                     if isinstance(version, bytes) and len(version) > 0:
-                        fields["RIP.version"] = str(int(version[0]))
+                        fields["RIP.version"] = str(version[0])
         except Exception as ex:
             MutyLogger.get_instance().debug(f"failed to parse rip layer: {ex}")
         return "rip", fields

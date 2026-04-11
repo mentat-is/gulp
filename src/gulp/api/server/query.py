@@ -959,6 +959,7 @@ aggregations query Gulp with a raw OpenSearch DSL query.
 
 - this API returns `success` and results are send in HTTP Response.
 - `q` must be one aggregation querie with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
+- if `size` is not set, OpenSearch default is to return 10 aggregations at maximum.
 """,
 )
 async def query_aggregation_handler(
@@ -971,7 +972,7 @@ async def query_aggregation_handler(
 one aggregation query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
 """,
             examples=[
-                {"aggs": {"response_codes": {"terms": {"field": "network.protocol"}}}}
+                {"aggs": {"response_codes": {"terms": {"size": 999, "field": "network.protocol"}}}}
             ],
         ),
     ],

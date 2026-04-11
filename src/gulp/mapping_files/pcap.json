@@ -749,9 +749,9 @@
                 },
                 "RIP.version": {
                     "ecs": [
-                        "network.protocol_version"
+                        "network.rip.protocol_version"
                     ],
-                    "force_type": "int"
+                    "force_type": "str"
                 },
                 "RTP.payload_type": {
                     "ecs": [
@@ -839,9 +839,9 @@
                 },
                 "SNMP.version": {
                     "ecs": [
-                        "network.protocol_version"
+                        "network.snmp.protocol_version"
                     ],
-                    "force_type": "int"
+                    "force_type": "str"
                 },
                 "SPNEGO.mechanisms": {
                     "ecs": [
