@@ -7,6 +7,21 @@
 - sdk: deprecated the old `gulp-sdk-python` and integrated new polished python SDK available at https://github.com/mentat-is/gulp-sdk, integration tests in `/tests` as usual (missing most of the old per-plugin tests, will be updated soon)
 - installation: removed submodules, welcome pypi installation! our Mentat's dependencies `gulp-sdk` and `muty-python` packages and also gulp itself (`mentat-gulp`) are now on pypi, check the [installation instructions](./docs/install_dev.md) for details.
 - cli: `gulp-cli` is now available to use most of the gulp features from the command line, get it at https://github.com/mentat-is/gulp-cli or via the `gulp-cli` package on pypi!
+- plugins/pcap: massive improvements with 50+ protocols supported with metadata extraction, including:
+  
+  ```text
+  Application: HTTP, DNS, TLS, DHCP, DHCPv6, BOOTP, TFTP, SNMP, NTP, RADIUS, SSH (banner + KEX/version/disconnect layers), MGCP, Skinny (SCCP)
+
+  Auth/Enterprise: Kerberos, LDAP, DCE-RPC, SMB1, SMB2, NTLM, SPNEGO
+
+  Routing/Transport: ICMP, ICMPv6, ARP, GRE, VXLAN, SCTP, IPsec, PPP, RTP, ISAKMP, RIP, VRRP, HSRP, L2TP, PPTP, MobileIP, NetFlow
+
+  LAN/WiFi: 802.11 (Dot11), LLMNR, NetBIOS, EAP, LLTD, LLC/CLNS
+
+  IoT/Embedded: Bluetooth HCI, BTLE, CAN/CAN-FD, USB, IEEE 802.15.4, ZigBee, 6LoWPAN, IrDA
+
+  Other: PFLog, GPRS, line protocols (SMTP/FTP/SIP/POP3/IMAP)
+  ```
 
 - ci/cd: added github workflows to build pypi packages
 

@@ -9,44 +9,75 @@
             "description": "PCAP/PCAPNG packet capture mapping to ECS fields (L2/L3/L4 headers, text body, DNS)",
             "agent_type": "pcap",
             "fields": {
-                "Ether.src": {
+                "6LoWPAN.datagram_offset": {
                     "ecs": [
-                        "source.mac"
+                        "network.sixlowpan.datagram_offset"
+                    ],
+                    "force_type": "int"
+                },
+                "6LoWPAN.datagram_size": {
+                    "ecs": [
+                        "network.sixlowpan.datagram_size"
+                    ],
+                    "force_type": "int"
+                },
+                "6LoWPAN.datagram_tag": {
+                    "ecs": [
+                        "network.sixlowpan.datagram_tag"
+                    ],
+                    "force_type": "str"
+                },
+                "6LoWPAN.fragment": {
+                    "ecs": [
+                        "network.sixlowpan.fragment"
+                    ],
+                    "force_type": "str"
+                },
+                "6LoWPAN.mesh_dst": {
+                    "ecs": [
+                        "destination.address"
+                    ],
+                    "force_type": "str"
+                },
+                "6LoWPAN.mesh_hops_left": {
+                    "ecs": [
+                        "network.sixlowpan.mesh_hops_left"
+                    ],
+                    "force_type": "int"
+                },
+                "6LoWPAN.mesh_src": {
+                    "ecs": [
+                        "source.address"
+                    ],
+                    "force_type": "str"
+                },
+                "APP.command": {
+                    "ecs": [
+                        "event.action"
                     ]
                 },
-                "Ether.dst": {
+                "APP.summary": {
+                    "ecs": [
+                        "message"
+                    ]
+                },
+                "ARP.hwdst": {
                     "ecs": [
                         "destination.mac"
                     ]
                 },
-                "IP.src": {
+                "ARP.hwsrc": {
                     "ecs": [
-                        "source.address"
+                        "source.mac"
                     ]
                 },
-                "IP.dst": {
+                "ARP.operation": {
                     "ecs": [
-                        "destination.address"
-                    ]
-                },
-                "IP.proto": {
-                    "ecs": [
-                        "network.iana_number"
+                        "event.action"
                     ],
-                    "force_type": "int"
+                    "force_type": "str"
                 },
-                "IP.len": {
-                    "ecs": [
-                        "network.bytes"
-                    ],
-                    "force_type": "int"
-                },
-                "IPv6.src": {
-                    "ecs": [
-                        "source.address"
-                    ]
-                },
-                "IPv6.dst": {
+                "ARP.pdst": {
                     "ecs": [
                         "destination.address"
                     ]
@@ -56,48 +87,133 @@
                         "source.address"
                     ]
                 },
-                "ARP.pdst": {
+                "BOOTP.op": {
                     "ecs": [
-                        "destination.address"
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "BOOTP.siaddr": {
+                    "ecs": [
+                        "server.ip"
+                    ],
+                    "force_type": "str"
+                },
+                "BOOTP.sname": {
+                    "ecs": [
+                        "server.domain"
+                    ],
+                    "force_type": "str"
+                },
+                "BOOTP.yiaddr": {
+                    "ecs": [
+                        "destination.ip"
+                    ],
+                    "force_type": "str"
+                },
+                "BT.acl_handle": {
+                    "ecs": [
+                        "network.bluetooth.acl_handle"
+                    ],
+                    "force_type": "int"
+                },
+                "BT.cmd_ocf": {
+                    "ecs": [
+                        "network.bluetooth.cmd_ocf"
+                    ],
+                    "force_type": "str"
+                },
+                "BT.cmd_ogf": {
+                    "ecs": [
+                        "network.bluetooth.cmd_ogf"
+                    ],
+                    "force_type": "str"
+                },
+                "BT.event_code": {
+                    "ecs": [
+                        "network.bluetooth.event_code"
+                    ],
+                    "force_type": "str"
+                },
+                "BT.hci_type": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "BTLE.access_addr": {
+                    "ecs": [
+                        "network.btle.access_addr"
+                    ],
+                    "force_type": "str"
+                },
+                "BTLE.llid": {
+                    "ecs": [
+                        "network.btle.llid"
+                    ],
+                    "force_type": "str"
+                },
+                "BTLE.pdu_type": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "CAN.flags": {
+                    "ecs": [
+                        "network.can.flags"
+                    ],
+                    "force_type": "str"
+                },
+                "CAN.identifier": {
+                    "ecs": [
+                        "network.can.id"
+                    ],
+                    "force_type": "str"
+                },
+                "CAN.length": {
+                    "ecs": [
+                        "network.can.length"
+                    ],
+                    "force_type": "int"
+                },
+                "CAN.variant": {
+                    "ecs": [
+                        "network.can.variant"
+                    ],
+                    "force_type": "str"
+                },
+                "DCERPC.opnum": {
+                    "ecs": [
+                        "network.dcerpc.opnum"
+                    ],
+                    "force_type": "int"
+                },
+                "DCERPC.ptype": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "DCERPC.version": {
+                    "ecs": [
+                        "network.dcerpc.version"
+                    ],
+                    "force_type": "int"
+                },
+                "DHCP.hostname": {
+                    "ecs": [
+                        "host.name"
                     ]
                 },
-                "ARP.hwsrc": {
+                "DHCP.message_type": {
                     "ecs": [
-                        "source.mac"
+                        "event.action"
                     ]
                 },
-                "ARP.hwdst": {
+                "DHCP6.msgtype": {
                     "ecs": [
-                        "destination.mac"
-                    ]
-                },
-                "TCP.sport": {
-                    "ecs": [
-                        "source.port"
-                    ],
-                    "force_type": "int"
-                },
-                "TCP.dport": {
-                    "ecs": [
-                        "destination.port"
-                    ],
-                    "force_type": "int"
-                },
-                "UDP.sport": {
-                    "ecs": [
-                        "source.port"
-                    ],
-                    "force_type": "int"
-                },
-                "UDP.dport": {
-                    "ecs": [
-                        "destination.port"
-                    ],
-                    "force_type": "int"
-                },
-                "DNS.qd": {
-                    "ecs": [
-                        "dns.question.name"
+                        "event.action"
                     ],
                     "force_type": "str"
                 },
@@ -107,29 +223,142 @@
                     ],
                     "force_type": "str"
                 },
+                "DNS.ns": {
+                    "ecs": [
+                        "dns.answers.name"
+                    ],
+                    "force_type": "str"
+                },
                 "DNS.opcode": {
                     "ecs": [
                         "dns.op_code"
                     ]
+                },
+                "DNS.qd": {
+                    "ecs": [
+                        "dns.question.name"
+                    ],
+                    "force_type": "str"
+                },
+                "DNS.qtype": {
+                    "ecs": [
+                        "dns.question.type"
+                    ],
+                    "force_type": "str"
                 },
                 "DNS.rcode": {
                     "ecs": [
                         "dns.response_code"
                     ]
                 },
-                "top_layer": {
+                "Dot11.bssid": {
                     "ecs": [
-                        "network.protocol"
+                        "network.dot11.bssid"
+                    ],
+                    "force_type": "str"
+                },
+                "Dot11.ssid": {
+                    "ecs": [
+                        "network.dot11.ssid"
+                    ],
+                    "force_type": "str"
+                },
+                "Dot11.type": {
+                    "ecs": [
+                        "network.dot11.frame_type"
+                    ],
+                    "force_type": "str"
+                },
+                "Dot15d4.dest_addr": {
+                    "ecs": [
+                        "destination.address"
+                    ],
+                    "force_type": "str"
+                },
+                "Dot15d4.dest_panid": {
+                    "ecs": [
+                        "network.dot15d4.dest_panid"
+                    ],
+                    "force_type": "str"
+                },
+                "Dot15d4.frame_type": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "Dot15d4.src_addr": {
+                    "ecs": [
+                        "source.address"
+                    ],
+                    "force_type": "str"
+                },
+                "Dot15d4.src_panid": {
+                    "ecs": [
+                        "network.dot15d4.src_panid"
+                    ],
+                    "force_type": "str"
+                },
+                "EAP.code": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "EAP.identity": {
+                    "ecs": [
+                        "user.name"
+                    ],
+                    "force_type": "str"
+                },
+                "Ether.dst": {
+                    "ecs": [
+                        "destination.mac"
+                    ]
+                },
+                "Ether.src": {
+                    "ecs": [
+                        "source.mac"
+                    ]
+                },
+                "GRE.encapsulated_proto": {
+                    "ecs": [
+                        "network.inner.protocol"
+                    ],
+                    "force_type": "str"
+                },
+                "HSRP.group": {
+                    "ecs": [
+                        "network.hsrp.group"
+                    ],
+                    "force_type": "int"
+                },
+                "HSRP.opcode": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "HSRP.state": {
+                    "ecs": [
+                        "event.outcome"
+                    ],
+                    "force_type": "str"
+                },
+                "HSRP.virtual_ip": {
+                    "ecs": [
+                        "network.hsrp.virtual_ip"
+                    ],
+                    "force_type": "str"
+                },
+                "HTTP.request.host": {
+                    "ecs": [
+                        "url.domain"
                     ]
                 },
                 "HTTP.request.method": {
                     "ecs": [
                         "http.request.method"
-                    ]
-                },
-                "HTTP.request.host": {
-                    "ecs": [
-                        "url.domain"
                     ]
                 },
                 "HTTP.request.path": {
@@ -142,15 +371,26 @@
                         "url.full"
                     ]
                 },
+                "HTTP.request.user_agent": {
+                    "ecs": [
+                        "user_agent.original"
+                    ]
+                },
                 "HTTP.request.version": {
                     "ecs": [
                         "http.version"
                     ]
                 },
-                "HTTP.request.user_agent": {
+                "HTTP.response.content_type": {
                     "ecs": [
-                        "user_agent.original"
+                        "http.response.mime_type"
                     ]
+                },
+                "HTTP.response.reason": {
+                    "ecs": [
+                        "http.response.reason"
+                    ],
+                    "force_type": "str"
                 },
                 "HTTP.response.status_code": {
                     "ecs": [
@@ -163,39 +403,633 @@
                         "http.version"
                     ]
                 },
-                "HTTP.response.content_type": {
+                "ICMP.code": {
                     "ecs": [
-                        "http.response.mime_type"
-                    ]
+                        "network.icmp.code"
+                    ],
+                    "force_type": "int"
                 },
-                "DHCP.message_type": {
+                "ICMP.type": {
                     "ecs": [
                         "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "ICMPv6.type": {
+                    "ecs": [
+                        "network.icmp.type"
+                    ],
+                    "force_type": "int"
+                },
+                "ICMPv6.type_name": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "IP.dst": {
+                    "ecs": [
+                        "destination.address"
                     ]
                 },
-                "DHCP.hostname": {
+                "IP.len": {
+                    "ecs": [
+                        "network.bytes"
+                    ],
+                    "force_type": "int"
+                },
+                "IP.proto": {
+                    "ecs": [
+                        "network.iana_number"
+                    ],
+                    "force_type": "int"
+                },
+                "IP.src": {
+                    "ecs": [
+                        "source.address"
+                    ]
+                },
+                "IPsec.protocol": {
+                    "ecs": [
+                        "network.iana_number"
+                    ],
+                    "force_type": "str"
+                },
+                "IPsec.seq": {
+                    "ecs": [
+                        "network.ipsec.seq"
+                    ],
+                    "force_type": "int"
+                },
+                "IPsec.spi": {
+                    "ecs": [
+                        "network.ipsec.spi"
+                    ],
+                    "force_type": "str"
+                },
+                "IPv6.dst": {
+                    "ecs": [
+                        "destination.address"
+                    ]
+                },
+                "IPv6.src": {
+                    "ecs": [
+                        "source.address"
+                    ]
+                },
+                "IrDA.device_name": {
                     "ecs": [
                         "host.name"
-                    ]
+                    ],
+                    "force_type": "str"
                 },
-                "APP.command": {
+                "IrDA.frame_type": {
                     "ecs": [
                         "event.action"
-                    ]
+                    ],
+                    "force_type": "str"
                 },
-                "APP.summary": {
+                "IrDA.src_address": {
                     "ecs": [
-                        "message"
-                    ]
+                        "source.address"
+                    ],
+                    "force_type": "str"
+                },
+                "ISAKMP.exchange_type": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "Kerberos.msg_type": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "Kerberos.realm": {
+                    "ecs": [
+                        "network.kerberos.realm"
+                    ],
+                    "force_type": "str"
+                },
+                "L2TP.session_id": {
+                    "ecs": [
+                        "network.tunnel.session_id"
+                    ],
+                    "force_type": "int"
+                },
+                "L2TP.tunnel_id": {
+                    "ecs": [
+                        "network.tunnel.id"
+                    ],
+                    "force_type": "int"
+                },
+                "L2TP.version": {
+                    "ecs": [
+                        "network.tunnel.version"
+                    ],
+                    "force_type": "int"
+                },
+                "LDAP.bind_dn": {
+                    "ecs": [
+                        "user.name"
+                    ],
+                    "force_type": "str"
+                },
+                "LDAP.operation": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "LDAP.search_base": {
+                    "ecs": [
+                        "network.ldap.search_base"
+                    ],
+                    "force_type": "str"
+                },
+                "LDAP.search_scope": {
+                    "ecs": [
+                        "network.ldap.search_scope"
+                    ],
+                    "force_type": "str"
+                },
+                "LLC.dsap": {
+                    "ecs": [
+                        "network.llc.dsap"
+                    ],
+                    "force_type": "str"
+                },
+                "LLC.ssap": {
+                    "ecs": [
+                        "network.llc.ssap"
+                    ],
+                    "force_type": "str"
+                },
+                "LLMNR.qname": {
+                    "ecs": [
+                        "dns.question.name"
+                    ],
+                    "force_type": "str"
+                },
+                "LLMNR.qtype": {
+                    "ecs": [
+                        "dns.question.type"
+                    ],
+                    "force_type": "str"
+                },
+                "LLTD.function": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "LLTD.hostname": {
+                    "ecs": [
+                        "host.name"
+                    ],
+                    "force_type": "str"
+                },
+                "LLTD.ipv4": {
+                    "ecs": [
+                        "host.ip"
+                    ],
+                    "force_type": "str"
+                },
+                "MGCP.endpoint": {
+                    "ecs": [
+                        "network.mgcp.endpoint"
+                    ],
+                    "force_type": "str"
+                },
+                "MGCP.verb": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "MobileIP.coaddr": {
+                    "ecs": [
+                        "destination.ip"
+                    ],
+                    "force_type": "str"
+                },
+                "MobileIP.code": {
+                    "ecs": [
+                        "event.code"
+                    ],
+                    "force_type": "int"
+                },
+                "MobileIP.haaddr": {
+                    "ecs": [
+                        "server.ip"
+                    ],
+                    "force_type": "str"
+                },
+                "MobileIP.homeaddr": {
+                    "ecs": [
+                        "source.ip"
+                    ],
+                    "force_type": "str"
+                },
+                "MobileIP.type": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "NetBIOS.query_name": {
+                    "ecs": [
+                        "dns.question.name"
+                    ],
+                    "force_type": "str"
+                },
+                "NetBIOS.rr_name": {
+                    "ecs": [
+                        "dns.answers.name"
+                    ],
+                    "force_type": "str"
+                },
+                "NetFlow.version": {
+                    "ecs": [
+                        "network.netflow.version"
+                    ],
+                    "force_type": "int"
+                },
+                "NTLM.message_type": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "NTP.mode": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "NTP.stratum": {
+                    "ecs": [
+                        "network.ntp.stratum"
+                    ],
+                    "force_type": "int"
+                },
+                "NTP.version": {
+                    "ecs": [
+                        "network.ntp.version"
+                    ],
+                    "force_type": "int"
+                },
+                "PFLog.action": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "PFLog.direction": {
+                    "ecs": [
+                        "network.direction"
+                    ],
+                    "force_type": "str"
+                },
+                "PFLog.iface": {
+                    "ecs": [
+                        "observer.ingress.interface.name"
+                    ],
+                    "force_type": "str"
+                },
+                "PFLog.reason": {
+                    "ecs": [
+                        "event.reason"
+                    ],
+                    "force_type": "str"
+                },
+                "PFLog.rule_number": {
+                    "ecs": [
+                        "rule.id"
+                    ],
+                    "force_type": "str"
+                },
+                "PFLog.ruleset": {
+                    "ecs": [
+                        "rule.ruleset"
+                    ],
+                    "force_type": "str"
+                },
+                "PPP.proto": {
+                    "ecs": [
+                        "network.protocol"
+                    ],
+                    "force_type": "str"
+                },
+                "PPTP.ctrl_msg_type": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "RADIUS.code": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "RADIUS.username": {
+                    "ecs": [
+                        "user.name"
+                    ],
+                    "force_type": "str"
+                },
+                "RIP.command": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "RIP.version": {
+                    "ecs": [
+                        "network.protocol_version"
+                    ],
+                    "force_type": "int"
+                },
+                "RTP.payload_type": {
+                    "ecs": [
+                        "network.rtp.codec"
+                    ],
+                    "force_type": "str"
+                },
+                "RTP.sequence": {
+                    "ecs": [
+                        "network.rtp.sequence"
+                    ],
+                    "force_type": "int"
+                },
+                "RTP.ssrc": {
+                    "ecs": [
+                        "network.rtp.ssrc"
+                    ],
+                    "force_type": "str"
+                },
+                "SCTP.dport": {
+                    "ecs": [
+                        "destination.port"
+                    ],
+                    "force_type": "int"
+                },
+                "SCTP.sport": {
+                    "ecs": [
+                        "source.port"
+                    ],
+                    "force_type": "int"
+                },
+                "Skinny.msg": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "SMB1.account_name": {
+                    "ecs": [
+                        "user.name"
+                    ],
+                    "force_type": "str"
+                },
+                "SMB1.command": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "SMB1.domain": {
+                    "ecs": [
+                        "user.domain"
+                    ],
+                    "force_type": "str"
+                },
+                "SMB1.status": {
+                    "ecs": [
+                        "event.outcome"
+                    ],
+                    "force_type": "str"
+                },
+                "SMB2.command": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "SMB2.status": {
+                    "ecs": [
+                        "event.outcome"
+                    ],
+                    "force_type": "str"
+                },
+                "SNMP.community": {
+                    "ecs": [
+                        "network.community_id"
+                    ],
+                    "force_type": "str"
+                },
+                "SNMP.pdu_type": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "SNMP.version": {
+                    "ecs": [
+                        "network.protocol_version"
+                    ],
+                    "force_type": "int"
+                },
+                "SPNEGO.mechanisms": {
+                    "ecs": [
+                        "network.protocol"
+                    ],
+                    "force_type": "str"
+                },
+                "SPNEGO.result": {
+                    "ecs": [
+                        "event.outcome"
+                    ],
+                    "force_type": "str"
+                },
+                "SPNEGO.selected_mech": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
                 },
                 "SSH.banner": {
                     "ecs": [
                         "message"
                     ]
                 },
+                "SSH.disconnect_reason": {
+                    "ecs": [
+                        "event.reason"
+                    ],
+                    "force_type": "str"
+                },
+                "SSH.enc_c2s": {
+                    "ecs": [
+                        "network.ssh.enc_c2s"
+                    ],
+                    "force_type": "str"
+                },
+                "SSH.kex_algorithms": {
+                    "ecs": [
+                        "network.ssh.kex_algorithms"
+                    ],
+                    "force_type": "str"
+                },
+                "TCP.dport": {
+                    "ecs": [
+                        "destination.port"
+                    ],
+                    "force_type": "int"
+                },
+                "TCP.sport": {
+                    "ecs": [
+                        "source.port"
+                    ],
+                    "force_type": "int"
+                },
+                "TFTP.filename": {
+                    "ecs": [
+                        "file.name"
+                    ],
+                    "force_type": "str"
+                },
+                "TFTP.op": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "TLS.cipher_suite": {
+                    "ecs": [
+                        "tls.cipher"
+                    ],
+                    "force_type": "str"
+                },
+                "TLS.client.cipher_suites": {
+                    "ecs": [
+                        "tls.client.supported_ciphers"
+                    ],
+                    "force_type": "str"
+                },
                 "TLS.sni": {
                     "ecs": [
                         "tls.client.server_name"
+                    ],
+                    "force_type": "str"
+                },
+                "TLS.version": {
+                    "ecs": [
+                        "tls.version_protocol"
+                    ],
+                    "force_type": "str"
+                },
+                "top_layer": {
+                    "ecs": [
+                        "network.protocol"
+                    ]
+                },
+                "UDP.dport": {
+                    "ecs": [
+                        "destination.port"
+                    ],
+                    "force_type": "int"
+                },
+                "UDP.sport": {
+                    "ecs": [
+                        "source.port"
+                    ],
+                    "force_type": "int"
+                },
+                "USB.bus": {
+                    "ecs": [
+                        "network.usb.bus"
+                    ],
+                    "force_type": "int"
+                },
+                "USB.device": {
+                    "ecs": [
+                        "network.usb.device"
+                    ],
+                    "force_type": "str"
+                },
+                "USB.direction": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "USB.function": {
+                    "ecs": [
+                        "network.usb.function"
+                    ],
+                    "force_type": "str"
+                },
+                "VRRP.priority": {
+                    "ecs": [
+                        "network.vrrp.priority"
+                    ],
+                    "force_type": "int"
+                },
+                "VRRP.version": {
+                    "ecs": [
+                        "network.vrrp.version"
+                    ],
+                    "force_type": "int"
+                },
+                "VRRP.vrid": {
+                    "ecs": [
+                        "network.vlan.id"
+                    ],
+                    "force_type": "str"
+                },
+                "VXLAN.vni": {
+                    "ecs": [
+                        "network.vlan.id"
+                    ],
+                    "force_type": "str"
+                },
+                "ZigBee.cluster": {
+                    "ecs": [
+                        "network.zigbee.cluster"
+                    ],
+                    "force_type": "str"
+                },
+                "ZigBee.destination": {
+                    "ecs": [
+                        "destination.address"
+                    ],
+                    "force_type": "str"
+                },
+                "ZigBee.frame_type": {
+                    "ecs": [
+                        "event.action"
+                    ],
+                    "force_type": "str"
+                },
+                "ZigBee.profile": {
+                    "ecs": [
+                        "network.zigbee.profile"
+                    ],
+                    "force_type": "str"
+                },
+                "ZigBee.radius": {
+                    "ecs": [
+                        "network.zigbee.radius"
+                    ],
+                    "force_type": "int"
+                },
+                "ZigBee.source": {
+                    "ecs": [
+                        "source.address"
                     ],
                     "force_type": "str"
                 }
