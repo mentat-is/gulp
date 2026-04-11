@@ -315,8 +315,10 @@ async def run_query_task(t: dict) -> None:
             )
     except Exception as ex:
         MutyLogger.get_instance().exception(
-            "***ERROR*** in run_query_task, task=%s", orjson.dumps(t, option=orjson.OPT_INDENT_2).decode()
+            "***ERROR*** in run_query_task, task=%s",
+            orjson.dumps(t, option=orjson.OPT_INDENT_2).decode(),
         )
+
 
 async def run_query(
     user_id: str,
@@ -514,9 +516,7 @@ async def run_query_batch(
     for q_item in queries:
         try:
             gq = (
-                GulpQuery.model_validate(q_item)
-                if isinstance(q_item, dict)
-                else q_item
+                GulpQuery.model_validate(q_item) if isinstance(q_item, dict) else q_item
             )
         except Exception as ex:
             MutyLogger.get_instance().exception("invalid query in batch: %s", ex)
@@ -552,9 +552,17 @@ async def run_query_batch(
             async with GulpCollab.get_instance().session() as sess:
                 stats = await GulpRequestStats.get_by_id(sess, req_id)
                 if stats:
-                    total_hits = sum(r[1] for r in per_query_results if isinstance(r, tuple))
-                    completed = len(queries)# sum(1 for r in per_query_results if isinstance(r, tuple))
-                    errors = [muty.log.exception_to_string(r) for r in per_query_results if isinstance(r, Exception)]
+                    total_hits = sum(
+                        r[1] for r in per_query_results if isinstance(r, tuple)
+                    )
+                    completed = len(
+                        queries
+                    )  # sum(1 for r in per_query_results if isinstance(r, tuple))
+                    errors = [
+                        muty.log.exception_to_string(r)
+                        for r in per_query_results
+                        if isinstance(r, Exception)
+                    ]
                     try:
                         await stats.update_query_stats(
                             sess,
@@ -570,7 +578,9 @@ async def run_query_batch(
                         if not q_options_input.force_ignore_missing_ws:
                             raise
         except Exception:
-            MutyLogger.get_instance().exception("error updating aggregated stats in run_query_batch")
+            MutyLogger.get_instance().exception(
+                "error updating aggregated stats in run_query_batch"
+            )
 
     return per_query_results
 
@@ -702,7 +712,11 @@ async def process_queries(
                 q_options=q_options.model_dump(exclude_none=True),
                 index=index,
                 plugin=plugin,
-                plugin_params=(plugin_params.model_dump(exclude_none=True) if plugin_params else None),
+                plugin_params=(
+                    plugin_params.model_dump(exclude_none=True)
+                    if plugin_params
+                    else None
+                ),
                 ignore_failures=ignore_failures,
             )
 
@@ -905,19 +919,35 @@ async def _preview_query(
                     "examples": {
                         "default": {
                             "value": {
-                                "status": "pending",
-                                "timestamp_msec": 1704380570434,
-                                "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
-                            }
-                        },
-                        "preview": {
-                            "value": {
                                 "status": "success",
-                                "timestamp_msec": 1704380570434,
-                                "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
-                                "data": {"aggregations": {}},
+                                "timestamp_msec": 1775890563296,
+                                "req_id": "test_req",
+                                "data": {
+                                    "total_hits": 328127,
+                                    "aggregations": {
+                                        "response_codes": {
+                                            "doc_count_error_upper_bound": 0,
+                                            "sum_other_doc_count": 13819,
+                                            "buckets": [
+                                                {"key": "udp", "doc_count": 114982},
+                                                {"key": "tcp", "doc_count": 87189},
+                                                {"key": "ip", "doc_count": 58153},
+                                                {
+                                                    "key": "sctpchunkdata",
+                                                    "doc_count": 25578,
+                                                },
+                                                {"key": "gre", "doc_count": 18465},
+                                                {"key": "stp", "doc_count": 2612},
+                                                {"key": "icmp", "doc_count": 2560},
+                                                {"key": "dns", "doc_count": 2422},
+                                                {"key": "http", "doc_count": 1179},
+                                                {"key": "ether", "doc_count": 1168},
+                                            ],
+                                        }
+                                    },
+                                },
                             }
-                        },
+                        }
                     }
                 }
             }
@@ -938,9 +968,11 @@ async def query_aggregation_handler(
         dict,
         Body(
             description="""
-one aggregation querie according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
+one aggregation query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
 """,
-            examples=[[EXAMPLE_QUERY_RAW], [{"query": {"match_all": {}}}]],
+            examples=[
+                {"aggs": {"response_codes": {"terms": {"field": "network.protocol"}}}}
+            ],
         ),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
