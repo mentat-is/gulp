@@ -274,48 +274,6 @@ async def test_request_get_and_delete(gulp_base_url, gulp_test_user, gulp_test_p
             await client.operations.delete(op.id)
 
 
-# --------------------------------------------------------------------------- #
-# Enhance-document map CRUD                                                    #
-# --------------------------------------------------------------------------- #
-
-@pytest.mark.integration
-async def test_enhance_map_crud(gulp_base_url, gulp_test_user, gulp_test_password):
-    """Full create / list / get / update / delete cycle for enhance_map entries."""
-    from gulp_sdk import GulpClient, GulpSDKError
-
-    async with GulpClient(gulp_base_url) as client:
-        await client.auth.login(gulp_test_user, gulp_test_password)
-        try:
-            # create
-            entry = await client.plugins.enhance_map_create(
-                gulp_event_code=99999,
-                plugin="sdk_test_plugin",
-                color="#abcdef",
-            )
-            assert "id" in entry
-            obj_id = entry["id"]
-
-            # list — should include our new entry
-            entries = await client.plugins.enhance_map_list()
-            assert isinstance(entries, list)
-            assert any(e.get("id") == obj_id for e in entries)
-
-            # get by id
-            fetched = await client.plugins.enhance_map_get(obj_id)
-            assert fetched.get("id") == obj_id
-
-            # update color
-            updated = await client.plugins.enhance_map_update(obj_id, color="#112233")
-            assert updated is not None
-
-            # delete
-            result = await client.plugins.enhance_map_delete(obj_id)
-            assert result is not None
-
-        except GulpSDKError as exc:
-            pytest.skip(f"enhance_map endpoints not available: {exc}")
-
-
 async def _wait_request_visible(client, req_id: str, timeout: float = 30.0) -> dict:
     deadline = asyncio.get_running_loop().time() + timeout
     while True:

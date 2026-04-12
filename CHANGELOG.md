@@ -1,12 +1,25 @@
-# v1.6.52
+# v1.7.01
 
 ## new features
 
+### architecture
+
 - architecture: observability via `Prometheus` metrics and `Grafana` dashboards (check the `docs/observability.md` for instructions)
 - core: added `synchronous` internal events callback, allows extension plugins to i.e. change chunks of documents during ingestion via `EVENT_CHUNK_PRE_INGEST` event
-- sdk: deprecated the old `gulp-sdk-python` and integrated new polished python SDK available at https://github.com/mentat-is/gulp-sdk, integration tests in `/tests` as usual (missing most of the old per-plugin tests, will be updated soon)
 - installation: removed submodules, welcome pypi installation! our Mentat's dependencies `gulp-sdk` and `muty-python` packages and also gulp itself (`mentat-gulp`) are now on pypi, check the [installation instructions](./docs/install_dev.md) for details.
+- ci/cd: added github workflows to build pypi packages
+
+### sdk and tools
+
+- sdk: deprecated the old `gulp-sdk-python` and integrated new polished python SDK available at https://github.com/mentat-is/gulp-sdk, integration tests in `/tests` as usual (missing most of the old per-plugin tests, will be updated soon)
 - cli: `gulp-cli` is now available to use most of the gulp features from the command line, get it at https://github.com/mentat-is/gulp-cli or via the `gulp-cli` package on pypi!
+
+### api
+
+added `enhance_document_map` API to allow the UI to "color" different documents based on its content, which will make it more flexible and powerful for different use cases.
+
+### plugins
+
 - plugins/pcap: massive improvements with 50+ protocols supported with metadata extraction, including:
   
   ```text
@@ -22,8 +35,6 @@
 
   Other: PFLog, GPRS, line protocols (SMTP/FTP/SIP/POP3/IMAP)
   ```
-
-- ci/cd: added github workflows to build pypi packages
 
 ## bugfixes
 

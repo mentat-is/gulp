@@ -15,13 +15,14 @@ the Gulp platform through plugin and mapping management.
 """
 
 import base64
+import json
 import os
 from typing import Annotated, Literal
 
 import muty.file
 import orjson
 import psutil
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
@@ -402,20 +403,27 @@ async def object_delete_bulk_handler(
     },
     summary="creates an enhance document map entry.",
     description="""
-creates a `enhance_document_map` entry: those allows the UI to map a `gulp_event_code` in a specific plugin to a `glyph_id` and/or a `color` for enhanced visualization.
+creates a `enhance_document_map` entry: allows the UI to map a set of key-value criteria on a `GulpDocument` to a `glyph_id` and/or a `color` for enhanced visualization.
+
+All entries in `match_criteria` must match (AND semantics). The criteria dict keys are `GulpDocument` field names. Values can be:
+- **Simple values** (string, number, boolean) for exact equality match
+- **Operator dicts** for numeric comparisons: `{"eq": value}`, `{"gte": value}`, `{"lte": value}`, or combined `{"gte": min, "lte": max}` for ranges
 
 - `token` needs `edit` permission.
 """,
 )
 async def enhance_document_map_create_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
-    gulp_event_code: Annotated[
-        int,
-        Query(description="the `gulp.event_code` to enhance."),
-    ],
     plugin: Annotated[
         str,
-        Query(description="the plugin to enhance the `gulp.event_code` in."),
+        Query(description="the plugin whose documents this entry applies to."),
+    ],
+    match_criteria: Annotated[
+        dict,
+        Body(
+            description="dict mapping GulpDocument field names to criteria. Values can be simple (exact match) or operator dicts with 'eq'/'gte'/'lte' keys for numeric comparisons. All criteria must match (AND).",
+            example={"gulp.event_code": {"eq": 4624}, "severity_level": {"gte": 7, "lte": 10}, "status": "active"},
+        ),
     ],
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
     color: Annotated[str, Depends(APIDependencies.param_color_optional)] = None,
@@ -425,13 +433,16 @@ async def enhance_document_map_create_handler(
     try:
         if not glyph_id and not color:
             raise ValueError("At least one of glyph_id or color must be provided.")
+        if not match_criteria:
+            raise ValueError("match_criteria must not be empty.")
 
-        obj_id: str = muty.crypto.hash_sha1(str(gulp_event_code)+plugin)
+        canonical = json.dumps(match_criteria, sort_keys=True, separators=(",", ":"))
+        obj_id: str = muty.crypto.hash_sha1(plugin + canonical)
         d = await GulpEnhanceDocumentMap.create(
             token,
             permission=[GulpUserPermission.EDIT],
             private=False,
-            gulp_event_code=gulp_event_code,
+            match_criteria=match_criteria,
             plugin=plugin,
             glyph_id=glyph_id,
             color=color,
@@ -611,7 +622,10 @@ async def enhance_document_map_get_by_id_handler(
     },
     summary="lists enhance document map entries, optionally using a filter.",
     description="""
-- `you may use `flt.gulp_event_code` (**as string**) and `flt.plugin` to filter the entries. if not set, all entries are returned.
+Lists `enhance_document_map` entries.
+
+- use `flt.plugin` to filter by plugin name.
+- if not set, all entries are returned.
 """,
 )
 async def enhance_document_map_list_handler(
