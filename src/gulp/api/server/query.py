@@ -1856,7 +1856,20 @@ async def query_operations(
                 d = await GulpOpenSearch.get_instance().query_operations(
                     o["index"], user_id
                 )
-                operations.extend(d)
+                if d:
+                    operations.extend(d)
+                else:
+                    operations.extend(
+                        [
+                            {
+                                "name": o["name"],
+                                "index": o["index"],
+                                "id": o["id"],
+                                "glyph_id": o["glyph_id"],
+                                "contexts": [],
+                            }
+                        ]
+                    )
 
             return JSONResponse(JSendResponse.success(req_id=req_id, data=operations))
     except Exception as ex:
