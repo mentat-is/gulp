@@ -197,16 +197,17 @@ class GulpMappingParameters(BaseModel):
         """
         if (
             not self.mappings
-            or not self.mapping_file
-            or not self.sigma_mappings
-            or not self.additional_mapping_files
-            or not self.additional_mappings
+            and not self.mapping_file
+            and not self.sigma_mappings
+            and not self.mapping_id
+            and not self.additional_mapping_files
+            and not self.additional_mappings
         ):
-            # we have some mappings
-            return False
+            # no mappings at all
+            MutyLogger.get_instance().warning("mapping parameters are empty")
+            return True
 
-        MutyLogger.get_instance().warning("mapping parameters are empty")
-        return True
+        return False
 
     def _stringify(self) -> tuple:
         return (

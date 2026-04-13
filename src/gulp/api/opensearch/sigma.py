@@ -130,12 +130,18 @@ def _make_sigma_cache_key(
         # and sort the serialized forms to avoid cache misses due to source ordering
         "mapping_parameters": sorted(
             [
-                json.dumps(mp.model_dump(exclude_none=True), sort_keys=True, separators=(",", ":"))
+                json.dumps(
+                    mp.model_dump(exclude_none=True),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
                 for mp in mapping_parameters
             ]
         ),
     }
-    serialized = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    serialized = json.dumps(
+        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
     return "gulp:sigma_cache:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
@@ -284,8 +290,10 @@ def _sigma_rule_to_gulp_query(
         q=q,
     )
     MutyLogger.get_instance().debug(
-        "converted sigma rule: name=%s, id=%s, q=%s"
-        % (rule_name, rule_id, muty.string.make_shorter(str(qq), 260))
+        "converted sigma rule: name=%s, id=%s, q=%s",
+        rule_name,
+        rule_id,
+        muty.string.make_shorter(str(qq), 260),
     )
     return qq
 
@@ -530,7 +538,8 @@ async def sigma_to_severity(sigma: str) -> str:
     return r.level.name.lower()
 
 
-async def sigmas_to_queries_wrapper(user_id: str,
+async def sigmas_to_queries_wrapper(
+    user_id: str,
     operation_id: str,
     sigmas: list[str],
     src_ids: list[str] = None,
@@ -560,6 +569,7 @@ async def sigmas_to_queries_wrapper(user_id: str,
             paths=paths,
             count_only=count_only,
         )
+
 
 async def sigmas_to_queries(
     sess: AsyncSession,
@@ -627,7 +637,9 @@ async def sigmas_to_queries(
     mp_by_source_id: list = []
     for src in srcs:
         mp_by_source_id.append(
-            GulpMappingParameters.model_validate(src.mapping_parameters.mapping if src.mapping_parameters else {})
+            GulpMappingParameters.model_validate(
+                src.mapping_parameters.mapping if src.mapping_parameters else {}
+            )
             if src.mapping_parameters
             else GulpMappingParameters()
         )
@@ -673,7 +685,7 @@ async def sigmas_to_queries(
         # check if we have a cached converted query for this rule with the same parameters
         cached = await _cache_get(cache_key)
         if cached is not None:
-            # MutyLogger.get_instance().debug("cache hit for sigma rule %d/%d: %s (count_only=%r)", count, total, cache_key, count_only)            
+            # MutyLogger.get_instance().debug("cache hit for sigma rule %d/%d: %s (count_only=%r)", count, total, cache_key, count_only)
             if count_only:
                 count_only_queries += cached.get("count", 0)
                 continue
@@ -721,12 +733,11 @@ async def sigmas_to_queries(
             else:
                 use_sigma_mapping = False
 
+            final_sigma_yml: str = yml
             try:
                 # transform the sigma rule considering source mappings: i.e. if the sigma rule have EventId in the conditions, we want it
                 # to be "event.code" in ECS, so we need to apply the mapping first
-                final_sigma_yml: str = _map_sigma_fields_to_ecs(
-                    yml, mappings[mapping_id]
-                )
+                final_sigma_yml = _map_sigma_fields_to_ecs(yml, mappings[mapping_id])
                 # MutyLogger.get_instance().debug(
                 #     "sigma_convert_default, final sigma rule yml:\n%s", final_sigma_yml
                 # )
@@ -736,8 +747,10 @@ async def sigmas_to_queries(
             except:
                 # skip this rule
                 MutyLogger.get_instance().exception(
-                    "failed to convert sigma %s ***ORIGINAL***:\n\n%s\n***PATCHED***:%s"
-                    % (rule.title or rule.name, yml, final_sigma_yml)
+                    "failed to convert sigma %s ***ORIGINAL***:\n\n%s\n***PATCHED***:%s",
+                    rule.title or rule.name,
+                    yml,
+                    final_sigma_yml,
                 )
                 continue
 
@@ -806,12 +819,13 @@ async def sigmas_to_queries(
                 "count": len(per_rule_queries),
                 "queries": per_rule_queries,
             },
-
         )
 
         MutyLogger.get_instance().info(
-            '******* converted sigma rule "%s": current=%d, total=%d *******'
-            % (rule.name or rule.title, len(gulp_queries), total)
+            '******* converted sigma rule "%s": current=%d, total=%d *******',
+            rule.name or rule.title,
+            len(gulp_queries),
+            total,
         )
 
         # for query in gulp_queries:

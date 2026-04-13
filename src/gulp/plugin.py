@@ -2600,15 +2600,16 @@ class GulpPluginBase(ABC):
             plugin_params = GulpPluginParameters()
 
         if plugin_params.mapping_parameters.is_empty():
+            # set whole mapping parameters from provided values
             plugin_params.mapping_parameters = GulpMappingParameters(
                 mapping_file=mapping_file,
                 mapping_id=mapping_id,
-                mappings=mappings,
-                additional_mapping_files=additional_mapping_files,
-                additional_mappings=additional_mappings,
+                mappings=mappings or {},
+                additional_mapping_files=additional_mapping_files or [],
+                additional_mappings=additional_mappings or {},
             )
         else:
-            # apply overrides
+            # apply overrides for each mapping parameter if provided
             if mapping_file:
                 plugin_params.mapping_parameters.mapping_file = mapping_file
             if mapping_id:
