@@ -101,6 +101,7 @@ class GulpPluginCacheMode(StrEnum):
     IGNORE = "ignore"  # always load from disk
     DEFAULT = "default"  # use configuration value (cache enabled/disabled)
 
+
 class GulpPluginEntry(BaseModel):
     """
     Gulp plugin entry for the plugin_list API
@@ -426,6 +427,7 @@ class GulpPluginCache:
             MutyLogger.get_instance().debug("removing plugin %s from cache" % (name))
             del self._cache[name]
 
+
 class GulpPluginBase(ABC):
     """
     Base class for all Gulp plugins.
@@ -715,10 +717,12 @@ class GulpPluginBase(ABC):
         """
         return self._preview_chunk
 
-    async def internal_event_callback(self, ev: GulpInternalEvent) -> GulpInternalEventResult|None:
+    async def internal_event_callback(
+        self, ev: GulpInternalEvent
+    ) -> GulpInternalEventResult | None:
         """
         this is called by the engine to broadcast an event to the plugin.
-        this is usually called as "fire and forget" by the engine via GulpRedisBroker.put_internal_event(): the plugin will process the callback asynchronously. 
+        this is usually called as "fire and forget" by the engine via GulpRedisBroker.put_internal_event(): the plugin will process the callback asynchronously.
         but this may also be called synchronously waiting for the return value via GulpRedisBroker.put_internal_event_wait().
 
         Args:
@@ -828,12 +832,14 @@ class GulpPluginBase(ABC):
                 flt=flt,
             )
 
-            result: GulpInternalEventResult = await redis_broker.put_internal_event_wait(
-                GulpInternalEventsManager.EVENT_CHUNK_PRE_INGEST,
-                user_id=self._user_id,
-                operation_id=self._operation_id,
-                req_id=self._req_id,
-                data=pre_ingest_ev.model_dump(exclude_none=True)
+            result: GulpInternalEventResult = (
+                await redis_broker.put_internal_event_wait(
+                    GulpInternalEventsManager.EVENT_CHUNK_PRE_INGEST,
+                    user_id=self._user_id,
+                    operation_id=self._operation_id,
+                    req_id=self._req_id,
+                    data=pre_ingest_ev.model_dump(exclude_none=True),
+                )
             )
             if result:
                 # use the (possibly) modified chunk
@@ -910,7 +916,9 @@ class GulpPluginBase(ABC):
                 d=chunk.model_dump(exclude_none=True),
             )
             self._chunks_ingested += 1
-            if (self._chunks_ingested % 50 == 0 or self._last_raw_chunk) and self._raw_ingestion:
+            if (
+                self._chunks_ingested % 50 == 0 or self._last_raw_chunk
+            ) and self._raw_ingestion:
                 # for raw ingestion, send a progress update every 50 chunks or on the last chunk
                 payload = GulpIngestRawProgress(
                     last=self._last_raw_chunk,
@@ -1412,22 +1420,27 @@ class GulpPluginBase(ABC):
         self._operation_id = operation_id
         self._index = index
 
-        # the query must take into account "fields"
-        qq: dict = {
-            "query": {
-                "bool": {
-                    "should": [],
-                    "minimum_should_match": 1,
-                }
-            }
-        }
+        # Build the base enrichment-selection query from "fields".
+        # - fields with value None: input is read from the document, so field must exist
+        # - fields with explicit values: those are plugin inputs, not document filters
+        #   (do not add term filters on destination fields, they may not exist yet)
+        should_filters: list[dict] = []
         for f_name, f_value in fields.items():
             if f_value is None:
-                # field value to be taken from document, must exist
-                qq["query"]["bool"]["should"].append({"exists": {"field": f_name}})
-            else:
-                # field value provided
-                qq["query"]["bool"]["should"].append({"term": {f_name: f_value}})
+                should_filters.append({"exists": {"field": f_name}})
+
+        if should_filters:
+            qq: dict = {
+                "query": {
+                    "bool": {
+                        "should": should_filters,
+                        "minimum_should_match": 1,
+                    }
+                }
+            }
+        else:
+            # All field values are explicit plugin inputs: no field-based prefilter.
+            qq = {"query": {"match_all": {}}}
 
         # check if the caller provided a raw query to be used, if so merge with q
         if q:
@@ -1457,7 +1470,9 @@ class GulpPluginBase(ABC):
             "ws_id": ws_id,
         }
         canceled: bool = False
-        # MutyLogger.get_instance().debug("enrich query:\n%s", orjson.dumps(qq, option=orjson.OPT_INDENT_2).decode())
+        MutyLogger.get_instance().debug(
+            "enrich query:\n%s", orjson.dumps(qq, option=orjson.OPT_INDENT_2).decode()
+        )
         # try:
         await GulpOpenSearch.get_instance().search_dsl(
             sess,
@@ -2997,7 +3012,7 @@ class GulpPluginBase(ABC):
                 self._sess,
                 self._plugin_params.mapping_parameters.model_dump(exclude_none=True),
                 self._user_id,
-                self._operation_id
+                self._operation_id,
             )
             await n.update(self._sess, plugin=self.name, mapping_parameters_id=mp.id)
 
@@ -3200,7 +3215,9 @@ class GulpPluginBase(ABC):
             types (list[str], optional): List of event types to register for. Defaults to None, which registers for all events.
         """
         if self.type() != GulpPluginType.EXTENSION:
-            raise ValueError("only plugins of type EXTENSION can register for internal events!")
+            raise ValueError(
+                "only plugins of type EXTENSION can register for internal events!"
+            )
         GulpInternalEventsManager.get_instance().register(self, types)
 
     def deregister_internal_events_callback(self) -> None:
@@ -3209,8 +3226,10 @@ class GulpPluginBase(ABC):
         """
         if GulpInternalEventsManager.get_instance().is_plugin_registered(self.name):
             if self.type() != GulpPluginType.EXTENSION:
-                raise ValueError("only plugins of type EXTENSION can deregister for internal events!")
-            
+                raise ValueError(
+                    "only plugins of type EXTENSION can deregister for internal events!"
+                )
+
             GulpInternalEventsManager.get_instance().deregister(self.name)
 
     @staticmethod

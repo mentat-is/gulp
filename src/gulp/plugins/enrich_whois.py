@@ -772,27 +772,27 @@ class Plugin(GulpPluginBase):
         # parse custom parameters
         await self._initialize(plugin_params)
 
-        qq: dict = {
-            "query": {
-                "bool": {
-                    "should": [],
-                    "minimum_should_match": 1,
+        should_filters: list[dict] = []
+        for f_name, f_value in fields.items():
+            if f_value is None and f_name not in ["event.original"]:
+                # Apply skip-local-ip prefilter only when the plugin input is read
+                # from document fields. Explicit values are plugin inputs and
+                # should not be turned into document preconditions.
+                should_filters.append(self._build_skip_private_ip_query(f_name))
+
+        if should_filters:
+            qq: dict = {
+                "query": {
+                    "bool": {
+                        "should": should_filters,
+                        "minimum_should_match": 1,
+                    }
                 }
             }
-        }
-        for f in fields:
-            if f not in ["event.original"]:
-                # avoid building skip-local-ip query for event.original, just limit to the other fields.
-                # this is because event.original may contain generic text other than just an ip/hostname and this would break the query
-                qq["query"]["bool"]["should"].append(
-                    self._build_skip_private_ip_query(f)
-                )
-
-        if not qq["query"]["bool"]["should"]:
-            # no valid fields
-            raise ValueError(
-                "no valid fields configured for whois enrichment: %s" % (fields)
-            )
+        else:
+            # No doc-derived filterable fields (e.g. explicit input values only,
+            # or event.original only): rely on caller filters/raw query.
+            qq = {"query": {"match_all": {}}}
 
         # MutyLogger.get_instance().debug("query: %s" % qq)
         return await super().enrich_documents(

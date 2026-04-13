@@ -284,16 +284,7 @@ class Plugin(GulpPluginBase):
     ) -> tuple[int, int, list[str], bool]:
         # parse custom parameters
         await self._initialize(plugin_params)
-
-        qq = {
-            "query": {
-                "bool": {
-                    "should": [],
-                    "minimum_should_match": 1,
-                }
-            }
-        }
-
+        
         # enrich
         return await super().enrich_documents(
             sess,
@@ -304,7 +295,7 @@ class Plugin(GulpPluginBase):
             operation_id,
             index,
             fields,
-            qq,
+            q,
             flt,
             plugin_params,
         )
