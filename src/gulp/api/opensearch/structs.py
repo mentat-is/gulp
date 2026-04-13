@@ -224,14 +224,15 @@ class GulpDocument(GulpBasicDocument):
             return epoch_start, 0, True
 
         ns: int = 0
+
         try:
             ns = muty.time.string_to_nanos_from_unix_epoch(
                 timestamp, format_string=format_string
             )
 
-            # timestamp is epoch or before, that's usually a sign of an invalid timestamp
-            if ns <= 0:
-                raise ValueError("timestamp is before unix epoch")
+            if ns < 631152000000000000:
+                # before 1990, skip
+                return epoch_start, 0, True
 
             if plugin_params and plugin_params.timestamp_offset_msec:
                 # apply offset in milliseconds to the timestamp
@@ -242,10 +243,12 @@ class GulpDocument(GulpBasicDocument):
                     )
                 )
 
-            timestamp = str(ns)
+            if ns > 9214646400000000000:
+                # > year 2262, skip
+                return epoch_start, 0, True
 
             # enforce iso8601 timestamp
-            ts_string = muty.time.ensure_iso8601(timestamp)
+            ts_string = muty.time.ensure_iso8601(str(ns))
             return ts_string, ns, False
 
         except Exception as e:
@@ -350,7 +353,7 @@ class GulpDocument(GulpBasicDocument):
         timestamp_format: str = None
         if not timestamp:
             # if not explicitly passed by the plugin, this is expected to be in **kwargs as "timestamp" (aliased from "@timestamp" by GulpDocumentFieldAliasHelper)
-            timestamp: str = data.get("timestamp", 0)
+            timestamp: str = data.get("timestamp", None)
             if timestamp:
                 # get the timestamp_format corresponding to the currently used mapping, if any
                 timestamp_format = (
@@ -362,15 +365,9 @@ class GulpDocument(GulpBasicDocument):
             plugin_params=plugin_instance._plugin_params,
             format_string=timestamp_format,
         )
-        if ts_nanos > 9214646400000000000:
-            # year 2262 in nanoseconds from unix epoch, just to avoid overflow in OpenSearch
-            MutyLogger.get_instance().warning(
-                f"timestamp {ts} ({ts_nanos} ns) is too far in the future, setting to year 2262/01/01 (within OpenSearch limits)"
-            )
-            ts = "2262-01-01T00:00:00Z"
-            ts_nanos = 9214646400000000000
-            invalid = True
-
+        """if ts.startswith("3300"):
+            MutyLogger.get_instance().error("ts=%s, ts_nanos=%s, invalid=%s, timestamp=%s, data=%s" % (ts, ts_nanos, invalid, timestamp, data))"""
+            
         data["timestamp"] = ts
         data["gulp_timestamp"] = ts_nanos
         if invalid or ts_nanos == 0:

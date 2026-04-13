@@ -13,6 +13,7 @@ import os
 import pathlib
 import re
 import string
+from datetime import datetime, timezone
 from typing import Any, override
 
 import muty.crypto
@@ -44,6 +45,7 @@ from scapy.all import (
     DHCP,
     EDecimal,
     ICMP,
+    NoPayload,
     Packet,
     PcapNgReader,
     PcapReader,
@@ -78,6 +80,11 @@ class Plugin(GulpPluginBase):
 
     # Minimum ratio of printable ASCII characters to consider content as text
     TEXT_PRINTABLE_THRESHOLD = 0.75
+
+    # Precomputed lookup: bytes NOT in string.printable — used by _is_text_content for fast C-level filtering
+    _NON_PRINTABLE_BYTES: bytes = bytes(
+        b for b in range(256) if b not in frozenset(string.printable.encode("ascii"))
+    )
 
     IGNORED_TOP_LAYERS = {
         "NoPayload",
@@ -172,8 +179,7 @@ class Plugin(GulpPluginBase):
         """
         if not data:
             return False
-        printable_set = set(string.printable.encode("ascii"))
-        printable_count = sum(1 for b in data if b in printable_set)
+        printable_count = len(data) - len(data.translate(None, Plugin._NON_PRINTABLE_BYTES))
         return (printable_count / len(data)) >= Plugin.TEXT_PRINTABLE_THRESHOLD
 
     def _pkt_to_dict(self, p: Packet) -> dict:
@@ -182,14 +188,15 @@ class Plugin(GulpPluginBase):
         Extracts text, and intercepts TLS Handshakes to extract the SNI (Server Name Indication).
         """
         d = {}
+        body_fields = self.BODY_FIELDS
 
-        for layer in p.layers():
-            layer_instance = p.getlayer(layer)
-            layer_name = layer.__name__
+        # Walk the layer chain directly (O(n)) instead of layers()+getlayer() (O(n²))
+        layer_instance = p
+        while not isinstance(layer_instance, NoPayload):
+            layer_name = layer_instance.__class__.__name__
 
-            field_names = [field.name for field in layer_instance.fields_desc]
-
-            for field_name in field_names:
+            for field in layer_instance.fields_desc:
+                field_name = field.name
                 try:
                     value = getattr(layer_instance, field_name)
                     if value is None or not value:
@@ -203,19 +210,21 @@ class Plugin(GulpPluginBase):
                         else:
                             decoded_val = value.hex()
 
-                        if field_name not in self.BODY_FIELDS:
+                        if field_name not in body_fields:
                             d[flat_key] = decoded_val
 
                     elif hasattr(value, "flagrepr"):
                         d[flat_key] = value.flagrepr()
                     else:
-                        if field_name not in self.BODY_FIELDS:
+                        if field_name not in body_fields:
                             d[flat_key] = str(value)
                 except Exception as ex:
                     MutyLogger.get_instance().error(
                         f"error in _pkt_to_dict, value: {value} "
                     )
                     raise
+
+            layer_instance = layer_instance.payload
 
         return d
 
@@ -2120,22 +2129,21 @@ class Plugin(GulpPluginBase):
 
         # process record
         evt_json = self._pkt_to_dict(record)
-        analyze_packet: bool = self._plugin_params.custom_parameters.get("analyze", False)
-        wireshark_sequence_alignment: bool = self._plugin_params.custom_parameters.get(
-            "wireshark_sequence_alignment", False
-        )
         evt_json.update(
             self._get_packet_protocol_metadata(
                 record,
-                analyze_packet,
+                self._analyze_packet,
             )
         )
-        
+
         # use the last layer as gradient (all TCP packets are gonna be the same color, etc)
         d: dict = {}
-        event_code = record.lastlayer()
-        last_layer = event_code.name
-        d["event.code"] = str(muty.crypto.hash_crc24(last_layer))
+        last_layer = record.lastlayer().name
+        event_code_str = self._event_code_cache.get(last_layer)
+        if event_code_str is None:
+            event_code_str = str(muty.crypto.hash_crc24(last_layer))
+            self._event_code_cache[last_layer] = event_code_str
+        d["event.code"] = event_code_str
 
         # map fields through the mapping engine
         for k, v in evt_json.items():
@@ -2143,9 +2151,9 @@ class Plugin(GulpPluginBase):
             d.update(mapped)
 
         # normalize timestamp
-        normalized: float = record.time.normalize(20)
-        ns: str = str(muty.time.float_to_nanos_from_unix_epoch(float(normalized)))
-        timestamp: str = muty.time.ensure_iso8601(ns)
+        timestamp: str = datetime.fromtimestamp(
+            float(record.time), tz=timezone.utc
+        ).isoformat()
 
         event_original = f"""network.protocol: {d.get("network.protocol","")}
         source.address: {d.get("source.address","")}
@@ -2160,7 +2168,7 @@ class Plugin(GulpPluginBase):
             context_id=self._context_id,
             source_id=self._source_id,
             event_original=event_original,
-            event_sequence=record_idx + 1 if wireshark_sequence_alignment else record_idx,
+            event_sequence=record_idx + 1 if self._wireshark_seq_align else record_idx,
             timestamp=timestamp,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
             **d,
@@ -2234,9 +2242,15 @@ class Plugin(GulpPluginBase):
                 "using PcapReader reader on file: %s" % (file_path)
             )
             parser = PcapReader(file_path)
-        # TODO: support other scapy file readers like ERF?
 
         doc_idx = 0
+        # Cache per-ingestion constants to avoid per-packet dict lookups and repeated hashes
+        self._analyze_packet: bool = self._plugin_params.custom_parameters.get("analyze", False)
+        self._wireshark_seq_align: bool = self._plugin_params.custom_parameters.get(
+            "wireshark_sequence_alignment", False
+        )
+        self._event_code_cache: dict[str, str] = {}
+
         for pkt in parser:
             await self.process_record(pkt, doc_idx, flt=flt)
             doc_idx += 1
