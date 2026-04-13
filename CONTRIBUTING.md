@@ -6,10 +6,11 @@ We'd love the the community to be part of our project both as developers and as 
 
 To submit PRs, just stick with these simple rules:
 
-1. follow [the install docs for developers](<./docs/install_dev.md>) to setup the dev environment.
-2. `be modular!`
-3. use (*and extend it*, you are welcome!) our utility library [muty-python](https://github.com/mentat-is/muty-python) instead of repeating common code, or to abstract complex functionality.
-4. use FFI if you need performances, i.e. as the [win_evtx](https://github.com/mentat-is/src/gulp/plugins/ingestion/win_evtx.py) plugin which uses a [pyevtx-rs rust's backend](https://github.com/omerbenamram/pyevtx-rs)
+1. **make sure your branch is up to date with the `develop` branch** before starting to work on your feature/bugfix, and before submitting the PR.
+2. follow [the install docs for developers](<./docs/install_dev.md>) to setup the dev environment.
+3. `be modular!`
+4. use (*and extend it*, you are welcome!) our utility library [muty-python](https://github.com/mentat-is/muty-python) instead of repeating common code, or to abstract complex functionality.
+5. use FFI if you need performances, i.e. as the [win_evtx](https://github.com/mentat-is/src/gulp/plugins/win_evtx.py) plugin which uses a [pyevtx-rs rust's backend](https://github.com/omerbenamram/pyevtx-rs)
 
 and code writing guidilines:
 
@@ -69,10 +70,6 @@ and code writing guidilines:
 
 3. use [microsoft's black](https://marketplace.visualstudio.com/items?itemName=ms-python.black-formatter) formatter with the default settings.
 
-### notes for mantainers
-
-- > at release/tag time, use [the provided script](./update_requirements.txt) to freeze python requirements, **force push it to the target branch** and recreate the docker image.
-  
 ## Bug reporting
 
 1. `gulp --version`
