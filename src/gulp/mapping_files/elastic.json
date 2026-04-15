@@ -5,7 +5,7 @@
       ]
     },
     "mappings": {
-      "syslog": {
+      "default": {
         "agent_type": "elastic_generic",
         "fields": {
           "@timestamp": {
