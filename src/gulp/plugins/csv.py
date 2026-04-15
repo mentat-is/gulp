@@ -22,6 +22,7 @@ CSV plugin support the following custom parameters in the plugin_params.extra di
 """
 
 import os
+import csv
 from typing import override
 from datetime import datetime
 import aiofiles
@@ -72,6 +73,12 @@ class Plugin(GulpPluginBase):
                 type="str",
                 desc="python's csv supported dialect to use ('excel', 'excel-tab', 'unix')",
                 default_value="excel",
+            ),
+            GulpPluginCustomParameter(
+                name="field_size_limit",
+                type="int",
+                desc="field size limit for a single csv field",
+                default_value=2*1024*1024,
             ),
         ]
 
@@ -140,6 +147,11 @@ class Plugin(GulpPluginBase):
         encoding = mapping.default_encoding or "utf-8"
         delimiter = self._plugin_params.custom_parameters.get("delimiter")
         dialect = self._plugin_params.custom_parameters.get("dialect")
+        field_size_limit = self._plugin_params.custom_parameters.get("field_size_limit")
+
+        # Changes to csv.field_size_limit are not picked up by existing Reader instances. 
+        # The field size limit is cached on Reader instantiation to avoid expensive function calls on each character of the input.
+        csv.field_size_limit(field_size_limit)
 
         doc_idx: int = 0
         async with aiofiles.open(
