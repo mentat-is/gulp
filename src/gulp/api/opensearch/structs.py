@@ -73,7 +73,7 @@ class GulpBasicDocument(BaseModel):
     gulp_timestamp: Annotated[
         int,
         Field(
-            description='"@timestamp": document timestamp in nanoseconds from unix epoch.',
+            description='"gulp.timestamp": document timestamp in nanoseconds from unix epoch.',
             alias="gulp.timestamp",
         ),
     ]
