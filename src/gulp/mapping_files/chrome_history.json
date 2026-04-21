@@ -1,7 +1,7 @@
 {
   "metadata": {
     "plugin": [
-      "sqlite.py"
+      "chrome_history_sqlite_stacked.py"
     ]
   },
   "mappings": {

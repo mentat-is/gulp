@@ -1,0 +1,17 @@
+{
+    "metadata": {
+      "plugin": [
+        "json.py"
+      ]
+    },
+    "mappings": {
+      "default": {
+        "agent_type": "elastic_generic",
+        "fields": {
+          "@timestamp": {
+            "ecs": "@timestamp"
+          }
+        }
+      }
+    }
+  }
