@@ -8,6 +8,7 @@ import pytest
 from gulp.api.ws_api import (
     GulpConnectedSockets,
     GulpMessageRoutingTarget,
+    GulpRedis,
     GulpRedisBroker,
     GulpWsData,
     GulpWsType,
@@ -45,6 +46,43 @@ class _FakeConnectedSocket:
         self.enqueue_message = AsyncMock(return_value=True)
 
 
+class _FakePubSub:
+    def __init__(self):
+        self.channels: dict[str, bool] = {}
+        self.patterns: dict[str, bool] = {}
+        self.subscribe_calls = 0
+        self.unsubscribe_calls = 0
+        self.closed = False
+
+    async def subscribe(self, *channels: str):
+        self.subscribe_calls += 1
+        for channel in channels:
+            self.channels[channel] = True
+
+    async def unsubscribe(self, *channels: str):
+        self.unsubscribe_calls += 1
+        for channel in channels:
+            self.channels.pop(channel, None)
+
+    async def get_message(self, *args, **kwargs):
+        await asyncio.Future()
+
+    async def close(self):
+        self.closed = True
+        self.channels.clear()
+        self.patterns.clear()
+
+
+class _FakeRedisPubSubClient:
+    def __init__(self):
+        self.pubsubs: list[_FakePubSub] = []
+
+    def pubsub(self):
+        pubsub = _FakePubSub()
+        self.pubsubs.append(pubsub)
+        return pubsub
+
+
 @pytest.mark.unit
 def test_redis_broker_broadcast_types_add_remove():
     broker = GulpRedisBroker.get_instance()
@@ -59,6 +97,60 @@ def test_redis_broker_broadcast_types_add_remove():
 
     finally:
         broker.broadcast_types = original_types
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_gulp_redis_subscribe_and_broker_lifecycle_are_idempotent(monkeypatch):
+    GulpRedis._instance = None
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeRedisPubSubClient()
+    redis_client._redis = fake_redis
+    redis_client._pubsub = fake_redis.pubsub()
+    redis_client.server_id = "server-a"
+
+    async def _callback(_message: dict) -> None:
+        return
+
+    await redis_client.subscribe(_callback)
+    first_task = redis_client._subscriber_task
+    first_pubsub = redis_client._pubsub
+    await asyncio.sleep(0)
+
+    await redis_client.subscribe(_callback)
+
+    assert redis_client._subscriber_task is first_task
+    assert redis_client._pubsub is first_pubsub
+    assert first_pubsub.subscribe_calls == 1
+
+    await redis_client.unsubscribe()
+    await redis_client.unsubscribe()
+
+    assert first_task.done()
+    assert first_task.exception() is None
+    assert first_pubsub.unsubscribe_calls == 1
+    assert first_pubsub.closed is True
+    assert redis_client._subscriber_task is None
+    assert redis_client._pubsub is None
+
+    GulpRedisBroker._instance = None
+    broker = GulpRedisBroker.get_instance()
+    subscribe_mock = AsyncMock()
+    unsubscribe_mock = AsyncMock()
+    monkeypatch.setattr(redis_client, "subscribe", subscribe_mock)
+    monkeypatch.setattr(redis_client, "unsubscribe", unsubscribe_mock)
+    monkeypatch.setattr(
+        "gulp.api.ws_api.GulpRedis.get_instance",
+        lambda: redis_client,
+    )
+
+    await broker.initialize()
+    await broker.initialize()
+    await broker.shutdown()
+    await broker.shutdown()
+
+    subscribe_mock.assert_awaited_once()
+    unsubscribe_mock.assert_awaited_once()
 
 
 @pytest.mark.unit
@@ -237,7 +329,9 @@ async def test_route_message_to_local_websockets_keeps_broadcast_fanout_with_ws_
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_propagated_internal_event_rebroadcasts_once_and_skips_origin_echo(monkeypatch):
+async def test_propagated_internal_event_rebroadcasts_once_and_skips_origin_echo(
+    monkeypatch,
+):
     from gulp.api import ws_api as ws_api_module
     import gulp.structs as plugin_module
 
@@ -248,7 +342,9 @@ async def test_propagated_internal_event_rebroadcasts_once_and_skips_origin_echo
     fake_redis = MagicMock()
     fake_redis.server_id = "instance-a"
     fake_redis.publish = AsyncMock()
-    fake_redis.worker_to_main_channel = lambda server_id=None: "gulpredis:server:instance-a"
+    fake_redis.worker_to_main_channel = (
+        lambda server_id=None: "gulpredis:server:instance-a"
+    )
     fake_redis._redis = MagicMock()
     fake_redis._redis.set = AsyncMock(return_value=True)
 
@@ -256,7 +352,9 @@ async def test_propagated_internal_event_rebroadcasts_once_and_skips_origin_echo
     mock_sockets.route_message_to_local_websockets = AsyncMock()
 
     monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: fake_redis)
-    monkeypatch.setattr(ws_api_module.GulpConnectedSockets, "get_instance", lambda: mock_sockets)
+    monkeypatch.setattr(
+        ws_api_module.GulpConnectedSockets, "get_instance", lambda: mock_sockets
+    )
     monkeypatch.setattr(
         plugin_module.GulpInternalEventsManager,
         "get_instance",
@@ -281,13 +379,21 @@ async def test_propagated_internal_event_rebroadcasts_once_and_skips_origin_echo
     dispatch.assert_awaited_once()
     fake_redis.publish.assert_awaited_once()
     publish_args = fake_redis.publish.await_args
-    assert publish_args.kwargs["channel"] == GulpMessageRoutingTarget.WORKER_TO_MAIN.redis_channel_name()
-    assert publish_args.args[0]["route_target_type"] == GulpMessageRoutingTarget.WORKER_TO_MAIN.value
+    assert (
+        publish_args.kwargs["channel"]
+        == GulpMessageRoutingTarget.WORKER_TO_MAIN.redis_channel_name()
+    )
+    assert (
+        publish_args.args[0]["route_target_type"]
+        == GulpMessageRoutingTarget.WORKER_TO_MAIN.value
+    )
     assert publish_args.args[0]["origin_server_id"] == "instance-a"
     assert publish_args.args[0]["origin_already_processed"] is True
 
     cluster_echo = dict(publish_args.args[0])
-    cluster_echo["__redis_channel__"] = GulpMessageRoutingTarget.WORKER_TO_MAIN.redis_channel_name()
+    cluster_echo["__redis_channel__"] = (
+        GulpMessageRoutingTarget.WORKER_TO_MAIN.redis_channel_name()
+    )
     await broker._handle_pubsub_message(dict(cluster_echo))
 
     dispatch.assert_awaited_once()

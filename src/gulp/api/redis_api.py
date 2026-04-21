@@ -40,7 +40,6 @@ class GulpWsMetadata(BaseModel):
         Field(
             description="List of `operation_id` this websocket is interested in, default is an empty list(all)",
             default_factory=list,
-
         ),
     ]
     socket_type: Annotated[
@@ -51,6 +50,7 @@ class GulpWsMetadata(BaseModel):
 # module-local Redis channel names (class-level constants removed; use GulpRedisChannel as canonical source)
 _MAIN_REDIS_CHANNEL = "gulpredis"
 _CLIENT_DATA_REDIS_CHANNEL = "gulpredis:client_data"
+
 
 class GulpRedis:
     """
@@ -83,13 +83,17 @@ class GulpRedis:
         self._redis: redis.Redis = None
         self._pubsub: PubSub = None
         self._subscriber_task: asyncio.Task = None
+        self._subscriber_callback: Callable[[dict], Any] | None = None
+        self._pubsub_lock: asyncio.Lock = asyncio.Lock()
         self.server_id: str = None
         # list of roles assigned to this server instance (e.g. ['ingest', 'query'])
         self._instance_roles: list[str] = []
         # simple task queue (list) key
         self._task_queue_key: str = "gulp:queue:tasks"
         # ttl for stored large payloads (seconds)
-        self.PUBLISH_LARGE_PAYLOAD_TTL: int = 5 * 60  # 5 min, it should be consumed quickly
+        self.PUBLISH_LARGE_PAYLOAD_TTL: int = (
+            5 * 60
+        )  # 5 min, it should be consumed quickly
         self._publish_rate_limit: int = 100  # msgs per second
 
         # Token-bucket for publish backpressure (replaces sliding-window sleep behavior)
@@ -98,7 +102,9 @@ class GulpRedis:
         # - `_token_bucket_tokens` : current available tokens (float)
         # - `_token_bucket_last` : last refill timestamp
         self._token_bucket_rate: float = float(self._publish_rate_limit)
-        self._token_bucket_capacity: float = max(1.0, float(self._publish_rate_limit) * 2.0)
+        self._token_bucket_capacity: float = max(
+            1.0, float(self._publish_rate_limit) * 2.0
+        )
         self._token_bucket_tokens: float = float(self._token_bucket_capacity)
         self._token_bucket_last: float = time.monotonic()
 
@@ -149,7 +155,7 @@ class GulpRedis:
         if not self._redis:
             raise RuntimeError("initialize() must be called first!")
         return self._redis
-    
+
     def initialize(self, server_id: str, main_process: bool = True) -> None:
         """
         Initialize Redis pub/sub connections.
@@ -199,33 +205,24 @@ class GulpRedis:
         close Redis connections and cleanup.
         """
         from gulp.process import GulpProcess
+
         main_process = GulpProcess.get_instance().is_main_process()
 
         if main_process:
-            # cancel all subscriber tasks
             try:
-                if self._subscriber_task:
-                    # only main process have subscriber task
-                    self._subscriber_task.cancel()
-                    await asyncio.wait_for(self._subscriber_task, timeout=5.0)
-                    MutyLogger.get_instance().debug("cancelled subscriber task!")
-            except asyncio.TimeoutError:
-                MutyLogger.get_instance().warning("timeout cancelling subscriber task!")
-            except Exception as ex:
-                MutyLogger.get_instance().exception("error cancelling subscriber task!")
-
-            # close pubsub
-            try:
-                await self._pubsub.close()
-                MutyLogger.get_instance().debug("pubsub closed!")
-            except Exception as ex:
-                MutyLogger.get_instance().exception("error closing pubsub!")
+                await self.unsubscribe()
+            except Exception:
+                MutyLogger.get_instance().exception(
+                    "error closing pubsub during shutdown!"
+                )
 
         # close redis client
         try:
             await self._redis.close()
             MutyLogger.get_instance().info(
-                "Redis client %s connection closed, redis shutdown DONE!, main_process=%r", self._redis, main_process
+                "Redis client %s connection closed, redis shutdown DONE!, main_process=%r",
+                self._redis,
+                main_process,
             )
         except Exception as ex:
             MutyLogger.get_instance().exception("error closing redis client!")
@@ -304,7 +301,9 @@ class GulpRedis:
             cursor = 0
             keys_to_delete: list[str] = []
             while True:
-                cursor, keys = await self._redis.scan(cursor=cursor, match=pattern, count=200)
+                cursor, keys = await self._redis.scan(
+                    cursor=cursor, match=pattern, count=200
+                )
                 if keys:
                     keys_to_delete.extend(keys)
                 if cursor == 0:
@@ -316,7 +315,9 @@ class GulpRedis:
                     if isinstance(deleted, int):
                         deleted_total += deleted
                 except Exception:
-                    MutyLogger.get_instance().exception("failed to delete ws metadata keys")
+                    MutyLogger.get_instance().exception(
+                        "failed to delete ws metadata keys"
+                    )
 
             # delete the lookup mapping ws_id -> server_id
             try:
@@ -327,7 +328,9 @@ class GulpRedis:
                 MutyLogger.get_instance().exception("failed to delete ws lookup key")
 
         except Exception:
-            MutyLogger.get_instance().exception("error during ws_unregister scan/delete")
+            MutyLogger.get_instance().exception(
+                "error during ws_unregister scan/delete"
+            )
 
         MutyLogger.get_instance().debug(
             "unregistered websocket: ws_id=%s, deleted=%d",
@@ -364,7 +367,9 @@ class GulpRedis:
         try:
             cursor = 0
             while True:
-                cursor, keys = await self._redis.scan(cursor=cursor, match=pattern, count=200)
+                cursor, keys = await self._redis.scan(
+                    cursor=cursor, match=pattern, count=200
+                )
                 if keys:
                     pipe = self._redis.pipeline(transaction=False)
                     for key in keys:
@@ -422,6 +427,29 @@ class GulpRedis:
             return _MAIN_REDIS_CHANNEL
         return f"{_MAIN_REDIS_CHANNEL}:server:{target_server_id}"
 
+    def _pubsub_channels(self) -> list[str]:
+        """Return the channels the main-process subscriber must keep attached to."""
+        channels = [_MAIN_REDIS_CHANNEL, _CLIENT_DATA_REDIS_CHANNEL]
+        if self.server_id:
+            channels.append(self.worker_to_main_channel(self.server_id))
+        return channels
+
+    def _has_active_pubsub_subscriptions(self, pubsub: PubSub | None = None) -> bool:
+        """Return whether the pubsub object currently tracks any active subscriptions."""
+        active_pubsub = pubsub or self._pubsub
+        if active_pubsub is None:
+            return False
+
+        channels = getattr(active_pubsub, "channels", None) or {}
+        patterns = getattr(active_pubsub, "patterns", None) or {}
+        return bool(channels or patterns)
+
+    def _ensure_pubsub(self) -> PubSub:
+        """Create a pubsub object lazily when the main process subscribes."""
+        if self._pubsub is None:
+            self._pubsub = self._redis.pubsub()
+        return self._pubsub
+
     async def publish(self, message: dict, channel: str | None = None) -> None:
         """
         Publish a message on redis pubsub.
@@ -435,8 +463,12 @@ class GulpRedis:
 
         # serialize message
         payload = orjson.dumps(message)
-        compression_threshold: int = GulpConfig.get_instance().redis_compression_threshold() * 1024
-        pubsub_max_chunk_size: int = GulpConfig.get_instance().redis_pubsub_max_chunk_size() * 1024
+        compression_threshold: int = (
+            GulpConfig.get_instance().redis_compression_threshold() * 1024
+        )
+        pubsub_max_chunk_size: int = (
+            GulpConfig.get_instance().redis_pubsub_max_chunk_size() * 1024
+        )
 
         await self._apply_publish_backpressure()
 
@@ -462,7 +494,9 @@ class GulpRedis:
                         stored_bytes = zlib.compress(payload)
                         compressed_flag = True
                     except Exception:
-                        MutyLogger.get_instance().exception("failed to compress large payload, falling back to direct publish")
+                        MutyLogger.get_instance().exception(
+                            "failed to compress large payload, falling back to direct publish"
+                        )
                         await self._redis.publish(channel_to_use, payload)
                         return
                 else:
@@ -471,11 +505,16 @@ class GulpRedis:
                     compressed_flag = False
 
                 # split bytes into chunks
-                chunks = [stored_bytes[i : i + pubsub_max_chunk_size] for i in range(0, len(stored_bytes), pubsub_max_chunk_size)]
+                chunks = [
+                    stored_bytes[i : i + pubsub_max_chunk_size]
+                    for i in range(0, len(stored_bytes), pubsub_max_chunk_size)
+                ]
                 num_chunks = len(chunks)
 
                 # include server_id in base key to prevent cross-node chunk retrieval
-                base_key = f"gulp:pub:payload:{self.server_id}:{muty.string.generate_unique()}"
+                base_key = (
+                    f"gulp:pub:payload:{self.server_id}:{muty.string.generate_unique()}"
+                )
                 chunk_keys = [f"{base_key}:{i}" for i in range(num_chunks)]
 
                 # pointer metadata to publish on pubsub
@@ -522,7 +561,9 @@ class GulpRedis:
                     try:
                         pipe = self._redis.pipeline(transaction=False)
                         for i, c in enumerate(chunks):
-                            pipe.set(chunk_keys[i], c, ex=self.PUBLISH_LARGE_PAYLOAD_TTL)
+                            pipe.set(
+                                chunk_keys[i], c, ex=self.PUBLISH_LARGE_PAYLOAD_TTL
+                            )
                         pipe.publish(channel_to_use, pointer_bytes)
                         await pipe.execute()
                         MutyLogger.get_instance().warning(
@@ -570,7 +611,9 @@ class GulpRedis:
             if depth > throttle_threshold:
                 # progressive delay up to ws_throttle_max_delay() based on pressure above threshold
                 max_delay = GulpConfig.get_instance().ws_throttle_max_delay()
-                pressure_above = (depth - throttle_threshold) / (1.0 - throttle_threshold)
+                pressure_above = (depth - throttle_threshold) / (
+                    1.0 - throttle_threshold
+                )
                 delay = max_delay * pressure_above
                 MutyLogger.get_instance().warning(
                     "publish backpressure throttling: agg_queue_util=%.2f threshold=%.2f delay=%.3fs",
@@ -581,7 +624,9 @@ class GulpRedis:
                 await asyncio.sleep(delay)
         except Exception:
             # best-effort: if we can't inspect socket queues, proceed with normal token-bucket
-            MutyLogger.get_instance().exception("failed to evaluate aggregate queue utilization for backpressure")
+            MutyLogger.get_instance().exception(
+                "failed to evaluate aggregate queue utilization for backpressure"
+            )
 
         # if token available, consume and return immediately
         if self._token_bucket_tokens >= 1.0:
@@ -590,7 +635,9 @@ class GulpRedis:
 
         # compute time to wait until next token is available
         needed = 1.0 - self._token_bucket_tokens
-        wait_time = needed / self._token_bucket_rate if self._token_bucket_rate > 0 else 0.01
+        wait_time = (
+            needed / self._token_bucket_rate if self._token_bucket_rate > 0 else 0.01
+        )
 
         # wait (in small increments to be responsive to wakeups)
         # cap single sleep to 0.1s to remain responsive under contention
@@ -606,7 +653,11 @@ class GulpRedis:
                 self._token_bucket_last = now
             # recompute remaining wait_time
             needed = max(0.0, 1.0 - self._token_bucket_tokens)
-            wait_time = needed / self._token_bucket_rate if self._token_bucket_rate > 0 else 0.01
+            wait_time = (
+                needed / self._token_bucket_rate
+                if self._token_bucket_rate > 0
+                else 0.01
+            )
 
         # consume token and continue
         self._token_bucket_tokens -= 1.0
@@ -624,24 +675,9 @@ class GulpRedis:
 
         if GulpProcess.get_instance().is_main_process():
             from gulp.api.ws_api import GulpConnectedSockets
+
             return GulpConnectedSockets.get_instance().aggregate_queue_utilization()
 
-        # worker process: read cached value or fetch from Redis
-        now = time.monotonic()
-        # cache for 0.5s to avoid per-publish Redis round-trips
-        if now - self._cached_queue_utilization_time < 0.5:
-            return self._cached_queue_utilization
-
-        try:
-            val = await self._redis.get(self.WS_QUEUE_UTILIZATION_KEY)
-            if val is not None:
-                self._cached_queue_utilization = float(val)
-            else:
-                self._cached_queue_utilization = 0.0
-        except Exception:
-            # on error, use last known value
-            pass
-        self._cached_queue_utilization_time = now
         return self._cached_queue_utilization
 
     async def _update_queue_utilization_key(self) -> None:
@@ -651,12 +687,16 @@ class GulpRedis:
         worker processes can read the value for end-to-end backpressure.
         """
         now = time.monotonic()
-        if now - self._last_utilization_update < self.WS_QUEUE_UTILIZATION_UPDATE_INTERVAL:
+        if (
+            now - self._last_utilization_update
+            < self.WS_QUEUE_UTILIZATION_UPDATE_INTERVAL
+        ):
             return
 
         self._last_utilization_update = now
         try:
             from gulp.api.ws_api import GulpConnectedSockets
+
             depth = GulpConnectedSockets.get_instance().aggregate_queue_utilization()
             # SET with short TTL so stale values expire if main process dies
             await self._redis.set(
@@ -726,27 +766,41 @@ class GulpRedis:
         """
         unsubscribe from the redis pubsub channel
         """
-        # cancel the subscriber task if present
-        if self._subscriber_task:
-            self._subscriber_task.cancel()
+        async with self._pubsub_lock:
+            task = self._subscriber_task
+            pubsub = self._pubsub
+            channels = self._pubsub_channels()
+
+            self._subscriber_task = None
+            self._subscriber_callback = None
+            self._pubsub = None
+
+        if task:
+            task.cancel()
             try:
-                await self._subscriber_task
+                await task
             except asyncio.CancelledError:
                 pass
 
-        # unsubscribe from both channels
+        if not pubsub:
+            MutyLogger.get_instance().debug(
+                "unsubscribe requested with no active pubsub, server_id=%s",
+                self.server_id,
+            )
+            return
+
         try:
-            # build list of channels that were subscribed and attempt to unsubscribe
-            channels = [_MAIN_REDIS_CHANNEL, _CLIENT_DATA_REDIS_CHANNEL]
-
-            # include per-server channel if set
-            if self.server_id:
-                channels.append(f"{_MAIN_REDIS_CHANNEL}:server:{self.server_id}")
-
-            await self._pubsub.unsubscribe(*channels)
+            if self._has_active_pubsub_subscriptions(pubsub):
+                await pubsub.unsubscribe(*channels)
         except Exception:
-            # ignore errors during unsubscribe
-            pass
+            MutyLogger.get_instance().exception("error unsubscribing pubsub channels")
+
+        try:
+            await pubsub.close()
+        except Exception:
+            MutyLogger.get_instance().exception(
+                "error closing pubsub after unsubscribe"
+            )
 
         MutyLogger.get_instance().info(
             "unsubscribed from channels: %s, server_id=%s",
@@ -765,18 +819,29 @@ class GulpRedis:
             callback: Async function fun(d: dict) to call with each message dict
         """
         # subscribe to main channel and client_data channel;
-        channels = [_MAIN_REDIS_CHANNEL, _CLIENT_DATA_REDIS_CHANNEL]
-        # subscribe to main channel plus per-server targeted channel
-        if self.server_id:
-            channels.append(f"{_MAIN_REDIS_CHANNEL}:server:{self.server_id}")
+        async with self._pubsub_lock:
+            if self._subscriber_task and self._subscriber_task.done():
+                self._subscriber_task = None
 
-        await self._pubsub.subscribe(*channels)
+            if self._subscriber_task:
+                MutyLogger.get_instance().warning(
+                    "subscribe requested while subscriber loop is already running, server_id=%s",
+                    self.server_id,
+                )
+                return
 
-        task = asyncio.create_task(
-            self._subscriber_loop("subscriber", callback),
-            name=f"gulpredis-sub-{self.server_id}",
-        )
-        self._subscriber_task = task
+            self._subscriber_callback = callback
+            pubsub = self._ensure_pubsub()
+            channels = self._pubsub_channels()
+
+            if not self._has_active_pubsub_subscriptions(pubsub):
+                await pubsub.subscribe(*channels)
+
+            task = asyncio.create_task(
+                self._subscriber_loop("subscriber", callback),
+                name=f"gulpredis-sub-{self.server_id}",
+            )
+            self._subscriber_task = task
 
         MutyLogger.get_instance().info(
             "subscribed to channels: %s, server_id=%s",
@@ -793,21 +858,26 @@ class GulpRedis:
             except Exception:
                 pass
 
-        try:
-            if self._pubsub:
-                try:
-                    await self._pubsub.close()
-                except Exception:
-                    pass
-        except Exception:
-            MutyLogger.get_instance().exception("error closing pubsub before recreate")
+        async with self._pubsub_lock:
+            if self._subscriber_callback is None:
+                MutyLogger.get_instance().debug(
+                    "skipping pubsub recreation because subscriber is shutting down"
+                )
+                return
 
-        self._pubsub = self._redis.pubsub()
-        # resubscribe to the same set of channels as `subscribe()` (main + client_data + per-server)
-        channels = [_MAIN_REDIS_CHANNEL, _CLIENT_DATA_REDIS_CHANNEL]
-        if self.server_id:
-            channels.append(f"{_MAIN_REDIS_CHANNEL}:server:{self.server_id}")
-        await self._pubsub.subscribe(*channels)
+            old_pubsub = self._pubsub
+            self._pubsub = self._redis.pubsub()
+            channels = self._pubsub_channels()
+
+            try:
+                if old_pubsub:
+                    await old_pubsub.close()
+            except Exception:
+                MutyLogger.get_instance().exception(
+                    "error closing pubsub before recreate"
+                )
+
+            await self._pubsub.subscribe(*channels)
 
         MutyLogger.get_instance().warning(
             "pubsub connection recreated and resubscribed: %s", channels
@@ -835,7 +905,25 @@ class GulpRedis:
             backoff: float = 1.0
             while True:
                 try:
-                    message: dict = await self._pubsub.get_message(
+                    current_task = asyncio.current_task()
+                    if self._subscriber_task is not current_task:
+                        MutyLogger.get_instance().debug(
+                            "stopping stale subscriber loop for server_id=%s",
+                            self.server_id,
+                        )
+                        return
+
+                    pubsub = self._pubsub
+                    if pubsub is None or not self._has_active_pubsub_subscriptions(
+                        pubsub
+                    ):
+                        MutyLogger.get_instance().warning(
+                            "subscriber loop stopping because no pubsub subscriptions are active, server_id=%s",
+                            self.server_id,
+                        )
+                        return
+
+                    message: dict = await pubsub.get_message(
                         ignore_subscribe_messages=True, timeout=0.25
                     )
                     if message:
@@ -880,6 +968,34 @@ class GulpRedis:
                 except asyncio.CancelledError:
                     MutyLogger.get_instance().debug("subscriber loop cancelled")
                     raise
+                except RuntimeError as ex:
+                    if "pubsub connection not set" not in str(ex).lower():
+                        raise
+
+                    if self._subscriber_task is not asyncio.current_task():
+                        MutyLogger.get_instance().debug(
+                            "stale subscriber loop exiting after pubsub detach, server_id=%s",
+                            self.server_id,
+                        )
+                        return
+
+                    if self._subscriber_callback is None:
+                        MutyLogger.get_instance().info(
+                            "subscriber loop exiting because shutdown detached pubsub, server_id=%s",
+                            self.server_id,
+                        )
+                        return
+
+                    MutyLogger.get_instance().warning(
+                        "redis pubsub lost its subscribed connection, recreating: %s",
+                        ex,
+                    )
+                    try:
+                        await self._recreate_pubsub()
+                    except Exception:
+                        MutyLogger.get_instance().exception("failed to recreate pubsub")
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2.0, 30.0)
                 except (RedisConnectionError, asyncio.IncompleteReadError) as ex:
                     MutyLogger.get_instance().warning(
                         "redis pubsub connection error, will reconnect: %s", ex
@@ -914,7 +1030,7 @@ class GulpRedis:
             await callback(d)
         except Exception as ex:
             if GulpConfig.get_instance().prometheus_enabled():
-                # update Prometheus counter for subscriber callback errors  
+                # update Prometheus counter for subscriber callback errors
                 try:
                     GulpMetrics.redis_subscriber_errors_total.inc()
                 except Exception:
@@ -954,8 +1070,10 @@ class GulpRedis:
         try:
             # add to stream under field 'data'
             await self._redis.xadd(
-                stream_key, {"data": payload},
-                maxlen=self.STREAM_TASK_MAXLEN, approximate=True,
+                stream_key,
+                {"data": payload},
+                maxlen=self.STREAM_TASK_MAXLEN,
+                approximate=True,
             )
             # record known task type
             await self._redis.sadd(GulpRedis.TASK_TYPES_SET, ttype)
@@ -966,7 +1084,11 @@ class GulpRedis:
             )
 
         MutyLogger.get_instance().debug(
-            "enqueued task_type=%s on %s, task=%s", ttype, stream_key, muty.string.make_shorter(str(task),max_len=260))
+            "enqueued task_type=%s on %s, task=%s",
+            ttype,
+            stream_key,
+            muty.string.make_shorter(str(task), max_len=260),
+        )
 
     async def task_dequeue_batch(self, max_items: int) -> list[dict]:
         """
@@ -1034,7 +1156,11 @@ class GulpRedis:
         ids_to_del: dict[str, list[str]] = {}
         for stream_name, msgs in entries:
             for msg_id, fields in msgs:
-                raw = fields.get(b"data") if isinstance(fields, dict) else fields.get("data")
+                raw = (
+                    fields.get(b"data")
+                    if isinstance(fields, dict)
+                    else fields.get("data")
+                )
                 if raw is None:
                     continue
                 try:
@@ -1046,7 +1172,9 @@ class GulpRedis:
                     items.append(d)
                     ids_to_del.setdefault(stream_name, []).append(msg_id)
                 except Exception as ex:
-                    MutyLogger.get_instance().error("invalid task payload in stream %s: %s", stream_name, ex)
+                    MutyLogger.get_instance().error(
+                        "invalid task payload in stream %s: %s", stream_name, ex
+                    )
 
         # acknowledge and delete read entries to emulate destructive pop semantics
         # batch xack/xdel operations in a single pipeline to reduce round trips
@@ -1059,11 +1187,15 @@ class GulpRedis:
                         pipe.xdel(stream_name, *ids)
                     except Exception:
                         # if building pipeline entries fails for this stream, log and continue
-                        MutyLogger.get_instance().exception("failed to queue xack/xdel in pipeline for %s", stream_name)
+                        MutyLogger.get_instance().exception(
+                            "failed to queue xack/xdel in pipeline for %s", stream_name
+                        )
                 # execute all ack/del commands together
                 await pipe.execute()
             except Exception:
-                MutyLogger.get_instance().exception("failed to execute pipeline for xack/xdel")
+                MutyLogger.get_instance().exception(
+                    "failed to execute pipeline for xack/xdel"
+                )
 
         return items
 
@@ -1093,7 +1225,8 @@ class GulpRedis:
                             keys.append(f"{GulpRedis.STREAM_TASK_PREFIX}:{t}")
                 except Exception:
                     MutyLogger.get_instance().exception(
-                        "failed to read known task types from %s", GulpRedis.TASK_TYPES_SET
+                        "failed to read known task types from %s",
+                        GulpRedis.TASK_TYPES_SET,
                     )
 
             if not keys:
@@ -1126,22 +1259,32 @@ class GulpRedis:
             # pick first message found
             for stream_name, msgs in res:
                 for msg_id, fields in msgs:
-                    raw = fields.get(b"data") if isinstance(fields, dict) else fields.get("data")
+                    raw = (
+                        fields.get(b"data")
+                        if isinstance(fields, dict)
+                        else fields.get("data")
+                    )
                     try:
                         d = orjson.loads(raw)
                         # acknowledge and delete entry to emulate destructive pop
                         try:
                             # batch ack + del in a small pipeline for this single message
                             pipe = self._redis.pipeline(transaction=False)
-                            pipe.xack(stream_name, GulpRedis.STREAM_CONSUMER_GROUP, msg_id)
+                            pipe.xack(
+                                stream_name, GulpRedis.STREAM_CONSUMER_GROUP, msg_id
+                            )
                             pipe.xdel(stream_name, msg_id)
                             await pipe.execute()
                         except Exception:
-                            MutyLogger.get_instance().exception("failed to xack/xdel %s %s", stream_name, msg_id)
+                            MutyLogger.get_instance().exception(
+                                "failed to xack/xdel %s %s", stream_name, msg_id
+                            )
 
                         return d
                     except Exception as ex:
-                        MutyLogger.get_instance().error("invalid task payload on XREADGROUP, skipping: %s", ex)
+                        MutyLogger.get_instance().error(
+                            "invalid task payload on XREADGROUP, skipping: %s", ex
+                        )
                         continue
             return None
         except asyncio.CancelledError:
@@ -1198,7 +1341,11 @@ class GulpRedis:
                     if not fields:
                         # message was deleted from stream but still in PEL; skip
                         continue
-                    raw = fields.get(b"data") if isinstance(fields, dict) else fields.get("data")
+                    raw = (
+                        fields.get(b"data")
+                        if isinstance(fields, dict)
+                        else fields.get("data")
+                    )
                     if raw is None:
                         ids_to_del.append(msg_id)
                         continue
@@ -1208,7 +1355,9 @@ class GulpRedis:
                         ids_to_del.append(msg_id)
                     except Exception:
                         MutyLogger.get_instance().error(
-                            "invalid payload in autoclaimed message %s on %s", msg_id, stream
+                            "invalid payload in autoclaimed message %s on %s",
+                            msg_id,
+                            stream,
                         )
                         ids_to_del.append(msg_id)
 
@@ -1227,7 +1376,9 @@ class GulpRedis:
                 if claimed_msgs:
                     MutyLogger.get_instance().warning(
                         "autoclaimed %d stale message(s) from stream %s (idle > %dms)",
-                        len(claimed_msgs), stream, GulpRedis.TASK_AUTOCLAIM_IDLE_MS,
+                        len(claimed_msgs),
+                        stream,
+                        GulpRedis.TASK_AUTOCLAIM_IDLE_MS,
                     )
 
             except ResponseError as ex:
@@ -1273,7 +1424,7 @@ class GulpRedis:
                 t = t.decode()
             stream = f"{GulpRedis.STREAM_TASK_PREFIX}:{t}"
             try:
-                entries = await self._redis.xrange(stream, min='-', max='+')
+                entries = await self._redis.xrange(stream, min="-", max="+")
             except Exception:
                 entries = None
             if not entries:
@@ -1282,7 +1433,11 @@ class GulpRedis:
             removed: int = 0
             ids_to_del: list[str] = []
             for msg_id, fields in entries:
-                raw = fields.get(b"data") if isinstance(fields, dict) else fields.get("data")
+                raw = (
+                    fields.get(b"data")
+                    if isinstance(fields, dict)
+                    else fields.get("data")
+                )
                 if raw is None:
                     continue
                 try:
@@ -1304,13 +1459,16 @@ class GulpRedis:
             if ids_to_del:
                 try:
                     await self._redis.xdel(stream, *ids_to_del)
-                    MutyLogger.get_instance().debug("purged %d task(s) from %s", removed, stream)
+                    MutyLogger.get_instance().debug(
+                        "purged %d task(s) from %s", removed, stream
+                    )
                     removed_total += removed
                 except Exception:
-                    MutyLogger.get_instance().exception("failed to xdel ids on %s", stream)
+                    MutyLogger.get_instance().exception(
+                        "failed to xdel ids on %s", stream
+                    )
 
         return removed_total
-
 
     async def cleanup_redis(self) -> int:
         """
@@ -1325,7 +1483,9 @@ class GulpRedis:
         try:
             # iterate over keys matching the gulp prefix and delete them in batches
             while True:
-                cursor, keys = await self._redis.scan(cursor=cursor, match=pattern, count=200)
+                cursor, keys = await self._redis.scan(
+                    cursor=cursor, match=pattern, count=200
+                )
                 if keys:
                     try:
                         # redis.delete accepts varargs of keys
@@ -1333,11 +1493,15 @@ class GulpRedis:
                         if isinstance(deleted, int):
                             total_deleted += deleted
                     except Exception:
-                        MutyLogger.get_instance().exception("failed to delete key batch during cleanup")
+                        MutyLogger.get_instance().exception(
+                            "failed to delete key batch during cleanup"
+                        )
                 if cursor == 0:
                     break
         except Exception:
-            MutyLogger.get_instance().exception("error during cleanup_redis scan/delete")
+            MutyLogger.get_instance().exception(
+                "error during cleanup_redis scan/delete"
+            )
 
         MutyLogger.get_instance().info("cleanup_redis removed %d keys", total_deleted)
         return total_deleted
@@ -1367,7 +1531,9 @@ class GulpRedis:
             try:
                 # remove this consumer from the group; returns number of pending messages
                 try:
-                    await self._redis.xgroup_delconsumer(stream, GulpRedis.STREAM_CONSUMER_GROUP, server_id)
+                    await self._redis.xgroup_delconsumer(
+                        stream, GulpRedis.STREAM_CONSUMER_GROUP, server_id
+                    )
                 except Exception:
                     # ignore failures (group may not exist yet)
                     pass
@@ -1382,10 +1548,26 @@ class GulpRedis:
                 if groups:
                     for g in groups:
                         # g is a dict-like mapping returned by redis-py
-                        name = g.get(b'name') if isinstance(g, dict) and b'name' in g else g.get('name')
-                        if name and (name.decode() if isinstance(name, bytes) else name) == GulpRedis.STREAM_CONSUMER_GROUP:
-                            consumers = g.get(b'consumers') if isinstance(g, dict) and b'consumers' in g else g.get('consumers')
-                            pending = g.get(b'pending') if isinstance(g, dict) and b'pending' in g else g.get('pending')
+                        name = (
+                            g.get(b"name")
+                            if isinstance(g, dict) and b"name" in g
+                            else g.get("name")
+                        )
+                        if (
+                            name
+                            and (name.decode() if isinstance(name, bytes) else name)
+                            == GulpRedis.STREAM_CONSUMER_GROUP
+                        ):
+                            consumers = (
+                                g.get(b"consumers")
+                                if isinstance(g, dict) and b"consumers" in g
+                                else g.get("consumers")
+                            )
+                            pending = (
+                                g.get(b"pending")
+                                if isinstance(g, dict) and b"pending" in g
+                                else g.get("pending")
+                            )
                             try:
                                 consumers = int(consumers)
                             except Exception:
@@ -1397,9 +1579,13 @@ class GulpRedis:
 
                             if consumers == 0 and pending == 0:
                                 try:
-                                    await self._redis.xgroup_destroy(stream, GulpRedis.STREAM_CONSUMER_GROUP)
+                                    await self._redis.xgroup_destroy(
+                                        stream, GulpRedis.STREAM_CONSUMER_GROUP
+                                    )
                                 except Exception:
                                     pass
                             break
             except Exception:
-                MutyLogger.get_instance().exception("error cleaning consumer for stream %s", stream)
+                MutyLogger.get_instance().exception(
+                    "error cleaning consumer for stream %s", stream
+                )

@@ -33,23 +33,17 @@ from gulp.structs import GulpPluginParameters
 
 class GulpWsType(StrEnum):
     # the type of the websocket
-    WS_DEFAULT = "default" # default websocket for logged in users, used for most interactions including collab updates, stats updates, user login/logout, etc. (basically all except ingest and inter-ui communications)
-    WS_INGEST = "ingest" # websocket type for /ws_raw_ingest_api
-    WS_CLIENT_DATA = "client_data" # websocket type for inter-ui communications
+    WS_DEFAULT = "default"  # default websocket for logged in users, used for most interactions including collab updates, stats updates, user login/logout, etc. (basically all except ingest and inter-ui communications)
+    WS_INGEST = "ingest"  # websocket type for /ws_raw_ingest_api
+    WS_CLIENT_DATA = "client_data"  # websocket type for inter-ui communications
 
 
 # data types for the websocket
-WSDATA_ERROR = "ws_error" # GulpWsErrorPacket, for reporting errors on the websocket
+WSDATA_ERROR = "ws_error"  # GulpWsErrorPacket, for reporting errors on the websocket
 WSDATA_CONNECTED = "ws_connected"  # GulpWsAcknoledgedPacket, whenever a websocket connection is established
-WSDATA_COLLAB_CREATE = (
-    "collab_create"  # GulpCollabCreatePacket, whenever a collab object without a specified `ws_data_type` is created (note,highlight,link,...)
-)
-WSDATA_COLLAB_UPDATE = (
-    "collab_update"  # GulpCollabUpdatePacket, whenever a collab object without a specified `ws_data_type` is updated (note,highlight,link,...)
-)
-WSDATA_COLLAB_DELETE = (
-    "collab_delete"  # GulpCollabDeletePacket, whenever a collab object without a specified `ws_data_type` is deleted (note,highlight,link,...)
-)
+WSDATA_COLLAB_CREATE = "collab_create"  # GulpCollabCreatePacket, whenever a collab object without a specified `ws_data_type` is created (note,highlight,link,...)
+WSDATA_COLLAB_UPDATE = "collab_update"  # GulpCollabUpdatePacket, whenever a collab object without a specified `ws_data_type` is updated (note,highlight,link,...)
+WSDATA_COLLAB_DELETE = "collab_delete"  # GulpCollabDeletePacket, whenever a collab object without a specified `ws_data_type` is deleted (note,highlight,link,...)
 WSDATA_STATS_CREATE = (
     "stats_create"  # GulpRequestStats, whenever a stats object is created
 )
@@ -57,7 +51,9 @@ WSDATA_STATS_UPDATE = (
     "stats_update"  # GulpRequestStats, whenever a stats object is updated
 )
 WSDATA_USER_LOGIN = "user_login"  # GulpUserAccessPacket, whenever a user is logged in
-WSDATA_USER_LOGOUT = "user_logout"  # GulpUserAccessPacket, whenever a user is logged out
+WSDATA_USER_LOGOUT = (
+    "user_logout"  # GulpUserAccessPacket, whenever a user is logged out
+)
 WSDATA_DOCUMENTS_CHUNK = "docs_chunk"  # GulpDocumentsChunkPacket, whenever a chunk of GulpDocuments is transmitted over the ws during ingestion or query
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
 WSDATA_INGEST_RAW_PROGRESS = "ingest_raw_progress"  # GulpIngestRawProgress, this is sent in the end of an ingestion operation for realtime ingestion using `/ingest_raw` API or `/ws_ingest_raw` websocket
@@ -66,13 +62,16 @@ WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, thi
 WSDATA_QUERY_DONE = "query_done"  # GulpQueryDonePacket, this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
 WSDATA_CLIENT_DATA = "client_data"  # arbitrary content, to be routed to all connected websockets having type=`WS_CLIENT_DATA`: this is used by the UI clients to communicate data each other via an ui-specific protocol, the backend just routes the packets.
 
+
 class GulpMessageRoutingTarget(StrEnum):
     """
     message routing targets
     """
 
     BROADCAST = "broadcast"  # message to be broadcasted across gulp instances
-    WORKER_TO_MAIN = "worker_to_main"  # messages from worker processes to main process (local)
+    WORKER_TO_MAIN = (
+        "worker_to_main"  # messages from worker processes to main process (local)
+    )
     CLIENT_DATA = "client_data"  # messages from the ws_client_data websocket (ui-to-ui)
 
     def redis_channel_name(self) -> str:
@@ -126,7 +125,9 @@ class GulpWsData(BaseModel):
     # can make routing decisions without inspecting payload internals
     route_target_type: Annotated[
         Optional[str],
-        Field(description="One of the GulpRedisChannel types, to determine the routing target (broadcast, internal, ...)"),
+        Field(
+            description="One of the GulpRedisChannel types, to determine the routing target (broadcast, internal, ...)"
+        ),
     ] = None
     origin_server_id: Annotated[
         Optional[str],
@@ -202,19 +203,24 @@ class GulpWsData(BaseModel):
 
         if isinstance(payload_data, dict):
             # single
-            payload_data_type = payload_data.get("type", None) # i.e. note
+            payload_data_type = payload_data.get("type", None)  # i.e. note
         elif isinstance(payload_data, list):
             # bulk
-            payload_data_type = payload_data[0].get("type", None) if len(payload_data) > 0 else None
+            payload_data_type = (
+                payload_data[0].get("type", None) if len(payload_data) > 0 else None
+            )
 
-        if payload_data_type and payload_data_type in GulpRedisBroker.get_instance().broadcast_types:
+        if (
+            payload_data_type
+            and payload_data_type in GulpRedisBroker.get_instance().broadcast_types
+        ):
             # MutyLogger.get_instance().debug(
             #     "GulpWsData.check_type_in_broadcast_types(): payload_data_type=%s is in broadcast types",
             #     payload_data_type,
             # )
             return True
-        
-        t: str = self.type        
+
+        t: str = self.type
 
         # resort to plain data type
         if t in GulpRedisBroker.get_instance().broadcast_types:
@@ -224,6 +230,7 @@ class GulpWsData(BaseModel):
             # )
             return True
         return False
+
 
 class GulpCollabCreatePacket(BaseModel):
     """
@@ -1355,8 +1362,10 @@ class GulpConnectedSockets:
         # cache websocket ownership lookups to reduce Redis load
         self._ws_server_cache: dict[str, tuple[str, float]] = {}
         # ttl for cache entries
-        self._ws_server_cache_ttl: float = GulpConfig.get_instance().ws_server_cache_ttl()
-        
+        self._ws_server_cache_ttl: float = (
+            GulpConfig.get_instance().ws_server_cache_ttl()
+        )
+
     def get_cached_server(self, ws_id: str) -> Optional[str]:
         """
         return cached websocket ownership if the entry is still valid
@@ -1568,7 +1577,7 @@ class GulpConnectedSockets:
             dict[str, GulpConnectedSocket]: A dictionary of WebSocket ID to ConnectedSocket objects.
         """
         return self._sockets
-        
+
     def get(self, ws_id: str) -> GulpConnectedSocket:
         """
         gets a ConnectedSocket object by its ID.
@@ -1618,7 +1627,7 @@ class GulpConnectedSockets:
             )
 
         return len(self._sockets)
-        
+
     async def route_message_to_local_websockets(
         self, wsd: GulpWsData, wsd_dict: dict, skip_list: list[str] = None
     ) -> None:
@@ -1633,7 +1642,9 @@ class GulpConnectedSockets:
         socket_items = list(self._sockets.items())
 
         # ws-targeted messages are exclusive unless their payload type is marked as broadcast.
-        targeted_ws_only: bool = bool(wsd.ws_id) and not wsd.check_type_in_broadcast_types()
+        targeted_ws_only: bool = (
+            bool(wsd.ws_id) and not wsd.check_type_in_broadcast_types()
+        )
 
         # collect routing tasks
         tasks = []
@@ -1686,6 +1697,7 @@ class GulpConnectedSockets:
                     )
                     self.remove(ws_id)
 
+
 class GulpRedisBroker:
     """
     Singleton class to manage Redis pub/sub for worker->main and instance<->instance communication.
@@ -1698,9 +1710,9 @@ class GulpRedisBroker:
         # these are the fixed broadcast types that are always sent to all connected websockets
         # keep as a set for fast membership checks
         self.broadcast_types: set[str] = {
-            #WSDATA_COLLAB_CREATE,
-            #WSDATA_COLLAB_UPDATE,
-            #WSDATA_COLLAB_DELETE,
+            # WSDATA_COLLAB_CREATE,
+            # WSDATA_COLLAB_UPDATE,
+            # WSDATA_COLLAB_DELETE,
             WSDATA_REBASE_DONE,
             WSDATA_INGEST_SOURCE_DONE,
             WSDATA_USER_LOGIN,
@@ -1712,9 +1724,9 @@ class GulpRedisBroker:
             "source",
             "operation",
         }
-        
+
         # internal state
-        self._initialized: bool = True
+        self._initialized: bool = False
 
     def __new__(cls):
         """
@@ -1763,10 +1775,15 @@ class GulpRedisBroker:
 
         NOTE: must be called in the main process.
         """
+        if self._initialized:
+            MutyLogger.get_instance().debug("GulpRedisBroker already initialized")
+            return
+
         redis_client = GulpRedis.get_instance()
 
         # subscribe to worker->main channel
         await redis_client.subscribe(self._handle_pubsub_message)
+        self._initialized = True
 
         MutyLogger.get_instance().info("GulpRedisBroker initialized!")
 
@@ -1776,10 +1793,15 @@ class GulpRedisBroker:
 
         NOTE: must be called in the main process.
         """
+        if not self._initialized:
+            MutyLogger.get_instance().debug("GulpRedisBroker already uninitialized")
+            return
+
         redis_client = GulpRedis.get_instance()
 
         # unsubscribe from worker->main channel
         await redis_client.unsubscribe()
+        self._initialized = False
         MutyLogger.get_instance().info("GulpRedisBroker uninitialized!")
 
     async def _handle_pubsub_message(self, message: dict) -> None:
@@ -1790,7 +1812,7 @@ class GulpRedisBroker:
             message (dict): The message dictionary (GulpWsData)
         """
         redis_client = GulpRedis.get_instance()
-        
+
         # extract Redis channel name (added by subscriber loop)
         redis_channel: str = message.pop("__redis_channel__", None)
         # and the message routing target and origin
@@ -1808,20 +1830,23 @@ class GulpRedisBroker:
                 # only retrieve chunks if:
                 # 1) we are the server that stored them (chunk_server_id == our server_id), OR
                 # 2) the message is explicitly targeted to a ws_id we own
-                # 
+                #
                 # NOTE: for BROADCAST messages, all instances need the payload so we use
                 # GET instead of GET+DEL to allow multiple reads, relying on TTL for cleanup
                 should_retrieve = False
                 use_getdel = True  # whether to delete chunks after retrieval
-                
+
                 if chunk_server_id == redis_client.server_id:
                     # we stored these chunks, we should retrieve them
                     should_retrieve = True
                 elif (
-                    (redis_channel == GulpMessageRoutingTarget.BROADCAST.redis_channel_name()
-                    or (redis_channel and redis_channel.startswith(_MAIN_REDIS_CHANNEL + ":group")))
-                    and route_target_type == GulpMessageRoutingTarget.BROADCAST.value
-                ):
+                    redis_channel
+                    == GulpMessageRoutingTarget.BROADCAST.redis_channel_name()
+                    or (
+                        redis_channel
+                        and redis_channel.startswith(_MAIN_REDIS_CHANNEL + ":group")
+                    )
+                ) and route_target_type == GulpMessageRoutingTarget.BROADCAST.value:
                     # broadcast messages (including group-partitioned channels): retrieve without deleting (multiple instances need it)
                     should_retrieve = True
                     use_getdel = False
@@ -1948,7 +1973,7 @@ class GulpRedisBroker:
                         else:
                             # GET-only for broadcast
                             lua = "return redis.call('GET', KEYS[1])"
-                        
+
                         stored = None
                         for attempt in range(3):
                             try:
@@ -1990,7 +2015,7 @@ class GulpRedisBroker:
                 except Exception:
                     if GulpConfig.get_instance().prometheus_enabled():
                         # track errors during pointer resolution (e.g. Redis issues) separately from missing data
-                        try:                            
+                        try:
                             GulpMetrics.ws_payload_pointer_resolve_total.labels(
                                 outcome="error"
                             ).inc()
@@ -2010,7 +2035,9 @@ class GulpRedisBroker:
 
             if route_target_type == GulpMessageRoutingTarget.WORKER_TO_MAIN.value:
                 local_worker_to_main_channel = redis_client.worker_to_main_channel()
-                is_local_worker_to_main_delivery = redis_channel == local_worker_to_main_channel
+                is_local_worker_to_main_delivery = (
+                    redis_channel == local_worker_to_main_channel
+                )
                 is_cluster_delivery = (
                     redis_channel
                     == GulpMessageRoutingTarget.WORKER_TO_MAIN.redis_channel_name()
@@ -2027,12 +2054,15 @@ class GulpRedisBroker:
                     # skip the echoed global copy on the origin instance.
                     return
 
-                if wsd.internal and (wsd.propagate_internal or origin_server_id == redis_client.server_id):
+                if wsd.internal and (
+                    wsd.propagate_internal or origin_server_id == redis_client.server_id
+                ):
                     # internal messages:
-                    # we process internal messages only if they are marked as internal and either the message is 
+                    # we process internal messages only if they are marked as internal and either the message is
                     # for this server instance or is to be propagated across instances
                     # internal event from worker: dispatch to plugins
                     from gulp.structs import GulpInternalEventsManager
+
                     result = await GulpInternalEventsManager.get_instance().dispatch_internal_event(
                         wsd.type,
                         data=wsd.payload,
@@ -2073,7 +2103,9 @@ class GulpRedisBroker:
                     return
                 else:
                     # this also just sends message to single ws_id if ws_id is set
-                    await GulpConnectedSockets.get_instance().route_message_to_local_websockets(wsd, message)
+                    await GulpConnectedSockets.get_instance().route_message_to_local_websockets(
+                        wsd, message
+                    )
 
             elif route_target_type == GulpMessageRoutingTarget.BROADCAST.value:
                 # messages to be broadcast across instances
@@ -2081,7 +2113,9 @@ class GulpRedisBroker:
                 if origin_server_id == redis_client.server_id:
                     # we already routed this message to our local sockets in _put_common()
                     return
-                await GulpConnectedSockets.get_instance().route_message_to_local_websockets(wsd, message)
+                await GulpConnectedSockets.get_instance().route_message_to_local_websockets(
+                    wsd, message
+                )
 
             elif route_target_type == GulpMessageRoutingTarget.CLIENT_DATA.value:
                 # Client-data messages (UI <-> UI)
@@ -2094,7 +2128,9 @@ class GulpRedisBroker:
         except Exception as ex:
             MutyLogger.get_instance().error("error processing pubsub message: %s", ex)
 
-    async def _route_message_to_local_client_data_websockets(self, wsd: GulpWsData, wsd_dict: dict) -> None:
+    async def _route_message_to_local_client_data_websockets(
+        self, wsd: GulpWsData, wsd_dict: dict
+    ) -> None:
         """
         route message to connected WS_CLIENT_DATA websockets (ui<->ui communication through the backend)
 
@@ -2104,10 +2140,11 @@ class GulpRedisBroker:
         """
         MutyLogger.get_instance().debug(
             "processing cross-instance client_data: ws_id=%s, operation_id=%s",
-            wsd.ws_id, wsd.operation_id
+            wsd.ws_id,
+            wsd.operation_id,
         )
         s = GulpConnectedSockets.get_instance()
-        
+
         # collect routing tasks
         tasks = []
         ws_ids = []
@@ -2155,8 +2192,6 @@ class GulpRedisBroker:
                     )
                     self.remove(ws_id)
 
-
-
                 if isinstance(result, Exception):
                     ws_id = ws_ids[i]
                     MutyLogger.get_instance().warning(
@@ -2165,7 +2200,7 @@ class GulpRedisBroker:
                         result,
                     )
                     self._sockets.pop(ws_id, None)
-                else:                    
+                else:
                     """MutyLogger.get_instance().debug(
                         "routed ws_client_data to ws_id=%s", cws.ws_id
                     )"""
@@ -2191,7 +2226,10 @@ class GulpRedisBroker:
             # we're running in a worker or it's an internal message: always forward to main process
             wsd.route_target_type = GulpMessageRoutingTarget.WORKER_TO_MAIN.value
             wsd.origin_server_id = redis_client.server_id
-            await redis_client.publish(wsd.model_dump(exclude_none=True), channel=redis_client.worker_to_main_channel())            
+            await redis_client.publish(
+                wsd.model_dump(exclude_none=True),
+                channel=redis_client.worker_to_main_channel(),
+            )
             return
 
         # BROADCAST messages: route locally and publish so other instances receive them
@@ -2200,12 +2238,17 @@ class GulpRedisBroker:
             # route to local websockets
             wsd.origin_server_id = redis_client.server_id
             wsd_dict = wsd.model_dump(exclude_none=True)
-            await GulpConnectedSockets.get_instance().route_message_to_local_websockets(wsd, wsd_dict)
+            await GulpConnectedSockets.get_instance().route_message_to_local_websockets(
+                wsd, wsd_dict
+            )
 
             if is_broadcast:
                 # publish to Redis so all gulp instances will receive it as well
                 wsd_dict["route_target_type"] = GulpMessageRoutingTarget.BROADCAST.value
-                await redis_client.publish(wsd_dict, channel=GulpMessageRoutingTarget.BROADCAST.redis_channel_name())
+                await redis_client.publish(
+                    wsd_dict,
+                    channel=GulpMessageRoutingTarget.BROADCAST.redis_channel_name(),
+                )
         return
 
     async def _wait_internal_response(
@@ -2264,7 +2307,7 @@ class GulpRedisBroker:
         operation_id: str = None,
         req_id: str = None,
         data: dict = None,
-        propagate: bool=False
+        propagate: bool = False,
     ) -> None:
         """
         called by internal components and plugins to publish internal events.
@@ -2331,15 +2374,18 @@ class GulpRedisBroker:
         await self._put_common(wsd)
 
         # wait for the response
-        res = await self._wait_internal_response(response_key=response_key, timeout=timeout)
+        res = await self._wait_internal_response(
+            response_key=response_key, timeout=timeout
+        )
         if res:
             try:
                 from gulp.structs import GulpInternalEventResult
+
                 return GulpInternalEventResult.model_validate(res)
             except Exception as e:
                 MutyLogger.get_instance().exception(e)
         return None
-    
+
     async def put(
         self,
         t: str,
