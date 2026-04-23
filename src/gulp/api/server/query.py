@@ -176,6 +176,9 @@ async def _query_raw_chunk_callback(
     # we also have these for sigma query
     sigma_yml: str = cb_context.get("sigma_yml")
     tags: list[str] = cb_context.get("tags", [])
+    if q_options.notes_tags:
+        # add additional tags
+        tags.extend(q_options.notes_tags)
 
     if sigma_yml and q_options.create_notes:
         severity = await sigma_to_severity(sigma_yml)
@@ -526,7 +529,6 @@ async def run_query_batch(
         # copy q_options and set per-query name
         q_opts = deepcopy(q_options_input)
         q_opts.name = gq.q_name
-
         try:
             # reuse run_query worker logic (runs the single query and emits WSDATA_QUERY_DONE)
             res = await run_query(
@@ -972,7 +974,13 @@ async def query_aggregation_handler(
 one aggregation query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
 """,
             examples=[
-                {"aggs": {"response_codes": {"terms": {"size": 999, "field": "network.protocol"}}}}
+                {
+                    "aggs": {
+                        "response_codes": {
+                            "terms": {"size": 999, "field": "network.protocol"}
+                        }
+                    }
+                }
             ],
         ),
     ],

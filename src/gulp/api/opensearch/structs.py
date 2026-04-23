@@ -617,6 +617,15 @@ the color to use for notes created from this query (if `create_notes` is set).
 """,
         ),
     ] = None
+
+    notes_tags: Annotated[
+        list[str],
+        Field(
+            description="""
+extra tags to be added for notes created from this query (if `create_notes` is set).
+""",
+        ),
+    ] = []
     notes_glyph_id: Annotated[
         Optional[str],
         Field(
