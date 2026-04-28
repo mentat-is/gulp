@@ -17,11 +17,10 @@ import datetime
 import hashlib
 import mimetypes
 import os
-import orjson
+import stat
 import zipfile
 from typing import Any, override
 
-import muty.dict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
@@ -68,8 +67,7 @@ class Plugin(GulpPluginBase):
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
         d: dict = record
-        # timestamp: str = d.pop("timestamp")
-        event_original = orjson.dumps(d).decode()
+        event_original = d.pop("zip_info")
         event_code = "zip_entry"
 
         return GulpDocument(
@@ -92,15 +90,20 @@ class Plugin(GulpPluginBase):
         password: str | None,
         calculate_hash: bool,
     ) -> dict:
+        # turn info to dict and add some extra fields
+
         is_dir = info.is_dir()
         file_size = info.file_size
+        attrs_mask = info.external_attr >> 16
         d: dict[str, Any] = {
             "file.name": info.filename,
             "file.is_dir": is_dir,
             "file.size": file_size,
-            "file.compress_size": info.compress_size,
             "hash.crc32": info.CRC,
         }
+        if attrs_mask:
+            d["file.attributes"]=stat.filemode(attrs_mask)
+        d["zip_info"] = "%s" % (info)
 
         if info.comment:
             d["file.comment"] = info.comment.decode("utf-8", errors="replace")
