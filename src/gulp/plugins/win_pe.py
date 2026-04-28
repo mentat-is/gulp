@@ -105,7 +105,7 @@ class Plugin(GulpPluginBase):
         if not relos:
             del d["Base relocations"]
 
-        if not keep_warnings:
+        if not keep_warnings and "Parsing Warnings" in d.keys():
             del d["Parsing Warnings"]
 
         event_original = str(d)
