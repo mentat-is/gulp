@@ -8,32 +8,24 @@ Features:
 - Extraction of files from ZIP archives
 - Handling of file metadata (timestamps, permissions, etc.)
 - MIME type detection for extracted files
-- Option to keep or discard original file content
 - Support for password-protected archives
-- Customizable hashing algorithm
+- Optional SHA1 hashing for extracted files
 """
 
-import os
+import asyncio
 import datetime
 import hashlib
-import orjson
 import mimetypes
+import os
+import orjson
 import zipfile
 from typing import Any, override
 
-import muty.crypto
 import muty.dict
-import muty.time
-from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.stats import (
-    GulpRequestStats,
-    RequestCanceledError,
-    SourceCanceledError,
-)
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.mapping.models import GulpMapping
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.plugin import GulpPluginBase, GulpPluginType
@@ -61,21 +53,9 @@ class Plugin(GulpPluginBase):
                 desc="password to decrypt the zip file",
             ),
             GulpPluginCustomParameter(
-                name="hashes",
-                type="list",
-                desc="algorithms to use to calculate hash of zip files content",
-                default_value=["sha1"],
-            ),
-            GulpPluginCustomParameter(
-                name="chunk_size",
-                type="int",
-                desc="chunk size",
-                default_value=2048,
-            ),
-            GulpPluginCustomParameter(
-                name="keep_files",
+                name="calculate_hash",
                 type="bool",
-                desc="if True, event.original will contain the file extracted from the zip",
+                desc="if true, calculate SHA1 for each extracted file",
                 default_value=False,
             ),
         ]
@@ -87,61 +67,10 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
     ) -> GulpDocument:
-        z: zipfile.ZipFile = kwargs.get("zip")
-        f: zipfile.ZipInfo = kwargs.get("file")
-        encoding: str = kwargs.get("encoding")
-        hashes: str = kwargs.get("hashes")
-        chunk_size: int = kwargs.get("chunk_size")
-        password: str = kwargs.get("password")
-        keep_files: bool = kwargs.get("keep_files")
-
-        d = {}
-        for attr in dir(record):
-            v = getattr(f, attr)
-            # ignore functions and private methods while collecting attributes
-            # not (attr.startswith("__") or attr.endswith("__")):
-            if not callable(v) and not attr.startswith("__"):
-                if isinstance(v, bytes):
-                    v = v.decode(encoding)
-                d[attr] = v
-            d["is_dir"] = f.is_dir()
-
-        # TODO: get metadata for each file... (creation date, etc)
-        #      could we pass this file to an enrich plugin which handles files based on known
-        #      file formats to get extra information?
-        event_original = ""
-        _ = z.read(f, pwd=password.encode(encoding) if password is not None else None)
-        for hash_type in hashes:
-            h = hashlib.__dict__[hash_type]()
-            with z.open(f) as i:
-                while True:
-                    chunk = i.read(chunk_size)
-                    event_original += chunk.hex()
-                    if not chunk:
-                        break
-                    h.update(chunk)
-            d[hash_type] = hash.hexdigest()
-
-        mimetype = mimetypes.guess_file_type(f.filename)
-        guessed_mimetype = mimetype[0] if mimetype[0] is not None else "file/unknown"
-        d["guessed_mimetype"] = guessed_mimetype
-        event_code = str()
-
-        timestamp = datetime.datetime(
-            *d["date_time"], tzinfo=datetime.timezone.utc
-        ).isoformat()
-        d["date_time"] = str(d["date_time"])
-
-        # if keep_file is false, discard original files and only keep raw metadata
-        if not keep_files:
-            event_original = orjson.dumps(d).decode()
-
-        # apply mappings
-        final = {}
-        rec: dict = muty.dict.flatten(d)
-        for k, v in rec.items():
-            mapped = await self._process_key(k, v, final, **kwargs)
-            final.update(mapped)
+        d: dict = record
+        # timestamp: str = d.pop("timestamp")
+        event_original = orjson.dumps(d).decode()
+        event_code = "zip_entry"
 
         return GulpDocument(
             self,
@@ -149,11 +78,66 @@ class Plugin(GulpPluginBase):
             context_id=self._context_id,
             source_id=self._source_id,
             event_code=event_code,
-            timestamp=timestamp,
+            # timestamp=timestamp,
             event_original=event_original,
             event_sequence=record_idx,
             log_file_path=self._original_file_path or os.path.basename(self._file_path),
-            **final,
+            **d,
+        )
+
+    def _extract_zip_entry_sync(
+        self,
+        zip_path: str,
+        info: zipfile.ZipInfo,
+        password: str | None,
+        calculate_hash: bool,
+    ) -> dict:
+        is_dir = info.is_dir()
+        file_size = info.file_size
+        d: dict[str, Any] = {
+            "file.name": info.filename,
+            "file.is_dir": is_dir,
+            "file.size": file_size,
+            "file.compress_size": info.compress_size,
+            "hash.crc32": info.CRC,
+        }
+
+        if info.comment:
+            d["file.comment"] = info.comment.decode("utf-8", errors="replace")
+
+        if not is_dir:
+            guessed_mimetype = mimetypes.guess_type(info.filename)[0]
+            d["file.mimetype"] = guessed_mimetype or "file/unknown"
+
+        timestamp = datetime.datetime(
+            *info.date_time, tzinfo=datetime.timezone.utc
+        ).isoformat()
+        d["@timestamp"] = timestamp
+
+        if calculate_hash and file_size and not info.is_dir():
+            pwd = password.encode("utf-8") if password else None
+            sha1 = hashlib.sha1()
+            with zipfile.ZipFile(zip_path) as zf:
+                with zf.open(info, pwd=pwd) as extracted:
+                    for chunk in iter(lambda: extracted.read(256 * 1024), b""):
+                        sha1.update(chunk)
+            d["hash.sha1"] = sha1.hexdigest()
+
+        return d
+
+    async def _extract_zip_entry(
+        self,
+        zip_path: str,
+        info: zipfile.ZipInfo,
+        password: str | None,
+        calculate_hash: bool,
+    ) -> dict:
+        return await asyncio.to_thread(
+            self._extract_zip_entry_sync,
+            zip_path,
+            info,
+            password,
+            calculate_hash,
         )
 
     @override
@@ -174,6 +158,7 @@ class Plugin(GulpPluginBase):
         plugin_params: GulpPluginParameters = None,
         **kwargs,
     ) -> GulpRequestStatus:
+        plugin_params = self._ensure_plugin_params(plugin_params)
         await super().ingest_file(
             sess=sess,
             stats=stats,
@@ -191,30 +176,27 @@ class Plugin(GulpPluginBase):
             **kwargs,
         )
 
-        mapping: GulpMapping = self.selected_mapping()
-        encoding = mapping.default_encoding or "utf-8"
+        password: str | None = self._plugin_params.custom_parameters.get("password")
+        calculate_hash: bool = self._plugin_params.custom_parameters.get(
+            "calculate_hash"
+        )
 
-        keep_files = self._plugin_params.custom_parameters.get("keep_files")
-        password = self._plugin_params.custom_parameters.get("password")
-        hashes = self._plugin_params.custom_parameters.get("hashes")
-        chunk_size = self._plugin_params.custom_parameters.get("chunk_size")
         doc_idx = 0
 
         with zipfile.ZipFile(file_path) as z:
-            for f in z.filelist:
+            files = z.infolist()
 
-                await self.process_record(
-                    f,
-                    doc_idx,
-                    flt=flt,
-                    zip=z,
-                    file=f,
-                    encoding=encoding,
-                    password=password,
-                    hashes=hashes,
-                    chunk_size=chunk_size,
-                    keep_files=keep_files,
-                )
-                doc_idx += 1
+        for info in files:
+            record = await self._extract_zip_entry(
+                file_path,
+                info,
+                password,
+                calculate_hash,
+            )
+
+            if not await self.process_record(record, doc_idx, flt=flt):
+                # stop processing (preview mode)
+                break
+            doc_idx += 1
 
         return stats.status
