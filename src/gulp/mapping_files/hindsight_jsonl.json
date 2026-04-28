@@ -1,0 +1,34 @@
+{
+    "metadata": {
+        "plugin": [
+            "json.py"
+        ]
+    },
+    "mappings": {
+        "default": {
+            "description": "hindsight jsonl export format",
+            "default_source": "hindsight_jsonl",
+            "default_context": "hindsight_jsonl",
+            "fields": {
+                "datetime":{
+                    "ecs": [
+                        "@timestamp"
+                    ]
+                },
+                "data_type": {
+                    "ecs": [
+                        "event.code"
+                    ]
+                },
+                "parser": {
+                    "ecs": [
+                        "agent.type"
+                    ]
+                },
+                "url": {
+                    "ecs": ["url.full", "url.original"]
+                }
+            }            
+        }
+    }
+}
