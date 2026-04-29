@@ -65,7 +65,7 @@ class GulpProcess:
         self._log_level: int = None
         self._logger_file_path: str = None
         self._log_to_syslog: bool = False
-        self._main_process: bool = True        
+        self._main_process: bool = True
 
     def __new__(cls) -> "GulpProcess":
         """
@@ -119,7 +119,9 @@ class GulpProcess:
         await GulpRedis.get_instance().shutdown()
         await GulpS3.get_instance().shutdown()
 
-        MutyLogger.get_instance().warning("worker_cleanup COMPLETED! (pid=%d)", os.getpid())
+        MutyLogger.get_instance().warning(
+            "worker_cleanup COMPLETED! (pid=%d)", os.getpid()
+        )
 
     @staticmethod
     def _worker_finalizer() -> None:
@@ -129,7 +131,9 @@ class GulpProcess:
         runs :meth:`worker_cleanup` in the same event loop used during worker
         initialization so that async cleanup code can safely await coroutines.
         """
-        MutyLogger.get_instance().warning("_worker_finalizer CALLED (pid=%d)", os.getpid())
+        MutyLogger.get_instance().warning(
+            "_worker_finalizer CALLED (pid=%d)", os.getpid()
+        )
         p = GulpProcess.get_instance()
         try:
             loop = asyncio.get_event_loop()
@@ -163,8 +167,7 @@ class GulpProcess:
         """
         # we do not have mutylogger initialized yet here, so we use print statements
         print(
-            "_worker_initializer, server_id=%s, spawn_key=%s" % (
-            server_id, spawn_key)
+            "_worker_initializer, server_id=%s, spawn_key=%s" % (server_id, spawn_key)
         )
 
         # initialize paths immediately, before any unpickling happens
@@ -210,19 +213,24 @@ class GulpProcess:
                     # refresh TTL in case main set a short expiry
                     loop.run_until_complete(redis_client.expire(spawn_key, 40))
                 except Exception:
-                    MutyLogger.get_instance().warning("_worker_initializer: failed to INCR spawn key %s", spawn_key)
+                    MutyLogger.get_instance().warning(
+                        "_worker_initializer: failed to INCR spawn key %s", spawn_key
+                    )
         except Exception:
-            MutyLogger.get_instance().warning("_worker_initializer: redis client not available to INCR spawn key %s", spawn_key)
+            MutyLogger.get_instance().warning(
+                "_worker_initializer: redis client not available to INCR spawn key %s",
+                spawn_key,
+            )
 
         # register cleanup to run when this worker process exits
         atexit.register(GulpProcess._worker_finalizer)
         MutyLogger.get_instance().warning(
             "_worker_initializer DONE, server_id=%s, sys.path=%s, logger level=%d, logger_file_path=%s, spawn_key=%s",
-                server_id,
-                sys.path,
-                MutyLogger.get_instance().level,
-                logger_file_path,
-                spawn_key,
+            server_id,
+            sys.path,
+            MutyLogger.get_instance().level,
+            logger_file_path,
+            spawn_key,
         )
 
     async def close_thread_pool(self, wait: bool = True):
@@ -246,7 +254,7 @@ class GulpProcess:
                 "closing mp pool %s ..." % (self.process_pool)
             )
             try:
-                self.process_pool.close()                
+                self.process_pool.close()
                 MutyLogger.get_instance().debug("joining mp pool...")
                 await asyncio.wait_for(self.process_pool.join(), timeout=5)
                 MutyLogger.get_instance().debug("mp pool JOINED!")
@@ -264,7 +272,7 @@ class GulpProcess:
                 # clear the reference to the pool
                 self.process_pool = None
                 MutyLogger.get_instance().debug("close_process_pool DONE!")
-            
+
     async def finish_initialization(
         self,
         server_id: str,
@@ -297,7 +305,9 @@ class GulpProcess:
             ###############################
             # main process initialization
             ###############################
-            MutyLogger.get_instance().info("initializing MAIN process (server_id=%s) ...", self.server_id)
+            MutyLogger.get_instance().info(
+                "initializing MAIN process (server_id=%s) ...", self.server_id
+            )
             self._log_level = log_level
             self._logger_file_path = logger_file_path
             self._log_to_syslog = log_to_syslog
@@ -315,8 +325,15 @@ class GulpProcess:
             try:
                 await GulpRedis.get_instance().client().set(spawn_key, 0, ex=40)
             except Exception as ex:
-                MutyLogger.get_instance().exception("failed to create/reset spawn key in redis: %s", ex)
+                MutyLogger.get_instance().exception(
+                    "failed to create/reset spawn key in redis: %s", ex
+                )
                 raise
+
+            # load extension plugins
+            from gulp.api.server_api import GulpServer
+
+            await GulpServer.get_instance()._load_extension_plugins()
 
             # start workers
             # each worker will call finish_initialization as well and INCR the spawn_key
@@ -332,12 +349,13 @@ class GulpProcess:
                     MutyLogger.log_level,
                     MutyLogger.logger_file_path,
                     self._log_to_syslog,
-                )
+                ),
             )
 
-
             # wait for all workers to be spawned by polling Redis counter
-            MutyLogger.get_instance().debug("waiting for all processes to be spawned ...")
+            MutyLogger.get_instance().debug(
+                "waiting for all processes to be spawned ..."
+            )
             start_time = time.time()
             timeout = 60
             spawned_count = 0
@@ -351,21 +369,21 @@ class GulpProcess:
                     break
                 if time.time() - start_time > timeout:
                     MutyLogger.get_instance().critical(
-                        "timeout waiting for workers to spawn (got %d/%d)", spawned_count, num_workers
+                        "timeout waiting for workers to spawn (got %d/%d)",
+                        spawned_count,
+                        num_workers,
                     )
                     raise TimeoutError("timeout waiting for workers to spawn")
-                    
+
                 await asyncio.sleep(0.1)
-            
+
             MutyLogger.get_instance().debug("all %d processes spawned!", spawned_count)
 
             MutyLogger.get_instance().warning(
-                "MAIN process initialized, server_id=%s, sys.path=%s", server_id, sys.path)
-
-            # load extension plugins
-            from gulp.api.server_api import GulpServer
-            
-            await GulpServer.get_instance()._load_extension_plugins()
+                "MAIN process initialized, server_id=%s, sys.path=%s",
+                server_id,
+                sys.path,
+            )
         else:
             ###############################
             # worker process initialization
@@ -379,7 +397,7 @@ class GulpProcess:
                 level=log_level,
             )
             MutyLogger.get_instance().info(
-                "initializing WORKER process (server_id=%s) ....",self.server_id
+                "initializing WORKER process (server_id=%s) ....", self.server_id
             )
             # read configuration in worker
             GulpConfig.get_instance()
@@ -387,13 +405,15 @@ class GulpProcess:
             # in the worker process, initialize opensearch and collab clients (main process already did it)
             GulpOpenSearch.get_instance()
             await GulpCollab.get_instance().init()
-            GulpRedis.get_instance().initialize(server_id, main_process=False) # do not initialize pub/sub in worker process, just redis client
+            GulpRedis.get_instance().initialize(
+                server_id, main_process=False
+            )  # do not initialize pub/sub in worker process, just redis client
 
         # always connect to storage (both worker/main) since both may need it
         if self._main_process:
             # ensure the "gulp" bucket exists in the storage, creating it if it doesn't exist and we have permissions to create it
             await GulpS3.get_instance().create_bucket()
-            
+
     def is_main_process(self) -> bool:
         """
         returns whether this is the main gulp process.

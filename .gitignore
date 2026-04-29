@@ -49,3 +49,4 @@ muty-python
 gulp-sdk
 *plan*.md
 _version.py
+.devcontainer/devcontainer-lock.json
