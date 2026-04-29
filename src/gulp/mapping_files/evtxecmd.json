@@ -1,0 +1,41 @@
+{
+  "metadata": {
+    "plugin": [
+      "csv.py"
+    ]
+  },
+  "mappings": {
+    "default": {
+      "fields": {
+        "TimeCreated": {
+          "ecs": [
+            "@timestamp"
+          ]
+        },
+        "EventId": {
+            "ecs": ["event.code"]
+        },
+        "UserName": {
+            "ecs": ["user.name"]
+        },
+        "Provider": {
+            "ecs":["event.provider"]
+        },
+        "Channel": {
+            "ecs":["winlog.channel"]
+        },
+        "ProcessId":{
+            "ecs":["process.pid"]
+        },
+        "Computer": {
+            "ecs": ["host.name", "host.hostname"]
+        },
+        "UserId": {
+            "ecs": ["user.id"]
+        }
+      },
+      "agent_type": "evtxecmd",
+      "event_code": "boot"
+    }
+  }
+}
