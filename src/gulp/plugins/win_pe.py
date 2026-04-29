@@ -38,7 +38,11 @@ class Plugin(GulpPluginBase):
 
     @override
     def desc(self) -> str:
-        return "generic PE file processor"
+        return """generic PE file processor.
+
+NOTE: this plugin may not work reliably since gulp needs a reliable timestamp for the documents it ingests, and win10+ changes in the PE file format doesn't provide a reliable timestamp in the PE header.
+for reference, read this blog post: https://devblogs.microsoft.com/oldnewthing/20180103-00/?p=97705    
+"""
 
     def display_name(self) -> str:
         return "win_pe"
