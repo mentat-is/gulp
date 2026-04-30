@@ -1776,31 +1776,37 @@ class GulpPluginBase(ABC):
         )
         return lower
 
-    def _finalize_process_record(self, doc: GulpDocument) -> list[dict]:
+    def _finalize_process_record(self, doc: GulpDocument | dict) -> list[dict]:
         """
-        finalize processing a record, generating extra documents if needed.
+        finalize processing a record generating a list with one (default) or more documents (mapping can generate extra document/s from a single record)
 
         Args:
-            doc (GulpDocument): the gulp document to be used as base for extra documents.
+            doc (GulpDocument | dict): the gulp document to be used as base for extra documents.
 
         Returns:
-            list[dict]: the final list of documents to be ingested (doc is always the first one).
+            list[dict]: the final list of documents to be ingested.
 
         NOTE: called by the engine, do not call this function directly.
         """
-        if not self._extra_docs:
-            return [doc.model_dump(by_alias=True)]
 
-        base_doc_dump = doc.model_dump()
+        if not self._extra_docs:
+            if isinstance(doc, dict):
+                return [doc]
+            else:
+                return [doc.model_dump(by_alias=True)]
+
+        base_doc_dump = doc.model_dump() if isinstance(doc, GulpDocument) else doc
         # MutyLogger.get_instance().debug(orjson.dumps("base doc:\n%s" % (base_doc_dump), option=orjson.OPT_INDENT_2).decode())
+
         extra_docs = []
         for extra_fields in self._extra_docs:
             # MutyLogger.get_instance().debug("creating new doc with %s\nand\n%s" % (orjson.dumps(extra_fields, option=orjson.OPT_INDENT_2), orjson.dumps(base_doc_dump, option=orjson.OPT_INDENT_2).decode()))
-
             new_doc_data = {**base_doc_dump, **extra_fields}
 
             # also add link to the base document
-            new_doc_data["gulp.base_document_id"] = doc.id
+            new_doc_data["gulp.base_document_id"] = (
+                doc.id if isinstance(doc, GulpDocument) else doc.get("id")
+            )
 
             # default event code must be ignored for the extra document (since the extra document, by design, has a different event code)
             new_doc = GulpDocument(
@@ -1822,12 +1828,11 @@ class GulpPluginBase(ABC):
 
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
-    ) -> GulpDocument | dict:
+    ) -> GulpDocument | dict | list[GulpDocument] | list[dict] | None:
         """
         to be implemented in a plugin to convert a record to a GulpDocument.
 
-        parses a record and calls _process_key for each key/value pair, generating
-        a dictionary to be merged in the final gulp document.
+        parses a record and calls _process_key for each key/value pair, generating one or more GulpDocuments to be ingested.
 
         NOTE: called by the engine, do not call this function directly.
             THIS FUNCTION MUST NOT GENERATE EXCEPTIONS, on failure it should return None to indicate a malformed record.
@@ -1838,7 +1843,7 @@ class GulpPluginBase(ABC):
             record_idx (int): the index of the record in the source
             kwargs: additional keyword arguments
         Returns:
-            GulpDocument|dict: the GulpDocument or dict (in case of a stacked plugin), or None to skip processing (i.e. plugin detected malformed record)
+            GulpDocument|dict|list[GulpDocument]|list[dict]|None: the GulpDocument, dict, list of GulpDocuments, list of dicts, or None to skip processing (i.e. plugin detected malformed record)
 
         """
         raise NotImplementedError("not implemented!")
@@ -1864,7 +1869,13 @@ class GulpPluginBase(ABC):
         if not doc:
             return []
 
-        docs = self._finalize_process_record(doc)
+        docs: list[dict] = []
+        if isinstance(doc, list):
+            # record_to_gulp_document generated more than one doc
+            for d in doc:
+                docs.extend(self._finalize_process_record(doc))
+        else:
+            docs = self._finalize_process_record(doc)
 
         # apply upper plugin processing if stacked
         if self._upper_record_to_gulp_document_fun:
