@@ -1873,7 +1873,7 @@ class GulpPluginBase(ABC):
         if isinstance(doc, list):
             # record_to_gulp_document generated more than one doc
             for d in doc:
-                docs.extend(self._finalize_process_record(doc))
+                docs.extend(self._finalize_process_record(d))
         else:
             docs = self._finalize_process_record(doc)
 
