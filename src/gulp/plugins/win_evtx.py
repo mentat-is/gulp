@@ -103,12 +103,14 @@ class Plugin(GulpPluginBase):
     async def _process_leaf(
         self, path: str, value: Any, result: dict, **kwargs
     ) -> None:
-        if not value or path.endswith("xmlns"):
+        if value is None or path.endswith("xmlns"): # if not value or path.endswith("xmlns"): was causing silent data loss whith values like 0, 0.0, False...
             # skip these
             return
         # normalize value stripping leading and trailing spaces
         if isinstance(value, str):
             value=value.strip()
+            if value == "":
+                    return
         elif isinstance(value, list):
             value = [v.strip() if isinstance(v, str) else v for v in value]
 

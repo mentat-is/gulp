@@ -2162,8 +2162,13 @@ class GulpPluginBase(ABC):
             a dictionary to be merged in the final gulp document
         """
 
-        if not source_value:
-            return {}
+        if source_value is None:
+           return {}
+        
+        if isinstance(source_value, str):
+            source_value = source_value.strip()
+            if source_value == "":
+                return {}
 
         # check if we have a mapping for source_key
         mapping = self.selected_mapping()
