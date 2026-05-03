@@ -106,6 +106,11 @@ class Plugin(GulpPluginBase):
         if not value or path.endswith("xmlns"):
             # skip these
             return
+        # normalize value stripping leading and trailing spaces
+        if isinstance(value, str):
+            value=value.strip()
+        elif isinstance(value, list):
+            value = [v.strip() if isinstance(v, str) else v for v in value]
 
         if path.endswith(",,#attributes,,Name"):
             # this is a special case where the source key becomes the ,, separated value before _#attributes in the string
