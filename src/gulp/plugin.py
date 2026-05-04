@@ -2164,11 +2164,6 @@ class GulpPluginBase(ABC):
 
         if source_value is None:
            return {}
-        
-        if isinstance(source_value, str):
-            source_value = source_value.strip()
-            if source_value == "":
-                return {}
 
         # check if we have a mapping for source_key
         mapping = self.selected_mapping()
