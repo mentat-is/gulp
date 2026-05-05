@@ -68,7 +68,12 @@ async def link_create_handler(
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     doc_id_from: Annotated[str, Query(description="the source document ID.")],
-    doc_ids: Annotated[list[str], Body(description="One or more target document IDs.")],
+    doc_ids: Annotated[
+        list[str],
+        Body(
+            description="One or more target document IDs, or an empty list to initialize a link without target documents."
+        ),
+    ],
     name: Annotated[str, Depends(APIDependencies.param_name_optional)],
     description: Annotated[
         str, Depends(APIDependencies.param_description_optional)
@@ -105,9 +110,7 @@ async def link_create_handler(
                 doc_ids=doc_ids,
             )
             return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id, data=l.to_dict(exclude_none=True)
-                )
+                JSendResponse.success(req_id=req_id, data=l.to_dict(exclude_none=True))
             )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -185,7 +188,9 @@ async def link_update_handler(
             if color:
                 obj.color = color
 
-            dd: dict = await obj.update(sess, ws_id=ws_id, req_id=req_id, user_id=s.user.id)
+            dd: dict = await obj.update(
+                sess, ws_id=ws_id, req_id=req_id, user_id=s.user.id
+            )
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
