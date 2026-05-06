@@ -1,5 +1,5 @@
 # .devcontainer/Dockerfile
-FROM mcr.microsoft.com/vscode/devcontainers/python:3.13-bullseye
+FROM mcr.microsoft.com/vscode/devcontainers/python:3.14-bookworm
 
 # Install OS dependencies
 RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /usr/share/keyrings/yarn-keyring.gpg && \

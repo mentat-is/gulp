@@ -60,7 +60,7 @@ async def operation_create_handler(
         str,
         Query(
             description="the name of the operation. It will be used to derive the `operation_id`.",
-            example="test_operation",
+            examples={"default": {"value": "test_operation"}},
         ),
     ],
     description: Annotated[
@@ -338,7 +338,7 @@ async def operation_cleanup_handler(
         list[str],
         Body(
             description="list of additional database tables to clear.",
-            example=["custom_table"],
+            examples={"default": {"value": ["custom_table"]}},
         ),
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
@@ -669,7 +669,7 @@ async def context_create_handler(
         str,
         Query(
             description="the name of the context. It will be used to derive the `context_id`.",
-            example="test_context",
+            examples={"default": {"value": "test_context"}},
         ),
     ],
     ws_id: Annotated[Optional[str], Depends(APIDependencies.param_ws_id_optional)] = None,
@@ -897,14 +897,14 @@ async def source_create_handler(
         str,
         Query(
             description="the name of the source. It will be used to derive the `source_id`.",
-            example="test_source",
+            examples={"default": {"value": "test_source"}},
         ),
     ],
     plugin: Annotated[
         Optional[str],
         Query(
             description="name of the plugin related to the source, if applicable.",
-            example="win_evtx",
+            examples={"default": {"value": "win_evtx"}},
         )
     ] = None,
     plugin_params: Annotated[

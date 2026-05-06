@@ -123,7 +123,7 @@ cancel a running request by setting its `status` to `canceled` (or `failed` or `
 async def request_cancel_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     req_id_to_cancel: Annotated[
-        str, Query(description="request id to cancel.", example="test_req")
+        str, Query(description="request id to cancel.", examples={"default": {"value": "test_req"}})
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     expire_now: Annotated[
@@ -189,11 +189,11 @@ sets the request either as `done` or `failed`.
 async def request_set_completed_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     req_id_to_complete: Annotated[
-        str, Query(description="request id to set completed.", example="test_req")
+        str, Query(description="request id to set completed.", examples={"default": {"value": "test_req"}})
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     failed: Annotated[
-        bool, Query(description="if set, the request is marked as failed.")
+        bool, Query(description="if set, the request is marked as failed.", examples={"default": {"value": False}})
     ] = False,
 ) -> JSONResponse:
     params = locals()
@@ -251,7 +251,7 @@ async def request_delete_handler(
         str,
         Query(
             description="the request id to delete: if not set, all the requests are deleted for the given `operation_id`.",
-            example="obj_id",
+            examples={"default": {"value": "obj_id"}},
         ),
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
@@ -356,7 +356,7 @@ async def object_delete_bulk_handler(
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     obj_type: Annotated[
         str,
-        Query(description="one of the collab object types.", example=COLLABTYPE_NOTE),
+        Query(description="one of the collab object types.", examples={"default": {"value": COLLABTYPE_NOTE}}),
     ],
     flt: Annotated[
         GulpCollabFilter, Depends(APIDependencies.param_collab_flt) 
@@ -422,7 +422,7 @@ async def enhance_document_map_create_handler(
         dict,
         Body(
             description="dict mapping GulpDocument field names to criteria. Values can be simple (exact match) or operator dicts with 'eq'/'gte'/'lte' keys for numeric comparisons. All criteria must match (AND).",
-            example={"gulp.event_code": {"eq": 4624}, "severity_level": {"gte": 7, "lte": 10}, "status": "active"},
+            examples={"default": {"value": {"gulp.event_code": {"eq": 4624}, "severity_level": {"gte": 7, "lte": 10}, "status": "active"}}},
         ),
     ],
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,

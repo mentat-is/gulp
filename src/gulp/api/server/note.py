@@ -78,7 +78,7 @@ async def note_create_handler(
     ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     text: Annotated[
-        str, Body(description="the text of the note.", example="this is a note")
+        str, Body(description="the text of the note.", examples=["this is a note"])
     ],
     name: Annotated[str, Depends(APIDependencies.param_name)],
     tags: Annotated[list[str], Depends(APIDependencies.param_tags_optional)] = None,
@@ -130,18 +130,12 @@ async def note_create_handler(
                 req_id=req_id,
                 context_id=context_id,
                 source_id=source_id,
-                doc=(
-                    doc.model_dump(by_alias=True, exclude_none=True)
-                    if doc
-                    else None
-                ),
+                doc=(doc.model_dump(by_alias=True, exclude_none=True) if doc else None),
                 time_pin=time_pin,
                 text=text,
             )
             return JSONResponse(
-                JSendResponse.success(
-                    req_id=req_id, data=n.to_dict(exclude_none=True)
-                )
+                JSendResponse.success(req_id=req_id, data=n.to_dict(exclude_none=True))
             )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -190,7 +184,7 @@ async def note_update_handler(
         ),
     ] = None,
     text: Annotated[
-        str, Body(description="note text.", example="the newnote text")
+        str, Body(description="note text.", examples=["the new note text"])
     ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
@@ -242,10 +236,12 @@ async def note_update_handler(
             )
             if not obj.edits:
                 obj.edits = []
-            obj.edits.append(p.model_dump(exclude_none=True)) # trigger ORM update
+            obj.edits.append(p.model_dump(exclude_none=True))  # trigger ORM update
             obj.last_editor_id = s.user.id
 
-            dd: dict = await obj.update(sess, ws_id=ws_id, req_id=req_id, user_id=s.user.id)
+            dd: dict = await obj.update(
+                sess, ws_id=ws_id, req_id=req_id, user_id=s.user.id
+            )
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

@@ -83,12 +83,12 @@ async def storage_delete_by_tags_handler(
     operation_id: Annotated[
         Optional[str],
         Query(description="the operation ID to filter files, if not provided, files from all operations will be deleted.",
-              example="test_operation"),
+              examples={"default": {"value": "test_operation"}}),
     ] = None,
     context_id: Annotated[
         Optional[str],
         Query(description="the context ID to filter files, if not provided, files from all contexts will be deleted.",
-            example="66d98ed55d92b6b7382ffc77df70eda37a6efaa1"),
+            examples={"default": {"value": "66d98ed55d92b6b7382ffc77df70eda37a6efaa1"}}),
     ]=None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
@@ -162,12 +162,12 @@ async def storage_list_files_handler(
     operation_id: Annotated[
         Optional[str],
         Query(description="the operation ID to filter files, if not provided, files from all operations will be listed.",
-              example="test_operation"),
+              examples={"default": {"value": "test_operation"}}),
     ] = None,
     context_id: Annotated[
         Optional[str],
         Query(description="the context ID to filter files, if not provided, files from all contexts will be listed.",
-            example="66d98ed55d92b6b7382ffc77df70eda37a6efaa1"),
+            examples={"default": {"value": "66d98ed55d92b6b7382ffc77df70eda37a6efaa1"}}),
     ]=None,
     continuation_token: Annotated[
         Optional[str],

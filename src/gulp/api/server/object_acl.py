@@ -139,7 +139,7 @@ async def object_add_granted_user_handler(
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
-        Query(..., description="the object collab type.", example=COLLABTYPE_NOTE),
+        Query(..., description="the object collab type.", examples={"default": {"value": COLLABTYPE_NOTE}}),
     ],
     user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
@@ -188,7 +188,7 @@ async def object_remove_granted_user_handler(
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
-        Query(description="the object collab type.", example=COLLABTYPE_NOTE),
+        Query(description="the object collab type.", examples={"default": {"value": COLLABTYPE_NOTE}}),
     ],
     user_id: Annotated[str, Depends(APIDependencies.param_user_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
@@ -237,7 +237,7 @@ async def object_add_granted_group_handler(
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
-        Query(description="the object collab type.", example=COLLABTYPE_NOTE),
+        Query(description="the object collab type.", examples={"default": {"value": COLLABTYPE_NOTE}}),
     ],
     group_id: Annotated[str, Query(..., description="the group id to add.")],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
@@ -286,7 +286,7 @@ async def object_remove_granted_group_handler(
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
-        Query(description="the object collab type.", example=COLLABTYPE_NOTE),
+        Query(description="the object collab type.", examples={"default": {"value": COLLABTYPE_NOTE}}),
     ],
     group_id: Annotated[str, Query(description="the group id to remove.")],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
@@ -337,7 +337,7 @@ async def object_make_private_handler(
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
-        Query(description="the object collab type.", example=COLLABTYPE_NOTE),
+        Query(description="the object collab type.", examples={"default": {"value": COLLABTYPE_NOTE}}),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
@@ -392,7 +392,7 @@ async def object_make_public_handler(
     obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
     obj_type: Annotated[
         str,
-        Query(description="the object collab type.", example=COLLABTYPE_NOTE),
+        Query(description="the object collab type.", examples={"default": {"value": COLLABTYPE_NOTE}}),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:

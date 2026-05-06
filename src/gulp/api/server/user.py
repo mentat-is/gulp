@@ -209,7 +209,12 @@ async def login_handler(
     password: Annotated[
         str, Body(description="password for authentication.", examples=["admin"])
     ],
-    force: Annotated[bool, Query(description="force login even if already logged in (invalidates logged in session token).")] = True,
+    force: Annotated[
+        bool,
+        Query(
+            description="force login even if already logged in (invalidates logged in session token)."
+        ),
+    ] = True,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ip: str = r.client.host if r.client else "unknown"
@@ -232,7 +237,7 @@ async def login_handler(
                         "user %s already logged in, use force=true to invalidate the existing session and login again."
                         % user_id
                     )
-            
+
             # ok, perform login
             s = await GulpUser.login(
                 sess,
@@ -344,7 +349,7 @@ the new user id.
 - `user_id` must be unique
 """,
             pattern=REGEX_CHECK_USERNAME,
-            example="user",
+            examples={"default": {"value": "user"}},
         ),
     ],
     password: Annotated[
@@ -515,7 +520,7 @@ async def user_update_handler(
         bool,
         Query(
             description="if `true` (default), `user_data` is merged with the existing, if any. Either, it is replaced.",
-            example=True,
+            examples={"default": {"value": True}},
         ),
     ] = True,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
@@ -535,22 +540,30 @@ async def user_update_handler(
 
         async with GulpCollab.get_instance().session() as sess:
             # get calling user GulpUserSession
-            calling_user_s: GulpUserSession = await GulpUserSession.check_token(sess, token)
+            calling_user_s: GulpUserSession = await GulpUserSession.check_token(
+                sess, token
+            )
 
             s: GulpUserSession
             u: GulpUser
             if user_id:
                 # get the requested user using the given token: it will work if the token is admin or it's the same user
-                MutyLogger.get_instance().debug("user_id specified, getting user %s", user_id)
+                MutyLogger.get_instance().debug(
+                    "user_id specified, getting user %s", user_id
+                )
                 s, u, _ = await GulpUser.get_by_id_wrapper(
                     sess, token, user_id, enforce_owner=True
                 )
-                MutyLogger.get_instance().debug("specified user_id=%s, session.user_id=%s", user_id, s.user.id)
+                MutyLogger.get_instance().debug(
+                    "specified user_id=%s, session.user_id=%s", user_id, s.user.id
+                )
             else:
                 # no user_id specified, use the token's user
                 s = calling_user_s
                 u = calling_user_s.user
-                MutyLogger.get_instance().debug("no user_id specified, session.user_id=%s", s.user.id)
+                MutyLogger.get_instance().debug(
+                    "no user_id specified, session.user_id=%s", s.user.id
+                )
 
             delete_existing_user_session: bool = False
             if permission:
@@ -584,7 +597,8 @@ async def user_update_handler(
                     MutyLogger.get_instance().debug("existing user data=%s" % (ud))
                     ud.update(user_data)
                     MutyLogger.get_instance().debug(
-                        "provided user_data=%s, updated user data=%s", user_data, ud)                    
+                        "provided user_data=%s, updated user data=%s", user_data, ud
+                    )
                 else:
                     # replace existing user data
                     ud = user_data
@@ -592,8 +606,10 @@ async def user_update_handler(
             if delete_existing_user_session and u.session:
                 # invalidate session for the user being updated (user must login again then)
                 MutyLogger.get_instance().warning(
-                    "updated user password or permission, invalidating session for user_id=%s", u.id)
-                
+                    "updated user password or permission, invalidating session for user_id=%s",
+                    u.id,
+                )
+
                 await u.session.delete(sess)
                 u.session = None
 
@@ -895,10 +911,18 @@ async def user_set_data_handler(
         Depends(APIDependencies.param_token),
     ],
     key: Annotated[
-        str, Query(description="key in `user_data` to be set.", example="my_key")
+        str,
+        Query(
+            description="key in `user_data` to be set.",
+            examples={"default": {"value": "my_key"}},
+        ),
     ],
     value: Annotated[
-        Any, Body(description="value to be set for the given `key`.", example="my_data")
+        Any,
+        Body(
+            description="value to be set for the given `key`.",
+            examples={"default": {"value": "my_data"}},
+        ),
     ],
     user_id: Annotated[
         Optional[str],
@@ -926,12 +950,16 @@ async def user_set_data_handler(
             # get data
             ud: dict = u.user_data if u.user_data else {}
             MutyLogger.get_instance().debug(
-                "existing user data=%s", orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
+                "existing user data=%s",
+                orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode(),
+            )
 
             # update
             ud[key] = value
             MutyLogger.get_instance().debug(
-                "new user data=%s", orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
+                "new user data=%s",
+                orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode(),
+            )
             await u.update(sess, user_data=ud)
             return JSONResponse(JSendResponse.success(req_id=req_id, data=ud))
     except Exception as ex:
@@ -974,7 +1002,7 @@ async def user_get_data_handler(
         Optional[str],
         Query(
             description="key in `user_data` to get: if not set, all `user_data` is retrieved.",
-            example="my_key",
+            examples={"default": {"value": "my_key"}},
         ),
     ] = None,
     user_id: Annotated[
@@ -1003,8 +1031,10 @@ async def user_get_data_handler(
             # get data
             user_data: dict = u.user_data if u.user_data else {}
             MutyLogger.get_instance().debug(
-                "existing user data=%s", orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode())
-            
+                "existing user data=%s",
+                orjson.dumps(user_data, option=orjson.OPT_INDENT_2).decode(),
+            )
+
             if key:
                 # get only the requested key
                 if key not in user_data:
@@ -1016,9 +1046,7 @@ async def user_get_data_handler(
                 )
 
             # all
-            return JSONResponse(
-                JSendResponse.success(req_id=req_id, data=user_data)
-            )
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=user_data))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1057,7 +1085,7 @@ async def user_delete_data_handler(
         Optional[str],
         Query(
             description="key in `user_data` to be deleted: if not set, the whole `user_data` is cleared.",
-            example="my_key",
+            examples={"default": {"value": "my_key"}},
         ),
     ] = None,
     user_id: Annotated[
@@ -1086,7 +1114,9 @@ async def user_delete_data_handler(
             # get data
             ud: dict = u.user_data if u.user_data else {}
             MutyLogger.get_instance().debug(
-                "existing user data=%s", orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode())
+                "existing user data=%s",
+                orjson.dumps(ud, option=orjson.OPT_INDENT_2).decode(),
+            )
             if key:
                 # delete only the requested key
                 if key not in ud:

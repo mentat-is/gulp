@@ -228,6 +228,7 @@ _DESC_SOURCE_NAME = """
 """
 _EXAMPLE_SOURCE_NAME = "test_source"
 
+
 async def _ingest_file_internal(
     user_id: str,
     req_id: str,
@@ -330,11 +331,15 @@ async def _ingest_file_internal(
                     if payload.plugin_params.preview_mode:
                         # get the accumulated preview chunk and we're done
                         preview_chunk: list[dict] = deepcopy(mod.preview_chunk())
-                        return GulpRequestStatus.DONE if len(preview_chunk) else GulpRequestStatus.FAILED, preview_chunk
+                        return (
+                            GulpRequestStatus.DONE
+                            if len(preview_chunk)
+                            else GulpRequestStatus.FAILED
+                        ), preview_chunk
                 else:
                     # other exception
                     MutyLogger.get_instance().exception(ae)
-                
+
                 if mod:
                     # this source failed
                     await mod.update_final_stats_and_flush(flt=payload.flt, ex=ae)
@@ -376,7 +381,7 @@ async def run_ingest_file_task(t: dict):
     ingest_args: dict = t["params"]
     ingest_args["user_id"] = t["user_id"]
     ingest_args["operation_id"] = t["operation_id"]
-    pp = ingest_args.get("payload", {}) # save for later in case of errors
+    pp = ingest_args.get("payload", {})  # save for later in case of errors
     ingest_args["payload"] = GulpIngestPayload.model_validate(ingest_args["payload"])
     # MutyLogger.get_instance().debug(
     #     "run_ingest_file_task, t=%s", t)
@@ -384,9 +389,10 @@ async def run_ingest_file_task(t: dict):
     try:
         await _ingest_file_internal(**ingest_args)
     except:
-        ingest_args["payload"] = pp # restore original payload for logging
+        ingest_args["payload"] = pp  # restore original payload for logging
         MutyLogger.get_instance().exception(
-            "***ERROR*** in run_ingest_file_task, task=%s", orjson.dumps(t, option=orjson.OPT_INDENT_2).decode()
+            "***ERROR*** in run_ingest_file_task, task=%s",
+            orjson.dumps(t, option=orjson.OPT_INDENT_2).decode(),
         )
 
 
@@ -605,7 +611,10 @@ async def ingest_file_handler(
     ],
     context_name: Annotated[
         str,
-        Query(description=_DESC_CONTEXT_NAME, example=_EXAMPLE_CONTEXT_NAME),
+        Query(
+            description=_DESC_CONTEXT_NAME,
+            examples={"default": {"value": _EXAMPLE_CONTEXT_NAME}},
+        ),
     ],
     plugin: Annotated[
         str,
@@ -619,7 +628,7 @@ async def ingest_file_handler(
         int,
         Query(
             description="set to the total number of files if this call is part of a multi-file upload (same `req_id` for multiple files), default=1.",
-            example=1,
+            examples={"default": {"value": 1}},
         ),
     ] = 1,
     req_id: Annotated[
@@ -830,7 +839,9 @@ async def ingest_file_local_handler(
         str,
         Query(
             description="the path (relative to `$GULP_WORKING_DIR`) to the zip file to be ingested.",
-            example="/samples/win_evtx/Security_short_selected.evtx",
+            examples={
+                "default": {"value": "/samples/win_evtx/Security_short_selected.evtx"}
+            },
         ),
     ],
     operation_id: Annotated[
@@ -839,7 +850,10 @@ async def ingest_file_local_handler(
     ],
     context_name: Annotated[
         str,
-        Query(description=_DESC_CONTEXT_NAME, example=_EXAMPLE_CONTEXT_NAME),
+        Query(
+            description=_DESC_CONTEXT_NAME,
+            examples={"default": {"value": _EXAMPLE_CONTEXT_NAME}},
+        ),
     ],
     plugin: Annotated[
         str,
@@ -870,7 +884,9 @@ async def ingest_file_local_handler(
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
-    params["plugin_params"] = plugin_params.model_dump(exclude_none=True) or GulpPluginParameters()
+    params["plugin_params"] = (
+        plugin_params.model_dump(exclude_none=True) or GulpPluginParameters()
+    )
     ServerUtils.dump_params(params)
 
     # compute local path
@@ -942,7 +958,9 @@ async def ingest_file_local_to_source_handler(
         str,
         Query(
             description="the path (relative to `$GULP_WORKING_DIR`) to the file to be ingested.",
-            example="/samples/win_evtx/Security_short_selected.evtx",
+            examples={
+                "default": {"value": "/samples/win_evtx/Security_short_selected.evtx"}
+            },
         ),
     ],
     source_id: Annotated[
@@ -1035,8 +1053,19 @@ async def ingest_file_local_to_source_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
-async def _ingest_raw_internal(user_id: str, operation_id: str, index: str, req_id: str, ws_id: str, plugin: str, chunk: bytes, flt: GulpIngestionFilter,
-                plugin_params: GulpPluginParameters, last: bool):
+
+async def _ingest_raw_internal(
+    user_id: str,
+    operation_id: str,
+    index: str,
+    req_id: str,
+    ws_id: str,
+    plugin: str,
+    chunk: bytes,
+    flt: GulpIngestionFilter,
+    plugin_params: GulpPluginParameters,
+    last: bool,
+):
     async with GulpCollab.get_instance().session() as sess:
         # create (or get existing) stats
         stats: GulpRequestStats
@@ -1074,6 +1103,7 @@ async def _ingest_raw_internal(user_id: str, operation_id: str, index: str, req_
             if mod:
                 await mod.update_final_stats_and_flush(flt=flt)
                 await mod.unload()
+
 
 @router.post(
     "/ingest_raw",
@@ -1132,7 +1162,7 @@ async def ingest_raw_handler(
         Query(
             description=""""
 the plugin used to process the raw chunk. by default, the `raw` plugin is used: the data `chunk` is expected as a JSON text with a list of `GulpDocument` dictionaries.""",
-            example="raw",
+            examples={"default": {"value": "raw"}},
         ),
     ] = None,
     last: Annotated[
@@ -1170,12 +1200,10 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
             flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
                 payload.get("flt", GulpIngestionFilter())
             )
-            plugin_params: GulpPluginParameters = (
-                GulpPluginParameters.model_validate(
-                    payload.get("plugin_params", GulpPluginParameters())
-                )
+            plugin_params: GulpPluginParameters = GulpPluginParameters.model_validate(
+                payload.get("plugin_params", GulpPluginParameters())
             )
-            #async def _ingest_raw_internal(user_id: str, operation_id: str, index: str, req_id: str, ws_id: str, plugin: str, chunk: bytes, flt: GulpIngestionFilter,
+            # async def _ingest_raw_internal(user_id: str, operation_id: str, index: str, req_id: str, ws_id: str, plugin: str, chunk: bytes, flt: GulpIngestionFilter,
             #    plugin_params: GulpPluginParameters, last: bool):
 
             await GulpServer.get_instance().spawn_worker_task(
@@ -1189,7 +1217,8 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
                 chunk,
                 flt,
                 plugin_params,
-                last)
+                last,
+            )
 
             # done
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1419,7 +1448,10 @@ async def ingest_zip_handler(
     ],
     context_name: Annotated[
         str,
-        Query(description=_DESC_CONTEXT_NAME, example=_EXAMPLE_CONTEXT_NAME),
+        Query(
+            description=_DESC_CONTEXT_NAME,
+            examples={"default": {"value": _EXAMPLE_CONTEXT_NAME}},
+        ),
     ],
     ws_id: Annotated[
         str,
@@ -1516,7 +1548,7 @@ async def ingest_zip_local_handler(
         str,
         Query(
             description="the path of the ZIP file to be ingested, relative to must be relative to `$WORKING_DIR/ingest_local` directory.",
-            example="/test.zip",
+            examples={"default": {"value": "/test.zip"}},
         ),
     ],
     operation_id: Annotated[
@@ -1525,7 +1557,10 @@ async def ingest_zip_local_handler(
     ],
     context_name: Annotated[
         str,
-        Query(description=_DESC_CONTEXT_NAME, example=_EXAMPLE_CONTEXT_NAME),
+        Query(
+            description=_DESC_CONTEXT_NAME,
+            examples={"default": {"value": _EXAMPLE_CONTEXT_NAME}},
+        ),
     ],
     ws_id: Annotated[
         str,
@@ -1558,7 +1593,7 @@ async def ingest_zip_local_handler(
         MutyLogger.get_instance().info("ingesting local ZIP file: %s", path)
         if not await muty.file.exists_async(path):
             raise FileNotFoundError(f"file not found: {path}")
-        
+
         async with GulpCollab.get_instance().session() as sess:
             try:
                 # get operation and check acl

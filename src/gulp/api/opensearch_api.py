@@ -852,7 +852,7 @@ class GulpOpenSearch:
             if not exists and throw_on_error:
                 raise ObjectNotFound("datastream %s does not exist", ds)
 
-            res = await self._opensearch.indices.delete_data_stream(ds, headers=headers)
+            res = await self._opensearch.indices.delete_data_stream(name=ds, headers=headers)
             MutyLogger.get_instance().debug('deleted datastream "%s", res=%s', ds, res)
             try:
                 # delete index too
@@ -951,7 +951,7 @@ class GulpOpenSearch:
         try:
             # create datastream
             headers = {"accept": "application/json", "content-type": "application/json"}
-            r = await self._opensearch.indices.create_data_stream(ds, headers=headers)
+            r = await self._opensearch.indices.create_data_stream(name=ds, headers=headers)
             MutyLogger.get_instance().debug(
                 "datastream_create, datastream created: %s", r
             )
@@ -1000,7 +1000,7 @@ class GulpOpenSearch:
 
             # create datastream
             headers = {"accept": "application/json", "content-type": "application/json"}
-            r = await self._opensearch.indices.create_data_stream(ds, headers=headers)
+            r = await self._opensearch.indices.create_data_stream(name=ds, headers=headers)
             MutyLogger.get_instance().debug(
                 "datastream_create_from_raw_dict, datastream created: %s", r
             )

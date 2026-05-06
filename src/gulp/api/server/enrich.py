@@ -94,7 +94,7 @@ async def _enrich_documents_internal(
                 plugin_params=plugin_params,
             )
             errors.extend(errs)
-            
+
         except Exception as ex:
             if stats and not isinstance(ex, RequestCanceledError):
                 # close the stats as failed
@@ -116,7 +116,8 @@ async def _enrich_documents_internal(
                 # if we enriched something, update source=>fields mappings on the collab db
                 await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
                     sess, index, user_id, flt
-                )                
+                )
+
 
 @router.post(
     "/enrich_documents",
@@ -197,7 +198,7 @@ async def enrich_documents_handler(
                 operation_id,
                 index,
                 plugin,
-                fields, 
+                fields,
                 plugin_params,
             )
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -289,6 +290,7 @@ async def enrich_single_id_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 async def _modify_documents_chunk(
     sess: AsyncSession,
     chunk: list[dict],
@@ -355,12 +357,14 @@ async def _modify_documents_chunk(
     )
     return chunk
 
+
 def _mutate_update_document(data: dict):
     def _mutate(doc: dict) -> bool:
         doc.update(data)
         return True
 
     return _mutate
+
 
 def _mutate_untag_document(tags: list[str]):
     def _mutate(doc: dict) -> bool:
@@ -376,7 +380,7 @@ async def _update_documents_internal(
     operation_id: str,
     index: str,
     flt: GulpQueryFilter,
-    data: dict
+    data: dict,
 ) -> None:
     """
     called by the update_documents API entrypoint, runs in a worker process to update documents
@@ -459,9 +463,9 @@ async def _update_documents_internal(
 
 def _remove_tags_from_doc(doc: dict, tags_to_remove: list[str]) -> bool:
     """Remove tags in tags_to_remove from the document and return whether a change was made."""
-    
+
     # Determine tags location(s) in the doc representation
-    current_tags = list(doc.get("gulp.tags"))    
+    current_tags = list(doc.get("gulp.tags"))
     if current_tags is None:
         return False
 
@@ -469,12 +473,12 @@ def _remove_tags_from_doc(doc: dict, tags_to_remove: list[str]) -> bool:
         # remove all tags
         doc.pop("gulp.tags", None)
         return True
-    
+
     # remove the tags to remove from the current tags
     new_tags = [t for t in current_tags if t not in tags_to_remove]
     if new_tags == current_tags:
         return False
-    
+
     doc["gulp.tags"] = new_tags
     return True
 
@@ -554,6 +558,7 @@ async def _untag_documents_internal(
                     sess, index, user_id, flt
                 )
 
+
 @router.post(
     "/update_documents",
     response_model=JSendResponse,
@@ -593,7 +598,13 @@ async def update_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
-    data: Annotated[dict, Body(description='The data to update the documents with.', example='{ "gulp.tags": ["tag1","tag2"], "custom_field": "custom_value" }')],
+    data: Annotated[
+        dict,
+        Body(
+            description="The data to update the documents with.",
+            examples=[{"gulp.tags": ["tag1", "tag2"], "custom_field": "custom_value"}],
+        ),
+    ],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
@@ -629,6 +640,7 @@ async def update_documents_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.post(
     "/update_single_id",
     response_model=JSendResponse,
@@ -663,7 +675,13 @@ async def update_single_id_handler(
         str,
         Query(description="the `_id` of the document to update."),
     ],
-    data: Annotated[dict, Body(description='The data to update the documents with.', example='{ "gulp.tags": ["tag1","tag2"], "custom_field": "custom_value" }')],
+    data: Annotated[
+        dict,
+        Body(
+            description="The data to update the documents with.",
+            examples=[{"gulp.tags": ["tag1", "tag2"], "custom_field": "custom_value"}],
+        ),
+    ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -707,6 +725,7 @@ async def update_single_id_handler(
 
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.post(
     "/untag_documents",
@@ -867,9 +886,7 @@ async def tag_single_id_handler(
                         "status": "success",
                         "timestamp_msec": 1704380570434,
                         "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
-                        "data": {
-                            "num_deleted": 123
-                        }
+                        "data": {"num_deleted": 123},
                     }
                 }
             }
@@ -886,8 +903,15 @@ shortcut to `update_documents` to remove enriched data from the given documents.
 async def enrich_remove_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)] = None,
-    fields: Annotated[list[str], Body(description="the enriched fields to remove, e.g. `['field1', 'field2']`.  If not provided, the entire `gulp.enriched` field is removed.")] = None,
+    flt: Annotated[
+        GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)
+    ] = None,
+    fields: Annotated[
+        list[str],
+        Body(
+            description="the enriched fields to remove, e.g. `['field1', 'field2']`.  If not provided, the entire `gulp.enriched` field is removed."
+        ),
+    ] = None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     """Remove the `gulp.enriched` field from documents matching the filter.
@@ -924,13 +948,23 @@ async def enrich_remove_handler(
                     if len(exists_clauses) == 1:
                         base = exists_clauses[0]
                     else:
-                        base = {"bool": {"should": exists_clauses, "minimum_should_match": 1}}
+                        base = {
+                            "bool": {
+                                "should": exists_clauses,
+                                "minimum_should_match": 1,
+                            }
+                        }
                 else:
                     inner = flt.to_opensearch_dsl()["query"]
                     exists_clause = (
                         exists_clauses[0]
                         if len(exists_clauses) == 1
-                        else {"bool": {"should": exists_clauses, "minimum_should_match": 1}}
+                        else {
+                            "bool": {
+                                "should": exists_clauses,
+                                "minimum_should_match": 1,
+                            }
+                        }
                     )
                     base = {"bool": {"must": [inner, exists_clause]}}
             else:
@@ -938,10 +972,16 @@ async def enrich_remove_handler(
                     base = {"exists": {"field": "gulp.enriched"}}
                 else:
                     inner = flt.to_opensearch_dsl()["query"]
-                    base = {"bool": {"must": [inner, {"exists": {"field": "gulp.enriched"}}]}}
+                    base = {
+                        "bool": {
+                            "must": [inner, {"exists": {"field": "gulp.enriched"}}]
+                        }
+                    }
 
             base_query: dict = base
-            MutyLogger.get_instance().debug("enrich_remove_handler: base_query=%s", base_query)
+            MutyLogger.get_instance().debug(
+                "enrich_remove_handler: base_query=%s", base_query
+            )
 
             if fields:
                 script = (
@@ -963,8 +1003,15 @@ async def enrich_remove_handler(
             if fields:
                 params_body["script"]["params"] = {"fields": fields}
 
-            params_qs: dict = {"conflicts": "proceed", "wait_for_completion": "true", "refresh": "true"}
-            headers: dict = {"accept": "application/json", "content-type": "application/json"}
+            params_qs: dict = {
+                "conflicts": "proceed",
+                "wait_for_completion": "true",
+                "refresh": "true",
+            }
+            headers: dict = {
+                "accept": "application/json",
+                "content-type": "application/json",
+            }
 
             # execute the update_by_query
             res = await GulpOpenSearch.get_instance()._opensearch.update_by_query(

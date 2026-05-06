@@ -23,7 +23,8 @@ import muty.file
 import muty.string
 import orjson
 from muty.log import MutyLogger
-from sqlalchemy import Table, insert, text
+from sqlalchemy import Table, create_engine, insert, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -114,7 +115,10 @@ class GulpCollab:
         # NOTE: i am not quite sure why this is needed, seems like sqlalchemy needs all the classes to be loaded before accessing the tables.
         GulpCollab.init_mappers()
 
-        # ensure no engine is already running, either shutdown it before reinit
+        # ensure no previous engine/sessionmaker survives a re-init path
+        if self._engine or self._collab_sessionmaker:
+            await self.shutdown()
+
         if main_process:
             MutyLogger.get_instance().debug("init in MAIN process ...")
             if force_recreate:
@@ -206,7 +210,7 @@ class GulpCollab:
         pool_size: int = None
         max_overflow: int = 10
         if GulpConfig.get_instance().postgres_adaptive_pool_size():
-            # derive pool size from the number of tasks per worker, with some reasonable limits to avoid too small or too large pool sizes. 
+            # derive pool size from the number of tasks per worker, with some reasonable limits to avoid too small or too large pool sizes.
             # this is a heuristic and can be adjusted based on performance testing and expected workloads.
             num_tasks_per_worker: int = (
                 GulpConfig.get_instance().concurrency_num_tasks()
@@ -260,11 +264,14 @@ class GulpCollab:
         Returns:
             None
         """
-        if self._engine:
+        engine = self._engine
+        self._engine = None
+        self._collab_sessionmaker = None
+        if engine:
             MutyLogger.get_instance().debug(
                 "shutting down collab database engine and invalidate existing connections ..."
             )
-            await self._engine.dispose()
+            await engine.dispose()
             MutyLogger.get_instance().debug("collab database engine shutdown DONE!")
         self._initialized = False
 
@@ -296,6 +303,38 @@ class GulpCollab:
             if recreate is specified, only the database is created. to create tables and the default data, use engine_get then.
         """
 
+        def _terminate_postgres_backends(url: str) -> None:
+            parsed_url = make_url(url)
+            if parsed_url.get_backend_name() != "postgresql" or not parsed_url.database:
+                return
+
+            maintenance_db = "postgres"
+            if parsed_url.database == maintenance_db:
+                maintenance_db = "template1"
+
+            drivername = parsed_url.drivername
+            if drivername.endswith("+asyncpg"):
+                drivername = "postgresql+psycopg"
+
+            maintenance_url = parsed_url.set(
+                drivername=drivername,
+                database=maintenance_db,
+            )
+            engine = create_engine(maintenance_url, isolation_level="AUTOCOMMIT")
+            try:
+                with engine.connect() as conn:
+                    conn.execute(
+                        text("""
+                            SELECT pg_terminate_backend(pid)
+                            FROM pg_stat_activity
+                            WHERE datname = :database_name
+                            AND pid <> pg_backend_pid()
+                            """),
+                        {"database_name": parsed_url.database},
+                    )
+            finally:
+                engine.dispose()
+
         def _blocking_drop(url: str, raise_if_not_exists: bool = False):
             """
             internal function to drop, and possibly recreate, the database: this is blocking, so this is wrapped in a thread.
@@ -304,6 +343,7 @@ class GulpCollab:
                 MutyLogger.get_instance().info(
                     "--> drop: dropping database %s ..." % (url)
                 )
+                _terminate_postgres_backends(url)
                 drop_database(url)
                 MutyLogger.get_instance().info(
                     "--> drop: database %s dropped ..." % (url)
@@ -340,9 +380,7 @@ class GulpCollab:
             # create pg_cron extension
             await sess.execute(text("CREATE EXTENSION IF NOT EXISTS pg_cron;"))
 
-            await sess.execute(
-                text(
-                    """
+            await sess.execute(text("""
                     CREATE OR REPLACE FUNCTION delete_expired_stats_rows() RETURNS void AS $$
                     BEGIN
                             DELETE FROM request_stats
@@ -350,37 +388,23 @@ class GulpCollab:
                             AND status != 'ongoing';
                     END;
                     $$ LANGUAGE plpgsql;
-            """
-                )
-            )
+            """))
 
-            await sess.execute(
-                text(
-                    """
+            await sess.execute(text("""
                 CREATE OR REPLACE FUNCTION delete_expired_tokens_rows() RETURNS void AS $$
                 BEGIN
                     DELETE FROM user_session WHERE (EXTRACT(EPOCH FROM NOW()) * 1000) > time_expire AND time_expire > 0;
                 END;
                 $$ LANGUAGE plpgsql;
-            """
-                )
-            )
+            """))
 
             # purge stats and tokens every 1 minutes
-            await sess.execute(
-                text(
-                    """
+            await sess.execute(text("""
                     SELECT cron.schedule('* * * * *', 'SELECT delete_expired_stats_rows();');
-                    """
-                )
-            )
-            await sess.execute(
-                text(
-                    """
+                    """))
+            await sess.execute(text("""
                     SELECT cron.schedule('* * * * *', 'SELECT delete_expired_tokens_rows();');
-                    """
-                )
-            )
+                    """))
             await sess.commit()
 
     async def create_table(self, t: Table) -> None:

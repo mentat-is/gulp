@@ -134,7 +134,7 @@ class APIDependencies:
             str,
             Query(
                 description="id of a `GulpOperation` object in the collab database.",
-                example="test_operation",
+                examples={"default": {"value": "test_operation"}},
             ),
         ],
     ) -> str:
@@ -156,7 +156,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
 - `token_ingest`: a token with read/edit/ingest permission.
 - `token_power`: a token with read/edit/delete permission.
 """,
-                example="token_admin",
+                examples={"default": {"value": "token_admin"}},
             ),
         ],
     ) -> str:
@@ -164,21 +164,30 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
 
     _WS_ID_QUERY_PARAM = Query(
         description="the websocket id",
-        example="test_ws",
+        examples={"default": {"value": "test_ws"}},
     )
 
     @staticmethod
     def param_ws_id(
         ws_id: Annotated[
             str,
-            Query(description="the websocket id", example="test_ws"),
+            Query(
+                description="the websocket id",
+                examples={"default": {"value": "test_ws"}},
+            ),
         ],
     ) -> str:
         return ws_id.strip()
 
     @staticmethod
     def param_ws_id_optional(
-        ws_id: Annotated[str, Query(description="the websocket id. if not set, will broadcasting of the result will happen on all connected websockets.", example="test_ws")] = None,
+        ws_id: Annotated[
+            str,
+            Query(
+                description="the websocket id. if not set, will broadcasting of the result will happen on all connected websockets.",
+                examples={"default": {"value": "test_ws"}},
+            ),
+        ] = None,
     ) -> str:
         return ws_id.strip() if ws_id else None
 
@@ -188,7 +197,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
             str,
             Query(
                 description="id of a usergroup in the collab database.",
-                example=ADMINISTRATORS_GROUP_ID,
+                examples={"default": {"value": ADMINISTRATORS_GROUP_ID}},
             ),
         ],
     ) -> str:
@@ -196,7 +205,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
 
     _OBJ_ID_QUERY_PARAM = Query(
         description="the object id",
-        example="obj_id",
+        examples={"default": {"value": "obj_id"}},
     )
 
     @staticmethod
@@ -216,7 +225,7 @@ if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresp
 
     _USER_ID_QUERY_PARAM = Query(
         description="id of an user in the collab database.",
-        example="admin",
+        examples={"default": {"value": "admin"}},
     )
 
     @staticmethod
@@ -246,7 +255,7 @@ the user password.
 
 - 8-64 characters, at least one uppercase, one lowercase, one number, one special character.
 """,
-        example="Password1!",
+        examples={"default": {"value": "Password1!"}},
     )
 
     @staticmethod
@@ -290,7 +299,7 @@ one or more user/group permission.
 - ingest: ingest data.
 - **admin: every permission.**
 """,
-        example='["read","edit"]',
+        examples=[["read", "edit"]],
     )
 
     @staticmethod
@@ -316,7 +325,10 @@ one or more user/group permission.
     ) -> list[GulpUserPermission]:
         return permission or None
 
-    _EMAIL_QUERY_PARAM = Query(description="the user email.", example="user@mail.com")
+    _EMAIL_QUERY_PARAM = Query(
+        description="the user email.",
+        examples={"default": {"value": "user@mail.com"}},
+    )
 
     @staticmethod
     def param_email_optional(
@@ -361,13 +373,16 @@ id of a request, will be replicated in the response `req_id`.
 
 - leave empty to autogenerate.
 """,
-                example="test_req",
+                examples={"default": {"value": "test_req"}},
             ),
         ] = None,
     ) -> str:
         return req_id.lower().strip() if req_id else muty.string.generate_unique()
 
-    _NAME_QUERY_PARAM = Query(description="the object name", example="my object")
+    _NAME_QUERY_PARAM = Query(
+        description="the object name",
+        examples={"default": {"value": "my object"}},
+    )
 
     @staticmethod
     def param_name(
@@ -400,7 +415,7 @@ id of a request, will be replicated in the response `req_id`.
             Body(
                 description="to filter objects on the collab database.",
             ),
-        ] = None
+        ] = None,
     ) -> GulpCollabFilter:
         if not flt:
             raise RequestValidationError(
@@ -482,7 +497,9 @@ additional parameters for querying, including:
                 description="""
 id of a `GulpContext` object on the collab database.
 """,
-                example="66d98ed55d92b6b7382ffc77df70eda37a6efaa1",
+                examples={
+                    "default": {"value": "66d98ed55d92b6b7382ffc77df70eda37a6efaa1"}
+                },
             ),
         ],
     ) -> str:
@@ -496,7 +513,9 @@ id of a `GulpContext` object on the collab database.
                 description="""
 id of a `GulpSource` object on the collab database.
 """,
-                example="64e7c3a4013ae243aa13151b5449aac884e36081",
+                examples={
+                    "default": {"value": "64e7c3a4013ae243aa13151b5449aac884e36081"}
+                },
             ),
         ],
     ) -> str:
@@ -508,17 +527,15 @@ id of a `GulpSource` object on the collab database.
             str,
             Query(
                 description="internal name (filename without extension) of the plugin to use.",
-                example="win_evtx",
+                examples={"default": {"value": "win_evtx"}},
             ),
         ],
     ) -> str:
         return plugin.strip()
 
-    _PLUGIN_PARAMS_BODY_PARAM = Body(
-        description="""
+    _PLUGIN_PARAMS_BODY_PARAM = Body(description="""
 to customize `mapping` and specific `plugin` parameters.
-"""
-    )
+""")
 
     @staticmethod
     def param_plugin_params(
@@ -551,7 +568,7 @@ to customize `mapping` and specific `plugin` parameters.
 
     _TAGS_BODY_PARAM = Body(
         description="tags to be assigned to the object/s.",
-        example='["tag1","tag2"]',
+        examples=[["tag1", "tag2"]],
     )
 
     @staticmethod
@@ -597,7 +614,7 @@ to customize `mapping` and specific `plugin` parameters.
 
     `dot notation` is supported for nested fields, i.e.: field1.field2, arrayfield[0].field3, and so on ...
     """,
-                example={"host.name": None, "ip.address": "8.8.8.8"},
+                examples=[{"host.name": None, "ip.address": "8.8.8.8"}],
             ),
         ],
     ) -> dict:
@@ -631,7 +648,7 @@ to customize `mapping` and specific `plugin` parameters.
             str,
             Query(
                 description="the color in #rrggbb or css-name format.",
-                example="#ff0000",
+                examples={"default": {"value": "#ff0000"}},
             ),
         ] = None,
     ) -> str:

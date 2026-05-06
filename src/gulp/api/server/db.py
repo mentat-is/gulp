@@ -323,7 +323,7 @@ async def opensearch_rebase_by_query_handler(
     offset_msec: Annotated[
         int,
         Query(
-            example=3600000,
+            examples={"default":{"value":3600000}},            
             description="""offset in milliseconds to add to document `@timestamp` and `gulp.timestamp`.
 
 - to subtract, use a negative offset.
@@ -432,7 +432,7 @@ async def opensearch_delete_index_handler(
         str,
         Query(
             description="the OpenSearch index (usually equal to `operation_id`)",
-            example="test_operation",
+            examples={"default":{"value":"test_operation"}},            
         ),
     ],
     delete_operation: Annotated[
@@ -591,7 +591,7 @@ async def opensearch_refresh_index_handler(
         str,
         Query(
             description="the OpenSearch index (usually equal to `operation_id`)",
-            example="test_operation",
+            examples={"default":{"value":"test_operation"}},            
         ),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
