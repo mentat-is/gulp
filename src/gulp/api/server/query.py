@@ -845,7 +845,7 @@ async def process_queries(
         raise
 
 
-async def _preview_query(
+async def _query_raw_sync(
     sess: AsyncSession,
     q: Any,
     q_options: GulpQueryParameters,
@@ -863,14 +863,17 @@ async def _preview_query(
     """
     q_options.loop = False
     q_options.fields = "*"
-    q_options.limit = GulpConfig.get_instance().preview_mode_num_docs()
-    MutyLogger.get_instance().debug("running preview query %s" % (q))
-
+    if q_options.preview_mode:
+        q_options.limit = GulpConfig.get_instance().preview_mode_num_docs()
+        MutyLogger.get_instance().debug("running preview query %s" % (q))
+    else:
+        MutyLogger.get_instance().debug("running sync raw query %s" % (q))
     mod: GulpPluginBase = None
     total_hits: int = 0
     docs: list[dict] = []
 
     if plugin:
+
         # this is an external query, load plugin
         try:
             mod = await GulpPluginBase.load(plugin)
@@ -881,7 +884,7 @@ async def _preview_query(
                 user_id=None,
                 req_id=None,
                 ws_id=None,
-                operation_id="preview",
+                operation_id="preview" if q_options.preview_mode else "query_sync_raw",
                 q=q,
                 index=None,
                 plugin_params=plugin_params,
@@ -1107,7 +1110,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
             user_id = s.user.id
             if q_options.preview_mode:
                 # preview mode, run the first query and return sync
-                total_hits, docs = await _preview_query(
+                total_hits, docs = await _query_raw_sync(
                     sess,
                     q[0],
                     q_options,
@@ -1158,6 +1161,84 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.post(
+    "/query_raw_paginate",
+    response_model=JSendResponse,
+    tags=["query"],
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "default": {
+                            "value": {
+                                "status": "success",
+                                "timestamp_msec": 1704380570434,
+                                "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
+                                "data": {
+                                    "total_hits": 1234,
+                                    "docs": [
+                                        muty.pydantic.autogenerate_model_example_by_class(
+                                            GulpDocument
+                                        )
+                                    ],
+                                },
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="Advanced query.",
+)
+async def query_raw_paginate_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    q: Annotated[
+        dict,
+        Body(
+            description="""
+one query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
+""",
+            examples=[EXAMPLE_QUERY_RAW, {"query": {"match_all": {}}}],
+        ),
+    ],
+    q_options: Annotated[
+        GulpQueryParameters,
+        Body(),
+    ],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["q_options"] = q_options.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            # get operation and check acl
+            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+            _ = await GulpUserSession.check_token(sess, token, obj=op)
+
+            total_hits, docs = await _query_raw_sync(
+                sess,
+                q,
+                q_options,
+                index=op.index,
+            )
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={
+                        "total_hits": total_hits,
+                        "docs": docs,
+                    },
+                )
+            )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -1247,7 +1328,7 @@ async def query_gulp_handler(
             q: dict = flt.to_opensearch_dsl()
             if q_options.preview_mode:
                 # preview mode, run the query and return the data
-                total_hits, docs = await _preview_query(
+                total_hits, docs = await _query_raw_sync(
                     sess,
                     q=q,
                     q_options=q_options,
@@ -1392,7 +1473,7 @@ async def query_external_handler(
             index = op.index
             if q_options.preview_mode:
                 # preview, query and return synchronously
-                total_hits, docs = await _preview_query(
+                total_hits, docs = await _query_raw_sync(
                     sess,
                     q,
                     q_options,
@@ -1585,7 +1666,7 @@ async def query_sigma_handler(
 
             if q_options.preview_mode:
                 # preview mode, return sync
-                total_hits, docs = await _preview_query(
+                total_hits, docs = await _query_raw_sync(
                     sess, queries[0].q, q_options, index=op.index
                 )
                 return JSONResponse(
