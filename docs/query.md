@@ -1,10 +1,11 @@
 - [querying gulp](#querying-gulp)
   - [overview](#overview)
+  - [queuing and preview behavior](#queuing-and-preview-behavior)
   - [debugging query issues](#debugging-query-issues)
 
 # querying gulp
 
-this section documents the main query endpoints of the Gulp REST API: `query_gulp`, `query_raw`, `query_sigma`, and `query_external`. 
+this section documents the main query endpoints of the Gulp REST API: `query_gulp`, `query_raw`, `query_sigma`, and `query_external`.
 
 these endpoints provide flexible and powerful ways to query data in Gulp, leveraging OpenSearch as the backend.
 
@@ -44,6 +45,8 @@ understanding their relationships and the underlying query mechanics is essentia
     ]
     ```
 
+- **`query_raw_paginate`**: similar to `query_raw` but `synchronous` and with simple pagination using `limit` and `offset` parameters: useful for advanced users who want to issue paginated queries and directly get the results without the overhead of background processing.
+  
 - **`query_sigma`**: accepts [Sigma rules](https://github.com/SigmaHQ/sigma), translates them to OpenSearch queries, and executes them: useful for threat detection and security analytics.
 
 - **`query_external`**: for querying external sources via plugins: relies on plugin-specific logic to query the external source (i.e. a SIEM) using its specific DSL/API.
