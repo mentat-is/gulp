@@ -1284,7 +1284,7 @@ class GulpOpenSearch:
             )
 
         if GulpConfig.get_instance().prometheus_enabled():
-            # update Prometheus counters        
+            # update Prometheus counters
             try:
                 GulpMetrics.opensearch_bulk_docs_total.inc(len(ingested_docs))
                 if failed:
@@ -1434,7 +1434,7 @@ class GulpOpenSearch:
             if not hits:
                 # finished
                 last = True
-                num_updated = 0 # avoid readding the last chunk if we already updated it in the previous iteration
+                num_updated = 0  # avoid readding the last chunk if we already updated it in the previous iteration
             else:
                 # call update_by_query on the doc_ids chunk
                 total_hits = res["hits"]["total"]["value"]
@@ -1712,10 +1712,8 @@ class GulpOpenSearch:
                     "aggs": aggregations,
                 }
             }
-            MutyLogger.get_instance().debug(
-                f"aggregations with group_by={group_by}: {
-                    orjson.dumps(aggregations, option=orjson.OPT_INDENT_2).decode()}"
-            )
+            MutyLogger.get_instance().debug(f"aggregations with group_by={group_by}: {
+                    orjson.dumps(aggregations, option=orjson.OPT_INDENT_2).decode()}")
 
         q = flt.to_opensearch_dsl()
         MutyLogger.get_instance().debug(
@@ -1975,10 +1973,8 @@ class GulpOpenSearch:
             js["_id"] = res["_id"]
             return js
         except KeyError as ex:
-            raise ObjectNotFound(
-                f'document with ID "{doc_id}" not found in datastream={
-                    datastream} index={index}'
-            ) from ex
+            raise ObjectNotFound(f'document with ID "{doc_id}" not found in datastream={
+                    datastream} index={index}') from ex
 
     async def _search_dsl_internal(
         self,
@@ -2055,6 +2051,7 @@ class GulpOpenSearch:
                             sort=options["sort"],
                             size=options["size"],
                             search_after=options["search_after"],
+                            from_=options["from"],
                             source=options["_source"],
                             highlight=options.get("highlight", None),
                             timeout=timeout if timeout else None,

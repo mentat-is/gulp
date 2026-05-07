@@ -367,7 +367,7 @@ class GulpDocument(GulpBasicDocument):
         )
         """if ts.startswith("3300"):
             MutyLogger.get_instance().error("ts=%s, ts_nanos=%s, invalid=%s, timestamp=%s, data=%s" % (ts, ts_nanos, invalid, timestamp, data))"""
-            
+
         data["timestamp"] = ts
         data["gulp_timestamp"] = ts_nanos
         if invalid or ts_nanos == 0:
@@ -548,8 +548,7 @@ the set of fields to include in the returned documents.
 
 - for `external` queries, the plugin should ignore this and always return all fields
 - default=`%s`, use `*` to return all fields.
-"""
-            % (QUERY_DEFAULT_FIELDS),
+""" % (QUERY_DEFAULT_FIELDS),
         ),
     ] = None
     ensure_default_fields: Annotated[
@@ -570,9 +569,16 @@ if set and `fields` is set, ensure the default fields (%s) are included in the r
             description="""
 for pagination, the maximum number of documents to return **per chunk**, default=1000 (None=return up to 10000 documents per chunk).
 
-- for `external` queries, its the plugin responsibility to handle this.""",
+- for `external` queries, its the plugin responsibility to handle this.
+- can be used both for pagination through `search_after` or `offset`,depending on the api used""",
         ),
     ] = 1000
+    offset: Annotated[
+        int,
+        Field(
+            description="""used only for "query_raw_paginate" endpoint, ignored elsewhere: This is the offset to start pagination from, returning up to `limit` documents. Ingored if `search_after` is set """
+        ),
+    ] = None
     total_limit: Annotated[
         int,
         Field(
@@ -588,9 +594,10 @@ NOTE: as documents are returned in chunk of `limit` size, total is intended as a
         Field(
             description="""
 for pagination, this should be set to the `search_after` returned by the previous call.
-
 - check [OpenSearch documentation](https://opensearch.org/docs/latest/search-plugins/searching-data/paginate/#the-search_after-parameter).
 - for `external` queries, this may not be supported (loop handling is responsibility of the plugin).
+
+Ignored if `offset` is set.
 """,
         ),
     ] = None
@@ -690,13 +697,13 @@ if set, highlights are included in the results (default=False).
 
         for k, v in sort.items():
             n["sort"].append({k: {"order": v}})
-            # NOTE: test with VERY VERY large datasets (5M+), and consider to remove "_doc" here this since it may not be needed after all.... event.sequence should be enough.
             if "_doc" not in sort:
                 # make sure document order is always sorted, use _doc instead of _id for less overhead (CircuitBreakingException error from opensearch)
                 n["sort"].append({"_doc": {"order": v}})
-            if "event.sequence" not in sort:
-                # make sure event.sequence is always sorted
-                n["sort"].append({"event.sequence": {"order": v}})
+            # TODO: execute testwinevtx
+            # if "event.sequence" not in sort:
+            #     # make sure event.sequence is always sorted
+            #     n["sort"].append({"event.sequence": {"order": v}})
 
         # fields to be returned
         if not self.fields:
@@ -724,10 +731,15 @@ if set, highlights are included in the results (default=False).
             n["size"] = self.total_limit
 
         # pagination: start from
+        n["search_after"] = None
+        n["from"] = None
         if self.search_after:
             # next chunk from this point
             n["search_after"] = self.search_after
-
+            n["from"] = None
+        elif self.offset:
+            n["from"] = self.offset
+            n["search_after"] = None
         # wether to highlight results for the query (warning: may take a lot of memory)
         if self.highlight_results:
             n["highlight"] = {"fields": {"*": {}}}
