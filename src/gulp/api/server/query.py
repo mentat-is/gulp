@@ -1195,7 +1195,12 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
             }
         }
     },
-    summary="Advanced query.",
+    summary="Issues a synchronous raw query with simple pagination support.",
+    description="""
+query Gulp with a raw OpenSearch DSL query, with simple pagination support (no `search_after`) and direct response (no websocket, no background task).
+- `q` must be one query with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
+- `q_options` must include `limit` (how many documents to return per call) and `offset` (return documents from the nth document) parameters for pagination.
+""",
 )
 async def query_raw_paginate_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -1219,6 +1224,12 @@ one query according to the [OpenSearch DSL specifications](https://opensearch.or
     params["q_options"] = q_options.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
     try:
+        if not q_options.limit or q_options.offset is None or q_options.search_after:
+            # those are mandatory here
+            raise ValueError(
+                "q_options must include 'limit' and 'offset' for pagination, and must not include 'search_after'"
+            )
+
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
             op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
