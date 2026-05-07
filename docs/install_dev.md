@@ -61,7 +61,7 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
 This depends on your OS, on EndeavourOS(arch):
 
 ~~~bash
-# tested with python 3.12 and 3.13, 3.14 is currently not supported because some dependencies have not yet released compatible versions.
+# tested with python 3.13, 3.14, should work with 3.12 but not tested extensively
 sudo pacman -S rust python=3.13 python-virtualenv docker docker-compose docker-buildx jq libpqxx git-lfs github-cli
 
 # setup github cli client

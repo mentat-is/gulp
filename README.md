@@ -44,7 +44,6 @@ Gulp is a powerful software tool designed to streamline incident response and an
     <div class="slide" id="slide-3"><img src="screenshot-3.png" alt="screenshot 3"></div>
   </div>
 
-
 - **Scalable**: Gulp is designed with scalability in mind. As your data and team grow, you can simply add more gulp nodes, more cores to increase parallel ingestion and query capabilities, more OpenSearch and PostgreSQL nodes. This makes Gulp a flexible solution that can adapt to your evolving needs!
 - **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
 
@@ -69,7 +68,7 @@ gulp can be of course [integrated with other applications](./docs/integration.md
 
 install our pypi package and run the necessary services via the example [docker-compose](./docker-compose.yml) and you should be good to go with the backend:
 
-> **WARNING**: pip installation works only with python3.13 (tested) and 3.12, 3.14 is currently not supported because some dependencies have not yet released compatible versions.
+> **WARNING**: gulp has been tested extensiely with python3.13, 3.14 is also working and will be the next recommended version after some more testing (but seems ok). it should work with python3.12 too, but was rarely tested and not recommended.
 
 ~~~bash
 set -e
@@ -99,7 +98,7 @@ for advanced deployment, always check the following:
 - [installing extra plugins](./docs/install_dev.md#7-optional-installing-extra-plugins)
 
 > pypi/docker registry versions may be outdated... to use the bleeding edge version of gulp, install from sources and use the 'develop' branches.
- 
+
 ### clients
 
 [gulp web ui](https://github.com/mentat-is/gulpui-web)
@@ -178,7 +177,7 @@ to use SSL, the following configuration options and files variables may be provi
 - certificate files
   - `$GULP_WORKING_DIR/certs/opensearch-ca.pem`: CA certificate for Gulp to connect to the Opensearch server
   - `$GULP_WORKING_DIR/certs/opensearch.pem`: client certificate for Gulp to connect to the Opensearch server
-  - `$GULP_WORKING_DIR/certs/opensearch.key`: ***passwordless*** client certificate key
+  - `$GULP_WORKING_DIR/certs/opensearch.key`: _**passwordless**_ client certificate key
 
 #### PostgreSQL
 
