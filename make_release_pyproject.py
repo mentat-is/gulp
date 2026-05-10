@@ -47,9 +47,9 @@ def get_installed_versions() -> dict[str, str]:
         if m:
             pkg = m.group(1).strip()
             ver = m.group(2).strip()
-            # Strip extras for lookup key
-            pkg_key = re.split(r"[\[;]", pkg)[0].strip().lower()
-            versions[pkg_key] = ver
+            # Strip extras for lookup key and normalize package names for consistent matching.
+            pkg_key = re.split(r"[\[;]", pkg)[0].strip()
+            versions[normalize_pkg_name(pkg_key)] = ver
     return versions
 
 
