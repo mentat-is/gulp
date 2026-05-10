@@ -852,7 +852,9 @@ class GulpOpenSearch:
             if not exists and throw_on_error:
                 raise ObjectNotFound("datastream %s does not exist", ds)
 
-            res = await self._opensearch.indices.delete_data_stream(name=ds, headers=headers)
+            res = await self._opensearch.indices.delete_data_stream(
+                name=ds, headers=headers
+            )
             MutyLogger.get_instance().debug('deleted datastream "%s", res=%s', ds, res)
             try:
                 # delete index too
@@ -951,7 +953,9 @@ class GulpOpenSearch:
         try:
             # create datastream
             headers = {"accept": "application/json", "content-type": "application/json"}
-            r = await self._opensearch.indices.create_data_stream(name=ds, headers=headers)
+            r = await self._opensearch.indices.create_data_stream(
+                name=ds, headers=headers
+            )
             MutyLogger.get_instance().debug(
                 "datastream_create, datastream created: %s", r
             )
@@ -1000,7 +1004,9 @@ class GulpOpenSearch:
 
             # create datastream
             headers = {"accept": "application/json", "content-type": "application/json"}
-            r = await self._opensearch.indices.create_data_stream(name=ds, headers=headers)
+            r = await self._opensearch.indices.create_data_stream(
+                name=ds, headers=headers
+            )
             MutyLogger.get_instance().debug(
                 "datastream_create_from_raw_dict, datastream created: %s", r
             )
@@ -1347,8 +1353,8 @@ class GulpOpenSearch:
         offset_msec: int,
         req_id: str,
         flt: GulpQueryFilter = None,
-        script: str = None,
         callback: GulpProgressCallback = None,
+        fields: list[str] = None,
         **kwargs,
     ) -> tuple[int, int, list[str]]:
         """
@@ -1362,8 +1368,8 @@ class GulpOpenSearch:
             offset_msec (int): The offset in milliseconds to apply to timestamps.
             req_id (str): id of the request
             flt (GulpQueryFilter, optional): to filter the documents to rebase. Defaults to None (all documents).
-            script (str, optional): A [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html) to customize the update. Defaults to None (use the default script which just updates @timestamp and gulp.timestamp).
             callback (GulpProgressCallback, optional): A callback function called at every processed chunk. Defaults to None.
+            fields (list[str], optional): list of fields to rebase other than `@timestamp` and `gulp.timestamp` (only `date` and integer/long fields are supported; integer/long values are treated as epoch timestamps and the script heuristically infers seconds, milliseconds, microseconds, or nanoseconds). Defaults to None (only rebase `@timestamp` and `gulp.timestamp`).
             **kwargs: Additional keyword arguments to pass to the callback.
         Returns:
             tuple:
@@ -1377,17 +1383,91 @@ class GulpOpenSearch:
         # convert offset to nanoseconds
         offset_nsec = offset_msec * muty.time.MILLISECONDS_TO_NANOSECONDS
 
-        if not script:
-            # default painless script to update gulp.timestamp and @timestamp
-            script = """
-                if (ctx._source['@timestamp'] != null && ctx._source['@timestamp'] != '0') {
-                    ZonedDateTime ts = ZonedDateTime.parse(ctx._source['@timestamp']);
-                    DateTimeFormatter fmt = DateTimeFormatter.ofPattern('yyyy-MM-dd\\'T\\'HH:mm:ss.nnnnnnnnnX');
-                    ZonedDateTime new_ts = ts.plusNanos(params.offset_nsec);
-                    ctx._source['@timestamp'] = new_ts.format(fmt);
-                    ctx._source['gulp.timestamp'] += params.offset_nsec;
-                }
+        numeric_field_types = {
+            "integer",
+            "long",
+        }
+        extra_date_fields: list[str] = []
+        extra_numeric_fields: list[str] = []
+        extra_fields_script = ""
+
+        if fields:
+            # handle the given extra fields
+            mapping = await self.datastream_get_field_types(index)
+            invalid_fields: list[str] = []
+            seen_fields: set[str] = set()
+            for field in fields:
+                if field in seen_fields:
+                    continue
+                seen_fields.add(field)
+
+                # these are already handled by the default script
+                if field in ["@timestamp", "gulp.timestamp"]:
+                    continue
+
+                field_type = mapping.get(field)
+                if field_type == "date":
+                    extra_date_fields.append(field)
+                    continue
+
+                if field_type in numeric_field_types:
+                    extra_numeric_fields.append(field)
+                    continue
+
+                if field_type is None:
+                    invalid_fields.append(f"{field} (missing)")
+                else:
+                    invalid_fields.append(f"{field} ({field_type})")
+
+            if invalid_fields:
+                raise ValueError(
+                    "opensearch_rebase_by_query: fields must be mapped as date or integer/long: "
+                    + ", ".join(invalid_fields)
+                )
+
+        for field in extra_date_fields:
+            escaped_field = field.replace("\\", "\\\\").replace("'", "\\'")
+            extra_fields_script += f"""
+            if (ctx._source['{escaped_field}'] != null && ctx._source['{escaped_field}'] != '0') {{
+                ZonedDateTime ts_field = ZonedDateTime.parse(ctx._source['{escaped_field}']);
+                ZonedDateTime new_ts_field = ts_field.plusNanos(params.offset_nsec);
+                ctx._source['{escaped_field}'] = new_ts_field.format(fmt);
+            }}
             """
+
+        for field in extra_numeric_fields:
+            escaped_field = field.replace("\\", "\\\\").replace("'", "\\'")
+            extra_fields_script += f"""
+            if (ctx._source['{escaped_field}'] != null && ctx._source['{escaped_field}'] != 0) {{
+                long value = ((Number)ctx._source['{escaped_field}']).longValue();
+                long abs_value = Math.abs(value);
+                long unit = 1L;
+                if (abs_value < 100000000000L) {{
+                    unit = 1000000000L;
+                }} else if (abs_value < 100000000000000L) {{
+                    unit = 1000000L;
+                }} else if (abs_value < 100000000000000000L) {{
+                    unit = 1000L;
+                }}
+                long rebased = (value * unit) + params.offset_nsec;
+                ctx._source['{escaped_field}'] = Math.round((double)rebased / (double)unit);
+            }}
+            """
+
+        # default painless script to update gulp.timestamp and @timestamp
+        script = """
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern('yyyy-MM-dd\\'T\\'HH:mm:ss.SSSSSSSSSX');
+
+            if (ctx._source['@timestamp'] != null && ctx._source['@timestamp'] != '0') {
+                ZonedDateTime ts = ZonedDateTime.parse(ctx._source['@timestamp']);
+                ZonedDateTime new_ts = ts.plusNanos(params.offset_nsec);
+                ctx._source['@timestamp'] = new_ts.format(fmt);
+                ctx._source['gulp.timestamp'] += params.offset_nsec;
+            }
+        """
+        if extra_fields_script:
+            # add the extra part
+            script += extra_fields_script
 
         # build base query
         if flt:
@@ -1425,6 +1505,12 @@ class GulpOpenSearch:
             "query": base_query,
             "sort": ["_doc"],
         }
+        MutyLogger.get_instance().debug(
+            "starting rebase by query: index=%s, query=%s, offset_msec=%d ...",
+            index,
+            base_query,
+            offset_msec,
+        )
         while True:
             # search for up to batch_size docs matching the filter
             res = await self._opensearch.search(

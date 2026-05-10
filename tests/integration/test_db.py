@@ -9,6 +9,7 @@ Run with:
 """
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import uuid
 
@@ -35,7 +36,9 @@ async def _wait_request_done(client, req_id: str, timeout: float = 180.0) -> dic
         await asyncio.sleep(1.0)
 
 
-async def _delete_operation_with_retry(client, operation_id: str, timeout: float = 30.0) -> None:
+async def _delete_operation_with_retry(
+    client, operation_id: str, timeout: float = 30.0
+) -> None:
     """Delete operation tolerating transient running-request state."""
     try:
         await client.plugins.request_delete(operation_id)
@@ -55,6 +58,33 @@ async def _delete_operation_with_retry(client, operation_id: str, timeout: float
             await asyncio.sleep(1.0)
     if last_exc:
         raise last_exc
+
+
+def _parse_utc_timestamp(value: str) -> datetime:
+    """Parse a UTC ISO8601 timestamp emitted by Gulp/OpenSearch into a datetime."""
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+
+    if "." in normalized:
+        head, tail = normalized.split(".", 1)
+        if "+" in tail:
+            fraction, tz = tail.split("+", 1)
+            normalized = f"{head}.{fraction[:6].ljust(6, '0')}+{tz}"
+        elif "-" in tail:
+            fraction, tz = tail.split("-", 1)
+            normalized = f"{head}.{fraction[:6].ljust(6, '0')}-{tz}"
+
+    return datetime.fromisoformat(normalized).astimezone(timezone.utc)
+
+
+async def _query_doc_by_id(client, operation_id: str, doc_id: str) -> dict:
+    """Fetch a single preview document by OpenSearch _id."""
+    result = await client.queries.query_single_id(
+        operation_id=operation_id,
+        doc_id=doc_id,
+    )
+    return result
 
 
 @pytest.mark.integration
@@ -93,9 +123,14 @@ async def test_refresh_index(gulp_base_url, gulp_test_user, gulp_test_password):
 
 
 @pytest.mark.integration
-async def test_rebase_by_query_optional(gulp_base_url, gulp_test_user, gulp_test_password):
+async def test_rebase_by_query_optional(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
     """rebase_by_query should be callable after a small ingest (optional by server config)."""
     from gulp_sdk import GulpClient, GulpSDKError
+
+    one_day_msec = 24 * 60 * 60 * 1000
+    one_day_nsec = one_day_msec * 1_000_000
 
     sample_path = Path("/gulp/samples/win_evtx/Security_short_selected.evtx")
     if not sample_path.exists():
@@ -114,11 +149,24 @@ async def test_rebase_by_query_optional(gulp_base_url, gulp_test_user, gulp_test
             assert ingest.req_id
             await _wait_request_done(client, ingest.req_id)
 
+            # get first document's original timestamps for later verification
+            results = await client.queries.query_raw(
+                operation_id=op.id,
+                q=[{"query": {"match_all": {}}}],
+                q_options={"preview_mode": True},
+            )
+            original_doc = results["data"]["docs"][0]
+            original_timestamp = original_doc["@timestamp"]
+            target_doc_id = original_doc["_id"]
+            # expected rebased @timestamp is original + 1 day
+            original_gulp_timestamp = int(original_doc["gulp.timestamp"])
+            expected_rebased_gulp_timestamp = original_gulp_timestamp + one_day_nsec
+
             try:
                 result = await client.db.rebase_by_query(
                     operation_id=op.id,
                     ws_id=client.ws_id,
-                    offset_msec=1,
+                    offset_msec=one_day_msec,
                     flt={"operation_ids": [op.id]},
                     wait=True,
                     timeout=300,
@@ -126,8 +174,23 @@ async def test_rebase_by_query_optional(gulp_base_url, gulp_test_user, gulp_test
                 assert isinstance(result, dict)
                 assert str(result.get("status", "")).lower() == "done"
                 assert int(result.get("data", {}).get("updated", 0)) == 7
+
+                rebased_doc = await client.queries.query_single_id(
+                    operation_id=op.id,
+                    doc_id=target_doc_id,
+                )
+                assert rebased_doc["_id"] == target_doc_id
+                assert (
+                    int(rebased_doc["gulp.timestamp"])
+                    == expected_rebased_gulp_timestamp
+                )
+                assert _parse_utc_timestamp(rebased_doc["@timestamp"]) == (
+                    _parse_utc_timestamp(original_timestamp) + timedelta(days=1)
+                )
             except GulpSDKError as exc:
-                pytest.skip(f"db.rebase_by_query unavailable in current server config: {exc}")
+                pytest.skip(
+                    f"db.rebase_by_query unavailable in current server config: {exc}"
+                )
         finally:
             await _delete_operation_with_retry(client, op.id)
 

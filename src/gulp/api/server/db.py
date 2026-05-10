@@ -135,7 +135,7 @@ async def run_rebase_task(t: dict) -> None:
             "index": <str>,
             "offset_msec": <int>,
             "flt": <dict|null>,
-            "script": <str|null>
+            "fields": <list[str]|null>
          }
       }
 
@@ -147,13 +147,13 @@ async def run_rebase_task(t: dict) -> None:
         params: dict = t.get("params", {})
         user_id: str = t.get("user_id")
         req_id: str = t.get("req_id")
+        fields: list[str] = params.get("fields")
         operation_id: str = t.get("operation_id")
         ws_id: str = t.get("ws_id")
 
         index = params.get("index")
         offset_msec = params.get("offset_msec")
         flt = params.get("flt")
-        script = params.get("script")
 
         # rebuild filter model if provided
         from gulp.api.opensearch.filters import GulpQueryFilter
@@ -177,7 +177,7 @@ async def run_rebase_task(t: dict) -> None:
             index,
             offset_msec,
             flt_model,
-            script,
+            fields,
             task_name=f"rebase_{req_id}",
         )
 
@@ -194,7 +194,7 @@ async def _rebase_by_query_internal(
     index: str,
     offset_msec: int,
     flt: GulpQueryFilter,
-    script: str,
+    fields: list[str]
 ):
     """
     runs in a worker process to rebase the index using update_by_query.
@@ -237,8 +237,8 @@ async def _rebase_by_query_internal(
                     offset_msec,
                     req_id,
                     flt=flt,
-                    script=script,
                     callback=_rebase_callback,
+                    fields=fields,
                     cb_context=cb_context,
                 )
             except Exception as ex:
@@ -324,40 +324,20 @@ async def opensearch_rebase_by_query_handler(
         int,
         Query(
             examples={"default":{"value":3600000}},            
-            description="""offset in milliseconds to add to document `@timestamp` and `gulp.timestamp`.
+            description="""offset in milliseconds to add to document `@timestamp`, `gulp.timestamp` and `fields`.
 
 - to subtract, use a negative offset.
 """,
         ),
     ],
-    script: Annotated[
-        str,
-        Body(
-            description="""
-optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/painless/current/painless-guide.html) rebase script to run on the documents.
-
-- the default script rebases `@timestamp` and `gulp.timestamp` and is implemented in `gulp/api/opensearch_api::rebase_by_query`.
-"""
-        ),
-    ] = None,
+    fields: Annotated[list[str], 
+                    Body(description="""optional list of extra fields to rebase other than `@timestamp` and `gulp.timestamp`.
+                        - they must be of `date`, `integer` or `long` type.
+                        - integer/long values are treated as epoch timestamps and the the conversion code heuristically infers seconds, milliseconds, microseconds, or nanoseconds before applying the offset.
+                        - if not provided, only `@timestamp` and `gulp.timestamp` are rebased
+                        """)]=None,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
-    """
-    rebases documents in-place on the same index using update_by_query, shifting timestamps.
-
-    Args:
-        token (str): API token with ingest permission
-        operation_id (str): operation to rebase
-        offset_msec (int): offset in milliseconds to apply
-        script (str, optional): optional painless script to run on the documents
-        flt (GulpQueryFilter, optional): filter for documents to update
-        ws_id (str, optional): websocket id to send progress updates to
-        req_id (str, optional): request id
-    Returns:
-        JSONResponse: JSend-style response with total_matches, updated, errors
-    Throws:
-        JSendException: on error
-    """
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True, exclude_defaults=True)
     ServerUtils.dump_params(params)
@@ -386,7 +366,7 @@ optional custom [painless script](https://www.elastic.co/guide/en/elasticsearch/
                         if hasattr(flt, "model_dump")
                         else flt
                     ),
-                    "script": script,
+                    "fields": fields,
                 },
             }
             await GulpRedis.get_instance().task_enqueue(task_msg)
