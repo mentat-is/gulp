@@ -121,7 +121,9 @@ class Plugin(GulpPluginBase):
         r"^[A-Z0-9._-]+\s+(LOGIN|SELECT|EXAMINE|FETCH|STORE|SEARCH|LOGOUT|CAPABILITY|STARTTLS|APPEND|IDLE)\b",
         re.IGNORECASE,
     )
-    IMAP_RESPONSE_RE = re.compile(r"^(\*|[A-Z0-9._-]+)\s+(OK|NO|BAD|BYE)\b", re.IGNORECASE)
+    IMAP_RESPONSE_RE = re.compile(
+        r"^(\*|[A-Z0-9._-]+)\s+(OK|NO|BAD|BYE)\b", re.IGNORECASE
+    )
     SIP_REQUEST_RE = re.compile(
         r"^(INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS|MESSAGE|SUBSCRIBE|NOTIFY|INFO|PRACK|UPDATE|REFER)\s+sip:",
         re.IGNORECASE,
@@ -179,7 +181,7 @@ class Plugin(GulpPluginBase):
         """
         if not data:
             return False
-        printable_count = len(data) - len(data.translate(None, Plugin._NON_PRINTABLE_BYTES))
+        printable_count = len(data.translate(None, Plugin._NON_PRINTABLE_BYTES))
         return (printable_count / len(data)) >= Plugin.TEXT_PRINTABLE_THRESHOLD
 
     def _pkt_to_dict(self, p: Packet) -> dict:
@@ -272,7 +274,9 @@ class Plugin(GulpPluginBase):
             return cls._normalize_layer_name(layer_name)
 
         last_layer = packet.lastlayer()
-        last_layer_name = getattr(last_layer, "name", None) or last_layer.__class__.__name__
+        last_layer_name = (
+            getattr(last_layer, "name", None) or last_layer.__class__.__name__
+        )
         return cls._normalize_layer_name(last_layer_name)
 
     @staticmethod
@@ -319,7 +323,9 @@ class Plugin(GulpPluginBase):
         return f"http://{host}{normalized_path}"
 
     @classmethod
-    def _extract_http_metadata(cls, packet: Packet, payload_text: str) -> tuple[str | None, dict[str, str]]:
+    def _extract_http_metadata(
+        cls, packet: Packet, payload_text: str
+    ) -> tuple[str | None, dict[str, str]]:
         request_layer = packet.getlayer(HTTPRequest)
         response_layer = packet.getlayer(HTTPResponse)
         fields: dict[str, str] = {}
@@ -331,7 +337,9 @@ class Plugin(GulpPluginBase):
             version = cls._normalize_http_version(
                 cls._decode_packet_value(getattr(request_layer, "Http_Version", None))
             )
-            user_agent = cls._decode_packet_value(getattr(request_layer, "User_Agent", None))
+            user_agent = cls._decode_packet_value(
+                getattr(request_layer, "User_Agent", None)
+            )
             url = cls._build_http_url(host, path)
 
             if method:
@@ -351,9 +359,15 @@ class Plugin(GulpPluginBase):
             version = cls._normalize_http_version(
                 cls._decode_packet_value(getattr(response_layer, "Http_Version", None))
             )
-            status_code = cls._decode_packet_value(getattr(response_layer, "Status_Code", None))
-            reason = cls._decode_packet_value(getattr(response_layer, "Reason_Phrase", None))
-            content_type = cls._decode_packet_value(getattr(response_layer, "Content_Type", None))
+            status_code = cls._decode_packet_value(
+                getattr(response_layer, "Status_Code", None)
+            )
+            reason = cls._decode_packet_value(
+                getattr(response_layer, "Reason_Phrase", None)
+            )
+            content_type = cls._decode_packet_value(
+                getattr(response_layer, "Content_Type", None)
+            )
 
             if version:
                 fields["HTTP.response.version"] = version
@@ -428,7 +442,9 @@ class Plugin(GulpPluginBase):
         return None, {}
 
     @classmethod
-    def _extract_dhcp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_dhcp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         if not packet.haslayer(DHCP):
             return None, {}
 
@@ -439,14 +455,18 @@ class Plugin(GulpPluginBase):
                 continue
             option_name, option_value = option[0], option[1]
             if option_name == "message-type":
-                fields["DHCP.message_type"] = cls._decode_packet_value(option_value).lower()
+                fields["DHCP.message_type"] = cls._decode_packet_value(
+                    option_value
+                ).lower()
             elif option_name == "hostname":
                 fields["DHCP.hostname"] = cls._decode_packet_value(option_value)
 
         return "dhcp", fields
 
     @classmethod
-    def _extract_ssh_metadata(cls, packet: Packet, payload_text: str) -> tuple[str | None, dict[str, str]]:
+    def _extract_ssh_metadata(
+        cls, packet: Packet, payload_text: str
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract SSH banner (text) or structured SSH KEX / disconnect metadata."""
         from scapy.layers.ssh import SSH, SSHKexInit, SSHVersionExchange, SSHDisconnect
 
@@ -457,7 +477,11 @@ class Plugin(GulpPluginBase):
                 lines = getattr(ve, "lines", None)
                 if lines:
                     first = lines[0]
-                    banner = first.decode("utf-8", errors="ignore").strip() if isinstance(first, bytes) else str(first).strip()
+                    banner = (
+                        first.decode("utf-8", errors="ignore").strip()
+                        if isinstance(first, bytes)
+                        else str(first).strip()
+                    )
                     if banner:
                         fields["SSH.banner"] = banner
                 return "ssh", fields
@@ -469,7 +493,11 @@ class Plugin(GulpPluginBase):
                     names = getattr(kex, "names", None)
                     if names:
                         fields["SSH.kex_algorithms"] = ",".join(
-                            n.decode("utf-8", errors="ignore") if isinstance(n, bytes) else str(n)
+                            (
+                                n.decode("utf-8", errors="ignore")
+                                if isinstance(n, bytes)
+                                else str(n)
+                            )
                             for n in names[:5]
                         )
                 enc_c2s = getattr(ki, "encryption_algorithms_client_to_server", None)
@@ -477,7 +505,11 @@ class Plugin(GulpPluginBase):
                     names = getattr(enc_c2s, "names", None)
                     if names:
                         fields["SSH.enc_c2s"] = ",".join(
-                            n.decode("utf-8", errors="ignore") if isinstance(n, bytes) else str(n)
+                            (
+                                n.decode("utf-8", errors="ignore")
+                                if isinstance(n, bytes)
+                                else str(n)
+                            )
                             for n in names[:3]
                         )
                 return "ssh", fields
@@ -526,7 +558,11 @@ class Plugin(GulpPluginBase):
         for protocol, command_re, response_re, protocol_ports in configs:
             command_match = command_re.match(first_line)
             response_match = response_re.match(first_line)
-            if not command_match and not response_match and not (ports & protocol_ports):
+            if (
+                not command_match
+                and not response_match
+                and not (ports & protocol_ports)
+            ):
                 continue
 
             fields = {"APP.summary": first_line}
@@ -553,7 +589,9 @@ class Plugin(GulpPluginBase):
             if qd is not None:
                 raw_qname = getattr(qd, "qname", None)
                 if isinstance(raw_qname, bytes):
-                    fields["DNS.qd"] = raw_qname.decode("utf-8", errors="ignore").rstrip(".")
+                    fields["DNS.qd"] = raw_qname.decode(
+                        "utf-8", errors="ignore"
+                    ).rstrip(".")
                 # Record type (A, AAAA, MX, CNAME, SOA, TXT, etc.) via scapy's enum repr
                 qtype_repr = qd.sprintf("%DNSQR.qtype%")
                 if qtype_repr and qtype_repr not in ("0", "RESERVED"):
@@ -579,12 +617,20 @@ class Plugin(GulpPluginBase):
             if ns is not None:
                 raw_rrname = getattr(ns, "rrname", None)
                 if isinstance(raw_rrname, bytes):
-                    clean_rrname = raw_rrname.decode("utf-8", errors="ignore").rstrip(".")
+                    clean_rrname = raw_rrname.decode("utf-8", errors="ignore").rstrip(
+                        "."
+                    )
                     if hasattr(ns, "mname") and isinstance(ns.mname, bytes):
-                        clean_mname = ns.mname.decode("utf-8", errors="ignore").rstrip(".")
-                        fields["DNS.ns"] = f"SOA: {clean_rrname} (Primary NS: {clean_mname})"
+                        clean_mname = ns.mname.decode("utf-8", errors="ignore").rstrip(
+                            "."
+                        )
+                        fields["DNS.ns"] = (
+                            f"SOA: {clean_rrname} (Primary NS: {clean_mname})"
+                        )
                     elif hasattr(ns, "rdata") and isinstance(ns.rdata, bytes):
-                        clean_rdata = ns.rdata.decode("utf-8", errors="ignore").rstrip(".")
+                        clean_rdata = ns.rdata.decode("utf-8", errors="ignore").rstrip(
+                            "."
+                        )
                         fields["DNS.ns"] = f"NS: {clean_rrname} -> {clean_rdata}"
                     else:
                         fields["DNS.ns"] = clean_rrname
@@ -602,7 +648,11 @@ class Plugin(GulpPluginBase):
     @classmethod
     def _extract_tls_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
         """Extract TLS metadata: SNI, client cipher suites, selected cipher, version."""
-        if not (packet.haslayer(TLSClientHello) or packet.haslayer(TLSServerHello) or packet.haslayer("TLS")):
+        if not (
+            packet.haslayer(TLSClientHello)
+            or packet.haslayer(TLSServerHello)
+            or packet.haslayer("TLS")
+        ):
             return None, {}
 
         fields: dict[str, str] = {}
@@ -613,24 +663,29 @@ class Plugin(GulpPluginBase):
                 # SNI from Server Name Indication extension
                 if hasattr(tls_hello, "ext") and tls_hello.ext:
                     for ext in tls_hello.ext:
-                        if isinstance(ext, TLS_Ext_ServerName) and hasattr(ext, "servernames"):
+                        if isinstance(ext, TLS_Ext_ServerName) and hasattr(
+                            ext, "servernames"
+                        ):
                             if ext.servernames:
                                 raw_sni = ext.servernames[0].servername
                                 if isinstance(raw_sni, bytes):
-                                    fields["TLS.sni"] = raw_sni.decode("utf-8", errors="ignore")
+                                    fields["TLS.sni"] = raw_sni.decode(
+                                        "utf-8", errors="ignore"
+                                    )
                                     break
 
                 # Protocol version offered by the client
                 version = getattr(tls_hello, "version", None)
                 if version is not None:
-                    fields["TLS.version"] = cls.TLS_VERSION_NAMES.get(version, f"0x{version:04x}")
+                    fields["TLS.version"] = cls.TLS_VERSION_NAMES.get(
+                        version, f"0x{version:04x}"
+                    )
 
                 # Supported cipher suites (first 5 to keep the field compact)
                 ciphers = getattr(tls_hello, "ciphers", None)
                 if ciphers:
                     suite_names = [
-                        _tls_cipher_suites.get(c, f"0x{c:04x}")
-                        for c in ciphers[:5]
+                        _tls_cipher_suites.get(c, f"0x{c:04x}") for c in ciphers[:5]
                     ]
                     fields["TLS.client.cipher_suites"] = ",".join(suite_names)
 
@@ -640,12 +695,16 @@ class Plugin(GulpPluginBase):
                 # Negotiated version
                 version = getattr(tls_server, "version", None)
                 if version is not None:
-                    fields["TLS.version"] = cls.TLS_VERSION_NAMES.get(version, f"0x{version:04x}")
+                    fields["TLS.version"] = cls.TLS_VERSION_NAMES.get(
+                        version, f"0x{version:04x}"
+                    )
 
                 # Selected cipher suite
                 cipher = getattr(tls_server, "cipher", None)
                 if cipher is not None:
-                    fields["TLS.cipher_suite"] = _tls_cipher_suites.get(cipher, f"0x{cipher:04x}")
+                    fields["TLS.cipher_suite"] = _tls_cipher_suites.get(
+                        cipher, f"0x{cipher:04x}"
+                    )
 
         except Exception as ex:
             MutyLogger.get_instance().warning(f"failed to parse tls layer: {ex}")
@@ -653,7 +712,9 @@ class Plugin(GulpPluginBase):
         return "tls", fields
 
     @classmethod
-    def _extract_icmp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_icmp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract ICMP type name and code."""
         if not packet.haslayer(ICMP):
             return None, {}
@@ -669,7 +730,9 @@ class Plugin(GulpPluginBase):
         return "icmp", fields
 
     @classmethod
-    def _extract_icmpv6_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_icmpv6_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract ICMPv6 type name by detecting the concrete ICMPv6 subclass."""
         for layer_cls in packet.layers():
             inst = packet.getlayer(layer_cls)
@@ -698,9 +761,13 @@ class Plugin(GulpPluginBase):
         return "arp", fields
 
     @classmethod
-    def _extract_snmp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_snmp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract SNMP version, community string, and PDU type."""
-        from scapy.layers.snmp import SNMP as SNMPLayer  # lazy import to keep startup clean
+        from scapy.layers.snmp import (
+            SNMP as SNMPLayer,
+        )  # lazy import to keep startup clean
 
         if not packet.haslayer(SNMPLayer):
             return None, {}
@@ -772,7 +839,9 @@ class Plugin(GulpPluginBase):
         return "gre", fields
 
     @classmethod
-    def _extract_vxlan_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_vxlan_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract VXLAN Network Identifier (VNI)."""
         if not packet.haslayer("VXLAN"):
             return None, {}
@@ -788,7 +857,9 @@ class Plugin(GulpPluginBase):
         return "vxlan", fields
 
     @classmethod
-    def _extract_sctp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_sctp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract SCTP source/destination ports."""
         if not packet.haslayer("SCTP"):
             return None, {}
@@ -807,7 +878,9 @@ class Plugin(GulpPluginBase):
         return "sctp", fields
 
     @classmethod
-    def _extract_radius_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_radius_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract RADIUS code (Access-Request / Accept / Reject) and optional username attribute."""
         from scapy.layers.radius import Radius, RadiusAttr_User_Name  # lazy import
 
@@ -826,7 +899,9 @@ class Plugin(GulpPluginBase):
                 if isinstance(attr, RadiusAttr_User_Name):
                     raw_val = getattr(attr, "value", None)
                     if isinstance(raw_val, bytes) and raw_val:
-                        fields["RADIUS.username"] = raw_val.decode("utf-8", errors="ignore")
+                        fields["RADIUS.username"] = raw_val.decode(
+                            "utf-8", errors="ignore"
+                        )
                     break
         except Exception as ex:
             MutyLogger.get_instance().debug(f"failed to parse radius layer: {ex}")
@@ -857,12 +932,20 @@ class Plugin(GulpPluginBase):
         return "rtp", fields
 
     @classmethod
-    def _extract_dhcp6_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_dhcp6_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract DHCPv6 message type."""
         dhcp6_names = (
-            "DHCP6_Solicit", "DHCP6_Advertise", "DHCP6_Request",
-            "DHCP6_Reply", "DHCP6_Release", "DHCP6_Renew",
-            "DHCP6_Rebind", "DHCP6_Decline", "DHCP6_InfoRequest",
+            "DHCP6_Solicit",
+            "DHCP6_Advertise",
+            "DHCP6_Request",
+            "DHCP6_Reply",
+            "DHCP6_Release",
+            "DHCP6_Renew",
+            "DHCP6_Rebind",
+            "DHCP6_Decline",
+            "DHCP6_InfoRequest",
         )
         found_layer = None
         for name in dhcp6_names:
@@ -891,7 +974,9 @@ class Plugin(GulpPluginBase):
         return "dhcp6", fields
 
     @classmethod
-    def _extract_isakmp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_isakmp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract IKEv1/ISAKMP exchange type."""
         if not packet.haslayer("ISAKMP"):
             return None, {}
@@ -931,9 +1016,13 @@ class Plugin(GulpPluginBase):
         return "rip", fields
 
     @classmethod
-    def _extract_netbios_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_netbios_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract NetBIOS query name from NBNS packets."""
-        if not packet.haslayer("NBNSQueryRequest") and not packet.haslayer("NBNSQueryResponse"):
+        if not packet.haslayer("NBNSQueryRequest") and not packet.haslayer(
+            "NBNSQueryResponse"
+        ):
             return None, {}
 
         fields: dict[str, str] = {}
@@ -942,14 +1031,18 @@ class Plugin(GulpPluginBase):
                 req = packet.getlayer("NBNSQueryRequest")
                 name = getattr(req, "QUESTION_NAME", None)
                 if isinstance(name, bytes):
-                    fields["NetBIOS.query_name"] = name.decode("utf-8", errors="ignore").strip()
+                    fields["NetBIOS.query_name"] = name.decode(
+                        "utf-8", errors="ignore"
+                    ).strip()
                 elif name is not None:
                     fields["NetBIOS.query_name"] = str(name).strip()
             elif packet.haslayer("NBNSQueryResponse"):
                 resp = packet.getlayer("NBNSQueryResponse")
                 name = getattr(resp, "RR_NAME", None)
                 if isinstance(name, bytes):
-                    fields["NetBIOS.rr_name"] = name.decode("utf-8", errors="ignore").strip()
+                    fields["NetBIOS.rr_name"] = name.decode(
+                        "utf-8", errors="ignore"
+                    ).strip()
                 elif name is not None:
                     fields["NetBIOS.rr_name"] = str(name).strip()
         except Exception as ex:
@@ -979,7 +1072,9 @@ class Plugin(GulpPluginBase):
         return "eap", fields
 
     @classmethod
-    def _extract_bootp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_bootp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract legacy BOOTP fields for packets without DHCP option 53.
 
         Modern DHCP packets are always BOOTP+DHCP stacked, so this handler
@@ -1010,15 +1105,27 @@ class Plugin(GulpPluginBase):
         return "bootp", fields
 
     @classmethod
-    def _extract_kerberos_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_kerberos_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract Kerberos message type and realm."""
         _KRB_LAYER_NAMES = (
-            "KRB_AS_REQ", "KRB_AS_REP", "KRB_TGS_REQ", "KRB_TGS_REP",
-            "KRB_AP_REQ", "KRB_AP_REP", "KRB_ERROR",
+            "KRB_AS_REQ",
+            "KRB_AS_REP",
+            "KRB_TGS_REQ",
+            "KRB_TGS_REP",
+            "KRB_AP_REQ",
+            "KRB_AP_REP",
+            "KRB_ERROR",
         )
         _KRB_MSG_TYPES = {
-            10: "AS-REQ", 11: "AS-REP", 12: "TGS-REQ", 13: "TGS-REP",
-            14: "AP-REQ", 15: "AP-REP", 30: "KRB-ERROR",
+            10: "AS-REQ",
+            11: "AS-REP",
+            12: "TGS-REQ",
+            13: "TGS-REP",
+            14: "AP-REQ",
+            15: "AP-REP",
+            30: "KRB-ERROR",
         }
 
         found = None
@@ -1033,17 +1140,27 @@ class Plugin(GulpPluginBase):
         try:
             msg_type_raw = getattr(found, "msgType", None)
             if msg_type_raw is not None:
-                type_val = msg_type_raw.val if hasattr(msg_type_raw, "val") else int(msg_type_raw)
-                fields["Kerberos.msg_type"] = _KRB_MSG_TYPES.get(type_val, str(type_val))
+                type_val = (
+                    msg_type_raw.val
+                    if hasattr(msg_type_raw, "val")
+                    else int(msg_type_raw)
+                )
+                fields["Kerberos.msg_type"] = _KRB_MSG_TYPES.get(
+                    type_val, str(type_val)
+                )
             # realm: in reqBody for REQ types, directly as .realm/.crealm for ERROR/REP
             realm_raw = None
             req_body = getattr(found, "reqBody", None)
             if req_body is not None:
                 realm_raw = getattr(req_body, "realm", None)
             if realm_raw is None:
-                realm_raw = getattr(found, "realm", None) or getattr(found, "crealm", None)
+                realm_raw = getattr(found, "realm", None) or getattr(
+                    found, "crealm", None
+                )
             if realm_raw is not None:
-                realm_str = realm_raw.val if hasattr(realm_raw, "val") else str(realm_raw)
+                realm_str = (
+                    realm_raw.val if hasattr(realm_raw, "val") else str(realm_raw)
+                )
                 if realm_str:
                     fields["Kerberos.realm"] = str(realm_str)
         except Exception as ex:
@@ -1051,7 +1168,9 @@ class Plugin(GulpPluginBase):
         return "kerberos", fields
 
     @classmethod
-    def _extract_ldap_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_ldap_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract LDAP operation type, bind DN and search base/scope."""
         if not packet.haslayer("LDAP"):
             return None, {}
@@ -1111,15 +1230,25 @@ class Plugin(GulpPluginBase):
                 if base_obj is not None:
                     bval = base_obj.val if hasattr(base_obj, "val") else base_obj
                     if bval:
-                        base_str = bval.decode("utf-8", errors="ignore") if isinstance(bval, bytes) else str(bval)
+                        base_str = (
+                            bval.decode("utf-8", errors="ignore")
+                            if isinstance(bval, bytes)
+                            else str(bval)
+                        )
                         if base_str:
                             fields["LDAP.search_base"] = base_str
                 scope = getattr(search_req, "scope", None)
                 if scope is not None:
                     scope_int = scope.val if hasattr(scope, "val") else scope
-                    _SCOPE_LABELS = {0: "baseObject", 1: "singleLevel", 2: "wholeSubtree"}
+                    _SCOPE_LABELS = {
+                        0: "baseObject",
+                        1: "singleLevel",
+                        2: "wholeSubtree",
+                    }
                     try:
-                        fields["LDAP.search_scope"] = _SCOPE_LABELS.get(int(scope_int), str(scope_int))
+                        fields["LDAP.search_scope"] = _SCOPE_LABELS.get(
+                            int(scope_int), str(scope_int)
+                        )
                     except (TypeError, ValueError):
                         pass
         except Exception as ex:
@@ -1127,7 +1256,9 @@ class Plugin(GulpPluginBase):
         return "ldap", fields
 
     @classmethod
-    def _extract_ipsec_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_ipsec_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract IPsec ESP or AH SPI and sequence number."""
         has_esp = packet.haslayer("ESP")
         has_ah = packet.haslayer("AH")
@@ -1171,7 +1302,9 @@ class Plugin(GulpPluginBase):
         return "ppp", fields
 
     @classmethod
-    def _extract_netflow_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_netflow_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract NetFlow version."""
         if not packet.haslayer("NetflowHeader"):
             return None, {}
@@ -1189,7 +1322,9 @@ class Plugin(GulpPluginBase):
         return "netflow", fields
 
     @classmethod
-    def _extract_dcerpc_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_dcerpc_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract DCE/RPC packet type, version and operation number."""
         has_v4 = packet.haslayer("DceRpc4")
         has_v5 = packet.haslayer("DceRpc5")
@@ -1219,7 +1354,9 @@ class Plugin(GulpPluginBase):
         return "dcerpc", fields
 
     @classmethod
-    def _extract_smb2_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_smb2_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract SMB2 command and status."""
         if not packet.haslayer("SMB2_Header"):
             return None, {}
@@ -1240,7 +1377,9 @@ class Plugin(GulpPluginBase):
         return "smb2", fields
 
     @classmethod
-    def _extract_tftp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_tftp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract TFTP operation code and filename for read/write requests."""
         if not packet.haslayer("TFTP"):
             return None, {}
@@ -1260,7 +1399,9 @@ class Plugin(GulpPluginBase):
                     fname = getattr(req, "filename", None)
                     if fname:
                         if isinstance(fname, bytes):
-                            fields["TFTP.filename"] = fname.decode("utf-8", errors="ignore")
+                            fields["TFTP.filename"] = fname.decode(
+                                "utf-8", errors="ignore"
+                            )
                         else:
                             fields["TFTP.filename"] = str(fname)
                     break
@@ -1269,7 +1410,9 @@ class Plugin(GulpPluginBase):
         return "tftp", fields
 
     @classmethod
-    def _extract_vrrp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_vrrp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract VRRP virtual-router ID, priority and version."""
         if not packet.haslayer("VRRP") and not packet.haslayer("VRRPv3"):
             return None, {}
@@ -1295,7 +1438,9 @@ class Plugin(GulpPluginBase):
         return "vrrp", fields
 
     @classmethod
-    def _extract_hsrp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_hsrp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract HSRP opcode, state, group and virtual IP."""
         if not packet.haslayer("HSRP"):
             return None, {}
@@ -1322,7 +1467,9 @@ class Plugin(GulpPluginBase):
         return "hsrp", fields
 
     @classmethod
-    def _extract_l2tp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_l2tp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract L2TP tunnel ID, session ID and version."""
         if not packet.haslayer("L2TP"):
             return None, {}
@@ -1346,7 +1493,9 @@ class Plugin(GulpPluginBase):
         return "l2tp", fields
 
     @classmethod
-    def _extract_dot11_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_dot11_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract 802.11 (Wi-Fi) frame type, BSSID and SSID (from beacon/probe)."""
         if not packet.haslayer("Dot11"):
             return None, {}
@@ -1370,7 +1519,9 @@ class Plugin(GulpPluginBase):
                     info = getattr(elt, "info", b"")
                     if info:
                         if isinstance(info, bytes):
-                            fields["Dot11.ssid"] = info.decode("utf-8", errors="replace")
+                            fields["Dot11.ssid"] = info.decode(
+                                "utf-8", errors="replace"
+                            )
                         else:
                             fields["Dot11.ssid"] = str(info)
                     break
@@ -1380,7 +1531,9 @@ class Plugin(GulpPluginBase):
         return "dot11", fields
 
     @classmethod
-    def _extract_llmnr_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_llmnr_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract LLMNR (Link-Local Multicast Name Resolution) query name and type."""
         if not packet.haslayer("LLMNRQuery") and not packet.haslayer("LLMNRResponse"):
             return None, {}
@@ -1389,10 +1542,7 @@ class Plugin(GulpPluginBase):
         try:
             from scapy.layers.dns import DNSQR
 
-            layer = (
-                packet.getlayer("LLMNRQuery")
-                or packet.getlayer("LLMNRResponse")
-            )
+            layer = packet.getlayer("LLMNRQuery") or packet.getlayer("LLMNRResponse")
             # qd is a PacketListField in newer scapy versions — access first element
             qd_raw = getattr(layer, "qd", None)
             qd = qd_raw[0] if qd_raw and hasattr(qd_raw, "__getitem__") else qd_raw
@@ -1400,7 +1550,9 @@ class Plugin(GulpPluginBase):
                 qname = getattr(qd, "qname", None)
                 if qname:
                     if isinstance(qname, bytes):
-                        fields["LLMNR.qname"] = qname.decode("utf-8", errors="ignore").rstrip(".")
+                        fields["LLMNR.qname"] = qname.decode(
+                            "utf-8", errors="ignore"
+                        ).rstrip(".")
                     else:
                         fields["LLMNR.qname"] = str(qname).rstrip(".")
                 if isinstance(qd, DNSQR):
@@ -1412,7 +1564,9 @@ class Plugin(GulpPluginBase):
         return "llmnr", fields
 
     @classmethod
-    def _extract_pptp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_pptp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract PPTP control message type."""
         if not packet.haslayer("PPTP"):
             return None, {}
@@ -1430,7 +1584,9 @@ class Plugin(GulpPluginBase):
         return "pptp", fields
 
     @classmethod
-    def _extract_mgcp_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_mgcp_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract MGCP verb and endpoint."""
         if not packet.haslayer("MGCP"):
             return None, {}
@@ -1457,7 +1613,9 @@ class Plugin(GulpPluginBase):
         return "mgcp", fields
 
     @classmethod
-    def _extract_skinny_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_skinny_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract Cisco SCCP (Skinny) message type."""
         if not packet.haslayer("Skinny"):
             return None, {}
@@ -1475,9 +1633,16 @@ class Plugin(GulpPluginBase):
         return "skinny", fields
 
     @classmethod
-    def _extract_ntlm_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_ntlm_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract NTLM message type (NEGOTIATE/CHALLENGE/AUTHENTICATE)."""
-        ntlm_layer_names = ("NTLM_NEGOTIATE", "NTLM_CHALLENGE", "NTLM_AUTHENTICATE", "NTLM_AUTHENTICATE_V2")
+        ntlm_layer_names = (
+            "NTLM_NEGOTIATE",
+            "NTLM_CHALLENGE",
+            "NTLM_AUTHENTICATE",
+            "NTLM_AUTHENTICATE_V2",
+        )
         found: Packet | None = None
         for name in ntlm_layer_names:
             if packet.haslayer(name):
@@ -1502,7 +1667,9 @@ class Plugin(GulpPluginBase):
         return "ntlm", fields
 
     @classmethod
-    def _extract_smb1_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_smb1_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract SMB1 command, status, and session-setup account/domain."""
         if not packet.haslayer("SMB_Header"):
             return None, {}
@@ -1521,11 +1688,17 @@ class Plugin(GulpPluginBase):
 
             if packet.haslayer(SMBSession_Setup_AndX_Request):
                 sess = packet.getlayer(SMBSession_Setup_AndX_Request)
-                for attr, key in (("AccountName", "SMB1.account_name"), ("PrimaryDomain", "SMB1.domain")):
+                for attr, key in (
+                    ("AccountName", "SMB1.account_name"),
+                    ("PrimaryDomain", "SMB1.domain"),
+                ):
                     val = getattr(sess, attr, None)
                     if val:
                         if isinstance(val, bytes):
-                            val = val.decode("utf-16-le" if b"\x00" in val else "utf-8", errors="ignore").strip("\x00")
+                            val = val.decode(
+                                "utf-16-le" if b"\x00" in val else "utf-8",
+                                errors="ignore",
+                            ).strip("\x00")
                         else:
                             val = str(val).strip("\x00")
                         if val:
@@ -1535,7 +1708,9 @@ class Plugin(GulpPluginBase):
         return "smb1", fields
 
     @classmethod
-    def _extract_spnego_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_spnego_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract SPNEGO negotiation mechanism types and result."""
         _has_spnego = (
             packet.haslayer("SPNEGO_negTokenInit")
@@ -1553,7 +1728,12 @@ class Plugin(GulpPluginBase):
             "1.3.6.1.5.5.2": "SPNEGO",
             "1.3.6.1.4.1.311.2.2.30.1.1.1": "NegoEx",
         }
-        _NEGTOKENRESP_RESULTS = {0: "accept-completed", 1: "accept-incomplete", 2: "reject", 3: "request-mic"}
+        _NEGTOKENRESP_RESULTS = {
+            0: "accept-completed",
+            1: "accept-incomplete",
+            2: "reject",
+            3: "request-mic",
+        }
 
         fields: dict[str, str] = {}
         try:
@@ -1566,14 +1746,20 @@ class Plugin(GulpPluginBase):
                 if mechs_outer is not None:
                     mech_list = getattr(mechs_outer, "mechTypes", None)
                     if mech_list is None:
-                        mech_list = mechs_outer if isinstance(mechs_outer, (list, tuple)) else [mechs_outer]
+                        mech_list = (
+                            mechs_outer
+                            if isinstance(mechs_outer, (list, tuple))
+                            else [mechs_outer]
+                        )
                     names = []
                     for m in mech_list:
                         oid_obj = getattr(m, "oid", m)
                         # ASN1_OID: prefer .oidname, fall back to .val, then string form
                         oidname = getattr(oid_obj, "oidname", None)
                         if oidname:
-                            names.append(oidname.split(" - ")[0] if " - " in oidname else oidname)
+                            names.append(
+                                oidname.split(" - ")[0] if " - " in oidname else oidname
+                            )
                         else:
                             oid_str = str(getattr(oid_obj, "val", oid_obj))
                             names.append(_MECH_OID_NAMES.get(oid_str, oid_str))
@@ -1584,28 +1770,42 @@ class Plugin(GulpPluginBase):
                 resp = packet.getlayer(SPNEGO_negTokenResp)
                 neg_result = getattr(resp, "negResult", None)
                 if neg_result is not None:
-                    result_int = neg_result.val if hasattr(neg_result, "val") else neg_result
+                    result_int = (
+                        neg_result.val if hasattr(neg_result, "val") else neg_result
+                    )
                     try:
-                        fields["SPNEGO.result"] = _NEGTOKENRESP_RESULTS.get(int(result_int), str(result_int))
+                        fields["SPNEGO.result"] = _NEGTOKENRESP_RESULTS.get(
+                            int(result_int), str(result_int)
+                        )
                     except (TypeError, ValueError):
                         fields["SPNEGO.result"] = str(neg_result)
                 supported = getattr(resp, "supportedMech", None)
                 if supported is not None:
-                    oid = str(getattr(supported, "oid", supported) if hasattr(supported, "oid") else supported)
+                    oid = str(
+                        getattr(supported, "oid", supported)
+                        if hasattr(supported, "oid")
+                        else supported
+                    )
                     fields["SPNEGO.selected_mech"] = _MECH_OID_NAMES.get(oid, oid)
         except Exception as ex:
             MutyLogger.get_instance().debug(f"failed to parse spnego layer: {ex}")
         return "spnego", fields
 
     @classmethod
-    def _extract_lltd_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_lltd_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract LLTD function (Discover/Hello/…), hostname and IPv4 from attributes."""
         if not packet.haslayer("LLTD"):
             return None, {}
 
         fields: dict[str, str] = {}
         try:
-            from scapy.layers.lltd import LLTD, LLTDAttributeMachineName, LLTDAttributeIPv4Address
+            from scapy.layers.lltd import (
+                LLTD,
+                LLTDAttributeMachineName,
+                LLTDAttributeIPv4Address,
+            )
 
             lltd = packet.getlayer(LLTD)
             func = lltd.sprintf("%LLTD.function%")
@@ -1628,7 +1828,9 @@ class Plugin(GulpPluginBase):
         return "lltd", fields
 
     @classmethod
-    def _extract_mobileip_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_mobileip_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract Mobile IP message type and key addresses."""
         if not packet.haslayer("MobileIP"):
             return None, {}
@@ -1663,7 +1865,9 @@ class Plugin(GulpPluginBase):
         return "mobileip", fields
 
     @classmethod
-    def _extract_gprs_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_gprs_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Detect GPRS/GTP encapsulation (scapy's GPRS layer is a minimal GTP stub)."""
         if not packet.haslayer("GPRS"):
             return None, {}
@@ -1674,9 +1878,16 @@ class Plugin(GulpPluginBase):
     # ------------------------------------------------------------------
 
     @classmethod
-    def _extract_bluetooth_hci_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_bluetooth_hci_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract Bluetooth Classic HCI packet type, ACL handle, event code or command OGF/OCF."""
-        from scapy.layers.bluetooth import HCI_Hdr, HCI_ACL_Hdr, HCI_Command_Hdr, HCI_Event_Hdr
+        from scapy.layers.bluetooth import (
+            HCI_Hdr,
+            HCI_ACL_Hdr,
+            HCI_Command_Hdr,
+            HCI_Event_Hdr,
+        )
 
         if not packet.haslayer(HCI_Hdr):
             return None, {}
@@ -1709,11 +1920,15 @@ class Plugin(GulpPluginBase):
                 if ocf is not None:
                     fields["BT.cmd_ocf"] = str(ocf)
         except Exception as ex:
-            MutyLogger.get_instance().debug(f"failed to parse bluetooth hci layer: {ex}")
+            MutyLogger.get_instance().debug(
+                f"failed to parse bluetooth hci layer: {ex}"
+            )
         return "bluetooth", fields
 
     @classmethod
-    def _extract_btle_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_btle_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract Bluetooth LE access address, advertising PDU type and data LLID."""
         from scapy.layers.bluetooth4LE import BTLE, BTLE_ADV, BTLE_DATA
 
@@ -1797,13 +2012,17 @@ class Plugin(GulpPluginBase):
                 fields["USB.function"] = func_repr
             info = getattr(usb, "info", None)
             if info is not None:
-                fields["USB.direction"] = "device_to_host" if (int(info) & 1) else "host_to_device"
+                fields["USB.direction"] = (
+                    "device_to_host" if (int(info) & 1) else "host_to_device"
+                )
         except Exception as ex:
             MutyLogger.get_instance().debug(f"failed to parse usb layer: {ex}")
         return "usb", fields
 
     @classmethod
-    def _extract_dot15d4_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_dot15d4_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract IEEE 802.15.4 frame type, PAN ID and short addresses."""
         from scapy.layers.dot15d4 import Dot15d4, Dot15d4FCS, Dot15d4Data, Dot15d4Beacon
 
@@ -1842,7 +2061,9 @@ class Plugin(GulpPluginBase):
         return "dot15d4", fields
 
     @classmethod
-    def _extract_zigbee_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_zigbee_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract ZigBee NWK frame type, source/destination address and APS cluster/profile."""
         from scapy.layers.zigbee import ZigbeeNWK, ZigbeeAppDataPayload
 
@@ -1881,7 +2102,9 @@ class Plugin(GulpPluginBase):
         return "zigbee", fields
 
     @classmethod
-    def _extract_sixlowpan_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_sixlowpan_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract 6LoWPAN fragmentation datagram size/tag and mesh routing hop count."""
         from scapy.layers.sixlowpan import (
             SixLoWPAN,
@@ -1931,7 +2154,9 @@ class Plugin(GulpPluginBase):
         return "sixlowpan", fields
 
     @classmethod
-    def _extract_pflog_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_pflog_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract BSD pf firewall log: action, reason, interface, direction."""
         if not packet.haslayer("PFLog"):
             return None, {}
@@ -1952,12 +2177,20 @@ class Plugin(GulpPluginBase):
                 fields["PFLog.direction"] = direction
             iface = getattr(pf, "iface", None)
             if iface:
-                iface_str = iface.rstrip(b"\x00").decode("utf-8", errors="ignore") if isinstance(iface, bytes) else str(iface)
+                iface_str = (
+                    iface.rstrip(b"\x00").decode("utf-8", errors="ignore")
+                    if isinstance(iface, bytes)
+                    else str(iface)
+                )
                 if iface_str:
                     fields["PFLog.iface"] = iface_str
             ruleset = getattr(pf, "ruleset", None)
             if ruleset:
-                ruleset_str = ruleset.rstrip(b"\x00").decode("utf-8", errors="ignore") if isinstance(ruleset, bytes) else str(ruleset)
+                ruleset_str = (
+                    ruleset.rstrip(b"\x00").decode("utf-8", errors="ignore")
+                    if isinstance(ruleset, bytes)
+                    else str(ruleset)
+                )
                 if ruleset_str:
                     fields["PFLog.ruleset"] = ruleset_str
             rule_num = getattr(pf, "rulenumber", None)
@@ -2013,7 +2246,9 @@ class Plugin(GulpPluginBase):
         return "llc", fields
 
     @classmethod
-    def _extract_irda_metadata(cls, packet: Packet) -> tuple[str | None, dict[str, str]]:
+    def _extract_irda_metadata(
+        cls, packet: Packet
+    ) -> tuple[str | None, dict[str, str]]:
         """Extract IrDA IrLAP frame type and IrLMP device name."""
         from scapy.layers.ir import IrLAPHead, IrLAPCommand, IrLMP
 
@@ -2129,6 +2364,16 @@ class Plugin(GulpPluginBase):
 
         # process record
         evt_json = self._pkt_to_dict(record)
+        if not hasattr(self, "_analyze_packet"):
+            self._analyze_packet = (self._plugin_params.custom_parameters or {}).get(
+                "analyze", False
+            )
+        if not hasattr(self, "_wireshark_seq_align"):
+            self._wireshark_seq_align = (
+                self._plugin_params.custom_parameters or {}
+            ).get("wireshark_sequence_alignment", False)
+        if not hasattr(self, "_event_code_cache"):
+            self._event_code_cache = {}
         evt_json.update(
             self._get_packet_protocol_metadata(
                 record,
@@ -2245,7 +2490,9 @@ class Plugin(GulpPluginBase):
 
         doc_idx = 0
         # Cache per-ingestion constants to avoid per-packet dict lookups and repeated hashes
-        self._analyze_packet: bool = self._plugin_params.custom_parameters.get("analyze", False)
+        self._analyze_packet: bool = self._plugin_params.custom_parameters.get(
+            "analyze", False
+        )
         self._wireshark_seq_align: bool = self._plugin_params.custom_parameters.get(
             "wireshark_sequence_alignment", False
         )
