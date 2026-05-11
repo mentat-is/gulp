@@ -13,7 +13,7 @@
           ]
         },
         "EventRecordId": {
-          "ecs": ["event.sequence"]
+          "ecs": ["winlog.record_id"]
         },
         "EventId": {
             "ecs": ["event.code"]
