@@ -1,3 +1,8 @@
+# v1.7.14
+
+- `python3.14` support: existing (virtual) environments must be recreated to upgrade dependencies.
+- generic bugfixes and improvements
+
 # v1.7.10
 
 ## new features
@@ -11,8 +16,8 @@
 
 ### sdk and tools
 
-- sdk: deprecated the old `gulp-sdk-python` and integrated new polished python SDK available at https://github.com/mentat-is/gulp-sdk, integration tests in `/tests` as usual (missing most of the old per-plugin tests, will be updated soon)
-- cli: `gulp-cli` is now available to use most of the gulp features from the command line, get it at https://github.com/mentat-is/gulp-cli or via the `gulp-cli` package on pypi!
+- sdk: deprecated the old `gulp-sdk-python` and integrated new polished python SDK available at <https://github.com/mentat-is/gulp-sdk>, integration tests in `/tests` as usual (missing most of the old per-plugin tests, will be updated soon)
+- cli: `gulp-cli` is now available to use most of the gulp features from the command line, get it at <https://github.com/mentat-is/gulp-cli> or via the `gulp-cli` package on pypi!
 
 ### api
 
@@ -41,7 +46,7 @@ added `enhance_document_map` API to allow the UI to "color" different documents 
 - core/logging: fixed syslog logging (integrated rsyslog both in the devcontainer and production Dockerfile deployment)
 - core/redis: reworked message routing and handling
 - all: multiple fixes
- 
+
 # v1.6.5
 
 ## new features
@@ -76,7 +81,7 @@ added `enhance_document_map` API to allow the UI to "color" different documents 
 
 ## fixes
 
-- solves issues with the devcontainer (https://github.com/yarnpkg/yarn/issues/9216)
+- solves issues with the devcontainer (<https://github.com/yarnpkg/yarn/issues/9216>)
 - some minor fixes
 
 # v1.6.0
@@ -87,7 +92,7 @@ added `enhance_document_map` API to allow the UI to "color" different documents 
 - core: scaling horizontally using multiple instances of the core running simultaneously
 - plugins: allow caching and reusing values through `DocValueCache` in `plugin.py` (major speedup when used properly)
 - core: properly structured `GulpDocument`
-- api/ws: introducing WebSocket API for real-time ingestion `/ingest_ws_raw` (allow i.e. real-time ingestion from network sensors, try https://github.com/mentat-is/slurp-ebpf)
+- api/ws: introducing WebSocket API for real-time ingestion `/ingest_ws_raw` (allow i.e. real-time ingestion from network sensors, try <https://github.com/mentat-is/slurp-ebpf>)
 
 ## changes/improvements
 
