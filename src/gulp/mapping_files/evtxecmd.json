@@ -12,6 +12,9 @@
             "@timestamp"
           ]
         },
+        "EventRecordId": {
+          "ecs": ["event.sequence"]
+        },
         "EventId": {
             "ecs": ["event.code"]
         },
