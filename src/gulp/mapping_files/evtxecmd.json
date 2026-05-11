@@ -12,6 +12,9 @@
             "@timestamp"
           ]
         },
+        "EventRecordId": {
+          "ecs": ["winlog.record_id"]
+        },
         "EventId": {
             "ecs": ["event.code"]
         },
