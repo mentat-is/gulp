@@ -288,8 +288,7 @@ class GulpDocument(GulpBasicDocument):
             log_file_path (str, optional): The source log file path. Defaults to None.
             **kwargs: the rest of the document as key/value pairs, to generate the `GulpDocument` with. This may also include the following internal flags:
                 - __ignore_default_event_code__ (bool, optional): If True, do not use the default event code from the mapping (for extra documents). Defaults to False.
-                - gulp_timestamp (int, optional): The timestamp in nanoseconds from unix epoch. If not set, it will be calculated from the timestamp argument or the "@timestamp" in kwargs.
-
+                - __timestamp_format__ (str, optional): The timestamp format to use to parse the timestamp argument or the "@timestamp" in kwargs, if needed. Defaults to None (auto-detect).
             Returns:
             None
         """
@@ -350,15 +349,16 @@ class GulpDocument(GulpBasicDocument):
         ts_nanos: int = 0
         invalid: bool = False
 
-        timestamp_format: str = None
+        timestamp_format: str = kwargs.pop("__timestamp_format__", None)
         if not timestamp:
             # if not explicitly passed by the plugin, this is expected to be in **kwargs as "timestamp" (aliased from "@timestamp" by GulpDocumentFieldAliasHelper)
             timestamp: str = data.get("timestamp", None)
             if timestamp:
-                # get the timestamp_format corresponding to the currently used mapping, if any
-                timestamp_format = (
-                    plugin_instance._get_timestamp_format_for_default_timestamp()
-                )
+                # get the timestamp_format corresponding to the currently used mapping for @timestamp, if any (and not set explicitly in kwargs by the plugin)
+                if not timestamp_format:
+                    timestamp_format = (
+                        plugin_instance._get_timestamp_format_for_default_timestamp()
+                    )
 
         ts, ts_nanos, invalid = GulpDocument.ensure_timestamp(
             str(timestamp),
@@ -373,6 +373,10 @@ class GulpDocument(GulpBasicDocument):
         if invalid or ts_nanos == 0:
             # flag invalid timestamp
             data["invalid_timestamp"] = True
+        """MutyLogger.get_instance().error(
+            "ts=%s, ts_nanos=%s, invalid=%s, timestamp=%s, data=%s"
+            % (ts, ts_nanos, invalid, timestamp, data)
+        )"""
 
         if plugin_instance._plugin_params and plugin_instance._plugin_params.store_file:
             # if the file is stored in s3, we set the storage_id to the s3 object name, so it can be retrieved later if needed

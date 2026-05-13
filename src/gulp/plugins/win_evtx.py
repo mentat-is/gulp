@@ -13,6 +13,8 @@ The plugin supports:
 - Integrating with Gulp's ingestion system
 """
 
+import re
+
 import orjson
 import os
 from typing import Any, override
@@ -103,14 +105,16 @@ class Plugin(GulpPluginBase):
     async def _process_leaf(
         self, path: str, value: Any, result: dict, **kwargs
     ) -> None:
-        if value is None or path.endswith("xmlns"): # if not value or path.endswith("xmlns"): was causing silent data loss whith values like 0, 0.0, False...
+        if value is None or path.endswith(
+            "xmlns"
+        ):  # if not value or path.endswith("xmlns"): was causing silent data loss whith values like 0, 0.0, False...
             # skip these
             return
         # normalize value stripping leading and trailing spaces
         if isinstance(value, str):
-            value=value.strip()
+            value = value.strip()
             if value == "":
-                    return
+                return
         elif isinstance(value, list):
             value = [v.strip() if isinstance(v, str) else v for v in value]
 
@@ -177,7 +181,9 @@ class Plugin(GulpPluginBase):
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
-        d["@timestamp"] = record["timestamp"]
+        ts = record["timestamp"]
+        ts = re.split(r"\s+UTC", ts, flags=re.IGNORECASE)[0].strip()
+        d["@timestamp"] = ts
 
         # if d.get("event.code") == "0":
         #     MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2).decode())
