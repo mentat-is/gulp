@@ -32,7 +32,6 @@ from typing import Any, Optional, override
 
 import muty.dict
 import muty.os
-from ipwhois import IPWhois
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +42,7 @@ from gulp.process import GulpProcess
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("ipwhois", ">=1.3.0")
+from ipwhois import IPWhois  # isort:skip
 
 
 class Plugin(GulpPluginBase):
