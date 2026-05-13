@@ -30,7 +30,7 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("aiosqlite", ">=0.20.0")
-import aiosqlite
+import aiosqlite  # isort:skip
 
 
 class Plugin(GulpPluginBase):

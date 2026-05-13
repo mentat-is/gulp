@@ -31,7 +31,7 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("regipy", ">=5.1.0,<6")
-from regipy.registry import RegistryHive, Subkey
+from regipy.registry import RegistryHive, Subkey  # isort:skip
 
 
 class Plugin(GulpPluginBase):
