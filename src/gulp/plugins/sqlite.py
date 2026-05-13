@@ -14,7 +14,6 @@ import os
 import string
 from typing import Any, override
 
-import aiosqlite
 import muty.os
 from muty.log import MutyLogger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +30,7 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("aiosqlite", ">=0.20.0")
+import aiosqlite
 
 
 class Plugin(GulpPluginBase):

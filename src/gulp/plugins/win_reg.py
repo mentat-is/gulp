@@ -16,7 +16,7 @@ import muty.dict
 import muty.os
 from construct.core import EnumInteger
 from muty.log import MutyLogger
-from regipy.registry import RegistryHive, Subkey
+
 from sqlalchemy.ext.asyncio import AsyncSession
 import orjson
 from gulp.api.collab.stats import (
@@ -31,6 +31,7 @@ from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 
 muty.os.check_and_install_package("regipy", ">=5.1.0,<6")
+from regipy.registry import RegistryHive, Subkey
 
 
 class Plugin(GulpPluginBase):
