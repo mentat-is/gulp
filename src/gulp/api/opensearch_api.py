@@ -1905,6 +1905,7 @@ class GulpOpenSearch:
                     "glyph_id": matching_context.glyph_id,
                     "color": matching_context.color,
                     "doc_count": ctx_bucket["doc_count"],
+                    "color": matching_context.color,
                     "plugins": [],
                 }
 
