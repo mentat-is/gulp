@@ -1,3 +1,7 @@
+# v1.7.15
+
+- minor fixes
+
 # v1.7.14
 
 - `python3.14` support: existing (virtual) environments must be recreated to upgrade dependencies.
