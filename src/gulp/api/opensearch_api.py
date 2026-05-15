@@ -1903,6 +1903,7 @@ class GulpOpenSearch:
                     "name": matching_context.name,
                     "id": matching_context.id,
                     "glyph_id": matching_context.glyph_id,
+                    "color": matching_context.color,
                     "doc_count": ctx_bucket["doc_count"],
                     "plugins": [],
                 }
@@ -1931,6 +1932,7 @@ class GulpOpenSearch:
                             "name": matching_source.name,
                             "id": matching_source.id,
                             "glyph_id": matching_source.glyph_id,
+                            "color": matching_source.color,
                             "doc_count": src_bucket["doc_count"],
                             "max_event.code": int(
                                 src_bucket["max_event.code"]["value"]
