@@ -47,6 +47,8 @@ build_test.sh
 gulp-cli
 muty-python
 gulp-sdk
+gulp-dissect
 *plan*.md
 _version.py
+.python-version
 .devcontainer/devcontainer-lock.json

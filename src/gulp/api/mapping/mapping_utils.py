@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import os
 import json
 from datetime import datetime, timedelta, timezone
-import os
-from typing import Any
+from typing import Any, Iterable
 
+import muty.crypto
 from muty.log import MutyLogger
 import orjson
 import muty.time
@@ -194,6 +195,72 @@ def apply_value_aliases(
     return d
 
 
+def build_extra_doc_fields(
+    field_mapping: Any,
+    *,
+    timestamp_value: Any,
+    mapped_fields: Iterable[str] = (),
+    event_code_field: str = "event_code",
+    timestamp_field: str = "timestamp",
+) -> dict[str, Any]:
+    """Build the per-document override payload for one extra mapped document.
+
+    The returned dictionary contains the extra document's event code and
+    timestamp override plus `None` placeholders for any fields that should be
+    cleared from the derived document.
+    """
+
+    event_code = mapping_attr(field_mapping, "extra_doc_with_event_code")
+    if not event_code:
+        raise ValueError("extra_doc_with_event_code is required to build extra docs")
+
+    extra_doc = {
+        event_code_field: str(event_code),
+        timestamp_field: timestamp_value,
+    }
+    for field_name in mapped_fields:
+        extra_doc[field_name] = None
+    return extra_doc
+
+
+def expand_extra_docs(
+    base_doc: dict[str, Any],
+    extra_docs: list[dict[str, Any]],
+    *,
+    base_document_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Expand a base mapped document into the final list of sibling documents."""
+
+    if not extra_docs:
+        return [base_doc]
+
+    docs = [base_doc]
+    for extra_fields in extra_docs:
+        new_doc = {**base_doc, **extra_fields}
+        if base_document_id:
+            new_doc["gulp.base_document_id"] = base_document_id
+        docs.append(new_doc)
+    return docs
+
+
+def build_gulp_document_id(
+    *,
+    event_original: str,
+    event_code: str,
+    operation_id: str,
+    context_id: str,
+    source_id: str,
+    event_sequence: int,
+    timestamp: str,
+) -> str:
+    """Compute the deterministic gULP document ID using the core hash contract."""
+
+    _, ts_nanos, _ = GulpDocument.ensure_timestamp(str(timestamp))
+    return muty.crypto.hash_xxh128(
+        f"{event_original}{event_code}{operation_id}{context_id}{source_id}{event_sequence}{ts_nanos}"
+    )
+
+
 async def mapping_parameters_to_mapping(
     mapping_parameters: GulpMappingParameters = None, mapping_base_path: str = None
 ) -> tuple[dict[str, GulpMapping], str]:
@@ -257,9 +324,11 @@ async def mapping_parameters_to_mapping(
         # MutyLogger.get_instance().debug(
         #     f"using plugin_params.mapping_parameters.mapping_file={mapping_file}"
         # )
-        mapping_file_path, is_absolute_path = _check_abs_path(mapping_file, mapping_base_path)
+        mapping_file_path, is_absolute_path = _check_abs_path(
+            mapping_file, mapping_base_path
+        )
         if not mapping_file_path:
-            raise FileNotFoundError(f"mapping file {mapping_file} does not exist!")  
+            raise FileNotFoundError(f"mapping file {mapping_file} does not exist!")
         if not is_absolute_path:
             mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
                 mapping_file
@@ -302,7 +371,9 @@ async def mapping_parameters_to_mapping(
 
         for file_info in mapping_parameters.additional_mapping_files:
             # load and merge additional mappings from files, check for absolute paths first
-            additional_file_path, is_absolute_path = _check_abs_path(file_info[0], mapping_base_path)
+            additional_file_path, is_absolute_path = _check_abs_path(
+                file_info[0], mapping_base_path
+            )
             if not additional_file_path:
                 MutyLogger.get_instance().error(
                     f"mapping file {file_info[0]} does not exist!"

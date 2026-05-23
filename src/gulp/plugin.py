@@ -61,7 +61,9 @@ from gulp.api.ws_api import (
 from gulp.config import GulpConfig
 from gulp.api.mapping.mapping_utils import (
     apply_value_aliases,
+    build_extra_doc_fields,
     convert_special_timestamp,
+    expand_extra_docs,
     flatten_json_value,
     mapping_parameters_to_mapping,
     transform_scalar,
@@ -1804,15 +1806,15 @@ class GulpPluginBase(ABC):
         # MutyLogger.get_instance().debug(orjson.dumps("base doc:\n%s" % (base_doc_dump), option=orjson.OPT_INDENT_2).decode())
 
         extra_docs = []
-        for extra_fields in self._extra_docs:
-            # MutyLogger.get_instance().debug("creating new doc with %s\nand\n%s" % (orjson.dumps(extra_fields, option=orjson.OPT_INDENT_2), orjson.dumps(base_doc_dump, option=orjson.OPT_INDENT_2).decode()))
-            new_doc_data = {**base_doc_dump, **extra_fields}
-
-            # also add link to the base document
-            new_doc_data["gulp.base_document_id"] = (
+        expanded_docs = expand_extra_docs(
+            base_doc_dump,
+            self._extra_docs,
+            base_document_id=(
                 doc.id if isinstance(doc, GulpDocument) else doc.get("id")
-            )
-
+            ),
+        )
+        for new_doc_data in expanded_docs[1:]:
+            # MutyLogger.get_instance().debug("creating new doc with %s\nand\n%s" % (orjson.dumps(extra_fields, option=orjson.OPT_INDENT_2), orjson.dumps(base_doc_dump, option=orjson.OPT_INDENT_2).decode()))
             # default event code must be ignored for the extra document (since the extra document, by design, has a different event code)
             new_doc = GulpDocument(
                 self,
@@ -2332,21 +2334,20 @@ class GulpPluginBase(ABC):
         if field_mapping.extra_doc_with_event_code:
             # this will trigger the creation of an extra document
             # with the given event code in _finalize_process_record()
-            extra: dict = {
-                "event_code": str(field_mapping.extra_doc_with_event_code),
-                "timestamp": source_value,
-            }
-
             # remove field/s corresponding to this key in the generated extra document
             d, _ = self._try_map_ecs(field_mapping, d, source_key, source_value)
-            for k, _ in d.items():
-                extra[k] = None
-            self._extra_docs.append(extra)
+            self._extra_docs.append(
+                build_extra_doc_fields(
+                    field_mapping,
+                    timestamp_value=source_value,
+                    mapped_fields=d.keys(),
+                )
+            )
 
             if value_aliases:
                 # apply aliases
-                for kk, _ in processed.items():
-                    self._apply_value_aliases(kk, processed, value_aliases)
+                for kk, _ in d.items():
+                    self._apply_value_aliases(kk, d, value_aliases)
 
             # we also add this key to the main document
             return d
