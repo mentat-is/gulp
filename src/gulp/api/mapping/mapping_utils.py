@@ -195,22 +195,26 @@ def apply_value_aliases(
 
 
 async def mapping_parameters_to_mapping(
-    mapping_parameters: GulpMappingParameters = None,
+    mapping_parameters: GulpMappingParameters = None, mapping_base_path: str = None
 ) -> tuple[dict[str, GulpMapping], str]:
     """
     get each defined mapping, handling loading from file if needed, and merging additional mappings if specified.
 
     Args:
         mapping_parameters (GulpMappingParameters, optional): the mapping parameters. if not set, the default (empty) mapping will be used.
-
+        mapping_base_path (str, optional): the base path to resolve relative mapping file paths against. if not set, relative paths will be resolved against the current working directory.
     Returns:
         tuple[dict[str, GulpMapping], str]: a tuple with the mappings (if empty, this is set to an empty mapping with mapping_id="default") and the mapping id
     """
 
-    def _check_abs_path(filename: str) -> tuple[str, bool]:
+    def _check_abs_path(filename: str, base_path: str = None) -> tuple[str, bool]:
         """
         check if an absolute path is provided and exists
         """
+        if base_path:
+            # join the path with the base path if provided, this allows us to support both absolute and relative paths in mapping_parameters
+            filename = os.path.join(base_path, filename)
+
         if os.path.isabs(filename):
             if os.path.exists(filename):
                 # absolute path provided
@@ -253,9 +257,9 @@ async def mapping_parameters_to_mapping(
         # MutyLogger.get_instance().debug(
         #     f"using plugin_params.mapping_parameters.mapping_file={mapping_file}"
         # )
-        mapping_file_path, is_absolute_path = _check_abs_path(mapping_file)
+        mapping_file_path, is_absolute_path = _check_abs_path(mapping_file, mapping_base_path)
         if not mapping_file_path:
-            raise FileNotFoundError(f"mapping file {mapping_file} does not exist!")
+            raise FileNotFoundError(f"mapping file {mapping_file} does not exist!")  
         if not is_absolute_path:
             mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
                 mapping_file
@@ -298,7 +302,7 @@ async def mapping_parameters_to_mapping(
 
         for file_info in mapping_parameters.additional_mapping_files:
             # load and merge additional mappings from files, check for absolute paths first
-            additional_file_path, is_absolute_path = _check_abs_path(file_info[0])
+            additional_file_path, is_absolute_path = _check_abs_path(file_info[0], mapping_base_path)
             if not additional_file_path:
                 MutyLogger.get_instance().error(
                     f"mapping file {file_info[0]} does not exist!"
