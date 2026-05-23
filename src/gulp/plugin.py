@@ -12,13 +12,11 @@ from types import ModuleType
 from typing import Annotated, Any, Callable, Optional
 
 import json5
-import muty.dict
 import muty.dynload
 import muty.file
 import muty.log
 import muty.pydantic
 import muty.string
-import muty.time
 import orjson
 from fastapi import WebSocketDisconnect
 from muty.log import MutyLogger
@@ -61,6 +59,12 @@ from gulp.api.ws_api import (
     GulpRedisBroker,
 )
 from gulp.config import GulpConfig
+from gulp.api.mapping.mapping_utils import (
+    convert_special_timestamp,
+    flatten_json_value,
+    mapping_parameters_to_mapping,
+    transform_scalar,
+)
 from gulp.structs import (
     GulpChunkPrePostIngestInternalEvent,
     GulpDocumentsChunkCallback,
@@ -2163,7 +2167,7 @@ class GulpPluginBase(ABC):
         """
 
         if source_value is None:
-           return {}
+            return {}
 
         # check if we have a mapping for source_key
         mapping = self.selected_mapping()
@@ -2311,11 +2315,7 @@ class GulpPluginBase(ABC):
         d: dict = {}
         if field_mapping.flatten_json:
             # this key value is a json that must be flattened, i.e. {"a": {"b": 1}} -> {"a.b": 1}
-            if isinstance(source_value, str):
-                js: dict = orjson.loads(source_value)
-            else:
-                js: dict = source_value
-            flattened: dict = muty.dict.flatten(js, prefix="%s." % (source_key))
+            flattened = flatten_json_value(source_value, prefix=source_key)
             for k, v in flattened.items():
                 processed: dict = await self._process_key(k, v, doc, **kwargs)
                 if value_aliases:
@@ -2326,22 +2326,12 @@ class GulpPluginBase(ABC):
             return d
 
         force_type: str = field_mapping.force_type
-        if force_type:
-            # force value to the given type
-            t = force_type
-            if t == "int":
-                try:
-                    source_value = int(source_value)
-                except ValueError:
-                    source_value = 0
-            elif t == "float":
-                try:
-                    source_value = float(source_value)
-                except ValueError:
-                    source_value = 0.0
-            elif t == "str":
-                source_value = str(source_value)
-            # MutyLogger.get_instance().warning(f"value {source_value} forced to {t}")
+        source_value = transform_scalar(
+            source_value,
+            force_type=force_type,
+            invalid_int=0,
+            invalid_float=0.0,
+        )
 
         if (
             field_mapping.multiplier
@@ -2349,33 +2339,27 @@ class GulpPluginBase(ABC):
             and field_mapping.multiplier > 1
         ):
             # apply multiplier
-            source_value = int(source_value * field_mapping.multiplier)
+            source_value = int(
+                transform_scalar(
+                    source_value,
+                    multiplier=field_mapping.multiplier,
+                    multiplier_first=False,
+                )
+            )
 
         if is_timestamp:
             # this field represents a timestamp to be handled and turned into nanoseconds-from-unix-epoch
             # NOTE: a field mapped as "@timestamp" (AND ONLY THAT) needs `is_timestamp` set ONLY IF its type is different than `generic` (i.e. if it is a `chrome` or `windows_filetime` timestamp)
             # this is because `@timestamp` is a special field handled directly by the engine.
-            if is_timestamp == "chrome":
-                # timestamp chrome, turn to nanoseconds from epoch. do not apply offset here, yet
-                source_value = muty.time.chrome_epoch_to_nanos_from_unix_epoch(
-                    int(source_value)
-                )
-
-                force_type = "int"
-            elif is_timestamp == "windows_filetime":
-                # timestamp windows filetime, turn to nanoseconds from epoch. do not apply offset here, yet
-                source_value = muty.time.windows_filetime_to_nanos_from_unix_epoch(
-                    int(source_value)
+            try:
+                source_value = convert_special_timestamp(
+                    source_value,
+                    timestamp_kind=is_timestamp,
+                    timestamp_format=field_mapping.timestamp_format,
+                    output="unix_nanos",
                 )
                 force_type = "int"
-            elif is_timestamp == "generic":
-                # this is a generic timestamp (string/numeric, mnust be known by python datetime parser), turn it into nanoseconds. no offset applied here, yet
-                _, ns, _ = GulpDocument.ensure_timestamp(
-                    str(source_value), format_string=field_mapping.timestamp_format
-                )
-                source_value = ns
-                force_type = "int"
-            else:
+            except ValueError:
                 # not supported
                 MutyLogger.get_instance().warning(
                     f"timestamp type {field_mapping.is_timestamp} not supported for key {source_key}, keeping as is..."
@@ -2653,143 +2637,6 @@ class GulpPluginBase(ABC):
 
         return plugin_params
 
-    @staticmethod
-    async def mapping_parameters_to_mapping(
-        mapping_parameters: GulpMappingParameters = None,
-    ) -> tuple[dict[str, GulpMapping], str]:
-        """
-        get each defined mapping, handling loading from file if needed, and merging additional mappings if specified.
-
-        Args:
-            mapping_parameters (GulpMappingParameters, optional): the mapping parameters. if not set, the default (empty) mapping will be used.
-
-        Returns:
-            tuple[dict[str, GulpMapping], str]: a tuple with the mappings (if empty, this is set to an empty mapping with mapping_id="default") and the mapping id
-        """
-        if not mapping_parameters:
-            mapping_parameters = GulpMappingParameters()
-
-        mappings: dict[str, GulpMapping] = None
-        mapping_id: str = None
-        if (
-            not mapping_parameters.mapping_file
-            and not mapping_parameters.mappings
-            and not mapping_parameters.additional_mapping_files
-            and not mapping_parameters.additional_mappings
-            and mapping_parameters.mapping_id
-        ):
-            raise ValueError(
-                "mapping_id is set but mappings/mapping_file/additional_mapping_files/additional_mappings are not!"
-            )
-
-        # check if mappings or mapping_file is set
-        if mapping_parameters.mappings:
-            # use provided mappings dictionary
-            mappings = {
-                k: GulpMapping.model_validate(v)
-                for k, v in mapping_parameters.mappings.items()
-            }
-            MutyLogger.get_instance().debug(
-                f'using plugin_params.mapping_parameters.mappings="{mapping_parameters.mappings}"'
-            )
-        elif mapping_parameters.mapping_file:
-            # load from mapping file
-            mapping_file = mapping_parameters.mapping_file
-            # MutyLogger.get_instance().debug(
-            #     f"using plugin_params.mapping_parameters.mapping_file={mapping_file}"
-            # )
-
-            mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
-                mapping_file
-            )
-            file_content = await muty.file.read_file_async(mapping_file_path)
-            mapping_data = orjson.loads(file_content)
-
-            if not mapping_data:
-                raise ValueError(f"mapping file {mapping_file_path} is empty!")
-
-            mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
-            mappings = mapping_file_obj.mappings
-
-        # validation checks
-        if not mappings and not mapping_parameters.mapping_id:
-            # empty mapping will be used
-            MutyLogger.get_instance().warning(
-                "mappings/mapping_file and mapping_id are both None/empty!"
-            )
-            mappings = {"default": GulpMapping(fields={})}
-
-        # ensure mapping_id is set to first key if not specified
-        mapping_id = mapping_parameters.mapping_id or list(mappings.keys())[0]
-        # MutyLogger.get_instance().debug(f"mapping_id={mapping_id}")
-
-        # if we have specified direct mapping alone, just stop here and use it
-        if mapping_parameters.mappings or (
-            not mapping_parameters.additional_mapping_files
-            and not mapping_parameters.additional_mappings
-        ):
-            return mappings, mapping_id
-
-        # we may have additional mapping specified in mapping_parameters.additional_mapping_files and/or
-        # mapping_parameters.additional_mappings. so, merge them
-        if mapping_parameters.additional_mapping_files:
-            MutyLogger.get_instance().debug(
-                f"loading additional mapping files/id: {mapping_parameters.additional_mapping_files} ..."
-            )
-
-            for file_info in mapping_parameters.additional_mapping_files:
-                # load and merge additional mappings from files
-                additional_file_path = (
-                    GulpConfig.get_instance().build_mapping_file_path(file_info[0])
-                )
-                additional_mapping_id = file_info[1]
-
-                file_content = await muty.file.read_file_async(additional_file_path)
-                mapping_data = orjson.loads(file_content)
-
-                if not mapping_data:
-                    raise ValueError(
-                        f"additional mapping file {additional_file_path} is empty!"
-                    )
-
-                additional_mapping_file = GulpMappingFile.model_validate(mapping_data)
-
-                # merge mappings
-                main_mapping = mappings.get(mapping_id, GulpMapping())
-                add_mapping = additional_mapping_file.mappings[additional_mapping_id]
-
-                MutyLogger.get_instance().debug(
-                    f"adding additional mappings from {additional_file_path}.{additional_mapping_id} to '{mapping_id}' ..."
-                )
-
-                for key, value in add_mapping.fields.items():
-                    main_mapping.fields[key] = value
-
-                mappings[mapping_id] = main_mapping
-
-        if mapping_parameters.additional_mappings:
-            MutyLogger.get_instance().debug(
-                f"loading additional mappings: {mapping_parameters.additional_mappings} ..."
-            )
-
-            for (
-                additional_mapping_id,
-                additional_mapping,
-            ) in mapping_parameters.additional_mappings.items():
-                # merge additional mappings
-                main_mapping = mappings.get(mapping_id, GulpMapping())
-                add_mapping = GulpMapping.model_validate(additional_mapping)
-
-                MutyLogger.get_instance().debug(
-                    f"adding additional mappings from {additional_mapping_id} to '{mapping_id}' ..."
-                )
-                for key, value in add_mapping.fields.items():
-                    main_mapping.fields[key] = value
-
-                mappings[mapping_id] = main_mapping
-
-        return mappings, mapping_id
-
     async def _fetch_index_type_mappings(self) -> None:
         """
         get the type mappings for the current index on OpenSearch
@@ -2902,7 +2749,7 @@ class GulpPluginBase(ABC):
         # in a lower stacked plugin this is already set by the upper with setup_stacked_plugin()
         if not self._mappings:
             self._mappings, self._mapping_id = (
-                await GulpPluginBase.mapping_parameters_to_mapping(
+                await mapping_parameters_to_mapping(
                     self._plugin_params.mapping_parameters
                 )
             )

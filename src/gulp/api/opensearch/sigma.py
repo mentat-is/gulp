@@ -21,19 +21,17 @@ from sigma.conversion.base import Backend
 from sigma.rule import SigmaRule
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gulp.api.mapping.mapping_utils import mapping_parameters_to_mapping
 from gulp.api.redis_api import GulpRedis
 
 from gulp.api.collab.source import GulpSource
-from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab_api import GulpCollab
 from gulp.api.mapping.models import GulpMapping, GulpMappingFile, GulpSigmaMapping
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpQuery
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.ws_api import GulpRedisBroker
 from gulp.config import GulpConfig
-from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpMappingParameters, GulpProgressCallback
 
 
@@ -717,7 +715,7 @@ async def sigmas_to_queries(
             # loop for every unique mapping parameters set
             mappings: dict[str, GulpMapping]
             mapping_id: str
-            mappings, mapping_id = await GulpPluginBase.mapping_parameters_to_mapping(
+            mappings, mapping_id = await mapping_parameters_to_mapping(
                 mapping_parameters
             )
 

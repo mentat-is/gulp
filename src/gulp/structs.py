@@ -88,7 +88,6 @@ class GulpAPIMethod(BaseModel):
         list[GulpAPIParameter],
         Field(description="list of parameters for the method"),
     ] = Field(default_factory=list)
-    
 
 
 class GulpMappingParameters(BaseModel):
@@ -120,7 +119,8 @@ class GulpMappingParameters(BaseModel):
         Optional[str],
         Field(
             description=(
-                "mapping file name in the mapping files directory (main or extra) to read `GulpMapping` entries from. (if `mappings` is set, this is ignored).\n"
+                "mapping file name in the mapping files directory, to read `GulpMapping` entries from. If `mappings` is set, this is ignored.\n"
+                "- the file is searched first in the extra mappings path, then in the main mappings path, or may be specified as an absolute path.\n"
                 "- `mappings` is ignored if this is set.\n"
                 "- `additional_mapping_files` and `additional_mappings` can be used to load further mappings from other files or directly from a dictionary."
             ),
@@ -151,7 +151,7 @@ class GulpMappingParameters(BaseModel):
         list[tuple[str, str]],
         Field(
             description=(
-                "if this is set, it allows to specify further mappings from other mapping files.\n"
+                "if this is set, it allows to specify further mappings from other mapping files (same rules as `mapping_file` to find the file/s).\n"
                 "each tuple is defined as (other_mapping_file, mapping_id): each `mapping_id` from `other_mapping_file` will be loaded and merged to the mappings identified by `mapping_id` selected during parsing of the **main** `mapping_file`."
             ),
         ),
@@ -297,6 +297,7 @@ class GulpDocumentsChunkCallback(Protocol):
         ...
         ...
 
+
 class GulpPluginParameters(BaseModel):
     """
     parameters for a plugin, to be passed to ingest and query_external API.
@@ -371,7 +372,8 @@ class GulpPluginParameters(BaseModel):
     store_file: Annotated[
         bool,
         Field(
-            description="if True, and if this is a **file** ingestion operation, the file will be stored on the configured storage server prior to be ingested")
+            description="if True, and if this is a **file** ingestion operation, the file will be stored on the configured storage server prior to be ingested"
+        ),
     ] = False
 
     def is_empty(self) -> bool:
@@ -512,13 +514,15 @@ class GulpInternalEventResult(BaseModel):
                 {
                     "plugins": ["win_evtx"],
                     "event": "chunk_post_ingest",
-                    "result": {"modified_chunk": [{"field1": "value1"}, {"field1": "value2"}]},
+                    "result": {
+                        "modified_chunk": [{"field1": "value1"}, {"field1": "value2"}]
+                    },
                 }
             ]
         },
     )
     plugins: Annotated[
-        str|list[str],
+        str | list[str],
         Field(description="The plugin or plugins that handled the event."),
     ]
     event: Annotated[
@@ -529,7 +533,8 @@ class GulpInternalEventResult(BaseModel):
         dict,
         Field(description="The return value of the callback, if any."),
     ] = None
-    stop: Annotated[bool,
+    stop: Annotated[
+        bool,
         Field(
             False,
             description="Whether to stop processing the event with other plugins (i.e. if True, the callback return value will be returned as final result of the event, without calling other plugins' callbacks).",
@@ -625,9 +630,7 @@ class GulpChunkPrePostIngestInternalEvent(BaseModel):
             ]
         },
     )
-    chunk: Annotated[
-        list[dict], Field(description="The chunk of data being ingested.")
-    ]
+    chunk: Annotated[list[dict], Field(description="The chunk of data being ingested.")]
     index: Annotated[
         str, Field(description="The index the chunk is being ingested to.")
     ]
@@ -643,11 +646,10 @@ class GulpChunkPrePostIngestInternalEvent(BaseModel):
     user_id: Annotated[
         str, Field(description="The user id associated with this ingestion.")
     ]
-    plugin: Annotated[
-        str, Field(description="The plugin performing the ingestion.")
-    ]
+    plugin: Annotated[str, Field(description="The plugin performing the ingestion.")]
     flt: Annotated[
-        Optional[GulpIngestionFilter], Field(description="The ingestion filter associated with this ingestion.")
+        Optional[GulpIngestionFilter],
+        Field(description="The ingestion filter associated with this ingestion."),
     ] = None
 
 
@@ -672,7 +674,9 @@ class GulpInternalEventsManager:
     # an user logged out
     EVENT_LOGOUT: str = "user_logout"  # data=GulpUserAccessPacket
     # ingestion of a source has been completed
-    EVENT_SOURCE_INGESTED: str = "ingest_source_done"  # data=GulpIngestSourceDoneInternalEvent
+    EVENT_SOURCE_INGESTED: str = (
+        "ingest_source_done"  # data=GulpIngestSourceDoneInternalEvent
+    )
     # an operation is deleted
     EVENT_DELETE_OPERATION: str = "delete_operation"  # data= {"index": index}
     # a chunk of documents has been ingested and pushed to the websocket
@@ -777,12 +781,12 @@ class GulpInternalEventsManager:
         operation_id: str = None,
     ) -> dict:
         """
-        dispatches internal event to all plugins which registered for it: each plugin's `internal_event_callback` is called with the event data, 
+        dispatches internal event to all plugins which registered for it: each plugin's `internal_event_callback` is called with the event data,
         and the callback return value is fed back to the next plugin as input data (i.e. plugins can modify the event data and pass it to the next plugin).
 
         NOTE: this can be used by the main process only, which holds the GulpInternalEventsManager singleton.
 
-        in workers, plugins should call GulpRedisBroker.put_internal_event() or GulpRedisBroker.put_internal_wait() 
+        in workers, plugins should call GulpRedisBroker.put_internal_event() or GulpRedisBroker.put_internal_wait()
         to send internal events to the main process, which will then call this method to dispatch the event to the relevant plugins.
 
         Args:
@@ -803,7 +807,7 @@ class GulpInternalEventsManager:
             req_id=req_id,
         )
 
-        result= GulpInternalEventResult(plugins=[], event=t, result=data)
+        result = GulpInternalEventResult(plugins=[], event=t, result=data)
         for _, entry in self._plugins.items():
             p: GulpPluginBase = entry["plugin_instance"]
             if t in entry["types"]:
@@ -821,11 +825,7 @@ class GulpInternalEventsManager:
                             # stop here
                             break
 
-
                 except Exception as e:
                     MutyLogger.get_instance().exception(e)
 
         return result.model_dump()
-
-
-

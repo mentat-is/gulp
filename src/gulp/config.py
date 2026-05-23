@@ -1255,7 +1255,7 @@ class GulpConfig:
 
         @return the full path of a file in the mapping_files directory
         """
-
+        # if it is an absolute path, return it if exists
         if not filename:
             return None
 
