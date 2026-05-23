@@ -40,7 +40,12 @@ from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
 from gulp.api.s3_api import GulpS3
-from gulp.api.server.structs import TASK_TYPE_EXTERNAL_QUERY, TASK_TYPE_INGEST, TASK_TYPE_QUERY, TASK_TYPE_REBASE
+from gulp.api.server.structs import (
+    TASK_TYPE_EXTERNAL_QUERY,
+    TASK_TYPE_INGEST,
+    TASK_TYPE_QUERY,
+    TASK_TYPE_REBASE,
+)
 from gulp.api.ws_api import GulpConnectedSockets, GulpRedisBroker
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
@@ -48,6 +53,7 @@ from gulp.process import GulpProcess
 from gulp.structs import ObjectAlreadyExists, ObjectNotFound
 from gulp.api.prometheus_api import GulpMetrics, cleanup_prometheus
 from gulp import __version__, commit_id
+
 
 class GulpServer:
     """
@@ -223,11 +229,11 @@ class GulpServer:
                 body = ""
 
         print_error: bool = True
-        # take the first 1k bytes of the body        
+        # take the first 1k bytes of the body
         body = muty.string.make_shorter(str(body), max_len=1024)
-        if '/request_get_by_id' in r.url.path and status_code == 404:
+        if "/request_get_by_id" in r.url.path and status_code == 404:
             # suppress printing of 404s for request_get_by_id to avoid log spam, since it's frequently polled by the client for pending requests
-            print_error = False 
+            print_error = False
         # print("***** print_response=%r, r.url.path=%s, status_code=%d, ex=%s" % (print_error, r.url.path, status_code, ex))
         js = JSendResponse.error(
             req_id=req_id,
@@ -278,7 +284,7 @@ class GulpServer:
         self._app.include_router(query_router)
         self._app.include_router(enrich_router)
         self._app.include_router(storage_router)
-        
+
     def add_api_route(self, path: str, handler: callable, **kwargs):
         """
         add a new API route, just bridges to FastAPI.add_api_route
@@ -368,6 +374,7 @@ class GulpServer:
 
         # set up Prometheus metrics (if enabled)
         from gulp.api.prometheus_api import setup_prometheus
+
         setup_prometheus(self._app)
 
         # add routers in other modules
@@ -470,18 +477,32 @@ class GulpServer:
                             reclaimed = await redis_inst.task_autoclaim_stale()
                             if reclaimed:
                                 MutyLogger.get_instance().warning(
-                                    "re-dispatching %d autoclaimed stale task(s)", len(reclaimed)
+                                    "re-dispatching %d autoclaimed stale task(s)",
+                                    len(reclaimed),
                                 )
                                 for obj in reclaimed:
                                     ttype = obj.get("task_type")
                                     if ttype == TASK_TYPE_INGEST:
-                                        await self.spawn_worker_task(run_ingest_file_task, obj)
-                                    elif ttype == TASK_TYPE_QUERY or ttype == TASK_TYPE_EXTERNAL_QUERY:
-                                        self.spawn_bg_task(run_query_task(obj), name=f"query_task_{muty.string.generate_unique()}")
+                                        await self.spawn_worker_task(
+                                            run_ingest_file_task, obj
+                                        )
+                                    elif (
+                                        ttype == TASK_TYPE_QUERY
+                                        or ttype == TASK_TYPE_EXTERNAL_QUERY
+                                    ):
+                                        self.spawn_bg_task(
+                                            run_query_task(obj),
+                                            name=f"query_task_{muty.string.generate_unique()}",
+                                        )
                                     elif ttype == TASK_TYPE_REBASE:
-                                        self.spawn_bg_task(run_rebase_task(obj), name=f"rebase_task_{muty.string.generate_unique()}")
+                                        self.spawn_bg_task(
+                                            run_rebase_task(obj),
+                                            name=f"rebase_task_{muty.string.generate_unique()}",
+                                        )
                         except Exception:
-                            MutyLogger.get_instance().exception("error during task autoclaim sweep")
+                            MutyLogger.get_instance().exception(
+                                "error during task autoclaim sweep"
+                            )
 
                     # block for first task (up to 5s) to avoid busy waiting
                     first = await GulpRedis.get_instance().task_pop_blocking(timeout=5)
@@ -491,7 +512,7 @@ class GulpServer:
                         continue  # timeout, loop again
 
                     batch: list[dict] = [first]
-                    
+
                     # drain remaining up to limit-1 non-blocking
                     rest = await GulpRedis.get_instance().task_dequeue_batch(limit - 1)
                     batch.extend(rest)
@@ -504,13 +525,20 @@ class GulpServer:
                         ttype = obj.get("task_type")
                         if ttype == TASK_TYPE_INGEST:
                             await self.spawn_worker_task(run_ingest_file_task, obj)
-                        elif ttype == TASK_TYPE_QUERY or ttype == TASK_TYPE_EXTERNAL_QUERY:
+                        elif (
+                            ttype == TASK_TYPE_QUERY
+                            or ttype == TASK_TYPE_EXTERNAL_QUERY
+                        ):
                             # run_query_task runs in main process and spawns workers itself
-                            self.spawn_bg_task(run_query_task(obj), name=f"query_task_{muty.string.generate_unique()}")#{obj.get('req_id')}")
+                            self.spawn_bg_task(
+                                run_query_task(obj),
+                                name=f"query_task_{muty.string.generate_unique()}",
+                            )  # {obj.get('req_id')}")
                         elif ttype == TASK_TYPE_REBASE:
                             # rebase task: run main-process handler that will spawn a worker
                             self.spawn_bg_task(
-                                run_rebase_task(obj), name=f"rebase_task_{muty.string.generate_unique()}"
+                                run_rebase_task(obj),
+                                name=f"rebase_task_{muty.string.generate_unique()}",
                             )
 
                 except asyncio.CancelledError:
@@ -580,7 +608,7 @@ class GulpServer:
                     return False
         _ = asyncio.create_task(_run_and_await(), name=name)
         return True
-    
+
     async def spawn_worker_task(
         self,
         func: Callable[..., Awaitable[Any]],
@@ -611,11 +639,11 @@ class GulpServer:
             raise RuntimeError("cannot spawn worker task from a worker process!")
 
         MutyLogger.get_instance().debug(
-            "spawning worker task, func=%s, args=%s, kwargs=%s, wait=%r",
-            func,
-            args,
-            kwargs,
-            wait,
+            muty.string.make_shorter(
+                "spawning worker task, func=%s, args=%s, kwargs=%s, wait=%r"
+                % (func, args, kwargs, wait),
+                max_len=260,
+            )
         )
 
         coro = GulpProcess.get_instance().process_pool.apply(
@@ -640,7 +668,7 @@ class GulpServer:
                 raise
 
         # fire and forget (just use spawn_bg_task to schedule the coro)
-        # NOTE: may be appropriate to directly call process_pool.queue_work instead ? from testing, it works as expected and 
+        # NOTE: may be appropriate to directly call process_pool.queue_work instead ? from testing, it works as expected and
         # we don't have the minimal overhead of an extra task in the main process (it just await for apply() to complete, which in turn awaits for the coroutine supplied to the pool in a busy loop).
         # but, using the process_pool.queue_work function directly we would loose task name check and exception handling...
         GulpServer.spawn_bg_task(coro, task_name)
@@ -681,14 +709,19 @@ class GulpServer:
             # close clients in the main process
             await GulpCollab.get_instance().shutdown()
             await GulpOpenSearch.get_instance().shutdown()
-            await GulpS3.get_instance().shutdown()            
+            await GulpS3.get_instance().shutdown()
 
             # remove this server's consumer entries from Redis streams
             from gulp.api.redis_api import GulpRedis
+
             try:
-                await GulpRedis.get_instance().cleanup_consumers_for_server(self.server_id)
+                await GulpRedis.get_instance().cleanup_consumers_for_server(
+                    self.server_id
+                )
             except Exception:
-                MutyLogger.get_instance().exception("failed to cleanup redis consumers for server %s", self.server_id)
+                MutyLogger.get_instance().exception(
+                    "failed to cleanup redis consumers for server %s", self.server_id
+                )
             await GulpRedisBroker.get_instance().shutdown()
             await GulpRedis.get_instance().shutdown()
 
@@ -696,7 +729,8 @@ class GulpServer:
             MutyLogger.get_instance().exception(ex)
         finally:
             MutyLogger.get_instance().info(
-                "MAIN process cleanup DONE (server_id=%s), just closing process pool is the only thing remaining ...", self.server_id
+                "MAIN process cleanup DONE (server_id=%s), just closing process pool is the only thing remaining ...",
+                self.server_id,
             )
 
             MutyLogger.get_instance().info(
@@ -769,6 +803,7 @@ class GulpServer:
 
         # initialize the redis client
         from gulp.api.redis_api import GulpRedis
+
         GulpRedis.get_instance().initialize(self.server_id)
 
         # initialize Redis pub/sub for worker->main process and instance<->instance communication
@@ -817,10 +852,12 @@ class GulpServer:
         # start Prometheus gauge collection loop (main process only)
         if GulpConfig.get_instance().prometheus_enabled():
             metrics = GulpMetrics.get_instance()
-            metrics.server_info.info({
-                "version": self.version_string(),
-                "server_id": self.server_id,
-            })
+            metrics.server_info.info(
+                {
+                    "version": self.version_string(),
+                    "server_id": self.server_id,
+                }
+            )
             await metrics.start_collect_loop()
 
         # wait for termination
@@ -839,7 +876,7 @@ class GulpServer:
 
         # cleaning up will be done through _cleanup called via atexit
         MutyLogger.get_instance().info("gulp shutting down!")
-        
+
         if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
             # delete pending stats created by THIS instance only
             await GulpRequestStats.purge_ongoing_requests(self.server_id)

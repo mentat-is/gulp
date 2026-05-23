@@ -856,12 +856,19 @@ class GulpOpenSearch:
                 name=ds, headers=headers
             )
             MutyLogger.get_instance().debug('deleted datastream "%s", res=%s', ds, res)
-            try:
-                # delete index too
-                res = await self._opensearch.indices.delete(ds)
-                MutyLogger.get_instance().debug('deleted index "%s", res=%s', ds, res)
-            except:
-                pass
+
+            for pattern in [f".ds-{ds}-*", ds]:
+                try:
+                    await self._opensearch.indices.delete(
+                        index=pattern,
+                        expand_wildcards="all",
+                        allow_no_indices=True,
+                        ignore_unavailable=True,
+                    )
+                except Exception as e:
+                    MutyLogger.get_instance().warning(
+                        "delete index %s failed (may be ok): %s", pattern, e
+                    )
         finally:
             # also (try to) delete the corresponding template
             try:

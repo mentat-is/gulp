@@ -62,8 +62,10 @@ class Plugin(GulpPluginBase):
         self, record: dict, record_idx: int, **kwargs
     ) -> GulpDocument:
         # we need to process context and source here (anything else is untouched)
-        # if they do not exist, they will be created with name = id
-        # get context and process it
+        # we start checking if the record has the special fields `gulp.context_id` and `gulp.source_id` and if so, we process them
+        # (i.e. create the corresponding GulpContext and GulpSource if not existing, and replace the field value with the corresponding id)
+        # NOTE: they're mandatory fields for records ingested by the raw plugin, since the engine needs them set to automatically
+        # create the corresponding GulpContext and GulpSource if not existing
         d: dict = record
         context_id: str = record.get("gulp.context_id")
         m = await self._process_key("gulp.context_id", context_id, d, **kwargs)
@@ -73,6 +75,7 @@ class Plugin(GulpPluginBase):
         source_id = record.get("gulp.source_id")
         override: str = self._plugin_params.custom_parameters.get("override_source_id")
         if override:
+            # if override is set, it takes precedence over the field in the record
             source_id = override
         m = await self._process_key("gulp.source_id", source_id, d, **kwargs)
         d.update(m)
