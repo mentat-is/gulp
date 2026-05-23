@@ -46,7 +46,11 @@ async def _read_sigma_mappings_from_file(
     Returns:
         dict[str, GulpSigmaMapping]: the sigma mappings, or None if not found
     """
-    mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(mapping_file)
+    if aiofiles.os.os.path.isabs(mapping_file):
+        # if the path is absolute, use it as is, otherwise build the path from working/extra dir
+        mapping_file_path = mapping_file
+    else:
+        mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(mapping_file)
     file_content = await muty.file.read_file_async(mapping_file_path)
     mapping_data = orjson.loads(file_content)
     mapping_file_obj = GulpMappingFile.model_validate(mapping_data)

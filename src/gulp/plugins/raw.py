@@ -122,6 +122,8 @@ class Plugin(GulpPluginBase):
                 ),
             },
         )
+        # no unmapped fields in raw ingestion
+        plugin_params.override_allow_unmapped_fields = False
 
         await super().ingest_raw(
             sess,

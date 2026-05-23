@@ -15,7 +15,6 @@ from gulp.api.opensearch.structs import GulpDocument
 from gulp.config import GulpConfig
 from gulp.structs import GulpMappingParameters
 
-
 _MISSING = object()
 
 
@@ -159,6 +158,42 @@ def convert_special_timestamp(
 
     raise ValueError(f"Unsupported timestamp output format: {output}")
 
+
+def apply_value_aliases(
+    mapped_key: str,
+    d: dict,
+    value_aliases: dict[str, dict[str, dict]],
+    record_type: str | None = None,
+) -> dict:
+    """Apply value alias remapping for one mapped key and record type.
+
+    Alias resolution order matches plugin behavior:
+    1) pick aliases for record_type when available
+    2) otherwise fallback to the "default" alias map
+    """
+
+    if not value_aliases or mapped_key not in value_aliases:
+        return d
+
+    alias_bucket = value_aliases[mapped_key]
+    selected_record_type = record_type or "default"
+
+    if selected_record_type in alias_bucket:
+        alias_map = alias_bucket[selected_record_type]
+    else:
+        alias_map = alias_bucket.get("default", {})
+
+    if not alias_map:
+        return d
+
+    for key, value in d.items():
+        alias_key = str(value)
+        if alias_key in alias_map:
+            d[key] = alias_map[alias_key]
+
+    return d
+
+
 async def mapping_parameters_to_mapping(
     mapping_parameters: GulpMappingParameters = None,
 ) -> tuple[dict[str, GulpMapping], str]:
@@ -171,6 +206,7 @@ async def mapping_parameters_to_mapping(
     Returns:
         tuple[dict[str, GulpMapping], str]: a tuple with the mappings (if empty, this is set to an empty mapping with mapping_id="default") and the mapping id
     """
+
     def _check_abs_path(filename: str) -> tuple[str, bool]:
         """
         check if an absolute path is provided and exists
@@ -181,10 +217,10 @@ async def mapping_parameters_to_mapping(
                 return filename, True
             # invalid path
             return None, False
-        
+
         # not an absolute path
         return filename, False
-                
+
     if not mapping_parameters:
         mapping_parameters = GulpMappingParameters()
 
@@ -221,7 +257,9 @@ async def mapping_parameters_to_mapping(
         if not mapping_file_path:
             raise FileNotFoundError(f"mapping file {mapping_file} does not exist!")
         if not is_absolute_path:
-            mapping_file_path = GulpConfig.get_instance().build_mapping_file_path( mapping_file)
+            mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
+                mapping_file
+            )
 
         file_content = await muty.file.read_file_async(mapping_file_path)
         mapping_data = orjson.loads(file_content)
@@ -245,7 +283,7 @@ async def mapping_parameters_to_mapping(
     # MutyLogger.get_instance().debug(f"mapping_id={mapping_id}")
 
     # if we have specified direct mapping alone, just stop here and use it
-    if mapping_parameters.mappings or (
+    if mapping_parameters.mappings and (
         not mapping_parameters.additional_mapping_files
         and not mapping_parameters.additional_mappings
     ):
@@ -262,10 +300,14 @@ async def mapping_parameters_to_mapping(
             # load and merge additional mappings from files, check for absolute paths first
             additional_file_path, is_absolute_path = _check_abs_path(file_info[0])
             if not additional_file_path:
-                MutyLogger.get_instance().error(f"mapping file {file_info[0]} does not exist!")
+                MutyLogger.get_instance().error(
+                    f"mapping file {file_info[0]} does not exist!"
+                )
                 continue
             if not is_absolute_path:
-                additional_file_path = GulpConfig.get_instance().build_mapping_file_path(file_info[0])
+                additional_file_path = (
+                    GulpConfig.get_instance().build_mapping_file_path(file_info[0])
+                )
 
             additional_mapping_id = file_info[1]
 
@@ -313,4 +355,5 @@ async def mapping_parameters_to_mapping(
 
             mappings[mapping_id] = main_mapping
 
+    # MutyLogger.get_instance().debug(f"************ final mappings for mapping_id {mapping_id}:\n{mappings}")
     return mappings, mapping_id

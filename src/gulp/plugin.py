@@ -60,6 +60,7 @@ from gulp.api.ws_api import (
 )
 from gulp.config import GulpConfig
 from gulp.api.mapping.mapping_utils import (
+    apply_value_aliases,
     convert_special_timestamp,
     flatten_json_value,
     mapping_parameters_to_mapping,
@@ -2087,52 +2088,14 @@ class GulpPluginBase(ABC):
     def _apply_value_aliases(
         self, mapped_key: str, d: dict, value_aliases: dict[str, dict[str, dict]]
     ) -> dict:
-        """
-        apply value aliases after mapping
-        """
+        """Apply value aliases after mapping via the shared mapping helper."""
 
-        """
-        "value_aliases": {
-            # example value_aliases dictionary
-            {
-                // source_key
-                "network.direction": {
-                    // this is the default
-                    "default": {
-                        "2": "outbound",
-                        "1": "inbound"
-                    },
-                    // some special cases
-                    "special_case": {
-                        "2": "abcd",
-                        "1": "efgh"
-                    }
-                }
-            }
-        """
-        # MutyLogger.get_instance().debug("applying value aliases for key %s on dict %s", mapped_key, d)
-        if not value_aliases or not mapped_key in value_aliases:
-            return d
-
-        r_type: str = "default"
-        if self._record_type:
-            r_type = self._record_type
-        aliases: dict[str, dict] = value_aliases[mapped_key]
-        if r_type in aliases:
-            alias_map: dict = aliases[r_type]
-        else:
-            alias_map: dict = aliases.get("default", {})
-
-        # MutyLogger.get_instance().debug("r_type=%s, selected alias map: %s", r_type, alias_map)
-        if not alias_map:
-            return d
-
-        # apply
-        for k, v in d.items():
-            if str(v) in alias_map:
-                d[k] = alias_map[str(v)]
-        # MutyLogger.get_instance().debug("r_type=%s, successfully mapped dict=%s", r_type, d)
-        return d
+        return apply_value_aliases(
+            mapped_key=mapped_key,
+            d=d,
+            value_aliases=value_aliases,
+            record_type=self._record_type,
+        )
 
     def _get_timestamp_format_for_default_timestamp(self):
         """gets the timestamp format for the default "@timestamp" field in the currently used mapping, if any, by looking in the mapping for the field with ecs="@timestamp" """
@@ -2748,10 +2711,8 @@ class GulpPluginBase(ABC):
         # setup mappings
         # in a lower stacked plugin this is already set by the upper with setup_stacked_plugin()
         if not self._mappings:
-            self._mappings, self._mapping_id = (
-                await mapping_parameters_to_mapping(
-                    self._plugin_params.mapping_parameters
-                )
+            self._mappings, self._mapping_id = await mapping_parameters_to_mapping(
+                self._plugin_params.mapping_parameters
             )
 
         # initialize index type mappings
