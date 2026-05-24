@@ -315,9 +315,6 @@ async def mapping_parameters_to_mapping(
             k: GulpMapping.model_validate(v)
             for k, v in mapping_parameters.mappings.items()
         }
-        MutyLogger.get_instance().debug(
-            f'using plugin_params.mapping_parameters.mappings="{mapping_parameters.mappings}"'
-        )
     elif mapping_parameters.mapping_file:
         # load from mapping file, check if its an absolute path first
         mapping_file = mapping_parameters.mapping_file
@@ -360,6 +357,9 @@ async def mapping_parameters_to_mapping(
         not mapping_parameters.additional_mapping_files
         and not mapping_parameters.additional_mappings
     ):
+        MutyLogger.get_instance().debug(
+            f'---> using mappings="{mappings}, mapping_id={mapping_id}"'
+        )
         return mappings, mapping_id
 
     # we may have additional mapping specified in mapping_parameters.additional_mapping_files and/or
@@ -430,5 +430,7 @@ async def mapping_parameters_to_mapping(
 
             mappings[mapping_id] = main_mapping
 
-    # MutyLogger.get_instance().debug(f"************ final mappings for mapping_id {mapping_id}:\n{mappings}")
+    MutyLogger.get_instance().debug(
+        f'---> using mappings="{mappings}, mapping_id={mapping_id}"'
+    )
     return mappings, mapping_id

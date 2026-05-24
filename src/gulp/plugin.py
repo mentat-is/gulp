@@ -624,6 +624,9 @@ class GulpPluginBase(ABC):
 
         # to keep track of upload and delete file later in _ingest_file_internal
         self.upload_task: asyncio.Task | None = None
+        
+        # just a shortcut for selected_mapping().unmapped_as_is
+        self._unmapped_as_is: bool = False
 
     def check_license(self, throw_on_invalid: bool = True) -> bool:
         """
@@ -1981,7 +1984,7 @@ class GulpPluginBase(ABC):
 
     @staticmethod
     def build_or_update_unmapped_obj(
-        doc: dict, k: str, v: Any, skip_none: bool = True
+        doc: dict, k: str, v: Any, skip_none: bool = True, as_is: bool = False
     ) -> dict:
         """
         builds or updates an unmapped object to be set in doc["gunmapped"]
@@ -1991,10 +1994,14 @@ class GulpPluginBase(ABC):
             k (str): The key to add.
             v (any): The value to add.
             skip_none (bool): whether to skip adding None or empty values, defaults to True.
+            as_is (bool): whether to return the value as is, without adding it to an "unmapped" object, defaults to False.
         """
         if skip_none and v is None or v == "":
             # skip empties
             return {}
+        if as_is:
+            # return the value as is, without adding it to an "unmapped" object
+            return {k: v}
 
         # check if we have an unmapped node yet in the document
         unmapped_key: str = GulpOpenSearch.UNMAPPED_PREFIX
@@ -2051,7 +2058,7 @@ class GulpPluginBase(ABC):
             # fallback, unmapped key (should never happen, means "ecs" is set to "" ...)
             if not skip_unmapped:
                 d = GulpPluginBase.build_or_update_unmapped_obj(
-                    d, source_key, source_value
+                    d, source_key, source_value, as_is=self._unmapped_as_is
                 )
                 set_keys.append(source_key)
 
@@ -2136,6 +2143,8 @@ class GulpPluginBase(ABC):
 
         # check if we have a mapping for source_key
         mapping = self.selected_mapping()
+        self._unmapped_as_is = mapping.unmapped_as_is
+
         if mapping.exclude and source_key in mapping.exclude:
             # ignore this key
             return {}
@@ -2145,7 +2154,6 @@ class GulpPluginBase(ABC):
 
         # to replace with aliases AFTER mapping
         value_aliases: dict = mapping.value_aliases or {}
-
         # get field mapping from mappings.mapping_id.fields[source_key] (i.e. { "mappings": { "windows": { "fields": { "AccountDomain": { ... } } } } })
         field_mapping: GulpMappingField = mapping.fields.get(source_key)
         allow_unmapped_fields: bool = True
@@ -2163,7 +2171,7 @@ class GulpPluginBase(ABC):
 
             # update the "unmapped" node
             d = GulpPluginBase.build_or_update_unmapped_obj(
-                doc, source_key, source_value
+                doc, source_key, source_value, as_is=self._unmapped_as_is
             )
             if value_aliases:
                 # apply aliases
@@ -2360,6 +2368,7 @@ class GulpPluginBase(ABC):
             # apply value aliases if any
             for kk, _ in m.items():
                 self._apply_value_aliases(kk, m, value_aliases)
+                print("applied value aliases, m=%s" % (m))
         return m
 
     async def _flush_and_check_thresholds(
@@ -2571,9 +2580,15 @@ class GulpPluginBase(ABC):
         """
         if not plugin_params:
             # initialize as empty
+            MutyLogger.get_instance().debug(
+                "---> plugin_params is None, initializing as empty"
+            )
             plugin_params = GulpPluginParameters()
 
         if plugin_params.mapping_parameters.is_empty():
+            MutyLogger.get_instance().debug(
+                "---> plugin_params.mapping_parameters is empty, setting from provided values"
+            )
             # set whole mapping parameters from provided values
             plugin_params.mapping_parameters = GulpMappingParameters(
                 mapping_file=mapping_file,
@@ -2589,16 +2604,31 @@ class GulpPluginBase(ABC):
             if mapping_id:
                 plugin_params.mapping_parameters.mapping_id = mapping_id
             if mappings:
-                plugin_params.mapping_parameters.mappings = mappings
+                if plugin_params.mapping_parameters.mappings:
+                    """MutyLogger.get_instance().debug(
+                        "---> updating plugin_params.mapping_parameters.mappings with provided mappings"
+                    )"""
+                    plugin_params.mapping_parameters.mappings.update(mappings)
+                else:
+                    """MutyLogger.get_instance().debug(
+                        "---> setting plugin_params.mapping_parameters.mappings with provided mappings"
+                    )"""
+                    plugin_params.mapping_parameters.mappings = mappings
             if additional_mapping_files:
                 plugin_params.mapping_parameters.additional_mapping_files = (
                     additional_mapping_files
                 )
             if additional_mappings:
-                plugin_params.mapping_parameters.additional_mappings = (
-                    additional_mappings
-                )
+                if plugin_params.mapping_parameters.additional_mappings:
+                    plugin_params.mapping_parameters.additional_mappings.update(
+                        additional_mappings
+                    )
+                else:
+                    plugin_params.mapping_parameters.additional_mappings = (
+                        additional_mappings
+                    )
 
+        # MutyLogger.get_instance().debug("---> ensured plugin_params: %s", plugin_params)
         return plugin_params
 
     async def _fetch_index_type_mappings(self) -> None:

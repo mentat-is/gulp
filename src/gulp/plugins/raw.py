@@ -61,30 +61,32 @@ class Plugin(GulpPluginBase):
     async def _record_to_gulp_document(
         self, record: dict, record_idx: int, **kwargs
     ) -> GulpDocument:
-        # we need to process context and source here (anything else is untouched)
-        # we start checking if the record has the special fields `gulp.context_id` and `gulp.source_id` and if so, we process them
-        # (i.e. create the corresponding GulpContext and GulpSource if not existing, and replace the field value with the corresponding id)
-        # NOTE: they're mandatory fields for records ingested by the raw plugin, since the engine needs them set to automatically
-        # create the corresponding GulpContext and GulpSource if not existing
-        d: dict = record
-        context_id: str = record.get("gulp.context_id")
-        m = await self._process_key("gulp.context_id", context_id, d, **kwargs)
-        d.update(m)
+        event_original = record.get("event.original") or record.get("event_original")
+        if event_original is None:
+            try:
+                event_original = orjson.dumps(record).decode("utf-8")
+            except TypeError:
+                event_original = str(record)
 
-        # get source and process it
-        source_id = record.get("gulp.source_id")
+        # Process each input field through the standard mapping engine so
+        # raw ingest can apply plugin_params.mapping_parameters end-to-end.
+        d: dict = {}
+        for source_key, source_value in flatten(record).items():
+            m = await self._process_key(source_key, source_value, d, **kwargs)
+            d.update(m)
+
+        # Keep source override behavior for SDK/CLI compatibility.
         override: str = self._plugin_params.custom_parameters.get("override_source_id")
         if override:
-            # if override is set, it takes precedence over the field in the record
-            source_id = override
-        m = await self._process_key("gulp.source_id", source_id, d, **kwargs)
-        d.update(m)
+            m = await self._process_key("gulp.source_id", override, d, **kwargs)
+            d.update(m)
 
-        # create GulpDocument as is
+        # Build the final document from mapped values, preserving record-level
+        # event_original/event_sequence values when provided in the payload.
         return GulpDocument(
             self,
             operation_id=self._operation_id,
-            event_original=None,  # taken from the record
+            event_original=str(event_original),
             event_sequence=None,  # taken from the record
             **d,
         )
@@ -111,7 +113,7 @@ class Plugin(GulpPluginBase):
         plugin_params = self._ensure_plugin_params(
             plugin_params,
             mappings={
-                "raw_doc": GulpMapping(
+                "default": GulpMapping(
                     fields={
                         # as default, treats these fields as GulpContext and GulpSource ids (creates them if not existing)
                         "gulp.context_id": GulpMappingField(is_gulp_type="context_id"),

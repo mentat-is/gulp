@@ -116,7 +116,7 @@ class GulpMapping(BaseModel):
     """
     defines a logsource -> gulp document mapping
     """
-    
+
     model_config = ConfigDict(
         extra="allow",
         json_schema_extra={
@@ -208,6 +208,13 @@ class GulpMapping(BaseModel):
             description="if set, this is the encoding the plugin should use when reading the source data to apply this mapping (e.g. when the mapping is applied to a file source). if not set, the plugin uses its default encoding (e.g. utf-8).",
         ),
     ] = None
+    unmapped_as_is: Annotated[
+        bool,
+        Field(
+            description="if set to true, fields that are not explicitly mapped (i.e. not in `fields`) are included in the generated document as-is (with their original name and value). if false, they're included in the `gulp.unmapped` node. ignored if unmapped fields are disallowed by configuration.",
+        ),
+    ] = False
+
 
 class GulpMappingFileMetadata(BaseModel):
     """

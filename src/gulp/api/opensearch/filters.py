@@ -56,12 +56,12 @@ class GulpBaseDocumentFilter(BaseModel):
     )
 
     time_range: Annotated[
-        Optional[tuple[int, int]],
+        Optional[tuple[int|str, int|str]],
         Field(
             description="""
 a tuple representing a `gulp.timestamp` range `[ start, end ]`.
 
-- `start` and `end` are nanoseconds from the unix epoch.
+- `start` and `end` are int (or numeric strings) representing nanoseconds from the unix epoch.
 - to set only start (or end), use 0 for end (or start), e.g. `[ start, 0 ]` or `[ 0, end ]`.
 """,
         ),
@@ -134,7 +134,7 @@ default is False (both OpenSearch and websocket receives the filtered results).
         if not flt.time_range or len (flt.time_range) != 2:
             # no time range, accept all
             return GulpDocumentFilterResult.ACCEPT
-        if flt.time_range[0] == 0 and flt.time_range[1] == 0:
+        if int(flt.time_range[0]) == 0 and int(flt.time_range[1]) == 0:
             # empty time range, accept all
             return GulpDocumentFilterResult.ACCEPT
         
@@ -143,14 +143,14 @@ default is False (both OpenSearch and websocket receives the filtered results).
         # if both are None, the filter is empty and all events are accepted
         ts = doc["gulp.timestamp"]
 
-        if flt.time_range[0] > 0 and flt.time_range[1] > 0:
-            if ts >= flt.time_range[0] and ts <= flt.time_range[1]:
+        if int(flt.time_range[0]) > 0 and int(flt.time_range[1]) > 0:
+            if ts >= int(flt.time_range[0]) and ts <= int(flt.time_range[1]):
                 return GulpDocumentFilterResult.ACCEPT
-        if flt.time_range[0] > 0:
-            if ts >= flt.time_range[0]:
+        if int(flt.time_range[0]) > 0:
+            if ts >= int(flt.time_range[0]):
                 return GulpDocumentFilterResult.ACCEPT
-        if flt.time_range[1] > 0:
-            if ts <= flt.time_range[1]:
+        if int(flt.time_range[1]) > 0:
+            if ts <= int(flt.time_range[1]):
                 return GulpDocumentFilterResult.ACCEPT
 
         return GulpDocumentFilterResult.SKIP
@@ -290,10 +290,10 @@ include documents matching the given `gulp.source_id`/s.
                 # range query
                 field = "gulp.timestamp"
                 range_clause = {}
-                if self.time_range[0] > 0:
-                    range_clause["gte"] = self.time_range[0]
-                if self.time_range[1] > 0:
-                    range_clause["lte"] = self.time_range[1]
+                if int(self.time_range[0]) > 0:
+                    range_clause["gte"] = int(self.time_range[0])
+                if int(self.time_range[1]) > 0:
+                    range_clause["lte"] = int(self.time_range[1])
                 if range_clause:
                     filters.append({"range": {field: range_clause}})
             
