@@ -2368,7 +2368,6 @@ class GulpPluginBase(ABC):
             # apply value aliases if any
             for kk, _ in m.items():
                 self._apply_value_aliases(kk, m, value_aliases)
-                print("applied value aliases, m=%s" % (m))
         return m
 
     async def _flush_and_check_thresholds(
