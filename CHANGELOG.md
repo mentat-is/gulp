@@ -1,9 +1,11 @@
-# v1.7.2
+# v1.7.200
 
-# improvements
+## improvements
 
-plugins/raw: reworked to support mapping
-core: moved mapping code in a separate module to ease import by other tools
+-plugins/raw: reworked to support mapping
+
+- core: moved mapping code in a separate module to ease import by other tools
+- all: minor fixes and improvements
 
 # v1.7.15
 
