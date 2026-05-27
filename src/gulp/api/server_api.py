@@ -480,25 +480,38 @@ class GulpServer:
                                     "re-dispatching %d autoclaimed stale task(s)",
                                     len(reclaimed),
                                 )
+                                reclaimed_coros: list[Awaitable[Any]] = []
                                 for obj in reclaimed:
                                     ttype = obj.get("task_type")
                                     if ttype == TASK_TYPE_INGEST:
-                                        await self.spawn_worker_task(
-                                            run_ingest_file_task, obj
+                                        reclaimed_coros.append(
+                                            self.spawn_worker_task(
+                                                run_ingest_file_task, obj, wait=True
+                                            )
                                         )
                                     elif (
                                         ttype == TASK_TYPE_QUERY
                                         or ttype == TASK_TYPE_EXTERNAL_QUERY
                                     ):
-                                        self.spawn_bg_task(
-                                            run_query_task(obj),
-                                            name=f"query_task_{muty.string.generate_unique()}",
-                                        )
+                                        reclaimed_coros.append(run_query_task(obj))
                                     elif ttype == TASK_TYPE_REBASE:
-                                        self.spawn_bg_task(
-                                            run_rebase_task(obj),
-                                            name=f"rebase_task_{muty.string.generate_unique()}",
+                                        reclaimed_coros.append(run_rebase_task(obj))
+                                    else:
+                                        MutyLogger.get_instance().warning(
+                                            "unknown task_type while processing reclaimed task: %r",
+                                            ttype,
                                         )
+
+                                if reclaimed_coros:
+                                    reclaimed_results = await asyncio.gather(
+                                        *reclaimed_coros, return_exceptions=True
+                                    )
+                                    for res in reclaimed_results:
+                                        if isinstance(res, Exception):
+                                            MutyLogger.get_instance().exception(
+                                                "error while awaiting reclaimed task: %s",
+                                                res,
+                                            )
                         except Exception:
                             MutyLogger.get_instance().exception(
                                 "error during task autoclaim sweep"
@@ -521,25 +534,41 @@ class GulpServer:
                         "processing batch of %d task(s)", len(batch)
                     )
 
+                    # dispatch all tasks in this batch concurrently, then wait for
+                    # completion before dequeuing the next batch to avoid unbounded
+                    # in-flight growth under sustained load.
+                    batch_coros: list[Awaitable[Any]] = []
                     for obj in batch:
                         ttype = obj.get("task_type")
                         if ttype == TASK_TYPE_INGEST:
-                            await self.spawn_worker_task(run_ingest_file_task, obj)
+                            batch_coros.append(
+                                self.spawn_worker_task(
+                                    run_ingest_file_task, obj, wait=True
+                                )
+                            )
                         elif (
                             ttype == TASK_TYPE_QUERY
                             or ttype == TASK_TYPE_EXTERNAL_QUERY
                         ):
-                            # run_query_task runs in main process and spawns workers itself
-                            self.spawn_bg_task(
-                                run_query_task(obj),
-                                name=f"query_task_{muty.string.generate_unique()}",
-                            )  # {obj.get('req_id')}")
+                            # run_query_task runs in main process and may spawn workers itself
+                            batch_coros.append(run_query_task(obj))
                         elif ttype == TASK_TYPE_REBASE:
-                            # rebase task: run main-process handler that will spawn a worker
-                            self.spawn_bg_task(
-                                run_rebase_task(obj),
-                                name=f"rebase_task_{muty.string.generate_unique()}",
+                            # rebase task runs in main process and may spawn workers itself
+                            batch_coros.append(run_rebase_task(obj))
+                        else:
+                            MutyLogger.get_instance().warning(
+                                "unknown task_type while processing batch: %r", ttype
                             )
+
+                    if batch_coros:
+                        batch_results = await asyncio.gather(
+                            *batch_coros, return_exceptions=True
+                        )
+                        for res in batch_results:
+                            if isinstance(res, Exception):
+                                MutyLogger.get_instance().exception(
+                                    "error while awaiting batch task: %s", res
+                                )
 
                 except asyncio.CancelledError:
                     MutyLogger.get_instance().debug("blocking task loop cancelled!")

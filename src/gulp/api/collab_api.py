@@ -206,21 +206,41 @@ class GulpCollab:
             # no SSL
             connect_args = {}
 
-        # determine pool size for adaptive configuration, if set. either, use default for pool_size and max_overflow
-        pool_size: int = None
-        max_overflow: int = 10
+        # determine per-process pool settings. keep conservative defaults to avoid
+        # exhausting postgres max_connections when many worker processes are active.
+        pool_size_cap: int = GulpConfig.get_instance().postgres_pool_size()
+        max_overflow_cap: int = GulpConfig.get_instance().postgres_max_overflow()
+        pool_size: int = pool_size_cap
+        max_overflow: int = max_overflow_cap
         if GulpConfig.get_instance().postgres_adaptive_pool_size():
             # derive pool size from the number of tasks per worker, with some reasonable limits to avoid too small or too large pool sizes.
             # this is a heuristic and can be adjusted based on performance testing and expected workloads.
             num_tasks_per_worker: int = (
                 GulpConfig.get_instance().concurrency_num_tasks()
             )
-            # derive a conservative pool size from per-worker concurrency
-            pool_size = min(200, max(10, max(1, num_tasks_per_worker) // 4))
-            max_overflow = min(100, max(10, max(1, num_tasks_per_worker) // 3))
+            # derive a conservative pool size from per-worker concurrency, then
+            # clamp by configured caps to keep total process-wide connections bounded.
+            adaptive_pool_size = min(50, max(2, max(1, num_tasks_per_worker) // 4))
+            adaptive_max_overflow = min(25, max(1, max(1, num_tasks_per_worker) // 6))
+            pool_size = min(pool_size_cap, adaptive_pool_size)
+            max_overflow = min(max_overflow_cap, adaptive_max_overflow)
             MutyLogger.get_instance().debug(
-                "using postgres adaptive pool size, calculated pool_size=%d, max_overflow=%d (num_tasks_per_worker=%d) ..."
-                % (pool_size, max_overflow, num_tasks_per_worker)
+                "using postgres adaptive pool size, adaptive=(%d,%d), capped=(%d,%d), cap=(%d,%d), num_tasks_per_worker=%d"
+                % (
+                    adaptive_pool_size,
+                    adaptive_max_overflow,
+                    pool_size,
+                    max_overflow,
+                    pool_size_cap,
+                    max_overflow_cap,
+                    num_tasks_per_worker,
+                )
+            )
+        else:
+            MutyLogger.get_instance().debug(
+                "using postgres fixed pool settings, pool_size=%d, max_overflow=%d",
+                pool_size,
+                max_overflow,
             )
 
         # create engine
@@ -229,11 +249,10 @@ class GulpCollab:
             connect_args=connect_args,
             pool_pre_ping=True,  # Enables connection health checks
             pool_recycle=3600,  # Recycle connections after 1 hour
+            pool_size=pool_size,
             max_overflow=max_overflow,
             pool_timeout=30,  # Wait up to 30 seconds for available connection
         )
-        if pool_size:
-            kw["pool_size"] = pool_size
         _engine = create_async_engine(url, **kw)
 
         MutyLogger.get_instance().info(

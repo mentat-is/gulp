@@ -75,13 +75,17 @@
   // respawn a process after this number of tasks: set to -1 to never respawn processes, every other value < 100 will be set to 100 (default=100)
   "parallel_processes_respawn_after_tasks": 100,
   // if set, disable loading of plugins with their **bare filename** containing the listed strings (e.g. "example_" will disable all plugins with "example_" in their filename, such as "example_plugin.py", but not "my_example_plugin.py")
-  "plugin_disabled": [ ],
+  "plugin_disabled": [],
   // enable cache for plugins (faster loading)
   "plugin_cache_enabled": true,
   // how many documents to return in preview mode (default=100)
   "preview_mode_num_docs": 100,
   // if set, adapts postgresql connection pool size to concurrency (max tasks/num workers)
   "postgres_adaptive_pool_size": true,
+  // per-process postgres SQLAlchemy pool size hard cap (used also as fixed size when adaptive is false)
+  "postgres_pool_size": 3,
+  // per-process postgres SQLAlchemy max_overflow hard cap
+  "postgres_max_overflow": 2,
   // client certificate password (if any)
   "postgres_client_cert_password": null,
   // set to use SSL to connect to postgresql
@@ -92,7 +96,7 @@
   "postgres_verify_certs": false,
   // number of times to backoff on opensearch query circuit breaker exception (default=5)
   "query_circuit_breaker_backoff_attempts": 5,
-// if set, disables highlights when query circuit breaker is triggered (default=true)
+  // if set, disables highlights when query circuit breaker is triggered (default=true)
   "query_circuit_breaker_disables_highlights": true,
   // minimum query chunk size limit for circuit breaker backoff (default=100)
   "query_circuit_breaker_min_limit": 100,
@@ -130,9 +134,9 @@
   "token_ttl": 604800,
   // if set, websocket delay depends on the number of connected websockets
   "ws_adaptive_rate_limit_delay": true,
-   // if set, missing websocket will not halt the ongoing operation, reconnecting a websocket with the same `ws_id` will continue receiving messages (default=true)
+  // if set, missing websocket will not halt the ongoing operation, reconnecting a websocket with the same `ws_id` will continue receiving messages (default=true)
   "ws_ignore_missing": true,
- // maximum size of the websocket message queue per client (default=8192 messages). increase if you get "queue full" warnings in the gulp logs.
+  // maximum size of the websocket message queue per client (default=8192 messages). increase if you get "queue full" warnings in the gulp logs.
   "ws_queue_max_size": 8192,
   // timeout in seconds for blocking enqueue operations: if a message cannot be enqueued within this timeout, the client is considered unresponsive and disconnected (default=5.0 seconds)
   "ws_enqueue_timeout": 5.0,

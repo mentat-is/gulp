@@ -120,7 +120,10 @@ class GulpConfig:
             # copy default configuration file
             pkg_dir = os.path.dirname(os.path.abspath(__file__))  # src/gulp/
             src = os.path.join(pkg_dir, "gulp_cfg_template.json")
-            print("****** configuration file not found at %s, creating it from template %s ..." % (config_file_path, src))
+            print(
+                "****** configuration file not found at %s, creating it from template %s ..."
+                % (config_file_path, src)
+            )
             muty.file.copy_file(src, config_file_path)
             os.chmod(config_file_path, 0o0600)
             print(
@@ -233,7 +236,7 @@ class GulpConfig:
         """
         n = self._config.get("ingestion_allow_unmapped_fields", True)
         return n
-    
+
     def ingestion_raw_update_stats_chunk_frequency(self) -> int:
         """
         Returns after how many chunks to update raw ingestion stats (default=10).
@@ -245,6 +248,7 @@ class GulpConfig:
                 "using default chunk frequency for raw ingestion stats update=%d" % (n)
             )
         return n
+
     def ingestion_retry_max(self) -> int:
         """
         Returns the maximum number of retries for ingestion.
@@ -353,7 +357,7 @@ class GulpConfig:
         """
         n = self._config.get("query_circuit_breaker_disables_highlights", True)
         return n
-    
+
     def query_circuit_breaker_backoff_attempts(self) -> int:
         """
         Returns how many times query execution should retry with backoff when OpenSearch circuit breakers trip.
@@ -367,7 +371,9 @@ class GulpConfig:
             n = 5
         if n <= 0:
             n = 5
-            MutyLogger.get_instance().warning("invalid query_circuit_breaker_backoff_attempts, set to default=5")
+            MutyLogger.get_instance().warning(
+                "invalid query_circuit_breaker_backoff_attempts, set to default=5"
+            )
 
         return n
 
@@ -436,6 +442,7 @@ class GulpConfig:
                 "!!!WARNING!!! ENRICH DRY RUN MODE active, no real update will happen!"
             )
         return n
+
     def debug_no_token_expiration(self) -> bool:
         """
         Returns whether to disable token expiration.
@@ -451,7 +458,7 @@ class GulpConfig:
                 "!!!WARNING!!! debug_no_token_expiration is set to True !"
             )
         return n
-    
+
     def debug_redis_log_metrics(self) -> bool:
         """
         Returns whether to enable logging of Redis pub/sub metrics.
@@ -464,7 +471,7 @@ class GulpConfig:
                 "!!!WARNING!!! debug_redis_log_metrics is set to True!"
             )
         return n
-    
+
     def stats_ttl(self) -> int:
         """
         Returns the number of seconds stats are kept.
@@ -569,7 +576,8 @@ class GulpConfig:
         if not adaptive:
             if num_tasks < 2:
                 MutyLogger.get_instance().warning(
-                    "invalid concurrency_num_tasks=%d, set to default=16", num_tasks)
+                    "invalid concurrency_num_tasks=%d, set to default=16", num_tasks
+                )
                 num_tasks = 16
             return num_tasks
 
@@ -684,6 +692,36 @@ class GulpConfig:
         n = self._config.get("postgres_adaptive_pool_size", True)
         return n
 
+    def postgres_pool_size(self) -> int:
+        """
+        Per-process postgres SQLAlchemy pool size.
+
+        This is a hard cap also applied to adaptive pool sizing.
+        """
+        n = self._config.get("postgres_pool_size", 3)
+        try:
+            n = int(n)
+        except Exception:
+            n = 3
+        if n < 1:
+            n = 1
+        return n
+
+    def postgres_max_overflow(self) -> int:
+        """
+        Per-process postgres SQLAlchemy max_overflow.
+
+        This is a hard cap also applied to adaptive pool sizing.
+        """
+        n = self._config.get("postgres_max_overflow", 2)
+        try:
+            n = int(n)
+        except Exception:
+            n = 2
+        if n < 0:
+            n = 0
+        return n
+
     def postgres_url(self) -> str:
         """
         Returns the postgres url (i.e. postgresql://user:password@localhost:5432)
@@ -756,7 +794,7 @@ class GulpConfig:
         if not roles:
             return []
         return roles
-    
+
     def s3_minio(self) -> bool:
         """
         Returns whether the S3-compatible storage is MinIO, which requires some specific handling (e.g. path style access).
@@ -774,7 +812,7 @@ class GulpConfig:
         """
         n = self._config.get("s3_region", "us-east-1")
         return n
-    
+
     def s3_url(self) -> str:
         """
         Returns the s3-compatible storage URL
@@ -800,7 +838,7 @@ class GulpConfig:
         """
         n = self._config.get("s3_verify_certs", False)
         return n
-    
+
     def opensearch_url(self) -> str:
         """
         Returns the opensearch url
@@ -1057,7 +1095,6 @@ class GulpConfig:
         n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit", True)
         return n
 
-
     def ws_adaptive_rate_limit_delay(self) -> bool:
         """
         Returns whether to enable adaptive rate limiting for websockets (default: False).
@@ -1071,7 +1108,7 @@ class GulpConfig:
         """
         n = self._config.get("ws_rate_limit_delay", 0.01)
         return n
-    
+
     def ws_queue_max_size(self) -> int:
         """
         Returns the maximum size of the websocket message queue per client.
@@ -1080,7 +1117,7 @@ class GulpConfig:
         """
         n = self._config.get("ws_queue_max_size", 8192)
         return n
-    
+
     def ws_enqueue_timeout(self) -> float:
         """
         Returns the timeout in seconds for blocking enqueue operations.
@@ -1090,7 +1127,7 @@ class GulpConfig:
         """
         n = self._config.get("ws_enqueue_timeout", 5.0)
         return n
-    
+
     def ws_throttle_threshold(self) -> float:
         """
         Returns the queue utilization threshold (0.0-1.0) above which intake throttling begins.
@@ -1099,7 +1136,7 @@ class GulpConfig:
         """
         n = self._config.get("ws_throttle_threshold", 0.7)
         return max(0.0, min(1.0, n))  # clamp to [0, 1]
-    
+
     def ws_throttle_max_delay(self) -> float:
         """
         Returns the maximum delay in seconds for intake throttling when queue is nearly full.
@@ -1108,7 +1145,7 @@ class GulpConfig:
         """
         n = self._config.get("ws_throttle_max_delay", 0.2)
         return n
-    
+
     def ws_server_cache_ttl(self) -> float:
         """
         Returns the TTL in seconds for cached websocket ownership lookups.
@@ -1123,10 +1160,8 @@ class GulpConfig:
 
         if ttl <= 0:
             ttl = 5.0
-        return ttl    
+        return ttl
 
-
-    
     def redis_compression_enabled(self) -> bool:
         """
         Returns whether Redis payload compression is enabled for large messages.
@@ -1225,7 +1260,7 @@ class GulpConfig:
         if n < 0:
             n = 0
         return n
-    
+
     def plugin_disabled(self) -> list[str]:
         """
         Returns the list of disabled plugins (default: empty list).
@@ -1234,7 +1269,7 @@ class GulpConfig:
         if not isinstance(disabled, list):
             disabled = []
         return disabled
-    
+
     def plugin_allow_load_examples(self) -> bool:
         """
         Returns whether to enable loading of plugins which filename starts with "example_" (default: False).

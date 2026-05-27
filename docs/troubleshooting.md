@@ -21,7 +21,8 @@
 ## docker
 
 - **never** use docker as root (i.e. with `sudo), ensure your user has proper permissions to run docker commands.
-- 
+-
+
   ~~~
   sudo groupadd docker
   sudo usermod -aG docker $USER
@@ -41,6 +42,7 @@
 - beware of vscode `Forwarded Ports`: sometimes, you try to start a container that binds to a port already forwarded by vscode, causing conflicts.
 
   i.e. if you see something like:
+
   ~~~bash
   ./test_scripts/start_splunk.sh
 
@@ -68,7 +70,6 @@ Error response from daemon: Conflict. The container name "/elasticvue" is alread
 ~~~
 
 remove the container with `docker container rm some_container_id` and retry.
-
 
 ## general
 
@@ -216,6 +217,7 @@ remove the container with `docker container rm some_container_id` and retry.
 - error `too many connections already` from postgres usually happens when ingesting too many files at once, and should be handled by tuning the configuration parameters:
   - in postgres configuration, increase `max_connections`
   - scale up postgreSQL nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration
+  - play with configuration parameters `postgres_pool_size` and `postgres_pool_max_overflow` to tune connections pool, and enable `postgres_adaptive_pool_size` to allow adaptive resizing of the pool (**recommended**)
   
 ## websocket
 
