@@ -1,4 +1,9 @@
-# v1.7.200
+# v1.7.300
+
+- task batching improvements
+- postgresql pool handling improvements (fixes some issues with too many connections), read docs/troubleshooting.md for details.
+
+# v1.7.201
 
 ## improvements
 
