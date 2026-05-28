@@ -1,5 +1,11 @@
 """Comprehensive multi-user integration tests across single and multiple Gulp instances."""
 
+# to run this test, run in one shell:
+# gulp --reset-collab --create test_operation
+# and in another:
+# GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8095 gulp
+# so to have 2 instances running on localhost
+
 from __future__ import annotations
 
 import asyncio
