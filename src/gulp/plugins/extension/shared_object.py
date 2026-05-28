@@ -224,9 +224,7 @@ class Plugin(GulpPluginBase):
         self,
         token: Annotated[str, Depends(APIDependencies.param_token)],
         name: Annotated[str, Depends(APIDependencies.param_name)],
-        operation_id: Annotated[
-            str, Depends(APIDependencies.param_operation_id)
-        ],
+        operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
         obj_type: Annotated[
             str,
             Query(

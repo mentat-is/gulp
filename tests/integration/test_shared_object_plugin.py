@@ -284,7 +284,9 @@ async def test_shared_object_broadcast_multi_client(
                 msg.data["obj"]["id"] == created_obj_id
             ), f"listener_{idx + 1} received wrong object id in COLLAB_CREATE"
             assert msg.data["obj"]["type"] == "shared_object"
-            print(f"listener_{idx + 1} received COLLAB_CREATE with correct shared_object id: {msg.data}, obj: {msg.data['obj']}")
+            print(
+                f"listener_{idx + 1} received COLLAB_CREATE with correct shared_object id: {msg.data}, obj: {msg.data['obj']}"
+            )
         # ── arm all listeners for COLLAB_UPDATE ───────────────────────────────
         updated_obj = {"payload": "updated_value", "ts": create_name}
         update_result: dict = {}
@@ -331,7 +333,9 @@ async def test_shared_object_broadcast_multi_client(
             ), f"listener_{idx + 1} received wrong object id in COLLAB_UPDATE"
             assert msg.data["obj"]["type"] == "shared_object"
             assert msg.data["obj"]["obj"] == updated_obj
-            print(f"listener_{idx + 1} received COLLAB_UPDATE with correct shared_object id: {msg.data}, obj: {msg.data['obj']}")
+            print(
+                f"listener_{idx + 1} received COLLAB_UPDATE with correct shared_object id: {msg.data}, obj: {msg.data['obj']}"
+            )
 
         # ── arm all listeners for COLLAB_DELETE ───────────────────────────────
         _oid = created_obj_id  # capture for lambda closure
@@ -368,7 +372,9 @@ async def test_shared_object_broadcast_multi_client(
                 msg.data.get("id") == _oid
             ), f"listener_{idx + 1} received wrong object id in COLLAB_DELETE"
             assert msg.data.get("type") == "shared_object"
-            print(f"listener_{idx + 1} received COLLAB_DELETE with correct shared_object id: {msg.data}")
+            print(
+                f"listener_{idx + 1} received COLLAB_DELETE with correct shared_object id: {msg.data}"
+            )
 
     finally:
         if created_obj_id:
