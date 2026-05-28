@@ -10,6 +10,8 @@ import pytest
 from gulp_sdk import GulpClient, WSMessageType
 from gulp_sdk.exceptions import NotFoundError
 
+TEST_OPERATION_ID = "test_operation"
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -106,13 +108,18 @@ async def test_shared_object_crud(gulp_base_url, gulp_test_user, gulp_test_passw
                 await client._request(
                     "POST",
                     "/shared_object_create",
-                    params={"name": create_name, "obj_type": "query"},
+                    params={
+                        "name": create_name,
+                        "operation_id": TEST_OPERATION_ID,
+                        "obj_type": "query",
+                    },
                     json={"obj": create_obj},
                 )
             ).get("data", {})
             created_obj_id = created.get("id")
             assert created_obj_id, "create returned no id"
             assert created.get("type") == "shared_object"
+            assert created.get("operation_id") == TEST_OPERATION_ID
             assert created.get("obj_type") == "query"
             assert created.get("obj") == create_obj
 
@@ -250,7 +257,11 @@ async def test_shared_object_broadcast_multi_client(
             create_result = await actor._request(
                 "POST",
                 "/shared_object_create",
-                params={"name": create_name, "obj_type": "dashboard"},
+                params={
+                    "name": create_name,
+                    "operation_id": TEST_OPERATION_ID,
+                    "obj_type": "dashboard",
+                },
                 json={"obj": create_obj},
             )
 
@@ -261,6 +272,7 @@ async def test_shared_object_broadcast_multi_client(
         created = create_result.get("data", {})
         created_obj_id = created.get("id")
         assert created_obj_id, "create returned no id"
+        assert created.get("operation_id") == TEST_OPERATION_ID
         assert created.get("obj") == create_obj
 
         for idx, bucket in enumerate(create_buckets):
