@@ -2413,9 +2413,19 @@ class GulpRedisBroker:
             WebSocketDisconnect: if websocket is not connected
         """
 
+        from gulp.process import GulpProcess
+
         # verify websocket is alive (check Redis registry)
 
-        if not force_ignore_missing_ws and ws_id:
+        # Only the main process has the authoritative in-memory socket map.
+        # Workers should forward targeted packets to main and let main perform
+        # the actual routing instead of dropping them early on a stale/missing
+        # Redis lookup.
+        if (
+            GulpProcess.get_instance().is_main_process()
+            and not force_ignore_missing_ws
+            and ws_id
+        ):
             if not await GulpConnectedSocket.is_alive(ws_id):
                 raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
         # create the message
