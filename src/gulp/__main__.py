@@ -94,7 +94,7 @@ def main():
     )
     parser.add_argument(
         "--stop",
-        help="stop a running gulp instance (reads pidfile and sends SIGTERM)",
+        help="stop all gulp running instances on this machine (reads pidfile and sends SIGTERM)",
         action="store_true",
         default=False,
     )
@@ -130,7 +130,11 @@ def main():
         log_to_syslog = (args.log_to_syslog[0], args.log_to_syslog[1])
     print(". log_to_syslog:", log_to_syslog)
     MutyLogger.get_instance(
-        "gulp", logger_file_path=logger_file_path, level=lv, log_to_syslog=log_to_syslog, reconfigure=True
+        "gulp",
+        logger_file_path=logger_file_path,
+        level=lv,
+        log_to_syslog=log_to_syslog,
+        reconfigure=True,
     )
     if __RUN_TESTS__:
         # test stuff
@@ -143,60 +147,70 @@ def main():
             # print version string and exit
             print(ver)
         elif args.stop:
-            # stop running instance using pidfile
+            # stop all gulp running instances on this machine
             cfg = GulpConfig.get_instance()
-            pidfile = os.path.join(cfg.path_working_dir(), "gulp.pid")
-            if not os.path.exists(pidfile):
-                print("No gulp pidfile found, is gulp running?")
-                return 1
-            try:
-                with open(pidfile, "r", encoding="utf-8") as f:
-                    pid = int(f.read().strip())
-            except Exception as ex:
-                print("Failed to read pidfile: %s" % (ex))
-                return 1
-            print("Stopping gulp pid=%d..." % (pid))
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                print("Process %d not found, removing stale pidfile." % (pid))
-                try:
-                    os.remove(pidfile)
-                except Exception:
-                    pass
-                return 0
-            except PermissionError as ex:
-                print("Permission denied when killing pid %d: %s" % (pid, ex))
+            import muty.file
+
+            files = muty.file.list_directory(cfg.path_working_dir(), "gulp*.pid")
+            if not files:
+                print("No gulp pidfiles found, is gulp running?")
                 return 1
 
-            # wait for process to exit
-            timeout = 10.0
-            interval = 0.5
-            waited = 0.0
-            while waited < timeout:
-                try:
-                    os.kill(pid, 0)
-                except OSError:
-                    # process gone
-                    break
-                time.sleep(interval)
-                waited += interval
+            pids: list[tuple[str, int]] = []
+            for f in files:
+                bare_file = os.path.basename(f)
+                p = int(bare_file.replace("gulp", "").replace(".pid", ""))
+                pids.append((f, p))
+            if not pids:
+                print("No valid gulp pidfiles found, is gulp running ?")
+                return 1
 
-            try:
+            for t_p in pids:
+                pidfile_path = t_p[0]
+                pid = t_p[1]
+
+                # close this pidwith SIGINT and wait for it to exit, if it doesn't exit in time, send SIGKILL
+                print("Stopping (SIGINT) gulp pid=%d..." % (pid))
+                try:
+                    os.kill(pid, signal.SIGINT)
+                except ProcessLookupError:
+                    print("Process %d not found, it may have already exited..." % (pid))
+                except PermissionError as ex:
+                    print("Permission denied when killing pid %d: %s" % (pid, ex))
+
+                # wait for process to exit
+                timeout = 10.0
+                interval = 0.5
+                waited = 0.0
+                while waited < timeout:
+                    try:
+                        os.kill(pid, 0)
+                    except OSError:
+                        # process gone
+                        print("Process %d exited." % (pid))
+                        break
+                    time.sleep(interval)
+                    waited += interval
+
                 if waited >= timeout:
-                    print("Process did not exit in time, sending SIGKILL...")
+                    print("Process %d did not exit in time, sending SIGKILL..." % (pid))
                     try:
                         os.kill(pid, signal.SIGKILL)
+                        print("Sent SIGKILL to process %d." % (pid))
                     except Exception:
                         pass
-                # cleanup pidfile
+
+                # removing pidfile (best effort, it may have already been removed by the running process)
                 try:
-                    os.remove(pidfile)
+                    os.remove(pidfile_path)
+                    print("Removed pidfile %s." % (pidfile_path))
                 except Exception:
                     pass
-            except Exception:
-                pass
-            print("Stopped gulp (pid=%d)." % (pid))
+                    """print(
+                        "Failed to remove pidfile, it may have already been removed: %s"
+                        % (pidfile_path)
+                    )"""
+            MutyLogger.get_instance().info("Stopped %d gulp instances !" % (len(pids)))
             return 0
         else:
             create_operation: str = None

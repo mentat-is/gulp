@@ -434,7 +434,8 @@ class GulpServer:
             # write pidfile so other invocations can stop this instance
             try:
                 pidfile = muty.file.safe_path_join(
-                    GulpConfig.get_instance().path_working_dir(), "gulp.pid"
+                    GulpConfig.get_instance().path_working_dir(),
+                    "gulp%s.pid" % (os.getpid()),
                 )
                 with open(pidfile, "w", encoding="utf-8") as f:
                     f.write(str(os.getpid()))
@@ -768,7 +769,8 @@ class GulpServer:
             # remove pidfile if exists
             try:
                 pidfile = muty.file.safe_path_join(
-                    GulpConfig.get_instance().path_working_dir(), "gulp.pid"
+                    GulpConfig.get_instance().path_working_dir(),
+                    "gulp%d.pid" % (os.getpid()),
                 )
                 if os.path.exists(pidfile):
                     try:
