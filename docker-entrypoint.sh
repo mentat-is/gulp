@@ -22,6 +22,6 @@ fi
 # Drop privileges to runtime user if configured and gosu is available.
 if [ -n "${GULP_RUNTIME_USER:-}" ] && [ "$(id -u)" = "0" ] && command -v gosu >/dev/null 2>&1; then
     exec gosu "${GULP_RUNTIME_USER}" "$@"
+else
+    exec "$@" # execute params set in last Dockerfile CMD
 fi
-
-exec "$@"
