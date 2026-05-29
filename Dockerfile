@@ -31,6 +31,10 @@ RUN apt-get install -y -q \
 
 WORKDIR /gulp
 
+COPY ./docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+
+USER gulp
 
 # copy only pyproject.toml first for better caching
 COPY ./pyproject.toml /gulp/pyproject.toml
@@ -44,7 +48,6 @@ COPY ./LICENSE.AGPL-3.0.txt /gulp
 COPY ./LICENSE.md /gulp
 COPY ./CONTRIBUTING.md /gulp
 COPY ./README.md /gulp
-COPY ./docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY ./tests /gulp/tests
 COPY ./samples /gulp/samples
 
@@ -70,5 +73,4 @@ RUN python3 -m gulp --version
 
 EXPOSE ${GULP_BIND_TO_PORT}
 
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["gulp", "--log-level", "warning"]
