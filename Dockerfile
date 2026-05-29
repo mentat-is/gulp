@@ -48,7 +48,12 @@ COPY ./docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY ./tests /gulp/tests
 COPY ./samples /gulp/samples
 
+# exlude imklog module from rsyslog.conf
+RUN sed -i 's/^module(load="imklog")/#module(load="imklog")/' /etc/rsyslog.conf
+
 # set version passed as build argument and use it for setuptools_scm
+RUN chown -R $_USER_NAME:$_USER_NAME .
+
 RUN echo "[.] GULP version: ${_VERSION}" && \
     export GULP_BUILD_VERSION="$(date +'%Y%m%d')+${_VERSION}" && \
     echo "[.] using setuptools_scm pretend version: ${GULP_BUILD_VERSION}" && \
@@ -57,7 +62,6 @@ RUN echo "[.] GULP version: ${_VERSION}" && \
     pip3 install --timeout=1000 -e .
 
 # set permissions for the non-root user
-RUN chown -R $_USER_NAME:$_USER_NAME /gulp
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # show python info and installed package list
