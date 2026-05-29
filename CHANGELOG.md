@@ -1,3 +1,8 @@
+# v1.7.400
+
+- plugins: added shared_object plugin, to allow users to share arbitrary objects stored on the collab db (needs migrate script in /migrate/v1.7.400)
+- all: usual minor improvements and bugfixes
+
 # v1.7.300
 
 - task batching improvements
