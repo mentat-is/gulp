@@ -108,9 +108,12 @@ services:
     profiles: [ "gulp", "gui" ]
     image: ${GULP_IMAGE:-mentatis/gulp-core:latest}
     container_name: gulp
+    # Entrypoint needs root to start rsyslogd; it then drops to GULP_RUNTIME_USER.
+    user: "0:0"
     environment:
       # - GULP_POSTGRES_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/gulp}
       # - GULP_OPENSEARCH_URL=http://${OPENSEARCH_USER}:${OPENSEARCH_PASSWORD}@os01:9200
+      - GULP_RUNTIME_USER=${GULP_RUNTIME_USER:-gulp}
       - GULP_BIND_TO_PORT=${GULP_BIND_TO_PORT:-8080}
       - GULP_BIND_TO_ADDR=${GULP_BIND_TO_ADDR:-0.0.0.0}
     volumes:
