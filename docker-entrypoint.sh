@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Start syslog daemon when available; continue if startup fails.
+# Start syslog daemon before dropping privileges.
 if command -v rsyslogd >/dev/null 2>&1; then
-    mkdir -p /run/rsyslog
     if ! pgrep -x rsyslogd >/dev/null 2>&1; then
-        rsyslogd || true
+        if [ "$(id -u)" != "0" ]; then
+            echo "rsyslogd must be started as root before dropping privileges; remove the container user override." >&2
+            exit 1
+        fi
+
+        mkdir -p /run/rsyslog
+        rsyslogd
     fi
 fi
 
