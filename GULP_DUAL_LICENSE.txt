@@ -1,0 +1,103 @@
+Gulp Dual License Agreement
+
+Effective Date: May 30, 2026 (supersedes version dated September 13, 2024)
+
+This agreement governs the release of the software "Gulp" (hereinafter referred to as the "Software") developed by Mentat Solutions s.r.l. (hereinafter referred to as "Mentat", the "Company" or "Licensor"). The Company is releasing the Software under an open source license, subject to the terms and conditions outlined below.
+
+All Gulp versions and related components, where applicable, are licensed under the terms of this agreement, unless explicitly stated otherwise or unless they are released under a different license with separate terms and conditions. Since Gulp follows an open-core model, its Community Edition source code is freely available under the terms of the AGPLv3 license, while Pro edition components remain proprietary.
+
+------------------------------------------------------------------------
+
+1. Open Source Release
+
+Mentat releases the Community Edition of the Software as open source under the terms of the GNU Affero General Public License (AGPL), version 3.0 or later. The full text of the AGPL can be found at https://www.gnu.org/licenses/agpl-3.0.html.
+
+The open source Community Edition of the Software comprises the core functionality available in the public repositories of the Mentat Solutions organization at https://github.com/mentat-is, including the backend, frontend, CLI, and SDK components. Features, plugins, extensions, or components distributed separately or available exclusively through a commercial subscription are not part of the open source release and are not licensed under the AGPL.
+
+1a. Linking Exception
+
+Notwithstanding the terms of the AGPL, Mentat Solutions grants a linking exception for plugins, extensions, and integrations that interface with the Software exclusively through its documented public API or plugin interface. Such components are not considered derivative works of the Software and are not subject to the copyleft requirements of the AGPL, provided they do not contain or modify any portion of the Software's source code.
+
+------------------------------------------------------------------------
+
+2. Intellectual Property Ownership
+
+The Licensor retains full and exclusive ownership of all intellectual property rights in and to the Software, including but not limited to copyrights, trademarks, patents, and trade secrets. The open source release does not constitute a transfer of intellectual property rights.
+
+Contributors to the open source Software must sign the Mentat Solutions Contributor License Agreement (CLA) prior to any contribution being accepted. The CLA ensures the Company retains the rights necessary to maintain dual licensing of the Software.
+
+------------------------------------------------------------------------
+
+3. Dual Licensing
+
+In addition to the AGPL license, the Company offers a commercial license for parties who cannot or choose not to comply with the terms of the AGPL, as well as for parties who wish to access the Pro edition of the Software and its proprietary plugins and extensions not available under the open source release. The commercial license allows use of the Software under separate terms, without the requirement to comply with the copyleft obligations of the AGPL.
+
+------------------------------------------------------------------------
+
+4. Conditions of Use
+
+AGPL License: Users who choose to use the Software under the AGPL license must comply with all provisions of the AGPL, including the requirement to release source code and provide attribution when distributing or modifying the Software.
+
+Commercial License: Users who cannot comply with the AGPL terms, or who wish to use the Software in a proprietary or closed-source manner, may obtain a commercial license directly from the Company. The terms and pricing of the commercial license will be negotiated on a case-by-case basis.
+
+The terms of this agreement apply especially to any non-compliance with the Limitations section (Section 5), including violations involving hosting the Software as a service, circumvention of license key functionality, or removal of copyright notices or other protected elements of the Software.
+
+------------------------------------------------------------------------
+
+5. Limitations
+
+The following limitations apply to users of the Software under the AGPL license. Users operating under a valid commercial license are subject to the limitations specified in their commercial license agreement rather than those set forth in this section, except where explicitly stated otherwise.
+
+You may not provide the Software to third parties as a hosted or managed service, where the service provides users with access to any substantial set of the features or functionality of the Software.
+
+Users of the Pro edition under a commercial license may not move, change, disable, or circumvent the license key functionality or other license enforcing functionality in the Software, and may not remove or obscure any functionality in the Software that is protected by the license key and/or any other license enforcing functionality. Commercial licensees may not share, transfer, sublicense, or otherwise provide their license key to third parties, nor use the Software beyond the scope, number of instances, seats, or users defined in their commercial license agreement.
+
+You may not alter, remove, or obscure any licensing, copyright, or other notices of the Company in the Software. Any use of the Company's trademarks is subject to applicable law.
+
+------------------------------------------------------------------------
+
+6. Termination
+
+If you use the Software in violation of these terms, such use is not licensed and your licenses will automatically terminate. If the Company provides you with a notice of your violation, and you cease all violation of this license no later than 30 days after you receive that notice, your licenses will be reinstated retroactively. However, if you violate these terms after such reinstatement, any additional violation of these terms will cause your licenses to terminate automatically and permanently.
+
+In addition to termination, any violation of these terms may result in financial damages, including but not limited to the cost of commercial licenses that should have been obtained, and any other losses suffered by the Company as a result of the violation.
+
+The Company reserves the right to seek injunctive or other equitable relief in a court of competent jurisdiction to prevent or stop any violation of these terms, without the requirement to post a bond or other security, and without prejudice to any other rights or remedies available to the Company.
+
+The Company reserves the right to audit the use of the Software by commercial licensees upon reasonable notice, to verify compliance with the terms of their commercial license agreement.
+
+------------------------------------------------------------------------
+
+7. Disclaimer of Warranty
+
+The Software is provided "AS IS", without any warranties of any kind, whether express or implied. The Company disclaims all liability for any damages arising from the use of the Software.
+
+------------------------------------------------------------------------
+
+8. Commercial License
+
+Parties who wish to use the Software without AGPL obligations, or who wish to access the Pro edition of the Software including its proprietary plugins and extensions, may obtain a commercial license from the Company.
+
+A commercial license grants the licensee:
+
+  - Use of the Software in proprietary or closed-source environments
+  - Access to Pro edition components under separate proprietary terms
+  - Exemption from the copyleft and source disclosure requirements of the AGPL
+  - Support and maintenance as defined in the applicable Order Form or
+    subscription agreement
+
+Commercial licenses are granted per the terms of a separate written agreement between the licensee and the Company. In the absence of such an agreement, no commercial license is granted. Please contact gulp@mentat.is to initiate discussions.
+
+------------------------------------------------------------------------
+
+9. Amendments
+
+The Company reserves the right to amend the terms of this agreement at its sole discretion. Any amendments will be published and made available to the public.
+
+------------------------------------------------------------------------
+
+10. Governing Law
+
+This agreement shall be governed by and construed in accordance with the laws of Italy, without regard to its conflict of law provisions. Any disputes arising under or in connection with this agreement shall be subject to the exclusive jurisdiction of the courts of Rome.
+
+------------------------------------------------------------------------
