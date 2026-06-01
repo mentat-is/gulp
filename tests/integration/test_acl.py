@@ -195,3 +195,49 @@ async def test_acl_granted_read_user_cannot_modify_acl(
         finally:
             await _teardown_user(admin_client, low_user_id)
             await _teardown_operation(admin_client, op_id)
+
+
+@pytest.mark.integration
+async def test_acl_user_without_operation_grant_cannot_access_operation_objects(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """A user without operation grant cannot access objects from that operation."""
+    from gulp_sdk import (
+        AuthenticationError,
+        GulpClient,
+        NotFoundError,
+        PermissionError,
+    )
+
+    low_user_id = _unique("aclnog")
+    low_user_password = "TestPass!123"
+
+    async with GulpClient(gulp_base_url) as admin_client, GulpClient(
+        gulp_base_url
+    ) as low_client:
+        await admin_client.auth.login(gulp_test_user, gulp_test_password)
+        op_id, note_id = await _setup_note(admin_client)
+
+        await admin_client.users.create(
+            user_id=low_user_id,
+            password=low_user_password,
+            permission=["read"],
+        )
+
+        try:
+            await low_client.auth.login(low_user_id, low_user_password)
+            await admin_client.acl.make_private(note_id, "note")
+
+            with pytest.raises((AuthenticationError, PermissionError, NotFoundError)):
+                await low_client.collab.note_get_by_id(note_id)
+
+            granted = await admin_client.acl.add_granted_user(
+                note_id, "note", low_user_id
+            )
+            assert low_user_id in (granted.get("granted_user_ids") or [])
+
+            with pytest.raises((AuthenticationError, PermissionError, NotFoundError)):
+                await low_client.collab.note_get_by_id(note_id)
+        finally:
+            await _teardown_user(admin_client, low_user_id)
+            await _teardown_operation(admin_client, op_id)
