@@ -39,7 +39,9 @@ async def _teardown_user(client, user_id: str) -> None:
 
 
 @pytest.mark.integration
-async def test_acl_make_private_and_public(gulp_base_url, gulp_test_user, gulp_test_password):
+async def test_acl_make_private_and_public(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
     """A note can be toggled between private and public."""
     from gulp_sdk import GulpClient
 
@@ -60,7 +62,9 @@ async def test_acl_make_private_and_public(gulp_base_url, gulp_test_user, gulp_t
 
 
 @pytest.mark.integration
-async def test_acl_add_remove_granted_user(gulp_base_url, gulp_test_user, gulp_test_password):
+async def test_acl_add_remove_granted_user(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
     """A user can be granted and revoked on a collab object."""
     from gulp_sdk import GulpClient
 
@@ -74,11 +78,15 @@ async def test_acl_add_remove_granted_user(gulp_base_url, gulp_test_user, gulp_t
             permission=["read"],
         )
         try:
-            granted = await client.acl.add_granted_user(note_id, "note", granted_user_id)
+            granted = await client.acl.add_granted_user(
+                note_id, "note", granted_user_id
+            )
             assert granted.get("id") == note_id
             assert granted_user_id in (granted.get("granted_user_ids") or [])
 
-            revoked = await client.acl.remove_granted_user(note_id, "note", granted_user_id)
+            revoked = await client.acl.remove_granted_user(
+                note_id, "note", granted_user_id
+            )
             assert revoked.get("id") == note_id
             assert granted_user_id not in (revoked.get("granted_user_ids") or [])
         finally:
@@ -87,7 +95,9 @@ async def test_acl_add_remove_granted_user(gulp_base_url, gulp_test_user, gulp_t
 
 
 @pytest.mark.integration
-async def test_acl_add_remove_granted_group(gulp_base_url, gulp_test_user, gulp_test_password):
+async def test_acl_add_remove_granted_group(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
     """A group can be granted and revoked on a collab object."""
     from gulp_sdk import GulpClient
 
@@ -127,9 +137,10 @@ async def test_acl_private_note_access_enforced_by_grant(
     low_user_id = _unique("acllu")
     low_user_password = "TestPass!123"
 
-    async with GulpClient(gulp_base_url) as admin_client, GulpClient(
-        gulp_base_url
-    ) as low_client:
+    async with (
+        GulpClient(gulp_base_url) as admin_client,
+        GulpClient(gulp_base_url) as low_client,
+    ):
         await admin_client.auth.login(gulp_test_user, gulp_test_password)
         op_id, note_id = await _setup_note(admin_client)
 
@@ -169,9 +180,10 @@ async def test_acl_granted_read_user_cannot_modify_acl(
     low_user_id = _unique("acllu")
     low_user_password = "TestPass!123"
 
-    async with GulpClient(gulp_base_url) as admin_client, GulpClient(
-        gulp_base_url
-    ) as low_client:
+    async with (
+        GulpClient(gulp_base_url) as admin_client,
+        GulpClient(gulp_base_url) as low_client,
+    ):
         await admin_client.auth.login(gulp_test_user, gulp_test_password)
         op_id, note_id = await _setup_note(admin_client)
 
@@ -212,9 +224,10 @@ async def test_acl_user_without_operation_grant_cannot_access_operation_objects(
     low_user_id = _unique("aclnog")
     low_user_password = "TestPass!123"
 
-    async with GulpClient(gulp_base_url) as admin_client, GulpClient(
-        gulp_base_url
-    ) as low_client:
+    async with (
+        GulpClient(gulp_base_url) as admin_client,
+        GulpClient(gulp_base_url) as low_client,
+    ):
         await admin_client.auth.login(gulp_test_user, gulp_test_password)
         op_id, note_id = await _setup_note(admin_client)
 
