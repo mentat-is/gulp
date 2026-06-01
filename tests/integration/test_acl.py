@@ -251,6 +251,124 @@ async def test_acl_user_without_operation_grant_cannot_access_operation_objects(
 
             with pytest.raises((AuthenticationError, PermissionError, NotFoundError)):
                 await low_client.collab.note_get_by_id(note_id)
+
+            op_granted = await admin_client.acl.add_granted_user(
+                op_id, "operation", low_user_id
+            )
+            assert low_user_id in (op_granted.get("granted_user_ids") or [])
+
+            fetched = await low_client.collab.note_get_by_id(note_id)
+            assert fetched.get("id") == note_id
+
+            op_revoked = await admin_client.acl.remove_granted_user(
+                op_id, "operation", low_user_id
+            )
+            assert low_user_id not in (op_revoked.get("granted_user_ids") or [])
+
+            public_note = await admin_client.acl.make_public(note_id, "note")
+            assert public_note.get("id") == note_id
+
+            with pytest.raises((AuthenticationError, PermissionError, NotFoundError)):
+                await low_client.collab.note_get_by_id(note_id)
         finally:
             await _teardown_user(admin_client, low_user_id)
+            await _teardown_operation(admin_client, op_id)
+
+
+@pytest.mark.integration
+async def test_acl_creator_can_edit_and_delete_until_operation_access_removed(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """A creator can edit/delete own notes while in operation, but not after revoke."""
+    from gulp_sdk import (
+        AuthenticationError,
+        GulpClient,
+        NotFoundError,
+        PermissionError,
+    )
+
+    creator_user_id = _unique("aclcr")
+    creator_password = "TestPass!123"
+    other_user_id = _unique("acloth")
+    other_user_password = "TestPass!123"
+
+    async with (
+        GulpClient(gulp_base_url) as admin_client,
+        GulpClient(gulp_base_url) as creator_client,
+    ):
+        await admin_client.auth.login(gulp_test_user, gulp_test_password)
+
+        op = await admin_client.operations.create(_unique("acl_creator_op"))
+        op_id = op.id
+        ctx = await admin_client.operations.context_create(op_id, _unique("acl_ctx"))
+        src = await admin_client.operations.source_create(
+            op_id, ctx["id"], _unique("acl_src")
+        )
+
+        await admin_client.users.create(
+            user_id=creator_user_id,
+            password=creator_password,
+            permission=["read", "edit", "delete"],
+        )
+        await admin_client.users.create(
+            user_id=other_user_id,
+            password=other_user_password,
+            permission=["read", "edit"],
+        )
+        await admin_client.acl.add_granted_user(op_id, "operation", creator_user_id)
+        await admin_client.acl.add_granted_user(op_id, "operation", other_user_id)
+
+        try:
+            await creator_client.auth.login(creator_user_id, creator_password)
+
+            note_to_edit = await creator_client.collab.note_create(
+                operation_id=op_id,
+                context_id=ctx["id"],
+                source_id=src["id"],
+                name=_unique("creator_note_edit"),
+                text="creator original text",
+                time_pin=1234567890,
+            )
+            note_to_edit_id = note_to_edit["id"]
+
+            note_to_delete = await creator_client.collab.note_create(
+                operation_id=op_id,
+                context_id=ctx["id"],
+                source_id=src["id"],
+                name=_unique("creator_note_delete"),
+                text="creator delete text",
+                time_pin=1234567891,
+            )
+            note_to_delete_id = note_to_delete["id"]
+
+            updated = await creator_client.collab.note_update(
+                note_to_edit_id, text="creator updated text"
+            )
+            assert updated.get("id") == note_to_edit_id
+
+            deleted = await creator_client.collab.note_delete(note_to_delete_id)
+            assert deleted.get("id") == note_to_delete_id
+
+            async with GulpClient(gulp_base_url) as other_client:
+                await other_client.auth.login(other_user_id, other_user_password)
+                with pytest.raises(
+                    (AuthenticationError, PermissionError, NotFoundError)
+                ):
+                    await other_client.collab.note_delete(note_to_edit_id)
+
+            op_revoked = await admin_client.acl.remove_granted_user(
+                op_id, "operation", creator_user_id
+            )
+            assert creator_user_id not in (op_revoked.get("granted_user_ids") or [])
+
+            with pytest.raises((AuthenticationError, PermissionError, NotFoundError)):
+                await creator_client.collab.note_update(
+                    note_to_edit_id, text="creator update after revoke"
+                )
+
+            with pytest.raises((AuthenticationError, PermissionError, NotFoundError)):
+                await creator_client.collab.note_delete(note_to_edit_id)
+        finally:
+            await _teardown_user(admin_client, other_user_id)
+            await _teardown_user(admin_client, creator_user_id)
             await _teardown_operation(admin_client, op_id)
