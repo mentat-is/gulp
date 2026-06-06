@@ -333,8 +333,6 @@ class GulpProcess:
             # load extension plugins
             from gulp.api.server_api import GulpServer
 
-            await GulpServer.get_instance()._load_extension_plugins()
-
             # start workers
             # each worker will call finish_initialization as well and INCR the spawn_key
             self.process_pool = AioProcessPool(
@@ -378,6 +376,9 @@ class GulpProcess:
                 await asyncio.sleep(0.1)
 
             MutyLogger.get_instance().debug("all %d processes spawned!", spawned_count)
+
+            # load extension plugins
+            await GulpServer.get_instance()._load_extension_plugins()
 
             MutyLogger.get_instance().warning(
                 "MAIN process initialized, server_id=%s, sys.path=%s",

@@ -615,7 +615,7 @@ class GulpServer:
                     "***ERROR*** in background task: %s", ex
                 )
             finally:
-                MutyLogger.get_instance().debug("background task completed!")
+                MutyLogger.get_instance().debug("background task name=%s completed!", name)
 
         if name:
             # check if a task with the same name already exists in the current process
@@ -900,13 +900,13 @@ class GulpServer:
                 "CancelledError caught in _lifespan handler!"
             )
 
+        # cleaning up will be done through _cleanup called via atexit
+        MutyLogger.get_instance().info("gulp shutting down!")
+
         # stop Prometheus gauge collection
         if GulpConfig.get_instance().prometheus_enabled():
             await GulpMetrics.get_instance().stop_collect_loop()
             cleanup_prometheus()
-
-        # cleaning up will be done through _cleanup called via atexit
-        MutyLogger.get_instance().info("gulp shutting down!")
 
         if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
             # delete pending stats created by THIS instance only
@@ -917,6 +917,9 @@ class GulpServer:
 
         # cleanup main process
         await self._cleanup()
+        MutyLogger.get_instance().info(
+            "MAIN process cleanup complete, exiting lifespan handler ..."
+        )
 
     def _reset_first_run(self) -> None:
         """
