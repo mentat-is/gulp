@@ -39,7 +39,7 @@ COPY ./pyproject.toml /gulp/pyproject.toml
 COPY ./src /gulp/src
 COPY ./docs /gulp/docs
 COPY ./MANIFEST.in /gulp
-COPY ./LICENSE.GULP.txt /gulp
+COPY ./GULP_DUAL_LICENSE.txt /gulp
 COPY ./LICENSE.AGPL-3.0.txt /gulp
 COPY ./LICENSE.md /gulp
 COPY ./CONTRIBUTING.md /gulp
