@@ -75,7 +75,7 @@
   // respawn a process after this number of tasks: set to -1 to never respawn processes, every other value < 100 will be set to 100 (default=100)
   "parallel_processes_respawn_after_tasks": 100,
   // if set, disable loading of plugins with their **bare filename** containing the listed strings (e.g. "example_" will disable all plugins with "example_" in their filename, such as "example_plugin.py", but not "my_example_plugin.py")
-  "plugin_disabled": [],
+  "plugin_disabled": ["example"],
   // enable cache for plugins (faster loading)
   "plugin_cache_enabled": true,
   // how many documents to return in preview mode (default=100)
