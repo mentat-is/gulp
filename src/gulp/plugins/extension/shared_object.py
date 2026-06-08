@@ -292,8 +292,6 @@ class Plugin(GulpPluginBase):
         ServerUtils.dump_params(params)
 
         try:
-            # check license first
-            self.check_license()
             if not any([obj, tags, description, glyph_id, name]):
                 raise ValueError(
                     "At least one of obj, name, tags, description, glyph_id, must be provided."
