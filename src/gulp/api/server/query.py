@@ -631,6 +631,15 @@ async def process_queries(
         # get a stats, or create it if it doesn't exist yet
         # for query stats, we will have a GulpQueryStats payload
         # either, for external queries, we will have a GulpIngestionStats payload
+        data: dict = (
+            GulpIngestionStats().model_dump(exclude_none=True)
+            if plugin
+            else GulpQueryStats(
+                num_queries=num_total_queries, q_group=q_options.group
+            ).model_dump(exclude_none=True)
+        )
+        # store the list of queries in the stats for easier debugging and context (for external queries, this will be just one query)
+        data["q"] = [q.q for q in queries]
         try:
             stats, _ = await GulpRequestStats.create_or_get_existing(
                 sess,
@@ -643,13 +652,7 @@ async def process_queries(
                     else RequestStatsType.REQUEST_TYPE_QUERY
                 ),
                 ws_id=ws_id,
-                data=(
-                    GulpIngestionStats().model_dump(exclude_none=True)
-                    if plugin
-                    else GulpQueryStats(
-                        num_queries=num_total_queries, q_group=q_options.group
-                    ).model_dump(exclude_none=True)
-                ),
+                data=data,
             )
         except WebSocketDisconnect:
             # ignore if force_ignore_missing_ws is set

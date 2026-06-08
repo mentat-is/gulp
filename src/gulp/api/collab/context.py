@@ -118,14 +118,16 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
             if not req_id:
                 return
 
-            stats = await GulpRequestStats.get_by_id(
+            stats: GulpRequestStats = await GulpRequestStats.get_by_id(
                 sess, obj_id=req_id, throw_if_not_found=False
             )
             if stats:
                 await stats.add_ingestion_source(
                     sess,
-                    context_id=self.id,
-                    source_id=src.id,
+                    self.id,
+                    src.id,
+                    context_name=self.name,
+                    source_name=name,
                     user_id=user_id,
                     ws_id=ws_id,
                 )

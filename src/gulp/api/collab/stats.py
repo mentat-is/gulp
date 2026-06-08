@@ -94,7 +94,7 @@ class GulpIngestionStats(BaseModel):
                     "source_total": 2,
                     "source_processed": 1,
                     "source_failed": 0,
-                    "sources": [["ctx1", "src1"]],
+                    "sources": [["ctx1", "context_name1", "src1", "source_name1"]],
                     "records_processed": 100,
                     "records_ingested": 90,
                     "records_skipped": 5,
@@ -114,9 +114,9 @@ class GulpIngestionStats(BaseModel):
         int, Field(description="Number of failed sources in this request.")
     ] = 0
     sources: Annotated[
-        list[tuple[str, str]],
+        list[tuple[str, str, str, str]],
         Field(
-            description="List of (context_id, source_id) pairs associated with this request.",
+            description="List of (context_id, context_name, source_id, source_name) tuples associated with this request.",
         ),
     ] = Field(default_factory=list)
     records_processed: Annotated[
@@ -152,7 +152,7 @@ class GulpQueryStats(BaseModel):
             ]
         },
     )
-
+    q: Annotated[Optional[list[dict]|list[str]], Field(description="The query/queries")] = None
     total_hits: Annotated[
         int, Field(description="Total number of hits for this query.")
     ] = 0
@@ -235,7 +235,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         MutableList.as_mutable(ARRAY(String)),
         default_factory=list,
         doc="A list of errors encountered during the operation.",
-    )    
+    )
     data: Mapped[Optional[dict]] = mapped_column(
         MutableDict.as_mutable(JSONB),
         default_factory=dict,
@@ -315,9 +315,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     new_d = GulpQueryStats.model_validate(data)
                     if existing_d and new_d:
                         # existing_d.num_queries += new_d.num_queries
-                        existing_d.completed_queries += new_d.completed_queries                    
+                        existing_d.completed_queries += new_d.completed_queries
                         existing_d.failed_queries += new_d.failed_queries
-                        stats.data = existing_d.model_dump()                    
+                        stats.data = existing_d.model_dump()
 
                 if stats.status != GulpRequestStatus.ONGOING.value:
                     MutyLogger.get_instance().warning(
@@ -328,7 +328,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                     # release transaction-scoped advisory lock acquired above
                     await sess.commit()
                     return stats, False
-                
+
                 # update existing stats as ongoing, and update time_expire if needed
                 stats.status = GulpRequestStatus.ONGOING.value
                 stats.time_updated = time_updated
@@ -342,6 +342,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         try:
             # attach the current server id (if available) so we can later purge only stats created by this instance
             from gulp.process import GulpProcess
+
             server_id = GulpProcess.get_instance().server_id
             stats = await GulpRequestStats.create_internal(
                 sess,
@@ -361,12 +362,12 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 server_id=server_id,
             )
         except Exception as e:
-            MutyLogger.get_instance().error(
-                "failed to create stats %s: %s", req_id, e
-            )            
-            await GulpRequestStats.delete_by_id_internal(sess, req_id, throw_on_error=False)
+            MutyLogger.get_instance().error("failed to create stats %s: %s", req_id, e)
+            await GulpRequestStats.delete_by_id_internal(
+                sess, req_id, throw_on_error=False
+            )
             raise e
-        
+
         return stats, True
 
     @staticmethod
@@ -434,7 +435,11 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 self,
             )
             return await self.update(
-                sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+                sess,
+                ws_id=ws_id,
+                req_id=self.id,
+                user_id=user_id,
+                ws_data_type=WSDATA_STATS_UPDATE,
             )
 
     async def set_canceled(
@@ -481,6 +486,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         sess: AsyncSession,
         context_id: str,
         source_id: str,
+        context_name: str = None,
+        source_name: str = None,
         user_id: str = None,
         ws_id: str = None,
     ) -> dict:
@@ -501,7 +508,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             d: GulpIngestionStats = (
                 GulpIngestionStats.model_validate(self.data) or GulpIngestionStats()
             )
-            source_pair = (context_id, source_id)
+            source_pair = (context_id, context_name, source_id, source_name)
             if source_pair in d.sources:
                 return self.to_dict(exclude_none=True)
 
@@ -523,11 +530,15 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         If `server_id` is provided, only purge ongoing stats created by that server instance.
         """
         async with GulpCollab.get_instance().session() as sess:
-            flt = GulpCollabFilter(status=GulpRequestStatus.ONGOING.value, server_id=server_id)
+            flt = GulpCollabFilter(
+                status=GulpRequestStatus.ONGOING.value, server_id=server_id
+            )
             deleted = await GulpRequestStats.delete_by_filter(
                 sess, flt, throw_if_not_found=False
             )
-            MutyLogger.get_instance().info("deleted %d ongoing stats (server_id=%s)", deleted, server_id)
+            MutyLogger.get_instance().info(
+                "deleted %d ongoing stats (server_id=%s)", deleted, server_id
+            )
             return deleted
 
     async def update_ingestion_stats(
@@ -588,11 +599,19 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             if source_finished or set_expiration:
                 # this request is done, compute status value
                 d.source_processed += 1
-                if status and status in [GulpRequestStatus.FAILED.value, GulpRequestStatus.CANCELED.value,]:
+                if status and status in [
+                    GulpRequestStatus.FAILED.value,
+                    GulpRequestStatus.CANCELED.value,
+                ]:
                     # if the request is canceled or failed, mark one more source as failed
                     d.source_failed += 1
 
-                MutyLogger.get_instance().debug("source_processed=%d, source_total=%d for request %s", d.source_processed, d.source_total, self.id) 
+                MutyLogger.get_instance().debug(
+                    "source_processed=%d, source_total=%d for request %s",
+                    d.source_processed,
+                    d.source_total,
+                    self.id,
+                )
                 if d.source_processed >= d.source_total or ws_disconnected:
                     MutyLogger.get_instance().debug(
                         "all sources processed for request %s, processed=%d, total=%d (ws_disconnected=%r)",
@@ -601,7 +620,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                         d.source_total,
                         ws_disconnected,
                     )
-                    
+
                     # request is finished
                     self.time_finished = muty.time.now_msec()
 
@@ -641,8 +660,13 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 )
 
             return await super().update(
-                sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+                sess,
+                ws_id=ws_id,
+                req_id=self.id,
+                user_id=user_id,
+                ws_data_type=WSDATA_STATS_UPDATE,
             )
+
     async def update_updatedocuments_stats(
         self,
         sess: AsyncSession,
@@ -701,7 +725,11 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 )
             self.data = d.model_dump()
             return await super().update(
-                sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+                sess,
+                ws_id=ws_id,
+                req_id=self.id,
+                user_id=user_id,
+                ws_data_type=WSDATA_STATS_UPDATE,
             )
 
     async def update_query_stats(
@@ -780,5 +808,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
             self.data = d.model_dump()
             return await super().update(
-                sess, ws_id=ws_id, req_id=self.id, user_id=user_id, ws_data_type=WSDATA_STATS_UPDATE
+                sess,
+                ws_id=ws_id,
+                req_id=self.id,
+                user_id=user_id,
+                ws_data_type=WSDATA_STATS_UPDATE,
             )
