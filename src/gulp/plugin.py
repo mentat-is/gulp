@@ -214,13 +214,6 @@ class GulpPluginEntry(BaseModel):
         ),
     ] = None
 
-    protected: Annotated[
-        bool,
-        Field(
-            description="Whether the plugin is protected by license check (set only in licensed plugins).",
-        ),
-    ] = False
-
     # HTML frame to be rendered in the UI
     ui: Annotated[
         Optional[str],
