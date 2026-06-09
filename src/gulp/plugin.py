@@ -621,21 +621,6 @@ class GulpPluginBase(ABC):
         # just a shortcut for selected_mapping().unmapped_as_is
         self._unmapped_as_is: bool = False
 
-    def check_license(self, throw_on_invalid: bool = True) -> bool:
-        """
-        stub method for license checking, overridden by make_paid.py for paid plugins.
-
-        if the plugin is not protected, this method does nothing and returns True.
-
-        Args:
-            throw_on_invalid (bool, optional): whether to throw an exception if the license is not valid. Defaults to True.
-        Returns:
-            bool: True if the license is valid, False otherwise
-        Throws:
-            ValueError: if the license is invalid and throw_on_invalid is True
-        """
-        return True
-
     @abstractmethod
     def display_name(self) -> str:
         """
