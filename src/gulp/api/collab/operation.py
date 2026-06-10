@@ -300,10 +300,10 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
 
         # add grant to all contexts and sources
         for ctx in self.contexts:
-            await ctx.add_group_grant(sess, group_id, commit=False)
+            await ctx.add_group_grant(sess, group_id)
             if ctx.sources:
                 for src in ctx.sources:
-                    await src.add_group_grant(sess, group_id, commit=False)
+                    await src.add_group_grant(sess, group_id)
 
     @override
     async def remove_group_grant(self, sess: AsyncSession, group_id: str) -> None:
