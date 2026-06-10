@@ -2,8 +2,8 @@
 
 <picture>
  <source media="(prefers-color-scheme: dark)" srcset="./logo.svg">
- <source media="(prefers-color-scheme: light)" srcset="./logo.svg">
- <img alt="gULP" src="./logo.svg" width="30%" height="30%">
+ <source media="(prefers-color-scheme: light)" srcset="./logo_dark.svg">
+ <img alt="gULP" src="./logo.svg" width="40%" height="40%">
 </picture>
 
 the graphical, universal Log processor for incident response!
