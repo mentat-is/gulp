@@ -10,6 +10,7 @@ it would slow down a lot and generate really tons of data on postgres!
 
 from typing import override
 
+from gulp_cli.commands import mapping
 import orjson
 from muty.dict import flatten
 from muty.log import MutyLogger
@@ -71,9 +72,21 @@ class Plugin(GulpPluginBase):
         # Process each input field through the standard mapping engine so
         # raw ingest can apply plugin_params.mapping_parameters end-to-end.
         d: dict = {}
-        for source_key, source_value in flatten(record).items():
+        flattened = flatten(record)
+        mapping = self.selected_mapping()
+        for source_key, source_value in flattened.items():
             m = await self._process_key(source_key, source_value, d, **kwargs)
-            d.update(m)
+            if m:
+                # if the field is mapped, use the mapped value in the ingested document
+                d.update(m)
+                field_mapping: GulpMappingField = mapping.fields.get(source_key)
+                if field_mapping and field_mapping.is_gulp_type:
+                    # if the field is a Gulp type, also keep the original value in the ingested document with dot notation (for backward compatibility and ease of querying)
+                    d[source_key] = source_value
+            else:
+                # if the field is not mapped, keep it as is in the ingested document (flattened with dot notation)
+                if mapping.exclude and source_key not in mapping.exclude:
+                    d[source_key] = source_value
 
         # Keep source override behavior for SDK/CLI compatibility.
         override: str = self._plugin_params.custom_parameters.get("override_source_id")
@@ -83,6 +96,7 @@ class Plugin(GulpPluginBase):
 
         # Build the final document from mapped values, preserving record-level
         # event_original/event_sequence values when provided in the payload.
+        # MutyLogger.get_instance().debug("raw: d=%s, flattened=%s" % (d, flattened))
         return GulpDocument(
             self,
             operation_id=self._operation_id,
