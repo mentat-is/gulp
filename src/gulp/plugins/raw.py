@@ -85,7 +85,9 @@ class Plugin(GulpPluginBase):
                     d[source_key] = source_value
             else:
                 # if the field is not mapped, keep it as is in the ingested document (flattened with dot notation)
-                if mapping.exclude and source_key not in mapping.exclude:
+                if not mapping.exclude or (
+                    mapping.exclude and source_key not in mapping.exclude
+                ):
                     d[source_key] = source_value
 
         # Keep source override behavior for SDK/CLI compatibility.
