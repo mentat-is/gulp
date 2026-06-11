@@ -1945,20 +1945,20 @@ class GulpPluginBase(ABC):
             # skip empties
             return {}
 
-        # check if we have an unmapped node yet in the document
-        unmapped_key: str = GulpOpenSearch.ENRICHED_PREFIX
-        unmapped: dict = doc.get(unmapped_key, None)
-        if not unmapped:
-            unmapped = {}
+        # check if we have an gulp.enriched node yet in the document
+        gulp_enriched_key: str = GulpOpenSearch.ENRICHED_PREFIX
+        enriched_dict: dict = doc.get(gulp_enriched_key, None)
+        if not enriched_dict:
+            enriched_dict = {}
 
         # add a subkey with the plugin name
-        unmapped_subkey = self.name
-        if unmapped.get(unmapped_subkey, None) is None:
-            unmapped[unmapped_subkey] = {}
+        enriched_subkey = self.name
+        if enriched_dict.get(enriched_subkey, None) is None:
+            enriched_dict[enriched_subkey] = {}
 
         # return the whole { "gulp.enriched": { ... } } node back
-        unmapped[unmapped_subkey][k] = v
-        return {unmapped_key: unmapped}
+        enriched_dict[enriched_subkey][k] = v
+        return {gulp_enriched_key: enriched_dict}
 
     @staticmethod
     def build_or_update_unmapped_obj(
