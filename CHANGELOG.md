@@ -1,3 +1,7 @@
+# v1.7.403
+
+- fixed some regressions (raw plugin, enrichment)
+
 # v1.7.402
 
 - docker fixes

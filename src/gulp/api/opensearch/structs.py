@@ -774,6 +774,19 @@ class GulpQueryHelpers:
         if not q2:
             return q1
 
+        def _clauses(query: dict) -> list[dict]:
+            query_body = query.get("query", {}) if isinstance(query, dict) else {}
+            if isinstance(query_body, dict) and "bool" in query_body:
+                filters = query_body.get("bool", {}).get("filter", [])
+                return [item for item in filters if isinstance(item, dict)]
+            return [query_body] if isinstance(query_body, dict) else []
+
+        existing_clauses = _clauses(q1)
+        incoming_clauses = _clauses(q2)
+
+        if any(clause in existing_clauses for clause in incoming_clauses):
+            return q1
+
         # merge both queries into a bool filter
         d: dict = dict(query={"bool": {"filter": [q1["query"], q2["query"]]}})
         return d

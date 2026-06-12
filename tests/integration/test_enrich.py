@@ -264,7 +264,7 @@ async def test_enrich_documents_optional(
         await client.auth.login(gulp_test_user, gulp_test_password)
         op = await client.operations.create(_unique("sdk_enrich_bulk_whois_op"))
         try:
-            _ = await _ingest_small_evtx(client, op.id)
+            doc_id = await _ingest_small_evtx(client, op.id)
             try:
                 result = await client.enrich.enrich_documents(
                     operation_id=op.id,
@@ -275,14 +275,18 @@ async def test_enrich_documents_optional(
                     wait=True,
                     timeout=300,
                 )
+
                 assert isinstance(result, dict)
                 assert str(result.get("status", "")).lower() in {
                     "done",
                     "failed",
                     "canceled",
                 }
+
+                fetched = await client.queries.query_single_id(op.id, doc_id)
+                assert isinstance(fetched, dict)
+                assert "gulp.enriched" in fetched
             except GulpSDKError as exc:
                 pytest.skip(f"enrich_documents optional plugin unavailable: {exc}")
         finally:
             await _delete_operation_with_retry(client, op.id)
-

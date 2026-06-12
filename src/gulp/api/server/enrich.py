@@ -158,7 +158,7 @@ during enrichment, the following is sent on the websocket `ws_id`:
 async def enrich_documents_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
-    fields: Annotated[dict, Depends(APIDependencies.param_enrich_fields)],
+    fields: Annotated[dict, Depends(APIDependencies.param_enrich_fields_optional)],
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     flt: Annotated[GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)],
@@ -240,7 +240,7 @@ async def enrich_single_id_handler(
         str,
         Query(description="the `_id` of the document to enrich."),
     ],
-    fields: Annotated[dict, Depends(APIDependencies.param_enrich_fields)],
+    fields: Annotated[dict, Depends(APIDependencies.param_enrich_fields_optional)],
     plugin: Annotated[str, Depends(APIDependencies.param_plugin)],
     plugin_params: Annotated[
         GulpPluginParameters,
