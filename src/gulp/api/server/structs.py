@@ -609,16 +609,17 @@ to customize `mapping` and specific `plugin` parameters.
     a dict with key/value pairs to be updated (`enriched`) in the document, following this pattern:
 
     - a field with a None value will trigger `plugin` to get the value from the document and process it with the enrichment source, i.e. { "host.name": None, "ip.address": None } will ask the plugin to enrich the document using values from `host.name` and `ip.address` fields in the document as input to the enrichment source (i.e. requesting whois information)
-    - a field with a value set will trigger `plugin` to process that value with the enrichment source, i.e. { "host.name": "example.com", "ip.address": "8.8.8.8" } will ask the plugin to enrich the document fields "host.name" and "ip.address" (will be created if not existing) using "example.com" and "8.8.8.8" respectively as input to the enrichment source (i.e. requesting whois information)
+    - a field with a value set will trigger `plugin` to process that value with the enrichment source, i.e. { "host.name": "example.com", "ip.address": "8.8.8.8" } will ask the plugin to enrich the document fields "host.name" and "ip.address" (will be created if not existing) using "example.com" and "8.8.8.8" respectively as input to the enrichment source (i.e. requesting whois information). 
     - a mix of the two is also possible, i.e. { "host.name": None, "ip.address": "8.8.8.8" }
-
+    - NOTE: setting a value is meant mostly for single-document enrichment, since for bulk enrichment the same value will be used for all documents, but it can be used in bulk enrichment as well if needed.
+    - NOTE: some plugins may override this, so an empty `fields` ( { } ) is accepted as well depending on the plugin.
     `dot notation` is supported for nested fields, i.e.: field1.field2, arrayfield[0].field3, and so on ...
     """,
                 examples=[{"host.name": None, "ip.address": "8.8.8.8"}],
             ),
         ],
     ) -> dict:
-        if not fields:
+        if fields is None:
             raise RequestValidationError(
                 [
                     {

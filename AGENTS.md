@@ -34,6 +34,7 @@ The system uses OpenSearch for document storage, PostgreSQL for collaboration me
 - `src/gulp/api/s3_api.py`: functions for interacting with S3-compatible storage, used for file uploads and plugin file management
 - `src/gulp/api/redis_api.py`: functions for interacting with Redis, including task queue management and pub/sub for real-time updates to clients.
 - `src/gulp/api/ws_api.py`, `src/gulp/api/server/ws.py`: websocket API and management for real-time communication between clients and the server, used for streaming results, updates, etc...
+- `src/gulp/structs.py`, `src/gulp/api/collab/structs.py`, `src/gulp/api/opensearch/structs.py`, `src/gulp/api/server/structs.py`: data structures and models used throughout the codebase, including Pydantic models for API requests/responses, database models for collaboration entities, and data structures for OpenSearch interactions.
 
 ### symlinked repositories
 
@@ -50,9 +51,10 @@ use pnpm start to start the development server for the web client on `http://loc
 
 - tests are (and should be created in) in `/gulp/tests/integration` (integration tests) and `/gulp/tests/unit` (unit tests)
 
-- first, always check if there is a a gulp instance available on `http://localhost:8080`. either, you can start one with `gulp --reset-collab --create test_operation`: make sure to run the command inside the venv, be sure to stop the instance with `gulp --stop` when done ONLY IF YOU STARTED IT.
+- first, always check if there is a a gulp instance available on `http://localhost:8080` by checking `http://localhost:8080/docs`. either, you can start one with `gulp --reset-collab --create test_operation`: make sure to run the command inside the venv, be sure to stop the instance with `gulp --stop` when done ONLY IF YOU STARTED IT.
 - for ingestion tests, you have examples in `tests/integration/test_ingest.py`
 - for enrichment tests, you have examples in `tests/integration/test_enrich.py`
 - for query tests, you have examples in `tests/integration/test_queries.py`
 - the `raw` plugin is tested in `tests/integration/test_raw_plugin.py`
 - for any other tests, look for examples in the `tests/integration` directory, and if you cannot find any, ask for clarifications before proceeding
+- in the tests, always print the response from the API on stdout to make sure you understand what is being returned, and to help with debugging if something goes wrong

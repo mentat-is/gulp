@@ -1394,10 +1394,11 @@ class GulpPluginBase(ABC):
             raise NotImplementedError(
                 "plugin %s does not support enrichment" % (self.name)
             )
-        if not fields:
+        if fields is None:
             raise ValueError(
                 "enrich_documents: a non-empty fields parameter is mandatory"
             )
+            
 
         # initialize these in plugin
         self._user_id = user_id
@@ -1409,15 +1410,18 @@ class GulpPluginBase(ABC):
         self._index = index
 
         # Build the base enrichment-selection query from "fields".
-        # - fields with value None: input is read from the document, so field must exist
-        # - fields with explicit values: those are plugin inputs, not document filters
-        #   (do not add term filters on destination fields, they may not exist yet)
+        # - fields with value None: input is read from the document, so field must exist.
+        # this basically allows to select only documents having the specified fields, without caring about their value, which is a common use case for enrichment plugins (i.e. enrich all documents having "file.hash" field, regardless of the hash value)
+        # - fields with an explicit value
+        # this allows for the enrich plugin to search (on its enrich provider) for a specific value which, is found, will be added as enrichment to (all) the documents.
+        # NOTE: the latter (fields with an explicit value) is meant to be used only with single document, not a range
         should_filters: list[dict] = []
         for f_name, f_value in fields.items():
             if f_value is None:
                 should_filters.append({"exists": {"field": f_name}})
 
         if should_filters:
+            # only these documents
             qq: dict = {
                 "query": {
                     "bool": {
@@ -1427,7 +1431,7 @@ class GulpPluginBase(ABC):
                 }
             }
         else:
-            # All field values are explicit plugin inputs: no field-based prefilter.
+            # all documents
             qq = {"query": {"match_all": {}}}
 
         # check if the caller provided a raw query to be used, if so merge with q
