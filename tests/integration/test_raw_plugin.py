@@ -230,6 +230,67 @@ async def test_raw_ingest_uses_selected_mapping_id(
 
 
 @pytest.mark.integration
+async def test_raw_ingest_preserves_timestamp_and_code_with_context_source_mapping(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """Raw ingest should preserve existing @timestamp/event.code while mapping context and source only."""
+    from gulp_sdk import GulpClient
+
+    marker = _unique("raw_ctx_src_only")
+    payload = [
+        {
+            "@timestamp": "2024-04-01T00:00:00Z",
+            "event.code": "8888",
+            "gulp.context_name": f"ctx_{marker}",
+            "gulp.source_name": f"src_{marker}",
+            "custom.marker": marker,
+        }
+    ]
+
+    mapping = GulpMapping(
+        fields={
+            "gulp.context_name": GulpMappingField(is_gulp_type="context_name"),
+            "gulp.source_name": GulpMappingField(is_gulp_type="source_name"),
+        }
+    )
+    plugin_params = GulpPluginParameters(
+        mapping_parameters=GulpMappingParameters(
+            mappings={"ctx_src_only": mapping},
+            mapping_id="ctx_src_only",
+        )
+    )
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(_unique("raw_ctx_src_only_op"))
+
+        try:
+            result = await client.ingest.raw(
+                operation_id=op.id,
+                plugin_name="raw",
+                data=payload,
+                params={
+                    "plugin_params": plugin_params.model_dump(by_alias=True),
+                    "last": True,
+                },
+                wait=True,
+                timeout=300,
+            )
+            assert result.req_id
+
+            docs = await _query_docs(client, op.id)
+            assert len(docs) >= 1
+
+            doc = docs[0]
+            assert str(doc.get("@timestamp", "")).startswith("2024-04-01T00:00:00")
+            assert str(doc.get("event.code")) == "8888"
+            assert doc.get("gulp.context_id")
+            assert doc.get("gulp.source_id")
+        finally:
+            await _delete_operation_with_retry(client, op.id)
+
+
+@pytest.mark.integration
 async def test_raw_ingest_merges_additional_mappings(
     gulp_base_url, gulp_test_user, gulp_test_password
 ):
