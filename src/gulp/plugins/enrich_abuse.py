@@ -307,7 +307,7 @@ class Plugin(GulpPluginBase):
         doc_id: str,
         operation_id: str,
         index: str,
-        fields: str,
+        fields: dict,
         plugin_params: GulpPluginParameters,
     ) -> dict:
         # parse custom parameters
