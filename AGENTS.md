@@ -10,6 +10,9 @@ The system uses OpenSearch for document storage, PostgreSQL for collaboration me
 - Follow existing code style and patterns in the codebase.
 - Use type hints for function signatures.
 - Write clear and concise docstrings for functions and classes.
+
+## gulp backend plugin development guidelines
+
 - When working on plugins, use existing plugins in `src/gulp/plugins` as references for structure and implementation:
   - for ingestion plugins, use `win_evtx.py` plugin
   - for enrichment plugins, use `enrich_whois.py` plugin
@@ -22,7 +25,7 @@ The system uses OpenSearch for document storage, PostgreSQL for collaboration me
 - `collab_migrate/`: directory containing database migration scripts for collaboration database (PostgreSQL)
 - `docs`: documentation (architecture, plugin development, etc...)
 - `tests`: directory containing unit and integration tests for the gULP service and plugins.
-- `src/gulp/plugins`: the plugins (`src/gulp/plugins/extensions` for extensions, `src/gulp/pluginsì` for any other type of plugins.
+- `src/gulp/plugins`: the plugins (`src/gulp/plugins/extensions` for extensions, `src/gulp/plugins` for `ingestion`, `enrich`, `query_external` plugins).
 - `src/gulp/mapping_files/`: directory containing mapping files for different plugins
 - `src/gulp/plugin.py`: base class for plugins, which defines the interface and common functionality for all plugins in the system.
 - `src/gulp/config.py`: configuration management for the gULP service, including settings for database connections, OpenSearch, Redis, MinIO, etc...
@@ -43,18 +46,26 @@ The system uses OpenSearch for document storage, PostgreSQL for collaboration me
 - `muty-python/`: utility library used by gULP and plugins
 - `gulpui-web/`: the web client for gULP, built with React and TypeScript, which interacts with the gULP API to provide a user interface for document ingestion, querying, enrichment, and collaboration features.
 
-## working with gulpui-web
+## setup the backend to work together with the UI gulpui-web
 
-use pnpm start to start the development server for the web client on `http://localhost:3000`, you can interact with the gulp API on `http://localhost:8080` (make sure to start the gulp backend if you haven't already, see testing instructions below).
+use pnpm start to start the web client on `http://localhost:3000` with which you can interact with the gulp backend API on `http://localhost:8080` (make sure to start the gulp backend if you haven't already, see testing instructions below).
 
-## testing instructions
+## testing guidelines
+
+to run tests, first, always check if there is a a gulp backend instance available by checking `http://localhost:8080/docs`.
+
+either, you can start one with `gulp --reset-collab --create test_operation`, and it is your responsibility to stop it with `gulp --stop` when you are done.
+
+if you need to run multiple instances of gulp, use `GULP_BIND_TO_ADDR` and `GULP_BIND_TO_PORT` environment variables to bind each instance to a different address and port, e.g. `GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8100 gulp` to start a second instance on port 8100.
+
+by default, if you find an already running instance, that runs on port 8080; for further instances use ports >= 8100.
+
+### testing implementations
 
 - tests are (and should be created in) in `/gulp/tests/integration` (integration tests) and `/gulp/tests/unit` (unit tests)
-
-- first, always check if there is a a gulp instance available on `http://localhost:8080` by checking `http://localhost:8080/docs`. either, you can start one with `gulp --reset-collab --create test_operation`: make sure to run the command inside the venv, be sure to stop the instance with `gulp --stop` when done ONLY IF YOU STARTED IT.
-- for ingestion tests, you have examples in `tests/integration/test_ingest.py`
-- for enrichment tests, you have examples in `tests/integration/test_enrich.py`
-- for query tests, you have examples in `tests/integration/test_queries.py`
-- the `raw` plugin is tested in `tests/integration/test_raw_plugin.py`
-- for any other tests, look for examples in the `tests/integration` directory, and if you cannot find any, ask for clarifications before proceeding
-- in the tests, always print the response from the API on stdout to make sure you understand what is being returned, and to help with debugging if something goes wrong
+- for ingestion tests, you have examples in `/gulp/tests/integration/test_ingest.py`
+- for enrichment tests, you have examples in `/gulp/tests/integration/test_enrich.py`
+- for query tests, you have examples in `/gulp/tests/integration/test_queries.py`
+- the `raw` plugin is tested in `/gulp/tests/integration/test_raw_plugin.py`
+- for any other tests, look for examples in the `/gulp/tests/integration` directory, and if you cannot find any, ask for clarifications before proceeding
+- tests must always assert their expected results, but it is also very useful to print the actual response from the API on stdout to make sure you understand what is being returned, and to help with debugging if something goes wrong. So make sure to include print statements in your tests to output the API responses for better visibility during test runs.

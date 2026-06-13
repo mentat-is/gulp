@@ -37,6 +37,7 @@ async def test_ws_connected_acknowledgment(gulp_base_url, gulp_test_user, gulp_t
         await client.auth.login(gulp_test_user, gulp_test_password)
         ws = await client.ensure_websocket()
 
+        print("ws_connected acknowledgment:", ws)
         assert ws is not None
         assert ws.is_connected
         assert ws.ws_id
@@ -58,6 +59,7 @@ async def test_ws_user_logout_notification_on_same_socket(
             and m.data.get("login") is False,
             client.auth.logout,
         )
+        print("same_socket logout notification:", msg)
         assert msg.type == WSMessageType.USER_LOGOUT.value
 
 
@@ -84,6 +86,7 @@ async def test_ws_user_logout_notification_other_user_broadcast(
 
             # USER_LOGOUT is observed on other connected default websockets.
             await asyncio.sleep(1.0)
+            print("other_user logout notifications:", seen)
             assert len(seen) >= 1
         finally:
             listener.unregister_ws_message_handler(WSMessageType.USER_LOGOUT, _on_logout)

@@ -100,6 +100,7 @@ async def test_ws_collab_note_create_notification(gulp_base_url, gulp_test_user,
                 and m.data["obj"].get("name") == note_name,
                 _do_create,
             )
+            print("note_create notification:", msg)
             assert msg.type == WSMessageType.COLLAB_CREATE.value
             assert created_note_id is not None
         finally:
@@ -141,6 +142,7 @@ async def test_ws_collab_note_update_notification(gulp_base_url, gulp_test_user,
                 and m.data["obj"].get("id") == note_id,
                 _do_update,
             )
+            print("note_update notification:", msg)
             assert msg.type == WSMessageType.COLLAB_UPDATE.value
         finally:
             await client.collab.note_delete(note_id)
@@ -178,6 +180,7 @@ async def test_ws_collab_note_delete_notification(gulp_base_url, gulp_test_user,
                 lambda m: isinstance(m.data, dict) and m.data.get("id") == note_id,
                 _do_delete,
             )
+            print("note_delete notification:", msg)
             assert msg.type == WSMessageType.COLLAB_DELETE.value
         finally:
             await client.operations.delete(operation_id)
@@ -225,6 +228,7 @@ async def test_ws_collab_highlight_create_notification(gulp_base_url, gulp_test_
                 ),
                 _do_create_highlight,
             )
+            print("highlight_create notification:", msg)
             assert msg.type == WSMessageType.COLLAB_CREATE.value
             assert highlight_id is not None
         finally:

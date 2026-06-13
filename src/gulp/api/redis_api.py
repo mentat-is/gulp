@@ -231,6 +231,10 @@ class GulpRedis:
         """Get Redis key for websocket metadata."""
         return f"gulp:ws:metadata:{self.server_id}:{ws_id}"
 
+    def _get_ws_metadata_key_for_server(self, server_id: str, ws_id: str) -> str:
+        """Get Redis key for websocket metadata owned by a specific server."""
+        return f"gulp:ws:metadata:{server_id}:{ws_id}"
+
     def _get_ws_lookup_key(self, ws_id: str) -> str:
         """Get Redis key for quick ws_id to server_id lookup."""
         return f"gulp:ws:lookup:{ws_id}"
@@ -413,7 +417,11 @@ class GulpRedis:
         Returns:
             Optional[GulpWsMetadata]: The metadata or None if not found
         """
-        metadata_key = self._get_ws_metadata_key(ws_id)
+        server_id = await self.ws_get_server(ws_id)
+        if not server_id:
+            return None
+
+        metadata_key = self._get_ws_metadata_key_for_server(server_id, ws_id)
         data = await self._redis.get(metadata_key)
 
         if data:

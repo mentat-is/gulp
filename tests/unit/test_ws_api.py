@@ -13,6 +13,7 @@ from gulp.api.ws_api import (
     GulpWsData,
     GulpWsType,
 )
+from gulp.api.redis_api import GulpWsMetadata
 
 
 class _FakeRedisRaw:
@@ -218,6 +219,188 @@ def test_gulp_connected_sockets_cache_and_queue_utilization():
     utilization = sockets.aggregate_queue_utilization()
     assert pytest.approx(utilization, rel=1e-6) == 0.25
     assert sockets.num_connected_sockets() == 2
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_gulp_redis_ws_get_metadata_uses_owner_server_lookup():
+    GulpRedis._instance = None
+    redis_client = GulpRedis.get_instance()
+    redis_client._redis = _FakeRedisRaw()
+    redis_client.server_id = "server-local"
+
+    metadata = GulpWsMetadata(
+        ws_id="ws-remote",
+        server_id="server-remote",
+        types=["stats_update"],
+        operation_ids=["op-1"],
+        socket_type=GulpWsType.WS_DEFAULT.value,
+    )
+
+    await redis_client._redis.set(
+        redis_client._get_ws_lookup_key("ws-remote"),
+        b"server-remote",
+    )
+    await redis_client._redis.set(
+        redis_client._get_ws_metadata_key_for_server("server-remote", "ws-remote"),
+        orjson.dumps(metadata.model_dump()),
+    )
+
+    result = await redis_client.ws_get_metadata("ws-remote")
+
+    assert result == metadata
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_redis_broker_drops_pubsub_message_missing_routing_metadata():
+    broker = GulpRedisBroker.get_instance()
+
+    # This should be logged and dropped, not raise KeyError from dict.pop().
+    await broker._handle_pubsub_message(
+        {
+            "__redis_channel__": "gulpredis",
+            "timestamp": 123,
+            "type": "stats_update",
+        }
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_worker_to_main_targeted_ws_owned_by_remote_instance_forwards_to_owner(
+    monkeypatch,
+):
+    from gulp.api import ws_api as ws_api_module
+
+    fake_redis = MagicMock()
+    fake_redis.server_id = "instance-a"
+    fake_redis.ws_get_server = AsyncMock(return_value="instance-b")
+    fake_redis.worker_to_main_channel = (
+        lambda server_id=None: f"gulpredis:server:{server_id or 'instance-a'}"
+    )
+    fake_redis.publish = AsyncMock()
+
+    fake_sockets = MagicMock()
+    fake_sockets.get.return_value = None
+    fake_sockets.route_message_to_local_websockets = AsyncMock()
+
+    monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: fake_redis)
+    monkeypatch.setattr(
+        ws_api_module.GulpConnectedSockets,
+        "get_instance",
+        lambda: fake_sockets,
+    )
+
+    broker = GulpRedisBroker.get_instance()
+    await broker._handle_pubsub_message(
+        {
+            "__redis_channel__": fake_redis.worker_to_main_channel(),
+            "route_target_type": GulpMessageRoutingTarget.WORKER_TO_MAIN.value,
+            "origin_server_id": "instance-a",
+            "@timestamp": 123,
+            "type": "docs_chunk",
+            "ws_id": "remote-ws",
+        }
+    )
+
+    fake_sockets.route_message_to_local_websockets.assert_not_awaited()
+    fake_redis.ws_get_server.assert_awaited_once_with("remote-ws")
+    fake_redis.publish.assert_awaited_once()
+    assert fake_redis.publish.await_args.kwargs["channel"] == "gulpredis:server:instance-b"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_put_common_targeted_ws_owned_by_remote_instance_publishes_to_owner(
+    monkeypatch,
+):
+    from gulp.api import ws_api as ws_api_module
+    import gulp.process as process_module
+
+    fake_process = MagicMock()
+    fake_process.is_main_process.return_value = True
+
+    fake_redis = MagicMock()
+    fake_redis.server_id = "instance-a"
+    fake_redis.ws_get_server = AsyncMock(return_value="instance-b")
+    fake_redis.worker_to_main_channel = (
+        lambda server_id=None: f"gulpredis:server:{server_id or 'instance-a'}"
+    )
+    fake_redis.publish = AsyncMock()
+
+    fake_sockets = MagicMock()
+    fake_sockets.get.return_value = None
+    fake_sockets.route_message_to_local_websockets = AsyncMock()
+
+    monkeypatch.setattr(
+        process_module.GulpProcess,
+        "get_instance",
+        staticmethod(lambda: fake_process),
+    )
+    monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: fake_redis)
+    monkeypatch.setattr(
+        ws_api_module.GulpConnectedSockets,
+        "get_instance",
+        lambda: fake_sockets,
+    )
+
+    broker = GulpRedisBroker.get_instance()
+    wsd = GulpWsData(timestamp=123, type="docs_chunk", ws_id="remote-ws")
+
+    await broker._put_common(wsd)
+
+    fake_sockets.route_message_to_local_websockets.assert_not_awaited()
+    fake_redis.ws_get_server.assert_awaited_once_with("remote-ws")
+    fake_redis.publish.assert_awaited_once()
+
+    published_msg = fake_redis.publish.await_args.args[0]
+    assert (
+        published_msg["route_target_type"]
+        == GulpMessageRoutingTarget.WORKER_TO_MAIN.value
+    )
+    assert published_msg["origin_server_id"] == "instance-a"
+    assert fake_redis.publish.await_args.kwargs["channel"] == "gulpredis:server:instance-b"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_put_common_targeted_ws_owned_locally_routes_without_publish(monkeypatch):
+    from gulp.api import ws_api as ws_api_module
+    import gulp.process as process_module
+
+    fake_process = MagicMock()
+    fake_process.is_main_process.return_value = True
+
+    fake_redis = MagicMock()
+    fake_redis.server_id = "instance-a"
+    fake_redis.ws_get_server = AsyncMock()
+    fake_redis.publish = AsyncMock()
+
+    fake_sockets = MagicMock()
+    fake_sockets.get.return_value = object()
+    fake_sockets.route_message_to_local_websockets = AsyncMock()
+
+    monkeypatch.setattr(
+        process_module.GulpProcess,
+        "get_instance",
+        staticmethod(lambda: fake_process),
+    )
+    monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: fake_redis)
+    monkeypatch.setattr(
+        ws_api_module.GulpConnectedSockets,
+        "get_instance",
+        lambda: fake_sockets,
+    )
+
+    broker = GulpRedisBroker.get_instance()
+    wsd = GulpWsData(timestamp=123, type="docs_chunk", ws_id="local-ws")
+
+    await broker._put_common(wsd)
+
+    fake_sockets.route_message_to_local_websockets.assert_awaited_once()
+    fake_redis.ws_get_server.assert_not_awaited()
+    fake_redis.publish.assert_not_awaited()
 
 
 @pytest.mark.unit

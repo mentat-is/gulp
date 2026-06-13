@@ -68,6 +68,7 @@ async def test_ws_wait_ingest_file_completion_uses_websocket(gulp_base_url, gulp
             finally:
                 client.plugins.request_get = original_request_get
 
+            print("ws_wait_ingest_file_completion response:", res)
             assert str(getattr(res, "status", "")).lower() == "done"
         finally:
             await _delete_operation_with_retry(client, op_id)
@@ -106,6 +107,7 @@ async def test_ws_wait_query_gulp_completion_uses_websocket(gulp_base_url, gulp_
             finally:
                 client.plugins.request_get = original_request_get
 
+            print("ws_wait_query_gulp_completion response:", qres)
             assert str((qres or {}).get("status", "")).lower() == "done"
         finally:
             await _delete_operation_with_retry(client, op_id)
@@ -145,6 +147,7 @@ async def test_ws_wait_db_rebase_completion_uses_websocket(gulp_base_url, gulp_t
             finally:
                 client.plugins.request_get = original_request_get
 
+            print("ws_wait_db_rebase_completion response:", dres)
             assert str((dres or {}).get("status", "")).lower() == "done"
         finally:
             await _delete_operation_with_retry(client, op_id)

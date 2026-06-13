@@ -1695,7 +1695,7 @@ class GulpConnectedSockets:
                         ws_id,
                         result,
                     )
-                    self.remove(ws_id)
+                    await self.remove(ws_id)
 
 
 class GulpRedisBroker:
@@ -1816,8 +1816,16 @@ class GulpRedisBroker:
         # extract Redis channel name (added by subscriber loop)
         redis_channel: str = message.pop("__redis_channel__", None)
         # and the message routing target and origin
-        route_target_type: str = message.pop("route_target_type")
-        origin_server_id: str = message.pop("origin_server_id")
+        route_target_type: str = message.pop("route_target_type", None)
+        origin_server_id: str = message.pop("origin_server_id", None)
+        if not route_target_type or not origin_server_id:
+            MutyLogger.get_instance().warning(
+                "dropping malformed pubsub message missing routing metadata: channel=%s, route_target_type=%s, origin_server_id=%s",
+                redis_channel,
+                route_target_type,
+                origin_server_id,
+            )
+            return
 
         # if this message is a pointer to a stored payload, try to fetch it and
         # replace the message dict with the full stored payload
@@ -2103,7 +2111,32 @@ class GulpRedisBroker:
                     return
                 else:
                     # this also just sends message to single ws_id if ws_id is set
-                    await GulpConnectedSockets.get_instance().route_message_to_local_websockets(
+                    connected_sockets = GulpConnectedSockets.get_instance()
+                    if wsd.ws_id and not wsd.check_type_in_broadcast_types():
+                        if connected_sockets.get(wsd.ws_id):
+                            await connected_sockets.route_message_to_local_websockets(
+                                wsd, message
+                            )
+                            return
+
+                        owner_server_id = await redis_client.ws_get_server(wsd.ws_id)
+                        if (
+                            owner_server_id
+                            and owner_server_id != redis_client.server_id
+                        ):
+                            wsd.route_target_type = (
+                                GulpMessageRoutingTarget.WORKER_TO_MAIN.value
+                            )
+                            wsd.origin_server_id = origin_server_id
+                            await redis_client.publish(
+                                wsd.model_dump(exclude_none=True),
+                                channel=redis_client.worker_to_main_channel(
+                                    owner_server_id
+                                ),
+                            )
+                            return
+
+                    await connected_sockets.route_message_to_local_websockets(
                         wsd, message
                     )
 
@@ -2190,16 +2223,7 @@ class GulpRedisBroker:
                         ws_id,
                         result,
                     )
-                    self.remove(ws_id)
-
-                if isinstance(result, Exception):
-                    ws_id = ws_ids[i]
-                    MutyLogger.get_instance().warning(
-                        "failed to broadcast to local client_data ws, ws_id=%s: %s, removing dead socket",
-                        ws_id,
-                        result,
-                    )
-                    self._sockets.pop(ws_id, None)
+                    await s.remove(ws_id)
                 else:
                     """MutyLogger.get_instance().debug(
                         "routed ws_client_data to ws_id=%s", cws.ws_id
@@ -2234,21 +2258,48 @@ class GulpRedisBroker:
 
         # BROADCAST messages: route locally and publish so other instances receive them
         is_broadcast = wsd.check_type_in_broadcast_types()
-        if is_broadcast or wsd.ws_id:
+        connected_sockets = GulpConnectedSockets.get_instance()
+
+        if wsd.ws_id and not is_broadcast:
+            # Targeted messages are owned by exactly one websocket. If that
+            # socket lives on a different instance, forward to that instance's
+            # main process instead of only checking local sockets.
+            wsd.origin_server_id = redis_client.server_id
+
+            if connected_sockets.get(wsd.ws_id):
+                await connected_sockets.route_message_to_local_websockets(
+                    wsd,
+                    wsd.model_dump(exclude_none=True),
+                )
+                return
+
+            owner_server_id = await redis_client.ws_get_server(wsd.ws_id)
+            if owner_server_id and owner_server_id != redis_client.server_id:
+                wsd.route_target_type = GulpMessageRoutingTarget.WORKER_TO_MAIN.value
+                await redis_client.publish(
+                    wsd.model_dump(exclude_none=True),
+                    channel=redis_client.worker_to_main_channel(owner_server_id),
+                )
+                return
+
+            await connected_sockets.route_message_to_local_websockets(
+                wsd,
+                wsd.model_dump(exclude_none=True),
+            )
+            return
+
+        if is_broadcast:
             # route to local websockets
             wsd.origin_server_id = redis_client.server_id
             wsd_dict = wsd.model_dump(exclude_none=True)
-            await GulpConnectedSockets.get_instance().route_message_to_local_websockets(
-                wsd, wsd_dict
-            )
+            await connected_sockets.route_message_to_local_websockets(wsd, wsd_dict)
 
-            if is_broadcast:
-                # publish to Redis so all gulp instances will receive it as well
-                wsd_dict["route_target_type"] = GulpMessageRoutingTarget.BROADCAST.value
-                await redis_client.publish(
-                    wsd_dict,
-                    channel=GulpMessageRoutingTarget.BROADCAST.redis_channel_name(),
-                )
+            # publish to Redis so all gulp instances will receive it as well
+            wsd_dict["route_target_type"] = GulpMessageRoutingTarget.BROADCAST.value
+            await redis_client.publish(
+                wsd_dict,
+                channel=GulpMessageRoutingTarget.BROADCAST.redis_channel_name(),
+            )
         return
 
     async def _wait_internal_response(

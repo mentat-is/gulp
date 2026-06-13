@@ -826,16 +826,20 @@ class GulpAPIWebsocket:
                     ws_id=None,
                     user_id=user_id,
                     route_target_type=GulpMessageRoutingTarget.CLIENT_DATA.value,
+                    origin_server_id=GulpRedis.get_instance().server_id,
                     operation_id=client_ui_data.operation_id,
                     payload=client_ui_data.model_dump(exclude_none=True),
                 )
 
+                msg = data.model_dump(exclude_none=True)
+
                 # route to local connected client_data websockets
-                await GulpRedisBroker.get_instance()._route_message_to_local_client_data_websockets(data)
+                await GulpRedisBroker.get_instance()._route_message_to_local_client_data_websockets(
+                    data, dict(msg)
+                )
 
                 # publish to other instances via dedicated client_data Redis channel
                 try:
-                    msg = data.model_dump(exclude_none=True)
                     # publish to dedicated channel
                     MutyLogger.get_instance().debug(
                         "publishing client_data to Redis: ws_id=%s, operation_id=%s",
