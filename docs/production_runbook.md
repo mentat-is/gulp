@@ -164,6 +164,58 @@ Triage rules:
 - Owner-heartbeat cleanup should remove orphan raw ingest stream keys after the
   owning backend instance is no longer live.
 
+## PostgreSQL collaboration triage
+
+Primary metrics:
+
+- `gulp_postgres_pool_size`
+- `gulp_postgres_pool_checked_out`
+- `gulp_postgres_pool_idle`
+- `gulp_postgres_pool_overflow`
+
+Primary knobs:
+
+- `postgres_adaptive_pool_size`
+- `postgres_pool_size`
+- `postgres_max_overflow`
+- `postgres_pool_timeout_sec`
+- `postgres_pool_recycle_sec`
+- `postgres_lock_timeout_ms`
+- `postgres_statement_timeout_ms`
+- `postgres_idle_in_transaction_session_timeout_ms`
+- `postgres_user_session_touch_interval_ms`
+
+Connection pools are per process. Budget the maximum PostgreSQL connections as:
+
+~~~text
+per_process_connections = postgres_pool_size + postgres_max_overflow
+total_possible_connections =
+  gulp_instances * processes_per_instance * per_process_connections
+~~~
+
+`processes_per_instance` is the main process plus configured worker processes.
+With the default PostgreSQL settings, each process may open up to
+`3 + 2 = 5` PostgreSQL connections. A single instance with four workers can
+therefore use up to `1 * 5 * 5 = 25` PostgreSQL connections before any other
+gULP instance is counted.
+
+Triage rules:
+
+- High checked-out connections with low idle connections means requests are
+  waiting for the pool or holding transactions too long. Inspect request
+  latency and logs for pool checkout timeouts before increasing pool caps.
+- Lock timeout failures usually mean a hot collaboration row or request-stats
+  row is serializing work. Reduce transaction scope and keep Redis,
+  websocket, and OpenSearch work outside PostgreSQL transactions before raising
+  `postgres_lock_timeout_ms`.
+- Repeated writes to the same `user_session` row during read-heavy traffic can
+  be reduced with `postgres_user_session_touch_interval_ms`. The default keeps
+  a sliding expiration window while avoiding a commit on every authenticated
+  call.
+- For multi-instance deployments, reduce `postgres_pool_size`,
+  `postgres_max_overflow`, `parallel_processes_max`, or instance count before
+  raising per-process pool caps.
+
 ## config profiles
 
 Profiles are starting points. Tune against real OpenSearch, PostgreSQL, Redis,
@@ -180,6 +232,15 @@ Use this for development, demos, or a small single-tenant backend:
   "concurrency_opensearch_num_nodes": 1,
   "concurrency_postgres_num_nodes": 1,
   "concurrency_tasks_cap_per_process": 16,
+  "postgres_adaptive_pool_size": true,
+  "postgres_pool_size": 3,
+  "postgres_max_overflow": 2,
+  "postgres_pool_timeout_sec": 10,
+  "postgres_pool_recycle_sec": 3600,
+  "postgres_lock_timeout_ms": 5000,
+  "postgres_statement_timeout_ms": 0,
+  "postgres_idle_in_transaction_session_timeout_ms": 30000,
+  "postgres_user_session_touch_interval_ms": 60000,
   "redis_stream_task_maxlen": 1000,
   "redis_task_active_user_max": 0,
   "redis_task_active_operation_max": 0,
@@ -203,6 +264,15 @@ PostgreSQL, and OpenSearch:
   "concurrency_opensearch_num_nodes": 3,
   "concurrency_postgres_num_nodes": 1,
   "concurrency_tasks_cap_per_process": 32,
+  "postgres_adaptive_pool_size": true,
+  "postgres_pool_size": 3,
+  "postgres_max_overflow": 2,
+  "postgres_pool_timeout_sec": 10,
+  "postgres_pool_recycle_sec": 3600,
+  "postgres_lock_timeout_ms": 5000,
+  "postgres_statement_timeout_ms": 0,
+  "postgres_idle_in_transaction_session_timeout_ms": 30000,
+  "postgres_user_session_touch_interval_ms": 60000,
   "redis_stream_task_maxlen": 10000,
   "redis_task_active_user_max": 50,
   "redis_task_active_operation_max": 100,
@@ -226,6 +296,15 @@ Use this only with measured backend capacity and active alerting:
   "concurrency_opensearch_num_nodes": 6,
   "concurrency_postgres_num_nodes": 2,
   "concurrency_tasks_cap_per_process": 64,
+  "postgres_adaptive_pool_size": true,
+  "postgres_pool_size": 3,
+  "postgres_max_overflow": 2,
+  "postgres_pool_timeout_sec": 10,
+  "postgres_pool_recycle_sec": 3600,
+  "postgres_lock_timeout_ms": 5000,
+  "postgres_statement_timeout_ms": 0,
+  "postgres_idle_in_transaction_session_timeout_ms": 30000,
+  "postgres_user_session_touch_interval_ms": 60000,
   "redis_stream_task_maxlen": 50000,
   "redis_task_active_user_max": 100,
   "redis_task_active_operation_max": 250,

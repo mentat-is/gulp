@@ -3,6 +3,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from gulp.api.collab_api import GulpCollab
+from gulp.config import GulpConfig
+
+
+def _config_with(overrides: dict) -> GulpConfig:
+    cfg = object.__new__(GulpConfig)
+    cfg._config = overrides
+    cfg._concurrency_num_tasks = None
+    return cfg
 
 
 @pytest.mark.unit
@@ -62,6 +70,116 @@ async def test_collab_init_shuts_down_previous_engine_before_recreate(monkeypatc
     assert collab._engine is new_engine
     assert collab._collab_sessionmaker is session_factory
     assert collab._initialized is True
+
+
+@pytest.mark.unit
+def test_postgres_config_defaults_and_clamps():
+    cfg = _config_with({})
+
+    assert cfg.postgres_pool_timeout_sec() == 10
+    assert cfg.postgres_pool_recycle_sec() == 3600
+    assert cfg.postgres_lock_timeout_ms() == 5000
+    assert cfg.postgres_statement_timeout_ms() == 0
+    assert cfg.postgres_idle_in_transaction_session_timeout_ms() == 30000
+    assert cfg.postgres_user_session_touch_interval_ms() == 60000
+
+    cfg = _config_with(
+        {
+            "postgres_pool_timeout_sec": -5,
+            "postgres_pool_recycle_sec": "invalid",
+            "postgres_lock_timeout_ms": -1,
+            "postgres_statement_timeout_ms": -1,
+            "postgres_idle_in_transaction_session_timeout_ms": -1,
+            "postgres_user_session_touch_interval_ms": -1,
+        }
+    )
+
+    assert cfg.postgres_pool_timeout_sec() == 1
+    assert cfg.postgres_pool_recycle_sec() == 3600
+    assert cfg.postgres_lock_timeout_ms() == 0
+    assert cfg.postgres_statement_timeout_ms() == 0
+    assert cfg.postgres_idle_in_transaction_session_timeout_ms() == 0
+    assert cfg.postgres_user_session_touch_interval_ms() == 0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_create_engine_uses_configured_postgres_pool_and_timeouts(monkeypatch):
+    GulpCollab._instance = None
+    collab = GulpCollab.get_instance()
+    captured = {}
+    fake_engine = MagicMock(name="engine")
+
+    class _FakeConfig:
+        def postgres_url(self):
+            return "postgresql+psycopg://user:pass@localhost:5432/gulp"
+
+        def path_certs(self):
+            return None
+
+        def postgres_ssl(self):
+            return False
+
+        def postgres_verify_certs(self):
+            return False
+
+        def postgres_lock_timeout_ms(self):
+            return 1234
+
+        def postgres_statement_timeout_ms(self):
+            return 5678
+
+        def postgres_idle_in_transaction_session_timeout_ms(self):
+            return 9012
+
+        def postgres_pool_size(self):
+            return 3
+
+        def postgres_max_overflow(self):
+            return 2
+
+        def postgres_adaptive_pool_size(self):
+            return True
+
+        def concurrency_num_tasks(self):
+            return 1000
+
+        def postgres_pool_timeout_sec(self):
+            return 7
+
+        def postgres_pool_recycle_sec(self):
+            return 89
+
+        def parallel_processes_max(self):
+            return 1
+
+        def debug_collab(self):
+            return False
+
+    def _create_async_engine(url, **kwargs):
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+        return fake_engine
+
+    monkeypatch.setattr(
+        "gulp.api.collab_api.GulpConfig.get_instance", lambda: _FakeConfig()
+    )
+    monkeypatch.setattr("gulp.api.collab_api.create_async_engine", _create_async_engine)
+
+    engine = await collab._create_engine()
+
+    assert engine is fake_engine
+    assert captured["url"] == "postgresql+psycopg://user:pass@localhost:5432/gulp"
+    kwargs = captured["kwargs"]
+    assert kwargs["pool_size"] == 3
+    assert kwargs["max_overflow"] == 2
+    assert kwargs["pool_timeout"] == 7
+    assert kwargs["pool_recycle"] == 89
+    assert kwargs["pool_pre_ping"] is True
+    options = kwargs["connect_args"]["options"]
+    assert "-c lock_timeout=1234" in options
+    assert "-c statement_timeout=5678" in options
+    assert "-c idle_in_transaction_session_timeout=9012" in options
 
 
 @pytest.mark.unit

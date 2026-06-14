@@ -56,6 +56,7 @@ class GulpCollab:
     """
 
     _instance: "GulpCollab" = None
+    _POSTGRES_CONNECTION_WARNING_THRESHOLD = 80
 
     def __init__(self):
         self._initialized: bool = False
@@ -159,13 +160,14 @@ class GulpCollab:
         Returns:
             AsyncEngine: The collab database engine.
         """
-        url = GulpConfig.get_instance().postgres_url()
+        config = GulpConfig.get_instance()
+        url = config.postgres_url()
 
         # check for ssl connection preferences
         # https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
-        certs_dir = GulpConfig.get_instance().path_certs()
-        postgres_ssl = GulpConfig.get_instance().postgres_ssl()
-        verify_certs = GulpConfig.get_instance().postgres_verify_certs()
+        certs_dir = config.path_certs()
+        postgres_ssl = config.postgres_ssl()
+        verify_certs = config.postgres_verify_certs()
         if verify_certs:
             sslmode = "verify-full"
         else:
@@ -181,9 +183,7 @@ class GulpCollab:
             # check if client certificate exists. if so, it will be used
             client_cert = muty.file.safe_path_join(certs_dir, "postgres.pem")
             client_key = muty.file.safe_path_join(certs_dir, "postgres.key")
-            client_key_password = (
-                GulpConfig.get_instance().postgres_client_cert_password()
-            )
+            client_key_password = config.postgres_client_cert_password()
             if os.path.exists(client_cert) and os.path.exists(client_key):
                 MutyLogger.get_instance().debug(
                     "using client certificate: %s, key=%s, ca=%s"
@@ -206,18 +206,27 @@ class GulpCollab:
             # no SSL
             connect_args = {}
 
+        postgres_options = [
+            "-c lock_timeout=%d" % config.postgres_lock_timeout_ms(),
+            "-c statement_timeout=%d" % config.postgres_statement_timeout_ms(),
+            "-c idle_in_transaction_session_timeout=%d"
+            % config.postgres_idle_in_transaction_session_timeout_ms(),
+        ]
+        existing_options = connect_args.get("options", "")
+        connect_args["options"] = " ".join(
+            [opt for opt in [existing_options, *postgres_options] if opt]
+        )
+
         # determine per-process pool settings. keep conservative defaults to avoid
         # exhausting postgres max_connections when many worker processes are active.
-        pool_size_cap: int = GulpConfig.get_instance().postgres_pool_size()
-        max_overflow_cap: int = GulpConfig.get_instance().postgres_max_overflow()
+        pool_size_cap: int = config.postgres_pool_size()
+        max_overflow_cap: int = config.postgres_max_overflow()
         pool_size: int = pool_size_cap
         max_overflow: int = max_overflow_cap
-        if GulpConfig.get_instance().postgres_adaptive_pool_size():
+        if config.postgres_adaptive_pool_size():
             # derive pool size from the number of tasks per worker, with some reasonable limits to avoid too small or too large pool sizes.
             # this is a heuristic and can be adjusted based on performance testing and expected workloads.
-            num_tasks_per_worker: int = (
-                GulpConfig.get_instance().concurrency_num_tasks()
-            )
+            num_tasks_per_worker: int = config.concurrency_num_tasks()
             # derive a conservative pool size from per-worker concurrency, then
             # clamp by configured caps to keep total process-wide connections bounded.
             adaptive_pool_size = min(50, max(2, max(1, num_tasks_per_worker) // 4))
@@ -243,15 +252,52 @@ class GulpCollab:
                 max_overflow,
             )
 
+        pool_timeout: int = config.postgres_pool_timeout_sec()
+        pool_recycle: int = config.postgres_pool_recycle_sec()
+        per_process_cap = pool_size_cap + max_overflow_cap
+        per_process_actual = pool_size + max_overflow
+        try:
+            processes_per_instance = 1 + max(0, config.parallel_processes_max())
+        except Exception:
+            processes_per_instance = 1
+        per_instance_cap = processes_per_instance * per_process_cap
+        per_instance_actual = processes_per_instance * per_process_actual
+
+        MutyLogger.get_instance().info(
+            "postgres pool budget: actual_per_process=%d, cap_per_process=%d, "
+            "processes_per_instance=%d, actual_per_instance=%d, "
+            "cap_per_instance=%d, pool_timeout_sec=%d, pool_recycle_sec=%d",
+            per_process_actual,
+            per_process_cap,
+            processes_per_instance,
+            per_instance_actual,
+            per_instance_cap,
+            pool_timeout,
+            pool_recycle,
+        )
+        if (
+            per_instance_cap
+            >= self._POSTGRES_CONNECTION_WARNING_THRESHOLD
+        ):
+            MutyLogger.get_instance().warning(
+                "postgres connection budget is high: cap_per_instance=%d. "
+                "For multi-instance deployments, total_possible_connections="
+                "gulp_instances * processes_per_instance * "
+                "(postgres_pool_size + postgres_max_overflow). Reduce "
+                "postgres_pool_size, postgres_max_overflow, "
+                "parallel_processes_max, or instance count before raising caps.",
+                per_instance_cap,
+            )
+
         # create engine
         kw = dict(
-            echo=GulpConfig.get_instance().debug_collab(),
+            echo=config.debug_collab(),
             connect_args=connect_args,
             pool_pre_ping=True,  # Enables connection health checks
-            pool_recycle=3600,  # Recycle connections after 1 hour
+            pool_recycle=pool_recycle,
             pool_size=pool_size,
             max_overflow=max_overflow,
-            pool_timeout=30,  # Wait up to 30 seconds for available connection
+            pool_timeout=pool_timeout,
         )
         _engine = create_async_engine(url, **kw)
 

@@ -1511,6 +1511,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 MutyLogger.get_instance().warning(
                     "user group %s already granted on object %s", group_id, self.id
                 )
+                await sess.rollback()
                 return
 
             MutyLogger.get_instance().debug(
@@ -1540,6 +1541,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 MutyLogger.get_instance().warning(
                     "user group %s not in granted list on object %s", group_id, self.id
                 )
+                await sess.rollback()
                 return
 
             MutyLogger.get_instance().info(
@@ -1570,6 +1572,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 MutyLogger.get_instance().warning(
                     "user %s already granted on object %s", user_id, self.id
                 )
+                await sess.rollback()
                 return
 
             MutyLogger.get_instance().debug(
@@ -1602,6 +1605,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 MutyLogger.get_instance().warning(
                     "user %s not in granted list on object %s", user_id, self.id
                 )
+                await sess.rollback()
                 return
 
             MutyLogger.get_instance().info(

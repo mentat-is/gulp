@@ -541,6 +541,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             )
             source_pair = (context_id, context_name, source_id, source_name)
             if source_pair in d.sources:
+                await sess.rollback()
                 return self.to_dict(exclude_none=True)
 
             d.sources.append(source_pair)
@@ -734,6 +735,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 or GulpUpdateDocumentsStats()
             )
             if not self._claim_stats_update_key(d, update_key):
+                await sess.rollback()
                 return self.to_dict(exclude_none=True)
 
             d.updated += updated
@@ -802,6 +804,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 GulpQueryStats.model_validate(self.data) or GulpQueryStats()
             )
             if not self._claim_stats_update_key(d, update_key):
+                await sess.rollback()
                 return self.to_dict(exclude_none=True)
 
             d.total_hits += hits

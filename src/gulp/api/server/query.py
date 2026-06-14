@@ -20,6 +20,7 @@ import asyncio
 import json
 import os
 import tempfile
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Annotated, Any, Optional
 
@@ -102,6 +103,12 @@ from gulp.structs import GulpPluginParameters, ObjectNotFound
 from gulp.api.redis_api import TaskQueueFullError
 
 router: APIRouter = APIRouter()
+
+
+@asynccontextmanager
+async def _null_async_context(value=None):
+    """Yield a value through an async context manager."""
+    yield value
 
 
 def _task_queue_full_response(req_id: str, ex: TaskQueueFullError) -> JSONResponse:
@@ -410,7 +417,12 @@ async def run_query(
     )
 
     try:
-        async with GulpCollab.get_instance().session() as sess:
+        sess_cm = (
+            GulpCollab.get_instance().session()
+            if plugin or q_options.create_notes
+            else _null_async_context()
+        )
+        async with sess_cm as sess:
             try:
                 if plugin:
                     # external query, load plugin (it is guaranteed to be the same for all queries)
@@ -753,29 +765,32 @@ async def process_queries(
                 u: GulpUser = await GulpUser.get_by_id(sess, user_id)
                 await u.add_query_history_entry_batch(sess, history)
 
-        # 2. batch queries and gather results: submit the whole batch to a single worker (worker will run each query)
-        # NOTE: for query_external, we will always have just one query to run
-        batch_size: int = len(queries)
-        if len(queries) > GulpConfig.get_instance().concurrency_num_tasks():
-            batch_size = GulpConfig.get_instance().concurrency_num_tasks()
+        # 2. fan out query work. Keep each query in its own worker unit so one
+        # slow query does not block other queries that may run concurrently.
+        # NOTE: for query_external, we will always have just one query to run.
+        batch_size: int = 1
+        max_concurrent_batches: int = max(
+            1, GulpConfig.get_instance().concurrency_num_tasks()
+        )
 
         MutyLogger.get_instance().debug(
-            "processing %d queries in batches of %d ...",
+            "processing %d queries in batches of %d, max_concurrent_batches=%d ...",
             len(queries),
             batch_size,
+            max_concurrent_batches,
         )
 
         results: list[tuple[int, int, str, bool] | Exception] = []
         matched_queries: dict[str, int] = {}
-        for i in range(0, len(queries), batch_size):
-            # run one batch entirely inside a single worker process
-            batch: list[GulpQuery] = queries[i : i + batch_size]
+        pending_batches: dict[asyncio.Future, tuple[int, int]] = {}
+        next_batch_start: int = 0
 
-            # prepare payloads for the worker
+        def _start_query_batch(batch_start: int) -> None:
+            batch: list[GulpQuery] = queries[batch_start : batch_start + batch_size]
             batch_payloads: list[dict] = []
             for offset, q in enumerate(batch):
                 payload = q.model_dump(exclude_none=True)
-                payload.setdefault("query_ordinal", i + offset)
+                payload.setdefault("query_ordinal", batch_start + offset)
                 batch_payloads.append(payload)
 
             run_query_batch_args = dict(
@@ -795,74 +810,102 @@ async def process_queries(
                 ignore_failures=ignore_failures,
                 stats_update_key=_query_batch_stats_update_key(
                     req_id,
-                    i,
+                    batch_start,
                     len(batch),
                     stats_update_prefix=stats_update_prefix,
                 ),
             )
-
-            # submit a single worker task for the whole batch
-            coros = [
-                GulpProcess.get_instance().process_pool.apply(
-                    run_query_batch, kwds=run_query_batch_args
-                )
-            ]
-
-            # gather results for this batch (worker returns a list of per-query results)
-            batching_step_reached = True
-            MutyLogger.get_instance().debug(
-                "gathering results for batch of %d queries ...", len(batch)
+            coro = GulpProcess.get_instance().process_pool.apply(
+                run_query_batch, kwds=run_query_batch_args
             )
-            batch_res = await asyncio.gather(*coros, return_exceptions=True)
+            task = asyncio.ensure_future(coro)
+            pending_batches[task] = (batch_start, len(batch))
+            MutyLogger.get_instance().debug(
+                "submitted query batch start=%d, size=%d, pending=%d",
+                batch_start,
+                len(batch),
+                len(pending_batches),
+            )
 
-            # the worker should return a list of results (one entry per query)
-            if batch_res and isinstance(batch_res[0], list):
-                per_query_results = batch_res[0]
-            elif batch_res and isinstance(batch_res[0], Exception):
-                # worker-level exception: treat whole batch as failed
-                per_query_results = [batch_res[0]]
-            else:
-                # unexpected shape
-                per_query_results = batch_res
+        def _submit_available_batches() -> None:
+            nonlocal next_batch_start
+            while (
+                next_batch_start < len(queries)
+                and len(pending_batches) < max_concurrent_batches
+                and not req_canceled
+            ):
+                _start_query_batch(next_batch_start)
+                next_batch_start += batch_size
 
-            # extend global results with per-query results
-            for r in per_query_results:
-                results.append(r)
+        _submit_available_batches()
+        while pending_batches:
+            done, _ = await asyncio.wait(
+                pending_batches.keys(), return_when=asyncio.FIRST_COMPLETED
+            )
+            batching_step_reached = True
 
-            # aggregate per-query results for local handling (group match, cancellation, errors)
-            total_hits: int = 0
-            total_processed: int = 0
-            errors: list[str] = []
-            for r in per_query_results:
-                if isinstance(r, tuple) and len(r) == 4:
-                    processed, hits, q_name, canceled = r
-                    if hits > 0 and q_options.group:
-                        if not matched_queries.get(q_name):
-                            matched_queries[q_name] = 0
-                        MutyLogger.get_instance().debug(
-                            "query group, adding match for query %s", q_name
-                        )
-                        matched_queries[q_name] += 1
+            for task in done:
+                batch_start, completed_batch_size = pending_batches.pop(task)
+                try:
+                    batch_res = task.result()
+                except Exception as ex:
+                    # worker-level exception: treat whole batch as failed
+                    batch_res = [ex]
 
-                    total_processed += processed
-                    total_hits += hits
-                    if canceled:
-                        req_canceled = True
-                elif isinstance(r, Exception):
-                    if "RequestCanceledError" in str(r):
-                        req_canceled = True
+                # the worker should return a list of results (one entry per query)
+                if isinstance(batch_res, list):
+                    per_query_results = batch_res
+                elif isinstance(batch_res, Exception):
+                    per_query_results = [batch_res]
+                else:
+                    # unexpected shape
+                    per_query_results = [batch_res]
 
-                    err = muty.log.exception_to_string(r)
-                    if err not in errors:
-                        errors.append(err)
+                MutyLogger.get_instance().debug(
+                    "query batch completed start=%d, size=%d, pending=%d",
+                    batch_start,
+                    completed_batch_size,
+                    len(pending_batches),
+                )
+
+                # extend global results with per-query results
+                for r in per_query_results:
+                    results.append(r)
+
+                # aggregate per-query results for local handling (group match, cancellation, errors)
+                total_hits: int = 0
+                total_processed: int = 0
+                errors: list[str] = []
+                for r in per_query_results:
+                    if isinstance(r, tuple) and len(r) == 4:
+                        processed, hits, q_name, canceled = r
+                        if hits > 0 and q_options.group:
+                            if not matched_queries.get(q_name):
+                                matched_queries[q_name] = 0
+                            MutyLogger.get_instance().debug(
+                                "query group, adding match for query %s", q_name
+                            )
+                            matched_queries[q_name] += 1
+
+                        total_processed += processed
+                        total_hits += hits
+                        if canceled:
+                            req_canceled = True
+                    elif isinstance(r, Exception):
+                        if "RequestCanceledError" in str(r):
+                            req_canceled = True
+
+                        err = muty.log.exception_to_string(r)
+                        if err not in errors:
+                            errors.append(err)
 
             # NOTE: stats update for non-external queries is performed inside the worker (aggregated)
 
             if req_canceled:
                 MutyLogger.get_instance().warning(
-                    "request canceled, stop processing batches!"
+                    "request canceled, stop scheduling new query batches!"
                 )
-                break
+            _submit_available_batches()
 
         # 3. process results
         if not q_options.group:

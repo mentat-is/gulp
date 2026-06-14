@@ -77,6 +77,19 @@ class GulpConfig:
         """
         return self._config.get(key, default)
 
+    def _get_int_config(self, key: str, default: int, minimum: int = 0) -> int:
+        """
+        Return an integer configuration value clamped to a minimum.
+        """
+        n = self._config.get(key, default)
+        try:
+            n = int(n)
+        except Exception:
+            n = default
+        if n < minimum:
+            n = minimum
+        return n
+
     def is_integration_test(self) -> bool:
         """
         Returns whether the integration test mode is enabled.
@@ -737,6 +750,50 @@ class GulpConfig:
         if n < 0:
             n = 0
         return n
+
+    def postgres_pool_timeout_sec(self) -> int:
+        """
+        SQLAlchemy PostgreSQL pool checkout timeout in seconds.
+        """
+        return self._get_int_config("postgres_pool_timeout_sec", 10, minimum=1)
+
+    def postgres_pool_recycle_sec(self) -> int:
+        """
+        SQLAlchemy PostgreSQL pool recycle age in seconds.
+        """
+        return self._get_int_config("postgres_pool_recycle_sec", 3600, minimum=1)
+
+    def postgres_lock_timeout_ms(self) -> int:
+        """
+        PostgreSQL lock timeout in milliseconds.
+        """
+        return self._get_int_config("postgres_lock_timeout_ms", 5000, minimum=0)
+
+    def postgres_statement_timeout_ms(self) -> int:
+        """
+        PostgreSQL statement timeout in milliseconds. 0 disables the timeout.
+        """
+        return self._get_int_config(
+            "postgres_statement_timeout_ms", 0, minimum=0
+        )
+
+    def postgres_idle_in_transaction_session_timeout_ms(self) -> int:
+        """
+        PostgreSQL idle-in-transaction timeout in milliseconds.
+        """
+        return self._get_int_config(
+            "postgres_idle_in_transaction_session_timeout_ms", 30000, minimum=0
+        )
+
+    def postgres_user_session_touch_interval_ms(self) -> int:
+        """
+        Minimum interval before refreshing a validated user session row.
+
+        Set to 0 to preserve the previous write-on-every-check behavior.
+        """
+        return self._get_int_config(
+            "postgres_user_session_touch_interval_ms", 60000, minimum=0
+        )
 
     def postgres_url(self) -> str:
         """

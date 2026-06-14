@@ -1297,6 +1297,7 @@ class GulpPluginBase(ABC):
         stats: GulpRequestStats = cb_context["stats"]
         ws_id: str = cb_context["ws_id"]
         flt: GulpQueryFilter = cb_context["flt"]
+        stats_last = last and not cb_context.get("defer_final_stats", False)
 
         already_updated_docs = []
         pending_chunk = []
@@ -1364,8 +1365,8 @@ class GulpPluginBase(ABC):
             errors=errors,
             user_id=stats.user_id,
             ws_id=ws_id,
-            last=last,
-            update_key=f"enrich_documents:{req_id}:{chunk_num}:{last}",
+            last=stats_last,
+            update_key=f"enrich_documents:{req_id}:{chunk_num}:{stats_last}",
         )
         return already_updated_docs + enriched_chunk
 
@@ -1484,6 +1485,7 @@ class GulpPluginBase(ABC):
             "errors": errors,
             "stats": stats,
             "ws_id": ws_id,
+            "defer_final_stats": kwargs.get("defer_final_stats", False),
         }
         canceled: bool = False
         MutyLogger.get_instance().debug(

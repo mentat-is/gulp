@@ -255,6 +255,7 @@ async def _enrich_documents_internal(
     # MutyLogger.get_instance().debug("---> _enrich_documents_internal")
     errors: list[str] = []
     enriched: int = 0
+    total_hits: int = 0
     stats: GulpRequestStats = None
     mod: GulpPluginBase = None
     async with GulpCollab.get_instance().session() as sess:
@@ -283,7 +284,7 @@ async def _enrich_documents_internal(
 
             # call plugin, the engine will update stats internally
             mod = await GulpPluginBase.load(plugin)
-            _, enriched, errs, canceled = await mod.enrich_documents(
+            total_hits, enriched, errs, canceled = await mod.enrich_documents(
                 sess,
                 stats,
                 user_id,
@@ -294,8 +295,24 @@ async def _enrich_documents_internal(
                 fields,
                 flt=flt,
                 plugin_params=plugin_params,
+                defer_final_stats=True,
             )
             errors.extend(errs)
+            if enriched:
+                # if we enriched something, update source=>fields mappings on the collab db
+                await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
+                    sess, index, user_id, flt
+                )
+            if not canceled:
+                await _finalize_update_documents_stats(
+                    sess,
+                    stats,
+                    user_id,
+                    ws_id,
+                    total_hits,
+                    flt,
+                    errors,
+                )
 
         except Exception as ex:
             if stats and not isinstance(ex, RequestCanceledError):
@@ -313,12 +330,6 @@ async def _enrich_documents_internal(
             # done
             if mod:
                 await mod.unload()
-
-            if enriched:
-                # if we enriched something, update source=>fields mappings on the collab db
-                await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
-                    sess, index, user_id, flt
-                )
 
 
 @router.post(
@@ -496,6 +507,7 @@ async def _modify_documents_chunk(
     stats: GulpRequestStats = cb_context["stats"]
     ws_id = cb_context["ws_id"]
     flt: GulpQueryFilter = cb_context["flt"]
+    stats_last = last and not cb_context.get("defer_final_stats", False)
 
     updated_docs = []
     already_updated = 0
@@ -546,10 +558,33 @@ async def _modify_documents_chunk(
         updated=num_updated,
         flt=flt,
         errors=errs,
-        last=last,
-        update_key=f"modify_documents:{req_id}:{chunk_num}:{last}",
+        last=stats_last,
+        update_key=f"modify_documents:{req_id}:{chunk_num}:{stats_last}",
     )
     return chunk
+
+
+async def _finalize_update_documents_stats(
+    sess: AsyncSession,
+    stats: GulpRequestStats,
+    user_id: str,
+    ws_id: str,
+    total_hits: int,
+    flt: GulpQueryFilter,
+    errors: list[str],
+) -> None:
+    """Finalize document update stats after all post-update work is complete."""
+    await stats.update_updatedocuments_stats(
+        sess,
+        user_id=user_id,
+        ws_id=ws_id,
+        total_hits=total_hits,
+        updated=0,
+        flt=flt,
+        errors=errors,
+        last=True,
+        update_key=f"modify_documents:{stats.id}:final",
+    )
 
 
 def _mutate_update_document(data: dict):
@@ -610,6 +645,7 @@ async def _update_documents_internal(
         "errors": errors,
         "mutate_fn": _mutate_update_document(data),
         "ws_id": ws_id,
+        "defer_final_stats": True,
     }
     stats: GulpRequestStats
     async with GulpCollab.get_instance().session() as sess:
@@ -645,25 +681,33 @@ async def _update_documents_internal(
                 callback=_modify_documents_chunk,
                 cb_context=cb_context,
             )
-        except Exception as ex:
-            if stats and not total_hits:
-                if not isinstance(ex, RequestCanceledError):
-                    # close the stats as failed
-                    errors.append(muty.log.exception_to_string(ex))
-                    await stats.set_finished(
-                        sess,
-                        status=GulpRequestStatus.FAILED,
-                        errors=errors,
-                        user_id=user_id,
-                        ws_id=ws_id,
-                    )
-            raise
-        finally:
             if enriched:
-                # if we enriched something, update source=>fields mappings on the collab db
+                # Keep the terminal websocket stats update after source-field refresh,
+                # so operation cleanup cannot race a still-running enrich worker.
                 await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
                     sess, index, user_id, flt
                 )
+            await _finalize_update_documents_stats(
+                sess,
+                stats,
+                user_id,
+                ws_id,
+                total_hits,
+                flt,
+                errors,
+            )
+        except Exception as ex:
+            if stats and not isinstance(ex, RequestCanceledError):
+                # close the stats as failed
+                errors.append(muty.log.exception_to_string(ex))
+                await stats.set_finished(
+                    sess,
+                    status=GulpRequestStatus.FAILED,
+                    errors=errors,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                )
+            raise
 
 
 def _remove_tags_from_doc(doc: dict, tags_to_remove: list[str]) -> bool:
@@ -722,6 +766,7 @@ async def _untag_documents_internal(
         "mutate_fn": _mutate_untag_document(tags),
         "ws_id": ws_id,
         "index": index,
+        "defer_final_stats": True,
     }
 
     async with GulpCollab.get_instance().session() as sess:
@@ -756,23 +801,30 @@ async def _untag_documents_internal(
                 callback=_modify_documents_chunk,
                 cb_context=cb_context,
             )
-        except Exception as ex:
-            if stats and not total_hits:
-                if not isinstance(ex, RequestCanceledError):
-                    errors.append(muty.log.exception_to_string(ex))
-                    await stats.set_finished(
-                        sess,
-                        status=GulpRequestStatus.FAILED,
-                        errors=errors,
-                        user_id=user_id,
-                        ws_id=ws_id,
-                    )
-            raise
-        finally:
             if enriched:
                 await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
                     sess, index, user_id, flt
                 )
+            await _finalize_update_documents_stats(
+                sess,
+                stats,
+                user_id,
+                ws_id,
+                total_hits,
+                flt,
+                errors,
+            )
+        except Exception as ex:
+            if stats and not isinstance(ex, RequestCanceledError):
+                errors.append(muty.log.exception_to_string(ex))
+                await stats.set_finished(
+                    sess,
+                    status=GulpRequestStatus.FAILED,
+                    errors=errors,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                )
+            raise
 
 
 def _build_enrich_remove_request(

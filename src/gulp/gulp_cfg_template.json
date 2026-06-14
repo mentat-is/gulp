@@ -90,6 +90,18 @@
   "postgres_pool_size": 3,
   // per-process postgres SQLAlchemy max_overflow hard cap
   "postgres_max_overflow": 2,
+  // seconds to wait for a PostgreSQL pool connection before failing the request
+  "postgres_pool_timeout_sec": 10,
+  // seconds after which pooled PostgreSQL connections are recycled
+  "postgres_pool_recycle_sec": 3600,
+  // PostgreSQL lock timeout in milliseconds (0 disables)
+  "postgres_lock_timeout_ms": 5000,
+  // PostgreSQL statement timeout in milliseconds (0 disables)
+  "postgres_statement_timeout_ms": 0,
+  // PostgreSQL idle-in-transaction session timeout in milliseconds (0 disables)
+  "postgres_idle_in_transaction_session_timeout_ms": 30000,
+  // minimum interval before refreshing a validated user_session expiration (0=write on every token check)
+  "postgres_user_session_touch_interval_ms": 60000,
   // client certificate password (if any)
   "postgres_client_cert_password": null,
   // set to use SSL to connect to postgresql

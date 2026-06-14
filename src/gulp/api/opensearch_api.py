@@ -2396,11 +2396,15 @@ class GulpOpenSearch:
                 MutyLogger.get_instance().warning("this is the last chunk")
                 last = True
 
-            if check_canceled_count % 10 == 0 and check_canceled and sess:
+            if check_canceled_count % 10 == 0 and check_canceled and req_id:
                 # every 10 chunk, call callback and check for request cancelation
-                canceled = (
-                    await GulpRequestStats.is_canceled(sess, req_id) if sess else False
-                )
+                if sess:
+                    canceled = await GulpRequestStats.is_canceled(sess, req_id)
+                else:
+                    async with GulpCollab.get_instance().session() as cancel_sess:
+                        canceled = await GulpRequestStats.is_canceled(
+                            cancel_sess, req_id
+                        )
 
             if callback:
                 # call the callback at every chunk

@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -47,6 +48,9 @@ class _FakeStatsSession:
     async def refresh(self, _obj):
         return None
 
+    async def rollback(self):
+        return None
+
 
 @asynccontextmanager
 async def _noop_advisory_lock(_sess, _obj_id):
@@ -54,8 +58,10 @@ async def _noop_advisory_lock(_sess, _obj_id):
 
 
 def _make_request_stats(req_type, data, status="ongoing"):
+    from gulp.api.collab_api import GulpCollab
     from gulp.api.collab.stats import GulpRequestStats
 
+    GulpCollab.init_mappers()
     return GulpRequestStats(
         id=f"req-{req_type}",
         type="request_stats",
@@ -492,6 +498,54 @@ async def test_modify_documents_chunk_passes_deterministic_stats_update_key(monk
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_modify_documents_chunk_can_defer_terminal_stats_update(monkeypatch):
+    from gulp.api.server import enrich as enrich_mod
+
+    update_documents_stats = AsyncMock()
+    update_documents = AsyncMock(return_value=(1, 0, []))
+    stats = SimpleNamespace(
+        user_id="user-modify-defer",
+        update_updatedocuments_stats=update_documents_stats,
+    )
+    monkeypatch.setattr(
+        enrich_mod.GulpConfig,
+        "get_instance",
+        lambda: SimpleNamespace(debug_enrich_dry_run=lambda: False),
+    )
+    monkeypatch.setattr(
+        enrich_mod.GulpOpenSearch,
+        "get_instance",
+        lambda: SimpleNamespace(update_documents=update_documents),
+    )
+
+    await enrich_mod._modify_documents_chunk(
+        "fake-session",
+        [{"_id": "doc-1", "field": "old"}],
+        chunk_num=3,
+        total_hits=5,
+        index="idx-modify-defer",
+        last=True,
+        req_id="req-modify-defer",
+        cb_context={
+            "mutate_fn": lambda doc: doc.update({"field": "new"}) is None,
+            "stats": stats,
+            "ws_id": "ws-modify-defer",
+            "flt": None,
+            "errors": [],
+            "total_updated": 0,
+            "defer_final_stats": True,
+        },
+    )
+
+    update_documents_stats.assert_awaited_once()
+    assert update_documents_stats.await_args.kwargs["last"] is False
+    assert update_documents_stats.await_args.kwargs["update_key"] == (
+        "modify_documents:req-modify-defer:3:False"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_modify_documents_chunk_skips_already_marked_replay(monkeypatch):
     from gulp.api.server import enrich as enrich_mod
 
@@ -607,6 +661,59 @@ async def test_enrich_documents_wrapper_passes_deterministic_stats_update_key(mo
         "enrich_documents:req-enrich-key:4:False"
     )
     assert update_documents_stats.await_args.kwargs["updated"] == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_enrich_documents_wrapper_can_defer_terminal_stats_update(monkeypatch):
+    from gulp import plugin as plugin_mod
+
+    update_documents_stats = AsyncMock()
+    stats = SimpleNamespace(
+        user_id="user-enrich-defer",
+        update_updatedocuments_stats=update_documents_stats,
+    )
+    update_documents = AsyncMock(return_value=(1, 0, []))
+    mod = _ConcreteIngestPlugin.build()
+    mod.name = "test_enrich_defer"
+    mod._enrich_documents_chunk_cb = AsyncMock(
+        return_value=[{"_id": "doc-1", "field": "enriched"}]
+    )
+    monkeypatch.setattr(
+        plugin_mod.GulpConfig,
+        "get_instance",
+        lambda: SimpleNamespace(debug_enrich_dry_run=lambda: False),
+    )
+    monkeypatch.setattr(
+        plugin_mod.GulpOpenSearch,
+        "get_instance",
+        lambda: SimpleNamespace(update_documents=update_documents),
+    )
+
+    await mod._enrich_documents_chunk_wrapper(
+        "fake-session",
+        [{"_id": "doc-1", "field": "old"}],
+        chunk_num=4,
+        total_hits=6,
+        index="idx-enrich-defer",
+        last=True,
+        req_id="req-enrich-defer",
+        cb_context={
+            "stats": stats,
+            "ws_id": "ws-enrich-defer",
+            "flt": None,
+            "errors": [],
+            "total_hits": 0,
+            "total_updated": 0,
+            "defer_final_stats": True,
+        },
+    )
+
+    update_documents_stats.assert_awaited_once()
+    assert update_documents_stats.await_args.kwargs["last"] is False
+    assert update_documents_stats.await_args.kwargs["update_key"] == (
+        "enrich_documents:req-enrich-defer:4:False"
+    )
 
 
 @pytest.mark.unit
@@ -738,6 +845,78 @@ async def test_process_queries_reports_terminal_canceled_replay(monkeypatch):
     )
 
     assert canceled is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_process_queries_fans_out_query_batches_without_waiting_for_slow_batch(
+    monkeypatch,
+):
+    from gulp.api.collab.structs import GulpRequestStatus
+    from gulp.api.opensearch.structs import GulpQuery, GulpQueryParameters
+    from gulp.api.server import query as query_mod
+
+    stats = SimpleNamespace(status=GulpRequestStatus.ONGOING.value)
+    monkeypatch.setattr(
+        query_mod.GulpRequestStats,
+        "create_or_get_existing",
+        AsyncMock(return_value=(stats, True)),
+    )
+    monkeypatch.setattr(
+        query_mod.GulpConfig,
+        "get_instance",
+        lambda: SimpleNamespace(concurrency_num_tasks=lambda: 2),
+    )
+
+    release_slow = asyncio.Event()
+    third_query_started = asyncio.Event()
+    started_queries: list[str] = []
+
+    def _apply(_fn, kwds):
+        async def _run_batch():
+            q_name = kwds["queries"][0]["q_name"]
+            started_queries.append(q_name)
+            if q_name == "q0":
+                await release_slow.wait()
+            if q_name == "q2":
+                third_query_started.set()
+            return [(1, 1, q_name, False)]
+
+        return _run_batch()
+
+    monkeypatch.setattr(
+        query_mod.GulpProcess,
+        "get_instance",
+        lambda: SimpleNamespace(process_pool=SimpleNamespace(apply=_apply)),
+    )
+
+    process_task = asyncio.create_task(
+        query_mod.process_queries(
+            sess="fake-session",
+            user_id="user-query-fanout",
+            req_id="req-query-fanout",
+            operation_id="op-query-fanout",
+            ws_id="ws-query-fanout",
+            queries=[
+                GulpQuery(q={"query": {"match_all": {}}}, q_name="q0"),
+                GulpQuery(q={"query": {"match_all": {}}}, q_name="q1"),
+                GulpQuery(q={"query": {"match_all": {}}}, q_name="q2"),
+            ],
+            num_total_queries=3,
+            q_options=GulpQueryParameters(add_to_history=False),
+        )
+    )
+
+    await asyncio.wait_for(third_query_started.wait(), timeout=1)
+    assert "q0" in started_queries
+    assert "q1" in started_queries
+    assert "q2" in started_queries
+    assert not release_slow.is_set()
+
+    release_slow.set()
+    canceled = await process_task
+
+    assert canceled is False
 
 
 @pytest.mark.unit

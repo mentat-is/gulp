@@ -43,6 +43,7 @@ The system uses OpenSearch for document storage, PostgreSQL for collaboration me
 - When following a plan or a prompt, stop and ask for clarifications **even if you are in auto-mode** if you are unsure about any aspect of the implementation before proceeding, to avoid going down the wrong path and having to redo work later.
 - When you're following a plan file, make sure to update the plan file with the actual implementation details as you go, so that it remains an accurate source of information for future reference.
 - if you happen to find a bug in the backend which affects how the exposed API behaves, you may need to also adjust `/gulp/gulp-sdk` to reflect the changes in the API: if you adjust the sdk, do not forget to update also `/gulp/gulp-cli` to reflect the changes in the sdk as well.
+- once you're done with a step (and verified it works), you can commit using `git commit` using a clear and descriptive commit message that explains the changes you made.
 
 ## gulp backend plugin development guidelines
 

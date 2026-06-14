@@ -162,6 +162,27 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         """
         # get expiration time
         time_expire = GulpConfig.get_instance().token_expiration_time(is_admin=is_admin)
+        touch_interval = (
+            GulpConfig.get_instance().postgres_user_session_touch_interval_ms()
+        )
+        if not update_id and touch_interval > 0:
+            current_expire = self.time_expire or 0
+            if time_expire == 0 and current_expire == 0:
+                MutyLogger.get_instance().debug(
+                    "session expiration update skipped for user_id=%s, token does not expire",
+                    self.user.id,
+                )
+                return
+            if current_expire > 0 and current_expire >= time_expire - touch_interval:
+                MutyLogger.get_instance().debug(
+                    "session expiration update skipped for user_id=%s, current=%s, new=%s, touch_interval_ms=%d",
+                    self.user.id,
+                    current_expire,
+                    time_expire,
+                    touch_interval,
+                )
+                return
+
         if update_id:
             # update the session ID if requested
             if GulpConfig.get_instance().is_integration_test():
