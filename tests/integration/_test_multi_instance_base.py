@@ -24,6 +24,72 @@ from gulp_sdk import GulpClient, WSMessageType
 
 _TEST_USER_PASS = "Test@12345"
 _SAMPLE_EVTX = Path("/gulp/samples/win_evtx/Security_short_selected.evtx")
+_LARGE_CLIENT_DATA_BLOB = "client-data-large-payload-" + ("x" * (300 * 1024))
+_LARGE_COLLAB_NOTE_TEXT = "collab-large-broadcast-note-" + ("y" * (300 * 1024))
+_LARGE_QUERY_EVENT_ORIGINAL = "query-large-targeted-payload-" + ("z" * (300 * 1024))
+_DEFAULT_LARGE_POINTER_STRESS_COUNT = 3
+_DEFAULT_LARGE_COLLAB_STRESS_COUNT = 1
+_DEFAULT_MULTI_INSTANCE_RAW_INGEST_DOCS = 25
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    """Read a positive integer environment variable with a safe default."""
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _env_non_negative_float(name: str, default: float = 0.0) -> float:
+    """Read a non-negative float environment variable with a safe default."""
+    try:
+        return max(0.0, float(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _large_pointer_stress_count() -> int:
+    """Return minimum large-payload iterations for multi-instance fanout checks."""
+    return _env_positive_int(
+        "GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT",
+        _DEFAULT_LARGE_POINTER_STRESS_COUNT,
+    )
+
+
+def _large_pointer_soak_seconds() -> float:
+    """Return optional extra duration for repeated large-payload fanout checks."""
+    return _env_non_negative_float("GULP_MULTI_INSTANCE_POINTER_SOAK_SECONDS")
+
+
+def _large_collab_stress_count() -> int:
+    """Return large-note collab iterations without tying them to soak duration."""
+    return _env_positive_int(
+        "GULP_MULTI_INSTANCE_COLLAB_STRESS_COUNT",
+        _DEFAULT_LARGE_COLLAB_STRESS_COUNT,
+    )
+
+
+def _multi_instance_raw_ingest_docs() -> int:
+    """Return how many raw documents each multi-instance actor ingests."""
+    return _env_positive_int(
+        "GULP_MULTI_INSTANCE_RAW_INGEST_DOCS",
+        _DEFAULT_MULTI_INSTANCE_RAW_INGEST_DOCS,
+    )
+
+
+def _large_pointer_soak_deadline() -> float | None:
+    """Return an event-loop deadline for optional soak mode, or None."""
+    soak_seconds = _large_pointer_soak_seconds()
+    if soak_seconds <= 0:
+        return None
+    return asyncio.get_running_loop().time() + soak_seconds
+
+
+def _continue_large_pointer_stress(iteration: int, deadline: float | None) -> bool:
+    """Return whether another large-payload fanout iteration should run."""
+    if iteration < _large_pointer_stress_count():
+        return True
+    return deadline is not None and asyncio.get_running_loop().time() < deadline
 
 
 def _unique(prefix: str) -> str:
@@ -59,13 +125,19 @@ def _iter_payload_objects(message: Any) -> list[dict[str, Any]]:
 def _has_collab_obj(
     messages: list[Any], obj_type: str, obj_id: str | None = None
 ) -> bool:
+    return _find_collab_obj(messages, obj_type=obj_type, obj_id=obj_id) is not None
+
+
+def _find_collab_obj(
+    messages: list[Any], obj_type: str, obj_id: str | None = None
+) -> dict[str, Any] | None:
     for message in messages:
         for payload_obj in _iter_payload_objects(message):
             if payload_obj.get("type") != obj_type:
                 continue
             if obj_id is None or str(payload_obj.get("id")) == str(obj_id):
-                return True
-    return False
+                return payload_obj
+    return None
 
 
 def _has_collab_delete(
@@ -213,7 +285,7 @@ async def _assert_broadcast_collab_create(
     obj_type: str,
     obj_id: str,
     timeout: float = 12.0,
-) -> None:
+) -> list[dict[str, Any]]:
     await _wait_for_condition(
         lambda: all(
             _has_collab_obj(
@@ -223,6 +295,13 @@ async def _assert_broadcast_collab_create(
         ),
         timeout=timeout,
     )
+    matched = [
+        _find_collab_obj(
+            store[WSMessageType.COLLAB_CREATE], obj_type=obj_type, obj_id=obj_id
+        )
+        for store in stores
+    ]
+    return [obj for obj in matched if obj is not None]
 
 
 async def _assert_broadcast_collab_event(
@@ -250,6 +329,7 @@ async def _assert_requester_only_query_ws_events(
     timeout: float = 20.0,
     expect_ws_events: bool = True,
     baselines: list[dict[WSMessageType, int]] | None = None,
+    expected_docs_chunk_marker: str | None = None,
 ) -> None:
     """Assert websocket routing isolation for a query.
 
@@ -304,6 +384,22 @@ async def _assert_requester_only_query_ws_events(
                 f"query_done req_ids={requester_done_req_ids}"
             ) from exc
 
+        if expected_docs_chunk_marker is not None:
+            matching_chunks = [
+                message
+                for message in _messages_since(
+                    requester_idx, WSMessageType.DOCUMENTS_CHUNK
+                )
+                if getattr(message, "req_id", None) == req_id
+            ]
+            assert any(
+                expected_docs_chunk_marker in json.dumps(message.data)
+                for message in matching_chunks
+            ), (
+                f"requesting websocket did not receive expected marker "
+                f"{expected_docs_chunk_marker!r} in docs_chunk for req_id={req_id}"
+            )
+
     # Give time for any incorrectly routed cross-socket events to surface.
     await asyncio.sleep(1.0)
 
@@ -337,6 +433,9 @@ async def _assert_cross_instance_query_ws_routing(
     websocket_owner_idx: int,
     operation_id: str,
     req_id_prefix: str,
+    q: list[dict[str, Any]] | None = None,
+    q_options: dict[str, Any] | None = None,
+    expected_docs_chunk_marker: str | None = None,
 ) -> None:
     """Send a query through one instance and assert delivery to another instance's websocket."""
     query_req_id = _unique(req_id_prefix)
@@ -356,8 +455,8 @@ async def _assert_cross_instance_query_ws_routing(
         query_response = await request_client.queries.query_raw(
             operation_id=operation_id,
             ws_id=websocket_owner_client.ws_id,
-            q=[{"query": {"match_all": {}}}],
-            q_options={"limit": 25, "name": _unique("cross_qn")},
+            q=q or [{"query": {"match_all": {}}}],
+            q_options=q_options or {"limit": 25, "name": _unique("cross_qn")},
             req_id=query_req_id,
             wait=False,
         )
@@ -385,6 +484,7 @@ async def _assert_cross_instance_query_ws_routing(
         expect_ws_events=True,
         timeout=30.0,
         baselines=baselines,
+        expected_docs_chunk_marker=expected_docs_chunk_marker,
     )
 
 
@@ -501,46 +601,102 @@ async def _assert_client_data_ws_routing(
             operation_ids=[operation_id],
         )
 
-        target_user_id = actors[recipient_idx][0]
-        targeted_payload = {
-            "operation_id": operation_id,
-            "target_user_ids": [target_user_id],
-            "data": {
-                "kind": "cursor_targeted",
-                "x": 123,
-                "y": 456,
-            },
-        }
-        await client_data_sockets[0].send(json.dumps(targeted_payload))
-        targeted_msg = await _assert_client_data_message(
-            client_data_sockets[recipient_idx],
-            expected_kind="cursor_targeted",
-            expected_operation_id=operation_id,
-        )
-        print("client_data targeted message:", targeted_msg)
-
-        for idx, ws in enumerate(client_data_sockets):
-            if idx == recipient_idx:
-                continue
-            await _assert_no_client_data(ws)
-        await _assert_no_client_data(default_probe)
-
-        broadcast_payload = {
-            "operation_id": operation_id,
-            "data": {
-                "kind": "cursor_broadcast",
-                "x": 321,
-                "y": 654,
-            },
-        }
-        await client_data_sockets[recipient_idx].send(json.dumps(broadcast_payload))
-        for ws in client_data_sockets:
-            broadcast_msg = await _assert_client_data_message(
-                ws,
-                expected_kind="cursor_broadcast",
+        soak_deadline = _large_pointer_soak_deadline()
+        targeted_seqs: list[int] = []
+        msg_idx = 0
+        while _continue_large_pointer_stress(msg_idx, soak_deadline):
+            sender_idx = msg_idx % len(client_data_sockets)
+            current_recipient_idx = (
+                (sender_idx + 1) % len(client_data_sockets)
+                if len(client_data_sockets) > 1
+                else recipient_idx
+            )
+            target_user_id = actors[current_recipient_idx][0]
+            targeted_kind = f"cursor_targeted_{msg_idx}"
+            targeted_payload = {
+                "operation_id": operation_id,
+                "target_user_ids": [target_user_id],
+                "data": {
+                    "kind": targeted_kind,
+                    "x": 123 + msg_idx,
+                    "y": 456 + msg_idx,
+                    "blob": _LARGE_CLIENT_DATA_BLOB,
+                },
+            }
+            await client_data_sockets[sender_idx].send(json.dumps(targeted_payload))
+            targeted_msg = await _assert_client_data_message(
+                client_data_sockets[current_recipient_idx],
+                expected_kind=targeted_kind,
                 expected_operation_id=operation_id,
             )
-            print("client_data broadcast message:", broadcast_msg)
+            print(
+                "client_data targeted message:",
+                {
+                    "kind": targeted_kind,
+                    "seq": targeted_msg.get("seq"),
+                    "blob_len": len(targeted_msg["payload"]["data"]["blob"]),
+                },
+            )
+            assert isinstance(targeted_msg.get("seq"), int)
+            assert targeted_msg["seq"] > 0
+            targeted_seqs.append(targeted_msg["seq"])
+            assert (
+                targeted_msg["payload"]["data"]["blob"]
+                == _LARGE_CLIENT_DATA_BLOB
+            )
+            for idx, ws in enumerate(client_data_sockets):
+                if idx == current_recipient_idx:
+                    continue
+                await _assert_no_client_data(ws, timeout=0.2)
+            msg_idx += 1
+        assert targeted_seqs == sorted(targeted_seqs)
+
+        await _assert_no_client_data(default_probe)
+
+        broadcast_seqs: list[int] = []
+        msg_idx = 0
+        while _continue_large_pointer_stress(msg_idx, soak_deadline):
+            sender_idx = msg_idx % len(client_data_sockets)
+            broadcast_kind = f"cursor_broadcast_{msg_idx}"
+            broadcast_payload = {
+                "operation_id": operation_id,
+                "data": {
+                    "kind": broadcast_kind,
+                    "x": 321 + msg_idx,
+                    "y": 654 + msg_idx,
+                    "blob": _LARGE_CLIENT_DATA_BLOB,
+                },
+            }
+            await client_data_sockets[sender_idx].send(json.dumps(broadcast_payload))
+            broadcast_seq: int | None = None
+            for ws in client_data_sockets:
+                broadcast_msg = await _assert_client_data_message(
+                    ws,
+                    expected_kind=broadcast_kind,
+                    expected_operation_id=operation_id,
+                )
+                print(
+                    "client_data broadcast message:",
+                    {
+                        "kind": broadcast_kind,
+                        "seq": broadcast_msg.get("seq"),
+                        "blob_len": len(broadcast_msg["payload"]["data"]["blob"]),
+                    },
+                )
+                assert isinstance(broadcast_msg.get("seq"), int)
+                assert broadcast_msg["seq"] > 0
+                assert (
+                    broadcast_msg["payload"]["data"]["blob"]
+                    == _LARGE_CLIENT_DATA_BLOB
+                )
+                if broadcast_seq is None:
+                    broadcast_seq = broadcast_msg["seq"]
+                else:
+                    assert broadcast_msg["seq"] == broadcast_seq
+            assert broadcast_seq is not None
+            broadcast_seqs.append(broadcast_seq)
+            msg_idx += 1
+        assert broadcast_seqs == sorted(broadcast_seqs)
         await _assert_no_client_data(default_probe)
     finally:
         for ws in client_data_sockets:
@@ -610,7 +766,9 @@ async def _run_multi_user_scenario(
         [] for _ in range(len(base_urls))
     ]
     # contexts/sources per-actor (stored for note creation later).
-    actor_context_source: list[tuple[str, str]] = []
+    actor_context_source: list[tuple[str, str] | None] = [
+        None for _ in range(len(base_urls))
+    ]
     shared_operation_id: str | None = None
 
     users = ["admin", *temp_users]
@@ -636,6 +794,7 @@ async def _run_multi_user_scenario(
         stores, handlers = await _register_collectors(clients, watch_types)
 
         admin_client = actors[0][1]
+        is_multi_instance = len(set(base_urls)) > 1
 
         # ── Step 2: shared operation ──────────────────────────────────────────
         op = await admin_client.operations.create(name=_unique("mop"))
@@ -647,6 +806,70 @@ async def _run_multi_user_scenario(
                 shared_operation_id,
                 "operation",
                 granted_user,
+            )
+
+        if is_multi_instance:
+            # Exercise ingestion through every live instance without adding the
+            # cost of another file ingest. This gives the routing launcher
+            # ingestion traffic on both :8080 and :8100.
+            docs_per_actor = _multi_instance_raw_ingest_docs()
+
+            async def _raw_ingest_from_actor(
+                actor_idx: int, actor_client: GulpClient
+            ) -> str:
+                marker = _unique(f"multi_instance_raw_{actor_idx}")
+                result = await actor_client.ingest.raw(
+                    operation_id=shared_operation_id,
+                    plugin_name="raw",
+                    data=[
+                        {
+                            "@timestamp": "2026-01-01T00:00:00.000Z",
+                            "event.code": marker,
+                            "event.original": (
+                                f"{marker} raw ingest doc {doc_idx} from actor {actor_idx} "
+                                f"via {actor_client.base_url}"
+                            ),
+                            "event.sequence": doc_idx,
+                            "gulp.context_id": f"multi_instance_raw_context_{actor_idx}",
+                            "gulp.source_id": f"multi_instance_raw_source_{actor_idx}",
+                        }
+                        for doc_idx in range(docs_per_actor)
+                    ],
+                    params={
+                        "last": True,
+                        "req_id": _unique(f"req_multi_raw_{actor_idx}"),
+                    },
+                    wait=True,
+                    timeout=180,
+                )
+                assert result.req_id
+                assert str(result.status).lower() in {
+                    "done",
+                    "success",
+                }, f"raw ingest via {actor_client.base_url} ended unexpectedly: {result}"
+                print(
+                    "multi-instance raw ingest:",
+                    {
+                        "actor_idx": actor_idx,
+                        "base_url": actor_client.base_url,
+                        "marker": marker,
+                        "docs": docs_per_actor,
+                        "req_id": result.req_id,
+                        "status": str(result.status),
+                    },
+                )
+                return marker
+
+            raw_markers = await asyncio.gather(
+                *(
+                    _raw_ingest_from_actor(actor_idx, actor_client)
+                    for actor_idx, (_, actor_client) in enumerate(actors)
+                )
+            )
+            await _wait_for_queryable_docs(
+                admin_client,
+                shared_operation_id,
+                minimum_hits=len(raw_markers) * docs_per_actor,
             )
 
         if run_client_data:
@@ -662,7 +885,9 @@ async def _run_multi_user_scenario(
 
         if run_collab_lifecycle:
             # Each actor creates a context + source and we verify the broadcast.
-            for actor_idx, (_, actor_client) in enumerate(actors):
+            async def _create_actor_context_source(
+                actor_idx: int, actor_client: GulpClient
+            ) -> None:
                 ctx = await actor_client.operations.context_create(
                     operation_id=shared_operation_id,
                     context_name=_unique("ctx"),
@@ -683,7 +908,18 @@ async def _run_multi_user_scenario(
                 await _assert_broadcast_collab_create(
                     stores, obj_type="source", obj_id=src_id
                 )
-                actor_context_source.append((ctx_id, src_id))
+                actor_context_source[actor_idx] = (ctx_id, src_id)
+
+            if is_multi_instance:
+                await asyncio.gather(
+                    *(
+                        _create_actor_context_source(actor_idx, actor_client)
+                        for actor_idx, (_, actor_client) in enumerate(actors)
+                    )
+                )
+            else:
+                for actor_idx, (_, actor_client) in enumerate(actors):
+                    await _create_actor_context_source(actor_idx, actor_client)
 
         if run_ingest:
             # ── Step 3: single admin ingest ───────────────────────────────────
@@ -724,34 +960,85 @@ async def _run_multi_user_scenario(
             # targeted pub/sub delivery to the owning instance.
             unique_base_urls = list(dict.fromkeys(base_urls))
             if len(unique_base_urls) >= 2:
-                await _assert_cross_instance_query_ws_routing(
-                    request_url=unique_base_urls[1],
-                    websocket_owner_client=actors[0][1],
-                    stores=stores,
-                    websocket_owner_idx=0,
+                large_query_marker = _unique("large_targeted_query")
+                large_ingest = await admin_client.ingest.raw(
                     operation_id=shared_operation_id,
-                    req_id_prefix="cross_a",
+                    plugin_name="raw",
+                    data=[
+                        {
+                            "@timestamp": "2026-01-01T00:00:00.000Z",
+                            "event.code": large_query_marker,
+                            "event.original": (
+                                f"{large_query_marker} {_LARGE_QUERY_EVENT_ORIGINAL}"
+                            ),
+                            "gulp.context_id": "multi_instance_large_query_context",
+                            "gulp.source_id": "multi_instance_large_query_source",
+                        }
+                    ],
+                    params={
+                        "last": True,
+                        "req_id": _unique("req_large_query_ingest"),
+                    },
+                    wait=True,
+                    timeout=180,
                 )
+                print("large targeted query ingest:", large_ingest)
+                assert large_ingest.req_id
+                assert str(large_ingest.status).lower() in {
+                    "done",
+                    "success",
+                }
+                large_query = [
+                    {
+                        "query": {
+                            "match_all": {},
+                        }
+                    }
+                ]
+                large_query_options = {
+                    "limit": 1,
+                    "fields": "*",
+                    "sort": {"@timestamp": "desc"},
+                    "name": _unique("cross_large_qn"),
+                }
 
                 remote_owner_idx = next(
                     idx
                     for idx, (_, actor_client) in enumerate(actors)
                     if actor_client.base_url == unique_base_urls[1]
                 )
-                await _assert_cross_instance_query_ws_routing(
-                    request_url=unique_base_urls[0],
-                    websocket_owner_client=actors[remote_owner_idx][1],
-                    stores=stores,
-                    websocket_owner_idx=remote_owner_idx,
-                    operation_id=shared_operation_id,
-                    req_id_prefix="cross_b",
+                await asyncio.gather(
+                    _assert_cross_instance_query_ws_routing(
+                        request_url=unique_base_urls[1],
+                        websocket_owner_client=actors[0][1],
+                        stores=stores,
+                        websocket_owner_idx=0,
+                        operation_id=shared_operation_id,
+                        req_id_prefix="cross_a",
+                        q=large_query,
+                        q_options=large_query_options,
+                        expected_docs_chunk_marker=large_query_marker,
+                    ),
+                    _assert_cross_instance_query_ws_routing(
+                        request_url=unique_base_urls[0],
+                        websocket_owner_client=actors[remote_owner_idx][1],
+                        stores=stores,
+                        websocket_owner_idx=remote_owner_idx,
+                        operation_id=shared_operation_id,
+                        req_id_prefix="cross_b",
+                        q=large_query,
+                        q_options=large_query_options,
+                        expected_docs_chunk_marker=large_query_marker,
+                    ),
                 )
 
         if run_query_isolation:
             # ── Step 4: requester-only query isolation ────────────────────────
-            # Run one query per actor sequentially so this remains a routing test,
-            # not a worker-queue saturation test.
-            for actor_idx, (_, actor_client) in enumerate(actors):
+            # Multi-instance runs issue one query per actor concurrently so both
+            # ingress points are active while still checking requester isolation.
+            async def _run_requester_query(
+                actor_idx: int, actor_client: GulpClient
+            ) -> None:
                 query_req_id = _unique(f"qr{actor_idx}")
                 baselines = [
                     {
@@ -798,51 +1085,85 @@ async def _run_multi_user_scenario(
                     baselines=baselines,
                 )
 
+            if is_multi_instance:
+                await asyncio.gather(
+                    *(
+                        _run_requester_query(actor_idx, actor_client)
+                        for actor_idx, (_, actor_client) in enumerate(actors)
+                    )
+                )
+            else:
+                for actor_idx, (_, actor_client) in enumerate(actors):
+                    await _run_requester_query(actor_idx, actor_client)
+
         if run_collab_lifecycle:
             # ── Step 5: collab broadcast lifecycle per actor ──────────────────
             # Exercise create/update/delete fanout for each collab type that is
             # commonly used by the UI. Each actor owns one lifecycle so both local
             # and cross-instance broadcast paths are covered.
-            for actor_idx, (_, actor_client) in enumerate(actors):
-                ctx_id, src_id = actor_context_source[actor_idx]
+            async def _run_actor_collab_lifecycle(
+                actor_idx: int, actor_client: GulpClient
+            ) -> None:
+                context_source = actor_context_source[actor_idx]
+                assert context_source is not None
+                ctx_id, src_id = context_source
 
-                note = await actor_client.collab.note_create(
-                    operation_id=shared_operation_id,
-                    context_id=ctx_id,
-                    source_id=src_id,
-                    name=_unique("note"),
-                    text="multi instance note",
-                    time_pin=1_000_000_000,
-                    tags=["multi-instance"],
-                )
-                note_id = _extract_id(note)
-                assert note_id, "failed to create note id"
-                collab_ids_by_actor[actor_idx].append(("note", note_id))
-                await _assert_broadcast_collab_create(
-                    stores, obj_type="note", obj_id=note_id
-                )
-                updated_note = await actor_client.collab.note_update(
-                    note_id,
-                    name=_unique("note_upd"),
-                    text="multi instance note updated",
-                    tags=["multi-instance", "updated"],
-                )
-                print("note_update response:", updated_note)
-                await _assert_broadcast_collab_event(
-                    stores,
-                    WSMessageType.COLLAB_UPDATE,
-                    obj_type="note",
-                    obj_id=note_id,
-                )
-                deleted_note = await actor_client.collab.note_delete(note_id)
-                print("note_delete response:", deleted_note)
-                collab_ids_by_actor[actor_idx].remove(("note", note_id))
-                await _assert_broadcast_collab_event(
-                    stores,
-                    WSMessageType.COLLAB_DELETE,
-                    obj_type="note",
-                    obj_id=note_id,
-                )
+                msg_idx = 0
+                while msg_idx < _large_collab_stress_count():
+                    large_note_text = f"{_LARGE_COLLAB_NOTE_TEXT}-{msg_idx}"
+                    note = await actor_client.collab.note_create(
+                        operation_id=shared_operation_id,
+                        context_id=ctx_id,
+                        source_id=src_id,
+                        name=_unique(f"note_{actor_idx}_{msg_idx}"),
+                        text=large_note_text,
+                        time_pin=1_000_000_000 + (actor_idx * 10_000) + msg_idx,
+                        tags=["multi-instance"],
+                    )
+                    note_id = _extract_id(note)
+                    assert note_id, "failed to create note id"
+                    collab_ids_by_actor[actor_idx].append(("note", note_id))
+                    note_create_payloads = await _assert_broadcast_collab_create(
+                        stores, obj_type="note", obj_id=note_id
+                    )
+                    assert len(note_create_payloads) == len(stores)
+                    assert all(
+                        payload.get("text") == large_note_text
+                        for payload in note_create_payloads
+                    )
+                    print(
+                        "large note_create broadcast:",
+                        {
+                            "actor_idx": actor_idx,
+                            "msg_idx": msg_idx,
+                            "note_id": note_id,
+                            "payloads": len(note_create_payloads),
+                            "text_len": len(large_note_text),
+                        },
+                    )
+                    updated_note = await actor_client.collab.note_update(
+                        note_id,
+                        name=_unique("note_upd"),
+                        text="multi instance note updated",
+                        tags=["multi-instance", "updated"],
+                    )
+                    print("note_update response:", updated_note)
+                    await _assert_broadcast_collab_event(
+                        stores,
+                        WSMessageType.COLLAB_UPDATE,
+                        obj_type="note",
+                        obj_id=note_id,
+                    )
+                    deleted_note = await actor_client.collab.note_delete(note_id)
+                    print("note_delete response:", deleted_note)
+                    collab_ids_by_actor[actor_idx].remove(("note", note_id))
+                    await _assert_broadcast_collab_event(
+                        stores,
+                        WSMessageType.COLLAB_DELETE,
+                        obj_type="note",
+                        obj_id=note_id,
+                    )
+                    msg_idx += 1
 
                 link = await actor_client.collab.link_create(
                     operation_id=shared_operation_id,
@@ -922,6 +1243,17 @@ async def _run_multi_user_scenario(
                     obj_type="highlight",
                     obj_id=highlight_id,
                 )
+
+            if is_multi_instance:
+                await asyncio.gather(
+                    *(
+                        _run_actor_collab_lifecycle(actor_idx, actor_client)
+                        for actor_idx, (_, actor_client) in enumerate(actors)
+                    )
+                )
+            else:
+                for actor_idx, (_, actor_client) in enumerate(actors):
+                    await _run_actor_collab_lifecycle(actor_idx, actor_client)
 
     finally:
         if clients and handlers:

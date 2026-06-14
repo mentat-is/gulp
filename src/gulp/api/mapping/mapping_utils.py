@@ -430,7 +430,7 @@ async def mapping_parameters_to_mapping(
 
             mappings[mapping_id] = main_mapping
 
-    MutyLogger.get_instance().debug(
+    """MutyLogger.get_instance().debug(
         f'---> using mappings="{mappings}, mapping_id={mapping_id}"'
-    )
+    )"""
     return mappings, mapping_id

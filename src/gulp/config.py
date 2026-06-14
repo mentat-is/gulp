@@ -249,6 +249,22 @@ class GulpConfig:
             )
         return n
 
+    def ws_ingest_stream_max_entries(self) -> int:
+        """
+        Returns maximum queued raw websocket ingest packets per websocket stream.
+
+        Default: 1000. Set to 0 to disable the entry-count cap.
+        """
+        return self._config.get("ws_ingest_stream_max_entries", 1000)
+
+    def ws_ingest_stream_max_buffered_bytes(self) -> int:
+        """
+        Returns maximum approximate buffered raw websocket ingest bytes per websocket.
+
+        Default: 268435456 (256 MiB). Set to 0 to disable the byte cap.
+        """
+        return self._config.get("ws_ingest_stream_max_buffered_bytes", 268435456)
+
     def ingestion_retry_max(self) -> int:
         """
         Returns the maximum number of retries for ingestion.
@@ -1198,13 +1214,101 @@ class GulpConfig:
         """
         return self._config.get("redis_task_autoclaim_idle_ms", 60000)
 
+    def redis_task_lease_refresh_interval_ms(self) -> int:
+        """
+        Returns the interval in milliseconds used to refresh live task leases.
+
+        Default: 20000 (20 seconds)
+        """
+        return self._config.get("redis_task_lease_refresh_interval_ms", 20000)
+
+    def redis_task_execution_timeout_sec(self) -> int:
+        """
+        Returns the optional timeout for one queued task execution attempt.
+
+        Default: 0 (disabled)
+        """
+        return self._config.get("redis_task_execution_timeout_sec", 0)
+
+    def redis_task_max_attempts(self) -> int:
+        """
+        Returns the maximum execution attempts before a task is dead-lettered.
+
+        Default: 3
+        """
+        return self._config.get("redis_task_max_attempts", 3)
+
+    def redis_task_retry_backoff_base_ms(self) -> int:
+        """
+        Returns the initial retry backoff for failed Redis stream tasks.
+
+        Default: 1000 (1 second). Set to 0 to retry immediately.
+        """
+        return self._config.get("redis_task_retry_backoff_base_ms", 1000)
+
+    def redis_task_retry_backoff_max_ms(self) -> int:
+        """
+        Returns the maximum retry backoff for failed Redis stream tasks.
+
+        Default: 60000 (60 seconds)
+        """
+        return self._config.get("redis_task_retry_backoff_max_ms", 60000)
+
+    def redis_task_lifecycle_ttl_sec(self) -> int:
+        """
+        Returns retention for Redis task lifecycle records.
+
+        Default: 86400 (1 day)
+        """
+        return self._config.get("redis_task_lifecycle_ttl_sec", 86400)
+
+    def redis_task_active_user_max(self) -> int:
+        """
+        Returns maximum active Redis stream tasks admitted per user.
+
+        Default: 0 (disabled)
+        """
+        return self._config.get("redis_task_active_user_max", 0)
+
+    def redis_task_active_operation_max(self) -> int:
+        """
+        Returns maximum active Redis stream tasks admitted per operation.
+
+        Default: 0 (disabled)
+        """
+        return self._config.get("redis_task_active_operation_max", 0)
+
+    def redis_task_drain_sample_window_sec(self) -> int:
+        """
+        Returns the observation window for adaptive task retry-after hints.
+
+        Default: 60 seconds
+        """
+        return self._config.get("redis_task_drain_sample_window_sec", 60)
+
     def redis_stream_task_maxlen(self) -> int:
         """
-        Returns the approximate max length for task streams (trimmed on XADD).
+        Returns the hard queued task backlog cap per task type.
 
         Default: 10000
         """
         return self._config.get("redis_stream_task_maxlen", 10000)
+
+    def login_ip_rate_limit_max(self) -> int:
+        """
+        Returns the maximum login attempts allowed per IP in the configured window.
+
+        Default: 0 (disabled)
+        """
+        return self._config.get("login_ip_rate_limit_max", 0)
+
+    def login_ip_rate_limit_window_sec(self) -> int:
+        """
+        Returns the per-IP login rate limit window in seconds.
+
+        Default: 60
+        """
+        return self._config.get("login_ip_rate_limit_window_sec", 60)
 
     def redis_heartbeat_ttl(self) -> int:
         """
@@ -1311,6 +1415,12 @@ class GulpConfig:
         Returns whether Prometheus metrics endpoint is enabled (default: False).
         """
         return self._config.get("prometheus_enabled", False)
+
+    def prometheus_endpoint(self) -> str:
+        """
+        Returns the Prometheus metrics endpoint path (default: /metrics).
+        """
+        return self._config.get("prometheus_endpoint", "/metrics")
 
     def prometheus_collect_interval(self) -> int:
         """

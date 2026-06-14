@@ -35,8 +35,11 @@ from gulp.api.collab.structs import (
 from gulp.api.collab.user import GulpUser
 from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
+from gulp.api.prometheus_api import record_api_request_rejection
+from gulp.api.redis_api import GulpRedis, IpRateLimitError
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import REGEX_CHECK_USERNAME, APIDependencies
+from gulp.config import GulpConfig
 from gulp.structs import GulpAPIMethod, ObjectAlreadyExists, ObjectNotFound
 
 
@@ -117,6 +120,29 @@ class GulpLoginMethod(BaseModel):
 
 
 router = APIRouter()
+
+
+def _login_ip_throttle_response(req_id: str, ex: IpRateLimitError) -> JSONResponse:
+    """Build a structured response for per-IP login throttling."""
+    record_api_request_rejection(
+        endpoint="login",
+        reason="ip_throttle",
+        task_type="none",
+        scope="ip",
+    )
+    return JSONResponse(
+        JSendResponse.error(
+            req_id=req_id,
+            ex={
+                "error": "ip_throttle",
+                "scope": ex.scope,
+                "limit": ex.limit,
+                "window_sec": ex.window_sec,
+                "retry_after_msec": ex.retry_after_msec,
+            },
+        ),
+        status_code=429,
+    )
 
 
 @router.get(
@@ -222,6 +248,20 @@ async def login_handler(
     params.pop("r", None)
     ServerUtils.dump_params(params)
     s: GulpUserSession = None
+    cfg = GulpConfig.get_instance()
+    limit = cfg.login_ip_rate_limit_max()
+    window_sec = cfg.login_ip_rate_limit_window_sec()
+    if limit > 0 and window_sec > 0:
+        try:
+            await GulpRedis.get_instance().check_ip_rate_limit(
+                scope="login",
+                ip=ip,
+                limit=limit,
+                window_sec=window_sec,
+            )
+        except IpRateLimitError as ex:
+            return _login_ip_throttle_response(req_id, ex)
+
     try:
         async with GulpCollab.get_instance().session() as sess:
             if not force:

@@ -145,6 +145,13 @@ async def request_cancel_handler(
                 enforce_owner=True,
             )
             await obj.set_canceled(sess, expire_now=expire_now)
+            await GulpRedis.get_instance().task_mark_canceled(
+                {
+                    "req_id": req_id_to_cancel,
+                    "operation_id": op.id,
+                    "user_id": obj.user_id,
+                }
+            )
 
             # also delete related queued tasks (if any) in Redis
             d: int = await GulpRedis.get_instance().task_purge_by_filter(

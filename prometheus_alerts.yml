@@ -1,0 +1,94 @@
+groups:
+  - name: gulp-backend
+    rules:
+      - alert: GulpTargetDown
+        expr: up{job="gulp"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "gULP target is down"
+          description: "Prometheus cannot scrape the gULP /metrics endpoint."
+
+      - alert: GulpTaskQueueOldestQueuedTooOld
+        expr: max by (task_type) (gulp_redis_task_oldest_queued_age_seconds) > 300
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "gULP task queue is not draining"
+          description: "The oldest queued {{ $labels.task_type }} task is older than 5 minutes."
+
+      - alert: GulpTaskPendingWithoutRunningOwner
+        expr: |
+          max by (task_type) (gulp_redis_task_oldest_pending_age_seconds) > 900
+          unless on (task_type) sum by (task_type) (gulp_redis_task_running) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "gULP pending task has no running owner"
+          description: "A {{ $labels.task_type }} task has been pending for more than 15 minutes without a live running owner."
+
+      - alert: GulpTaskDeadLetterPresent
+        expr: max by (task_type) (gulp_redis_task_dead_letter_depth) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "gULP task dead-letter stream is non-empty"
+          description: "At least one {{ $labels.task_type }} task has reached the dead-letter stream."
+
+      - alert: GulpTaskRecoveredRetriesPresent
+        expr: max by (task_type) (gulp_redis_task_recovered_retries) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "gULP tasks are recovering only after retry"
+          description: "At least one retained {{ $labels.task_type }} task lifecycle succeeded after a retry; inspect worker logs and task lifecycle metadata."
+
+      - alert: GulpApiRequestRejected
+        expr: sum by (endpoint, reason, task_type, scope) (rate(gulp_api_request_rejected_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "gULP API admission rejects requests"
+          description: "{{ $labels.endpoint }} is rejecting {{ $labels.task_type }} work due to {{ $labels.reason }} at scope {{ $labels.scope }}."
+
+      - alert: GulpWebsocketEnqueueTimeouts
+        expr: sum by (server_id, socket_type) (rate(gulp_ws_enqueue_timeout_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "gULP websocket clients are not draining"
+          description: "Websocket enqueue timeouts are occurring on {{ $labels.server_id }} for {{ $labels.socket_type }} sockets."
+
+      - alert: GulpPayloadPointerResolutionFailures
+        expr: sum by (outcome) (rate(gulp_ws_payload_pointer_resolve_total{outcome=~"missing|error"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "gULP pub/sub payload pointer resolution is failing"
+          description: "Large payload pointer resolution has {{ $labels.outcome }} outcomes."
+
+      - alert: GulpRedisSubscriberErrors
+        expr: rate(gulp_redis_subscriber_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "gULP Redis subscriber errors"
+          description: "Redis pub/sub subscriber errors are being reported by gULP."
+
+      - alert: GulpRedisPubSubReconnects
+        expr: rate(gulp_redis_pubsub_reconnect_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "gULP Redis pub/sub reconnects"
+          description: "Redis pub/sub reconnects are occurring; check Redis connectivity and subscriber logs."

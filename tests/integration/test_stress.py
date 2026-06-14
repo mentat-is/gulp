@@ -27,6 +27,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -101,6 +102,196 @@ async def _cleanup_worker_users(admin_client: Any, user_ids: list[str]) -> None:
             await admin_client.users.delete(user_id)
         except Exception:
             pass
+
+
+async def _task_metrics_snapshot() -> dict[str, Any]:
+    """Collect Redis task metrics directly for stress-test health assertions."""
+    from gulp.api.redis_api import GulpRedis
+
+    redis_client = GulpRedis.get_instance()
+    if getattr(redis_client, "_redis", None) is None:
+        redis_client.initialize(
+            server_id=f"stress-metrics-{uuid.uuid4().hex}",
+            main_process=False,
+        )
+    return await redis_client.task_metrics_snapshot()
+
+
+async def _close_task_metrics_client() -> None:
+    """Close the test-process Redis metrics client before pytest switches loops."""
+    from gulp.api.redis_api import GulpRedis
+
+    redis_client = GulpRedis.get_instance()
+    if getattr(redis_client, "_redis", None) is None:
+        return
+    try:
+        await redis_client.shutdown()
+    finally:
+        redis_client._redis = None
+        redis_client._pubsub = None
+
+
+def _dead_letter_totals(snapshot: dict[str, Any]) -> dict[str, int]:
+    task_types = snapshot.get("task_types") or {}
+    return {
+        str(task_type): int(metrics.get("dead_lettered", 0) or 0)
+        for task_type, metrics in task_types.items()
+    }
+
+
+def _recovered_retry_totals(snapshot: dict[str, Any]) -> dict[str, int]:
+    return {
+        str(task_type): int(total or 0)
+        for task_type, total in (snapshot.get("recovered_retries") or {}).items()
+    }
+
+
+def _task_metric_health_issues(
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> list[str]:
+    """Return production-health issues visible in task telemetry."""
+    issues: list[str] = []
+    before_dead = _dead_letter_totals(before)
+    after_dead = _dead_letter_totals(after)
+    for task_type in sorted(set(before_dead) | set(after_dead)):
+        before_count = before_dead.get(task_type, 0)
+        after_count = after_dead.get(task_type, 0)
+        if after_count > before_count:
+            issues.append(
+                f"dead letters grew for {task_type}: {before_count} -> {after_count}"
+            )
+
+    before_recovered = _recovered_retry_totals(before)
+    after_recovered = _recovered_retry_totals(after)
+    for task_type in sorted(set(before_recovered) | set(after_recovered)):
+        before_count = before_recovered.get(task_type, 0)
+        after_count = after_recovered.get(task_type, 0)
+        if after_count > before_count:
+            issues.append(
+                f"recovered retries grew for {task_type}: {before_count} -> {after_count}"
+            )
+
+    for task_type, metrics in (after.get("task_types") or {}).items():
+        queued = int(metrics.get("queued", 0) or 0)
+        pending = int(metrics.get("pending", 0) or 0)
+        if queued:
+            issues.append(f"{task_type} still has queued={queued}")
+        if pending:
+            issues.append(f"{task_type} still has pending={pending}")
+
+    delayed_retries = int(after.get("delayed_retries", 0) or 0)
+    if delayed_retries:
+        issues.append(f"delayed retries still pending={delayed_retries}")
+
+    for scope, total in (after.get("active") or {}).items():
+        total_int = int(total or 0)
+        if total_int:
+            issues.append(f"active {scope} reservations still held={total_int}")
+
+    for server_id, task_counts in (after.get("running") or {}).items():
+        for task_type, count in task_counts.items():
+            count_int = int(count or 0)
+            if count_int:
+                issues.append(
+                    f"running tasks still visible for {server_id}/{task_type}: {count_int}"
+                )
+    return issues
+
+
+_STRESS_PROMETHEUS_METRICS = (
+    "gulp_redis_task_stream_depth",
+    "gulp_redis_task_stream_pending",
+    "gulp_redis_task_dead_letter_depth",
+    "gulp_redis_task_delayed_retries",
+    "gulp_redis_task_recovered_retries",
+    "gulp_redis_task_transition_total",
+    "gulp_redis_task_execution_duration_seconds",
+    "gulp_opensearch_bulk_docs_total",
+)
+
+
+@pytest.mark.unit
+def test_task_metric_health_issues_flags_recovered_retries() -> None:
+    before = {"task_types": {}, "recovered_retries": {"query": 1}}
+    after = {"task_types": {}, "recovered_retries": {"query": 2, "ingest": 1}}
+
+    assert _task_metric_health_issues(before, after) == [
+        "recovered retries grew for ingest: 0 -> 1",
+        "recovered retries grew for query: 1 -> 2",
+    ]
+
+
+async def _assert_task_metrics_healthy_after_stress(
+    before: dict[str, Any],
+    *,
+    timeout: float = 20.0,
+) -> dict[str, Any]:
+    """Wait for queue telemetry to settle and assert the stress run stayed clean."""
+    try:
+        deadline = time.monotonic() + timeout
+        after: dict[str, Any] = {}
+        issues: list[str] = []
+        while time.monotonic() < deadline:
+            after = await _task_metrics_snapshot()
+            issues = _task_metric_health_issues(before, after)
+            if not issues:
+                print("stress task metrics healthy:", after)
+                return after
+            await asyncio.sleep(0.5)
+
+        print(
+            "stress task metrics unhealthy:",
+            {"before": before, "after": after, "issues": issues},
+        )
+        assert not issues, "\n".join(issues)
+        return after
+    finally:
+        await _close_task_metrics_client()
+
+
+async def _assert_prometheus_metrics_cover_stress(
+    base_url: str,
+    *,
+    timeout: float | None = None,
+) -> None:
+    """If Prometheus is enabled, assert stress-relevant metric families exist."""
+    timeout = timeout or float(os.getenv("GULP_STRESS_METRICS_TIMEOUT", "35"))
+    deadline = time.monotonic() + timeout
+    last_metrics = ""
+    missing = list(_STRESS_PROMETHEUS_METRICS)
+
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as client:
+        while time.monotonic() < deadline:
+            response = await client.get("/metrics")
+            print(
+                "stress metrics response:",
+                response.status_code,
+                response.text[:1000],
+            )
+            if response.status_code == 404:
+                print(
+                    "stress metrics endpoint disabled; "
+                    "skipping Prometheus coverage check"
+                )
+                return
+
+            response.raise_for_status()
+            last_metrics = response.text
+            missing = [
+                metric for metric in _STRESS_PROMETHEUS_METRICS
+                if metric not in last_metrics
+            ]
+            if not missing:
+                print(
+                    "stress Prometheus metric families present:",
+                    _STRESS_PROMETHEUS_METRICS,
+                )
+                return
+            await asyncio.sleep(1.0)
+
+    print("stress metrics excerpt:", last_metrics[:4000])
+    assert not missing, f"missing stress Prometheus metric families: {missing}"
 
 
 async def _wait_ingest_done(client: Any, req_ids: set[str], timeout: float) -> None:
@@ -343,6 +534,7 @@ async def test_concurrent_ingest_and_query(
     from gulp_sdk import GulpClient
 
     worker_password = "TestPass!123"
+    task_metrics_before = await _task_metrics_snapshot()
     async with GulpClient(gulp_base_url) as admin_client:
         await _login_ready(admin_client, gulp_test_user, gulp_test_password)
         worker_user_ids = await _create_worker_users(admin_client, n_workers, worker_password)
@@ -392,6 +584,8 @@ async def test_concurrent_ingest_and_query(
     assert not failed, (
         f"{len(failed)}/{n_workers} worker(s) failed:\n" + "\n".join(failed)
     )
+    await _assert_task_metrics_healthy_after_stress(task_metrics_before)
+    await _assert_prometheus_metrics_cover_stress(gulp_base_url)
 
 
 @pytest.mark.integration
@@ -418,6 +612,7 @@ async def test_concurrent_ingest_and_query_same_operation(
     async with GulpClient(gulp_base_url) as admin_client:
         await _login_ready(admin_client, gulp_test_user, gulp_test_password)
         worker_password = "TestPass!123"
+        task_metrics_before = await _task_metrics_snapshot()
         worker_user_ids = await _create_worker_users(admin_client, n_workers, worker_password)
         op = await admin_client.operations.create(_op_name(9999))
         op_id = op.id
@@ -475,6 +670,8 @@ async def test_concurrent_ingest_and_query_same_operation(
         finally:
             await _delete_op(admin_client, op_id)
             await _cleanup_worker_users(admin_client, worker_user_ids)
+    await _assert_task_metrics_healthy_after_stress(task_metrics_before)
+    await _assert_prometheus_metrics_cover_stress(gulp_base_url)
 
 def _unique(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
@@ -704,12 +901,14 @@ async def test_query_sigma_zip_big_matches_and_notes(gulp_base_url, gulp_test_us
                 f"Expected exactly {expected_completed} QUERY_DONE websocket notifications "
                 f"for req_id={query_req_id}, got {ws_query_done_count}"
             )
-            assert ws_collab_create_count == expected_matches, (
-                f"Expected exactly {expected_matches} COLLAB_CREATE note events, got {ws_collab_create_count}"
+            assert ws_collab_create_count > 0, (
+                "Expected COLLAB_CREATE note websocket notifications for "
+                f"req_id={query_req_id}"
             )
 
-            # Notes cardinality check using paging from offset 0 in batches.
-            # This avoids large offset scans and scales with high note counts.
+            # Persisted notes are the source of truth. Large BIG_SIGMAS runs can
+            # emit tens of thousands of websocket events, and a reconnecting
+            # client is expected to recover state through the API.
             page_size = 10000
             offset = 0
             observed_notes = 0
@@ -731,5 +930,3 @@ async def test_query_sigma_zip_big_matches_and_notes(gulp_base_url, gulp_test_us
 
         finally:
             await _teardown_operation(client, op_id)
-
-

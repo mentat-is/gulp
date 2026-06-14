@@ -11,15 +11,6 @@ The system uses OpenSearch for document storage, PostgreSQL for collaboration me
 - Use type hints for function signatures.
 - Write clear and concise docstrings for functions and classes.
 
-## gulp backend plugin development guidelines
-
-- When working on plugins, use existing plugins in `src/gulp/plugins` as references for structure and implementation:
-  - for ingestion plugins, use `win_evtx.py` plugin
-  - for enrichment plugins, use `enrich_whois.py` plugin
-  - for external_query plugins, use `query_elasticsearch` plugin
-  - for extension plugins, use `extension/ai_assistant.py` plugin
-- For any new functionality, ensure that it is well-tested with unit and integration tests.
-
 ## relevant part of the backend codebase
 
 - `collab_migrate/`: directory containing database migration scripts for collaboration database (PostgreSQL)
@@ -46,6 +37,22 @@ The system uses OpenSearch for document storage, PostgreSQL for collaboration me
 - `muty-python/`: utility library used by gULP and plugins
 - `gulpui-web/`: the web client for gULP, built with React and TypeScript, which interacts with the gULP API to provide a user interface for document ingestion, querying, enrichment, and collaboration features.
 
+## generic development guidelines
+
+- When adding new features or plugins, ensure that they are well-documented in `/docs`and tested.
+- When following a plan or a prompt, stop and ask for clarifications **even if you are in auto-mode** if you are unsure about any aspect of the implementation before proceeding, to avoid going down the wrong path and having to redo work later.
+- When you're following a plan file, make sure to update the plan file with the actual implementation details as you go, so that it remains an accurate source of information for future reference.
+- if you happen to find a bug in the backend which affects how the exposed API behaves, you may need to also adjust `/gulp/gulp-sdk` to reflect the changes in the API: if you adjust the sdk, do not forget to update also `/gulp/gulp-cli` to reflect the changes in the sdk as well.
+
+## gulp backend plugin development guidelines
+
+- When working on plugins, use existing plugins in `src/gulp/plugins` as references for structure and implementation:
+  - for ingestion plugins, use `win_evtx.py` plugin
+  - for enrichment plugins, use `enrich_whois.py` plugin
+  - for external_query plugins, use `query_elasticsearch` plugin
+  - for extension plugins, use `extension/ai_assistant.py` plugin
+- For any new functionality, ensure that it is well-tested with unit and integration tests.
+
 ## setup the backend to work together with the UI gulpui-web
 
 use pnpm start to start the web client on `http://localhost:3000` with which you can interact with the gulp backend API on `http://localhost:8080` (make sure to start the gulp backend if you haven't already, see testing instructions below).
@@ -59,6 +66,11 @@ either, you can start one with `gulp --reset-collab --create test_operation`, an
 if you need to run multiple instances of gulp, use `GULP_BIND_TO_ADDR` and `GULP_BIND_TO_PORT` environment variables to bind each instance to a different address and port, e.g. `GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8100 gulp` to start a second instance on port 8100.
 
 by default, if you find an already running instance, that runs on port 8080; for further instances use ports >= 8100.
+
+### special cases
+
+- if you need to tweak configuration, you have to modify `~/.config/gulp/gulp_cfg.json` and then restart gulp to apply the changes (once you're done testing, make sure to reset any changes you made to the config file to avoid affecting other tests or development work).
+- if you need observability, you can enable the Prometheus endpoint in the config file as described in [docs/observability.md](docs/observability.md) and then run Prometheus to scrape the metrics (make sure to stop Prometheus when you're done testing to avoid unnecessary resource usage).
 
 ### testing implementations
 

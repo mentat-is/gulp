@@ -11,6 +11,7 @@ capabilities for the application.
 """
 
 import asyncio
+from contextlib import suppress
 import os
 import ssl
 import sys
@@ -36,11 +37,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab.stats import GulpRequestStats
+from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
 from gulp.api.s3_api import GulpS3
 from gulp.api.server.structs import (
+    TASK_TYPE_ENRICH,
     TASK_TYPE_EXTERNAL_QUERY,
     TASK_TYPE_INGEST,
     TASK_TYPE_QUERY,
@@ -445,15 +448,196 @@ class GulpServer:
 
             uvicorn.run(self._app, host=address, port=port)
 
+    @staticmethod
+    def _task_lease_refresh_interval() -> float:
+        """Return the lease refresh interval in seconds."""
+        interval_ms = GulpRedis.TASK_LEASE_REFRESH_INTERVAL_MS
+        if interval_ms <= 0:
+            interval_ms = max(1000, GulpRedis.TASK_AUTOCLAIM_IDLE_MS // 3)
+        return max(0.001, interval_ms / 1000.0)
+
+    async def _refresh_task_lease_until_done(self, task: dict) -> None:
+        """Refresh a Redis stream task lease until cancelled by the dispatcher."""
+        interval = self._task_lease_refresh_interval()
+        while True:
+            await asyncio.sleep(interval)
+            await GulpRedis.get_instance().task_refresh_lease(task)
+
+    async def _await_task_with_lease(self, task: dict, awaitable: Awaitable[Any]) -> Any:
+        """Await a task while keeping its Redis stream pending entry fresh."""
+        lease_task = asyncio.create_task(self._refresh_task_lease_until_done(task))
+        try:
+            timeout_sec = self._task_execution_timeout_sec(task)
+            if timeout_sec > 0:
+                return await asyncio.wait_for(awaitable, timeout=timeout_sec)
+            return await awaitable
+        finally:
+            lease_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await lease_task
+
+    @staticmethod
+    def _task_execution_timeout_sec(task: dict) -> int:
+        """Return optional per-attempt execution timeout for a queued task."""
+        value = task.get("__task_timeout_sec__")
+        if value is None:
+            params = task.get("params") if isinstance(task.get("params"), dict) else {}
+            value = params.get("__task_timeout_sec__")
+        if value is None:
+            value = GulpConfig.get_instance().redis_task_execution_timeout_sec()
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    async def _mark_dead_lettered_task_stats_failed(
+        self, task: dict, reason: str
+    ) -> None:
+        """Mark an existing request stats object failed after terminal dead-letter."""
+        req_id = task.get("req_id")
+        if not req_id:
+            return
+
+        try:
+            async with GulpCollab.get_instance().session() as sess:
+                stats = await GulpRequestStats.get_by_id(
+                    sess,
+                    req_id,
+                    throw_if_not_found=False,
+                )
+                if not stats:
+                    MutyLogger.get_instance().warning(
+                        "dead-lettered task has no request stats: task_type=%s req_id=%s",
+                        task.get("task_type"),
+                        req_id,
+                    )
+                    return
+
+                if stats.status != GulpRequestStatus.ONGOING.value:
+                    MutyLogger.get_instance().warning(
+                        "dead-lettered task request stats already terminal: task_type=%s req_id=%s status=%s",
+                        task.get("task_type"),
+                        req_id,
+                        stats.status,
+                    )
+                    return
+
+                await stats.set_finished(
+                    sess,
+                    status=GulpRequestStatus.FAILED,
+                    user_id=task.get("user_id"),
+                    ws_id=task.get("ws_id"),
+                    errors=[reason],
+                )
+        except Exception:
+            MutyLogger.get_instance().exception(
+                "failed to mark dead-lettered task request stats failed: task_type=%s req_id=%s",
+                task.get("task_type"),
+                req_id,
+            )
+
+    async def _claim_task_or_ack_duplicate(self, redis_inst: GulpRedis, task: dict) -> bool:
+        """Claim a task lifecycle or ACK/delete duplicate terminal work."""
+        claim_state = await redis_inst.task_claim_execution(task)
+        if claim_state in {"claimed", "untracked"}:
+            return True
+
+        MutyLogger.get_instance().warning(
+            "skipping duplicate task execution: task_type=%s req_id=%s claim_state=%s",
+            task.get("task_type"),
+            task.get("req_id"),
+            claim_state,
+        )
+        if claim_state == "duplicate_running" and task.get("__redis_autoclaimed__"):
+            MutyLogger.get_instance().warning(
+                "leaving autoclaimed duplicate task pending until execution lock expires: task_type=%s req_id=%s",
+                task.get("task_type"),
+                task.get("req_id"),
+            )
+            return False
+        await redis_inst.task_ack_delete(task)
+        return False
+
+    def _run_claimed_task(self, task: dict) -> Awaitable[Any]:
+        """Return the handler awaitable for a claimed queued task."""
+        from gulp.api.server.db import run_rebase_task
+        from gulp.api.server.enrich import run_enrich_task
+        from gulp.api.server.ingest import run_ingest_file_task
+        from gulp.api.server.query import run_query_task
+
+        ttype = task.get("task_type")
+        if ttype == TASK_TYPE_INGEST:
+            return self.spawn_worker_task(run_ingest_file_task, task, wait=True)
+        if ttype == TASK_TYPE_ENRICH:
+            return run_enrich_task(task)
+        if ttype == TASK_TYPE_QUERY or ttype == TASK_TYPE_EXTERNAL_QUERY:
+            return run_query_task(task)
+        if ttype == TASK_TYPE_REBASE:
+            return run_rebase_task(task)
+
+        raise ValueError(f"unknown task_type: {ttype!r}")
+
+    async def _dispatch_claimed_tasks(
+        self,
+        redis_inst: GulpRedis,
+        tasks: Sequence[dict],
+        *,
+        source: str,
+    ) -> None:
+        """Claim, execute, and finalize a batch of queued or reclaimed tasks."""
+        task_coros: list[tuple[dict, Awaitable[Any]]] = []
+        for obj in tasks:
+            if not await self._claim_task_or_ack_duplicate(redis_inst, obj):
+                continue
+            try:
+                task_coros.append((obj, self._run_claimed_task(obj)))
+            except ValueError as ex:
+                reason = str(ex)
+                MutyLogger.get_instance().warning(
+                    "unknown task_type while processing %s task: %r",
+                    source,
+                    obj.get("task_type"),
+                )
+                dead_lettered = await redis_inst.task_dead_letter(obj, reason)
+                if dead_lettered:
+                    await self._mark_dead_lettered_task_stats_failed(obj, reason)
+
+        if not task_coros:
+            return
+
+        task_results = await asyncio.gather(
+            *[
+                self._await_task_with_lease(obj, coro)
+                for obj, coro in task_coros
+            ],
+            return_exceptions=True,
+        )
+        for obj, res in zip((item for item, _ in task_coros), task_results):
+            if isinstance(res, Exception) or res is False:
+                MutyLogger.get_instance().exception(
+                    "error while awaiting %s task for task_type=%s req_id=%s: %s",
+                    source,
+                    obj.get("task_type"),
+                    obj.get("req_id"),
+                    res,
+                )
+                reason = repr(res)
+                failure_state = await redis_inst.task_fail_retry_or_dead_letter(
+                    obj,
+                    reason,
+                )
+                if failure_state == "dead_letter":
+                    await self._mark_dead_lettered_task_stats_failed(obj, reason)
+                continue
+
+            await redis_inst.task_mark_succeeded(obj)
+            await redis_inst.task_ack_delete(obj)
+
     async def _dispatch_tasks(self):
         """
         Blocking task loop using Redis BLPOP for long running tasks that need to be dispatched to workers, such as ingest and query tasks.
         Waits for a task, then drains up to concurrency limit and dispatches to workers.
         """
-        from gulp.api.server.db import run_rebase_task
-        from gulp.api.server.ingest import run_ingest_file_task
-        from gulp.api.server.query import run_query_task
-
         # compute total capacity: number of worker processes * per-worker concurrency
         child_concurrency: int = GulpConfig.get_instance().concurrency_num_tasks()
         num_workers: int = GulpConfig.get_instance().parallel_processes_max()
@@ -471,6 +655,7 @@ class GulpServer:
                 try:
                     # periodically reclaim stale messages from dead consumers
                     redis_inst = GulpRedis.get_instance()
+                    await redis_inst.task_promote_due_retries(limit=limit)
                     now = time.monotonic()
                     if now - redis_inst._last_autoclaim_time >= 30.0:
                         redis_inst._last_autoclaim_time = now
@@ -481,38 +666,11 @@ class GulpServer:
                                     "re-dispatching %d autoclaimed stale task(s)",
                                     len(reclaimed),
                                 )
-                                reclaimed_coros: list[Awaitable[Any]] = []
-                                for obj in reclaimed:
-                                    ttype = obj.get("task_type")
-                                    if ttype == TASK_TYPE_INGEST:
-                                        reclaimed_coros.append(
-                                            self.spawn_worker_task(
-                                                run_ingest_file_task, obj, wait=True
-                                            )
-                                        )
-                                    elif (
-                                        ttype == TASK_TYPE_QUERY
-                                        or ttype == TASK_TYPE_EXTERNAL_QUERY
-                                    ):
-                                        reclaimed_coros.append(run_query_task(obj))
-                                    elif ttype == TASK_TYPE_REBASE:
-                                        reclaimed_coros.append(run_rebase_task(obj))
-                                    else:
-                                        MutyLogger.get_instance().warning(
-                                            "unknown task_type while processing reclaimed task: %r",
-                                            ttype,
-                                        )
-
-                                if reclaimed_coros:
-                                    reclaimed_results = await asyncio.gather(
-                                        *reclaimed_coros, return_exceptions=True
-                                    )
-                                    for res in reclaimed_results:
-                                        if isinstance(res, Exception):
-                                            MutyLogger.get_instance().exception(
-                                                "error while awaiting reclaimed task: %s",
-                                                res,
-                                            )
+                                await self._dispatch_claimed_tasks(
+                                    redis_inst,
+                                    reclaimed,
+                                    source="reclaimed",
+                                )
                         except Exception:
                             MutyLogger.get_instance().exception(
                                 "error during task autoclaim sweep"
@@ -538,38 +696,11 @@ class GulpServer:
                     # dispatch all tasks in this batch concurrently, then wait for
                     # completion before dequeuing the next batch to avoid unbounded
                     # in-flight growth under sustained load.
-                    batch_coros: list[Awaitable[Any]] = []
-                    for obj in batch:
-                        ttype = obj.get("task_type")
-                        if ttype == TASK_TYPE_INGEST:
-                            batch_coros.append(
-                                self.spawn_worker_task(
-                                    run_ingest_file_task, obj, wait=True
-                                )
-                            )
-                        elif (
-                            ttype == TASK_TYPE_QUERY
-                            or ttype == TASK_TYPE_EXTERNAL_QUERY
-                        ):
-                            # run_query_task runs in main process and may spawn workers itself
-                            batch_coros.append(run_query_task(obj))
-                        elif ttype == TASK_TYPE_REBASE:
-                            # rebase task runs in main process and may spawn workers itself
-                            batch_coros.append(run_rebase_task(obj))
-                        else:
-                            MutyLogger.get_instance().warning(
-                                "unknown task_type while processing batch: %r", ttype
-                            )
-
-                    if batch_coros:
-                        batch_results = await asyncio.gather(
-                            *batch_coros, return_exceptions=True
-                        )
-                        for res in batch_results:
-                            if isinstance(res, Exception):
-                                MutyLogger.get_instance().exception(
-                                    "error while awaiting batch task: %s", res
-                                )
+                    await self._dispatch_claimed_tasks(
+                        GulpRedis.get_instance(),
+                        batch,
+                        source="batch",
+                    )
 
                 except asyncio.CancelledError:
                     MutyLogger.get_instance().debug("blocking task loop cancelled!")

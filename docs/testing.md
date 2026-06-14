@@ -40,6 +40,28 @@ python3 -m pytest -v -s -x ./tests/integration
 # run stress tests only (NOTE: the sigma-zip part needs the non-free query_sigma_zip plugin)
 python3 -m pytest -v -s -x ./tests/integration/test_stress.py
 
+# when Prometheus is enabled, stress tests also assert critical /metrics families
+# are exported after load; tune the scrape wait if collection is slower
+GULP_STRESS_METRICS_TIMEOUT=60 python3 -m pytest -v -s -x ./tests/integration/test_stress.py::test_concurrent_ingest_and_query
+
+# run two-instance websocket/pub-sub routing checks; the script starts and stops
+# backends on :8080 and :8100 and drives both instances concurrently
+./tests/integration/run_multi_instance_tests.sh
+
+# run the same two-instance checks as a visible large-payload fanout soak
+# (defaults to 20 pointer iterations, 500 raw docs per instance, and one large-note collab iteration)
+GULP_MULTI_INSTANCE_SOAK=1 ./tests/integration/run_multi_instance_tests.sh
+
+# suppress live backend logs while keeping log files in the final summary
+QUIET=1 GULP_MULTI_INSTANCE_SOAK=1 ./tests/integration/run_multi_instance_tests.sh
+
+# tune the large-payload fanout manually for heavier pre-release soak runs
+GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT=100 \
+GULP_MULTI_INSTANCE_POINTER_SOAK_SECONDS=600 \
+GULP_MULTI_INSTANCE_COLLAB_STRESS_COUNT=1 \
+GULP_MULTI_INSTANCE_RAW_INGEST_DOCS=1000 \
+./tests/integration/run_multi_instance_tests.sh
+
 # run a specific test, use full windows sigma rules set
 BIG_SIGMAS=1 python3 -m pytest -v -s -x ./tests/integration/test_stress.py::test_concurrent_ingest_and_query_same_operation
 ~~~

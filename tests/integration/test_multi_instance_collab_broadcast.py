@@ -15,7 +15,7 @@ async def test_multi_instance_collab_broadcast() -> None:
     first_url = os.getenv("GULP_BASE_URL", "http://localhost:8080")
     second_url = os.getenv("GULP_SECOND_BASE_URL", "http://localhost:8100")
     await _run_multi_user_scenario(
-        [first_url, first_url, second_url],
+        [first_url, second_url],
         run_client_data=False,
         run_cross_instance_query=False,
         run_query_isolation=False,

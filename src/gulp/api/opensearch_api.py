@@ -1465,12 +1465,22 @@ class GulpOpenSearch:
         script = """
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern('yyyy-MM-dd\\'T\\'HH:mm:ss.SSSSSSSSSX');
 
+            if (ctx._source['gulp.rebase_req_ids'] != null && ctx._source['gulp.rebase_req_ids'].contains(params.rebase_req_id)) {
+                ctx.op = 'noop';
+                return;
+            }
+
             if (ctx._source['@timestamp'] != null && ctx._source['@timestamp'] != '0') {
                 ZonedDateTime ts = ZonedDateTime.parse(ctx._source['@timestamp']);
                 ZonedDateTime new_ts = ts.plusNanos(params.offset_nsec);
                 ctx._source['@timestamp'] = new_ts.format(fmt);
                 ctx._source['gulp.timestamp'] += params.offset_nsec;
             }
+
+            if (ctx._source['gulp.rebase_req_ids'] == null) {
+                ctx._source['gulp.rebase_req_ids'] = new ArrayList();
+            }
+            ctx._source['gulp.rebase_req_ids'].add(params.rebase_req_id);
         """
         if extra_fields_script:
             # add the extra part
@@ -1543,7 +1553,10 @@ class GulpOpenSearch:
                     "script": {
                         "source": script,
                         "lang": "painless",
-                        "params": {"offset_nsec": offset_nsec},
+                        "params": {
+                            "offset_nsec": offset_nsec,
+                            "rebase_req_id": req_id,
+                        },
                     },
                     "query": {"ids": {"values": doc_ids}},
                 }

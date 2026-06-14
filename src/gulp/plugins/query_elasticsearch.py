@@ -190,6 +190,17 @@ class Plugin(GulpPluginBase):
                     source_type == "source_id",
                 )
 
+        if (
+            not self._preview_mode
+            and ctx_id
+            and src_id
+            and [ctx_id, src_id] not in self._ctx_src_pairs
+        ):
+            self._ctx_src_pairs.append([ctx_id, src_id])
+        if not self._preview_mode and ctx_id and src_id and not self._context_id:
+            self._context_id = ctx_id
+            self._source_id = src_id
+
         d = GulpDocument(
             self,
             operation_id=self._operation_id,

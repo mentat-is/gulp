@@ -731,3 +731,32 @@ async def test_stress_propagated_internal_reaches_all_instances(monkeypatch):
     assert total_dispatches == expected, (
         f"expected {expected} dispatches across {_N_INST} instances, got {total_dispatches}"
     )
+
+
+@pytest.mark.unit
+def test_large_pointer_stress_env_knobs(monkeypatch):
+    from tests.integration._test_multi_instance_base import (
+        _continue_large_pointer_stress,
+        _large_pointer_stress_count,
+        _large_pointer_soak_seconds,
+    )
+
+    monkeypatch.delenv("GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT", raising=False)
+    monkeypatch.delenv("GULP_MULTI_INSTANCE_POINTER_SOAK_SECONDS", raising=False)
+    assert _large_pointer_stress_count() == 3
+    assert _large_pointer_soak_seconds() == 0.0
+    assert _continue_large_pointer_stress(0, None) is True
+    assert _continue_large_pointer_stress(2, None) is True
+    assert _continue_large_pointer_stress(3, None) is False
+
+    monkeypatch.setenv("GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT", "5")
+    monkeypatch.setenv("GULP_MULTI_INSTANCE_POINTER_SOAK_SECONDS", "1.5")
+    assert _large_pointer_stress_count() == 5
+    assert _large_pointer_soak_seconds() == 1.5
+    assert _continue_large_pointer_stress(4, None) is True
+    assert _continue_large_pointer_stress(5, None) is False
+
+    monkeypatch.setenv("GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT", "not-int")
+    monkeypatch.setenv("GULP_MULTI_INSTANCE_POINTER_SOAK_SECONDS", "not-float")
+    assert _large_pointer_stress_count() == 3
+    assert _large_pointer_soak_seconds() == 0.0

@@ -823,6 +823,10 @@ class GulpQuery(BaseModel):
         Optional[str],
         Field(None, description="the id of the sigma rule, if this is a sigma query."),
     ] = None
+    query_ordinal: Annotated[
+        Optional[int],
+        Field(None, description="zero-based query occurrence inside the request."),
+    ] = None
     tags: Annotated[list[str], Field(description="query tags.")] = []
     q_group: Annotated[
         Optional[str], Field(description="the group this query belongs to, if any.")
@@ -834,6 +838,7 @@ class GulpQuery(BaseModel):
         q_name: str = None,
         sigma_yml: str = None,
         sigma_id: str = None,
+        query_ordinal: int = None,
         tags: list[str] = None,
         q_group: str = None,
     ) -> None:
@@ -845,6 +850,7 @@ class GulpQuery(BaseModel):
             q_name=q_name,
             sigma_yml=sigma_yml,
             sigma_id=sigma_id,
+            query_ordinal=query_ordinal,
             tags=tags or [],
             q_group=q_group,
         )

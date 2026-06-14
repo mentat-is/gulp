@@ -1,3 +1,7 @@
+# v1.7.500
+
+- fully code reviewed (gpt5.5/xhigh) and polished, with many improvements across the whole codebase, including better error handling, more robust and performant code, better documentation, and more tests.
+
 # v1.7.403
 
 - fixed some regressions (raw plugin, enrichment)

@@ -166,6 +166,10 @@ class GulpQueryStats(BaseModel):
     q_group: Annotated[
         Optional[str], Field(description="The query group this query belongs to.")
     ] = None
+    applied_update_keys: Annotated[
+        list[str],
+        Field(description="Internal idempotency keys already applied to counters."),
+    ] = Field(default_factory=list)
 
 
 class GulpUpdateDocumentsStats(BaseModel):
@@ -195,6 +199,10 @@ class GulpUpdateDocumentsStats(BaseModel):
     plugin: Annotated[
         Optional[str], Field(description="The plugin used for the operation.")
     ] = None
+    applied_update_keys: Annotated[
+        list[str],
+        Field(description="Internal idempotency keys already applied to counters."),
+    ] = Field(default_factory=list)
 
 
 class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
@@ -242,6 +250,29 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         doc="Additional data associated with the stats (GulpQueryStats, GulpIngestionStats)",
     )
     __table_args__ = (Index("idx_stats_operation", "operation_id"),)
+
+    @staticmethod
+    def is_terminal_status(status: str | None) -> bool:
+        """Return True if a request status is terminal and should not be replayed."""
+        return status in {
+            GulpRequestStatus.DONE.value,
+            GulpRequestStatus.FAILED.value,
+            GulpRequestStatus.CANCELED.value,
+        }
+
+    @staticmethod
+    def _claim_stats_update_key(data: BaseModel, update_key: str = None) -> bool:
+        """Record an update key and return False if it was already applied."""
+        if not update_key:
+            return True
+
+        keys = list(getattr(data, "applied_update_keys", []) or [])
+        if update_key in keys:
+            return False
+
+        keys.append(update_key)
+        setattr(data, "applied_update_keys", keys)
+        return True
 
     @override
     @classmethod
@@ -677,6 +708,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         flt: GulpQueryFilter = None,
         errors: list[str] = None,
         last: bool = False,
+        update_key: str = None,
     ) -> dict:
         """
         update the rebase/enrich stats counters
@@ -701,6 +733,9 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
                 GulpUpdateDocumentsStats.model_validate(self.data)
                 or GulpUpdateDocumentsStats()
             )
+            if not self._claim_stats_update_key(d, update_key):
+                return self.to_dict(exclude_none=True)
+
             d.updated += updated
             d.total_hits = total_hits
             if errors:
@@ -741,6 +776,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
         inc_completed: int = 0,
         errors: list[str] = None,
         ignore_failures: bool = False,
+        update_key: str = None,
     ) -> dict:
         """
         update the query stats
@@ -765,6 +801,8 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             d: GulpQueryStats = (
                 GulpQueryStats.model_validate(self.data) or GulpQueryStats()
             )
+            if not self._claim_stats_update_key(d, update_key):
+                return self.to_dict(exclude_none=True)
 
             d.total_hits += hits
             if errors:

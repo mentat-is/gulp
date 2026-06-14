@@ -103,6 +103,12 @@ class GulpWsData(BaseModel):
             description="The type of data carried by the websocket, see WSDATA_* constants.",
         ),
     ]
+    seq: Annotated[
+        Optional[int],
+        Field(
+            description="Best-effort monotonic sequence number scoped to origin server, operation_id, req_id, ws_id, and type. Clients can use gaps to trigger recovery through the documented REST APIs.",
+        ),
+    ] = None
     private: Annotated[
         bool,
         Field(
@@ -935,6 +941,17 @@ class GulpConnectedSocket:
                 self.ws_id,
                 timeout,
             )
+            if GulpConfig.get_instance().prometheus_enabled():
+                try:
+                    GulpMetrics.ws_enqueue_timeout_total.labels(
+                        server_id=self._server_id,
+                        socket_type=self.socket_type.value,
+                    ).inc()
+                except Exception:
+                    MutyLogger.get_instance().exception(
+                        "failed to record websocket enqueue timeout metric ws_id=%s",
+                        self.ws_id,
+                    )
             return False
         except asyncio.QueueFull:
             # should not happen with blocking put, but handle defensively
@@ -1408,6 +1425,32 @@ class GulpConnectedSockets:
             return 0.0
         return min(1.0, total_enqueued / total_capacity)
 
+    def socket_counts_by_type(self) -> dict[str, int]:
+        """Return connected websocket counts grouped by socket type."""
+        counts: dict[str, int] = {}
+        for sock in self._sockets.values():
+            try:
+                socket_type = sock.socket_type.value
+            except Exception:
+                socket_type = str(getattr(sock, "socket_type", "unknown"))
+            counts[socket_type] = counts.get(socket_type, 0) + 1
+        return counts
+
+    def queue_high_watermarks_by_type(self) -> dict[str, int]:
+        """Return max queue high-watermark grouped by socket type."""
+        high_watermarks: dict[str, int] = {}
+        for sock in self._sockets.values():
+            try:
+                socket_type = sock.socket_type.value
+            except Exception:
+                socket_type = str(getattr(sock, "socket_type", "unknown"))
+            high_watermark = int(getattr(sock, "_queue_high_watermark", 0) or 0)
+            high_watermarks[socket_type] = max(
+                high_watermarks.get(socket_type, 0),
+                high_watermark,
+            )
+        return high_watermarks
+
     def cache_server(self, ws_id: str, server_id: Optional[str]) -> None:
         """
         store websocket ownership information locally to avoid extra Redis hits
@@ -1526,12 +1569,18 @@ class GulpConnectedSockets:
 
         return connected_socket
 
-    async def remove(self, ws_id: str) -> None:
+    async def remove(
+        self, ws_id: str, expected_socket: GulpConnectedSocket = None
+    ) -> None:
         """
         Removes a websocket from the connected sockets list and unregisters from Redis
 
         Args:
             ws_id (str): The WebSocket ID.
+            expected_socket (GulpConnectedSocket, optional): If provided, only
+                remove the socket when the currently registered object is this
+                exact connection. This prevents stale cleanup from an old
+                same-id connection from unregistering a newer reconnect.
         """
         MutyLogger.get_instance().debug("---> remove, ws_id=%s", ws_id)
 
@@ -1541,6 +1590,13 @@ class GulpConnectedSockets:
                 "remove(): no websocket ws_id=%s found, num connected sockets=%d",
                 ws_id,
                 len(self._sockets),
+            )
+            return
+
+        if expected_socket is not None and connected_socket is not expected_socket:
+            MutyLogger.get_instance().warning(
+                "remove(): skipping stale cleanup for ws_id=%s because a newer socket is registered",
+                ws_id,
             )
             return
 
@@ -1727,6 +1783,7 @@ class GulpRedisBroker:
 
         # internal state
         self._initialized: bool = False
+        self._sequence_counters: dict[tuple[str, str, str, str, str], int] = {}
 
     def __new__(cls):
         """
@@ -1768,6 +1825,26 @@ class GulpRedisBroker:
         """
         if t in self.broadcast_types:
             self.broadcast_types.remove(t)
+
+    @staticmethod
+    def _sequence_key(wsd: GulpWsData) -> tuple[str, str, str, str, str]:
+        """Return the sequence scope for one websocket message."""
+        return (
+            str(wsd.origin_server_id or "local"),
+            str(wsd.operation_id or ""),
+            str(wsd.req_id or ""),
+            str(wsd.ws_id or ""),
+            str(wsd.type or ""),
+        )
+
+    def _assign_sequence(self, wsd: GulpWsData) -> None:
+        """Assign a monotonic sequence number if the message does not have one."""
+        if wsd.seq is not None:
+            return
+        key = self._sequence_key(wsd)
+        next_seq = self._sequence_counters.get(key, 0) + 1
+        self._sequence_counters[key] = next_seq
+        wsd.seq = next_seq
 
     async def initialize(self) -> None:
         """
@@ -1844,10 +1921,7 @@ class GulpRedisBroker:
                 should_retrieve = False
                 use_getdel = True  # whether to delete chunks after retrieval
 
-                if chunk_server_id == redis_client.server_id:
-                    # we stored these chunks, we should retrieve them
-                    should_retrieve = True
-                elif (
+                if (
                     redis_channel
                     == GulpMessageRoutingTarget.BROADCAST.redis_channel_name()
                     or (
@@ -1858,6 +1932,20 @@ class GulpRedisBroker:
                     # broadcast messages (including group-partitioned channels): retrieve without deleting (multiple instances need it)
                     should_retrieve = True
                     use_getdel = False
+                elif (
+                    redis_channel
+                    == GulpMessageRoutingTarget.CLIENT_DATA.redis_channel_name()
+                    and route_target_type == GulpMessageRoutingTarget.CLIENT_DATA.value
+                ):
+                    # client_data is filtered after payload decode by operation/user.
+                    # Every instance may need to inspect it, so do not delete chunks.
+                    should_retrieve = True
+                    use_getdel = False
+                elif chunk_server_id == redis_client.server_id:
+                    # Exclusive targeted messages stored by this server may be
+                    # consumed with GET+DEL. Broadcast/client_data branches above
+                    # must stay non-deleting so all instances can decode them.
+                    should_retrieve = True
                 else:
                     # check if the message targets a websocket we own
                     target_ws_id = message.get("ws_id")
@@ -2240,6 +2328,9 @@ class GulpRedisBroker:
         from gulp.process import GulpProcess
 
         redis_client = GulpRedis.get_instance()
+        if not wsd.origin_server_id:
+            wsd.origin_server_id = redis_client.server_id
+        self._assign_sequence(wsd)
 
         # Routing policy
         # - workers ALWAYS publish to main process using WORKER_TO_MAIN

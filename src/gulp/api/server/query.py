@@ -74,6 +74,7 @@ from gulp.api.opensearch.structs import (
     GulpQueryParameters,
 )
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.prometheus_api import record_api_request_rejection
 from gulp.api.redis_api import GulpRedis
 from gulp.api.server.ingest import GulpIngestionStats
 from gulp.api.server.server_utils import ServerUtils
@@ -98,8 +99,34 @@ from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters, ObjectNotFound
+from gulp.api.redis_api import TaskQueueFullError
 
 router: APIRouter = APIRouter()
+
+
+def _task_queue_full_response(req_id: str, ex: TaskQueueFullError) -> JSONResponse:
+    """Build a structured response for queue-pressure rejections."""
+    record_api_request_rejection(
+        endpoint="query",
+        reason="task_queue_full",
+        task_type=ex.task_type,
+        scope=ex.scope,
+    )
+    return JSONResponse(
+        JSendResponse.error(
+            req_id=req_id,
+            ex={
+                "error": "task_queue_full",
+                "task_type": ex.task_type,
+                "scope": ex.scope,
+                "queue_depth": ex.queue_depth,
+                "queue_limit": ex.queue_limit,
+                "work_units": ex.work_units,
+                "retry_after_msec": ex.retry_after_msec,
+            },
+        ),
+        status_code=503,
+    )
 
 EXAMPLE_SIGMA_RULE = """title: Match All Events
 id: 1a070ea4-87f4-467c-b1a9-f556c56b2449
@@ -165,13 +192,15 @@ async def _query_raw_chunk_callback(
     )
 
     cb_context["total_hits"] = total_hits
-    cb_context["total_processed"] = cb_context.get("total_processed", 0) + len(chunk)
+    hit_offset = cb_context.get("total_processed", 0)
+    cb_context["total_processed"] = hit_offset + len(chunk)
 
     user_id: str = cb_context["user_id"]
     operation_id: str = cb_context["operation_id"]
     ws_id: str = cb_context["ws_id"]
     q_options: GulpQueryParameters = cb_context["q_options"]
     q: dict = cb_context["q"]
+    query_ordinal: int = cb_context.get("query_ordinal")
 
     # we also have these for sigma query
     sigma_yml: str = cb_context.get("sigma_yml")
@@ -228,12 +257,14 @@ async def _query_raw_chunk_callback(
             tags=tags,
             color=q_options.notes_color,
             glyph_id=q_options.notes_glyph_id,
+            query_ordinal=query_ordinal,
+            hit_offset=hit_offset,
             last=last,
         )
     return chunk
 
 
-async def run_query_task(t: dict) -> None:
+async def run_query_task(t: dict) -> bool:
     """
     runs in a worker process and executes a queued query task, which may contain one or more queries.
 
@@ -260,6 +291,7 @@ async def run_query_task(t: dict) -> None:
         params: dict = t.get("params", {})
         user_id: str = t.get("user_id")
         req_id: str = t.get("req_id")
+        task_id: str = t.get("__task_id__") or req_id
         operation_id: str = t.get("operation_id")
         ws_id: str = t.get("ws_id")
 
@@ -315,12 +347,15 @@ async def run_query_task(t: dict) -> None:
                 plugin=plugin,
                 plugin_params=plugin_params_model,
                 ignore_failures=ignore_failures,
+                stats_update_prefix=task_id,
             )
+            return True
     except Exception as ex:
         MutyLogger.get_instance().exception(
             "***ERROR*** in run_query_task, task=%s",
             orjson.dumps(t, option=orjson.OPT_INDENT_2).decode(),
         )
+        return False
 
 
 async def run_query(
@@ -407,6 +442,7 @@ async def run_query(
                         "sigma_yml": gq.sigma_yml,
                         "total_hits": 0,
                         "q_name": gq.q_name,
+                        "query_ordinal": gq.query_ordinal,
                     }
                     await GulpOpenSearch.get_instance().search_dsl(
                         sess,
@@ -485,6 +521,7 @@ async def run_query_batch(
     plugin: str = None,
     plugin_params: GulpPluginParameters | dict = None,
     ignore_failures: bool = False,
+    stats_update_key: str = None,
 ) -> list[tuple[int, int, str, bool] | Exception]:
     """Run a list of queries inside a single worker process.
 
@@ -574,6 +611,7 @@ async def run_query_batch(
                             inc_completed=completed,
                             errors=errors,
                             ignore_failures=ignore_failures,
+                            update_key=stats_update_key,
                         )
                     except WebSocketDisconnect:
                         # ignore if force_ignore_missing_ws is set
@@ -585,6 +623,17 @@ async def run_query_batch(
             )
 
     return per_query_results
+
+
+def _query_batch_stats_update_key(
+    req_id: str,
+    batch_start: int,
+    batch_size: int,
+    stats_update_prefix: str = None,
+) -> str:
+    """Return the counter update key for one query batch."""
+    prefix = stats_update_prefix or req_id
+    return f"query_batch:{prefix}:{batch_start}:{batch_size}"
 
 
 async def process_queries(
@@ -600,6 +649,7 @@ async def process_queries(
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
     ignore_failures: bool = False,
+    stats_update_prefix: str = None,
 ) -> bool:
     """
     runs in a background task and spawns workers to process (one or more) queries, batching them if needed.
@@ -619,6 +669,7 @@ async def process_queries(
         plugin: str - plugin name (for external queries)
         plugin_params: GulpPluginParameters - plugin parameters (for external queries)
         ignore_failures: bool - whether to ignore failures when finalizing stats (sets "failed" status only if all queries failed)
+        stats_update_prefix: str - internal task prefix for batch stats updates
 
     Returns:
         bool: True if the request was canceled, False otherwise.
@@ -627,6 +678,7 @@ async def process_queries(
     batching_step_reached: bool = False
     req_canceled: bool = False
     stats: GulpRequestStats = None
+    stats_created: bool = False
     try:
         # get a stats, or create it if it doesn't exist yet
         # for query stats, we will have a GulpQueryStats payload
@@ -641,7 +693,7 @@ async def process_queries(
         # store the list of queries in the stats for easier debugging and context (for external queries, this will be just one query)
         data["q"] = [q.q for q in queries]
         try:
-            stats, _ = await GulpRequestStats.create_or_get_existing(
+            stats, stats_created = await GulpRequestStats.create_or_get_existing(
                 sess,
                 req_id,
                 user_id,
@@ -658,6 +710,18 @@ async def process_queries(
             # ignore if force_ignore_missing_ws is set
             if not q_options.force_ignore_missing_ws:
                 raise
+
+        if (
+            stats
+            and not stats_created
+            and GulpRequestStats.is_terminal_status(stats.status)
+        ):
+            MutyLogger.get_instance().warning(
+                "query request %s already terminal with status=%s, skipping replay",
+                req_id,
+                stats.status,
+            )
+            return stats.status == GulpRequestStatus.CANCELED.value
 
         if stats and stats.status == GulpRequestStatus.CANCELED.value:
             MutyLogger.get_instance().warning(
@@ -708,12 +772,18 @@ async def process_queries(
             batch: list[GulpQuery] = queries[i : i + batch_size]
 
             # prepare payloads for the worker
+            batch_payloads: list[dict] = []
+            for offset, q in enumerate(batch):
+                payload = q.model_dump(exclude_none=True)
+                payload.setdefault("query_ordinal", i + offset)
+                batch_payloads.append(payload)
+
             run_query_batch_args = dict(
                 user_id=user_id,
                 req_id=req_id,
                 operation_id=operation_id,
                 ws_id=ws_id,
-                queries=[q.model_dump(exclude_none=True) for q in batch],
+                queries=batch_payloads,
                 q_options=q_options.model_dump(exclude_none=True),
                 index=index,
                 plugin=plugin,
@@ -723,6 +793,12 @@ async def process_queries(
                     else None
                 ),
                 ignore_failures=ignore_failures,
+                stats_update_key=_query_batch_stats_update_key(
+                    req_id,
+                    i,
+                    len(batch),
+                    stats_update_prefix=stats_update_prefix,
+                ),
             )
 
             # submit a single worker task for the whole batch
@@ -1160,7 +1236,10 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                     "q_options": q_options.model_dump(exclude_none=True),
                 },
             }
-            await GulpRedis.get_instance().task_enqueue(task_msg)
+            try:
+                await GulpRedis.get_instance().task_enqueue(task_msg)
+            except TaskQueueFullError as ex:
+                return _task_queue_full_response(req_id, ex)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1368,7 +1447,10 @@ async def query_gulp_handler(
                     "index": op.index,
                 },
             }
-            await GulpRedis.get_instance().task_enqueue(task_msg)
+            try:
+                await GulpRedis.get_instance().task_enqueue(task_msg)
+            except TaskQueueFullError as ex:
+                return _task_queue_full_response(req_id, ex)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1522,7 +1604,10 @@ async def query_external_handler(
                     ),
                 },
             }
-            await GulpRedis.get_instance().task_enqueue(task_msg)
+            try:
+                await GulpRedis.get_instance().task_enqueue(task_msg)
+            except TaskQueueFullError as ex:
+                return _task_queue_full_response(req_id, ex)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1702,7 +1787,10 @@ async def query_sigma_handler(
                     "q_options": q_options.model_dump(exclude_none=True),
                 },
             }
-            await GulpRedis.get_instance().task_enqueue(task_msg)
+            try:
+                await GulpRedis.get_instance().task_enqueue(task_msg)
+            except TaskQueueFullError as ex:
+                return _task_queue_full_response(req_id, ex)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))

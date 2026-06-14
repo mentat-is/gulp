@@ -36,6 +36,7 @@ TASK_TYPE_INGEST: str = "ingest"
 TASK_TYPE_QUERY: str = "query"
 TASK_TYPE_EXTERNAL_QUERY: str = "external_query"
 TASK_TYPE_REBASE: str = "rebase"
+TASK_TYPE_ENRICH: str = "enrich"
 
 # 5-16 characters length, only letters, numbers, underscore, dot, @, dash allowed
 REGEX_CHECK_USERNAME = "^([a-zA-Z0-9_.@-]).{4,16}$"

@@ -40,7 +40,8 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.redis_api import GulpRedis
+from gulp.api.prometheus_api import record_api_request_rejection
+from gulp.api.redis_api import GulpRedis, TaskQueueFullError
 from gulp.api.s3_api import GulpS3
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import TASK_TYPE_REBASE, APIDependencies
@@ -51,6 +52,31 @@ from gulp.structs import GulpInternalEventsManager
 from gulp.process import GulpProcess
 
 router: APIRouter = APIRouter()
+
+
+def _task_queue_full_response(req_id: str, ex: TaskQueueFullError) -> JSONResponse:
+    """Build a structured response for queue-pressure rejections."""
+    record_api_request_rejection(
+        endpoint="db",
+        reason="task_queue_full",
+        task_type=ex.task_type,
+        scope=ex.scope,
+    )
+    return JSONResponse(
+        JSendResponse.error(
+            req_id=req_id,
+            ex={
+                "error": "task_queue_full",
+                "task_type": ex.task_type,
+                "scope": ex.scope,
+                "queue_depth": ex.queue_depth,
+                "queue_limit": ex.queue_limit,
+                "work_units": ex.work_units,
+                "retry_after_msec": ex.retry_after_msec,
+            },
+        ),
+        status_code=503,
+    )
 
 
 async def db_reset() -> None:
@@ -107,6 +133,8 @@ async def _rebase_callback(
     errors: list[str] = cb_context["errors"]
     stats: GulpRequestStats = cb_context["stats"]
     ws_id: str = cb_context["ws_id"]
+    chunk_num: int = cb_context.get("stats_update_chunk_num", 0)
+    cb_context["stats_update_chunk_num"] = chunk_num + 1
     # print("******************** rebase callback, total=%d, current=%d, last=%s, errors=%s, status=%s" % (total, current, last, errors, stats.status if stats else None))
     await stats.update_updatedocuments_stats(
         sess,
@@ -117,10 +145,11 @@ async def _rebase_callback(
         flt=flt,
         errors=errors,
         last=last,
+        update_key=f"rebase:{req_id}:{chunk_num}:{last}",
     )
 
 
-async def run_rebase_task(t: dict) -> None:
+async def run_rebase_task(t: dict) -> bool:
     """
     runs in the MAIN PROCESS and spawns a worker for a queued rebase task.
 
@@ -167,7 +196,7 @@ async def run_rebase_task(t: dict) -> None:
             else:
                 flt_model = flt
 
-        # spawn worker to run the actual rebase (non-blocking)
+        # wait for the actual rebase to finish so the queue can ack only on success
         await GulpServer.get_instance().spawn_worker_task(
             _rebase_by_query_internal,
             req_id,
@@ -179,12 +208,15 @@ async def run_rebase_task(t: dict) -> None:
             flt_model,
             fields,
             task_name=f"rebase_{req_id}",
+            wait=True,
         )
+        return True
 
     except Exception as ex:
         MutyLogger.get_instance().exception(
             "***ERROR*** in run_rebase_task, task=%s", orjson.dumps(t, option=orjson.OPT_INDENT_2).decode()
         )
+        return False
 
 async def _rebase_by_query_internal(
     req_id: str,
@@ -214,7 +246,7 @@ async def _rebase_by_query_internal(
         # rebase
         async with GulpCollab.get_instance().session() as sess:
             try:
-                stats, _ = await GulpRequestStats.create_or_get_existing(
+                stats, stats_created = await GulpRequestStats.create_or_get_existing(
                     sess,
                     req_id,
                     user_id,
@@ -225,6 +257,18 @@ async def _rebase_by_query_internal(
                         exclude_none=True
                     ),
                 )
+                if (
+                    stats
+                    and not stats_created
+                    and GulpRequestStats.is_terminal_status(stats.status)
+                ):
+                    MutyLogger.get_instance().warning(
+                        "rebase request %s already terminal with status=%s, skipping replay",
+                        req_id,
+                        stats.status,
+                    )
+                    total_updated = -1
+                    return
                 cb_context["stats"] = stats
 
                 (
@@ -369,7 +413,10 @@ async def opensearch_rebase_by_query_handler(
                     "fields": fields,
                 },
             }
-            await GulpRedis.get_instance().task_enqueue(task_msg)
+            try:
+                await GulpRedis.get_instance().task_enqueue(task_msg)
+            except TaskQueueFullError as ex:
+                return _task_queue_full_response(req_id, ex)
             return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

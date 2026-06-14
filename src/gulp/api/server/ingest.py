@@ -45,7 +45,8 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.redis_api import GulpRedis
+from gulp.api.prometheus_api import record_api_request_rejection
+from gulp.api.redis_api import GulpRedis, TaskQueueFullError
 from gulp.api.s3_api import GulpS3
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import (
@@ -158,6 +159,31 @@ class GulpZipMetadataEntry(BaseModel):
     plugin_params: Annotated[
         Optional[GulpPluginParameters], Field(description="The plugin parameters.")
     ] = Field(default_factory=GulpPluginParameters)
+
+
+def _task_queue_full_response(req_id: str, ex: TaskQueueFullError) -> JSONResponse:
+    """Build a structured response for queue-pressure rejections."""
+    record_api_request_rejection(
+        endpoint="ingest",
+        reason="task_queue_full",
+        task_type=ex.task_type,
+        scope=ex.scope,
+    )
+    return JSONResponse(
+        JSendResponse.error(
+            req_id=req_id,
+            ex={
+                "error": "task_queue_full",
+                "task_type": ex.task_type,
+                "scope": ex.scope,
+                "queue_depth": ex.queue_depth,
+                "queue_limit": ex.queue_limit,
+                "work_units": ex.work_units,
+                "retry_after_msec": ex.retry_after_msec,
+            },
+        ),
+        status_code=503,
+    )
 
 
 router = APIRouter()
@@ -273,7 +299,7 @@ async def _ingest_file_internal(
 
             if not payload.plugin_params.preview_mode:
                 # create stats
-                stats, _ = await GulpRequestStats.create_or_get_existing(
+                stats, stats_created = await GulpRequestStats.create_or_get_existing(
                     sess,
                     req_id,
                     user_id,
@@ -284,6 +310,17 @@ async def _ingest_file_internal(
                         exclude_none=True
                     ),
                 )
+                if (
+                    stats
+                    and not stats_created
+                    and GulpRequestStats.is_terminal_status(stats.status)
+                ):
+                    MutyLogger.get_instance().warning(
+                        "ingest request %s already terminal with status=%s, skipping replay",
+                        req_id,
+                        stats.status,
+                    )
+                    return GulpRequestStatus(stats.status), []
 
                 # create (or get, if they already exist) context and source on the collab db
                 op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
@@ -372,7 +409,7 @@ async def _ingest_file_internal(
                 await muty.file.delete_file_or_dir_async(file_path)
 
 
-async def run_ingest_file_task(t: dict):
+async def run_ingest_file_task(t: dict) -> bool:
     """
     runs in a task in a worker process and calls _ingest_file_internal
 
@@ -388,12 +425,14 @@ async def run_ingest_file_task(t: dict):
     # )
     try:
         await _ingest_file_internal(**ingest_args)
+        return True
     except:
         ingest_args["payload"] = pp  # restore original payload for logging
         MutyLogger.get_instance().exception(
             "***ERROR*** in run_ingest_file_task, task=%s",
             orjson.dumps(t, option=orjson.OPT_INDENT_2).decode(),
         )
+        return False
 
 
 async def _preview_or_enqueue_ingest_task(
@@ -409,6 +448,7 @@ async def _preview_or_enqueue_ingest_task(
     file_path: str,
     payload: GulpIngestPayload,
     file_total: int = 1,
+    file_size: int | None = None,
     delete_after: bool = True,
 ) -> JSONResponse:
     """
@@ -432,6 +472,7 @@ async def _preview_or_enqueue_ingest_task(
         file_path=file_path,
         payload=payload,
         file_total=file_total,
+        file_size=file_size,
         delete_after=delete_after,
     )
 
@@ -468,7 +509,10 @@ async def _preview_or_enqueue_ingest_task(
         "req_id": req_id,
         "params": kwds,
     }
-    await GulpRedis.get_instance().task_enqueue(task_msg)
+    try:
+        await GulpRedis.get_instance().task_enqueue(task_msg)
+    except TaskQueueFullError as ex:
+        return _task_queue_full_response(req_id, ex)
 
     # return pending response
     return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -671,6 +715,10 @@ async def ingest_file_handler(
             # MutyLogger.get_instance().debug("ingest_file_handler ingest payload(before model_validate): %s", payload_dict)
             payload = GulpIngestPayload.model_validate(payload_dict)
             # MutyLogger.get_instance().debug("ingest_file_handler ingest payload(after model_validate): %s", payload)
+            try:
+                file_size = int(r.headers.get("size") or 0)
+            except (TypeError, ValueError):
+                file_size = None
 
             # proceed with the ingestion
             # we have all we need, proceed with ingestion outside the session
@@ -687,6 +735,7 @@ async def ingest_file_handler(
                 file_path=file_path,
                 payload=payload,
                 file_total=file_total,
+                file_size=file_size,
             )
     except Exception as ex:
         # cleanup
@@ -1328,7 +1377,7 @@ async def _ingest_zip_internal(
                 raise
 
             # enqueue tasks (they will be processed by workers)
-            for f in files:
+            for task_num, f in enumerate(files, start=1):
                 kwds = dict(
                     context_name=context_name,
                     source_name=f.original_file_path,
@@ -1342,13 +1391,17 @@ async def _ingest_zip_internal(
                 )
                 task_msg = {
                     "task_type": TASK_TYPE_INGEST,
+                    "__task_id__": f"{req_id}:ingest_zip:{task_num}",
                     "operation_id": operation_id,
                     "user_id": user_id,
                     "ws_id": ws_id,
                     "req_id": req_id,
                     "params": kwds,
                 }
-                await GulpRedis.get_instance().task_enqueue(task_msg)
+                try:
+                    await GulpRedis.get_instance().task_enqueue(task_msg)
+                except TaskQueueFullError as ex:
+                    return _task_queue_full_response(req_id, ex)
         finally:
             # delete the zip file
             await muty.file.delete_file_or_dir_async(path)

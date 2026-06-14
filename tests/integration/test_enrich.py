@@ -60,6 +60,39 @@ async def _ingest_small_evtx(client, operation_id: str) -> str:
     return str(doc_id)
 
 
+async def _preview_docs(client, operation_id: str, limit: int = 10) -> list[dict]:
+    """Fetch preview documents for an operation."""
+    preview = await client.queries.query_raw(
+        operation_id=operation_id,
+        q=[{"query": {"match_all": {}}}],
+        q_options={"preview_mode": True, "limit": limit, "name": "sdk_enrich_preview"},
+    )
+    return (preview.get("data") or {}).get("docs") or []
+
+
+def _doc_tags(doc: dict) -> list[str]:
+    """Return document tags from either flattened or nested ECS shape."""
+    tags = doc.get("gulp.tags", [])
+    if not tags and isinstance(doc.get("gulp"), dict):
+        tags = doc.get("gulp", {}).get("tags", [])
+    return tags or []
+
+
+async def _wait_for_doc(
+    client, operation_id: str, predicate, timeout: float = 60.0
+) -> dict:
+    """Poll preview documents until one matches ``predicate``."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        docs = await _preview_docs(client, operation_id)
+        for doc in docs:
+            if predicate(doc):
+                return doc
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError("Timed out waiting for matching preview document")
+        await asyncio.sleep(1.0)
+
+
 async def _delete_operation_with_retry(
     client, operation_id: str, timeout: float = 30.0
 ) -> None:
@@ -135,8 +168,11 @@ async def test_enrich_core_endpoints(gulp_base_url, gulp_test_user, gulp_test_pa
                 operation_id=op.id,
                 fields=["sdk_enrich_remove_field"],
                 flt={"operation_ids": [op.id]},
+                wait=True,
             )
             assert isinstance(rem_by_field, dict)
+            assert str(rem_by_field.get("status", "")).lower() == "done"
+            assert int((rem_by_field.get("data") or {}).get("num_deleted", 0)) >= 1
             fetched = await client.queries.query_single_id(op.id, doc_id)
             assert "sdk_enrich_remove_field" not in fetched
 
@@ -168,8 +204,11 @@ async def test_enrich_core_endpoints(gulp_base_url, gulp_test_user, gulp_test_pa
             rem = await client.enrich.enrich_remove(
                 operation_id=op.id,
                 flt={"operation_ids": [op.id]},
+                wait=True,
             )
             assert isinstance(rem, dict)
+            assert str(rem.get("status", "")).lower() == "done"
+            assert int((rem.get("data") or {}).get("num_deleted", 0)) >= 1
 
             fetched = await client.queries.query_single_id(op.id, doc_id)
             assert "gulp.enriched" not in fetched
@@ -223,6 +262,498 @@ async def test_enrich_core_endpoints(gulp_base_url, gulp_test_user, gulp_test_pa
         except GulpSDKError as exc:
             pytest.skip(f"enrich core endpoints unavailable in current server: {exc}")
         finally:
+            await _delete_operation_with_retry(client, op.id)
+
+
+@pytest.mark.integration
+async def test_update_documents_terminal_replay_does_not_mutate_again(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """Replaying a terminal update_documents req_id must not apply new updates."""
+    from gulp_sdk import GulpClient, GulpSDKError
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(_unique("sdk_update_replay_op"))
+        try:
+            doc_id = await _ingest_small_evtx(client, op.id)
+            req_id = _unique("req_update_replay")
+
+            first = await client.enrich.update_documents(
+                operation_id=op.id,
+                fields={"sdk_update_replay": "first"},
+                flt={"operation_ids": [op.id]},
+                req_id=req_id,
+                wait=True,
+            )
+            print("update_documents terminal replay first:", first)
+            assert isinstance(first, dict)
+            assert str(first.get("status", "")).lower() == "done"
+            stats_data_after_first = first.get("data") or {}
+
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            assert fetched.get("sdk_update_replay") == "first"
+            assert fetched.get("gulp.update_req_ids", []).count(req_id) == 1
+
+            second = await client.enrich.update_documents(
+                operation_id=op.id,
+                fields={"sdk_update_replay": "second"},
+                flt={"operation_ids": [op.id]},
+                req_id=req_id,
+            )
+            print("update_documents terminal replay second:", second)
+            assert isinstance(second, dict)
+            assert str(second.get("status", "")).lower() == "pending"
+
+            second_stats = await _wait_request_done(client, req_id)
+            print("update_documents terminal replay second stats:", second_stats)
+            assert str(second_stats.get("status", "")).lower() == "done"
+            assert (second_stats.get("data") or {}) == stats_data_after_first
+
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            assert fetched.get("sdk_update_replay") == "first"
+            assert fetched.get("gulp.update_req_ids", []).count(req_id) == 1
+        except GulpSDKError as exc:
+            pytest.skip(f"update_documents unavailable in current server: {exc}")
+        finally:
+            await _delete_operation_with_retry(client, op.id)
+
+
+@pytest.mark.integration
+async def test_enrich_remove_terminal_replay_does_not_mutate_again(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """Replaying a terminal enrich_remove req_id must not remove new fields."""
+    from gulp_sdk import GulpClient, GulpSDKError
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(_unique("sdk_enrich_remove_replay_op"))
+        try:
+            doc_id = await _ingest_small_evtx(client, op.id)
+            req_id = _unique("req_enrich_remove_replay")
+            first_field = "sdk_enrich_remove_replay_first"
+            second_field = "sdk_enrich_remove_replay_second"
+
+            setup = await client.enrich.update_documents(
+                operation_id=op.id,
+                fields={
+                    first_field: "remove-me",
+                    second_field: "must-stay",
+                },
+                flt={"operation_ids": [op.id]},
+                wait=True,
+            )
+            print("enrich_remove terminal replay setup:", setup)
+            assert isinstance(setup, dict)
+            assert str(setup.get("status", "")).lower() == "done"
+
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            assert fetched.get(first_field) == "remove-me"
+            assert fetched.get(second_field) == "must-stay"
+
+            first = await client.enrich.enrich_remove(
+                operation_id=op.id,
+                fields=[first_field],
+                flt={"operation_ids": [op.id]},
+                req_id=req_id,
+                wait=True,
+            )
+            print("enrich_remove terminal replay first:", first)
+            assert isinstance(first, dict)
+            assert str(first.get("status", "")).lower() == "done"
+            stats_data_after_first = first.get("data") or {}
+            assert int(stats_data_after_first.get("num_deleted", 0)) >= 1
+
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            assert first_field not in fetched
+            assert fetched.get(second_field) == "must-stay"
+
+            second = await client.enrich.enrich_remove(
+                operation_id=op.id,
+                fields=[second_field],
+                flt={"operation_ids": [op.id]},
+                req_id=req_id,
+            )
+            print("enrich_remove terminal replay second:", second)
+            assert isinstance(second, dict)
+            assert str(second.get("status", "")).lower() == "pending"
+
+            second_stats = await _wait_request_done(client, req_id)
+            print("enrich_remove terminal replay second stats:", second_stats)
+            assert str(second_stats.get("status", "")).lower() == "done"
+            assert (second_stats.get("data") or {}) == stats_data_after_first
+
+            await asyncio.sleep(2.0)
+            fetched = await client.queries.query_single_id(op.id, doc_id)
+            assert first_field not in fetched
+            assert fetched.get(second_field) == "must-stay"
+        except GulpSDKError as exc:
+            pytest.skip(f"enrich_remove unavailable in current server: {exc}")
+        finally:
+            await _delete_operation_with_retry(client, op.id)
+
+
+@pytest.mark.integration
+async def test_update_documents_partial_replay_skips_marked_document(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """A replayed bulk update skips docs already marked with the request id."""
+    from gulp_sdk import GulpClient, GulpSDKError
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(_unique("sdk_update_partial_replay_op"))
+        try:
+            await _ingest_small_evtx(client, op.id)
+            docs = await _preview_docs(client, op.id)
+            if len(docs) < 2:
+                pytest.skip("Need at least two docs for partial replay validation")
+
+            req_id = _unique("req_update_partial_replay")
+            partial_doc_id = docs[0].get("_id") or docs[0].get("id")
+            assert partial_doc_id
+
+            # Simulate a previous crashed attempt that persisted one document and
+            # its replay marker before request stats reached a terminal state.
+            seeded = await client.enrich.update_single_id(
+                operation_id=op.id,
+                doc_id=str(partial_doc_id),
+                fields={
+                    "sdk_update_partial_replay": "first",
+                    "gulp.update_req_ids": [req_id],
+                },
+            )
+            print("update_documents partial replay seeded doc:", seeded)
+            assert seeded.get("sdk_update_partial_replay") == "first"
+            assert seeded.get("gulp.update_req_ids", []).count(req_id) == 1
+
+            replay = await client.enrich.update_documents(
+                operation_id=op.id,
+                fields={"sdk_update_partial_replay": "first"},
+                flt={"operation_ids": [op.id]},
+                req_id=req_id,
+                wait=True,
+            )
+            print("update_documents partial replay stats:", replay)
+            assert isinstance(replay, dict)
+            assert str(replay.get("status", "")).lower() == "done"
+            data = replay.get("data") or {}
+            assert int(data.get("total_hits", 0)) == len(docs)
+            assert int(data.get("updated", 0)) == len(docs)
+
+            docs_after = await _preview_docs(client, op.id)
+            assert len(docs_after) == len(docs)
+            for doc in docs_after:
+                assert doc.get("sdk_update_partial_replay") == "first"
+                assert doc.get("gulp.update_req_ids", []).count(req_id) == 1
+        except GulpSDKError as exc:
+            pytest.skip(f"update_documents unavailable in current server: {exc}")
+        finally:
+            await _delete_operation_with_retry(client, op.id)
+
+
+@pytest.mark.integration
+async def test_tag_documents_partial_replay_skips_marked_document(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """A replayed bulk tag operation preserves a previously marked document."""
+    from gulp_sdk import GulpClient, GulpSDKError
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(_unique("sdk_tag_partial_replay_op"))
+        try:
+            await _ingest_small_evtx(client, op.id)
+            docs = await _preview_docs(client, op.id)
+            if len(docs) < 2:
+                pytest.skip("Need at least two docs for partial replay validation")
+
+            req_id = _unique("req_tag_partial_replay")
+            tag = _unique("sdk_tag_partial_replay")
+            partial_doc_id = docs[0].get("_id") or docs[0].get("id")
+            assert partial_doc_id
+
+            seeded = await client.enrich.update_single_id(
+                operation_id=op.id,
+                doc_id=str(partial_doc_id),
+                fields={
+                    "gulp.tags": [tag],
+                    "gulp.update_req_ids": [req_id],
+                },
+            )
+            print("tag_documents partial replay seeded doc:", seeded)
+            assert tag in _doc_tags(seeded)
+            assert seeded.get("gulp.update_req_ids", []).count(req_id) == 1
+
+            replay = await client.enrich.tag_documents(
+                operation_id=op.id,
+                tags=[tag],
+                flt={"operation_ids": [op.id]},
+                req_id=req_id,
+                wait=True,
+            )
+            print("tag_documents partial replay stats:", replay)
+            assert isinstance(replay, dict)
+            assert str(replay.get("status", "")).lower() == "done"
+            data = replay.get("data") or {}
+            assert int(data.get("total_hits", 0)) == len(docs)
+            assert int(data.get("updated", 0)) == len(docs)
+
+            docs_after = await _preview_docs(client, op.id)
+            assert len(docs_after) == len(docs)
+            for doc in docs_after:
+                assert _doc_tags(doc).count(tag) == 1
+                assert doc.get("gulp.update_req_ids", []).count(req_id) == 1
+        except GulpSDKError as exc:
+            pytest.skip(f"tag_documents unavailable in current server: {exc}")
+        finally:
+            await _delete_operation_with_retry(client, op.id)
+
+
+@pytest.mark.integration
+async def test_untag_documents_partial_replay_skips_marked_document(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """A replayed bulk untag operation preserves a previously marked document."""
+    from gulp_sdk import GulpClient, GulpSDKError
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(_unique("sdk_untag_partial_replay_op"))
+        try:
+            await _ingest_small_evtx(client, op.id)
+            docs = await _preview_docs(client, op.id)
+            if len(docs) < 2:
+                pytest.skip("Need at least two docs for partial replay validation")
+
+            req_id = _unique("req_untag_partial_replay")
+            tag = _unique("sdk_untag_partial_replay")
+            setup = await client.enrich.tag_documents(
+                operation_id=op.id,
+                tags=[tag],
+                flt={"operation_ids": [op.id]},
+                wait=True,
+            )
+            print("untag_documents partial replay setup stats:", setup)
+            assert isinstance(setup, dict)
+            assert str(setup.get("status", "")).lower() == "done"
+
+            tagged_docs = await _preview_docs(client, op.id)
+            assert len(tagged_docs) == len(docs)
+            for doc in tagged_docs:
+                assert tag in _doc_tags(doc)
+
+            partial_doc_id = tagged_docs[0].get("_id") or tagged_docs[0].get("id")
+            assert partial_doc_id
+
+            seeded = await client.enrich.update_single_id(
+                operation_id=op.id,
+                doc_id=str(partial_doc_id),
+                fields={
+                    "gulp.tags": [],
+                    "gulp.update_req_ids": [req_id],
+                },
+            )
+            print("untag_documents partial replay seeded doc:", seeded)
+            assert tag not in _doc_tags(seeded)
+            assert seeded.get("gulp.update_req_ids", []).count(req_id) == 1
+
+            replay = await client.enrich.untag_documents(
+                operation_id=op.id,
+                tags=[tag],
+                flt={"operation_ids": [op.id]},
+                req_id=req_id,
+                wait=True,
+            )
+            print("untag_documents partial replay stats:", replay)
+            assert isinstance(replay, dict)
+            assert str(replay.get("status", "")).lower() == "done"
+            data = replay.get("data") or {}
+            assert int(data.get("total_hits", 0)) == len(docs)
+            assert int(data.get("updated", 0)) == len(docs)
+
+            docs_after = await _preview_docs(client, op.id)
+            assert len(docs_after) == len(docs)
+            for doc in docs_after:
+                assert tag not in _doc_tags(doc)
+                assert doc.get("gulp.update_req_ids", []).count(req_id) == 1
+        except GulpSDKError as exc:
+            pytest.skip(f"untag_documents unavailable in current server: {exc}")
+        finally:
+            await _delete_operation_with_retry(client, op.id)
+
+
+@pytest.mark.integration
+async def test_enrich_documents_partial_replay_skips_marked_document(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """A replayed plugin enrichment skips docs already marked with the request id."""
+    from gulp_sdk import GulpClient, GulpSDKError
+
+    plugin_path = Path("/gulp/tests/fixtures/plugins/enrich_replay_marker.py")
+    if not plugin_path.exists():
+        pytest.skip(f"enrich_replay_marker plugin missing: {plugin_path}")
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(_unique("sdk_enrich_partial_replay_op"))
+        try:
+            await _ingest_small_evtx(client, op.id)
+            docs = await _preview_docs(client, op.id)
+            if len(docs) < 2:
+                pytest.skip("Need at least two docs for partial replay validation")
+
+            req_id = _unique("req_enrich_partial_replay")
+            partial_doc_id = docs[0].get("_id") or docs[0].get("id")
+            assert partial_doc_id
+
+            seeded = await client.enrich.update_single_id(
+                operation_id=op.id,
+                doc_id=str(partial_doc_id),
+                fields={
+                    "enriched": True,
+                    "gulp.enriched": {
+                        "enrich_replay_marker": {
+                            "marker": "seeded-before-replay",
+                        }
+                    },
+                    "gulp.update_req_ids": [req_id],
+                },
+            )
+            print("enrich_documents partial replay seeded doc:", seeded)
+            seeded_enriched = seeded.get("gulp.enriched") or {}
+            assert (
+                seeded_enriched.get("enrich_replay_marker", {}).get("marker")
+                == "seeded-before-replay"
+            )
+            assert seeded.get("gulp.update_req_ids", []).count(req_id) == 1
+
+            replay = await client.enrich.enrich_documents(
+                operation_id=op.id,
+                plugin=str(plugin_path),
+                fields={"sdk_enrich_example_input": "constant"},
+                flt={"operation_ids": [op.id]},
+                req_id=req_id,
+                wait=True,
+                timeout=300,
+            )
+            print("enrich_documents partial replay stats:", replay)
+            assert isinstance(replay, dict)
+            assert str(replay.get("status", "")).lower() == "done"
+            data = replay.get("data") or {}
+            assert int(data.get("total_hits", 0)) == len(docs)
+            assert int(data.get("updated", 0)) == len(docs)
+
+            docs_after = await _preview_docs(client, op.id)
+            assert len(docs_after) == len(docs)
+            by_id = {str(doc.get("_id") or doc.get("id")): doc for doc in docs_after}
+            seeded_after = by_id[str(partial_doc_id)]
+            seeded_after_enriched = seeded_after.get("gulp.enriched") or {}
+            assert (
+                seeded_after_enriched.get("enrich_replay_marker", {}).get("marker")
+                == "seeded-before-replay"
+            )
+            for doc in docs_after:
+                assert doc.get("enriched") is True
+                assert doc.get("gulp.update_req_ids", []).count(req_id) == 1
+                if str(doc.get("_id") or doc.get("id")) != str(partial_doc_id):
+                    enriched = doc.get("gulp.enriched") or {}
+                    assert (
+                        enriched.get("enrich_replay_marker", {}).get("marker")
+                        == f"applied:{req_id}"
+                    )
+        except GulpSDKError as exc:
+            pytest.skip(f"enrich_replay_marker unavailable in current server: {exc}")
+        finally:
+            await _delete_operation_with_retry(client, op.id)
+
+
+@pytest.mark.integration
+async def test_enrich_documents_worker_exit_retry_skips_persisted_marker(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """Redis retry after a hard worker exit skips the document persisted before exit."""
+    from gulp_sdk import GulpClient, GulpSDKError
+
+    plugin_path = Path("/gulp/tests/fixtures/plugins/enrich_replay_marker.py")
+    if not plugin_path.exists():
+        pytest.skip(f"enrich_replay_marker plugin missing: {plugin_path}")
+
+    crash_marker = Path(f"/tmp/gulp_enrich_replay_crash_{uuid.uuid4().hex}")
+    crash_marker.unlink(missing_ok=True)
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(_unique("sdk_enrich_exit_replay_op"))
+        try:
+            await _ingest_small_evtx(client, op.id)
+            docs = await _preview_docs(client, op.id)
+            if len(docs) < 2:
+                pytest.skip("Need at least two docs for worker-exit replay validation")
+
+            req_id = _unique("req_enrich_exit_replay")
+            plugin_params = {
+                "custom_parameters": {
+                    "crash_once_marker_path": str(crash_marker),
+                    "task_timeout_sec": 5,
+                }
+            }
+
+            result = await client.enrich.enrich_documents(
+                operation_id=op.id,
+                plugin=str(plugin_path),
+                fields={"sdk_enrich_exit_input": "constant"},
+                flt={"operation_ids": [op.id]},
+                plugin_params=plugin_params,
+                req_id=req_id,
+                wait=True,
+                timeout=300,
+            )
+            print("enrich_documents worker-exit retry stats:", result)
+            assert isinstance(result, dict)
+            assert str(result.get("status", "")).lower() == "done"
+            data = result.get("data") or {}
+            assert int(data.get("total_hits", 0)) == len(docs)
+            assert int(data.get("updated", 0)) == len(docs)
+
+            crashed_doc = await _wait_for_doc(
+                client,
+                op.id,
+                lambda doc: (
+                    (doc.get("gulp.enriched") or {})
+                    .get("enrich_replay_marker", {})
+                    .get("marker")
+                    == f"crashed:{req_id}"
+                    and doc.get("gulp.update_req_ids", []).count(req_id) == 1
+                ),
+            )
+            print("enrich_documents worker-exit persisted doc:", crashed_doc)
+            assert crash_marker.exists()
+
+            docs_after = await _preview_docs(client, op.id)
+            assert len(docs_after) == len(docs)
+            crashed_doc_id = str(crashed_doc.get("_id") or crashed_doc.get("id"))
+            by_id = {str(doc.get("_id") or doc.get("id")): doc for doc in docs_after}
+            crashed_after = by_id[crashed_doc_id]
+            crashed_enriched = crashed_after.get("gulp.enriched") or {}
+            assert (
+                crashed_enriched.get("enrich_replay_marker", {}).get("marker")
+                == f"crashed:{req_id}"
+            )
+            for doc in docs_after:
+                assert doc.get("enriched") is True
+                assert doc.get("gulp.update_req_ids", []).count(req_id) == 1
+                if str(doc.get("_id") or doc.get("id")) != crashed_doc_id:
+                    enriched = doc.get("gulp.enriched") or {}
+                    assert (
+                        enriched.get("enrich_replay_marker", {}).get("marker")
+                        == f"applied:{req_id}"
+                    )
+        except GulpSDKError as exc:
+            pytest.skip(f"enrich_replay_marker unavailable in current server: {exc}")
+        finally:
+            crash_marker.unlink(missing_ok=True)
             await _delete_operation_with_retry(client, op.id)
 
 

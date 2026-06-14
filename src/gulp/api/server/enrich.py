@@ -17,11 +17,9 @@ from typing import Annotated
 import muty.log
 from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
-from llvmlite.tests.test_ir import flt
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
-from scipy import stats
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.operation import GulpOperation
@@ -37,14 +35,207 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpDocument, GulpQueryParameters
 from gulp.api.opensearch_api import GulpOpenSearch
+from gulp.api.prometheus_api import record_api_request_rejection
+from gulp.api.redis_api import GulpRedis, TaskQueueFullError
+from gulp.api.replay import (
+    document_has_update_request,
+    mark_document_update_request,
+)
 from gulp.api.server.server_utils import ServerUtils
-from gulp.api.server.structs import APIDependencies
+from gulp.api.server.structs import APIDependencies, TASK_TYPE_ENRICH
 from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpPluginParameters
 
 router: APIRouter = APIRouter()
+
+ENRICH_TASK_ACTION_ENRICH_DOCUMENTS = "enrich_documents"
+ENRICH_TASK_ACTION_UPDATE_DOCUMENTS = "update_documents"
+ENRICH_TASK_ACTION_TAG_DOCUMENTS = "tag_documents"
+ENRICH_TASK_ACTION_UNTAG_DOCUMENTS = "untag_documents"
+ENRICH_TASK_ACTION_ENRICH_REMOVE = "enrich_remove"
+
+
+def _task_queue_full_response(req_id: str, ex: TaskQueueFullError) -> JSONResponse:
+    """Build a structured response for enrich/update queue-pressure rejections."""
+    record_api_request_rejection(
+        endpoint="enrich",
+        reason="task_queue_full",
+        task_type=ex.task_type,
+        scope=ex.scope,
+    )
+    return JSONResponse(
+        JSendResponse.error(
+            req_id=req_id,
+            ex={
+                "error": "task_queue_full",
+                "task_type": ex.task_type,
+                "scope": ex.scope,
+                "queue_depth": ex.queue_depth,
+                "queue_limit": ex.queue_limit,
+                "work_units": ex.work_units,
+                "retry_after_msec": ex.retry_after_msec,
+            },
+        ),
+        status_code=503,
+    )
+
+
+async def _enqueue_enrich_task(
+    token: str,
+    operation_id: str,
+    ws_id: str,
+    req_id: str,
+    flt: GulpQueryFilter,
+    action: str,
+    *,
+    data: dict | None = None,
+    tags: list[str] | None = None,
+    plugin: str | None = None,
+    fields: dict | None = None,
+    remove_fields: list[str] | None = None,
+    plugin_params: GulpPluginParameters | None = None,
+) -> JSONResponse:
+    """Authorize and enqueue a multi-document enrich/update task."""
+    async with GulpCollab.get_instance().session() as sess:
+        flt.operation_ids = [operation_id]
+
+        op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
+        s = await GulpUserSession.check_token(
+            sess, token, obj=op, permission=GulpUserPermission.EDIT
+        )
+        user_id = s.user.id
+
+        params = {
+            "action": action,
+            "index": op.index,
+            "flt": flt.model_dump(exclude_none=True),
+        }
+        if data is not None:
+            params["data"] = data
+        if tags is not None:
+            params["tags"] = tags
+        if plugin is not None:
+            params["plugin"] = plugin
+        if fields is not None:
+            params["fields"] = fields
+        if remove_fields is not None:
+            params["remove_fields"] = remove_fields
+        if plugin_params is not None:
+            params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
+
+        task_msg = {
+            "task_type": TASK_TYPE_ENRICH,
+            "operation_id": operation_id,
+            "user_id": user_id,
+            "ws_id": ws_id,
+            "req_id": req_id,
+            "params": params,
+        }
+        custom_parameters = (
+            plugin_params.custom_parameters if plugin_params is not None else {}
+        )
+        if isinstance(custom_parameters, dict) and custom_parameters.get(
+            "task_timeout_sec"
+        ):
+            task_msg["__task_timeout_sec__"] = custom_parameters["task_timeout_sec"]
+        try:
+            await GulpRedis.get_instance().task_enqueue(task_msg)
+        except TaskQueueFullError as ex:
+            return _task_queue_full_response(req_id, ex)
+
+        return JSONResponse(JSendResponse.pending(req_id=req_id))
+
+
+async def run_enrich_task(t: dict) -> bool:
+    """Run a queued multi-document enrich/update task."""
+    params: dict = t.get("params", {})
+    action = params.get("action")
+    user_id: str = t.get("user_id")
+    req_id: str = t.get("req_id")
+    operation_id: str = t.get("operation_id")
+    ws_id: str = t.get("ws_id")
+    index: str = params.get("index")
+    flt_payload = params.get("flt") or {}
+    flt = (
+        GulpQueryFilter.model_validate(flt_payload)
+        if isinstance(flt_payload, dict)
+        else flt_payload
+    )
+
+    if action == ENRICH_TASK_ACTION_ENRICH_DOCUMENTS:
+        plugin_params_payload = params.get("plugin_params")
+        plugin_params = (
+            GulpPluginParameters.model_validate(plugin_params_payload)
+            if isinstance(plugin_params_payload, dict)
+            else plugin_params_payload
+        ) or GulpPluginParameters()
+        await GulpServer.get_instance().spawn_worker_task(
+            _enrich_documents_internal,
+            user_id,
+            req_id,
+            ws_id,
+            flt,
+            operation_id,
+            index,
+            params.get("plugin"),
+            params.get("fields") or {},
+            plugin_params,
+            task_name=f"enrich_{req_id}",
+            wait=True,
+        )
+        return True
+
+    if action in {
+        ENRICH_TASK_ACTION_UPDATE_DOCUMENTS,
+        ENRICH_TASK_ACTION_TAG_DOCUMENTS,
+    }:
+        await GulpServer.get_instance().spawn_worker_task(
+            _update_documents_internal,
+            user_id,
+            ws_id,
+            req_id,
+            operation_id,
+            index,
+            flt,
+            params.get("data") or {},
+            task_name=f"enrich_{req_id}",
+            wait=True,
+        )
+        return True
+
+    if action == ENRICH_TASK_ACTION_UNTAG_DOCUMENTS:
+        await GulpServer.get_instance().spawn_worker_task(
+            _untag_documents_internal,
+            user_id,
+            ws_id,
+            req_id,
+            operation_id,
+            index,
+            flt,
+            params.get("tags") or [],
+            task_name=f"enrich_{req_id}",
+            wait=True,
+        )
+        return True
+
+    if action == ENRICH_TASK_ACTION_ENRICH_REMOVE:
+        await GulpServer.get_instance().spawn_worker_task(
+            _enrich_remove_internal,
+            user_id,
+            ws_id,
+            req_id,
+            operation_id,
+            index,
+            flt,
+            params.get("remove_fields") or [],
+            task_name=f"enrich_{req_id}",
+            wait=True,
+        )
+        return True
+
+    raise ValueError(f"unknown enrich task action: {action!r}")
 
 
 async def _enrich_documents_internal(
@@ -69,7 +260,7 @@ async def _enrich_documents_internal(
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
-            stats, _ = await GulpRequestStats.create_or_get_existing(
+            stats, stats_created = await GulpRequestStats.create_or_get_existing(
                 sess,
                 req_id,
                 user_id,
@@ -78,6 +269,17 @@ async def _enrich_documents_internal(
                 ws_id=ws_id,
                 data=GulpUpdateDocumentsStats().model_dump(exclude_none=True),
             )
+            if (
+                stats
+                and not stats_created
+                and GulpRequestStats.is_terminal_status(stats.status)
+            ):
+                MutyLogger.get_instance().warning(
+                    "enrich request %s already terminal with status=%s, skipping replay",
+                    req_id,
+                    stats.status,
+                )
+                return
 
             # call plugin, the engine will update stats internally
             mod = await GulpPluginBase.load(plugin)
@@ -176,32 +378,17 @@ async def enrich_documents_handler(
     ServerUtils.dump_params(params)
 
     try:
-        async with GulpCollab.get_instance().session() as sess:
-            # enforce operation_id
-            flt.operation_ids = [operation_id]
-
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(
-                sess, token, obj=op, permission=GulpUserPermission.EDIT
-            )
-            user_id = s.user.id
-            index = op.index
-
-            # offload to a worker process and return pending
-            await GulpServer.get_instance().spawn_worker_task(
-                _enrich_documents_internal,
-                user_id,
-                req_id,
-                ws_id,
-                flt,
-                operation_id,
-                index,
-                plugin,
-                fields,
-                plugin_params,
-            )
-            return JSONResponse(JSendResponse.pending(req_id=req_id))
+        return await _enqueue_enrich_task(
+            token,
+            operation_id,
+            ws_id,
+            req_id,
+            flt,
+            ENRICH_TASK_ACTION_ENRICH_DOCUMENTS,
+            plugin=plugin,
+            fields=fields,
+            plugin_params=plugin_params,
+        )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -311,8 +498,14 @@ async def _modify_documents_chunk(
     flt: GulpQueryFilter = cb_context["flt"]
 
     updated_docs = []
+    already_updated = 0
     for d in chunk:
+        if document_has_update_request(d, req_id):
+            already_updated += 1
+            continue
+
         if mutate_fn(d):
+            mark_document_update_request(d, req_id)
             updated_docs.append(d)
 
     MutyLogger.get_instance().debug(
@@ -340,7 +533,7 @@ async def _modify_documents_chunk(
             updated = 0
             errs = []
 
-    num_updated = updated
+    num_updated = already_updated + updated
     cb_context["total_updated"] += num_updated
     cb_context["errors"].extend(errs)
 
@@ -354,6 +547,7 @@ async def _modify_documents_chunk(
         flt=flt,
         errors=errs,
         last=last,
+        update_key=f"modify_documents:{req_id}:{chunk_num}:{last}",
     )
     return chunk
 
@@ -421,7 +615,7 @@ async def _update_documents_internal(
     async with GulpCollab.get_instance().session() as sess:
         try:
             # create a stats, just to allow request canceling
-            stats, _ = await GulpRequestStats.create_or_get_existing(
+            stats, stats_created = await GulpRequestStats.create_or_get_existing(
                 sess,
                 req_id,
                 user_id,
@@ -430,6 +624,17 @@ async def _update_documents_internal(
                 ws_id=ws_id,
                 data=GulpUpdateDocumentsStats().model_dump(exclude_none=True),
             )
+            if (
+                stats
+                and not stats_created
+                and GulpRequestStats.is_terminal_status(stats.status)
+            ):
+                MutyLogger.get_instance().warning(
+                    "update-documents request %s already terminal with status=%s, skipping replay",
+                    req_id,
+                    stats.status,
+                )
+                return
             cb_context["stats"] = stats
             enriched, total_hits = await GulpOpenSearch.get_instance().search_dsl(
                 sess,
@@ -521,7 +726,7 @@ async def _untag_documents_internal(
 
     async with GulpCollab.get_instance().session() as sess:
         try:
-            stats, _ = await GulpRequestStats.create_or_get_existing(
+            stats, stats_created = await GulpRequestStats.create_or_get_existing(
                 sess,
                 req_id,
                 user_id,
@@ -530,6 +735,17 @@ async def _untag_documents_internal(
                 ws_id=ws_id,
                 data=GulpUpdateDocumentsStats().model_dump(exclude_none=True),
             )
+            if (
+                stats
+                and not stats_created
+                and GulpRequestStats.is_terminal_status(stats.status)
+            ):
+                MutyLogger.get_instance().warning(
+                    "untag-documents request %s already terminal with status=%s, skipping replay",
+                    req_id,
+                    stats.status,
+                )
+                return
             cb_context["stats"] = stats
             enriched, total_hits = await GulpOpenSearch.get_instance().search_dsl(
                 sess,
@@ -554,6 +770,145 @@ async def _untag_documents_internal(
             raise
         finally:
             if enriched:
+                await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
+                    sess, index, user_id, flt
+                )
+
+
+def _build_enrich_remove_request(
+    flt: GulpQueryFilter,
+    fields: list[str] | None,
+) -> dict:
+    """Build the OpenSearch update_by_query request body for enrich_remove."""
+    if fields:
+        exists_clauses = [{"exists": {"field": f}} for f in fields]
+        exists_clause = (
+            exists_clauses[0]
+            if len(exists_clauses) == 1
+            else {
+                "bool": {
+                    "should": exists_clauses,
+                    "minimum_should_match": 1,
+                }
+            }
+        )
+        if flt.is_empty():
+            base_query = exists_clause
+        else:
+            base_query = {"bool": {"must": [flt.to_opensearch_dsl()["query"], exists_clause]}}
+        script: dict = {
+            "source": (
+                "for (f in params.fields) {"
+                " if (ctx._source.containsKey(f)) { ctx._source.remove(f); }"
+                " }"
+            ),
+            "lang": "painless",
+            "params": {"fields": fields},
+        }
+    else:
+        exists_clause = {"exists": {"field": "gulp.enriched"}}
+        if flt.is_empty():
+            base_query = exists_clause
+        else:
+            base_query = {"bool": {"must": [flt.to_opensearch_dsl()["query"], exists_clause]}}
+        script = {
+            "source": (
+                "if (ctx._source.containsKey('gulp.enriched')) {"
+                " ctx._source.remove('gulp.enriched'); }"
+            ),
+            "lang": "painless",
+        }
+
+    return {
+        "script": script,
+        "query": base_query,
+    }
+
+
+async def _enrich_remove_internal(
+    user_id: str,
+    ws_id: str,
+    req_id: str,
+    operation_id: str,
+    index: str,
+    flt: GulpQueryFilter,
+    fields: list[str] | None,
+) -> None:
+    """Remove enrichment fields from multiple documents in a queued worker."""
+    stats: GulpRequestStats = None
+    errors: list[str] = []
+    fields = fields or []
+    source_fields_changed = False
+
+    async with GulpCollab.get_instance().session() as sess:
+        try:
+            stats, stats_created = await GulpRequestStats.create_or_get_existing(
+                sess,
+                req_id,
+                user_id,
+                operation_id,
+                req_type=RequestStatsType.REQUEST_TYPE_ENRICHMENT,
+                ws_id=ws_id,
+                data=GulpUpdateDocumentsStats(flt=flt).model_dump(exclude_none=True),
+            )
+            if (
+                stats
+                and not stats_created
+                and GulpRequestStats.is_terminal_status(stats.status)
+            ):
+                MutyLogger.get_instance().warning(
+                    "enrich-remove request %s already terminal with status=%s, skipping replay",
+                    req_id,
+                    stats.status,
+                )
+                return
+
+            params_body = _build_enrich_remove_request(flt, fields)
+            MutyLogger.get_instance().debug(
+                "enrich_remove: update_by_query body=%s", params_body
+            )
+            res = await GulpOpenSearch.get_instance()._opensearch.update_by_query(
+                index=index,
+                body=params_body,
+                params={
+                    "conflicts": "proceed",
+                    "wait_for_completion": "true",
+                    "refresh": "true",
+                },
+                headers={
+                    "accept": "application/json",
+                    "content-type": "application/json",
+                },
+            )
+
+            num_deleted = int(res.get("updated", 0) or 0)
+            source_fields_changed = num_deleted > 0
+            data = GulpUpdateDocumentsStats(
+                total_hits=num_deleted,
+                updated=num_deleted,
+                flt=flt,
+            ).model_dump(exclude_none=True)
+            data["num_deleted"] = num_deleted
+            await stats.set_finished(
+                sess,
+                status=GulpRequestStatus.DONE,
+                data=data,
+                user_id=user_id,
+                ws_id=ws_id,
+            )
+        except Exception as ex:
+            if stats and not isinstance(ex, RequestCanceledError):
+                errors.append(muty.log.exception_to_string(ex))
+                await stats.set_finished(
+                    sess,
+                    status=GulpRequestStatus.FAILED,
+                    errors=errors,
+                    user_id=user_id,
+                    ws_id=ws_id,
+                )
+            raise
+        finally:
+            if source_fields_changed:
                 await GulpOpenSearch.get_instance().datastream_update_source_field_types_by_flt(
                     sess, index, user_id, flt
                 )
@@ -613,30 +968,15 @@ async def update_documents_handler(
     ServerUtils.dump_params(params)
 
     try:
-        async with GulpCollab.get_instance().session() as sess:
-            # enforce operation_id
-            flt.operation_ids = [operation_id]
-
-            # get operation and check acl
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(
-                sess, token, obj=op, permission=GulpUserPermission.EDIT
-            )
-            user_id = s.user.id
-            index = op.index
-
-            # offload to a worker process and return pending
-            await GulpServer.get_instance().spawn_worker_task(
-                _update_documents_internal,
-                user_id,
-                ws_id,
-                req_id,
-                operation_id,
-                index,
-                flt,
-                data,
-            )
-            return JSONResponse(JSendResponse.pending(req_id=req_id))
+        return await _enqueue_enrich_task(
+            token,
+            operation_id,
+            ws_id,
+            req_id,
+            flt,
+            ENRICH_TASK_ACTION_UPDATE_DOCUMENTS,
+            data=data,
+        )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
@@ -763,27 +1103,15 @@ async def untag_documents_handler(
     ServerUtils.dump_params(params)
 
     try:
-        async with GulpCollab.get_instance().session() as sess:
-            flt.operation_ids = [operation_id]
-
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(
-                sess, token, obj=op, permission=GulpUserPermission.EDIT
-            )
-            user_id = s.user.id
-            index = op.index
-
-            await GulpServer.get_instance().spawn_worker_task(
-                _untag_documents_internal,
-                user_id,
-                ws_id,
-                req_id,
-                operation_id,
-                index,
-                flt,
-                tags,
-            )
-            return JSONResponse(JSendResponse.pending(req_id=req_id))
+        return await _enqueue_enrich_task(
+            token,
+            operation_id,
+            ws_id,
+            req_id,
+            flt,
+            ENRICH_TASK_ACTION_UNTAG_DOCUMENTS,
+            tags=tags,
+        )
 
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -820,14 +1148,22 @@ async def tag_documents_handler(
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
-    return await update_documents_handler(
-        token=token,
-        operation_id=operation_id,
-        flt=flt,
-        data={"gulp.tags": tags},
-        ws_id=ws_id,
-        req_id=req_id,
-    )
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+
+    try:
+        return await _enqueue_enrich_task(
+            token,
+            operation_id,
+            ws_id,
+            req_id,
+            flt,
+            ENRICH_TASK_ACTION_TAG_DOCUMENTS,
+            data={"gulp.tags": tags},
+        )
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
 
 
 @router.post(
@@ -883,10 +1219,9 @@ async def tag_single_id_handler(
             "content": {
                 "application/json": {
                     "example": {
-                        "status": "success",
+                        "status": "pending",
                         "timestamp_msec": 1704380570434,
                         "req_id": "c4f7ae9b-1e39-416e-a78a-85264099abfb",
-                        "data": {"num_deleted": 123},
                     }
                 }
             }
@@ -903,6 +1238,7 @@ shortcut to `update_documents` to remove enriched data from the given documents.
 async def enrich_remove_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     flt: Annotated[
         GulpQueryFilter, Depends(APIDependencies.param_q_flt_optional)
     ] = None,
@@ -916,10 +1252,8 @@ async def enrich_remove_handler(
 ) -> JSONResponse:
     """Remove the `gulp.enriched` field from documents matching the filter.
 
-    The handler enforces the operation ACL and then issues an OpenSearch
-    update_by_query request which executes a painless script removing the
-    field.  The number of modified documents is returned in the `num_deleted`
-    field of the response data.
+    The handler enforces the operation ACL and enqueues the multi-document
+    mutation as an enrich Redis task.
     """
 
     params = locals()
@@ -927,100 +1261,15 @@ async def enrich_remove_handler(
     ServerUtils.dump_params(params)
 
     try:
-        async with GulpCollab.get_instance().session() as sess:
-            # enforce operation_id on the filter
-            flt.operation_ids = [operation_id]
-
-            # check permission
-            op: GulpOperation = await GulpOperation.get_by_id(sess, operation_id)
-            s = await GulpUserSession.check_token(
-                sess, token, obj=op, permission=GulpUserPermission.EDIT
-            )
-            index = op.index
-
-            # build base query from filter.
-            # if fields are specified, target docs that have at least one of them;
-            # otherwise target docs that have gulp.enriched.
-            base = None
-            if fields:
-                exists_clauses = [{"exists": {"field": f}} for f in fields]
-                if flt.is_empty():
-                    if len(exists_clauses) == 1:
-                        base = exists_clauses[0]
-                    else:
-                        base = {
-                            "bool": {
-                                "should": exists_clauses,
-                                "minimum_should_match": 1,
-                            }
-                        }
-                else:
-                    inner = flt.to_opensearch_dsl()["query"]
-                    exists_clause = (
-                        exists_clauses[0]
-                        if len(exists_clauses) == 1
-                        else {
-                            "bool": {
-                                "should": exists_clauses,
-                                "minimum_should_match": 1,
-                            }
-                        }
-                    )
-                    base = {"bool": {"must": [inner, exists_clause]}}
-            else:
-                if flt.is_empty():
-                    base = {"exists": {"field": "gulp.enriched"}}
-                else:
-                    inner = flt.to_opensearch_dsl()["query"]
-                    base = {
-                        "bool": {
-                            "must": [inner, {"exists": {"field": "gulp.enriched"}}]
-                        }
-                    }
-
-            base_query: dict = base
-            MutyLogger.get_instance().debug(
-                "enrich_remove_handler: base_query=%s", base_query
-            )
-
-            if fields:
-                script = (
-                    "for (f in params.fields) {"
-                    " if (ctx._source.containsKey(f)) { ctx._source.remove(f); }"
-                    " }"
-                )
-            else:
-                script = (
-                    "if (ctx._source.containsKey('gulp.enriched')) {"
-                    " ctx._source.remove('gulp.enriched'); }"
-                )
-
-            # prepare request parameters
-            params_body: dict = {
-                "script": {"source": script, "lang": "painless"},
-                "query": base_query,
-            }
-            if fields:
-                params_body["script"]["params"] = {"fields": fields}
-
-            params_qs: dict = {
-                "conflicts": "proceed",
-                "wait_for_completion": "true",
-                "refresh": "true",
-            }
-            headers: dict = {
-                "accept": "application/json",
-                "content-type": "application/json",
-            }
-
-            # execute the update_by_query
-            res = await GulpOpenSearch.get_instance()._opensearch.update_by_query(
-                index=index, body=params_body, params=params_qs, headers=headers
-            )
-
-            num_deleted = res.get("updated", 0)
-            data = {"num_deleted": num_deleted}
-            return JSONResponse(JSendResponse.success(req_id=req_id, data=data))
+        return await _enqueue_enrich_task(
+            token,
+            operation_id,
+            ws_id,
+            req_id,
+            flt,
+            ENRICH_TASK_ACTION_ENRICH_REMOVE,
+            remove_fields=fields or [],
+        )
 
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

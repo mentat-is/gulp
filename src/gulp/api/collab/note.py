@@ -118,6 +118,53 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         return d
 
     @staticmethod
+    def _normalise_auto_note_tags(tags: list[str] | None, name: str) -> list[str]:
+        """Return deterministic query-note tags without mutating caller state."""
+        normalised: list[str] = []
+        for tag in tags or []:
+            if tag not in normalised:
+                normalised.append(tag)
+        for tag in ("auto", name):
+            if tag and tag not in normalised:
+                normalised.append(tag)
+        return normalised
+
+    @staticmethod
+    def _deterministic_query_note_id(
+        associated_doc: dict,
+        name: str,
+        q: str,
+        tags: list[str],
+        req_id: str = None,
+        query_ordinal: int = None,
+        color: str = None,
+        glyph_id: str = None,
+        sigma_yml: str = None,
+        match_ordinal: int = None,
+    ) -> str:
+        """Return a stable note id for one query-created note."""
+        key = {
+            "type": COLLABTYPE_NOTE,
+            "operation_id": associated_doc.get("gulp.operation_id"),
+            "context_id": associated_doc.get("gulp.context_id"),
+            "source_id": associated_doc.get("gulp.source_id"),
+            "doc_id": associated_doc.get("_id"),
+            "doc_timestamp": associated_doc.get("@timestamp"),
+            "doc_gulp_timestamp": associated_doc.get("gulp.timestamp"),
+            "name": name,
+            "req_id": req_id,
+            "query_ordinal": query_ordinal,
+            "q": q,
+            "tags": sorted(set(tags or [])),
+            "color": color,
+            "glyph_id": glyph_id,
+            "sigma_yml": sigma_yml,
+            "match_ordinal": match_ordinal,
+        }
+        encoded = orjson.dumps(key, option=orjson.OPT_SORT_KEYS).decode()
+        return muty.crypto.hash_xxh128(encoded)
+
+    @staticmethod
     async def bulk_create_for_documents_and_send_to_ws(
         sess: AsyncSession,
         operation_id: str,
@@ -132,6 +179,8 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         tags: list[str] = None,
         color: str = None,
         glyph_id: str = None,
+        query_ordinal: int = None,
+        hit_offset: int = 0,
         last: bool = False,
     ) -> int:
         """
@@ -153,6 +202,8 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             tags (list[str], optional): the tags to add to the notes. Defaults to None (will set tags=["auto"]).
             color (str, optional): the color of the notes. Defaults to None (use default).
             glyph_id (str, optional): the glyph id of the notes. Defaults to None (use default).
+            query_ordinal (int, optional): zero-based query occurrence inside the request.
+            hit_offset (int, optional): zero-based offset of this chunk in the query result stream.
             last (bool, optional): whether this is the last batch of notes to be created. Defaults to False.
         Returns:
             the number of notes created
@@ -161,22 +212,12 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             MutyLogger.get_instance().warning("no documents provided, no notes created")
             return 0
 
-        tt: list[str] = tags
-        if not tt:
-            # empty tags
-            tt = []
-
-        if "auto" not in tt:
-            # add "auto" tag if not present
-            tt.append("auto")
-        if not name in tt:
-            # add the name as tag if not present
-            tt.append(name)
+        tt = GulpNote._normalise_auto_note_tags(tags, name)
 
         # creates a list of notes, one for each document
         notes: list[dict] = []
         MutyLogger.get_instance().info("creating a bulk of %d notes ..." % len(docs))
-        for doc in docs:
+        for idx, doc in enumerate(docs):
             # remove highlights from the document, if any
             highlights: dict = doc.pop("_highlight", {})
 
@@ -217,6 +258,19 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             text += "\n\n### query:\n\n"
             text += f"````json\n{str(q)}````"
 
+            obj_id = GulpNote._deterministic_query_note_id(
+                associated_doc,
+                name=name,
+                q=str(q),
+                tags=tt,
+                req_id=req_id,
+                query_ordinal=query_ordinal,
+                color=color,
+                glyph_id=glyph_id,
+                sigma_yml=sigma_yml,
+                match_ordinal=hit_offset + idx,
+            )
+
             # build the object for the note
             object_data: dict = GulpNote.build_object_dict(
                 user_id,
@@ -225,14 +279,13 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 glyph_id=glyph_id,
                 tags=tt,
                 color=color,
+                obj_id=obj_id,
                 private=False,
                 doc=associated_doc,
                 text=text,
                 context_id=associated_doc["gulp.context_id"],
                 source_id=associated_doc["gulp.source_id"],
             )
-            obj_id = muty.crypto.hash_xxh128(str(object_data))
-            object_data["id"] = obj_id
             notes.append(object_data)
 
         # bulk insert (handles duplicates)

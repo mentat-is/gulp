@@ -33,6 +33,7 @@ from prometheus_client import (
     CollectorRegistry,
     Counter,
     Gauge,
+    Histogram,
     Info,
     generate_latest,
     multiprocess,
@@ -66,6 +67,16 @@ class GulpMetrics:
     redis_publish_bytes_total = Counter(
         "gulp_redis_publish_bytes_total",
         "Total bytes published to Redis pub/sub",
+    )
+    redis_publish_by_route_total = Counter(
+        "gulp_redis_publish_by_route_total",
+        "Total messages published to Redis pub/sub by route target and channel scope",
+        ["route_target", "channel_scope"],
+    )
+    redis_publish_bytes_by_route_total = Counter(
+        "gulp_redis_publish_bytes_by_route_total",
+        "Total bytes published to Redis pub/sub by route target and channel scope",
+        ["route_target", "channel_scope"],
     )
     redis_chunked_publish_total = Counter(
         "gulp_redis_chunked_publish_total",
@@ -124,6 +135,75 @@ class GulpMetrics:
         ["channel"],
         multiprocess_mode="livesum",
     )
+    redis_task_stream_depth = Gauge(
+        "gulp_redis_task_stream_depth",
+        "Number of queued messages in a Redis task stream",
+        ["task_type"],
+        multiprocess_mode="livesum",
+    )
+    redis_task_stream_pending = Gauge(
+        "gulp_redis_task_stream_pending",
+        "Number of pending task messages in a Redis stream consumer group",
+        ["task_type"],
+        multiprocess_mode="livesum",
+    )
+    redis_task_dead_letter_depth = Gauge(
+        "gulp_redis_task_dead_letter_depth",
+        "Number of messages retained in a Redis task dead-letter stream",
+        ["task_type"],
+        multiprocess_mode="livesum",
+    )
+    redis_task_delayed_retries = Gauge(
+        "gulp_redis_task_delayed_retries",
+        "Number of retryable task messages waiting for backoff to expire",
+        multiprocess_mode="livesum",
+    )
+    redis_task_active_reservations = Gauge(
+        "gulp_redis_task_active_reservations",
+        "Number of active task admission reservations by fairness scope",
+        ["scope"],
+        multiprocess_mode="livesum",
+    )
+    redis_task_oldest_queued_age_seconds = Gauge(
+        "gulp_redis_task_oldest_queued_age_seconds",
+        "Age in seconds of the oldest queued task stream entry",
+        ["task_type"],
+        multiprocess_mode="livesum",
+    )
+    redis_task_oldest_pending_age_seconds = Gauge(
+        "gulp_redis_task_oldest_pending_age_seconds",
+        "Age in seconds of the oldest pending task stream entry",
+        ["task_type"],
+        multiprocess_mode="livesum",
+    )
+    redis_task_running = Gauge(
+        "gulp_redis_task_running",
+        "Number of running tasks by owning server instance and task type",
+        ["server_id", "task_type"],
+        multiprocess_mode="livesum",
+    )
+    redis_task_recovered_retries = Gauge(
+        "gulp_redis_task_recovered_retries",
+        "Number of retained succeeded task lifecycles that required at least one retry",
+        ["task_type"],
+        multiprocess_mode="livesum",
+    )
+    redis_task_transition_total = Counter(
+        "gulp_redis_task_transition_total",
+        "Task queue lifecycle transitions and terminal outcomes",
+        ["action", "task_type", "outcome"],
+    )
+    redis_task_execution_duration_seconds = Histogram(
+        "gulp_redis_task_execution_duration_seconds",
+        "Task execution duration from claim to retry, success, or dead-letter outcome",
+        ["task_type", "outcome"],
+        buckets=(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, float("inf")),
+    )
+    api_request_rejected_total = Counter(
+        "gulp_api_request_rejected_total",
+        "API requests rejected before asynchronous task execution",
+        ["endpoint", "reason", "task_type", "scope"],
+    )
 
     # ── WebSocket ──
     ws_connected_sockets = Gauge(
@@ -131,10 +211,27 @@ class GulpMetrics:
         "Number of currently connected websockets",
         multiprocess_mode="livesum",
     )
+    ws_connected_sockets_by_type = Gauge(
+        "gulp_ws_connected_sockets_by_type",
+        "Number of currently connected websockets by server instance and socket type",
+        ["server_id", "socket_type"],
+        multiprocess_mode="livesum",
+    )
     ws_queue_utilization = Gauge(
         "gulp_ws_queue_utilization",
         "Aggregate websocket queue utilization (0.0-1.0)",
         multiprocess_mode="livesum",
+    )
+    ws_queue_high_watermark = Gauge(
+        "gulp_ws_queue_high_watermark",
+        "Highest observed websocket queue depth by server instance and socket type",
+        ["server_id", "socket_type"],
+        multiprocess_mode="livesum",
+    )
+    ws_enqueue_timeout_total = Counter(
+        "gulp_ws_enqueue_timeout_total",
+        "Websocket enqueue attempts that timed out because the client was not draining",
+        ["server_id", "socket_type"],
     )
 
     # ── OpenSearch ──
@@ -241,6 +338,9 @@ class GulpMetrics:
         self._collect_task: asyncio.Task = None
         self._start_time: float = time.monotonic()
         self._known_worker_pids: set[str] = set()
+        self._known_task_metric_types: set[str] = set()
+        self._known_running_task_labels: set[tuple[str, str]] = set()
+        self._known_ws_type_labels: set[tuple[str, str]] = set()
         self._worker_psutil_procs: dict[int, object] = {}
         self._main_psutil_proc = None
         self._system_cpu_warmed_up: bool = False
@@ -301,8 +401,35 @@ class GulpMetrics:
         # ── WebSocket gauges ──
         try:
             sockets = GulpConnectedSockets.get_instance()
-            self.ws_connected_sockets.set(sockets.num_connected_sockets(default_sockets_only=False))
+            server_id = GulpProcess.get_instance().server_id
+            self.ws_connected_sockets.set(
+                sockets.num_connected_sockets(default_sockets_only=False)
+            )
             self.ws_queue_utilization.set(sockets.aggregate_queue_utilization())
+            current_ws_labels: set[tuple[str, str]] = set()
+            socket_counts = sockets.socket_counts_by_type()
+            high_watermarks = sockets.queue_high_watermarks_by_type()
+            for socket_type, count in socket_counts.items():
+                label = (server_id, socket_type)
+                current_ws_labels.add(label)
+                self.ws_connected_sockets_by_type.labels(
+                    server_id=server_id,
+                    socket_type=socket_type,
+                ).set(int(count))
+                self.ws_queue_high_watermark.labels(
+                    server_id=server_id,
+                    socket_type=socket_type,
+                ).set(int(high_watermarks.get(socket_type, 0)))
+            for server_id_label, socket_type in self._known_ws_type_labels - current_ws_labels:
+                self.ws_connected_sockets_by_type.labels(
+                    server_id=server_id_label,
+                    socket_type=socket_type,
+                ).set(0)
+                self.ws_queue_high_watermark.labels(
+                    server_id=server_id_label,
+                    socket_type=socket_type,
+                ).set(0)
+            self._known_ws_type_labels = current_ws_labels
         except Exception:
             pass
 
@@ -316,24 +443,72 @@ class GulpMetrics:
         # ── Redis stream depths ──
         try:
             redis_client = GulpRedis.get_instance().client()
-            # task streams
-            task_types = await redis_client.smembers(GulpRedis.TASK_TYPES_SET)
-            for tt in task_types:
-                tt_str = tt.decode() if isinstance(tt, bytes) else tt
-                stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{tt_str}"
-                try:
-                    length = await redis_client.xlen(stream_key)
-                    self.redis_stream_depth.labels(stream=tt_str).set(length)
-                except Exception:
-                    pass
-                try:
-                    pending_info = await redis_client.xpending(
-                        stream_key, GulpRedis.STREAM_CONSUMER_GROUP
-                    )
-                    pending_count = pending_info.get("pending", 0) if isinstance(pending_info, dict) else 0
-                    self.redis_stream_pending.labels(stream=tt_str).set(pending_count)
-                except Exception:
-                    pass
+            # task streams and task-specific queue state
+            task_snapshot = await GulpRedis.get_instance().task_metrics_snapshot()
+            current_task_types = set(task_snapshot.get("task_types", {}).keys())
+            for tt_str in self._known_task_metric_types - current_task_types:
+                self.redis_stream_depth.labels(stream=tt_str).set(0)
+                self.redis_stream_pending.labels(stream=tt_str).set(0)
+                self.redis_task_stream_depth.labels(task_type=tt_str).set(0)
+                self.redis_task_stream_pending.labels(task_type=tt_str).set(0)
+                self.redis_task_dead_letter_depth.labels(task_type=tt_str).set(0)
+                self.redis_task_oldest_queued_age_seconds.labels(
+                    task_type=tt_str
+                ).set(0)
+                self.redis_task_oldest_pending_age_seconds.labels(
+                    task_type=tt_str
+                ).set(0)
+                self.redis_task_recovered_retries.labels(task_type=tt_str).set(0)
+            recovered_retries = task_snapshot.get("recovered_retries", {})
+            for tt_str, metrics in task_snapshot.get("task_types", {}).items():
+                queued = int(metrics.get("queued", 0))
+                pending = int(metrics.get("pending", 0))
+                dead_lettered = int(metrics.get("dead_lettered", 0))
+                oldest_queued_age_seconds = (
+                    int(metrics.get("oldest_queued_age_msec", 0)) / 1000
+                )
+                oldest_pending_age_seconds = (
+                    int(metrics.get("oldest_pending_age_msec", 0)) / 1000
+                )
+                self.redis_stream_depth.labels(stream=tt_str).set(queued)
+                self.redis_stream_pending.labels(stream=tt_str).set(pending)
+                self.redis_task_stream_depth.labels(task_type=tt_str).set(queued)
+                self.redis_task_stream_pending.labels(task_type=tt_str).set(pending)
+                self.redis_task_dead_letter_depth.labels(task_type=tt_str).set(
+                    dead_lettered
+                )
+                self.redis_task_oldest_queued_age_seconds.labels(
+                    task_type=tt_str
+                ).set(oldest_queued_age_seconds)
+                self.redis_task_oldest_pending_age_seconds.labels(
+                    task_type=tt_str
+                ).set(oldest_pending_age_seconds)
+                self.redis_task_recovered_retries.labels(task_type=tt_str).set(
+                    int(recovered_retries.get(tt_str, 0))
+                )
+            self._known_task_metric_types = current_task_types
+            self.redis_task_delayed_retries.set(
+                int(task_snapshot.get("delayed_retries", 0))
+            )
+            for scope, total in task_snapshot.get("active", {}).items():
+                self.redis_task_active_reservations.labels(scope=scope).set(int(total))
+            current_running_labels: set[tuple[str, str]] = set()
+            for server_id, task_counts in task_snapshot.get("running", {}).items():
+                for task_type, count in task_counts.items():
+                    label = (server_id, task_type)
+                    current_running_labels.add(label)
+                    self.redis_task_running.labels(
+                        server_id=server_id,
+                        task_type=task_type,
+                    ).set(int(count))
+            for server_id, task_type in (
+                self._known_running_task_labels - current_running_labels
+            ):
+                self.redis_task_running.labels(
+                    server_id=server_id,
+                    task_type=task_type,
+                ).set(0)
+            self._known_running_task_labels = current_running_labels
 
             # cluster liveness from heartbeat keys
             try:
@@ -454,6 +629,32 @@ def _metrics_endpoint():
     return Response(content=data, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
+def record_api_request_rejection(
+    endpoint: str,
+    reason: str,
+    task_type: str = "unknown",
+    scope: str = "none",
+) -> None:
+    """Increment the low-cardinality API rejection counter if Prometheus is enabled."""
+    try:
+        if not GulpConfig.get_instance().prometheus_enabled():
+            return
+        GulpMetrics.api_request_rejected_total.labels(
+            endpoint=endpoint,
+            reason=reason,
+            task_type=task_type,
+            scope=scope,
+        ).inc()
+    except Exception:
+        MutyLogger.get_instance().exception(
+            "failed to record API request rejection endpoint=%s reason=%s task_type=%s scope=%s",
+            endpoint,
+            reason,
+            task_type,
+            scope,
+        )
+
+
 def setup_prometheus(app) -> None:
     """
     Attach Prometheus instrumentation to a FastAPI app.
@@ -467,7 +668,7 @@ def setup_prometheus(app) -> None:
 
     from prometheus_fastapi_instrumentator import Instrumentator
 
-    endpoint: str = "/metrics"
+    endpoint: str = GulpConfig.get_instance().prometheus_endpoint()
 
     # auto-instrument HTTP requests (latency histogram + request counter by method/path/status)
     instrumentator = Instrumentator(

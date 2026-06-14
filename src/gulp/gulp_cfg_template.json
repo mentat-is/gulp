@@ -52,6 +52,10 @@
   "ingestion_retry_delay": 1,
   // after how many chunks to update raw ingestion stats (default=10)
   "ingestion_raw_update_stats_chunk_frequency": 10,
+  // maximum queued raw websocket ingest packets per websocket stream (0=disabled, default=1000)
+  "ws_ingest_stream_max_entries": 1000,
+  // maximum approximate buffered raw websocket ingest bytes per websocket (0=disabled, default=268435456 = 256 MiB)
+  "ws_ingest_stream_max_buffered_bytes": 268435456,
   // to "specialize" a gulp (from the redis pub/sub consumer point of view) instance, this instance will drain from the redis pub/sub queue just these task types: example values are [ "ingest", "query", "external_query", "rebase" ] or [] / unset to process all task types.
   "instance_roles": [],
   // set to true if connecting to minio (default=true)
@@ -110,8 +114,30 @@
   "redis_pubsub_max_chunk_size": 128,
   // idle time in milliseconds after which pending stream messages can be auto-claimed by another consumer (default=60000ms = 60s)
   "redis_task_autoclaim_idle_ms": 60000,
-  // approximate max length for task streams, trimmed on XADD (default=10000)
+  // interval in milliseconds used by dispatchers to refresh leases for live pending tasks (default=20000ms = 20s)
+  "redis_task_lease_refresh_interval_ms": 20000,
+  // optional timeout in seconds for one queued task execution attempt (default=0, disabled). When set, timed-out tasks use the normal retry/dead-letter path.
+  "redis_task_execution_timeout_sec": 0,
+  // maximum execution attempts before a valid failed task is moved to dead-letter (default=3)
+  "redis_task_max_attempts": 3,
+  // initial exponential retry backoff for failed Redis stream tasks in milliseconds (default=1000ms, 0=immediate retry)
+  "redis_task_retry_backoff_base_ms": 1000,
+  // maximum exponential retry backoff for failed Redis stream tasks in milliseconds (default=60000ms)
+  "redis_task_retry_backoff_max_ms": 60000,
+  // retention for Redis task lifecycle records used for duplicate suppression (default=86400s = 1 day)
+  "redis_task_lifecycle_ttl_sec": 86400,
+  // maximum admitted queued/running/retrying Redis stream tasks per user (0=disabled, default=0)
+  "redis_task_active_user_max": 0,
+  // maximum admitted queued/running/retrying Redis stream tasks per operation (0=disabled, default=0)
+  "redis_task_active_operation_max": 0,
+  // observation window in seconds for adaptive queue retry-after hints based on recent terminal task drain rate (default=60)
+  "redis_task_drain_sample_window_sec": 60,
+  // hard maximum queued task backlog per task type before API admission rejects new work (default=10000)
   "redis_stream_task_maxlen": 10000,
+  // max login attempts per IP address during login_ip_rate_limit_window_sec (0=disabled, default=0)
+  "login_ip_rate_limit_max": 0,
+  // per-IP login throttle fixed window in seconds (default=60)
+  "login_ip_rate_limit_window_sec": 60,
   // heartbeat TTL in seconds for node liveness detection (default=30)
   "redis_heartbeat_ttl": 30,
   // heartbeat update interval in seconds (default=10)
@@ -151,6 +177,8 @@
   "ws_server_cache_ttl": 5.0,
   // enable prometheus metrics endpoint (default=false). when enabled, a /metrics endpoint is exposed for Prometheus scraping.
   "prometheus_enabled": false,
+  // prometheus metrics endpoint path (default="/metrics")
+  "prometheus_endpoint": "/metrics",
   // interval in seconds for collecting gauge metrics (e.g. stream depths, pool stats) (default=15)
   "prometheus_collect_interval": 15,
   // ai plugin configuration
