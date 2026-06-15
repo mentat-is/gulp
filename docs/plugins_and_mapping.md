@@ -65,6 +65,9 @@ a plugin is first attempted to load from `$GULP_WORKING_DIR/plugins` to allow ov
 
 if not found there, the plugin is attempted to load from the main `$INSTALLDIR/plugins` directory (which, by convention, **should not be writable**).
 
+> an absolute path to the plugin may also be provided when calling the API, in this case the engine will attempt to load the plugin directly from the given path.
+> **this bypasses exclude rules in the configuration, so be careful when using this in production environments!**
+
 ## plugin types
 
 gulp support different plugin types, even if they share all [the same architecture](../src/gulp/plugin.py).
@@ -270,8 +273,8 @@ There are two flavours of chunk ingestion callbacks:
   
   > usually this is set by an `extension` plugin performing ingestion via the `GulpPluginBase.ingest_raw` method, but may also be set by a stacked `ingestion` or `external` plugins: the upper plugin may just set `GulpPluginParameters._chunk_ingestion_callback` then call `ingest_file`/`query_external` in the lower plugin to perform the ingestion.
 
-2. **Global ingestion callbacks** – allows `extension` plugins to receive every ingested chunk from every running plugin/s, regardless of which request produced it.
- 
+1. **Global ingestion callbacks** – allows `extension` plugins to receive every ingested chunk from every running plugin/s, regardless of which request produced it.
+
 A global callback lives in an `extension` plugin that registers for one or both of the internal events:
 
 - `GulpInternalEventsManager.EVENT_CHUNK_POST_INGEST` (`chunk_post_ingest`) – published after a chunk is pushed to OpenSearch and the matching websocket packet has been queued.
@@ -510,6 +513,8 @@ mapping files load order follows the same rules as [plugins](#loading-plugins):
 a mapping file is first attempted to load from `$GULP_WORKING_DIR/mapping_files` to allow overriding (i.e. with new/bugfixed versions).
 
 if not found there, the plugin is attempted to load from the main `$INSTALLDIR/mapping_files` directory (which, by convention, **should not be writable**).
+
+> as for plugins, loading a mapping file via an absolute path is possible as well, even though not recommended in production.
 
 ## advanced mapping
 

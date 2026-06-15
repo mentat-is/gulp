@@ -133,7 +133,8 @@ If no close example exists for the kind of test you need to add, ask before proc
 - Tests must assert expected results.
 - Tests should also print important API responses to stdout to help debug failures.
 - Keep tests consistent with the surrounding suite's style and fixtures.
-- Prefer integration coverage for API behavior and unit coverage for local plugin logic.
+- Prefer integration coverage for API behavior and plugins and unit coverage for mere logic.
+- Tests for specific functionality and plugins must be each in their own separate files, not lumped together in a single file.
 
 ### Special Testing Cases
 
