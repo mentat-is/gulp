@@ -165,6 +165,7 @@ class Plugin(GulpPluginBase):
         doc_idx: int = 0
         for rr in js:
             if not await self.process_record(rr, doc_idx, flt=flt):
+                # stop processing (preview mode)
                 break
             doc_idx += 1
         return stats.status

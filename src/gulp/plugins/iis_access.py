@@ -148,8 +148,9 @@ class Plugin(GulpPluginBase):
                 # if log_format == "w3c" and l.startswith("#"):
                 # TODO: parse header, skip other comments, is this needed/useful info, other than the fields part?
                 # continue
-
-                await self.process_record(l, doc_idx, flt=flt, date_format=date_format)
+                if not await self.process_record(l, doc_idx, flt=flt, date_format=date_format):
+                    # stop processing (preview mode)
+                    break
 
                 doc_idx += 1
             return stats.status

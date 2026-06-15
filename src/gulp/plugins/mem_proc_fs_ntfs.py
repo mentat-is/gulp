@@ -147,27 +147,32 @@ class Plugin(GulpPluginBase):
                 row = row.strip()
                 try:
                     record = await self._parse_line(row, doc_idx)
-                    if not record or (
-                        "date_created" not in record and "date_modified" not in record
-                    ):
-                        continue
-                    if "date_created" in record and record["date_created"]:
-                        ts = muty.time.datetime_to_nanos_from_unix_epoch(
-                            datetime.strptime(record.pop("date_created"), DATE_FORMAT)
-                        )
-                        record["timestamp"] = ts
-                    elif "date_modified" in record and record["date_modified"]:
-                        ts_modified = ts = muty.time.datetime_to_nanos_from_unix_epoch(
-                            datetime.strptime(record.pop("date_modified"), DATE_FORMAT)
-                        )
-                        if "timestamp" in record and not record["timestamp"]:
-                            record["timestamp"] = ts_modified
-                        else:
-                            record["date_modified"] = ts_modified
-                    await self.process_record(record, doc_idx, flt)
-                    doc_idx += 1
-                except:
-                    MutyLogger.get_instance().warning(f"cannot ingest row: {row}")
+                except Exception as ex:
+                    MutyLogger.get_instance().warning(
+                        f"cannot parse line: {row}, error: {ex}"
+                    )
                     continue
+                
+                if not record or (
+                    "date_created" not in record and "date_modified" not in record
+                ):
+                    continue
+                if "date_created" in record and record["date_created"]:
+                    ts = muty.time.datetime_to_nanos_from_unix_epoch(
+                        datetime.strptime(record.pop("date_created"), DATE_FORMAT)
+                    )
+                    record["timestamp"] = ts
+                elif "date_modified" in record and record["date_modified"]:
+                    ts_modified = ts = muty.time.datetime_to_nanos_from_unix_epoch(
+                        datetime.strptime(record.pop("date_modified"), DATE_FORMAT)
+                    )
+                    if "timestamp" in record and not record["timestamp"]:
+                        record["timestamp"] = ts_modified
+                    else:
+                        record["date_modified"] = ts_modified
+                if not await self.process_record(record, doc_idx, flt):
+                    # stop processing (preview mode)
+                    break
+                doc_idx += 1
 
         return stats.status

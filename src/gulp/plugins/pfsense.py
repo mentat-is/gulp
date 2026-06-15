@@ -282,7 +282,10 @@ class Plugin(GulpPluginBase):
 
                 m: re.Match[str] = regex.match(rr)
                 if m:
-                    await self.process_record(rr, doc_idx, flt=flt, match=m)
+                    if not await self.process_record(rr, doc_idx, flt=flt, match=m):
+                        # stop processing (preview mode)
+                        break
+
                     doc_idx += 1
 
         return stats.status

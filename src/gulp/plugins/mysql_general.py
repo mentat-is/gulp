@@ -298,7 +298,9 @@ class Plugin(GulpPluginBase):
             ) as log_src:
             
             async for l in log_src:
-                await self.process_record(l, doc_idx, flt=flt)
+                if not await self.process_record(l, doc_idx, flt=flt):
+                    # stop processing (preview mode)
+                    return None
                 doc_idx += 1
 
         return stats.status

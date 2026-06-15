@@ -168,16 +168,19 @@ class Plugin(GulpPluginBase):
             async for line in file:
                 m = regex.match(line)
                 if m:
-                    await self.process_record(
+                    if not await self.process_record(
                         m,
                         doc_idx,
                         flt=flt,
                         line=line,
                         timestamp_format=timestamp_format,
-                    )
+                    ):
+                        # stop processing (preview mode)
+                        break
                 else:
                     # no match
                     MutyLogger.get_instance().warning(f"regex did not match: {line}")
+
                 doc_idx += 1
             MutyLogger.get_instance().warning(
                 f"exit from the loop with {doc_idx} readed and status {stats.status}"

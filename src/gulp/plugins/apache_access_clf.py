@@ -187,12 +187,17 @@ class Plugin(GulpPluginBase):
         l: list[dict] = []
 
         # get the timestamp format to be used, or use a default
-        date_format = self._get_timestamp_format_for_default_timestamp() or "%d/%b/%Y:%H:%M:%S %z"
+        date_format = (
+            self._get_timestamp_format_for_default_timestamp() or "%d/%b/%Y:%H:%M:%S %z"
+        )
         async with aiofiles.open(file_path, "r", encoding="utf8") as log_src:
             async for l in log_src:
                 l = l.strip()
                 if not l:
                     continue
-                await self.process_record(l, doc_idx, flt=flt, regex=pattern, date_format=date_format)
+                if not await self.process_record(
+                    l, doc_idx, flt=flt, regex=pattern, date_format=date_format
+                ):
+                    break
                 doc_idx += 1
         return stats.status

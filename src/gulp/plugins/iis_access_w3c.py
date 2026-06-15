@@ -134,6 +134,8 @@ class Plugin(GulpPluginBase):
                         metadata[k] = "".join(l[1:]).lstrip().split()
                     continue
 
-                await self.process_record(l, doc_idx, flt=flt, metadata=metadata)
+                if not await self.process_record(l, doc_idx, flt=flt, metadata=metadata):
+                    # stop processing (preview mode)
+                    break
                 doc_idx += 1
             return stats.status

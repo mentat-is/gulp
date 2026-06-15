@@ -115,12 +115,14 @@ class Plugin(GulpPluginBase):
             async for line in file:
                 parsed = orjson.loads(line)
 
-                await self.process_record(
+                if not await self.process_record(
                     parsed,
                     doc_idx,
                     flt=flt,
                     __line__=line,
-                )
+                ):
+                    # stop processing (preview mode)
+                    return None
                 doc_idx += 1
             return stats.status
 
@@ -213,12 +215,14 @@ class Plugin(GulpPluginBase):
                     "end of file %s reached, breaking loop!" % (file_path)
                 )
                 break
-            await self.process_record(
+            if not await self.process_record(
                 record,
                 doc_idx,
                 flt=flt,
                 __line__=str(record),
-            )
+            ):
+                # stop processing (preview mode)
+                return None
 
             doc_idx += 1
 
@@ -275,10 +279,23 @@ class Plugin(GulpPluginBase):
         # )
         mode: str = self._plugin_params.custom_parameters.get("mode")
         if mode == "line":
-            return await self._ingest_jsonline(
+            if not await self._ingest_jsonline(
                 file_path, encoding=encoding, flt=flt, stats=stats
-            )
+            ):
+                # stop processing (preview mode)
+                return stats.status
         elif mode == "list" or mode == "dict":
-            return await self._ingest_jsonlist_and_jsondict(
+            if not await self._ingest_jsonlist_and_jsondict(
                 file_path, encoding=encoding, flt=flt, stats=stats
+            ):
+                # stop processing (preview mode)
+                return stats.status
+        else:
+            MutyLogger.get_instance().error(
+                "invalid mode '%s' for json plugin, should be 'line', 'list' or 'dict'"
+                % (mode)
+            )
+            raise ValueError(
+                "invalid mode '%s' for json plugin, should be 'line', 'list' or 'dict'"
+                % (mode)
             )

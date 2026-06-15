@@ -495,13 +495,15 @@ for reference, read this blog post: https://devblogs.microsoft.com/oldnewthing/2
         keep_warnings: bool = self._plugin_params.custom_parameters.get("keep_warnings")
 
         with pefile.PE(file_path) as pe:
-            await self.process_record(
+            if not await self.process_record(
                 pe,
                 0,
                 flt=flt,
                 include_relocations=include_relocations,
                 entropy_checks=entropy_checks,
                 keep_warnings=keep_warnings,
-            )
+            ):
+                # stop processing (preview mode)
+                return stats.status
 
         return stats.status
