@@ -955,7 +955,7 @@ async def _query_raw_sync(
     q_options.loop = False
     q_options.fields = "*"
     if q_options.preview_mode:
-        q_options.limit = GulpConfig.get_instance().preview_mode_num_docs()
+        q_options.limit = q_options.preview_mode_max_records
         MutyLogger.get_instance().debug("running preview query %s" % (q))
     else:
         MutyLogger.get_instance().debug("running sync raw query %s" % (q))
@@ -1155,7 +1155,7 @@ query Gulp with a raw OpenSearch DSL query.
 - `q` must be one or more queries with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
 - if `q_options.create_notes` is set, notes are created for each query match: each note `tags` will include `q_options.name` and, if set, `q_options.group` if all queries in `q` matches.
 - if `q_options.preview_mode` is set, this API takes the first query in the `q` array and the data is returned directly as `{ "total_hits": <total_hits>, "docs": <docs> }` in the response.
-  size of `docs` in preview mode is limited to `gulp.config.preview_mode_num_docs` (default=10).
+  size of `docs` in preview mode is limited to `q_options.preview_mode_max_records` (default=10).
 
 ### tracking progress
 

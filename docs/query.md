@@ -56,7 +56,7 @@ understanding their relationships and the underlying query mechanics is essentia
 ## queuing and preview behavior
 
 - Non-preview queries are enqueued to the Redis task queue and processed by worker processes. Results and progress are streamed back to the caller over the websocket identified by `ws_id`.
-- `preview_mode` queries are executed synchronously and the HTTP response contains a small sample (`preview_mode_num_docs`) of results directly (no websocket events).
+- `preview_mode` queries are executed synchronously and the HTTP response contains a small sample of results directly (no websocket events).
 
 This queuing model ensures low-latency preview responses while offloading heavier or multi-query workloads to the worker pool for robust, scalable processing.
 

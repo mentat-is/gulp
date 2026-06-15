@@ -361,7 +361,12 @@ class GulpPluginParameters(BaseModel):
             description="if True, the plugin should run in preview mode (return synchronously a chunk of data)"
         ),
     ] = False
-
+    preview_mode_max_records: Annotated[
+        int,
+        Field(
+            description="the maximum number of records to return in preview mode (default=10).",
+        ),
+    ] = 10
     _chunk_ingestion_callback: Annotated[
         GulpDocumentsChunkCallback,
         Field(

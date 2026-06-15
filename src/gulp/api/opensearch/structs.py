@@ -613,6 +613,12 @@ if set, the query is **synchronous** and returns the preview chunk of documents,
 """,
         ),
     ] = False
+    preview_mode_max_records: Annotated[
+        int,
+        Field(
+            description="the maximum number of records to return in preview mode (default=10).",
+        ),
+    ] = 10
     create_notes: Annotated[
         bool,
         Field(

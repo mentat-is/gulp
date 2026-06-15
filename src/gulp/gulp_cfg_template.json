@@ -82,8 +82,6 @@
   "plugin_disabled": ["example"],
   // enable cache for plugins (faster loading)
   "plugin_cache_enabled": true,
-  // how many documents to return in preview mode (default=100)
-  "preview_mode_num_docs": 100,
   // if set, adapts postgresql connection pool size to concurrency (max tasks/num workers)
   "postgres_adaptive_pool_size": true,
   // per-process postgres SQLAlchemy pool size hard cap (used also as fixed size when adaptive is false)

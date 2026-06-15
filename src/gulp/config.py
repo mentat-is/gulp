@@ -1111,20 +1111,6 @@ class GulpConfig:
         self._path_certs = p
         return p
 
-    def preview_mode_num_docs(self) -> int:
-        """
-        Returns the number of documents to show in preview mode.
-        """
-        n = self._config.get("preview_mode_num_docs", None)
-        if not n:
-            if self.is_integration_test():
-                # integration test mode, use a small number of documents
-                n = 10
-            else:
-                n = 100
-            # MutyLogger.get_instance().debug("using default number of documents for preview mode=%d" % (n))
-        return n
-
     def query_history_max_size(self) -> int:
         """
         Returns the maximum size of the query history (default: 20).

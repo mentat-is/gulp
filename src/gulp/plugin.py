@@ -2512,7 +2512,7 @@ class GulpPluginBase(ABC):
             # MutyLogger.get_instance().debug("accumulated %d docs" % (len(self._preview_chunk)))
             if (
                 len(self._preview_chunk)
-                >= GulpConfig.get_instance().preview_mode_num_docs()
+                >= self._plugin_params.preview_mode_max_records
             ):
                 # must stop
                 MutyLogger.get_instance().warning(
