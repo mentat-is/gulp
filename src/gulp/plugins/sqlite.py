@@ -279,6 +279,9 @@ class Plugin(GulpPluginBase):
                         #             break
                         # d["original_id"] = row[original_id]
 
-                        await self.process_record(row, doc_idx, flt=flt, data=d)
+                        if not await self.process_record(row, doc_idx, flt=flt, data=d):
+                            # stop processing (preview mode)
+                            return stats.status
+
                         doc_idx += 1
         return stats.status

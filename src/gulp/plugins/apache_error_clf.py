@@ -152,7 +152,9 @@ class Plugin(GulpPluginBase):
                 l = l.strip()
                 if not l:
                     continue
-                await self.process_record(l, doc_idx, flt=flt)
+                if not await self.process_record(l, doc_idx, flt=flt):
+                    # stop processing (preview mode)
+                    break
 
                 doc_idx += 1
         return stats.status

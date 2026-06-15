@@ -185,7 +185,9 @@ class Plugin(GulpPluginBase):
             if len(entry.values) < 1:
                 continue
 
-            await self.process_record(entry, doc_idx, flt=flt)
+            if not await self.process_record(entry, doc_idx, flt=flt):
+                # stop processing (preview mode)
+                break
             doc_idx += 1
 
         return stats.status

@@ -139,7 +139,11 @@ class Plugin(GulpPluginBase):
                     current_rec += line
 
             if current_rec:
+                if not await self.process_record(
+                    current_rec, doc_idx, flt=flt, regex=regex
+                ):
+                    # stop processing (preview mode)
+                    return None
                 doc_idx += 1
-                await self.process_record(current_rec, doc_idx, flt=flt, regex=regex)
 
         return stats.status

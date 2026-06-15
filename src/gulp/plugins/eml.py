@@ -184,9 +184,9 @@ class Plugin(GulpPluginBase):
         async with aiofiles.open(file_path, mode="rb") as file:
             content = await file.read()
             message = email.message_from_bytes(content)
-            try:
-                await self.process_record(message, doc_idx, flt=flt)
-            except (RequestCanceledError, SourceCanceledError) as ex:
-                MutyLogger.get_instance().exception(ex)
+            if not await self.process_record(message, doc_idx, flt=flt):
+                # stop processing (preview mode)
+                return stats.status
+
             doc_idx += 1
         return stats.status

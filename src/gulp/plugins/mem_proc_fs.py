@@ -156,7 +156,9 @@ class Plugin(GulpPluginBase):
                 row = row.strip()
                 record = await self._parse_line(row, doc_idx)
                 if record:
-                    await self.process_record(record, doc_idx, flt)
+                    if not await self.process_record(record, doc_idx, flt):
+                        # stop processing (preview mode)
+                        break
                     doc_idx += 1
 
         return stats.status

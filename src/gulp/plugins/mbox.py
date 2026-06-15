@@ -118,6 +118,8 @@ class Plugin(GulpPluginBase):
         doc_idx = 0
         mbox = mailbox.mbox(file_path)
         for message in mbox.itervalues():
-            await self.process_record(message, doc_idx, flt=flt, eml_parser=eml_parser)
+            if not await self.process_record(message, doc_idx, flt=flt, eml_parser=eml_parser):
+                # stop processing (preview mode)
+                break
             doc_idx += 1
         return stats.status

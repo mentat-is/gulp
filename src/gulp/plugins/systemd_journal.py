@@ -148,6 +148,8 @@ class Plugin(GulpPluginBase):
         with journal.Reader(None, files=[file_path]) as log_file:
             log_file.log_level(journal.LOG_DEBUG)
             for rr in log_file:
-                await self.process_record(rr, doc_idx, flt=flt)
+                if not await self.process_record(rr, doc_idx, flt=flt):
+                    # stop processing (preview mode)
+                    break
                 doc_idx += 1
         return stats.status
