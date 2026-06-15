@@ -1,84 +1,138 @@
 # gulp
 
-gULP is a log ingestion and analysis platform for cybersecurity, aiming to provide a collaborative environment for analysts.
-It consists of a FastAPI service which exposes an API for document ingestion, querying, enrichment, and plugin management, and a worker system that processes tasks asynchronously.
+This repository contains gULP, a cybersecurity log ingestion and analysis platform.
+The backend exposes a FastAPI API for ingestion, querying, enrichment, plugin management,
+and websocket-driven collaboration features. Background workers process asynchronous tasks.
 
-The system uses OpenSearch for document storage, PostgreSQL for collaboration metadata, MinIO for object storage when needed, and Redis for task queuing and pub/sub.
+Core services used by the backend:
 
-## coding style
+- OpenSearch for document storage
+- PostgreSQL for collaboration metadata
+- Redis for task queuing and pub/sub
+- MinIO for object storage when needed
 
-- Follow existing code style and patterns in the codebase.
+## How To Work In This Repo
+
+- Read this file before editing.
+- Follow existing code style and local patterns before introducing anything new.
+- Prefer small, scoped changes over broad refactors.
 - Use type hints for function signatures.
-- Write clear and concise docstrings for functions and classes.
+- Write clear, concise docstrings for functions and classes.
+- When adding or changing functionality, update tests and docs when relevant.
+- If you are following a plan file, keep it updated with the implementation that actually landed.
+- If requirements are unclear, stop and ask before implementing.
 
-## relevant part of the backend codebase
+## Key Backend Paths
 
-- `collab_migrate/`: directory containing database migration scripts for collaboration database (PostgreSQL)
-- `docs`: documentation (architecture, plugin development, etc...)
-- `tests`: directory containing unit and integration tests for the gULP service and plugins.
-- `src/gulp/plugins`: the plugins (`src/gulp/plugins/extensions` for extensions, `src/gulp/plugins` for `ingestion`, `enrich`, `query_external` plugins).
-- `src/gulp/mapping_files/`: directory containing mapping files for different plugins
-- `src/gulp/plugin.py`: base class for plugins, which defines the interface and common functionality for all plugins in the system.
-- `src/gulp/config.py`: configuration management for the gULP service, including settings for database connections, OpenSearch, Redis, MinIO, etc...
-- `src/gulp/process.py`: worker processes (using `aiomultiprocesses`) that execute tasks from the queue, including document ingestion, enrichment, querying, etc...
-- `src/gulp/api/collab`: collaboration objects and database models for managing operations, documents, and other collaborative entities in PostgreSQL (notes, links, ...)
-- `src/gulp/api/opensearch`: functions for interacting with OpenSearch, including document indexing, querying, index management, etc...
-- `src/gulp/api/server`: the API endpoints for the gULP FastAPI server, which handle incoming requests (`src/gulp/api/server/ingest.py`, `src/gulp/api/server/query.py` ), interact with the collaboration database and OpenSearch, and manage plugin execution.
-- `src/gulp/api/server_api.py`: setup FastAPI server, initialization, task queue/dequeuing
-- `src/gulp/api/s3_api.py`: functions for interacting with S3-compatible storage, used for file uploads and plugin file management
-- `src/gulp/api/redis_api.py`: functions for interacting with Redis, including task queue management and pub/sub for real-time updates to clients.
-- `src/gulp/api/ws_api.py`, `src/gulp/api/server/ws.py`: websocket API and management for real-time communication between clients and the server, used for streaming results, updates, etc...
-- `src/gulp/structs.py`, `src/gulp/api/collab/structs.py`, `src/gulp/api/opensearch/structs.py`, `src/gulp/api/server/structs.py`: data structures and models used throughout the codebase, including Pydantic models for API requests/responses, database models for collaboration entities, and data structures for OpenSearch interactions.
+- `collab_migrate/`: PostgreSQL migration scripts for collaboration data
+- `docs/`: architecture, testing, operations, and plugin documentation
+- `tests/`: unit and integration tests for the backend and plugins
+- `src/gulp/plugins/`: plugin implementations
+  - `src/gulp/plugins/extensions/`: extension plugins
+- `src/gulp/mapping_files/`: mapping files used by plugins
+- `src/gulp/plugin.py`: base plugin interface and shared behavior
+- `src/gulp/config.py`: backend configuration management
+- `src/gulp/process.py`: worker task execution with multiprocessing
+- `src/gulp/api/collab/`: collaboration models and database logic
+- `src/gulp/api/opensearch/`: OpenSearch access layer
+- `src/gulp/api/server/`: FastAPI endpoints
+- `src/gulp/api/server_api.py`: FastAPI app setup and queue integration
+- `src/gulp/api/s3_api.py`: S3-compatible storage integration
+- `src/gulp/api/redis_api.py`: Redis queueing and pub/sub helpers
+- `src/gulp/api/ws_api.py`, `src/gulp/api/server/ws.py`: websocket APIs and routing
+- `src/gulp/structs.py`, `src/gulp/api/collab/structs.py`, `src/gulp/api/opensearch/structs.py`, `src/gulp/api/server/structs.py`: shared data structures and models
 
-### symlinked repositories
+## Related Repositories In This Workspace
 
-- `gulp-sdk/`: client SDK for interacting with the gULP API
-- `gulp-paid-plugins/`: repository for non-free plugins
-- `muty-python/`: utility library used by gULP and plugins
-- `gulpui-web/`: the web client for gULP, built with React and TypeScript, which interacts with the gULP API to provide a user interface for document ingestion, querying, enrichment, and collaboration features.
+- `gulp-sdk/`: Python SDK for the gULP API
+- `gulp-cli/`: CLI built on top of the SDK
+- `gulp-paid-plugins/`: non-free plugins
+- `muty-python/`: shared utility library
+- `gulpui-web/`: React + TypeScript web client
 
-## generic development guidelines
+## Change Coordination Rules
 
-- When adding new features or plugins, ensure that they are well-documented in `/docs`and tested.
-- When following a plan or a prompt, stop and ask for clarifications **even if you are in auto-mode** if you are unsure about any aspect of the implementation before proceeding, to avoid going down the wrong path and having to redo work later.
-- When you're following a plan file, make sure to update the plan file with the actual implementation details as you go, so that it remains an accurate source of information for future reference.
-- if you happen to find a bug in the backend which affects how the exposed API behaves, you may need to also adjust `/gulp/gulp-sdk` to reflect the changes in the API: if you adjust the sdk, do not forget to update also `/gulp/gulp-cli` to reflect the changes in the sdk as well.
-- once you're done with a step (and verified it works), you can commit using `git commit` using a clear and descriptive commit message that explains the changes you made.
+- If you change backend API behavior, check whether `gulp-sdk/` must be updated.
+- If you update `gulp-sdk/`, also check whether `gulp-cli/` must change to stay aligned.
+- Reuse existing examples in the repo instead of inventing new file structure or test style.
+- For plugin work, prefer the documented reference plugins below.
+- Commit only after the relevant step is implemented and verified.
 
-## gulp backend plugin development guidelines
+## Plugin Development References
 
-- When working on plugins, use existing plugins in `src/gulp/plugins` as references for structure and implementation:
-  - for ingestion plugins, use `win_evtx.py` plugin
-  - for enrichment plugins, use `enrich_whois.py` plugin
-  - for external_query plugins, use `query_elasticsearch` plugin
-  - for extension plugins, use `extension/ai_assistant.py` plugin
-- For any new functionality, ensure that it is well-tested with unit and integration tests.
+When working on plugins, mirror the closest existing plugin:
 
-## setup the backend to work together with the UI gulpui-web
+- ingestion plugins: `src/gulp/plugins/win_evtx.py`
+- enrichment plugins: `src/gulp/plugins/enrich_whois.py`
+- external query plugins: `src/gulp/plugins/query_elasticsearch.py`
+- extension plugins: `src/gulp/plugins/extensions/ai_assistant.py`
 
-use pnpm start to start the web client on `http://localhost:3000` with which you can interact with the gulp backend API on `http://localhost:8080` (make sure to start the gulp backend if you haven't already, see testing instructions below).
+For plugin changes, add or update both unit and integration coverage when practical.
 
-## testing guidelines
+## UI Integration
 
-to run tests, first, always check if there is a a gulp backend instance available by checking `http://localhost:8080/docs`.
+To run the web client against the local backend:
 
-either, you can start one with `gulp --reset-collab --create test_operation`, and it is your responsibility to stop it with `gulp --stop` when you are done.
+- backend: `http://localhost:8080`
+- UI: `http://localhost:3000`
+- start the UI from `gulpui-web/` with `pnpm start`
 
-if you need to run multiple instances of gulp, use `GULP_BIND_TO_ADDR` and `GULP_BIND_TO_PORT` environment variables to bind each instance to a different address and port, e.g. `GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8100 gulp` to start a second instance on port 8100.
+Start the backend first if it is not already running.
 
-by default, if you find an already running instance, that runs on port 8080; for further instances use ports >= 8100.
+## Testing Rules
 
-### special cases
+Before running backend tests, first check whether a backend is already available:
 
-- if you need to tweak configuration, you have to modify `~/.config/gulp/gulp_cfg.json` and then restart gulp to apply the changes (once you're done testing, make sure to reset any changes you made to the config file to avoid affecting other tests or development work).
-- if you need observability, you can enable the Prometheus endpoint in the config file as described in [docs/observability.md](docs/observability.md) and then run Prometheus to scrape the metrics (make sure to stop Prometheus when you're done testing to avoid unnecessary resource usage).
+```bash
+curl -fsS http://localhost:8080/docs >/dev/null && echo up || echo down
+```
 
-### testing implementations
+If no backend is running, start one:
 
-- tests are (and should be created in) in `/gulp/tests/integration` (integration tests) and `/gulp/tests/unit` (unit tests)
-- for ingestion tests, you have examples in `/gulp/tests/integration/test_ingest.py`
-- for enrichment tests, you have examples in `/gulp/tests/integration/test_enrich.py`
-- for query tests, you have examples in `/gulp/tests/integration/test_queries.py`
-- the `raw` plugin is tested in `/gulp/tests/integration/test_raw_plugin.py`
-- for any other tests, look for examples in the `/gulp/tests/integration` directory, and if you cannot find any, ask for clarifications before proceeding
-- tests must always assert their expected results, but it is also very useful to print the actual response from the API on stdout to make sure you understand what is being returned, and to help with debugging if something goes wrong. So make sure to include print statements in your tests to output the API responses for better visibility during test runs.
+```bash
+gulp --reset-collab --create test_operation
+```
+
+When you started a backend instance for testing, stop it when finished:
+
+```bash
+gulp --stop
+```
+
+If you need multiple backend instances, bind extra instances to ports `>= 8100`:
+
+```bash
+GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8100 gulp
+```
+
+Default expectations:
+
+- an already running primary instance usually lives on `:8080`
+- secondary instances should use ports `>= 8100`
+
+### Test Locations
+
+- integration tests: `tests/integration/`
+- unit tests: `tests/unit/`
+
+Use existing tests as references:
+
+- ingestion: `tests/integration/test_ingest.py`
+- enrichment: `tests/integration/test_enrich.py`
+- query: `tests/integration/test_queries.py`
+- raw plugin: `tests/integration/test_raw_plugin.py`
+
+If no close example exists for the kind of test you need to add, ask before proceeding.
+
+### Test Authoring Expectations
+
+- Tests must assert expected results.
+- Tests should also print important API responses to stdout to help debug failures.
+- Keep tests consistent with the surrounding suite's style and fixtures.
+- Prefer integration coverage for API behavior and unit coverage for local plugin logic.
+
+### Special Testing Cases
+
+- If you need to tweak runtime configuration, edit `~/.config/gulp/gulp_cfg.json`, restart gULP, and revert the config changes after testing.
+- If you need observability, enable Prometheus as described in [docs/observability.md](docs/observability.md), and stop any extra tooling you started when done.
+- See [docs/testing.md](docs/testing.md) for broader test commands and helper scripts.
