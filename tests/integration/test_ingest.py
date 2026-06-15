@@ -1,11 +1,13 @@
 """Integration tests for ingesting EVTX samples via the win_evtx plugin."""
 
 import asyncio
+import hashlib
 from pathlib import Path
 from time import monotonic
 from typing import Any
 import uuid
 
+import httpx
 import orjson
 import pytest
 
@@ -155,6 +157,103 @@ async def test_ingest_win_evtx_sample(gulp_base_url, gulp_test_user, gulp_test_p
             assert await _preview_total_hits(client, op.id) == 7
         finally:
             await client.operations.delete(op.id)
+
+
+@pytest.mark.integration
+async def test_ingest_file_resume_upload(gulp_base_url, gulp_test_user, gulp_test_password):
+    """Resume an interrupted multipart ingest upload using continue_offset."""
+    from gulp_sdk import GulpClient
+
+    sample_path = Path("/gulp/samples/win_evtx/Security_short_selected.evtx")
+    if not sample_path.exists():
+        pytest.skip(f"Sample file missing: {sample_path}")
+
+    file_bytes = sample_path.read_bytes()
+    if len(file_bytes) <= 100:
+        pytest.skip(f"Sample file too small for resume test: {sample_path}")
+
+    first_chunk = file_bytes[:-100]
+    file_sha1 = hashlib.sha1(file_bytes).hexdigest()
+    context_name = _unique_name("sdk_resume_context")
+    req_id = _unique_name("req_resume_upload")
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op = await client.operations.create(
+            name=_unique_name("sdk_integration_ingest_resume"),
+            description="SDK ingestion resume integration test",
+        )
+
+        payload = {
+            "flt": {},
+            "plugin_params": {},
+            "original_file_path": str(sample_path),
+            "file_sha1": file_sha1,
+        }
+        params = {
+            "operation_id": op.id,
+            "context_name": context_name,
+            "plugin": "win_evtx",
+            "ws_id": client.ws_id,
+            "req_id": req_id,
+        }
+
+        try:
+            async with httpx.AsyncClient(base_url=gulp_base_url, timeout=60.0) as http:
+                partial_response = await http.post(
+                    "/ingest_file",
+                    params=params,
+                    headers={
+                        "token": client.token,
+                        "size": str(len(file_bytes)),
+                        "continue_offset": "0",
+                    },
+                    files=[
+                        (
+                            "payload",
+                            ("payload.json", orjson.dumps(payload), "application/json"),
+                        ),
+                        (
+                            "f",
+                            (
+                                sample_path.name,
+                                first_chunk,
+                                "application/octet-stream",
+                            ),
+                        ),
+                    ],
+                )
+                partial_json = partial_response.json()
+                print("partial upload response:", partial_json)
+                assert partial_response.status_code == 206
+                assert partial_json["status"] == "success"
+                assert partial_json["req_id"] == req_id
+                assert partial_json["data"] == {
+                    "done": False,
+                    "continue_offset": len(first_chunk),
+                }
+
+            result = await client.ingest.file(
+                operation_id=op.id,
+                plugin_name="win_evtx",
+                file_path=str(sample_path),
+                context_name=context_name,
+                params={
+                    "plugin_params": {},
+                    "file_sha1": file_sha1,
+                    "req_id": req_id,
+                },
+            )
+            print("sdk resume upload result:", result.model_dump())
+            assert result.req_id == req_id
+            assert str(result.status).lower() == "pending"
+
+            stats = await _wait_request_done(client, result.req_id, timeout=300.0)
+            print("resume ingest stats:", stats)
+            assert str(stats.get("status", "")).lower() == "done"
+            assert await _preview_total_hits(client, op.id) == 7
+        finally:
+            await _delete_operation_with_conflict_wait(client, op.id)
 
 
 @pytest.mark.integration

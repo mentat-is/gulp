@@ -10,6 +10,7 @@ These utilities support the server-side operations of the GULP API by providing
 common functionality needed across different endpoints and request handlers.
 """
 
+import asyncio
 import inspect
 import os
 import ssl
@@ -35,6 +36,8 @@ from gulp.config import GulpConfig
 
 
 class ServerUtils:
+    _multipart_upload_locks: dict[str, asyncio.Lock] = {}
+
     @staticmethod
     async def existing_request_response(
         sess, req_id: str, *, allow_ongoing: bool = False
@@ -288,6 +291,10 @@ class ServerUtils:
         # parse request headers, continue_offset=0 (first chunk) is assumed if missing
         continue_offset = int(r.headers.get("continue_offset", 0))
         total_file_size = int(r.headers["size"])
+        if continue_offset < 0:
+            raise ValueError("continue_offset must be greater than or equal to 0")
+        if total_file_size < 0:
+            raise ValueError("size must be greater than or equal to 0")
         if total_file_size == 0:
             return (
                 None,
@@ -319,58 +326,75 @@ class ServerUtils:
             unique_filename = "%s-%s" % (prefix, unique_filename)
 
         cache_file_path = muty.file.safe_path_join(cache_dir, unique_filename)
-
-        # Check if file is already complete
-        current_size = await muty.file.get_size(cache_file_path)
-        MutyLogger.get_instance().debug(
-            "extracted_filename=%s, cache_file_path=%s, continue_offset=%d, current_size=%d, total_file_size=%d, filename=%s, cache_file_path=%s, payload_dict=%s"
-            % (
-                filename,
-                cache_file_path,
-                continue_offset,
-                current_size,
-                total_file_size,
-                filename,
-                cache_file_path,
-                payload_dict,
-            )
+        lock = ServerUtils._multipart_upload_locks.setdefault(
+            cache_file_path, asyncio.Lock()
         )
 
-        if current_size < total_file_size:
-            if continue_offset != current_size:
-                # continue_offset must be equal to the current file size
-                return (
+        async with lock:
+            # Check if file is already complete
+            current_size = await muty.file.get_size(cache_file_path)
+            MutyLogger.get_instance().debug(
+                "extracted_filename=%s, cache_file_path=%s, continue_offset=%d, current_size=%d, total_file_size=%d, filename=%s, cache_file_path=%s, payload_dict=%s"
+                % (
+                    filename,
+                    cache_file_path,
+                    continue_offset,
+                    current_size,
+                    total_file_size,
+                    filename,
                     cache_file_path,
                     payload_dict,
-                    GulpUploadResponse(done=False, continue_offset=current_size),
+                )
+            )
+
+            if current_size > total_file_size:
+                muty.file.delete_file_or_dir(cache_file_path)
+                raise ValueError(
+                    f"partial upload {cache_file_path} is larger than expected: current_file_size={current_size}, expected={total_file_size}"
                 )
 
-            # write file chunk at the specified offset
-            async with aiofiles.open(cache_file_path, "ab+") as f:
-                await f.seek(continue_offset, os.SEEK_SET)
-                await f.truncate()
-                await f.write(file_part.content)
-                await f.flush()
+            if current_size < total_file_size:
+                if continue_offset != current_size:
+                    # continue_offset must be equal to the current file size
+                    return (
+                        cache_file_path,
+                        payload_dict,
+                        GulpUploadResponse(done=False, continue_offset=current_size),
+                    )
 
-        # verify upload status
-        current_written_size = await muty.file.get_size(cache_file_path)
-        current_hash = await muty.crypto.hash_sha1_file(cache_file_path)
-        if current_written_size >= total_file_size:
-            if "file_sha1" in payload_dict:
+                chunk_size = len(file_part.content)
+                remaining_size = total_file_size - current_size
+                if chunk_size == 0:
+                    raise ValueError("file chunk is empty")
+                if chunk_size > remaining_size:
+                    raise ValueError(
+                        f"file chunk exceeds remaining upload size: chunk_size={chunk_size}, remaining_size={remaining_size}"
+                    )
+
+                # write file chunk at the specified offset
+                async with aiofiles.open(cache_file_path, "ab+") as f:
+                    await f.seek(continue_offset, os.SEEK_SET)
+                    await f.truncate()
+                    await f.write(file_part.content)
+                    await f.flush()
+
+            # verify upload status
+            current_written_size = await muty.file.get_size(cache_file_path)
+            if current_written_size == total_file_size and "file_sha1" in payload_dict:
+                current_hash = await muty.crypto.hash_sha1_file(cache_file_path)
                 if current_hash != payload_dict["file_sha1"]:
                     # delete uploaded file
                     muty.file.delete_file_or_dir(cache_file_path)
                     raise ValueError(
-                        f"file {cache_file_path} is complete but file hash/file size mismatch: current_file_size={current_written_size}, expected={
-                            total_file_size}, current_sha1={current_hash}, expected={payload_dict['file_sha1']}"
+                        f"file {cache_file_path} is complete but file hash/file size mismatch: current_file_size={current_written_size}, expected={total_file_size}, current_sha1={current_hash}, expected={payload_dict['file_sha1']}"
                     )
 
-        # notify back upload status
-        is_complete = current_written_size == total_file_size
-        result = GulpUploadResponse(
-            done=is_complete,
-            continue_offset=0 if is_complete else current_written_size,
-        )
+            # notify back upload status
+            is_complete = current_written_size == total_file_size
+            result = GulpUploadResponse(
+                done=is_complete,
+                continue_offset=0 if is_complete else current_written_size,
+            )
         MutyLogger.get_instance().debug(
             "file_path=%s,\npayload=%s,\nresult=%s"
             % (

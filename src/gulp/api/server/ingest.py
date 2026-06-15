@@ -202,7 +202,7 @@ _EXAMPLE_DONE_UPLOAD = {
     }
 }
 
-_DESC_HEADER_SIZE = "the size of the header in bytes."
+_DESC_HEADER_SIZE = "the total size of the uploaded file in bytes."
 _DESC_HEADER_CONTINUE_OFFSET = "the offset in the file to continue the upload from."
 
 _DESC_CONTEXT_NAME = """
@@ -532,13 +532,13 @@ the json payload is a `GulpIngestPayload`, which may contain the following field
 
 ### response with resume handling
 
-if the upload is interrupted before finishing, the **next** upload of the same file with the **same** `operation_id/context_id/filename` will return an **error** response
+if the upload is interrupted before finishing, the **next** upload of the same file with the **same** `req_id/operation_id/context_id/filename` will return a `206` response
 with `data` set to a `GulpUploadResponse`:
 
 * `done` (bool): set to `False`
 * `continue_offset` (int): the offset of the next chunk to be uploaded, if `done` is `False`
 
-to resume file, the uploader must then forge a request (as in the example above) with the given `continue_offset` set.
+to resume file, the uploader must then forge a request (as in the example above) with the same `req_id`, the given `continue_offset`, and a file body containing bytes starting at that offset.
 
 once the upload is complete, the API will return a `pending` response and processing will start in the background.
 
@@ -546,7 +546,7 @@ once the upload is complete, the API will return a `pending` response and proces
 
 this function returns the following:
 
-- `status=error`, http status code `206` if the upload is incomplete (see above)
+- `status=success`, http status code `206` if the upload is incomplete (see above)
 - `status=pending, http status code `200` if the upload is complete and the ingestion task has been enqueued
 - `status=success`, http status code `200` if the upload is complete and `preview_mode` is set, with `data` set to the preview chunk of documents
 
@@ -788,7 +788,7 @@ async def ingest_file_to_source_handler(
             )
             if not result.done:
                 # upload not done yet, must continue upload with a new chunk
-                d = JSendResponse.error(
+                d = JSendResponse.success(
                     req_id=req_id, data=result.model_dump(exclude_none=True)
                 )
                 return JSONResponse(d, status_code=206)
@@ -1516,7 +1516,7 @@ async def ingest_zip_handler(
                 )
                 if not result.done:
                     # must continue upload with a new chunk
-                    d = JSendResponse.error(
+                    d = JSendResponse.success(
                         req_id=req_id, data=result.model_dump(exclude_none=True)
                     )
                     return JSONResponse(d, status_code=206)

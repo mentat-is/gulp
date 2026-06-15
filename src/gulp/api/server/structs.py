@@ -73,6 +73,10 @@ class GulpUploadResponse(BaseModel):
         int,
         Field(description="The offset of the next chunk to be uploaded, to resume."),
     ] = 0
+    error: Annotated[
+        Optional[str],
+        Field(description="Optional upload status error message."),
+    ] = None
 
 
 class APIDependencies:
