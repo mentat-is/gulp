@@ -18,7 +18,7 @@ import os
 from typing import Any, override
 
 import aiofiles
-import json_stream.base
+
 import muty.dict
 import muty.os
 from muty.log import MutyLogger
@@ -40,6 +40,7 @@ from gulp.structs import GulpPluginCustomParameter, GulpPluginParameters
 # pylint: disable=C0411
 muty.os.check_and_install_package("json-stream", ">=2.3.3,<3.0.0")
 import json_stream
+import json_stream.base
 
 
 class Plugin(GulpPluginBase):
