@@ -233,7 +233,7 @@ async def _rebase_by_query_internal(
                     and GulpRequestStats.is_terminal_status(stats.status)
                 ):
                     MutyLogger.get_instance().warning(
-                        "rebase request %s already terminal with status=%s, skipping replay",
+                        "rebase request %s already terminal with status=%s, skipping duplicate request",
                         req_id,
                         stats.status,
                     )
@@ -364,6 +364,10 @@ async def opensearch_rebase_by_query_handler(
             )
             user_id = s.user.id
             index = op.index
+
+            existing_response = await ServerUtils.existing_request_response(sess, req_id)
+            if existing_response:
+                return existing_response
 
             # enqueue rebase task to Redis for main process dispatcher
             task_msg = {

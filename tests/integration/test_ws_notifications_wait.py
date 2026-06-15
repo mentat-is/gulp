@@ -21,7 +21,7 @@ async def _create_operation(client: GulpClient, prefix: str) -> str:
     return str(op_id)
 
 
-async def _delete_operation_with_retry(client: GulpClient, operation_id: str, timeout: float = 30.0) -> None:
+async def _delete_operation_with_conflict_wait(client: GulpClient, operation_id: str, timeout: float = 30.0) -> None:
     """Delete operation tolerating transient running-request state."""
     deadline = asyncio.get_running_loop().time() + timeout
     last_exc: Exception | None = None
@@ -71,7 +71,7 @@ async def test_ws_wait_ingest_file_completion_uses_websocket(gulp_base_url, gulp
             print("ws_wait_ingest_file_completion response:", res)
             assert str(getattr(res, "status", "")).lower() == "done"
         finally:
-            await _delete_operation_with_retry(client, op_id)
+            await _delete_operation_with_conflict_wait(client, op_id)
 
 
 @pytest.mark.integration
@@ -110,7 +110,7 @@ async def test_ws_wait_query_gulp_completion_uses_websocket(gulp_base_url, gulp_
             print("ws_wait_query_gulp_completion response:", qres)
             assert str((qres or {}).get("status", "")).lower() == "done"
         finally:
-            await _delete_operation_with_retry(client, op_id)
+            await _delete_operation_with_conflict_wait(client, op_id)
 
 
 @pytest.mark.integration
@@ -150,4 +150,4 @@ async def test_ws_wait_db_rebase_completion_uses_websocket(gulp_base_url, gulp_t
             print("ws_wait_db_rebase_completion response:", dres)
             assert str((dres or {}).get("status", "")).lower() == "done"
         finally:
-            await _delete_operation_with_retry(client, op_id)
+            await _delete_operation_with_conflict_wait(client, op_id)

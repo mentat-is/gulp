@@ -111,7 +111,7 @@ async def test_rebase_by_query_script_marks_request_before_extra_fields(monkeypa
         sess=MagicMock(),
         index="test_index",
         offset_msec=1000,
-        req_id="req-replay",
+        req_id="req-duplicate",
         fields=["event.created"],
     )
 
@@ -125,7 +125,7 @@ async def test_rebase_by_query_script_marks_request_before_extra_fields(monkeypa
 
     assert noop_idx < extra_field_idx
     assert marker_add_idx < extra_field_idx
-    assert update_call["body"]["script"]["params"]["rebase_req_id"] == "req-replay"
+    assert update_call["body"]["script"]["params"]["rebase_req_id"] == "req-duplicate"
 
 
 @pytest.mark.unit

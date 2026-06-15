@@ -21,7 +21,6 @@ import asyncio
 import json
 import os
 import tempfile
-from copy import deepcopy
 from importlib import resources as impresources
 from typing import TYPE_CHECKING, Optional
 from urllib.parse import urlparse
@@ -1198,41 +1197,42 @@ class GulpOpenSearch:
             "content-type": "application/x-ndjson",
         }
 
-        # execute bulk operation with retries
-        max_retries: int = GulpConfig.get_instance().ingestion_retry_max()
-        attempt: int = 0
-        res: dict = None
-
-        while attempt < max_retries:
+        retry_max = GulpConfig.get_instance().ingestion_retry_max()
+        retry_delay = GulpConfig.get_instance().ingestion_retry_delay()
+        res: dict | None = None
+        for attempt in range(1, retry_max + 1):
             try:
                 res = await self._opensearch.bulk(
                     body=bulk_docs, index=index, params=params, headers=headers
                 )
-
-                # Check for server errors that would require retry
                 if res["errors"]:
                     for item in res["items"]:
-                        if item["create"]["status"] >= 500:
+                        status = item["create"]["status"]
+                        error = item["create"].get("error")
+                        pressure_error = (
+                            status == 429
+                            or status >= 500
+                            or self._bulk_item_is_circuit_breaker(error)
+                        )
+                        if pressure_error:
                             raise Exception(
-                                f"bulk ingestion failed with status {item['create']['status']}: {item['create']['error']}"
+                                f"bulk ingestion failed with status {status}: {error}"
                             )
-
-                break  # success, exit retry loop
-
+                break
             except Exception as ex:
-                attempt += 1
-                if attempt < max_retries:
-                    MutyLogger.get_instance().exception(ex)
-                    retry_delay = GulpConfig.get_instance().ingestion_retry_delay()
-                    MutyLogger.get_instance().warning(
-                        "bulk ingestion failed, retrying in %ds (attempt %d/%d)",
-                        retry_delay,
-                        attempt,
-                        max_retries,
-                    )
-                    await asyncio.sleep(retry_delay)
-                else:
-                    raise  # all retries failed
+                if attempt >= retry_max:
+                    raise
+                MutyLogger.get_instance().warning(
+                    "bulk ingestion failed, retrying in %.2fs (attempt %d/%d): %s",
+                    retry_delay,
+                    attempt,
+                    retry_max,
+                    ex,
+                )
+                await asyncio.sleep(retry_delay)
+
+        if res is None:
+            raise RuntimeError("bulk ingestion returned no response")
 
         # process results
         skipped: int = 0
@@ -2111,9 +2111,6 @@ class GulpOpenSearch:
         Raises:
             ObjectNotFound: If no more hits are found.
         """
-        # do not mutate original query dict to avoid leaking settings across retries
-        body = dict(q)
-
         headers = {
             "content-type": "application/json",
         }
@@ -2130,25 +2127,24 @@ class GulpOpenSearch:
         #     orjson.dumps(parsed_options, option=orjson.OPT_INDENT_2).decode(),
         # )
 
-        cb_attempts: int = 0
-        max_attempts: int = (
+        options = dict(parsed_options)
+        track_total_hits: bool = True
+        cb_attempt = 0
+        cb_max_attempts = (
             GulpConfig.get_instance().query_circuit_breaker_backoff_attempts()
         )
-        options: dict = deepcopy(
-            parsed_options
-        )  # avoid to mutate original parsed_options
-        track_total_hits: bool = True
-        min_cb_limit: int = GulpConfig.get_instance().query_circuit_breaker_min_limit()
-
+        cb_min_limit = GulpConfig.get_instance().query_circuit_breaker_min_limit()
         while True:
+            body = dict(q)
+
+            # build raw query body (query + parsed_options)
+            for k, v in options.items():
+                if v:
+                    body[k] = v
+
+            body["track_total_hits"] = track_total_hits
+
             try:
-                # build raw query body (query + parsed_options)
-                for k, v in options.items():
-                    if v:
-                        body[k] = v
-
-                body["track_total_hits"] = track_total_hits
-
                 if el:
                     # use provided client
                     if isinstance(el, AsyncElasticsearch):
@@ -2177,43 +2173,28 @@ class GulpOpenSearch:
                     )
                 break
             except Exception as ex:
-                if not self._is_circuit_breaker_exception(ex):
+                if (
+                    not self._is_circuit_breaker_exception(ex)
+                    or cb_attempt >= cb_max_attempts
+                ):
                     raise
-
-                if cb_attempts >= max_attempts:
-                    MutyLogger.get_instance().error(
-                        "circuit breaker retries exhausted (attempts=%d)",
-                        cb_attempts,
-                    )
-                    raise
-
-                # apply circuit breaker mitigation
-                cb_attempts += 1
-                size = options["size"]
-                if size > min_cb_limit:
-                    new_size: int = max(min_cb_limit, max(1, size // 2))
-                else:
-                    # keep current chunk size when already at/below the minimum limit
-                    new_size = size
-                options["size"] = new_size
+                cb_attempt += 1
+                try:
+                    size = max(1, int(options.get("size") or cb_min_limit))
+                except (TypeError, ValueError):
+                    size = cb_min_limit
+                if size > cb_min_limit:
+                    options["size"] = max(cb_min_limit, size // 2)
                 if GulpConfig.get_instance().query_circuit_breaker_disable_highlights():
-                    # disable hightlights
                     options["highlight"] = None
-
-                error_info: str = "ERR=%s\nquery: %s\noptions: %s" % (
-                    str(ex),
-                    orjson.dumps(q, option=orjson.OPT_INDENT_2).decode(),
-                    orjson.dumps(options, option=orjson.OPT_INDENT_2).decode(),
-                )
                 MutyLogger.get_instance().warning(
-                    "CIRCUIT BREAKER EXCEPTION HIT! trying query chunk size=%d (prev=%d) due, attempt=%d\nerror info:\n%s",
-                    new_size,
-                    size,
-                    cb_attempts,
-                    error_info,
+                    "OpenSearch circuit breaker while querying %s, backing off (attempt %d/%d, size=%s)",
+                    index,
+                    cb_attempt,
+                    cb_max_attempts,
+                    options.get("size"),
                 )
-                await asyncio.sleep(1)
-                continue
+                await asyncio.sleep(1.0)
 
         # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s", orjson.dumps(res, option=orjson.OPT_INDENT_2).decode())
         hits = res["hits"]["hits"]
@@ -2280,6 +2261,22 @@ class GulpOpenSearch:
         if _contains_marker(err.info):
             return True
         return False
+
+    def _bulk_item_is_circuit_breaker(self, error: object) -> bool:
+        """
+        Return True if a bulk item error maps to OpenSearch circuit breaker pressure.
+        """
+        markers = [
+            "circuit_breaking_exception",
+            "data too large",
+        ]
+        if error is None:
+            return False
+        try:
+            payload = json.dumps(error).lower()
+        except Exception:
+            payload = str(error).lower()
+        return any(marker in payload for marker in markers)
 
     async def search_dsl_sync(
         self,

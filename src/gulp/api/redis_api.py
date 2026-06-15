@@ -134,10 +134,10 @@ class GulpRedis:
     WS_INGEST_BYTES_PREFIX = "gulp:stream:ws_ingest:bytes"
     WS_INGEST_DONE_PREFIX = "gulp:ws_ingest:done"
     WS_INGEST_ORPHAN_CLEANUP_INTERVAL: float = 30.0
-    # idle time (ms) after which a pending message can be auto-claimed by another consumer
-    TASK_AUTOCLAIM_IDLE_MS: int = 60_000  # 60 seconds
     # interval (ms) used by dispatchers to refresh live task stream leases
     TASK_LEASE_REFRESH_INTERVAL_MS: int = 20_000
+    # idle time (ms) after which stale pending stream entries can be reclaimed
+    TASK_AUTOCLAIM_IDLE_MS: int = 60_000
     # retention for terminal task lifecycle records
     TASK_LIFECYCLE_TTL_SEC: int = 86_400
     TASK_ACTIVE_USER_MAX: int = 0
@@ -186,7 +186,7 @@ class GulpRedis:
         self._last_heartbeat_update: float = 0.0
         # timestamp of last raw websocket ingest orphan cleanup (main process only)
         self._last_ws_ingest_orphan_cleanup: float = 0.0
-        # timestamp of last autoclaim sweep (main process only)
+        # timestamp of last stale task autoclaim sweep (main process only)
         self._last_autoclaim_time: float = 0.0
         # cached utilization value for workers (read from Redis)
         self._cached_queue_utilization: float = 0.0
@@ -244,10 +244,10 @@ class GulpRedis:
 
         # load configurable Redis constants
         cfg = GulpConfig.get_instance()
-        GulpRedis.TASK_AUTOCLAIM_IDLE_MS = cfg.redis_task_autoclaim_idle_ms()
         GulpRedis.TASK_LEASE_REFRESH_INTERVAL_MS = (
             cfg.redis_task_lease_refresh_interval_ms()
         )
+        GulpRedis.TASK_AUTOCLAIM_IDLE_MS = cfg.redis_task_autoclaim_idle_ms()
         GulpRedis.TASK_LIFECYCLE_TTL_SEC = cfg.redis_task_lifecycle_ttl_sec()
         GulpRedis.TASK_ACTIVE_USER_MAX = cfg.redis_task_active_user_max()
         GulpRedis.TASK_ACTIVE_OPERATION_MAX = cfg.redis_task_active_operation_max()
@@ -1314,8 +1314,8 @@ class GulpRedis:
                         count=1,
                     )
                     if oldest:
-                        metrics["oldest_queued_age_msec"] = (
-                            self._redis_stream_age_msec(oldest[0][0], now_msec)
+                        metrics["oldest_queued_age_msec"] = self._redis_stream_age_msec(
+                            oldest[0][0], now_msec
                         )
             except Exception:
                 MutyLogger.get_instance().exception(
@@ -1345,7 +1345,9 @@ class GulpRedis:
                     "failed to collect task pending depth for %s", stream_key
                 )
             try:
-                metrics["dead_lettered"] = int(await self._redis.xlen(dead_letter_stream))
+                metrics["dead_lettered"] = int(
+                    await self._redis.xlen(dead_letter_stream)
+                )
             except Exception:
                 MutyLogger.get_instance().exception(
                     "failed to collect task dead-letter depth for %s",
@@ -1452,7 +1454,7 @@ class GulpRedis:
 
     @staticmethod
     def _task_admission_retry_after_msec() -> int:
-        """Return retry hint for temporary queue admission rejections."""
+        """Return wait hint for temporary queue admission rejections."""
         return 1000
 
     @staticmethod
@@ -1582,7 +1584,9 @@ class GulpRedis:
             query_count = len(queries)
         query_count = max(1, query_count)
 
-        q_options = params.get("q_options") if isinstance(params.get("q_options"), dict) else {}
+        q_options = (
+            params.get("q_options") if isinstance(params.get("q_options"), dict) else {}
+        )
         limit = cls._positive_int(q_options.get("limit"), default=1000) or 1000
         total_limit = cls._positive_int(q_options.get("total_limit"))
         result_window = total_limit if total_limit > 0 else limit
@@ -1613,7 +1617,9 @@ class GulpRedis:
             if size_bytes > 0:
                 break
 
-        payload = params.get("payload") if isinstance(params.get("payload"), dict) else {}
+        payload = (
+            params.get("payload") if isinstance(params.get("payload"), dict) else {}
+        )
         if size_bytes <= 0:
             for key in ("file_size", "size", "original_size", "declared_size"):
                 size_bytes = cls._positive_int(payload.get(key))
@@ -1680,7 +1686,9 @@ class GulpRedis:
 
         flt = params.get("flt")
         filter_clauses = cls._filter_clause_count(flt)
-        filter_units = 4 if filter_clauses <= 0 else max(1, min(4, math.ceil(filter_clauses / 4)))
+        filter_units = (
+            4 if filter_clauses <= 0 else max(1, min(4, math.ceil(filter_clauses / 4)))
+        )
         plugin_units = 1 if action == "enrich_documents" or params.get("plugin") else 0
         return max(1, field_units + filter_units + plugin_units)
 
@@ -1828,7 +1836,8 @@ class GulpRedis:
         """Return execution lock TTL in milliseconds."""
         return max(
             1_000,
-            GulpRedis.TASK_AUTOCLAIM_IDLE_MS + GulpRedis.TASK_LEASE_REFRESH_INTERVAL_MS,
+            GulpRedis.TASK_AUTOCLAIM_IDLE_MS
+            + GulpRedis.TASK_LEASE_REFRESH_INTERVAL_MS,
         )
 
     @staticmethod
@@ -1969,7 +1978,6 @@ class GulpRedis:
                 "terminal",
             )
             return "terminal"
-
         lifecycle_owner = lifecycle.get("server_id")
         if (
             task.get("__redis_autoclaimed__")
@@ -1979,7 +1987,7 @@ class GulpRedis:
             and await self.is_server_alive(lifecycle_owner)
         ):
             MutyLogger.get_instance().warning(
-                "not claiming autoclaimed task because original owner heartbeat is still alive: task_type=%s req_id=%s owner_server_id=%s",
+                "not claiming autoclaimed task because lifecycle owner is still alive: task_type=%s req_id=%s owner=%s",
                 task.get("task_type"),
                 task.get("req_id"),
                 lifecycle_owner,
@@ -2190,7 +2198,9 @@ class GulpRedis:
                     )
                 except Exception:
                     MutyLogger.get_instance().exception(
-                        "failed to xdel %s %s after missing consumer group", stream_name, msg_id
+                        "failed to xdel %s %s after missing consumer group",
+                        stream_name,
+                        msg_id,
                     )
                     self._record_task_transition(
                         "ack_delete",
@@ -2344,7 +2354,11 @@ class GulpRedis:
             "message_id": msg_id,
             "reason": reason,
             "task": task_payload,
-            "raw": raw_payload.decode() if isinstance(raw_payload, (bytes, bytearray)) else raw_payload,
+            "raw": (
+                raw_payload.decode()
+                if isinstance(raw_payload, (bytes, bytearray))
+                else raw_payload
+            ),
             "server_id": self.server_id,
         }
 
@@ -2425,9 +2439,7 @@ class GulpRedis:
             )
             return "ignored"
 
-        task_payload = {
-            k: v for k, v in task.items() if not k.startswith("__redis_")
-        }
+        task_payload = {k: v for k, v in task.items() if not k.startswith("__redis_")}
         task_payload["__task_last_error__"] = reason
         finished_at_msec = int(time.time() * 1000)
         task_payload["__task_last_failed_at_msec__"] = finished_at_msec
@@ -2506,9 +2518,7 @@ class GulpRedis:
             )
             return False
 
-        task_payload = {
-            k: v for k, v in task.items() if not k.startswith("__redis_")
-        }
+        task_payload = {k: v for k, v in task.items() if not k.startswith("__redis_")}
         task_payload["__task_last_error__"] = reason
         finished_at_msec = int(time.time() * 1000)
         task_payload["__task_last_failed_at_msec__"] = finished_at_msec
@@ -2769,22 +2779,23 @@ class GulpRedis:
 
     async def task_autoclaim_stale(self) -> list[dict]:
         """
-        Reclaim pending messages that have been idle longer than TASK_AUTOCLAIM_IDLE_MS
-        from dead or slow consumers, using XAUTOCLAIM.
+        Reclaim stale pending stream tasks whose consumer has stopped refreshing them.
 
         Returns:
-            list[dict]: Decoded task dicts that were reclaimed.
+            list[dict]: Reclaimed task envelopes ready for dispatch.
         """
-        items: list[dict] = []
-
-        # determine streams to check
-        keys: list[str] = await self._task_stream_keys()
-
+        reclaimed: list[dict] = []
+        keys = await self._task_stream_keys()
         for stream in keys:
             try:
-                # XAUTOCLAIM: claim idle messages and return them to this consumer
-                # Returns (next_start_id, [(msg_id, fields), ...], [deleted_ids])
-                result = await self._redis.xautoclaim(
+                await self._redis.xgroup_create(
+                    stream, GulpRedis.STREAM_CONSUMER_GROUP, id="0", mkstream=True
+                )
+            except Exception:
+                pass
+
+            try:
+                _, claimed_msgs, _ = await self._redis.xautoclaim(
                     stream,
                     GulpRedis.STREAM_CONSUMER_GROUP,
                     self.server_id,
@@ -2792,77 +2803,69 @@ class GulpRedis:
                     start_id="0-0",
                     count=50,
                 )
-                if not result or not result[1]:
-                    continue
-
-                claimed_msgs = result[1]
-                ids_to_del: list = []
-                for msg_id, fields in claimed_msgs:
-                    if not fields:
-                        # message was deleted from stream but still in PEL; skip
-                        continue
-                    raw = (
-                        fields.get(b"data")
-                        if isinstance(fields, dict)
-                        else fields.get("data")
-                    )
-                    if raw is None:
-                        await self._dead_letter_task(
-                            stream,
-                            msg_id,
-                            "missing data field",
-                            raw_payload=None,
-                        )
-                        continue
-                    try:
-                        d = orjson.loads(raw)
-                        if not isinstance(d, dict):
-                            raise TypeError("task payload must decode to dict")
-                        envelope = self._task_envelope(
-                            d, stream, msg_id, self.server_id
-                        )
-                        envelope["__redis_autoclaimed__"] = True
-                        items.append(envelope)
-                    except Exception:
-                        MutyLogger.get_instance().error(
-                            "invalid payload in autoclaimed message %s on %s",
-                            msg_id,
-                            stream,
-                        )
-                        await self._dead_letter_task(
-                            stream,
-                            msg_id,
-                            "invalid payload in autoclaimed message",
-                            raw_payload=raw,
-                        )
-
-                if claimed_msgs:
-                    self._record_task_transition(
-                        "autoclaim",
-                        self._task_type_from_stream(stream),
-                        "reclaimed",
-                        amount=len(claimed_msgs),
-                    )
-                    MutyLogger.get_instance().warning(
-                        "autoclaimed %d stale message(s) from stream %s (idle > %dms)",
-                        len(claimed_msgs),
-                        stream,
-                        GulpRedis.TASK_AUTOCLAIM_IDLE_MS,
-                    )
-
             except ResponseError as ex:
                 if "NOGROUP" in str(ex):
-                    pass  # group doesn't exist yet, nothing to reclaim
-                else:
-                    MutyLogger.get_instance().exception(
-                        "error during xautoclaim on %s: %s", stream, ex
-                    )
-            except Exception:
+                    continue
                 MutyLogger.get_instance().exception(
-                    "error during task_autoclaim_stale on %s", stream
+                    "error autoclaiming stale tasks from %s: %s", stream, ex
+                )
+                continue
+            except Exception as ex:
+                MutyLogger.get_instance().exception(
+                    "error autoclaiming stale tasks from %s: %s", stream, ex
+                )
+                continue
+
+            for msg_id, fields in claimed_msgs:
+                raw = (
+                    fields.get(b"data")
+                    if isinstance(fields, dict)
+                    else fields.get("data")
+                )
+                if raw is None:
+                    await self._dead_letter_task(
+                        stream,
+                        msg_id,
+                        "missing data field in autoclaimed message",
+                        raw_payload=None,
+                    )
+                    continue
+                try:
+                    task = orjson.loads(raw)
+                    if not isinstance(task, dict):
+                        raise TypeError("task payload must decode to dict")
+                    envelope = self._task_envelope(task, stream, msg_id, self.server_id)
+                    envelope["__redis_autoclaimed__"] = True
+                    reclaimed.append(envelope)
+                except Exception as ex:
+                    MutyLogger.get_instance().error(
+                        "invalid task payload in autoclaimed message %s/%s: %s",
+                        stream,
+                        msg_id,
+                        ex,
+                    )
+                    await self._dead_letter_task(
+                        stream,
+                        msg_id,
+                        f"invalid task payload in autoclaimed message: {ex}",
+                        raw_payload=raw,
+                    )
+
+            if claimed_msgs:
+                task_type = self._task_type_from_stream(stream)
+                self._record_task_transition(
+                    "autoclaim",
+                    task_type,
+                    "reclaimed",
+                    amount=len(claimed_msgs),
+                )
+                MutyLogger.get_instance().warning(
+                    "autoclaimed %d stale task(s) from %s",
+                    len(claimed_msgs),
+                    stream,
                 )
 
-        return items
+        return reclaimed
 
     async def task_purge_by_filter(
         self, operation_id: str | None = None, req_id: str | None = None

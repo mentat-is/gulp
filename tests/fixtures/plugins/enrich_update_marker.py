@@ -1,14 +1,11 @@
-"""Deterministic enrichment plugin used by replay integration tests."""
+"""Deterministic enrichment plugin used by duplicate-request integration tests."""
 
-import os
 from typing import override
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.opensearch.filters import GulpQueryFilter
-from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.replay import mark_document_update_request
 from gulp.plugin import GulpPluginBase, GulpPluginType
 from gulp.structs import GulpPluginParameters
 
@@ -20,11 +17,11 @@ class Plugin(GulpPluginBase):
         return GulpPluginType.ENRICHMENT
 
     def display_name(self) -> str:
-        return "enrich_replay_marker"
+        return "enrich_update_marker"
 
     @override
     def desc(self) -> str:
-        return "Replay integration test enrichment plugin."
+        return "Duplicate-request integration test enrichment plugin."
 
     async def _enrich_documents_chunk(
         self,
@@ -39,26 +36,6 @@ class Plugin(GulpPluginBase):
         q_group: str = None,
         **kwargs,
     ) -> list[dict]:
-        crash_marker_path = self._plugin_params.custom_parameters.get(
-            "crash_once_marker_path"
-        )
-        if crash_marker_path and not os.path.exists(crash_marker_path) and chunk:
-            doc = chunk[0]
-            doc["enriched"] = True
-            doc.update(
-                self._build_or_update_enriched_obj(
-                    doc, "marker", f"crashed:{req_id}"
-                )
-            )
-            mark_document_update_request(doc, req_id)
-            doc.pop("highlight", None)
-            await GulpOpenSearch.get_instance().update_documents(
-                index, [doc], wait_for_refresh=True
-            )
-            with open(crash_marker_path, "w", encoding="utf-8") as f:
-                f.write(req_id or "")
-            os._exit(77)
-
         for doc in chunk:
             doc["enriched"] = True
             doc.update(

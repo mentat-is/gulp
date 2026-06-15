@@ -127,7 +127,7 @@ class GulpCollab:
                 await GulpCollab.db_drop(url)
                 await GulpCollab.db_create(url)
 
-            self._engine = await self._create_engine()
+            self._engine = await self._create_engine(log_pool_budget=True)
             self._collab_sessionmaker = async_sessionmaker(
                 bind=self._engine, expire_on_commit=False
             )
@@ -153,7 +153,7 @@ class GulpCollab:
         # init done
         self._initialized = True
 
-    async def _create_engine(self) -> AsyncEngine:
+    async def _create_engine(self, log_pool_budget: bool = False) -> AsyncEngine:
         """
         creates the collab database engine
 
@@ -233,24 +233,26 @@ class GulpCollab:
             adaptive_max_overflow = min(25, max(1, max(1, num_tasks_per_worker) // 6))
             pool_size = min(pool_size_cap, adaptive_pool_size)
             max_overflow = min(max_overflow_cap, adaptive_max_overflow)
-            MutyLogger.get_instance().debug(
-                "using postgres adaptive pool size, adaptive=(%d,%d), capped=(%d,%d), cap=(%d,%d), num_tasks_per_worker=%d"
-                % (
-                    adaptive_pool_size,
-                    adaptive_max_overflow,
+            if log_pool_budget:
+                MutyLogger.get_instance().debug(
+                    "using postgres adaptive pool size, adaptive=(%d,%d), capped=(%d,%d), cap=(%d,%d), num_tasks_per_worker=%d"
+                    % (
+                        adaptive_pool_size,
+                        adaptive_max_overflow,
+                        pool_size,
+                        max_overflow,
+                        pool_size_cap,
+                        max_overflow_cap,
+                        num_tasks_per_worker,
+                    )
+                )
+        else:
+            if log_pool_budget:
+                MutyLogger.get_instance().debug(
+                    "using postgres fixed pool settings, pool_size=%d, max_overflow=%d",
                     pool_size,
                     max_overflow,
-                    pool_size_cap,
-                    max_overflow_cap,
-                    num_tasks_per_worker,
                 )
-            )
-        else:
-            MutyLogger.get_instance().debug(
-                "using postgres fixed pool settings, pool_size=%d, max_overflow=%d",
-                pool_size,
-                max_overflow,
-            )
 
         pool_timeout: int = config.postgres_pool_timeout_sec()
         pool_recycle: int = config.postgres_pool_recycle_sec()
@@ -263,31 +265,35 @@ class GulpCollab:
         per_instance_cap = processes_per_instance * per_process_cap
         per_instance_actual = processes_per_instance * per_process_actual
 
-        MutyLogger.get_instance().info(
-            "postgres pool budget: actual_per_process=%d, cap_per_process=%d, "
-            "processes_per_instance=%d, actual_per_instance=%d, "
-            "cap_per_instance=%d, pool_timeout_sec=%d, pool_recycle_sec=%d",
-            per_process_actual,
-            per_process_cap,
-            processes_per_instance,
-            per_instance_actual,
-            per_instance_cap,
-            pool_timeout,
-            pool_recycle,
-        )
-        if (
-            per_instance_cap
-            >= self._POSTGRES_CONNECTION_WARNING_THRESHOLD
-        ):
-            MutyLogger.get_instance().warning(
-                "postgres connection budget is high: cap_per_instance=%d. "
-                "For multi-instance deployments, total_possible_connections="
-                "gulp_instances * processes_per_instance * "
-                "(postgres_pool_size + postgres_max_overflow). Reduce "
-                "postgres_pool_size, postgres_max_overflow, "
-                "parallel_processes_max, or instance count before raising caps.",
+        if log_pool_budget:
+            MutyLogger.get_instance().info(
+                "postgres pool budget: actual_per_process=%d, cap_per_process=%d, "
+                "processes_per_instance=%d, actual_per_instance=%d, "
+                "cap_per_instance=%d, pool_timeout_sec=%d, pool_recycle_sec=%d",
+                per_process_actual,
+                per_process_cap,
+                processes_per_instance,
+                per_instance_actual,
                 per_instance_cap,
+                pool_timeout,
+                pool_recycle,
             )
+            if per_instance_cap >= self._POSTGRES_CONNECTION_WARNING_THRESHOLD:
+                MutyLogger.get_instance().warning(
+                    "postgres connection budget is high because per_instance_cap=%d "
+                    "meets the warning threshold=%d "
+                    "(processes_per_instance=%d, pool_size_cap=%d, "
+                    "max_overflow_cap=%d). Estimated cluster total is "
+                    "gulp_instances * per_instance_cap. Reduce "
+                    "postgres_pool_size, postgres_max_overflow, "
+                    "parallel_processes_max, or instance count before raising "
+                    "caps.",
+                    per_instance_cap,
+                    self._POSTGRES_CONNECTION_WARNING_THRESHOLD,
+                    processes_per_instance,
+                    pool_size_cap,
+                    max_overflow_cap,
+                )
 
         # create engine
         kw = dict(

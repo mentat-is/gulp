@@ -1838,18 +1838,11 @@ class GulpRedisBroker:
             pass
 
     @staticmethod
-    async def _redis_eval_with_retries(
+    async def _redis_eval(
         redis_client: GulpRedis, script: str, *keys
     ) -> Any:
-        """Run Redis EVAL with the existing short retry policy."""
-        for attempt in range(3):
-            try:
-                return await redis_client._redis.eval(script, len(keys), *keys)
-            except Exception:
-                if attempt == 2:
-                    raise
-                await asyncio.sleep(0.2 * (attempt + 1))
-        return None
+        """Run Redis EVAL once."""
+        return await redis_client._redis.eval(script, len(keys), *keys)
 
     async def initialize(self) -> None:
         """
@@ -1996,7 +1989,7 @@ class GulpRedisBroker:
                                 "return table.concat(vals)\n"
                             )
 
-                        stored = await self._redis_eval_with_retries(
+                        stored = await self._redis_eval(
                             redis_client, lua_multi, *keys
                         )
 
@@ -2045,7 +2038,7 @@ class GulpRedisBroker:
                             # Multi-reader GET; TTL handles cleanup.
                             lua = "return redis.call('GET', KEYS[1])"
 
-                        stored = await self._redis_eval_with_retries(
+                        stored = await self._redis_eval(
                             redis_client, lua, ptr
                         )
                         if stored:

@@ -47,10 +47,6 @@ from gulp.api.opensearch.structs import (
     GulpQueryParameters,
 )
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.replay import (
-    document_has_update_request,
-    mark_document_update_request,
-)
 from gulp.api.s3_api import GulpS3
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
@@ -84,7 +80,6 @@ from gulp.structs import (
     GulpPluginParameters,
     ObjectNotFound,
 )
-
 
 class GulpPluginType(StrEnum):
     """
@@ -1299,36 +1294,23 @@ class GulpPluginBase(ABC):
         flt: GulpQueryFilter = cb_context["flt"]
         stats_last = last and not cb_context.get("defer_final_stats", False)
 
-        already_updated_docs = []
-        pending_chunk = []
-        for d in chunk:
-            if document_has_update_request(d, req_id):
-                already_updated_docs.append(d)
-                continue
-            pending_chunk.append(d)
-
-        # call plugin's _enrich_documents_chunk only for documents not already
-        # marked as updated by this request.
-        enriched_chunk = []
-        if pending_chunk:
-            enriched_chunk = await self._enrich_documents_chunk_cb(
-                sess,
-                pending_chunk,
-                chunk_num=chunk_num,
-                total_hits=total_hits,
-                index=index,
-                last=last,
-                req_id=req_id,
-                q_name=q_name,
-                q_group=q_group,
-                **kwargs,
-            )
+        enriched_chunk = await self._enrich_documents_chunk_cb(
+            sess,
+            chunk,
+            chunk_num=chunk_num,
+            total_hits=total_hits,
+            index=index,
+            last=last,
+            req_id=req_id,
+            q_name=q_name,
+            q_group=q_group,
+            **kwargs,
+        )
 
         MutyLogger.get_instance().debug(
-            "%s: enriched %d documents, already_updated=%d, last=%r",
+            "%s: enriched %d documents, last=%r",
             self.name,
             len(enriched_chunk),
-            len(already_updated_docs),
             last,
         )
 
@@ -1336,7 +1318,6 @@ class GulpPluginBase(ABC):
         # also ensure no highlight field is left from the query
         for d in enriched_chunk:
             d.pop("highlight", None)
-            mark_document_update_request(d, req_id)
 
         dry_run: bool = GulpConfig.get_instance().debug_enrich_dry_run()
         if not dry_run and enriched_chunk:
@@ -1351,7 +1332,7 @@ class GulpPluginBase(ABC):
             updated = len(enriched_chunk)
             errors = []
 
-        num_updated = len(already_updated_docs) + updated
+        num_updated = updated
         cb_context["total_updated"] += num_updated
         cb_context["errors"].extend(errors)
         cb_context["total_hits"] = total_hits
@@ -1368,7 +1349,7 @@ class GulpPluginBase(ABC):
             last=stats_last,
             update_key=f"enrich_documents:{req_id}:{chunk_num}:{stats_last}",
         )
-        return already_updated_docs + enriched_chunk
+        return enriched_chunk
 
     async def enrich_documents(
         self,

@@ -36,15 +36,11 @@ from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpDocument, GulpQueryParameters
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis, TaskQueueFullError
-from gulp.api.replay import (
-    document_has_update_request,
-    mark_document_update_request,
-)
+from gulp.plugin import GulpPluginBase
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies, TASK_TYPE_ENRICH
 from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
-from gulp.plugin import GulpPluginBase
 from gulp.structs import GulpPluginParameters
 
 router: APIRouter = APIRouter()
@@ -80,6 +76,10 @@ async def _enqueue_enrich_task(
             sess, token, obj=op, permission=GulpUserPermission.EDIT
         )
         user_id = s.user.id
+
+        existing_response = await ServerUtils.existing_request_response(sess, req_id)
+        if existing_response:
+            return existing_response
 
         params = {
             "action": action,
@@ -250,7 +250,7 @@ async def _enrich_documents_internal(
                 and GulpRequestStats.is_terminal_status(stats.status)
             ):
                 MutyLogger.get_instance().warning(
-                    "enrich request %s already terminal with status=%s, skipping replay",
+                    "enrich request %s already terminal with status=%s, skipping duplicate request",
                     req_id,
                     stats.status,
                 )
@@ -484,14 +484,8 @@ async def _modify_documents_chunk(
     stats_last = last and not cb_context.get("defer_final_stats", False)
 
     updated_docs = []
-    already_updated = 0
     for d in chunk:
-        if document_has_update_request(d, req_id):
-            already_updated += 1
-            continue
-
         if mutate_fn(d):
-            mark_document_update_request(d, req_id)
             updated_docs.append(d)
 
     MutyLogger.get_instance().debug(
@@ -519,7 +513,7 @@ async def _modify_documents_chunk(
             updated = 0
             errs = []
 
-    num_updated = already_updated + updated
+    num_updated = updated
     cb_context["total_updated"] += num_updated
     cb_context["errors"].extend(errs)
 
@@ -640,7 +634,7 @@ async def _update_documents_internal(
                 and GulpRequestStats.is_terminal_status(stats.status)
             ):
                 MutyLogger.get_instance().warning(
-                    "update-documents request %s already terminal with status=%s, skipping replay",
+                    "update-documents request %s already terminal with status=%s, skipping duplicate request",
                     req_id,
                     stats.status,
                 )
@@ -760,7 +754,7 @@ async def _untag_documents_internal(
                 and GulpRequestStats.is_terminal_status(stats.status)
             ):
                 MutyLogger.get_instance().warning(
-                    "untag-documents request %s already terminal with status=%s, skipping replay",
+                    "untag-documents request %s already terminal with status=%s, skipping duplicate request",
                     req_id,
                     stats.status,
                 )
@@ -883,7 +877,7 @@ async def _enrich_remove_internal(
                 and GulpRequestStats.is_terminal_status(stats.status)
             ):
                 MutyLogger.get_instance().warning(
-                    "enrich-remove request %s already terminal with status=%s, skipping replay",
+                    "enrich-remove request %s already terminal with status=%s, skipping duplicate request",
                     req_id,
                     stats.status,
                 )

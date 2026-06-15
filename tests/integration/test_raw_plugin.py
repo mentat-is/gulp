@@ -13,7 +13,7 @@ def _unique(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
 
-async def _delete_operation_with_retry(
+async def _delete_operation_with_conflict_wait(
     client, operation_id: str, timeout: float = 30.0
 ) -> None:
     """Delete operation tolerating transient running-request state."""
@@ -94,7 +94,7 @@ async def test_raw_ingest_without_explicit_mapping(
             assert isinstance(event_original, str)
             assert marker in event_original
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)
 
 
 @pytest.mark.integration
@@ -157,7 +157,7 @@ async def test_raw_ingest_with_inline_mapping(
             assert doc.get("host.name") == f"host_{marker}"
             assert doc.get("agent.type") == "raw"
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)
 
 
 @pytest.mark.integration
@@ -226,7 +226,7 @@ async def test_raw_ingest_uses_selected_mapping_id(
             doc = docs[0]
             assert str(doc.get("event.code")) == "CODE_B"
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)
 
 
 @pytest.mark.integration
@@ -287,7 +287,7 @@ async def test_raw_ingest_preserves_timestamp_and_code_with_context_source_mappi
             assert doc.get("gulp.context_id")
             assert doc.get("gulp.source_id")
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)
 
 
 @pytest.mark.integration
@@ -355,4 +355,4 @@ async def test_raw_ingest_merges_additional_mappings(
             assert str(doc.get("event.code")) == "7777"
             assert doc.get("log.level") == "high"
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)

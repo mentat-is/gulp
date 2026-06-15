@@ -285,7 +285,7 @@ async def _ingest_file_internal(
                     and GulpRequestStats.is_terminal_status(stats.status)
                 ):
                     MutyLogger.get_instance().warning(
-                        "ingest request %s already terminal with status=%s, skipping replay",
+                        "ingest request %s already terminal with status=%s, skipping duplicate request",
                         req_id,
                         stats.status,
                     )
@@ -444,6 +444,12 @@ async def _preview_or_enqueue_ingest_task(
         file_size=file_size,
         delete_after=delete_after,
     )
+
+    existing_response = await ServerUtils.existing_request_response(
+        sess, req_id, allow_ongoing=True
+    )
+    if existing_response:
+        return existing_response
 
     # handle preview mode: run ingestion synchronously and return preview chunk
     if payload.plugin_params.preview_mode:
@@ -1518,6 +1524,12 @@ async def ingest_zip_handler(
                 # ensure payload is valid
                 payload = GulpZipIngestPayload.model_validate(payload)
 
+                existing_response = await ServerUtils.existing_request_response(
+                    sess, req_id, allow_ongoing=True
+                )
+                if existing_response:
+                    return existing_response
+
                 # process in background: the background task will unzip the file and enqueue the tasks
                 coro = _ingest_zip_internal(
                     file_path,
@@ -1628,6 +1640,12 @@ async def ingest_zip_local_handler(
                 payload = GulpZipIngestPayload(
                     flt=flt,
                 )
+
+                existing_response = await ServerUtils.existing_request_response(
+                    sess, req_id, allow_ongoing=True
+                )
+                if existing_response:
+                    return existing_response
 
                 # process in background: the background task will unzip the file and enqueue the tasks
                 coro = _ingest_zip_internal(

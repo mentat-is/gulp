@@ -292,7 +292,7 @@ async def _wait_ingest_done(client: Any, req_ids: set[str], timeout: float) -> N
 
 
 async def _delete_op(client: Any, op_id: str, timeout: float = 30.0) -> None:
-    """Cancel pending requests then delete the operation, retrying on conflicts."""
+    """Cancel pending requests then delete the operation, waiting on conflicts."""
     try:
         await client.plugins.request_delete(op_id)
     except Exception:

@@ -253,7 +253,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
 
     @staticmethod
     def is_terminal_status(status: str | None) -> bool:
-        """Return True if a request status is terminal and should not be replayed."""
+        """Return True if a request status is terminal and should not run again."""
         return status in {
             GulpRequestStatus.DONE.value,
             GulpRequestStatus.FAILED.value,

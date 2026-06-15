@@ -11,6 +11,7 @@ capabilities for the application.
 """
 
 import asyncio
+from collections import deque
 from contextlib import suppress
 import os
 import ssl
@@ -449,7 +450,7 @@ class GulpServer:
         """Return the lease refresh interval in seconds."""
         interval_ms = GulpRedis.TASK_LEASE_REFRESH_INTERVAL_MS
         if interval_ms <= 0:
-            interval_ms = max(1000, GulpRedis.TASK_AUTOCLAIM_IDLE_MS // 3)
+            interval_ms = max(1_000, GulpRedis.TASK_AUTOCLAIM_IDLE_MS // 3)
         return max(0.001, interval_ms / 1000.0)
 
     async def _refresh_task_lease_until_done(self, task: dict) -> None:
@@ -532,7 +533,9 @@ class GulpServer:
                 req_id,
             )
 
-    async def _claim_task_or_ack_duplicate(self, redis_inst: GulpRedis, task: dict) -> bool:
+    async def _claim_task_or_ack_duplicate(
+        self, redis_inst: GulpRedis, task: dict
+    ) -> bool:
         """Claim a task lifecycle or ACK/delete duplicate terminal work."""
         claim_state = await redis_inst.task_claim_execution(task)
         if claim_state in {"claimed", "untracked"}:
@@ -580,7 +583,7 @@ class GulpServer:
         *,
         source: str,
     ) -> None:
-        """Claim, execute, and finalize a batch of queued or reclaimed tasks."""
+        """Claim, execute, and finalize queued or reclaimed tasks."""
         task_coros: list[tuple[dict, Awaitable[Any]]] = []
         for obj in tasks:
             if not await self._claim_task_or_ack_duplicate(redis_inst, obj):
@@ -631,71 +634,106 @@ class GulpServer:
 
     async def _dispatch_tasks(self):
         """
-        Blocking task loop using Redis BLPOP for long running tasks that need to be dispatched to workers, such as ingest and query tasks.
-        Waits for a task, then drains up to concurrency limit and dispatches to workers.
+        Blocking task loop for long running tasks that need workers.
+
+        Keeps up to the configured capacity in flight instead of waiting for a
+        whole drained batch to finish before dequeuing more work.
         """
         # compute total capacity: number of worker processes * per-worker concurrency
         child_concurrency: int = GulpConfig.get_instance().concurrency_num_tasks()
         num_workers: int = GulpConfig.get_instance().parallel_processes_max()
         total_capacity: int = max(1, num_workers * child_concurrency)
         limit: int = total_capacity
-        MutyLogger.get_instance().info(
-            "STARTING dispatch_tasks loop, max batch size=%d (num_workers=%d, child_concurrency=%d) ...",
-            limit,
-            num_workers,
-            child_concurrency,
-        )
+        MutyLogger.get_instance().info("STARTING dispatch_tasks loop ...")
+
+        in_flight: set[asyncio.Task[None]] = set()
+        reclaimed_queue: deque[dict] = deque()
+
+        def _consume_dispatch_result(task: asyncio.Task[None]) -> None:
+            in_flight.discard(task)
+            with suppress(asyncio.CancelledError):
+                try:
+                    task.result()
+                except Exception as ex:
+                    MutyLogger.get_instance().exception(
+                        "error while dispatching queued task: %s", ex
+                    )
+
+        def _start_dispatch_task(
+            redis_inst: GulpRedis,
+            task_obj: dict,
+            *,
+            source: str,
+        ) -> None:
+            task = asyncio.create_task(
+                self._dispatch_claimed_tasks(redis_inst, [task_obj], source=source)
+            )
+            in_flight.add(task)
+            task.add_done_callback(_consume_dispatch_result)
 
         try:
             while True:
                 try:
-                    # periodically reclaim stale messages from dead consumers
                     redis_inst = GulpRedis.get_instance()
                     now = time.monotonic()
-                    if now - redis_inst._last_autoclaim_time >= 30.0:
+                    autoclaim = getattr(redis_inst, "task_autoclaim_stale", None)
+                    last_autoclaim = getattr(redis_inst, "_last_autoclaim_time", 0.0)
+                    if autoclaim and now - last_autoclaim >= 30.0:
                         redis_inst._last_autoclaim_time = now
                         try:
-                            reclaimed = await redis_inst.task_autoclaim_stale()
+                            reclaimed = await autoclaim()
                             if reclaimed:
                                 MutyLogger.get_instance().warning(
                                     "re-dispatching %d autoclaimed stale task(s)",
                                     len(reclaimed),
                                 )
-                                await self._dispatch_claimed_tasks(
-                                    redis_inst,
-                                    reclaimed,
-                                    source="reclaimed",
-                                )
+                                reclaimed_queue.extend(reclaimed)
                         except Exception:
                             MutyLogger.get_instance().exception(
                                 "error during task autoclaim sweep"
                             )
 
-                    # block for first task (up to 5s) to avoid busy waiting
-                    first = await redis_inst.task_pop_blocking(timeout=5)
-                    if first is None:
-                        # timeout; avoid tight-looping if blocking returns without a task
-                        await asyncio.sleep(0.1)
-                        continue  # timeout, loop again
+                    while reclaimed_queue and len(in_flight) < limit:
+                        _start_dispatch_task(
+                            redis_inst,
+                            reclaimed_queue.popleft(),
+                            source="reclaimed",
+                        )
 
-                    batch: list[dict] = [first]
+                    capacity = limit - len(in_flight)
+                    if capacity > 0 and not reclaimed_queue:
+                        # block briefly while tasks are running so new arrivals can
+                        # fill idle slots without waiting for current work to finish.
+                        first = await redis_inst.task_pop_blocking(
+                            timeout=1 if in_flight else 5
+                        )
+                        if first is not None:
+                            batch: list[dict] = [first]
+                            if capacity > 1:
+                                batch.extend(
+                                    await redis_inst.task_dequeue_batch(capacity - 1)
+                                )
+                            MutyLogger.get_instance().debug(
+                                "dispatching %d task(s), in_flight=%d, capacity=%d",
+                                len(batch),
+                                len(in_flight),
+                                limit,
+                            )
+                            for obj in batch:
+                                _start_dispatch_task(
+                                    redis_inst,
+                                    obj,
+                                    source="queued",
+                                )
+                        elif not in_flight:
+                            # timeout; avoid tight-looping if blocking returns without a task
+                            await asyncio.sleep(0.1)
 
-                    # drain remaining up to limit-1 non-blocking
-                    rest = await redis_inst.task_dequeue_batch(limit - 1)
-                    batch.extend(rest)
-
-                    MutyLogger.get_instance().debug(
-                        "processing batch of %d task(s)", len(batch)
-                    )
-
-                    # dispatch all tasks in this batch concurrently, then wait for
-                    # completion before dequeuing the next batch to avoid unbounded
-                    # in-flight growth under sustained load.
-                    await self._dispatch_claimed_tasks(
-                        redis_inst,
-                        batch,
-                        source="batch",
-                    )
+                    if len(in_flight) >= limit:
+                        await asyncio.wait(
+                            in_flight,
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
 
                 except asyncio.CancelledError:
                     MutyLogger.get_instance().debug("blocking task loop cancelled!")
@@ -704,6 +742,11 @@ class GulpServer:
                     MutyLogger.get_instance().exception(ex)
                     await asyncio.sleep(1.0)
         finally:
+            pending_dispatches = tuple(in_flight)
+            for task in pending_dispatches:
+                task.cancel()
+            if pending_dispatches:
+                await asyncio.gather(*pending_dispatches, return_exceptions=True)
             MutyLogger.get_instance().info("EXITING blocking task loop ...")
 
     @staticmethod
@@ -1000,6 +1043,43 @@ class GulpServer:
         if __debug__:
             # to test some snippet with gulp freshly initialized
             await self._test()
+
+        cfg = GulpConfig.get_instance()
+        configured_tasks: int = getattr(cfg, "_config", {}).get(
+            "concurrency_num_tasks", 0
+        )
+        child_concurrency: int = cfg.concurrency_num_tasks()
+        num_workers: int = cfg.parallel_processes_max()
+        total_concurrency: int = max(1, num_workers * child_concurrency)
+        if cfg.concurrency_adaptive_num_tasks():
+            base_tasks = configured_tasks if configured_tasks > 0 else 16
+            opensearch_nodes = max(1, cfg.concurrency_opensearch_num_nodes())
+            postgres_nodes = max(1, cfg.concurrency_postgres_num_nodes())
+            scaled_tasks = base_tasks * opensearch_nodes * postgres_nodes
+            MutyLogger.get_instance().debug(
+                "startup concurrency: queued worker operations<=%d "
+                "(workers=%d, per_worker=%d, adaptive=true: "
+                "max(8, min(cap_per_process=%d, base_tasks=%d * "
+                "opensearch_nodes=%d * postgres_nodes=%d = %d)))",
+                total_concurrency,
+                num_workers,
+                child_concurrency,
+                cfg.concurrency_tasks_cap_per_process(),
+                base_tasks,
+                opensearch_nodes,
+                postgres_nodes,
+                scaled_tasks,
+            )
+        else:
+            MutyLogger.get_instance().debug(
+                "startup concurrency: queued worker operations<=%d "
+                "(workers=%d, per_worker=%d, adaptive=false: "
+                "configured_concurrency_num_tasks=%d)",
+                total_concurrency,
+                num_workers,
+                child_concurrency,
+                configured_tasks,
+            )
 
         # start the dequeue task for long running tasks
         self._poll_tasks_task = asyncio.create_task(self._dispatch_tasks())

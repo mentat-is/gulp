@@ -188,7 +188,7 @@ async def test_enhance_map_numeric_operators(
     criteria = {
         "event_code": {"eq": 4624},  # exact match
         "severity_level": {"gte": 5, "lte": 10},  # range match
-        "retry_count": {"gte": 0},  # greater than or equal
+        "attempt_count": {"gte": 0},  # greater than or equal
         "status": "active",  # simple string match (backwards compatible)
     }
     plugin = _unique("win_evtx")

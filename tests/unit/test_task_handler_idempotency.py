@@ -103,11 +103,82 @@ def _patch_stats_persistence(monkeypatch):
 
 
 @pytest.mark.unit
-def test_query_note_id_ignores_replay_tag_order_and_duplicates():
+@pytest.mark.asyncio
+async def test_existing_request_response_returns_terminal_stats(monkeypatch):
+    import orjson
+
+    from gulp.api.collab.stats import GulpIngestionStats, GulpRequestStats, RequestStatsType
+    from gulp.api.collab.structs import GulpRequestStatus
+    from gulp.api.server.server_utils import ServerUtils
+
+    stats = _make_request_stats(
+        RequestStatsType.REQUEST_TYPE_INGESTION.value,
+        GulpIngestionStats(source_total=1).model_dump(),
+        status=GulpRequestStatus.DONE.value,
+    )
+    monkeypatch.setattr(GulpRequestStats, "get_by_id", AsyncMock(return_value=stats))
+
+    response = await ServerUtils.existing_request_response(
+        "fake-session", "req-terminal"
+    )
+
+    body = orjson.loads(response.body)
+    assert body["status"] == "done"
+    assert body["already_exist"] is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_existing_request_response_allows_ongoing_ingest(monkeypatch):
+    from gulp.api.collab.stats import GulpIngestionStats, GulpRequestStats, RequestStatsType
+    from gulp.api.collab.structs import GulpRequestStatus
+    from gulp.api.server.server_utils import ServerUtils
+
+    stats = _make_request_stats(
+        RequestStatsType.REQUEST_TYPE_INGESTION.value,
+        GulpIngestionStats(source_total=1).model_dump(),
+        status=GulpRequestStatus.ONGOING.value,
+    )
+    monkeypatch.setattr(GulpRequestStats, "get_by_id", AsyncMock(return_value=stats))
+
+    response = await ServerUtils.existing_request_response(
+        "fake-session", "req-ongoing", allow_ongoing=True
+    )
+
+    assert response is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_existing_request_response_blocks_ongoing_non_ingest(monkeypatch):
+    import orjson
+
+    from gulp.api.collab.stats import GulpQueryStats, GulpRequestStats, RequestStatsType
+    from gulp.api.collab.structs import GulpRequestStatus
+    from gulp.api.server.server_utils import ServerUtils
+
+    stats = _make_request_stats(
+        RequestStatsType.REQUEST_TYPE_QUERY.value,
+        GulpQueryStats(num_queries=1).model_dump(),
+        status=GulpRequestStatus.ONGOING.value,
+    )
+    monkeypatch.setattr(GulpRequestStats, "get_by_id", AsyncMock(return_value=stats))
+
+    response = await ServerUtils.existing_request_response(
+        "fake-session", "req-ongoing"
+    )
+
+    body = orjson.loads(response.body)
+    assert body["status"] == "ongoing"
+    assert body["already_exist"] is True
+
+
+@pytest.mark.unit
+def test_query_note_id_ignores_duplicate_tag_order_and_duplicates():
     from gulp.api.collab.note import GulpNote
 
     first_tags = GulpNote._normalise_auto_note_tags(["extra", "auto"], "query-name")
-    replay_tags = GulpNote._normalise_auto_note_tags(
+    duplicate_tags = GulpNote._normalise_auto_note_tags(
         ["query-name", "extra", "extra", "auto"],
         "query-name",
     )
@@ -121,19 +192,19 @@ def test_query_note_id_ignores_replay_tag_order_and_duplicates():
         glyph_id="glyph-alert",
         sigma_yml="title: query-name",
     )
-    replay_id = GulpNote._deterministic_query_note_id(
+    duplicate_id = GulpNote._deterministic_query_note_id(
         _QUERY_NOTE_DOC,
         name="query-name",
         q='{"query":{"match_all":{}}}',
-        tags=replay_tags,
+        tags=duplicate_tags,
         color="#ff0000",
         glyph_id="glyph-alert",
         sigma_yml="title: query-name",
     )
 
     assert first_tags == ["extra", "auto", "query-name"]
-    assert replay_tags == ["query-name", "extra", "auto"]
-    assert first_id == replay_id
+    assert duplicate_tags == ["query-name", "extra", "auto"]
+    assert first_id == duplicate_id
 
 
 @pytest.mark.unit
@@ -193,7 +264,7 @@ def test_query_note_id_changes_for_duplicate_hit_ordinals():
         query_ordinal=0,
         match_ordinal=1,
     )
-    first_hit_replay_id = GulpNote._deterministic_query_note_id(
+    first_hit_duplicate_id = GulpNote._deterministic_query_note_id(
         _QUERY_NOTE_DOC,
         name="query-name",
         q='{"query":{"match_all":{}}}',
@@ -222,7 +293,7 @@ def test_query_note_id_changes_for_duplicate_hit_ordinals():
     )
 
     assert duplicate_doc_second_hit_id != first_hit_id
-    assert first_hit_replay_id == first_hit_id
+    assert first_hit_duplicate_id == first_hit_id
     assert next_request_id != first_hit_id
     assert next_query_id != first_hit_id
 
@@ -262,7 +333,7 @@ async def test_query_stats_update_key_suppresses_duplicate_counter_update(monkey
         sess,
         hits=99,
         inc_completed=1,
-        errors=["replayed failure must not be recorded"],
+        errors=["duplicated failure must not be recorded"],
         update_key="query_batch:req-stats:0:1",
     )
     await stats.update_query_stats(
@@ -311,7 +382,7 @@ async def test_updatedocuments_stats_update_key_suppresses_duplicate_counter_upd
         sess,
         total_hits=3,
         updated=2,
-        errors=["replayed failure must not be recorded"],
+        errors=["duplicated failure must not be recorded"],
         last=True,
         update_key="enrich_documents:req-stats:0:False",
     )
@@ -486,7 +557,6 @@ async def test_modify_documents_chunk_passes_deterministic_stats_update_key(monk
     )
 
     assert chunk[0]["field"] == "new"
-    assert chunk[0]["gulp.update_req_ids"] == ["req-modify-key"]
     update_documents.assert_awaited_once()
     assert update_documents.await_args.args[1] == [chunk[0]]
     update_documents_stats.assert_awaited_once()
@@ -543,65 +613,6 @@ async def test_modify_documents_chunk_can_defer_terminal_stats_update(monkeypatc
         "modify_documents:req-modify-defer:3:False"
     )
 
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_modify_documents_chunk_skips_already_marked_replay(monkeypatch):
-    from gulp.api.server import enrich as enrich_mod
-
-    update_documents_stats = AsyncMock()
-    update_documents = AsyncMock(
-        side_effect=AssertionError("marked replay should not update OpenSearch")
-    )
-    stats = SimpleNamespace(
-        user_id="user-modify-replay",
-        update_updatedocuments_stats=update_documents_stats,
-    )
-    monkeypatch.setattr(
-        enrich_mod.GulpConfig,
-        "get_instance",
-        lambda: SimpleNamespace(debug_enrich_dry_run=lambda: False),
-    )
-    monkeypatch.setattr(
-        enrich_mod.GulpOpenSearch,
-        "get_instance",
-        lambda: SimpleNamespace(update_documents=update_documents),
-    )
-    doc = {
-        "_id": "doc-1",
-        "field": "already-updated",
-        "gulp.update_req_ids": ["req-modify-replay"],
-    }
-
-    chunk = await enrich_mod._modify_documents_chunk(
-        "fake-session",
-        [doc],
-        chunk_num=3,
-        total_hits=5,
-        index="idx-modify-replay",
-        last=True,
-        req_id="req-modify-replay",
-        cb_context={
-            "mutate_fn": lambda _doc: (_ for _ in ()).throw(
-                AssertionError("marked replay should not mutate document")
-            ),
-            "stats": stats,
-            "ws_id": "ws-modify-replay",
-            "flt": None,
-            "errors": [],
-            "total_updated": 0,
-        },
-    )
-
-    assert chunk == [doc]
-    update_documents.assert_not_called()
-    update_documents_stats.assert_awaited_once()
-    assert update_documents_stats.await_args.kwargs["updated"] == 1
-    assert update_documents_stats.await_args.kwargs["update_key"] == (
-        "modify_documents:req-modify-replay:3:True"
-    )
-
-
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_enrich_documents_wrapper_passes_deterministic_stats_update_key(monkeypatch):
@@ -647,13 +658,7 @@ async def test_enrich_documents_wrapper_passes_deterministic_stats_update_key(mo
         },
     )
 
-    assert result == [
-        {
-            "_id": "doc-1",
-            "field": "enriched",
-            "gulp.update_req_ids": ["req-enrich-key"],
-        }
-    ]
+    assert result == [{"_id": "doc-1", "field": "enriched"}]
     update_documents.assert_awaited_once()
     assert update_documents.await_args.args[1] == result
     update_documents_stats.assert_awaited_once()
@@ -715,72 +720,9 @@ async def test_enrich_documents_wrapper_can_defer_terminal_stats_update(monkeypa
         "enrich_documents:req-enrich-defer:4:False"
     )
 
-
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_enrich_documents_wrapper_skips_already_marked_replay(monkeypatch):
-    from gulp import plugin as plugin_mod
-
-    update_documents_stats = AsyncMock()
-    stats = SimpleNamespace(
-        user_id="user-enrich-replay",
-        update_updatedocuments_stats=update_documents_stats,
-    )
-    update_documents = AsyncMock(
-        side_effect=AssertionError("marked replay should not update OpenSearch")
-    )
-    mod = _ConcreteIngestPlugin.build()
-    mod.name = "test_enrich"
-    mod._enrich_documents_chunk_cb = AsyncMock(
-        side_effect=AssertionError("marked replay should not call plugin chunk")
-    )
-    monkeypatch.setattr(
-        plugin_mod.GulpConfig,
-        "get_instance",
-        lambda: SimpleNamespace(debug_enrich_dry_run=lambda: False),
-    )
-    monkeypatch.setattr(
-        plugin_mod.GulpOpenSearch,
-        "get_instance",
-        lambda: SimpleNamespace(update_documents=update_documents),
-    )
-    doc = {
-        "_id": "doc-1",
-        "field": "already-enriched",
-        "gulp.update_req_ids": ["req-enrich-replay"],
-    }
-
-    result = await mod._enrich_documents_chunk_wrapper(
-        "fake-session",
-        [doc],
-        chunk_num=4,
-        total_hits=6,
-        index="idx-enrich-replay",
-        last=True,
-        req_id="req-enrich-replay",
-        cb_context={
-            "stats": stats,
-            "ws_id": "ws-enrich-replay",
-            "flt": None,
-            "errors": [],
-            "total_updated": 0,
-            "total_hits": 0,
-        },
-    )
-
-    assert result == [doc]
-    mod._enrich_documents_chunk_cb.assert_not_called()
-    update_documents.assert_not_called()
-    update_documents_stats.assert_awaited_once()
-    assert update_documents_stats.await_args.kwargs["updated"] == 1
-    assert update_documents_stats.await_args.kwargs["update_key"] == (
-        "enrich_documents:req-enrich-replay:4:True"
-    )
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_process_queries_skips_terminal_request_replay(monkeypatch):
+async def test_process_queries_skips_terminal_request_duplicate(monkeypatch):
     from gulp.api.collab.structs import GulpRequestStatus
     from gulp.api.server import query as query_mod
 
@@ -819,7 +761,7 @@ async def test_process_queries_skips_terminal_request_replay(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_process_queries_reports_terminal_canceled_replay(monkeypatch):
+async def test_process_queries_reports_terminal_canceled_duplicate(monkeypatch):
     from gulp.api.collab.structs import GulpRequestStatus
     from gulp.api.server import query as query_mod
 
@@ -921,7 +863,7 @@ async def test_process_queries_fans_out_query_batches_without_waiting_for_slow_b
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_ingest_file_internal_skips_terminal_request_replay(monkeypatch):
+async def test_ingest_file_internal_skips_terminal_request_duplicate(monkeypatch):
     from gulp.api.collab.structs import GulpRequestStatus
     from gulp.api.server import ingest as ingest_mod
 
@@ -966,7 +908,7 @@ async def test_ingest_file_internal_skips_terminal_request_replay(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_rebase_by_query_internal_skips_terminal_request_replay(monkeypatch):
+async def test_rebase_by_query_internal_skips_terminal_request_duplicate(monkeypatch):
     from gulp.api.collab.structs import GulpRequestStatus
     from gulp.api.server import db as db_mod
 
@@ -1011,7 +953,7 @@ async def test_rebase_by_query_internal_skips_terminal_request_replay(monkeypatc
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_enrich_documents_internal_skips_terminal_request_replay(monkeypatch):
+async def test_enrich_documents_internal_skips_terminal_request_duplicate(monkeypatch):
     from gulp.api.collab.structs import GulpRequestStatus
     from gulp.api.server import enrich as enrich_mod
 
@@ -1056,7 +998,7 @@ async def test_enrich_documents_internal_skips_terminal_request_replay(monkeypat
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_enrich_remove_internal_skips_terminal_request_replay(monkeypatch):
+async def test_enrich_remove_internal_skips_terminal_request_duplicate(monkeypatch):
     from gulp.api.collab.structs import GulpRequestStatus
     from gulp.api.opensearch.filters import GulpQueryFilter
     from gulp.api.server import enrich as enrich_mod
@@ -1103,7 +1045,7 @@ async def test_enrich_remove_internal_skips_terminal_request_replay(monkeypatch)
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_update_documents_internal_skips_terminal_request_replay(monkeypatch):
+async def test_update_documents_internal_skips_terminal_request_duplicate(monkeypatch):
     from gulp.api.collab.structs import GulpRequestStatus
     from gulp.api.server import enrich as enrich_mod
 
@@ -1147,7 +1089,7 @@ async def test_update_documents_internal_skips_terminal_request_replay(monkeypat
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_untag_documents_internal_skips_terminal_request_replay(monkeypatch):
+async def test_untag_documents_internal_skips_terminal_request_duplicate(monkeypatch):
     from gulp.api.collab.structs import GulpRequestStatus
     from gulp.api.server import enrich as enrich_mod
 

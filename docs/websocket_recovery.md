@@ -20,15 +20,15 @@ for that event type.
 | --- | --- | --- |
 | `stats_create` | PostgreSQL `request_stats` | Call `/request_get_by_id` for the `req_id`, or `/request_list` for the operation after reconnect. |
 | `stats_update` | PostgreSQL `request_stats` | Call `/request_get_by_id` for the `req_id`; terminal status in request stats is authoritative. |
-| `query_done` | PostgreSQL `request_stats` for request final state | Call `/request_get_by_id`; per-query notification ordering is not replayed. |
+| `query_done` | PostgreSQL `request_stats` for request final state | Call `/request_get_by_id`; per-query notification ordering is not resent. |
 | `ingest_source_done` | PostgreSQL `request_stats` plus collab source/context state | Call `/request_get_by_id` and refresh operation sources/contexts if the UI needs source lists. |
-| `ingest_raw_progress` | PostgreSQL `request_stats` | Call `/request_get_by_id`; raw progress packets are not replayed individually. |
+| `ingest_raw_progress` | PostgreSQL `request_stats` | Call `/request_get_by_id`; raw progress packets are not resent individually. |
 | `rebase_done` | PostgreSQL `request_stats` | Call `/request_get_by_id`; rebase completion state is authoritative there. |
 | `collab_create`, `collab_update`, `collab_delete` | PostgreSQL collab tables | Refresh visible operation collab state after reconnect or sequence gap. |
-| `docs_chunk` | None | Treat as volatile. If a gap is detected, rerun or repaginate the query/ingest-derived view instead of expecting replay. |
+| `docs_chunk` | None | Treat as volatile. If a gap is detected, rerun or repaginate the query/ingest-derived view instead of expecting resend. |
 | `client_data` | None | Treat as volatile UI-to-UI traffic. The sender/client protocol must provide its own acknowledgement if needed. |
 | `ws_error` | None, unless it also updates request stats | If tied to a `req_id`, call `/request_get_by_id`; otherwise surface the error and reconnect. |
-| `ws_connected` | Current websocket connection only | No replay. Re-authenticate and resubscribe filters on reconnect. |
+| `ws_connected` | Current websocket connection only | Not resent. Re-authenticate and resubscribe filters on reconnect. |
 | `user_login`, `user_logout` | Current user/session state | Refresh user/session state if the UI depends on presence information. |
 
 ## Client Reconnect Procedure
@@ -52,4 +52,4 @@ On reconnect, clients should:
   delivery.
 - Large payload pointers are temporary and TTL-bound. If pointer resolution
   fails or a `docs_chunk` gap is detected, clients must recover through the
-  request/query API rather than waiting for replay.
+  request/query API rather than waiting for old packets to be resent.

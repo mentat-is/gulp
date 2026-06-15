@@ -46,12 +46,12 @@
   "ingestion_documents_adaptive_chunk_size": true,
   // failed events in a file to consider the file ABORTED (0=disabled, ignored for raw ingestions)
   "ingestion_evt_failure_threshold": 5000,
-  // how many times to retry ingestion on error (default=3)
-  "ingestion_retry_max": 3,
-  // how many seconds between ingestion retries on error (default=1)
-  "ingestion_retry_delay": 1,
   // after how many chunks to update raw ingestion stats (default=10)
   "ingestion_raw_update_stats_chunk_frequency": 10,
+  // max bulk ingestion attempts on transient OpenSearch pressure (default=3)
+  "ingestion_retry_max": 3,
+  // delay in seconds between bulk ingestion attempts (default=1.0)
+  "ingestion_retry_delay": 1.0,
   // maximum queued raw websocket ingest packets per websocket stream (0=disabled, default=1000)
   "ws_ingest_stream_max_entries": 1000,
   // maximum approximate buffered raw websocket ingest bytes per websocket (0=disabled, default=268435456 = 256 MiB)
@@ -70,6 +70,12 @@
   "opensearch_client_cert_password": null,
   // how many seconds to wait until timeout (default=60, tune up if you have request timeouts during ingestion/query, 0=no timeout)
   "opensearch_request_timeout": 180,
+  // on OpenSearch circuit-breaker responses, retry queries with highlights disabled (default=true)
+  "query_circuit_breaker_disables_highlights": true,
+  // max query retries after OpenSearch circuit-breaker responses (default=5)
+  "query_circuit_breaker_backoff_attempts": 5,
+  // minimum query page size during circuit-breaker backoff (default=100)
+  "query_circuit_breaker_min_limit": 100,
   // opensearch url (may be overridden by GULP_OPENSEARCH_URL environment variable)
   "opensearch_url": "http://admin:Gulp1234!@localhost:9200",
   // set to false to skip server certificate verification
@@ -108,12 +114,6 @@
   "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@localhost:5432/gulp",
   // set to false to skip server certificate verification
   "postgres_verify_certs": false,
-  // number of times to backoff on opensearch query circuit breaker exception (default=5)
-  "query_circuit_breaker_backoff_attempts": 5,
-  // if set, disables highlights when query circuit breaker is triggered (default=true)
-  "query_circuit_breaker_disables_highlights": true,
-  // minimum query chunk size limit for circuit breaker backoff (default=100)
-  "query_circuit_breaker_min_limit": 100,
   // how many queries to keep in the history per user(default=20, max=50)
   "query_history_max_size": 20,
   // redis payload compression for large pub-sub messages (default=true)
@@ -128,8 +128,8 @@
   "redis_task_lease_refresh_interval_ms": 20000,
   // optional timeout in seconds for one queued task execution attempt (default=0, disabled). When set, timed-out tasks are dead-lettered.
   "redis_task_execution_timeout_sec": 0,
-  // retention for Redis task lifecycle records used for duplicate suppression (default=86400s = 1 day)
-  "redis_task_lifecycle_ttl_sec": 86400,
+  // retention for Redis task lifecycle records used for duplicate suppression (default=3600s = 1 hour)
+  "redis_task_lifecycle_ttl_sec": 3600,
   // maximum admitted queued/running Redis stream tasks per user (0=disabled, default=0)
   "redis_task_active_user_max": 0,
   // maximum admitted queued/running Redis stream tasks per operation (0=disabled, default=0)

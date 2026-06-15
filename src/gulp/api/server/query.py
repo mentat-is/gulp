@@ -698,7 +698,7 @@ async def process_queries(
             and GulpRequestStats.is_terminal_status(stats.status)
         ):
             MutyLogger.get_instance().warning(
-                "query request %s already terminal with status=%s, skipping replay",
+                "query request %s already terminal with status=%s, skipping duplicate request",
                 req_id,
                 stats.status,
             )
@@ -1235,6 +1235,12 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                     count += 1
                     queries.append(gq)
 
+            existing_response = await ServerUtils.existing_request_response(
+                sess, req_id
+            )
+            if existing_response:
+                return existing_response
+
             # run a background task (will batch queries, spawn workers, gather results)
             # enqueue task for worker dispatch (always enqueue unless preview)
             task_msg = {
@@ -1447,6 +1453,12 @@ async def query_gulp_handler(
 
             # run a background task to process the query: always enqueue (unless preview handled above)
             queries: list[GulpQuery] = [GulpQuery(q_name=q_options.name, q=q)]
+            existing_response = await ServerUtils.existing_request_response(
+                sess, req_id
+            )
+            if existing_response:
+                return existing_response
+
             task_msg = {
                 "task_type": TASK_TYPE_QUERY,
                 "operation_id": operation_id,
@@ -1597,6 +1609,12 @@ async def query_external_handler(
 
             # run a background task to process the query: always enqueue (unless preview handled above)
             queries: list[GulpQuery] = [GulpQuery(q_name=q_options.name, q=q)]
+            existing_response = await ServerUtils.existing_request_response(
+                sess, req_id
+            )
+            if existing_response:
+                return existing_response
+
             task_msg = {
                 # external query is an ingestion task
                 "task_type": TASK_TYPE_EXTERNAL_QUERY,
@@ -1785,6 +1803,12 @@ async def query_sigma_handler(
                         req_id=req_id, data={"total_hits": total_hits, "docs": docs}
                     )
                 )
+
+            existing_response = await ServerUtils.existing_request_response(
+                sess, req_id
+            )
+            if existing_response:
+                return existing_response
 
             # run a background task (will batch queries, spawn workers, gather results)
             # enqueue task for worker dispatch (always enqueue unless preview)
@@ -2128,7 +2152,7 @@ get all `key=type` fields-to-type mappings from gulp's opensearch for the given 
 
 basically, it scans opensearch index mapping and updates the "field_types_entries" and "source_fields" tables on gulp's collab accordingly.
 
-- if this api returns an empty dict, it means the mapping is not yet available: a worker task is then spawned to update the mapping in background and the client should retry later (no new task is spawned if one is already running for the same `operation_id`, `context_id` and `source_id`).
+- if this api returns an empty dict, it means the mapping is not yet available: a worker task is then spawned to update the mapping in background and the client should request it later (no new task is spawned if one is already running for the same `operation_id`, `context_id` and `source_id`).
 """,
 )
 async def query_fields_by_source_handler(

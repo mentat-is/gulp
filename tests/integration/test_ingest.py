@@ -76,7 +76,7 @@ async def _preview_total_hits(client, operation_id: str) -> int:
     return int(result.get("data", {}).get("total_hits", 0))
 
 
-async def _delete_operation_with_retry(client, operation_id: str, timeout: float = 30.0) -> None:
+async def _delete_operation_with_conflict_wait(client, operation_id: str, timeout: float = 30.0) -> None:
     """Delete operation tolerating transient running-request state."""
     """try:
         await client.plugins.request_delete(operation_id)
@@ -155,188 +155,6 @@ async def test_ingest_win_evtx_sample(gulp_base_url, gulp_test_user, gulp_test_p
             assert await _preview_total_hits(client, op.id) == 7
         finally:
             await client.operations.delete(op.id)
-
-
-@pytest.mark.integration
-async def test_reclaimed_ingest_task_uses_live_duplicate_protected_writes(
-    gulp_base_url,
-    gulp_test_user,
-    gulp_test_password,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """Reclaimed ingest task execution should run once and leave duplicate docs skipped."""
-    from gulp.api.collab_api import GulpCollab
-    from gulp.api.opensearch_api import GulpOpenSearch
-    from gulp.api.redis_api import GulpRedis
-    from gulp.api.server.structs import TASK_TYPE_INGEST
-    from gulp.api.server_api import GulpServer
-    from gulp.process import GulpProcess
-    from gulp_sdk import GulpClient
-
-    sample_path = Path("/gulp/samples/win_evtx/Security_short_selected.evtx")
-    if not sample_path.exists():
-        pytest.skip(f"Sample file missing: {sample_path}")
-
-    suffix = uuid.uuid4().hex
-    server_id = f"integration-live-ingest-reclaim-{suffix}"
-    task_types_key = f"gulp:test:queue:types:{suffix}"
-    stream_prefix = f"gulp:test:stream:tasks:{suffix}"
-    dead_stream_prefix = f"gulp:test:stream:tasks:dead:{suffix}"
-    lifecycle_prefix = f"gulp:test:task:lifecycle:{suffix}"
-    lock_prefix = f"gulp:test:task:execution_lock:{suffix}"
-    consumer_group = f"gulp:test:stream:group:tasks:{suffix}"
-    stream_key = f"{stream_prefix}:{TASK_TYPE_INGEST}"
-    req_id = f"req-reclaimed-ingest-live-{suffix}"
-    execution_lock_key = f"{lock_prefix}:{req_id}"
-    side_effect_lock_key = f"{GulpRedis.TASK_SIDE_EFFECT_LOCK_PREFIX}:{req_id}"
-
-    proc = GulpProcess.get_instance()
-    old_process_pool = proc.process_pool
-    old_process_server_id = proc.server_id
-    old_main_process = proc._main_process
-    redis_client = None
-
-    monkeypatch.setattr(GulpRedis, "_instance", None)
-    monkeypatch.setattr(GulpRedis, "TASK_TYPES_SET", task_types_key)
-    monkeypatch.setattr(GulpRedis, "STREAM_TASK_PREFIX", stream_prefix)
-    monkeypatch.setattr(GulpRedis, "STREAM_TASK_DLQ_PREFIX", dead_stream_prefix)
-    monkeypatch.setattr(GulpRedis, "TASK_LIFECYCLE_PREFIX", lifecycle_prefix)
-    monkeypatch.setattr(GulpRedis, "TASK_EXECUTION_LOCK_PREFIX", lock_prefix)
-    monkeypatch.setattr(GulpRedis, "STREAM_CONSUMER_GROUP", consumer_group)
-    monkeypatch.setattr(GulpRedis, "STREAM_TASK_MAXLEN", 10)
-    monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_USER_MAX", 0)
-    monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_OPERATION_MAX", 0)
-    monkeypatch.setattr(GulpRedis, "TASK_LEASE_REFRESH_INTERVAL_MS", 1)
-
-    async with GulpClient(gulp_base_url) as client:
-        await client.auth.login(gulp_test_user, gulp_test_password)
-        op = await client.operations.create(_unique_name("ingest_reclaim_test"))
-        try:
-            proc.process_pool = _InlineProcessPool()
-            proc.server_id = server_id
-            proc._main_process = True
-            await GulpCollab.get_instance().init(main_process=False)
-            redis_client = GulpRedis.get_instance()
-            redis_client.initialize(server_id=server_id, main_process=False)
-            redis_client._instance_roles = []
-            raw_redis = redis_client.client()
-            await raw_redis.ping()
-            ws_owner_server_id = await redis_client.ws_get_server(client.ws_id)
-            assert ws_owner_server_id
-
-            task = {
-                "task_type": TASK_TYPE_INGEST,
-                "operation_id": op.id,
-                "user_id": gulp_test_user,
-                "ws_id": client.ws_id,
-                "req_id": req_id,
-                "params": {
-                    "req_id": req_id,
-                    "ws_id": client.ws_id,
-                    "context_name": f"ctx-reclaimed-ingest-{suffix}",
-                    "source_name": str(sample_path),
-                    "index": op.id,
-                    "plugin": "win_evtx",
-                    "file_path": str(sample_path),
-                    "payload": {
-                        "flt": {},
-                        "plugin_params": {},
-                        "original_file_path": str(sample_path),
-                    },
-                    "file_total": 1,
-                    "file_size": sample_path.stat().st_size,
-                    "delete_after": False,
-                },
-            }
-            GulpServer._instance = None
-            server = GulpServer.get_instance()
-
-            await redis_client.task_enqueue(task)
-            first_batch = await redis_client.task_dequeue_batch(1)
-            assert len(first_batch) == 1
-            assert await redis_client.task_claim_execution(first_batch[0]) == "claimed"
-
-            # Redis XAUTOCLAIM mechanics are covered in task lifecycle integration.
-            # This live test targets the production ingest side effects after reclaim.
-            reclaimed_envelope = dict(first_batch[0])
-            reclaimed_envelope["__redis_consumer_name__"] = ws_owner_server_id
-            reclaimed_envelope["__redis_autoclaimed__"] = True
-            redis_client.server_id = ws_owner_server_id
-            await server._dispatch_claimed_tasks(
-                redis_client,
-                [reclaimed_envelope],
-                source="reclaimed",
-            )
-
-            total_before_execution = await _preview_total_hits(client, op.id)
-            print("reclaimed ingest total before lease clear:", total_before_execution)
-            assert total_before_execution == 0
-            assert await raw_redis.xlen(stream_key) == 1
-
-            await raw_redis.delete(execution_lock_key, side_effect_lock_key)
-            await server._dispatch_claimed_tasks(
-                redis_client,
-                [reclaimed_envelope],
-                source="reclaimed",
-            )
-
-            stats_after_reclaim = await _wait_request_done(client, req_id)
-            print("reclaimed ingest stats after reclaim:", stats_after_reclaim)
-            assert str(stats_after_reclaim.get("status", "")).lower() == "done"
-            stats_data_after_reclaim = stats_after_reclaim.get("data") or {}
-
-            total_after_reclaim = await _preview_total_hits(client, op.id)
-            print("reclaimed ingest total after reclaim:", total_after_reclaim)
-            assert total_after_reclaim == 7
-
-            replay_id = await raw_redis.xadd(stream_key, {"data": orjson.dumps(task)})
-            replay_envelope = redis_client._task_envelope(
-                task,
-                stream_key,
-                replay_id,
-                consumer_name=redis_client.server_id,
-            )
-            await server._dispatch_claimed_tasks(
-                redis_client,
-                [replay_envelope],
-                source="replayed",
-            )
-
-            total_after_replay = await _preview_total_hits(client, op.id)
-            print("reclaimed ingest total after terminal replay:", total_after_replay)
-            assert total_after_replay == 7
-            stats_after_replay = await _wait_request_done(client, req_id)
-            print("reclaimed ingest stats after terminal replay:", stats_after_replay)
-            assert str(stats_after_replay.get("status", "")).lower() == "done"
-            assert (stats_after_replay.get("data") or {}) == stats_data_after_reclaim
-            assert await raw_redis.xlen(stream_key) == 0
-        finally:
-            if redis_client:
-                raw_redis = redis_client.client()
-                keys_to_delete = [
-                    task_types_key,
-                    stream_key,
-                    f"{dead_stream_prefix}:{TASK_TYPE_INGEST}",
-                    GulpRedis.TASK_ACTIVE_USER_HASH,
-                    GulpRedis.TASK_ACTIVE_OPERATION_HASH,
-                    side_effect_lock_key,
-                ]
-                async for key in raw_redis.scan_iter(match=f"{lifecycle_prefix}:*"):
-                    keys_to_delete.append(key)
-                async for key in raw_redis.scan_iter(match=f"{lock_prefix}:*"):
-                    keys_to_delete.append(key)
-                    keys_to_delete.append(key)
-                await raw_redis.delete(*keys_to_delete)
-                await redis_client.shutdown()
-            GulpRedis._instance = None
-            GulpServer._instance = None
-            await GulpOpenSearch.get_instance().shutdown()
-            GulpOpenSearch._instance = None
-            await GulpCollab.get_instance().shutdown()
-            proc.process_pool = old_process_pool
-            proc.server_id = old_process_server_id
-            proc._main_process = old_main_process
-            await _delete_operation_with_retry(client, op.id)
 
 
 @pytest.mark.integration
@@ -470,7 +288,7 @@ async def test_ingest_raw_and_status(gulp_base_url, gulp_test_user, gulp_test_pa
             except (GulpSDKError, ValueError) as exc:
                 pytest.skip(f"ingest.raw/status unavailable in current server config: {exc}")
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)
 
 
 @pytest.mark.integration
@@ -497,7 +315,7 @@ async def test_ingest_preview_optional(gulp_base_url, gulp_test_user, gulp_test_
             except GulpSDKError as exc:
                 pytest.skip(f"ingest.preview unavailable in current server config: {exc}")
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)
 
 
 @pytest.mark.integration
@@ -523,7 +341,7 @@ async def test_ingest_file_to_source(gulp_base_url, gulp_test_user, gulp_test_pa
             except GulpSDKError as exc:
                 pytest.skip(f"ingest.file_to_source unavailable in current server config: {exc}")
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)
 
 
 @pytest.mark.integration
@@ -566,4 +384,4 @@ async def test_ingest_local_file_variants_optional(gulp_base_url, gulp_test_user
             except GulpSDKError:
                 pass
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)

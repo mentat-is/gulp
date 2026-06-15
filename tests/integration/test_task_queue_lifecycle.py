@@ -70,7 +70,9 @@ async def isolated_task_redis(
     monkeypatch.setattr(GulpRedis, "STREAM_TASK_DLQ_PREFIX", dead_stream_prefix)
     monkeypatch.setattr(GulpRedis, "TASK_LIFECYCLE_PREFIX", lifecycle_prefix)
     monkeypatch.setattr(GulpRedis, "TASK_EXECUTION_LOCK_PREFIX", lock_prefix)
-    monkeypatch.setattr(GulpRedis, "TASK_SIDE_EFFECT_LOCK_PREFIX", side_effect_lock_prefix)
+    monkeypatch.setattr(
+        GulpRedis, "TASK_SIDE_EFFECT_LOCK_PREFIX", side_effect_lock_prefix
+    )
     monkeypatch.setattr(GulpRedis, "STREAM_CONSUMER_GROUP", consumer_group)
     monkeypatch.setattr(GulpRedis, "STREAM_TASK_MAXLEN", 10)
     monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_USER_MAX", 0)
@@ -146,8 +148,12 @@ async def test_ip_rate_limit_rejects_same_ip_with_real_redis(
     redis_client, rate_limit_prefix = isolated_ip_rate_limit_redis
     raw_redis = redis_client.client()
 
-    await redis_client.check_ip_rate_limit("login", "192.0.2.10", limit=2, window_sec=30)
-    await redis_client.check_ip_rate_limit("login", "192.0.2.10", limit=2, window_sec=30)
+    await redis_client.check_ip_rate_limit(
+        "login", "192.0.2.10", limit=2, window_sec=30
+    )
+    await redis_client.check_ip_rate_limit(
+        "login", "192.0.2.10", limit=2, window_sec=30
+    )
 
     with pytest.raises(IpRateLimitError) as exc_info:
         await redis_client.check_ip_rate_limit(
@@ -161,7 +167,9 @@ async def test_ip_rate_limit_rejects_same_ip_with_real_redis(
     assert exc_info.value.limit == 2
     assert exc_info.value.retry_after_msec > 0
 
-    await redis_client.check_ip_rate_limit("login", "198.51.100.20", limit=2, window_sec=30)
+    await redis_client.check_ip_rate_limit(
+        "login", "198.51.100.20", limit=2, window_sec=30
+    )
 
     keys = []
     async for key in raw_redis.scan_iter(match=f"{rate_limit_prefix}:login:*"):
@@ -176,11 +184,11 @@ async def test_ip_rate_limit_rejects_same_ip_with_real_redis(
 
 
 @pytest.mark.integration
-async def test_task_queue_full_retry_hint_is_fixed(
+async def test_task_queue_full_wait_hint_is_fixed(
     isolated_task_redis: tuple[GulpRedis, str, str],
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Queue-full retry hints should not require Redis-side drain tracking."""
+    """Queue-full wait hints should not require Redis-side drain tracking."""
     redis_client, task_type, _ = isolated_task_redis
     raw_redis = redis_client.client()
     stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
@@ -190,10 +198,10 @@ async def test_task_queue_full_retry_hint_is_fixed(
         await redis_client.task_enqueue(
             {
                 "task_type": task_type,
-                "operation_id": "op-adaptive-retry",
+                "operation_id": "op-adaptive-wait",
                 "user_id": "admin",
-                "ws_id": "ws-adaptive-retry",
-                "req_id": f"req-adaptive-retry-{idx}-{task_type}",
+                "ws_id": "ws-adaptive-wait",
+                "req_id": f"req-adaptive-wait-{idx}-{task_type}",
                 "params": {},
             }
         )
@@ -202,16 +210,16 @@ async def test_task_queue_full_retry_hint_is_fixed(
         await redis_client.task_enqueue(
             {
                 "task_type": task_type,
-                "operation_id": "op-adaptive-retry",
+                "operation_id": "op-adaptive-wait",
                 "user_id": "admin",
-                "ws_id": "ws-adaptive-retry",
-                "req_id": f"req-adaptive-retry-full-{task_type}",
+                "ws_id": "ws-adaptive-wait",
+                "req_id": f"req-adaptive-wait-full-{task_type}",
                 "params": {},
             }
         )
 
     print(
-        "task queue adaptive retry hint:",
+        "task queue adaptive wait hint:",
         {
             "stream_key": stream_key,
             "stream_len": await raw_redis.xlen(stream_key),
@@ -269,10 +277,13 @@ async def test_task_queue_failure_dead_letters_with_real_redis(
     running_snapshot = await redis_client.task_metrics_snapshot()
     print("task queue running metrics snapshot:", running_snapshot)
     assert running_snapshot["running"][redis_client.server_id][task_type] == 1
-    assert await redis_client.task_fail_dead_letter(
-        first_batch[0],
-        "integration failure",
-    ) == "dead_letter"
+    assert (
+        await redis_client.task_fail_dead_letter(
+            first_batch[0],
+            "integration failure",
+        )
+        == "dead_letter"
+    )
 
     dead_entries = await raw_redis.xrange(dead_stream_key)
 
@@ -303,7 +314,7 @@ async def test_task_queue_failure_dead_letters_with_real_redis(
 async def test_task_lifecycle_suppresses_duplicate_stream_delivery_with_real_redis(
     isolated_task_redis: tuple[GulpRedis, str, str],
 ):
-    """A replayed stream message for one unique req_id is ACKed/skipped."""
+    """A duplicated stream message for one unique req_id is ACKed/skipped."""
     redis_client, task_type, _ = isolated_task_redis
     raw_redis = redis_client.client()
     stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
@@ -320,7 +331,7 @@ async def test_task_lifecycle_suppresses_duplicate_stream_delivery_with_real_red
     await redis_client.task_enqueue(base_task)
     await raw_redis.xadd(
         stream_key,
-        {"data": orjson.dumps({**base_task, "params": {"query": "replayed"}})},
+        {"data": orjson.dumps({**base_task, "params": {"query": "duplicated"}})},
     )
 
     batch = await redis_client.task_dequeue_batch(2)
@@ -343,9 +354,9 @@ async def test_task_lifecycle_suppresses_duplicate_stream_delivery_with_real_red
 
     lifecycle = await raw_redis.hgetall(f"{GulpRedis.TASK_LIFECYCLE_PREFIX}:{req_id}")
     decoded = {
-        key.decode() if isinstance(key, bytes) else key: value.decode()
-        if isinstance(value, bytes)
-        else value
+        key.decode() if isinstance(key, bytes) else key: (
+            value.decode() if isinstance(value, bytes) else value
+        )
         for key, value in lifecycle.items()
     }
 
@@ -409,14 +420,16 @@ async def test_task_lifecycle_allows_distinct_task_ids_for_same_req_id(
     for lifecycle in (first_lifecycle, second_lifecycle):
         decoded_lifecycles.append(
             {
-                key.decode() if isinstance(key, bytes) else key: value.decode()
-                if isinstance(value, bytes)
-                else value
+                key.decode() if isinstance(key, bytes) else key: (
+                    value.decode() if isinstance(value, bytes) else value
+                )
                 for key, value in lifecycle.items()
             }
         )
 
-    print("task lifecycle same req_id distinct task_ids final state:", decoded_lifecycles)
+    print(
+        "task lifecycle same req_id distinct task_ids final state:", decoded_lifecycles
+    )
     assert [item["status"] for item in decoded_lifecycles] == ["succeeded", "succeeded"]
     assert {item["req_id"] for item in decoded_lifecycles} == {req_id}
     assert {item["task_id"] for item in decoded_lifecycles} == {
@@ -452,7 +465,7 @@ async def test_task_lifecycle_suppresses_duplicate_delivery_across_two_instances
     await redis_client.task_enqueue(base_task)
     await raw_redis.xadd(
         stream_key,
-        {"data": orjson.dumps({**base_task, "params": {"query": "replayed"}})},
+        {"data": orjson.dumps({**base_task, "params": {"query": "duplicated"}})},
     )
 
     first_batch = await redis_client.task_dequeue_batch(1)
@@ -476,7 +489,9 @@ async def test_task_lifecycle_suppresses_duplicate_delivery_across_two_instances
     assert second_batch[0]["__redis_consumer_name__"] == other_client.server_id
 
     assert await redis_client.task_claim_execution(first_batch[0]) == "claimed"
-    assert await other_client.task_claim_execution(second_batch[0]) == "duplicate_running"
+    assert (
+        await other_client.task_claim_execution(second_batch[0]) == "duplicate_running"
+    )
 
     await other_client.task_ack_delete(second_batch[0])
     await redis_client.task_mark_succeeded(first_batch[0])
@@ -484,9 +499,9 @@ async def test_task_lifecycle_suppresses_duplicate_delivery_across_two_instances
 
     lifecycle = await raw_redis.hgetall(f"{GulpRedis.TASK_LIFECYCLE_PREFIX}:{req_id}")
     decoded = {
-        key.decode() if isinstance(key, bytes) else key: value.decode()
-        if isinstance(value, bytes)
-        else value
+        key.decode() if isinstance(key, bytes) else key: (
+            value.decode() if isinstance(value, bytes) else value
+        )
         for key, value in lifecycle.items()
     }
 
@@ -497,488 +512,6 @@ async def test_task_lifecycle_suppresses_duplicate_delivery_across_two_instances
 
 
 @pytest.mark.integration
-async def test_task_autoclaim_reclaims_pending_after_crashed_dispatcher_lock_expires(
-    isolated_task_redis: tuple[GulpRedis, str, str],
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """A pending task is reclaimed only after execution and side-effect leases clear."""
-    redis_client, task_type, _ = isolated_task_redis
-    raw_redis = redis_client.client()
-    stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
-    original_server_id = redis_client.server_id
-    reclaimer_server_id = f"reclaimer-{task_type}"
-    original_heartbeat_key = f"{GulpRedis.HEARTBEAT_KEY_PREFIX}:{original_server_id}"
-    req_id = f"req-autoclaim-crash-{task_type}"
-    side_effect_lock_key = f"{GulpRedis.TASK_SIDE_EFFECT_LOCK_PREFIX}:{req_id}"
-    task = {
-        "task_type": task_type,
-        "operation_id": "op-integration-task-autoclaim",
-        "user_id": "admin",
-        "ws_id": "ws-integration-task-autoclaim",
-        "req_id": req_id,
-        "params": {"query": "*"},
-    }
-    monkeypatch.setattr(GulpRedis, "TASK_AUTOCLAIM_IDLE_MS", 1)
-    monkeypatch.setattr(GulpRedis, "TASK_LEASE_REFRESH_INTERVAL_MS", 1)
-
-    try:
-        await redis_client.task_enqueue(task)
-        first_batch = await redis_client.task_dequeue_batch(1)
-        assert len(first_batch) == 1
-        assert await redis_client.task_claim_execution(first_batch[0]) == "claimed"
-
-        redis_client.server_id = reclaimer_server_id
-        await asyncio.sleep(0.02)
-        reclaimed_while_locked = await redis_client.task_autoclaim_stale()
-
-        print(
-            "task autoclaim while original execution lock is alive:",
-            {
-                "original_server_id": original_server_id,
-                "reclaimer_server_id": reclaimer_server_id,
-                "reclaimed": reclaimed_while_locked,
-                "stream_len": await raw_redis.xlen(stream_key),
-            },
-        )
-        assert len(reclaimed_while_locked) == 1
-        assert reclaimed_while_locked[0]["req_id"] == req_id
-        assert reclaimed_while_locked[0]["__redis_autoclaimed__"] is True
-        assert (
-            await redis_client.task_claim_execution(reclaimed_while_locked[0])
-            == "duplicate_running"
-        )
-        assert await raw_redis.xlen(stream_key) == 1
-
-        await raw_redis.set(original_heartbeat_key, "1", ex=60)
-        await asyncio.sleep(1.1)
-        reclaimed_while_owner_alive = await redis_client.task_autoclaim_stale()
-        assert len(reclaimed_while_owner_alive) == 1
-        assert (
-            await redis_client.task_claim_execution(reclaimed_while_owner_alive[0])
-            == "duplicate_running"
-        )
-        assert await raw_redis.exists(
-            f"{GulpRedis.TASK_EXECUTION_LOCK_PREFIX}:{req_id}"
-        ) == 0
-        assert await raw_redis.xlen(stream_key) == 1
-
-        await raw_redis.delete(original_heartbeat_key)
-        reclaimed_while_side_effect_busy = await redis_client.task_autoclaim_stale()
-        assert len(reclaimed_while_side_effect_busy) == 1
-        assert (
-            await redis_client.task_claim_execution(reclaimed_while_side_effect_busy[0])
-            == "duplicate_running"
-        )
-        assert await raw_redis.exists(side_effect_lock_key) == 1
-        assert await raw_redis.xlen(stream_key) == 1
-
-        await raw_redis.delete(side_effect_lock_key)
-        reclaimed_after_side_effect_lease = await redis_client.task_autoclaim_stale()
-
-        print(
-            "task autoclaim after original owner heartbeat and side-effect lease expire:",
-            {
-                "reclaimed": reclaimed_after_side_effect_lease,
-                "stream_len": await raw_redis.xlen(stream_key),
-            },
-        )
-        assert len(reclaimed_after_side_effect_lease) == 1
-        assert reclaimed_after_side_effect_lease[0]["req_id"] == req_id
-        assert (
-            await redis_client.task_claim_execution(reclaimed_after_side_effect_lease[0])
-            == "claimed"
-        )
-        await redis_client.task_mark_succeeded(reclaimed_after_side_effect_lease[0])
-        await redis_client.task_ack_delete(reclaimed_after_side_effect_lease[0])
-
-        lifecycle = await raw_redis.hgetall(
-            f"{GulpRedis.TASK_LIFECYCLE_PREFIX}:{req_id}"
-        )
-        decoded = {
-            key.decode() if isinstance(key, bytes) else key: value.decode()
-            if isinstance(value, bytes)
-            else value
-            for key, value in lifecycle.items()
-        }
-
-        print("task autoclaim final lifecycle:", decoded)
-        assert decoded["status"] == "succeeded"
-        assert decoded["server_id"] == reclaimer_server_id
-        assert await raw_redis.xlen(stream_key) == 0
-    finally:
-        await raw_redis.delete(original_heartbeat_key, side_effect_lock_key)
-
-
-@pytest.mark.integration
-async def test_reclaimed_dispatcher_runs_handler_once_after_side_effect_lease_clears(
-    isolated_task_redis: tuple[GulpRedis, str, str],
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """A reclaimed stream entry should run through dispatcher finalization once."""
-    from gulp.api.server_api import GulpServer
-
-    redis_client, task_type, _ = isolated_task_redis
-    raw_redis = redis_client.client()
-    stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
-    original_server_id = redis_client.server_id
-    reclaimer_server_id = f"reclaimer-dispatch-{task_type}"
-    req_id = f"req-reclaimed-dispatch-{task_type}"
-    execution_lock_key = f"{GulpRedis.TASK_EXECUTION_LOCK_PREFIX}:{req_id}"
-    side_effect_lock_key = f"{GulpRedis.TASK_SIDE_EFFECT_LOCK_PREFIX}:{req_id}"
-    side_effect_key = f"gulp:test:handler_side_effect:{task_type}"
-    task = {
-        "task_type": task_type,
-        "operation_id": "op-integration-reclaimed-dispatch",
-        "user_id": "admin",
-        "ws_id": "ws-integration-reclaimed-dispatch",
-        "req_id": req_id,
-        "params": {"query": "*"},
-    }
-    monkeypatch.setattr(GulpRedis, "TASK_AUTOCLAIM_IDLE_MS", 1)
-    monkeypatch.setattr(GulpRedis, "TASK_LEASE_REFRESH_INTERVAL_MS", 1)
-    GulpServer._instance = None
-    server = GulpServer.get_instance()
-
-    async def _side_effect_handler(_task: dict) -> bool:
-        await raw_redis.incr(side_effect_key)
-        return True
-
-    monkeypatch.setattr(server, "_run_claimed_task", _side_effect_handler)
-
-    try:
-        await redis_client.task_enqueue(task)
-        first_batch = await redis_client.task_dequeue_batch(1)
-        assert len(first_batch) == 1
-        assert await redis_client.task_claim_execution(first_batch[0]) == "claimed"
-
-        redis_client.server_id = reclaimer_server_id
-        await asyncio.sleep(0.02)
-        reclaimed_while_busy = await redis_client.task_autoclaim_stale()
-        assert len(reclaimed_while_busy) == 1
-
-        await server._dispatch_claimed_tasks(
-            redis_client,
-            reclaimed_while_busy,
-            source="reclaimed",
-        )
-        assert await raw_redis.get(side_effect_key) is None
-        assert await raw_redis.xlen(stream_key) == 1
-
-        await raw_redis.delete(execution_lock_key, side_effect_lock_key)
-        await asyncio.sleep(0.02)
-        reclaimed_after_lease = await redis_client.task_autoclaim_stale()
-        assert len(reclaimed_after_lease) == 1
-        assert reclaimed_after_lease[0]["req_id"] == req_id
-
-        await server._dispatch_claimed_tasks(
-            redis_client,
-            reclaimed_after_lease,
-            source="reclaimed",
-        )
-
-        lifecycle = await raw_redis.hgetall(
-            f"{GulpRedis.TASK_LIFECYCLE_PREFIX}:{req_id}"
-        )
-        decoded = {
-            key.decode() if isinstance(key, bytes) else key: value.decode()
-            if isinstance(value, bytes)
-            else value
-            for key, value in lifecycle.items()
-        }
-        side_effect_count = await raw_redis.get(side_effect_key)
-
-        print(
-            "reclaimed dispatcher final state:",
-            {
-                "original_server_id": original_server_id,
-                "reclaimer_server_id": reclaimer_server_id,
-                "lifecycle": decoded,
-                "side_effect_count": side_effect_count,
-                "stream_len": await raw_redis.xlen(stream_key),
-            },
-        )
-        assert side_effect_count == b"1"
-        assert decoded["status"] == "succeeded"
-        assert decoded["server_id"] == reclaimer_server_id
-        assert await raw_redis.xlen(stream_key) == 0
-
-        replay_id = await raw_redis.xadd(stream_key, {"data": orjson.dumps(task)})
-        replay_envelope = redis_client._task_envelope(
-            task,
-            stream_key,
-            replay_id,
-            consumer_name=redis_client.server_id,
-        )
-        await server._dispatch_claimed_tasks(
-            redis_client,
-            [replay_envelope],
-            source="replayed",
-        )
-
-        assert await raw_redis.get(side_effect_key) == b"1"
-        assert await raw_redis.xlen(stream_key) == 0
-    finally:
-        await raw_redis.delete(
-            execution_lock_key,
-            side_effect_lock_key,
-            side_effect_key,
-        )
-        GulpServer._instance = None
-
-
-@pytest.mark.integration
-@pytest.mark.parametrize(
-    "handler_task_type",
-    [
-        TASK_TYPE_QUERY,
-        TASK_TYPE_EXTERNAL_QUERY,
-        TASK_TYPE_REBASE,
-        TASK_TYPE_INGEST,
-        TASK_TYPE_ENRICH,
-    ],
-)
-async def test_reclaimed_dispatcher_uses_real_task_handler_entrypoint_once(
-    isolated_task_redis: tuple[GulpRedis, str, str],
-    monkeypatch: pytest.MonkeyPatch,
-    handler_task_type: str,
-):
-    """Reclaimed Redis task types should execute their real entrypoint only once."""
-    from gulp.api.server import db as db_mod
-    from gulp.api.server import enrich as enrich_mod
-    from gulp.api.server import ingest as ingest_mod
-    from gulp.api.server import query as query_mod
-    from gulp.api.server_api import GulpServer
-
-    redis_client, isolated_task_type, _ = isolated_task_redis
-    raw_redis = redis_client.client()
-    stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{handler_task_type}"
-    original_server_id = redis_client.server_id
-    reclaimer_server_id = f"reclaimer-{handler_task_type}-{isolated_task_type}"
-    req_id = f"req-reclaimed-{handler_task_type}-{isolated_task_type}"
-    execution_lock_key = f"{GulpRedis.TASK_EXECUTION_LOCK_PREFIX}:{req_id}"
-    side_effect_lock_key = f"{GulpRedis.TASK_SIDE_EFFECT_LOCK_PREFIX}:{req_id}"
-    side_effect_key = f"gulp:test:handler_entrypoint:{handler_task_type}:{isolated_task_type}"
-
-    if handler_task_type in {TASK_TYPE_QUERY, TASK_TYPE_EXTERNAL_QUERY}:
-        task = {
-            "task_type": handler_task_type,
-            "operation_id": f"op-reclaimed-{handler_task_type}-handler",
-            "user_id": "admin",
-            "ws_id": f"ws-reclaimed-{handler_task_type}-handler",
-            "req_id": req_id,
-            "params": {
-                "queries": [
-                    {
-                        "q": {"query": {"match_all": {}}},
-                        "q_name": "reclaimed_handler_query",
-                    }
-                ],
-                "q_options": {"limit": 1},
-                "total_num_queries": 1,
-                "plugin": "query_elasticsearch"
-                if handler_task_type == TASK_TYPE_EXTERNAL_QUERY
-                else None,
-                "plugin_params": {"uri": "http://127.0.0.1:9200"}
-                if handler_task_type == TASK_TYPE_EXTERNAL_QUERY
-                else None,
-            },
-        }
-
-        async def _process_queries(*args, **kwargs):
-            assert kwargs["req_id"] == req_id
-            assert kwargs["operation_id"] == task["operation_id"]
-            assert len(kwargs["queries"]) == 1
-            await raw_redis.incr(side_effect_key)
-
-        monkeypatch.setattr(
-            query_mod.GulpCollab,
-            "get_instance",
-            staticmethod(lambda: _FakeCollab()),
-        )
-        monkeypatch.setattr(query_mod, "process_queries", _process_queries)
-    elif handler_task_type == TASK_TYPE_REBASE:
-        task = {
-            "task_type": TASK_TYPE_REBASE,
-            "operation_id": "op-reclaimed-rebase-handler",
-            "user_id": "admin",
-            "ws_id": "ws-reclaimed-rebase-handler",
-            "req_id": req_id,
-            "params": {
-                "index": "idx-reclaimed-rebase-handler",
-                "offset_msec": 1000,
-                "flt": None,
-                "fields": ["@timestamp"],
-            },
-        }
-    elif handler_task_type == TASK_TYPE_INGEST:
-        task = {
-            "task_type": TASK_TYPE_INGEST,
-            "operation_id": "op-reclaimed-ingest-handler",
-            "user_id": "admin",
-            "ws_id": "ws-reclaimed-ingest-handler",
-            "req_id": req_id,
-            "params": {
-                "req_id": req_id,
-                "ws_id": "ws-reclaimed-ingest-handler",
-                "context_name": "ctx-reclaimed-ingest-handler",
-                "source_name": "src-reclaimed-ingest-handler",
-                "index": "idx-reclaimed-ingest-handler",
-                "plugin": "raw",
-                "file_path": "/tmp/reclaimed-ingest-handler.json",
-                "payload": {},
-                "delete_after": False,
-            },
-        }
-    else:
-        task = {
-            "task_type": TASK_TYPE_ENRICH,
-            "operation_id": "op-reclaimed-enrich-handler",
-            "user_id": "admin",
-            "ws_id": "ws-reclaimed-enrich-handler",
-            "req_id": req_id,
-            "params": {
-                "action": "update_documents",
-                "index": "idx-reclaimed-enrich-handler",
-                "flt": {"operation_ids": ["op-reclaimed-enrich-handler"]},
-                "data": {"field": "value"},
-            },
-        }
-
-    monkeypatch.setattr(GulpRedis, "TASK_AUTOCLAIM_IDLE_MS", 1)
-    monkeypatch.setattr(GulpRedis, "TASK_LEASE_REFRESH_INTERVAL_MS", 1)
-    GulpServer._instance = None
-    server = GulpServer.get_instance()
-
-    if handler_task_type in {TASK_TYPE_REBASE, TASK_TYPE_INGEST, TASK_TYPE_ENRICH}:
-
-        async def _spawn_worker_task(
-            fn,
-            *args,
-            wait: bool = False,
-            task_name: str = None,
-        ):
-            if handler_task_type == TASK_TYPE_REBASE:
-                assert fn is db_mod._rebase_by_query_internal
-                assert args[0] == req_id
-                assert args[3] == task["operation_id"]
-                assert wait is True
-                assert task_name == f"rebase_{req_id}"
-            elif handler_task_type == TASK_TYPE_INGEST:
-                assert fn is ingest_mod.run_ingest_file_task
-                assert len(args) == 1
-                assert args[0]["req_id"] == req_id
-                assert args[0]["operation_id"] == task["operation_id"]
-                assert args[0]["__redis_autoclaimed__"] is True
-                assert wait is True
-                assert task_name is None
-                monkeypatch.setattr(
-                    ingest_mod,
-                    "_ingest_file_internal",
-                    _ingest_file_internal,
-                )
-                assert await fn(*args) is True
-            else:
-                assert fn is enrich_mod._update_documents_internal
-                assert args[0] == task["user_id"]
-                assert args[1] == task["ws_id"]
-                assert args[2] == req_id
-                assert args[3] == task["operation_id"]
-                assert args[4] == task["params"]["index"]
-                assert args[6] == task["params"]["data"]
-                assert wait is True
-                assert task_name == f"enrich_{req_id}"
-            await raw_redis.incr(side_effect_key)
-            return True
-
-        async def _ingest_file_internal(**kwargs):
-            assert kwargs["req_id"] == req_id
-            assert kwargs["operation_id"] == task["operation_id"]
-            assert kwargs["payload"].__class__.__name__ == "GulpIngestPayload"
-
-        monkeypatch.setattr(server, "spawn_worker_task", _spawn_worker_task)
-
-    try:
-        await redis_client.task_enqueue(task)
-        first_batch = await redis_client.task_dequeue_batch(1)
-        assert len(first_batch) == 1
-        assert await redis_client.task_claim_execution(first_batch[0]) == "claimed"
-
-        redis_client.server_id = reclaimer_server_id
-        await asyncio.sleep(0.02)
-        reclaimed_while_busy = await redis_client.task_autoclaim_stale()
-        assert len(reclaimed_while_busy) == 1
-
-        await server._dispatch_claimed_tasks(
-            redis_client,
-            reclaimed_while_busy,
-            source="reclaimed",
-        )
-        assert await raw_redis.get(side_effect_key) is None
-        assert await raw_redis.xlen(stream_key) == 1
-
-        await raw_redis.delete(execution_lock_key, side_effect_lock_key)
-        await asyncio.sleep(0.02)
-        reclaimed_after_lease = await redis_client.task_autoclaim_stale()
-        assert len(reclaimed_after_lease) == 1
-        assert reclaimed_after_lease[0]["req_id"] == req_id
-
-        await server._dispatch_claimed_tasks(
-            redis_client,
-            reclaimed_after_lease,
-            source="reclaimed",
-        )
-
-        lifecycle = await raw_redis.hgetall(
-            f"{GulpRedis.TASK_LIFECYCLE_PREFIX}:{req_id}"
-        )
-        decoded = {
-            key.decode() if isinstance(key, bytes) else key: value.decode()
-            if isinstance(value, bytes)
-            else value
-            for key, value in lifecycle.items()
-        }
-
-        print(
-            "reclaimed real handler final state:",
-            {
-                "handler_task_type": handler_task_type,
-                "original_server_id": original_server_id,
-                "reclaimer_server_id": reclaimer_server_id,
-                "lifecycle": decoded,
-                "side_effect_count": await raw_redis.get(side_effect_key),
-                "stream_len": await raw_redis.xlen(stream_key),
-            },
-        )
-        assert await raw_redis.get(side_effect_key) == b"1"
-        assert decoded["status"] == "succeeded"
-        assert decoded["server_id"] == reclaimer_server_id
-        assert await raw_redis.xlen(stream_key) == 0
-
-        replay_id = await raw_redis.xadd(stream_key, {"data": orjson.dumps(task)})
-        replay_envelope = redis_client._task_envelope(
-            task,
-            stream_key,
-            replay_id,
-            consumer_name=redis_client.server_id,
-        )
-        await server._dispatch_claimed_tasks(
-            redis_client,
-            [replay_envelope],
-            source="replayed",
-        )
-
-        assert await raw_redis.get(side_effect_key) == b"1"
-        assert await raw_redis.xlen(stream_key) == 0
-    finally:
-        await raw_redis.delete(
-            stream_key,
-            execution_lock_key,
-            side_effect_lock_key,
-            side_effect_key,
-        )
-        GulpServer._instance = None
-
-
 @pytest.mark.integration
 @pytest.mark.parametrize(
     ("action", "params", "expected_worker"),
@@ -1094,9 +627,9 @@ async def test_enrich_mutation_worker_failure_dead_letters(
             f"{GulpRedis.TASK_LIFECYCLE_PREFIX}:{req_id}"
         )
         decoded = {
-            key.decode() if isinstance(key, bytes) else key: value.decode()
-            if isinstance(value, bytes)
-            else value
+            key.decode() if isinstance(key, bytes) else key: (
+                value.decode() if isinstance(value, bytes) else value
+            )
             for key, value in lifecycle.items()
         }
         dead_entries = await raw_redis.xrange(dead_stream_key)
@@ -1132,7 +665,7 @@ async def test_task_cancel_purges_queued_task_and_releases_active_admission(
     isolated_task_redis: tuple[GulpRedis, str, str],
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Queued request cancellation releases active units and blocks replay by req_id."""
+    """Queued request cancellation releases active units and blocks duplicate by req_id."""
     redis_client, task_type, _ = isolated_task_redis
     raw_redis = redis_client.client()
     stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
@@ -1165,9 +698,9 @@ async def test_task_cancel_purges_queued_task_and_releases_active_admission(
 
     lifecycle = await raw_redis.hgetall(f"{GulpRedis.TASK_LIFECYCLE_PREFIX}:{req_id}")
     decoded = {
-        key.decode() if isinstance(key, bytes) else key: value.decode()
-        if isinstance(value, bytes)
-        else value
+        key.decode() if isinstance(key, bytes) else key: (
+            value.decode() if isinstance(value, bytes) else value
+        )
         for key, value in lifecycle.items()
     }
     active_user_units = await raw_redis.hget(GulpRedis.TASK_ACTIVE_USER_HASH, user_id)
@@ -1235,9 +768,9 @@ async def test_task_admission_fairness_limits_one_user_not_another_with_real_red
     raw_redis = redis_client.client()
     active_users = await raw_redis.hgetall(GulpRedis.TASK_ACTIVE_USER_HASH)
     decoded = {
-        key.decode() if isinstance(key, bytes) else key: value.decode()
-        if isinstance(value, bytes)
-        else value
+        key.decode() if isinstance(key, bytes) else key: (
+            value.decode() if isinstance(value, bytes) else value
+        )
         for key, value in active_users.items()
     }
 
@@ -1293,9 +826,9 @@ async def test_task_admission_counts_query_batch_work_units_with_real_redis(
     raw_redis = redis_client.client()
     active_users = await raw_redis.hgetall(GulpRedis.TASK_ACTIVE_USER_HASH)
     decoded = {
-        key.decode() if isinstance(key, bytes) else key: value.decode()
-        if isinstance(value, bytes)
-        else value
+        key.decode() if isinstance(key, bytes) else key: (
+            value.decode() if isinstance(value, bytes) else value
+        )
         for key, value in active_users.items()
     }
 
@@ -1345,9 +878,9 @@ async def test_task_admission_counts_large_ingest_work_units_with_real_redis(
 
         active_users = await raw_redis.hgetall(GulpRedis.TASK_ACTIVE_USER_HASH)
         decoded = {
-            key.decode() if isinstance(key, bytes) else key: value.decode()
-            if isinstance(value, bytes)
-            else value
+            key.decode() if isinstance(key, bytes) else key: (
+                value.decode() if isinstance(value, bytes) else value
+            )
             for key, value in active_users.items()
         }
 
@@ -1397,11 +930,13 @@ async def test_task_admission_charges_broad_rebase_more_than_narrow_with_real_re
         assert exc_info.value.queue_limit == 4
         assert exc_info.value.work_units == 5
 
-        active_operations = await raw_redis.hgetall(GulpRedis.TASK_ACTIVE_OPERATION_HASH)
+        active_operations = await raw_redis.hgetall(
+            GulpRedis.TASK_ACTIVE_OPERATION_HASH
+        )
         decoded = {
-            key.decode() if isinstance(key, bytes) else key: value.decode()
-            if isinstance(value, bytes)
-            else value
+            key.decode() if isinstance(key, bytes) else key: (
+                value.decode() if isinstance(value, bytes) else value
+            )
             for key, value in active_operations.items()
         }
 
@@ -1453,9 +988,9 @@ async def test_task_admission_fairness_limits_one_operation_not_another_with_rea
     raw_redis = redis_client.client()
     active_operations = await raw_redis.hgetall(GulpRedis.TASK_ACTIVE_OPERATION_HASH)
     decoded = {
-        key.decode() if isinstance(key, bytes) else key: value.decode()
-        if isinstance(value, bytes)
-        else value
+        key.decode() if isinstance(key, bytes) else key: (
+            value.decode() if isinstance(value, bytes) else value
+        )
         for key, value in active_operations.items()
     }
 

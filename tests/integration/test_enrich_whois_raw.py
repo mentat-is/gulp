@@ -13,7 +13,7 @@ def _unique(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
 
-async def _delete_operation_with_retry(
+async def _delete_operation_with_conflict_wait(
     client, operation_id: str, timeout: float = 30.0
 ) -> None:
     """Delete operation, tolerating transient 'running requests' state."""
@@ -166,4 +166,4 @@ async def test_enrich_whois_raw_documents(
             except GulpSDKError as exc:
                 pytest.skip(f"enrich_whois plugin unavailable: {exc}")
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)

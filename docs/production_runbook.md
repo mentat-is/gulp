@@ -48,10 +48,9 @@ transport for task lifecycle events; add any new lifecycle messages through
 Useful log patterns during incidents:
 
 - `queue full`, `TaskQueueFullError`, or HTTP `503`: admission pressure.
-- `dead-letter`: valid task exhausted retries or malformed task payload.
+- `dead-letter`: failed task or malformed task payload retained for inspection.
 - `duplicate_running`: a duplicate delivery was suppressed by lifecycle state.
-- `side-effect lease`: a reclaimed task was kept out of handler side effects.
-- `autoclaim`: Redis stream pending entry recovery path.
+- `side-effect lease`: duplicate task side effects were suppressed.
 - `payload pointer`: Redis pub/sub large-payload pointer resolution.
 - `queue full for ws` or websocket enqueue timeout: client is not draining.
 - `ws ingest`: raw websocket ingest stream creation, pressure, or cleanup.
@@ -90,19 +89,15 @@ Triage rules:
   workers, too narrow `instance_roles`, or workers cannot reach dependencies.
 - High pending age with live running owners usually means long-running work; use
   task duration histograms before assuming a stuck task.
-- High pending age with no corresponding live running owner points to reclaim or
-  worker failure; inspect `autoclaim`, `duplicate_running`, and side-effect lease
-  logs.
-- Dead-letter growth means a valid task exhausted retries or invalid payloads
-  are being produced; inspect the request stats row for the affected `req_id`
-  and the `MutyLogger` exception at the first failure.
-- Recovered retries mean tasks eventually succeeded but only after at least one
-  failed attempt. Treat this as a warning signal during load tests: inspect
-  worker exceptions and lifecycle metadata before calling the run clean.
+- High pending age with no corresponding live running owner points to worker
+  failure; inspect `duplicate_running` and side-effect lease logs.
+- Dead-letter growth means failed tasks or invalid payloads are being produced;
+  inspect the request stats row for the affected `req_id` and the `MutyLogger`
+  exception at the first failure.
 - API rejections with `scope="task_type"` mean the task-type stream reached
   `redis_stream_task_maxlen`.
 - API rejections with `scope="user"` or `scope="operation"` mean active fairness
-  limits are working; clients should honor `retry_after_msec`.
+  limits are working; clients should honor the response wait hint.
 
 ## websocket triage
 
@@ -138,7 +133,7 @@ Triage rules:
   expired or failed before all intended instances decoded the payload.
 - Pub/sub reconnects or subscriber errors indicate Redis connectivity or
   callback exceptions; inspect `MutyLogger` around the first reconnect.
-- Sequence gaps are expected to be detectable, not fully replayed by pub/sub.
+- Sequence gaps are expected to be detectable, not fully resent by pub/sub.
   Clients should recover final request state through request stats/collab APIs
   for recoverable event types.
 
@@ -272,7 +267,6 @@ PostgreSQL, and OpenSearch:
   "redis_stream_task_maxlen": 10000,
   "redis_task_active_user_max": 50,
   "redis_task_active_operation_max": 100,
-  "redis_task_autoclaim_idle_ms": 60000,
   "redis_task_lease_refresh_interval_ms": 20000,
   "ws_queue_max_size": 8192,
   "ws_enqueue_timeout": 5.0,
@@ -303,7 +297,6 @@ Use this only with measured backend capacity and active alerting:
   "redis_stream_task_maxlen": 50000,
   "redis_task_active_user_max": 100,
   "redis_task_active_operation_max": 250,
-  "redis_task_autoclaim_idle_ms": 120000,
   "redis_task_lease_refresh_interval_ms": 30000,
   "redis_task_lifecycle_ttl_sec": 86400,
   "ws_queue_max_size": 16384,

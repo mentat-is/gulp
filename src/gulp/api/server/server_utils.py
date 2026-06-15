@@ -27,6 +27,7 @@ from muty.log import MutyLogger
 from requests_toolbelt.multipart import decoder
 
 from gulp.api.collab.context import GulpContext
+from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.prometheus_api import record_api_request_rejection
 from gulp.api.redis_api import TaskQueueFullError
 from gulp.api.server.structs import GulpUploadResponse
@@ -34,6 +35,20 @@ from gulp.config import GulpConfig
 
 
 class ServerUtils:
+    @staticmethod
+    async def existing_request_response(
+        sess, req_id: str, *, allow_ongoing: bool = False
+    ) -> JSONResponse | None:
+        """Return existing request stats when a req_id must not enqueue again."""
+        stats = await GulpRequestStats.get_by_id(
+            sess, req_id, throw_if_not_found=False
+        )
+        if not stats:
+            return None
+        if allow_ongoing and not GulpRequestStats.is_terminal_status(stats.status):
+            return None
+        return JSONResponse({**stats.to_dict(), "already_exist": True})
+
     @staticmethod
     def task_queue_full_response(
         endpoint: str, req_id: str, ex: TaskQueueFullError

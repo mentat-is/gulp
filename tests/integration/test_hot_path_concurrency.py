@@ -82,7 +82,7 @@ async def _wait_terminal_stats_ws(
     return terminal
 
 
-async def _delete_operation_with_retry(
+async def _delete_operation_with_conflict_wait(
     client, operation_id: str, timeout: float = 30.0
 ) -> None:
     """Delete an operation, tolerating transient running-request state."""
@@ -146,7 +146,7 @@ async def test_live_multi_query_request_reports_all_units_via_websocket(
             assert int(data.get("num_queries", 0)) == query_count
             assert int(data.get("completed_queries", 0)) == query_count
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)
 
 
 @pytest.mark.integration
@@ -218,4 +218,4 @@ async def test_live_ingest_enrich_and_query_hot_paths_overlap_via_websocket(
             assert all(status in {"done", "failed"} for status in statuses.values())
             assert statuses[query_req_id] == "done"
         finally:
-            await _delete_operation_with_retry(client, op.id)
+            await _delete_operation_with_conflict_wait(client, op.id)

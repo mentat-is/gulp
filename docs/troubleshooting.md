@@ -69,7 +69,7 @@ if you see an error like the following:
 Error response from daemon: Conflict. The container name "/elasticvue" is already in use by container "some_container_id". You have to remove (or rename) that container to be able to reuse that name.
 ~~~
 
-remove the container with `docker container rm some_container_id` and retry.
+remove the container with `docker container rm some_container_id` and run the command again.
 
 ## general
 
@@ -111,7 +111,7 @@ remove the container with `docker container rm some_container_id` and retry.
 >
 ### startup errors
 
-- couple of errors about cannot connecting to opensearch **are normal if gulp is run immediately right after `docker compose up -d`**: no worries, it just notifies it is retrying to connect until it is up, it will retry for up to 2 minutes.
+- couple of errors about cannot connecting to opensearch **are normal if gulp is run immediately right after `docker compose up -d`**: no worries, it keeps checking until it is up, for up to 2 minutes.
   - **just wait a bit to allow full opensearch startup, the very first time it starts it may take up to ~1 minute...**
 
 - if you get errors like `failed to obtain node-lock` while booting OpenSearch, ensure that the data directory i.e. `./opensearch_data` is NOT owned by root and is writable (so, chown it again to your user in case).
@@ -166,19 +166,9 @@ remove the container with `docker container rm some_container_id` and retry.
 
   during querying usually means that OpenSearch ran out of memory while processing the query.
 
-  you can attempt to tweak the following configuration options to mitigate the issue, or simply scale up the OpenSearch nodes (**recommended**):
-
-  ~~~json
-    // number of times to retry on opensearch query circuit breaker exception (default=3)
-    "query_circuit_breaker_backoff_attempts": 3,
-    // minimum query chunk size limit for circuit breaker backoff (default=100)
-    "query_circuit_breaker_min_limit": 100,
-    // if set, disables highlights when query circuit breaker is triggered (default=true)
-    "query_circuit_breaker_disables_highlights": true,
-    
-  ~~~
-  
-  > you may also try to lower `concurrency` settings in the configuration and/or diminish `limit` in `GulpQueryOptions` when querying... but this is a clear indication that OpenSearch is struggling.
+  lower `concurrency` settings in the configuration and/or diminish `limit` in
+  `GulpQueryOptions` when querying, or scale up the OpenSearch nodes
+  (**recommended**). This is a clear indication that OpenSearch is struggling.
 
 - frequent errors like `"opensearchpy.exceptions.ConnectionError: ConnectionError(Cannot connect to host localhost:9200 ssl:default [Multiple exceptions: [Errno 111] ..."` may indicate OpenSearch crashing underneath, which can be verified inspecting Docker logs.
 

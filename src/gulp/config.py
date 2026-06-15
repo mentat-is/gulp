@@ -262,6 +262,21 @@ class GulpConfig:
             )
         return n
 
+    def ingestion_retry_max(self) -> int:
+        """
+        Returns max bulk ingestion attempts on transient OpenSearch pressure.
+        """
+        return self._get_int_config("ingestion_retry_max", 3, minimum=1)
+
+    def ingestion_retry_delay(self) -> float:
+        """
+        Returns delay in seconds between bulk ingestion attempts.
+        """
+        try:
+            return max(0.0, float(self._config.get("ingestion_retry_delay", 1.0)))
+        except (TypeError, ValueError):
+            return 1.0
+
     def ws_ingest_stream_max_entries(self) -> int:
         """
         Returns maximum queued raw websocket ingest packets per websocket stream.
@@ -278,36 +293,32 @@ class GulpConfig:
         """
         return self._config.get("ws_ingest_stream_max_buffered_bytes", 268435456)
 
-    def ingestion_retry_max(self) -> int:
-        """
-        Returns the maximum number of retries for ingestion.
-        """
-        n = self._config.get("ingestion_retry_max", 3)
-        if not n:
-            n = 3
-            MutyLogger.get_instance().debug(
-                "using default number of retries for ingestion=%d" % (n)
-            )
-        return n
-
-    def ingestion_retry_delay(self) -> int:
-        """
-        Returns the delay in seconds between ingestion retries.
-        """
-        n = self._config.get("ingestion_retry_delay", 1)
-        if not n:
-            n = 1
-            MutyLogger.get_instance().debug(
-                "using default delay between ingestion retries=%d" % (n)
-            )
-        return n
-
     def opensearch_request_timeout(self) -> int:
         """
         Returns the requests timeout for opensearch (default: 60 seconds, use 0 for no timeout).
         """
         n = self._config.get("opensearch_request_timeout", 60)
         return n
+
+    def query_circuit_breaker_disable_highlights(self) -> bool:
+        """
+        Returns whether circuit-breaker backoff should drop highlighting.
+        """
+        return self._config.get("query_circuit_breaker_disables_highlights", True)
+
+    def query_circuit_breaker_backoff_attempts(self) -> int:
+        """
+        Returns max query retries after OpenSearch circuit-breaker responses.
+        """
+        return self._get_int_config(
+            "query_circuit_breaker_backoff_attempts", 5, minimum=0
+        )
+
+    def query_circuit_breaker_min_limit(self) -> int:
+        """
+        Returns the minimum query page size during circuit-breaker backoff.
+        """
+        return self._get_int_config("query_circuit_breaker_min_limit", 100, minimum=1)
 
     def token_expiration_time(self, is_admin: bool) -> int:
         """
@@ -376,49 +387,6 @@ class GulpConfig:
         whether to enable adaptive documents chunk size during ingestion
         """
         n = self._config.get("ingestion_documents_adaptive_chunk_size", True)
-        return n
-
-    def query_circuit_breaker_disable_highlights(self) -> bool:
-        """
-        Returns whether to disable highlights when query circuit breaker is triggered.
-
-        Default: True
-        """
-        n = self._config.get("query_circuit_breaker_disables_highlights", True)
-        return n
-
-    def query_circuit_breaker_backoff_attempts(self) -> int:
-        """
-        Returns how many times query execution should retry with backoff when OpenSearch circuit breakers trip.
-
-        Default: 3 attempts.
-        """
-        n = self._config.get("query_circuit_breaker_backoff_attempts", 5)
-        try:
-            n = int(n)
-        except (TypeError, ValueError):
-            n = 5
-        if n <= 0:
-            n = 5
-            MutyLogger.get_instance().warning(
-                "invalid query_circuit_breaker_backoff_attempts, set to default=5"
-            )
-
-        return n
-
-    def query_circuit_breaker_min_limit(self) -> int:
-        """
-        Returns the lowest per-chunk document limit allowed during circuit breaker backoff.
-
-        Default: 100 documents.
-        """
-        n = self._config.get("query_circuit_breaker_min_limit", 100)
-        try:
-            n = int(n)
-        except (TypeError, ValueError):
-            n = 100
-        if n < 1:
-            n = 1
         return n
 
     def ingestion_evt_failure_threshold(self) -> int:
@@ -516,7 +484,7 @@ class GulpConfig:
 
     def stats_delete_pending_on_shutdown(self) -> bool:
         """
-        Returns whether to delete pending stats on server shutdown (default: True).
+        Returns whether to delete pending stats on server shutdown for the current instance (default: True).
 
         this is useful to avoid having pending stats from previous runs.
         """
@@ -621,16 +589,6 @@ class GulpConfig:
             base_num_tasks * max(1, opensearch_num_nodes) * max(1, postgres_num_nodes)
         )
         self._concurrency_num_tasks = max(8, min(cap_per_process, scaled))
-        MutyLogger.get_instance().debug(
-            "calculated adaptive concurrency_num_tasks=%d (base=%d, os_nodes=%d, pg_nodes=%d, cap_per_process=%d)"
-            % (
-                self._concurrency_num_tasks,
-                base_num_tasks,
-                opensearch_num_nodes,
-                postgres_num_nodes,
-                cap_per_process,
-            )
-        )
         return self._concurrency_num_tasks
 
     def concurrency_adaptive_num_tasks(self) -> bool:
@@ -773,9 +731,7 @@ class GulpConfig:
         """
         PostgreSQL statement timeout in milliseconds. 0 disables the timeout.
         """
-        return self._get_int_config(
-            "postgres_statement_timeout_ms", 0, minimum=0
-        )
+        return self._get_int_config("postgres_statement_timeout_ms", 0, minimum=0)
 
     def postgres_idle_in_transaction_session_timeout_ms(self) -> int:
         """
@@ -1248,15 +1204,6 @@ class GulpConfig:
         n = self._config.get("redis_pubsub_max_chunk_size", 128)
         return n
 
-    def redis_task_autoclaim_idle_ms(self) -> int:
-        """
-        Returns the idle time in milliseconds after which pending stream messages
-        can be auto-claimed by another consumer.
-
-        Default: 60000 (60 seconds)
-        """
-        return self._config.get("redis_task_autoclaim_idle_ms", 60000)
-
     def redis_task_lease_refresh_interval_ms(self) -> int:
         """
         Returns the interval in milliseconds used to refresh live task leases.
@@ -1264,6 +1211,14 @@ class GulpConfig:
         Default: 20000 (20 seconds)
         """
         return self._config.get("redis_task_lease_refresh_interval_ms", 20000)
+
+    def redis_task_autoclaim_idle_ms(self) -> int:
+        """
+        Returns idle time before stale pending Redis stream tasks can be reclaimed.
+
+        Default: 60000 (60 seconds)
+        """
+        return self._config.get("redis_task_autoclaim_idle_ms", 60000)
 
     def redis_task_execution_timeout_sec(self) -> int:
         """
@@ -1277,9 +1232,9 @@ class GulpConfig:
         """
         Returns retention for Redis task lifecycle records.
 
-        Default: 86400 (1 day)
+        Default: 3600 (1 hour)
         """
-        return self._config.get("redis_task_lifecycle_ttl_sec", 86400)
+        return self._config.get("redis_task_lifecycle_ttl_sec", 3600)
 
     def redis_task_active_user_max(self) -> int:
         """

@@ -50,6 +50,10 @@ Core services used by the backend:
 - `muty-python/`: shared utility library
 - `gulpui-web/`: React + TypeScript web client
 
+## Backend conventions
+
+- Retrying requests is up to the client by design, but the backend will return appropriate status codes and headers to indicate when to retry a request ("retry_after_msec" in 503 responses for queue backpressure, for example).
+
 ## Change Coordination Rules
 
 - If you change backend API behavior, check whether `gulp-sdk/` must be updated.

@@ -226,7 +226,7 @@ async def _wait_for_request_terminal_status(
     )
 
 
-async def _delete_operation_with_retry(
+async def _delete_operation_with_conflict_wait(
     client: GulpClient, operation_id: str, timeout: float = 30.0
 ) -> None:
     deadline = asyncio.get_running_loop().time() + timeout
@@ -1275,7 +1275,7 @@ async def _run_multi_user_scenario(
         # Delete the shared operation (admin only).
         if shared_operation_id and actors:
             try:
-                await _delete_operation_with_retry(actors[0][1], shared_operation_id)
+                await _delete_operation_with_conflict_wait(actors[0][1], shared_operation_id)
             except Exception:
                 pass
 
