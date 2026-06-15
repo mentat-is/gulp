@@ -31,7 +31,6 @@ import muty.pydantic
 import muty.string
 import muty.time
 import orjson
-from click import group
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -65,23 +64,19 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.sigma import (
     sigma_to_severity,
-    sigmas_to_queries,
     sigmas_to_queries_wrapper,
 )
 from gulp.api.opensearch.structs import (
     GulpDocument,
     GulpQuery,
-    GulpQueryHelpers,
     GulpQueryParameters,
 )
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.prometheus_api import record_api_request_rejection
-from gulp.api.redis_api import GulpRedis
+from gulp.api.redis_api import GulpRedis, TaskQueueFullError
 from gulp.api.server.ingest import GulpIngestionStats
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import (
     TASK_TYPE_EXTERNAL_QUERY,
-    TASK_TYPE_INGEST,
     TASK_TYPE_QUERY,
     APIDependencies,
 )
@@ -90,7 +85,6 @@ from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
     WSDATA_QUERY_DONE,
     WSDATA_QUERY_GROUP_MATCH,
-    GulpConnectedSocket,
     GulpDocumentsChunkPacket,
     GulpQueryDonePacket,
     GulpQueryGroupMatchPacket,
@@ -100,7 +94,6 @@ from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
 from gulp.structs import GulpPluginParameters, ObjectNotFound
-from gulp.api.redis_api import TaskQueueFullError
 
 router: APIRouter = APIRouter()
 
@@ -110,30 +103,6 @@ async def _null_async_context(value=None):
     """Yield a value through an async context manager."""
     yield value
 
-
-def _task_queue_full_response(req_id: str, ex: TaskQueueFullError) -> JSONResponse:
-    """Build a structured response for queue-pressure rejections."""
-    record_api_request_rejection(
-        endpoint="query",
-        reason="task_queue_full",
-        task_type=ex.task_type,
-        scope=ex.scope,
-    )
-    return JSONResponse(
-        JSendResponse.error(
-            req_id=req_id,
-            ex={
-                "error": "task_queue_full",
-                "task_type": ex.task_type,
-                "scope": ex.scope,
-                "queue_depth": ex.queue_depth,
-                "queue_limit": ex.queue_limit,
-                "work_units": ex.work_units,
-                "retry_after_msec": ex.retry_after_msec,
-            },
-        ),
-        status_code=503,
-    )
 
 EXAMPLE_SIGMA_RULE = """title: Match All Events
 id: 1a070ea4-87f4-467c-b1a9-f556c56b2449
@@ -1282,7 +1251,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
             try:
                 await GulpRedis.get_instance().task_enqueue(task_msg)
             except TaskQueueFullError as ex:
-                return _task_queue_full_response(req_id, ex)
+                return ServerUtils.task_queue_full_response("query", req_id, ex)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1493,7 +1462,7 @@ async def query_gulp_handler(
             try:
                 await GulpRedis.get_instance().task_enqueue(task_msg)
             except TaskQueueFullError as ex:
-                return _task_queue_full_response(req_id, ex)
+                return ServerUtils.task_queue_full_response("query", req_id, ex)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1650,7 +1619,7 @@ async def query_external_handler(
             try:
                 await GulpRedis.get_instance().task_enqueue(task_msg)
             except TaskQueueFullError as ex:
-                return _task_queue_full_response(req_id, ex)
+                return ServerUtils.task_queue_full_response("query", req_id, ex)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1833,7 +1802,7 @@ async def query_sigma_handler(
             try:
                 await GulpRedis.get_instance().task_enqueue(task_msg)
             except TaskQueueFullError as ex:
-                return _task_queue_full_response(req_id, ex)
+                return ServerUtils.task_queue_full_response("query", req_id, ex)
 
             # and return pending
             return JSONResponse(JSendResponse.pending(req_id=req_id))

@@ -26,7 +26,6 @@ import asyncio
 import time
 from typing import Annotated, Awaitable, Callable, Optional
 
-import muty.log
 import muty.string
 import muty.time
 import orjson
@@ -66,8 +65,7 @@ from gulp.api.ws_api import (
     GulpWsType,
 )
 from gulp.config import GulpConfig
-from gulp.plugin import GulpPluginBase, GulpPluginCacheMode
-from gulp.process import GulpProcess
+from gulp.plugin import GulpPluginBase
 from gulp.structs import ObjectNotFound
 
 router = APIRouter()
@@ -284,7 +282,7 @@ class WsIngestRawWorker:
                                     for s, mid in ids_to_del:
                                         pipe.xdel(s, mid)
                                     await pipe.execute()
-                                    await GulpRedis.get_instance().client().set(
+                                    await redis.set(
                                         done_key,
                                         "1",
                                         ex=WsIngestRawWorker.DONE_KEY_TTL,
@@ -386,7 +384,7 @@ class WsIngestRawWorker:
                 finally:
                     # ensure done_key is set so the main process can detect worker exit
                     try:
-                        await GulpRedis.get_instance().client().set(
+                        await redis.set(
                             done_key,
                             "1",
                             ex=WsIngestRawWorker.DONE_KEY_TTL,
@@ -472,9 +470,7 @@ class WsIngestRawWorker:
             except Exception:
                 # ignore if group does not exist or destroy fails
                 pass
-            await redis.delete(self._stream_key)
-            await redis.delete(self._done_key)
-            await redis.delete(self._bytes_key)
+            await redis.delete(self._stream_key, self._done_key, self._bytes_key)
         except Exception:
             MutyLogger.get_instance().exception("error cleaning up stream %s", self._stream_key)
 

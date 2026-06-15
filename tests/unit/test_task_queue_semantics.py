@@ -916,12 +916,10 @@ async def test_task_transition_metrics_count_stale_autoclaim(
 
 @pytest.mark.unit
 def test_task_queue_full_response_includes_retry_guidance(api_rejection_counter):
-    from gulp.api.server.db import _task_queue_full_response as db_response
-    from gulp.api.server.enrich import _task_queue_full_response as enrich_response
-    from gulp.api.server.ingest import _task_queue_full_response as ingest_response
-    from gulp.api.server.query import _task_queue_full_response as query_response
+    from gulp.api.server.server_utils import ServerUtils
 
-    response = query_response(
+    response = ServerUtils.task_queue_full_response(
+        "query",
         "req-queue-full",
         TaskQueueFullError(
             "query",
@@ -955,15 +953,18 @@ def test_task_queue_full_response_includes_retry_guidance(api_rejection_counter)
         1,
     ) in api_rejection_counter.calls
 
-    ingest_full = ingest_response(
+    ingest_full = ServerUtils.task_queue_full_response(
+        "ingest",
         "req-ingest-full",
         TaskQueueFullError("ingest", 5, 4, scope="operation", work_units=2),
     )
-    db_full = db_response(
+    db_full = ServerUtils.task_queue_full_response(
+        "db",
         "req-db-full",
         TaskQueueFullError("rebase", 9, 8, scope="task_type", work_units=3),
     )
-    enrich_full = enrich_response(
+    enrich_full = ServerUtils.task_queue_full_response(
+        "enrich",
         "req-enrich-full",
         TaskQueueFullError("enrich", 7, 6, scope="task_type", work_units=5),
     )

@@ -1,5 +1,4 @@
 import asyncio
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import orjson
@@ -377,9 +376,10 @@ def test_gulp_connected_sockets_cache_and_queue_utilization():
     sockets.invalidate_cached_server("ws-id-123")
     assert sockets.get_cached_server("ws-id-123") is None
 
-    # negative cached server
+    # missing owners are not cached; a future reconnect should be visible immediately
     sockets.cache_server("ws-id-missing", None)
     assert sockets.get_cached_server("ws-id-missing") is None
+    assert "ws-id-missing" not in sockets._ws_server_cache
 
     # a small fake socket supporting expected attributes
     class FakeSocket:

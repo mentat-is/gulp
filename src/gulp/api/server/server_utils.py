@@ -12,10 +12,8 @@ common functionality needed across different endpoints and request handlers.
 
 import inspect
 import os
-import re
 import ssl
 from email.message import EmailMessage
-from typing import Tuple
 
 import aiofiles
 import aiosmtplib
@@ -23,15 +21,46 @@ import muty.crypto
 import muty.file
 import orjson
 from fastapi import Request
+from fastapi.responses import JSONResponse
+from muty.jsend import JSendResponse
 from muty.log import MutyLogger
 from requests_toolbelt.multipart import decoder
 
 from gulp.api.collab.context import GulpContext
+from gulp.api.prometheus_api import record_api_request_rejection
+from gulp.api.redis_api import TaskQueueFullError
 from gulp.api.server.structs import GulpUploadResponse
 from gulp.config import GulpConfig
 
 
 class ServerUtils:
+    @staticmethod
+    def task_queue_full_response(
+        endpoint: str, req_id: str, ex: TaskQueueFullError
+    ) -> JSONResponse:
+        """Build a structured queue-pressure rejection response."""
+        record_api_request_rejection(
+            endpoint=endpoint,
+            reason="task_queue_full",
+            task_type=ex.task_type,
+            scope=ex.scope,
+        )
+        return JSONResponse(
+            JSendResponse.error(
+                req_id=req_id,
+                ex={
+                    "error": "task_queue_full",
+                    "task_type": ex.task_type,
+                    "scope": ex.scope,
+                    "queue_depth": ex.queue_depth,
+                    "queue_limit": ex.queue_limit,
+                    "work_units": ex.work_units,
+                    "retry_after_msec": ex.retry_after_msec,
+                },
+            ),
+            status_code=503,
+        )
+
     @staticmethod
     def dump_params(params: dict) -> str:
         """
@@ -183,7 +212,7 @@ class ServerUtils:
     @staticmethod
     async def handle_multipart_chunked_upload(
         r: Request, operation_id: str, context_name: str, prefix: str = None
-    ) -> Tuple[str, dict, GulpUploadResponse]:
+    ) -> tuple[str, dict, GulpUploadResponse]:
         """
         Handles a chunked upload request with multipart content, with resume support.
 
@@ -339,7 +368,7 @@ class ServerUtils:
         return (cache_file_path, payload_dict, result)
 
     @staticmethod
-    async def handle_multipart_body(r: Request) -> Tuple[dict, bytes]:
+    async def handle_multipart_body(r: Request) -> tuple[dict, bytes]:
         """
         Handles a multipart request with JSON and data parts.
 

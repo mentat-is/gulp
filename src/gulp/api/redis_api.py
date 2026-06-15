@@ -1796,7 +1796,7 @@ class GulpRedis:
 
         params = task.get("params") if isinstance(task.get("params"), dict) else {}
         task_type = str(task.get("task_type") or "")
-        if task_type.startswith("query") or task_type.startswith("external_query"):
+        if task_type.startswith(("query", "external_query")):
             return cls._query_work_units(task_type, params)
         if task_type.startswith("ingest"):
             return cls._ingest_work_units(params)
@@ -1807,7 +1807,7 @@ class GulpRedis:
 
         return 1
 
-    async def _reserve_task_admission(self, task: dict) -> None:
+    async def _reserve_task_admission(self, task: dict, work_units: int) -> None:
         """Reserve active-task admission capacity for a new unique request."""
         task_id = self._task_lifecycle_id(task)
         lifecycle: dict[str, str] = {}
@@ -1819,7 +1819,6 @@ class GulpRedis:
                 return
 
         counters = self._task_admission_counters(task)
-        work_units = self._task_work_units(task)
         for counter_hash, counter_key, limit, scope in counters:
             raw_depth = await self._redis.hget(counter_hash, counter_key)
             if isinstance(raw_depth, bytes):
@@ -2168,7 +2167,7 @@ class GulpRedis:
             MutyLogger.get_instance().warning(
                 "not marking task succeeded because lifecycle is already terminal: task_type=%s req_id=%s status=%s",
                 task.get("task_type"),
-                req_id,
+                task.get("req_id"),
                 status,
             )
             self._record_task_transition(
@@ -2183,7 +2182,7 @@ class GulpRedis:
             MutyLogger.get_instance().warning(
                 "not marking task succeeded because execution lock is owned by another worker: task_type=%s req_id=%s",
                 task.get("task_type"),
-                req_id,
+                task.get("req_id"),
             )
             self._record_task_transition(
                 "succeed",
@@ -2831,7 +2830,7 @@ class GulpRedis:
                         ),
                         work_units=work_units,
                     )
-            await self._reserve_task_admission(task)
+            await self._reserve_task_admission(task, work_units)
             admission_reserved = True
             # add to stream under field 'data'
             await self._redis.xadd(stream_key, {"data": payload})

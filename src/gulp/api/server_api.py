@@ -14,18 +14,15 @@ import asyncio
 from contextlib import suppress
 import os
 import ssl
-import sys
 import time
-from typing import Any, Awaitable, Callable, Coroutine, Sequence
+from typing import Any, Awaitable, Callable, Sequence
 
-import asyncio_atexit
 import muty.file
 import muty.os
 import muty.string
 import muty.version
 import orjson
 import uvicorn
-import signal
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,7 +30,6 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from opensearchpy import RequestError
-from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab.stats import GulpRequestStats
@@ -612,7 +608,7 @@ class GulpServer:
             ],
             return_exceptions=True,
         )
-        for obj, res in zip((item for item, _ in task_coros), task_results):
+        for (obj, _), res in zip(task_coros, task_results):
             if isinstance(res, Exception) or res is False:
                 MutyLogger.get_instance().exception(
                     "error while awaiting %s task for task_type=%s req_id=%s: %s",
@@ -677,7 +673,7 @@ class GulpServer:
                             )
 
                     # block for first task (up to 5s) to avoid busy waiting
-                    first = await GulpRedis.get_instance().task_pop_blocking(timeout=5)
+                    first = await redis_inst.task_pop_blocking(timeout=5)
                     if first is None:
                         # timeout; avoid tight-looping if blocking returns without a task
                         await asyncio.sleep(0.1)
@@ -686,7 +682,7 @@ class GulpServer:
                     batch: list[dict] = [first]
 
                     # drain remaining up to limit-1 non-blocking
-                    rest = await GulpRedis.get_instance().task_dequeue_batch(limit - 1)
+                    rest = await redis_inst.task_dequeue_batch(limit - 1)
                     batch.extend(rest)
 
                     MutyLogger.get_instance().debug(
@@ -697,7 +693,7 @@ class GulpServer:
                     # completion before dequeuing the next batch to avoid unbounded
                     # in-flight growth under sustained load.
                     await self._dispatch_claimed_tasks(
-                        GulpRedis.get_instance(),
+                        redis_inst,
                         batch,
                         source="batch",
                     )
@@ -723,8 +719,6 @@ class GulpServer:
         Returns:
             bool: True if the task was spawned, False otherwise (e.g. a task with the same name already exists).
         """
-
-        import inspect
 
         # determine how to obtain the coroutine: either coro is a callable factory
         # (not yet created) or it is an already-created coroutine object.

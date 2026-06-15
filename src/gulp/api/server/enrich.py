@@ -35,7 +35,6 @@ from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpQueryFilter
 from gulp.api.opensearch.structs import GulpDocument, GulpQueryParameters
 from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.prometheus_api import record_api_request_rejection
 from gulp.api.redis_api import GulpRedis, TaskQueueFullError
 from gulp.api.replay import (
     document_has_update_request,
@@ -55,31 +54,6 @@ ENRICH_TASK_ACTION_UPDATE_DOCUMENTS = "update_documents"
 ENRICH_TASK_ACTION_TAG_DOCUMENTS = "tag_documents"
 ENRICH_TASK_ACTION_UNTAG_DOCUMENTS = "untag_documents"
 ENRICH_TASK_ACTION_ENRICH_REMOVE = "enrich_remove"
-
-
-def _task_queue_full_response(req_id: str, ex: TaskQueueFullError) -> JSONResponse:
-    """Build a structured response for enrich/update queue-pressure rejections."""
-    record_api_request_rejection(
-        endpoint="enrich",
-        reason="task_queue_full",
-        task_type=ex.task_type,
-        scope=ex.scope,
-    )
-    return JSONResponse(
-        JSendResponse.error(
-            req_id=req_id,
-            ex={
-                "error": "task_queue_full",
-                "task_type": ex.task_type,
-                "scope": ex.scope,
-                "queue_depth": ex.queue_depth,
-                "queue_limit": ex.queue_limit,
-                "work_units": ex.work_units,
-                "retry_after_msec": ex.retry_after_msec,
-            },
-        ),
-        status_code=503,
-    )
 
 
 async def _enqueue_enrich_task(
@@ -143,7 +117,7 @@ async def _enqueue_enrich_task(
         try:
             await GulpRedis.get_instance().task_enqueue(task_msg)
         except TaskQueueFullError as ex:
-            return _task_queue_full_response(req_id, ex)
+            return ServerUtils.task_queue_full_response("enrich", req_id, ex)
 
         return JSONResponse(JSendResponse.pending(req_id=req_id))
 

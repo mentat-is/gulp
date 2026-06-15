@@ -17,7 +17,6 @@ and preview mode for testing without persistence.
 """
 
 import os
-import asyncio
 from copy import deepcopy
 from typing import Annotated, Any, Optional
 
@@ -26,7 +25,6 @@ import muty.log
 import muty.pydantic
 import muty.string
 import orjson
-from contextlib import asynccontextmanager
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
@@ -44,10 +42,7 @@ from gulp.api.collab.user_session import GulpUserSession
 from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch.filters import GulpIngestionFilter
 from gulp.api.opensearch.structs import GulpDocument
-from gulp.api.opensearch_api import GulpOpenSearch
-from gulp.api.prometheus_api import record_api_request_rejection
 from gulp.api.redis_api import GulpRedis, TaskQueueFullError
-from gulp.api.s3_api import GulpS3
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import (
     TASK_TYPE_INGEST,
@@ -57,7 +52,6 @@ from gulp.api.server.structs import (
 from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
-from gulp.process import GulpProcess
 from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 
@@ -159,31 +153,6 @@ class GulpZipMetadataEntry(BaseModel):
     plugin_params: Annotated[
         Optional[GulpPluginParameters], Field(description="The plugin parameters.")
     ] = Field(default_factory=GulpPluginParameters)
-
-
-def _task_queue_full_response(req_id: str, ex: TaskQueueFullError) -> JSONResponse:
-    """Build a structured response for queue-pressure rejections."""
-    record_api_request_rejection(
-        endpoint="ingest",
-        reason="task_queue_full",
-        task_type=ex.task_type,
-        scope=ex.scope,
-    )
-    return JSONResponse(
-        JSendResponse.error(
-            req_id=req_id,
-            ex={
-                "error": "task_queue_full",
-                "task_type": ex.task_type,
-                "scope": ex.scope,
-                "queue_depth": ex.queue_depth,
-                "queue_limit": ex.queue_limit,
-                "work_units": ex.work_units,
-                "retry_after_msec": ex.retry_after_msec,
-            },
-        ),
-        status_code=503,
-    )
 
 
 router = APIRouter()
@@ -512,7 +481,7 @@ async def _preview_or_enqueue_ingest_task(
     try:
         await GulpRedis.get_instance().task_enqueue(task_msg)
     except TaskQueueFullError as ex:
-        return _task_queue_full_response(req_id, ex)
+        return ServerUtils.task_queue_full_response("ingest", req_id, ex)
 
     # return pending response
     return JSONResponse(JSendResponse.pending(req_id=req_id))
@@ -1401,7 +1370,7 @@ async def _ingest_zip_internal(
                 try:
                     await GulpRedis.get_instance().task_enqueue(task_msg)
                 except TaskQueueFullError as ex:
-                    return _task_queue_full_response(req_id, ex)
+                    return ServerUtils.task_queue_full_response("ingest", req_id, ex)
         finally:
             # delete the zip file
             await muty.file.delete_file_or_dir_async(path)

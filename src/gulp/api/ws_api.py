@@ -1,23 +1,15 @@
 import asyncio
-import os
-import queue
 import time
 import zlib
-import copy
 from enum import StrEnum
-from multiprocessing.managers import SyncManager
-from queue import Empty, Queue
-from threading import Lock
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Optional
 
-import hashlib
 import muty
 import muty.string
 import muty.time
 import orjson
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
-from gitdb.fun import chunk_size
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from pydantic import BaseModel, ConfigDict, Field
@@ -1455,28 +1447,15 @@ class GulpConnectedSockets:
         """
         store websocket ownership information locally to avoid extra Redis hits
 
-        - positive entries cache the owning `server_id` for `_ws_server_cache_ttl` seconds
-        - negative entries (server_id is None) are *also cached* for a short period to
-          avoid repeated Redis lookups for non-existent ws_ids
-
         Args:
             ws_id (str): websocket identifier
             server_id (Optional[str]): owning server id if known (None for not found)
         Returns:
             None
         """
-        if not ws_id:
+        if not ws_id or not server_id:
             return
 
-        # negative caching: avoid repeated Redis round-trips for missing ws_ids
-        if not server_id:
-            neg_ttl = min(30.0, max(1.0, self._ws_server_cache_ttl / 10.0))
-            expires_at: float = time.monotonic() + neg_ttl
-            # store explicit None as server id to indicate a negative cache entry
-            self._ws_server_cache[ws_id] = (None, expires_at)
-            return
-
-        # positive cache entry
         expires_at: float = time.monotonic() + self._ws_server_cache_ttl
         self._ws_server_cache[ws_id] = (server_id, expires_at)
 
@@ -1846,6 +1825,32 @@ class GulpRedisBroker:
         self._sequence_counters[key] = next_seq
         wsd.seq = next_seq
 
+    @staticmethod
+    def _record_pointer_resolve(outcome: str) -> None:
+        """Record one large-payload pointer resolution outcome."""
+        if not GulpConfig.get_instance().prometheus_enabled():
+            return
+        try:
+            GulpMetrics.ws_payload_pointer_resolve_total.labels(
+                outcome=outcome,
+            ).inc()
+        except Exception:
+            pass
+
+    @staticmethod
+    async def _redis_eval_with_retries(
+        redis_client: GulpRedis, script: str, *keys
+    ) -> Any:
+        """Run Redis EVAL with the existing short retry policy."""
+        for attempt in range(3):
+            try:
+                return await redis_client._redis.eval(script, len(keys), *keys)
+            except Exception:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(0.2 * (attempt + 1))
+        return None
+
     async def initialize(self) -> None:
         """
         Initialize Redis pub/sub subscriptions
@@ -1916,8 +1921,7 @@ class GulpRedisBroker:
                 # 1) we are the server that stored them (chunk_server_id == our server_id), OR
                 # 2) the message is explicitly targeted to a ws_id we own
                 #
-                # NOTE: for BROADCAST messages, all instances need the payload so we use
-                # GET instead of GET+DEL to allow multiple reads, relying on TTL for cleanup
+                # Broadcast/client-data fanout needs multi-reader GET; TTL cleans up.
                 should_retrieve = False
                 use_getdel = True  # whether to delete chunks after retrieval
 
@@ -1956,14 +1960,7 @@ class GulpRedisBroker:
 
                 if not should_retrieve:
                     # this node should not retrieve chunks - another node will handle it
-                    if GulpConfig.get_instance().prometheus_enabled():
-                        # track skipped pointer resolutions for non-owners
-                        try:
-                            GulpMetrics.ws_payload_pointer_resolve_total.labels(
-                                outcome="skipped_not_owner"
-                            ).inc()
-                        except Exception:
-                            pass
+                    self._record_pointer_resolve("skipped_not_owner")
                     MutyLogger.get_instance().debug(
                         "skipping chunk retrieval for ptr=%s (chunk_server_id=%s, our_server_id=%s, redis_channel=%s)",
                         ptr,
@@ -1982,7 +1979,7 @@ class GulpRedisBroker:
                         keys = [f"{ptr}:{i}" for i in range(int(chunks))]
 
                         if use_getdel:
-                            # Atomic GET+DEL for exclusive retrieval (non-broadcast messages)
+                            # Atomic GET+DEL for exclusive retrieval.
                             lua_multi = (
                                 "local n = #KEYS\n"
                                 "local vals = {}\n"
@@ -1991,7 +1988,7 @@ class GulpRedisBroker:
                                 "return table.concat(vals)\n"
                             )
                         else:
-                            # GET-only for broadcast messages (multiple instances need it, TTL handles cleanup)
+                            # Multi-reader GET; TTL handles cleanup.
                             lua_multi = (
                                 "local n = #KEYS\n"
                                 "local vals = {}\n"
@@ -1999,17 +1996,9 @@ class GulpRedisBroker:
                                 "return table.concat(vals)\n"
                             )
 
-                        stored = None
-                        for attempt in range(3):
-                            try:
-                                stored = await redis_client._redis.eval(
-                                    lua_multi, len(keys), *keys
-                                )
-                                break
-                            except Exception as ex:
-                                if attempt == 2:
-                                    raise ex
-                                await asyncio.sleep(0.2 * (attempt + 1))
+                        stored = await self._redis_eval_with_retries(
+                            redis_client, lua_multi, *keys
+                        )
 
                         if stored:
                             try:
@@ -2027,14 +2016,7 @@ class GulpRedisBroker:
                                 if data_bytes:
                                     full_msg = orjson.loads(data_bytes)
                                     message = full_msg
-                                    if GulpConfig.get_instance().prometheus_enabled():
-                                        # track successful pointer resolutions
-                                        try:
-                                            GulpMetrics.ws_payload_pointer_resolve_total.labels(
-                                                outcome="resolved"
-                                            ).inc()
-                                        except Exception:
-                                            pass
+                                    self._record_pointer_resolve("resolved")
                                 else:
                                     MutyLogger.get_instance().warning(
                                         "failed to decode stored chunks for base=%s",
@@ -2046,14 +2028,7 @@ class GulpRedisBroker:
                                     ptr,
                                 )
                         else:
-                            if GulpConfig.get_instance().prometheus_enabled():
-                                # track missing pointer data for chunked payloads
-                                try:
-                                    GulpMetrics.ws_payload_pointer_resolve_total.labels(
-                                        outcome="missing"
-                                    ).inc()
-                                except Exception:
-                                    pass
+                            self._record_pointer_resolve("missing")
                             MutyLogger.get_instance().warning(
                                 "large payload chunked pointer missing in Redis for base=%s",
                                 ptr,
@@ -2067,58 +2042,31 @@ class GulpRedisBroker:
                                 "if v then redis.call('DEL', KEYS[1]) end; return v"
                             )
                         else:
-                            # GET-only for broadcast
+                            # Multi-reader GET; TTL handles cleanup.
                             lua = "return redis.call('GET', KEYS[1])"
 
-                        stored = None
-                        for attempt in range(3):
-                            try:
-                                stored = await redis_client._redis.eval(lua, 1, ptr)
-                                break
-                            except Exception as ex:
-                                if attempt == 2:
-                                    raise ex
-                                await asyncio.sleep(0.2 * (attempt + 1))
+                        stored = await self._redis_eval_with_retries(
+                            redis_client, lua, ptr
+                        )
                         if stored:
                             try:
                                 full_msg = orjson.loads(stored)
                                 message = full_msg
-                                if GulpConfig.get_instance().prometheus_enabled():
-                                    try:
-                                        # track successful pointer resolutions for single-key pointers
-                                        GulpMetrics.ws_payload_pointer_resolve_total.labels(
-                                            outcome="resolved"
-                                        ).inc()
-                                    except Exception:
-                                        pass
+                                self._record_pointer_resolve("resolved")
                             except Exception:
                                 MutyLogger.get_instance().exception(
                                     "failed to decode stored large payload for key=%s",
                                     ptr,
                                 )
                         else:
-                            if GulpConfig.get_instance().prometheus_enabled():
-                                # track missing pointer data for single-key payloads
-                                try:
-                                    GulpMetrics.ws_payload_pointer_resolve_total.labels(
-                                        outcome="missing"
-                                    ).inc()
-                                except Exception:
-                                    pass
+                            self._record_pointer_resolve("missing")
                             MutyLogger.get_instance().warning(
                                 "large payload pointer missing in Redis for key=%s", ptr
                             )
                 except Exception:
-                    if GulpConfig.get_instance().prometheus_enabled():
-                        # track errors during pointer resolution (e.g. Redis issues) separately from missing data
-                        try:
-                            GulpMetrics.ws_payload_pointer_resolve_total.labels(
-                                outcome="error"
-                            ).inc()
-                        except Exception:
-                            pass
+                    self._record_pointer_resolve("error")
                     MutyLogger.get_instance().exception(
-                        "error fetching and deleting large payload pointer %s from Redis",
+                        "error resolving large payload pointer %s from Redis",
                         ptr,
                     )
         except Exception:
