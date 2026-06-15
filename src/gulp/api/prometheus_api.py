@@ -153,11 +153,6 @@ class GulpMetrics:
         ["task_type"],
         multiprocess_mode="livesum",
     )
-    redis_task_delayed_retries = Gauge(
-        "gulp_redis_task_delayed_retries",
-        "Number of retryable task messages waiting for backoff to expire",
-        multiprocess_mode="livesum",
-    )
     redis_task_active_reservations = Gauge(
         "gulp_redis_task_active_reservations",
         "Number of active task admission reservations by fairness scope",
@@ -182,12 +177,6 @@ class GulpMetrics:
         ["server_id", "task_type"],
         multiprocess_mode="livesum",
     )
-    redis_task_recovered_retries = Gauge(
-        "gulp_redis_task_recovered_retries",
-        "Number of retained succeeded task lifecycles that required at least one retry",
-        ["task_type"],
-        multiprocess_mode="livesum",
-    )
     redis_task_transition_total = Counter(
         "gulp_redis_task_transition_total",
         "Task queue lifecycle transitions and terminal outcomes",
@@ -195,7 +184,7 @@ class GulpMetrics:
     )
     redis_task_execution_duration_seconds = Histogram(
         "gulp_redis_task_execution_duration_seconds",
-        "Task execution duration from claim to retry, success, or dead-letter outcome",
+        "Task execution duration from claim to success or dead-letter outcome",
         ["task_type", "outcome"],
         buckets=(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, float("inf")),
     )
@@ -458,8 +447,6 @@ class GulpMetrics:
                 self.redis_task_oldest_pending_age_seconds.labels(
                     task_type=tt_str
                 ).set(0)
-                self.redis_task_recovered_retries.labels(task_type=tt_str).set(0)
-            recovered_retries = task_snapshot.get("recovered_retries", {})
             for tt_str, metrics in task_snapshot.get("task_types", {}).items():
                 queued = int(metrics.get("queued", 0))
                 pending = int(metrics.get("pending", 0))
@@ -483,13 +470,7 @@ class GulpMetrics:
                 self.redis_task_oldest_pending_age_seconds.labels(
                     task_type=tt_str
                 ).set(oldest_pending_age_seconds)
-                self.redis_task_recovered_retries.labels(task_type=tt_str).set(
-                    int(recovered_retries.get(tt_str, 0))
-                )
             self._known_task_metric_types = current_task_types
-            self.redis_task_delayed_retries.set(
-                int(task_snapshot.get("delayed_retries", 0))
-            )
             for scope, total in task_snapshot.get("active", {}).items():
                 self.redis_task_active_reservations.labels(scope=scope).set(int(total))
             current_running_labels: set[tuple[str, str]] = set()

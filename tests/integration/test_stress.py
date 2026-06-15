@@ -139,13 +139,6 @@ def _dead_letter_totals(snapshot: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def _recovered_retry_totals(snapshot: dict[str, Any]) -> dict[str, int]:
-    return {
-        str(task_type): int(total or 0)
-        for task_type, total in (snapshot.get("recovered_retries") or {}).items()
-    }
-
-
 def _task_metric_health_issues(
     before: dict[str, Any],
     after: dict[str, Any],
@@ -162,16 +155,6 @@ def _task_metric_health_issues(
                 f"dead letters grew for {task_type}: {before_count} -> {after_count}"
             )
 
-    before_recovered = _recovered_retry_totals(before)
-    after_recovered = _recovered_retry_totals(after)
-    for task_type in sorted(set(before_recovered) | set(after_recovered)):
-        before_count = before_recovered.get(task_type, 0)
-        after_count = after_recovered.get(task_type, 0)
-        if after_count > before_count:
-            issues.append(
-                f"recovered retries grew for {task_type}: {before_count} -> {after_count}"
-            )
-
     for task_type, metrics in (after.get("task_types") or {}).items():
         queued = int(metrics.get("queued", 0) or 0)
         pending = int(metrics.get("pending", 0) or 0)
@@ -179,10 +162,6 @@ def _task_metric_health_issues(
             issues.append(f"{task_type} still has queued={queued}")
         if pending:
             issues.append(f"{task_type} still has pending={pending}")
-
-    delayed_retries = int(after.get("delayed_retries", 0) or 0)
-    if delayed_retries:
-        issues.append(f"delayed retries still pending={delayed_retries}")
 
     for scope, total in (after.get("active") or {}).items():
         total_int = int(total or 0)
@@ -203,23 +182,10 @@ _STRESS_PROMETHEUS_METRICS = (
     "gulp_redis_task_stream_depth",
     "gulp_redis_task_stream_pending",
     "gulp_redis_task_dead_letter_depth",
-    "gulp_redis_task_delayed_retries",
-    "gulp_redis_task_recovered_retries",
     "gulp_redis_task_transition_total",
     "gulp_redis_task_execution_duration_seconds",
     "gulp_opensearch_bulk_docs_total",
 )
-
-
-@pytest.mark.unit
-def test_task_metric_health_issues_flags_recovered_retries() -> None:
-    before = {"task_types": {}, "recovered_retries": {"query": 1}}
-    after = {"task_types": {}, "recovered_retries": {"query": 2, "ingest": 1}}
-
-    assert _task_metric_health_issues(before, after) == [
-        "recovered retries grew for ingest: 0 -> 1",
-        "recovered retries grew for query: 1 -> 2",
-    ]
 
 
 async def _assert_task_metrics_healthy_after_stress(

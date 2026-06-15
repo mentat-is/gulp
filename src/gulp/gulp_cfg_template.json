@@ -126,22 +126,14 @@
   "redis_task_autoclaim_idle_ms": 60000,
   // interval in milliseconds used by dispatchers to refresh leases for live pending tasks (default=20000ms = 20s)
   "redis_task_lease_refresh_interval_ms": 20000,
-  // optional timeout in seconds for one queued task execution attempt (default=0, disabled). When set, timed-out tasks use the normal retry/dead-letter path.
+  // optional timeout in seconds for one queued task execution attempt (default=0, disabled). When set, timed-out tasks are dead-lettered.
   "redis_task_execution_timeout_sec": 0,
-  // maximum execution attempts before a valid failed task is moved to dead-letter (default=3)
-  "redis_task_max_attempts": 3,
-  // initial exponential retry backoff for failed Redis stream tasks in milliseconds (default=1000ms, 0=immediate retry)
-  "redis_task_retry_backoff_base_ms": 1000,
-  // maximum exponential retry backoff for failed Redis stream tasks in milliseconds (default=60000ms)
-  "redis_task_retry_backoff_max_ms": 60000,
   // retention for Redis task lifecycle records used for duplicate suppression (default=86400s = 1 day)
   "redis_task_lifecycle_ttl_sec": 86400,
-  // maximum admitted queued/running/retrying Redis stream tasks per user (0=disabled, default=0)
+  // maximum admitted queued/running Redis stream tasks per user (0=disabled, default=0)
   "redis_task_active_user_max": 0,
-  // maximum admitted queued/running/retrying Redis stream tasks per operation (0=disabled, default=0)
+  // maximum admitted queued/running Redis stream tasks per operation (0=disabled, default=0)
   "redis_task_active_operation_max": 0,
-  // observation window in seconds for adaptive queue retry-after hints based on recent terminal task drain rate (default=60)
-  "redis_task_drain_sample_window_sec": 60,
   // hard maximum queued task backlog per task type before API admission rejects new work (default=10000)
   "redis_stream_task_maxlen": 10000,
   // max login attempts per IP address during login_ip_rate_limit_window_sec (0=disabled, default=0)

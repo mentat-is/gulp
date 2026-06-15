@@ -1273,30 +1273,6 @@ class GulpConfig:
         """
         return self._config.get("redis_task_execution_timeout_sec", 0)
 
-    def redis_task_max_attempts(self) -> int:
-        """
-        Returns the maximum execution attempts before a task is dead-lettered.
-
-        Default: 3
-        """
-        return self._config.get("redis_task_max_attempts", 3)
-
-    def redis_task_retry_backoff_base_ms(self) -> int:
-        """
-        Returns the initial retry backoff for failed Redis stream tasks.
-
-        Default: 1000 (1 second). Set to 0 to retry immediately.
-        """
-        return self._config.get("redis_task_retry_backoff_base_ms", 1000)
-
-    def redis_task_retry_backoff_max_ms(self) -> int:
-        """
-        Returns the maximum retry backoff for failed Redis stream tasks.
-
-        Default: 60000 (60 seconds)
-        """
-        return self._config.get("redis_task_retry_backoff_max_ms", 60000)
-
     def redis_task_lifecycle_ttl_sec(self) -> int:
         """
         Returns retention for Redis task lifecycle records.
@@ -1320,14 +1296,6 @@ class GulpConfig:
         Default: 0 (disabled)
         """
         return self._config.get("redis_task_active_operation_max", 0)
-
-    def redis_task_drain_sample_window_sec(self) -> int:
-        """
-        Returns the observation window for adaptive task retry-after hints.
-
-        Default: 60 seconds
-        """
-        return self._config.get("redis_task_drain_sample_window_sec", 60)
 
     def redis_stream_task_maxlen(self) -> int:
         """

@@ -87,17 +87,10 @@ def test_production_runbook_profiles_scale_capacity_monotonically():
     for profile in (small, medium, high):
         assert profile["ws_enqueue_timeout"] > 0
         assert profile["redis_stream_task_maxlen"] > 0
-        if "redis_task_max_attempts" in profile:
-            assert profile["redis_task_max_attempts"] >= 2
         if "redis_task_lease_refresh_interval_ms" in profile:
             assert (
                 profile["redis_task_lease_refresh_interval_ms"]
                 < profile["redis_task_autoclaim_idle_ms"]
-            )
-        if "redis_task_retry_backoff_base_ms" in profile:
-            assert (
-                profile["redis_task_retry_backoff_base_ms"]
-                <= profile["redis_task_retry_backoff_max_ms"]
             )
 
 

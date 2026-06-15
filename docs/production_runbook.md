@@ -66,8 +66,6 @@ Primary metrics:
 - `gulp_redis_task_oldest_pending_age_seconds{task_type}`
 - `gulp_redis_task_running{server_id,task_type}`
 - `gulp_redis_task_dead_letter_depth{task_type}`
-- `gulp_redis_task_delayed_retries`
-- `gulp_redis_task_recovered_retries{task_type}`
 - `gulp_redis_task_active_reservations{scope}`
 - `gulp_redis_task_transition_total{action,task_type,outcome}`
 - `gulp_redis_task_execution_duration_seconds{task_type,outcome}`
@@ -84,8 +82,6 @@ curl -G http://localhost:9090/api/v1/query \
   --data-urlencode 'query=rate(gulp_api_request_rejected_total[5m])'
 curl -G http://localhost:9090/api/v1/query \
   --data-urlencode 'query=gulp_redis_task_dead_letter_depth'
-curl -G http://localhost:9090/api/v1/query \
-  --data-urlencode 'query=gulp_redis_task_recovered_retries'
 ~~~
 
 Triage rules:
@@ -278,7 +274,6 @@ PostgreSQL, and OpenSearch:
   "redis_task_active_operation_max": 100,
   "redis_task_autoclaim_idle_ms": 60000,
   "redis_task_lease_refresh_interval_ms": 20000,
-  "redis_task_max_attempts": 3,
   "ws_queue_max_size": 8192,
   "ws_enqueue_timeout": 5.0,
   "prometheus_enabled": true
@@ -310,8 +305,6 @@ Use this only with measured backend capacity and active alerting:
   "redis_task_active_operation_max": 250,
   "redis_task_autoclaim_idle_ms": 120000,
   "redis_task_lease_refresh_interval_ms": 30000,
-  "redis_task_retry_backoff_base_ms": 1000,
-  "redis_task_retry_backoff_max_ms": 60000,
   "redis_task_lifecycle_ttl_sec": 86400,
   "ws_queue_max_size": 16384,
   "ws_enqueue_timeout": 10.0,

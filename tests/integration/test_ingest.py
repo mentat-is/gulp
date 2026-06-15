@@ -182,10 +182,8 @@ async def test_reclaimed_ingest_task_uses_live_duplicate_protected_writes(
     task_types_key = f"gulp:test:queue:types:{suffix}"
     stream_prefix = f"gulp:test:stream:tasks:{suffix}"
     dead_stream_prefix = f"gulp:test:stream:tasks:dead:{suffix}"
-    delayed_retry_key = f"gulp:test:stream:tasks:retry_delayed:{suffix}"
     lifecycle_prefix = f"gulp:test:task:lifecycle:{suffix}"
     lock_prefix = f"gulp:test:task:execution_lock:{suffix}"
-    drain_sample_prefix = f"gulp:test:task:drain:{suffix}"
     consumer_group = f"gulp:test:stream:group:tasks:{suffix}"
     stream_key = f"{stream_prefix}:{TASK_TYPE_INGEST}"
     req_id = f"req-reclaimed-ingest-live-{suffix}"
@@ -202,15 +200,10 @@ async def test_reclaimed_ingest_task_uses_live_duplicate_protected_writes(
     monkeypatch.setattr(GulpRedis, "TASK_TYPES_SET", task_types_key)
     monkeypatch.setattr(GulpRedis, "STREAM_TASK_PREFIX", stream_prefix)
     monkeypatch.setattr(GulpRedis, "STREAM_TASK_DLQ_PREFIX", dead_stream_prefix)
-    monkeypatch.setattr(GulpRedis, "TASK_RETRY_DELAYED_ZSET", delayed_retry_key)
     monkeypatch.setattr(GulpRedis, "TASK_LIFECYCLE_PREFIX", lifecycle_prefix)
     monkeypatch.setattr(GulpRedis, "TASK_EXECUTION_LOCK_PREFIX", lock_prefix)
-    monkeypatch.setattr(GulpRedis, "TASK_DRAIN_SAMPLE_PREFIX", drain_sample_prefix)
     monkeypatch.setattr(GulpRedis, "STREAM_CONSUMER_GROUP", consumer_group)
     monkeypatch.setattr(GulpRedis, "STREAM_TASK_MAXLEN", 10)
-    monkeypatch.setattr(GulpRedis, "TASK_MAX_ATTEMPTS", 2)
-    monkeypatch.setattr(GulpRedis, "TASK_RETRY_BACKOFF_BASE_MS", 50)
-    monkeypatch.setattr(GulpRedis, "TASK_RETRY_BACKOFF_MAX_MS", 50)
     monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_USER_MAX", 0)
     monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_OPERATION_MAX", 0)
     monkeypatch.setattr(GulpRedis, "TASK_LEASE_REFRESH_INTERVAL_MS", 1)
@@ -324,7 +317,6 @@ async def test_reclaimed_ingest_task_uses_live_duplicate_protected_writes(
                     task_types_key,
                     stream_key,
                     f"{dead_stream_prefix}:{TASK_TYPE_INGEST}",
-                    delayed_retry_key,
                     GulpRedis.TASK_ACTIVE_USER_HASH,
                     GulpRedis.TASK_ACTIVE_OPERATION_HASH,
                     side_effect_lock_key,
@@ -333,7 +325,6 @@ async def test_reclaimed_ingest_task_uses_live_duplicate_protected_writes(
                     keys_to_delete.append(key)
                 async for key in raw_redis.scan_iter(match=f"{lock_prefix}:*"):
                     keys_to_delete.append(key)
-                async for key in raw_redis.scan_iter(match=f"{drain_sample_prefix}:*"):
                     keys_to_delete.append(key)
                 await raw_redis.delete(*keys_to_delete)
                 await redis_client.shutdown()

@@ -618,7 +618,7 @@ class GulpServer:
                     res,
                 )
                 reason = repr(res)
-                failure_state = await redis_inst.task_fail_retry_or_dead_letter(
+                failure_state = await redis_inst.task_fail_dead_letter(
                     obj,
                     reason,
                 )
@@ -651,7 +651,6 @@ class GulpServer:
                 try:
                     # periodically reclaim stale messages from dead consumers
                     redis_inst = GulpRedis.get_instance()
-                    await redis_inst.task_promote_due_retries(limit=limit)
                     now = time.monotonic()
                     if now - redis_inst._last_autoclaim_time >= 30.0:
                         redis_inst._last_autoclaim_time = now

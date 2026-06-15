@@ -41,11 +41,9 @@ async def isolated_task_redis(
     task_types_key = f"gulp:test:queue:types:{suffix}"
     stream_prefix = f"gulp:test:stream:tasks:{suffix}"
     dead_stream_prefix = f"gulp:test:stream:tasks:dead:{suffix}"
-    delayed_retry_key = f"gulp:test:stream:tasks:retry_delayed:{suffix}"
     lifecycle_prefix = f"gulp:test:task:lifecycle:{suffix}"
     lock_prefix = f"gulp:test:task:execution_lock:{suffix}"
     side_effect_lock_prefix = f"gulp:test:task:side_effect_lock:{suffix}"
-    drain_sample_prefix = f"gulp:test:task:drain:{suffix}"
     consumer_group = f"gulp:test:stream:group:tasks:{suffix}"
     stream_key = f"{stream_prefix}:{task_type}"
     dead_stream_key = f"{dead_stream_prefix}:{task_type}"
@@ -70,16 +68,11 @@ async def isolated_task_redis(
     monkeypatch.setattr(GulpRedis, "TASK_TYPES_SET", task_types_key)
     monkeypatch.setattr(GulpRedis, "STREAM_TASK_PREFIX", stream_prefix)
     monkeypatch.setattr(GulpRedis, "STREAM_TASK_DLQ_PREFIX", dead_stream_prefix)
-    monkeypatch.setattr(GulpRedis, "TASK_RETRY_DELAYED_ZSET", delayed_retry_key)
     monkeypatch.setattr(GulpRedis, "TASK_LIFECYCLE_PREFIX", lifecycle_prefix)
     monkeypatch.setattr(GulpRedis, "TASK_EXECUTION_LOCK_PREFIX", lock_prefix)
     monkeypatch.setattr(GulpRedis, "TASK_SIDE_EFFECT_LOCK_PREFIX", side_effect_lock_prefix)
-    monkeypatch.setattr(GulpRedis, "TASK_DRAIN_SAMPLE_PREFIX", drain_sample_prefix)
     monkeypatch.setattr(GulpRedis, "STREAM_CONSUMER_GROUP", consumer_group)
     monkeypatch.setattr(GulpRedis, "STREAM_TASK_MAXLEN", 10)
-    monkeypatch.setattr(GulpRedis, "TASK_MAX_ATTEMPTS", 2)
-    monkeypatch.setattr(GulpRedis, "TASK_RETRY_BACKOFF_BASE_MS", 50)
-    monkeypatch.setattr(GulpRedis, "TASK_RETRY_BACKOFF_MAX_MS", 50)
     monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_USER_MAX", 0)
     monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_OPERATION_MAX", 0)
     redis_client._instance_roles = []
@@ -89,7 +82,6 @@ async def isolated_task_redis(
     finally:
         keys_to_delete = [
             task_types_key,
-            delayed_retry_key,
             GulpRedis.TASK_ACTIVE_USER_HASH,
             GulpRedis.TASK_ACTIVE_OPERATION_HASH,
         ]
@@ -102,8 +94,6 @@ async def isolated_task_redis(
         async for key in raw_redis.scan_iter(match=f"{lock_prefix}:*"):
             keys_to_delete.append(key)
         async for key in raw_redis.scan_iter(match=f"{side_effect_lock_prefix}:*"):
-            keys_to_delete.append(key)
-        async for key in raw_redis.scan_iter(match=f"{drain_sample_prefix}:*"):
             keys_to_delete.append(key)
         await raw_redis.delete(*keys_to_delete)
         await redis_client.shutdown()
@@ -186,20 +176,15 @@ async def test_ip_rate_limit_rejects_same_ip_with_real_redis(
 
 
 @pytest.mark.integration
-async def test_task_queue_full_retry_hint_uses_real_redis_drain_samples(
+async def test_task_queue_full_retry_hint_is_fixed(
     isolated_task_redis: tuple[GulpRedis, str, str],
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Queue-full retry hints should reflect recent terminal drain rate."""
+    """Queue-full retry hints should not require Redis-side drain tracking."""
     redis_client, task_type, _ = isolated_task_redis
     raw_redis = redis_client.client()
     stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
     monkeypatch.setattr(GulpRedis, "STREAM_TASK_MAXLEN", 2)
-    monkeypatch.setattr(GulpRedis, "TASK_DRAIN_SAMPLE_WINDOW_SEC", 60)
-    monkeypatch.setattr(GulpRedis, "TASK_RETRY_BACKOFF_MAX_MS", 120000)
-
-    await redis_client._record_task_drain_sample(task_type)
-    await redis_client._record_task_drain_sample(task_type)
 
     for idx in range(2):
         await redis_client.task_enqueue(
@@ -236,14 +221,14 @@ async def test_task_queue_full_retry_hint_uses_real_redis_drain_samples(
     assert exc_info.value.queue_depth == 2
     assert exc_info.value.queue_limit == 2
     assert exc_info.value.work_units == 1
-    assert exc_info.value.retry_after_msec == 30000
+    assert exc_info.value.retry_after_msec == 1000
 
 
 @pytest.mark.integration
-async def test_task_queue_retries_then_dead_letters_with_real_redis(
+async def test_task_queue_failure_dead_letters_with_real_redis(
     isolated_task_redis: tuple[GulpRedis, str, str],
 ):
-    """A failed valid task is retried once, then moved to the dead-letter stream."""
+    """A failed valid task is moved directly to the dead-letter stream."""
     redis_client, task_type, dead_stream_key = isolated_task_redis
     raw_redis = redis_client.client()
     stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
@@ -284,36 +269,9 @@ async def test_task_queue_retries_then_dead_letters_with_real_redis(
     running_snapshot = await redis_client.task_metrics_snapshot()
     print("task queue running metrics snapshot:", running_snapshot)
     assert running_snapshot["running"][redis_client.server_id][task_type] == 1
-    assert await redis_client.task_fail_retry_or_dead_letter(
+    assert await redis_client.task_fail_dead_letter(
         first_batch[0],
         "integration failure",
-    ) == "retry"
-    retry_snapshot = await redis_client.task_metrics_snapshot()
-    print("task queue retry metrics snapshot:", retry_snapshot)
-    assert retry_snapshot["delayed_retries"] == 1
-    assert await raw_redis.xlen(stream_key) == 0
-    assert await redis_client.task_dequeue_batch(1) == []
-    await asyncio.sleep(0.06)
-    assert await redis_client.task_promote_due_retries() == 1
-
-    second_batch = await redis_client.task_dequeue_batch(1)
-
-    print(
-        "task queue retry dequeue:",
-        {
-            "stream_key": stream_key,
-            "batch": second_batch,
-            "stream_len": await raw_redis.xlen(stream_key),
-        },
-    )
-    assert len(second_batch) == 1
-    assert second_batch[0]["req_id"] == task["req_id"]
-    assert second_batch[0]["__task_attempts__"] == 1
-    assert second_batch[0]["__task_last_error__"] == "integration failure"
-    assert await redis_client.task_claim_execution(second_batch[0]) == "claimed"
-    assert await redis_client.task_fail_retry_or_dead_letter(
-        second_batch[0],
-        "integration failure again",
     ) == "dead_letter"
 
     dead_entries = await raw_redis.xrange(dead_stream_key)
@@ -332,13 +290,13 @@ async def test_task_queue_retries_then_dead_letters_with_real_redis(
     dead_snapshot = await redis_client.task_metrics_snapshot()
     print("task queue dead-letter metrics snapshot:", dead_snapshot)
     assert dead_snapshot["task_types"][task_type]["dead_lettered"] == 1
-    assert dead_snapshot["delayed_retries"] == 0
 
     dead_payload = orjson.loads(dead_entries[0][1][b"data"])
-    assert dead_payload["reason"].startswith("task failed after 2 attempt(s)")
+    assert dead_payload["reason"] == "task failed: integration failure"
     assert dead_payload["stream_name"] == stream_key
     assert dead_payload["task"]["req_id"] == task["req_id"]
-    assert dead_payload["task"]["__task_attempts__"] == 2
+    assert dead_payload["task"]["__task_last_error__"] == "integration failure"
+    assert "__task_attempts__" not in dead_payload["task"]
 
 
 @pytest.mark.integration
@@ -1055,14 +1013,14 @@ async def test_reclaimed_dispatcher_uses_real_task_handler_entrypoint_once(
         ),
     ],
 )
-async def test_enrich_mutation_worker_failure_retries_then_dead_letters(
+async def test_enrich_mutation_worker_failure_dead_letters(
     isolated_task_redis: tuple[GulpRedis, str, str],
     monkeypatch: pytest.MonkeyPatch,
     action: str,
     params: dict,
     expected_worker: str,
 ):
-    """Redis dispatch retries failed bulk enrich mutation workers, then dead-letters."""
+    """Redis dispatch dead-letters failed bulk enrich mutation workers."""
     from gulp.api.server import enrich as enrich_mod
     from gulp.api.server_api import GulpServer
 
@@ -1119,28 +1077,18 @@ async def test_enrich_mutation_worker_failure_retries_then_dead_letters(
         assert len(first_batch) == 1
         await server._dispatch_claimed_tasks(redis_client, first_batch, source="queued")
 
-        retry_snapshot = await redis_client.task_metrics_snapshot()
+        failure_snapshot = await redis_client.task_metrics_snapshot()
         print(
-            "enrich worker failure retry state:",
+            "enrich worker failure dead-letter state:",
             {
                 "action": action,
                 "worker_calls": worker_calls,
-                "retry_snapshot": retry_snapshot,
+                "failure_snapshot": failure_snapshot,
                 "stream_len": await raw_redis.xlen(stream_key),
             },
         )
         assert len(worker_calls) == 1
-        assert retry_snapshot["delayed_retries"] == 1
-        assert await raw_redis.xlen(stream_key) == 0
-
-        await asyncio.sleep(0.06)
-        assert await redis_client.task_promote_due_retries() == 1
-        second_batch = await redis_client.task_dequeue_batch(1)
-        assert len(second_batch) == 1
-        assert second_batch[0]["req_id"] == req_id
-        assert second_batch[0]["__task_attempts__"] == 1
-
-        await server._dispatch_claimed_tasks(redis_client, second_batch, source="retry")
+        assert failure_snapshot["task_types"][TASK_TYPE_ENRICH]["dead_lettered"] == 1
 
         lifecycle = await raw_redis.hgetall(
             f"{GulpRedis.TASK_LIFECYCLE_PREFIX}:{req_id}"
@@ -1163,17 +1111,17 @@ async def test_enrich_mutation_worker_failure_retries_then_dead_letters(
                 "stream_len": await raw_redis.xlen(stream_key),
             },
         )
-        assert len(worker_calls) == 2
+        assert len(worker_calls) == 1
         expected_error = f"RuntimeError('simulated {action} worker future failure')"
         assert decoded["status"] == "dead_lettered"
         assert decoded["last_error"] == expected_error
         assert await raw_redis.xlen(stream_key) == 0
         assert len(dead_entries) == 1
         dead_payload = orjson.loads(dead_entries[0][1][b"data"])
-        assert dead_payload["reason"].startswith("task failed after 2 attempt(s):")
+        assert dead_payload["reason"].startswith("task failed:")
         assert expected_error in dead_payload["reason"]
         assert dead_payload["task"]["req_id"] == req_id
-        assert dead_payload["task"]["__task_attempts__"] == 2
+        assert "__task_attempts__" not in dead_payload["task"]
     finally:
         await raw_redis.delete(stream_key, dead_stream_key)
         GulpServer._instance = None

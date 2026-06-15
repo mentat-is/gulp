@@ -39,15 +39,6 @@ groups:
           summary: "gULP task dead-letter stream is non-empty"
           description: "At least one {{ $labels.task_type }} task has reached the dead-letter stream."
 
-      - alert: GulpTaskRecoveredRetriesPresent
-        expr: max by (task_type) (gulp_redis_task_recovered_retries) > 0
-        for: 15m
-        labels:
-          severity: warning
-        annotations:
-          summary: "gULP tasks are recovering only after retry"
-          description: "At least one retained {{ $labels.task_type }} task lifecycle succeeded after a retry; inspect worker logs and task lifecycle metadata."
-
       - alert: GulpApiRequestRejected
         expr: sum by (endpoint, reason, task_type, scope) (rate(gulp_api_request_rejected_total[5m])) > 0
         for: 10m

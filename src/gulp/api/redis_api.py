@@ -113,8 +113,6 @@ class GulpRedis:
     STREAM_TASK_PREFIX = "gulp:stream:tasks"
     # redis stream prefix used to retain failed or malformed tasks for inspection
     STREAM_TASK_DLQ_PREFIX = "gulp:stream:tasks:dead"
-    # redis sorted set used to hold failed tasks until their retry backoff expires
-    TASK_RETRY_DELAYED_ZSET = "gulp:stream:tasks:retry_delayed"
     # redis hash/lock prefixes used to track task execution lifecycle.
     # By default lifecycle keys use req_id. Multi-task request producers may set
     # __task_id__ to keep duplicate suppression scoped to one queued stream entry.
@@ -123,7 +121,6 @@ class GulpRedis:
     TASK_SIDE_EFFECT_LOCK_PREFIX = "gulp:task:side_effect_lock"
     TASK_ACTIVE_USER_HASH = "gulp:task:active:user"
     TASK_ACTIVE_OPERATION_HASH = "gulp:task:active:operation"
-    TASK_DRAIN_SAMPLE_PREFIX = "gulp:task:drain"
     IP_RATE_LIMIT_PREFIX = "gulp:rate:ip"
     TASK_TERMINAL_STATUSES = {"succeeded", "dead_lettered", "canceled"}
     # consumer group name for task streams
@@ -141,16 +138,10 @@ class GulpRedis:
     TASK_AUTOCLAIM_IDLE_MS: int = 60_000  # 60 seconds
     # interval (ms) used by dispatchers to refresh live task stream leases
     TASK_LEASE_REFRESH_INTERVAL_MS: int = 20_000
-    # maximum attempts for valid tasks before terminal dead-lettering
-    TASK_MAX_ATTEMPTS: int = 3
-    # exponential retry backoff bounds for valid failed tasks
-    TASK_RETRY_BACKOFF_BASE_MS: int = 1_000
-    TASK_RETRY_BACKOFF_MAX_MS: int = 60_000
     # retention for terminal task lifecycle records
     TASK_LIFECYCLE_TTL_SEC: int = 86_400
     TASK_ACTIVE_USER_MAX: int = 0
     TASK_ACTIVE_OPERATION_MAX: int = 0
-    TASK_DRAIN_SAMPLE_WINDOW_SEC: int = 60
     # hard cap for queued task backlog before admission control rejects new work
     STREAM_TASK_MAXLEN: int = 10_000
     # heartbeat key prefix and TTL for node liveness detection
@@ -257,15 +248,9 @@ class GulpRedis:
         GulpRedis.TASK_LEASE_REFRESH_INTERVAL_MS = (
             cfg.redis_task_lease_refresh_interval_ms()
         )
-        GulpRedis.TASK_MAX_ATTEMPTS = cfg.redis_task_max_attempts()
-        GulpRedis.TASK_RETRY_BACKOFF_BASE_MS = cfg.redis_task_retry_backoff_base_ms()
-        GulpRedis.TASK_RETRY_BACKOFF_MAX_MS = cfg.redis_task_retry_backoff_max_ms()
         GulpRedis.TASK_LIFECYCLE_TTL_SEC = cfg.redis_task_lifecycle_ttl_sec()
         GulpRedis.TASK_ACTIVE_USER_MAX = cfg.redis_task_active_user_max()
         GulpRedis.TASK_ACTIVE_OPERATION_MAX = cfg.redis_task_active_operation_max()
-        GulpRedis.TASK_DRAIN_SAMPLE_WINDOW_SEC = (
-            cfg.redis_task_drain_sample_window_sec()
-        )
         GulpRedis.STREAM_TASK_MAXLEN = cfg.redis_stream_task_maxlen()
         GulpRedis.HEARTBEAT_TTL = cfg.redis_heartbeat_ttl()
         GulpRedis.HEARTBEAT_INTERVAL = cfg.redis_heartbeat_interval()
@@ -1292,13 +1277,11 @@ class GulpRedis:
         """Return task queue metrics for Prometheus collection and diagnostics."""
         snapshot: dict[str, Any] = {
             "task_types": {},
-            "delayed_retries": 0,
             "active": {
                 "user": 0,
                 "operation": 0,
             },
             "running": {},
-            "recovered_retries": {},
         }
         now_msec = int(time.time() * 1000)
 
@@ -1370,15 +1353,6 @@ class GulpRedis:
                 )
             snapshot["task_types"][task_type] = metrics
 
-        try:
-            snapshot["delayed_retries"] = int(
-                await self._redis.zcard(GulpRedis.TASK_RETRY_DELAYED_ZSET)
-            )
-        except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to collect delayed retry task depth"
-            )
-
         for scope, counter_hash in (
             ("user", GulpRedis.TASK_ACTIVE_USER_HASH),
             ("operation", GulpRedis.TASK_ACTIVE_OPERATION_HASH),
@@ -1406,13 +1380,6 @@ class GulpRedis:
                 )
                 status = lifecycle.get("status")
                 task_type = lifecycle.get("task_type") or "unknown"
-                if (
-                    status == "succeeded"
-                    and self._positive_int(lifecycle.get("attempts")) > 0
-                ):
-                    recovered = snapshot["recovered_retries"]
-                    recovered[task_type] = recovered.get(task_type, 0) + 1
-                    continue
                 if status != "running":
                     continue
                 server_id = lifecycle.get("server_id") or "unknown"
@@ -1481,79 +1448,12 @@ class GulpRedis:
     @staticmethod
     def _task_active_status(status: str | None) -> bool:
         """Return whether a lifecycle status should count against active limits."""
-        return status in {"queued", "running", "retrying"}
+        return status in {"queued", "running"}
 
     @staticmethod
     def _task_admission_retry_after_msec() -> int:
         """Return retry hint for temporary queue admission rejections."""
-        return max(1000, GulpRedis.TASK_RETRY_BACKOFF_BASE_MS)
-
-    @staticmethod
-    def _task_drain_sample_key(task_type: str | None) -> str:
-        """Return the Redis sorted-set key holding recent drain samples."""
-        return f"{GulpRedis.TASK_DRAIN_SAMPLE_PREFIX}:{task_type or 'unknown'}"
-
-    async def _record_task_drain_sample(
-        self,
-        task_type: str | None,
-        finished_at_msec: int | None = None,
-    ) -> None:
-        """Record one terminal task drain sample for retry-after estimation."""
-        if not task_type:
-            task_type = "unknown"
-        if finished_at_msec is None:
-            finished_at_msec = int(time.time() * 1000)
-
-        window_msec = max(1, GulpRedis.TASK_DRAIN_SAMPLE_WINDOW_SEC) * 1000
-        key = self._task_drain_sample_key(str(task_type))
-        try:
-            await self._redis.zadd(
-                key,
-                {
-                    f"{self.server_id}:{finished_at_msec}:{muty.string.generate_unique()}": finished_at_msec
-                },
-            )
-            await self._redis.zremrangebyscore(key, 0, finished_at_msec - window_msec)
-            await self._redis.expire(
-                key,
-                max(1, GulpRedis.TASK_DRAIN_SAMPLE_WINDOW_SEC * 2),
-            )
-        except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to record task drain sample task_type=%s", task_type
-            )
-
-    async def _task_adaptive_retry_after_msec(
-        self,
-        task_type: str,
-        queue_depth: int,
-        queue_limit: int,
-    ) -> int:
-        """Estimate retry-after from recent task drain rate, falling back safely."""
-        fallback = self._task_admission_retry_after_msec()
-        window_sec = max(1, GulpRedis.TASK_DRAIN_SAMPLE_WINDOW_SEC)
-        now_msec = int(time.time() * 1000)
-        try:
-            drained = int(
-                await self._redis.zcount(
-                    self._task_drain_sample_key(task_type),
-                    now_msec - (window_sec * 1000),
-                    now_msec,
-                )
-            )
-        except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to estimate task drain rate task_type=%s", task_type
-            )
-            return fallback
-
-        if drained <= 0:
-            return fallback
-
-        entries_to_drain = max(1, int(queue_depth) - int(queue_limit) + 1)
-        estimated_msec = math.ceil((entries_to_drain * window_sec * 1000) / drained)
-        max_retry_msec = max(fallback, GulpRedis.TASK_RETRY_BACKOFF_MAX_MS)
-        return max(1000, min(max_retry_msec, estimated_msec))
+        return 1000
 
     @staticmethod
     def _task_type_from_stream(stream_name: str | bytes | None) -> str:
@@ -1594,7 +1494,7 @@ class GulpRedis:
         outcome: str,
         finished_at_msec: int | None = None,
     ) -> None:
-        """Observe task execution duration from claim to terminal/retry outcome."""
+        """Observe task execution duration from claim to terminal outcome."""
         try:
             if not GulpConfig.get_instance().prometheus_enabled():
                 return
@@ -1830,11 +1730,7 @@ class GulpRedis:
                     depth,
                     limit,
                     scope=scope,
-                    retry_after_msec=await self._task_adaptive_retry_after_msec(
-                        str(task.get("task_type") or "unknown"),
-                        depth + work_units - 1,
-                        limit,
-                    ),
+                    retry_after_msec=self._task_admission_retry_after_msec(),
                     work_units=work_units,
                 )
 
@@ -1950,13 +1846,18 @@ class GulpRedis:
 
     async def _task_execution_lock_matches(self, task: dict) -> bool:
         """Return whether the current execution lock belongs to this task."""
+        current = await self._task_execution_lock_owner(task)
+        return current == self._task_lock_value(task)
+
+    async def _task_execution_lock_owner(self, task: dict) -> str | None:
+        """Return the current execution lock owner for this task."""
         task_id = self._task_lifecycle_id(task)
         if not task_id:
-            return True
+            return self._task_lock_value(task)
         current = await self._redis.get(self._task_execution_lock_key(task_id))
         if isinstance(current, bytes):
             current = current.decode()
-        return current == self._task_lock_value(task)
+        return current
 
     async def _task_side_effect_lock_matches(self, task: dict) -> bool:
         """Return whether the current side-effect lease belongs to this task."""
@@ -1990,7 +1891,6 @@ class GulpRedis:
             "server_id": self.server_id,
             "stream": task.get("__redis_stream__", ""),
             "message_id": task.get("__redis_message_id__", ""),
-            "attempts": int(task.get("__task_attempts__", 0)),
         }
         if extra:
             mapping.update(extra)
@@ -2178,7 +2078,9 @@ class GulpRedis:
             await self._task_release_execution_lock(task)
             await self._task_release_side_effect_lock(task)
             return
-        if not await self._task_execution_lock_matches(task):
+        lock_owner = await self._task_execution_lock_owner(task)
+        lock_value = self._task_lock_value(task)
+        if lock_owner is not None and lock_owner != lock_value:
             MutyLogger.get_instance().warning(
                 "not marking task succeeded because execution lock is owned by another worker: task_type=%s req_id=%s",
                 task.get("task_type"),
@@ -2190,14 +2092,16 @@ class GulpRedis:
                 "lock_mismatch",
             )
             return
+        if lock_owner is None:
+            MutyLogger.get_instance().warning(
+                "marking task succeeded after execution lock expired: task_type=%s req_id=%s",
+                task.get("task_type"),
+                task.get("req_id"),
+            )
         finished_at_msec = int(time.time() * 1000)
         await self._record_task_execution_duration(
             task,
             "succeeded",
-            finished_at_msec=finished_at_msec,
-        )
-        await self._record_task_drain_sample(
-            str(task.get("task_type") or "unknown"),
             finished_at_msec=finished_at_msec,
         )
         await self._task_lifecycle_hset(
@@ -2469,19 +2373,19 @@ class GulpRedis:
         finally:
             await self._ack_and_delete_task(stream_name, msg_id)
 
-    async def task_fail_retry_or_dead_letter(self, task: dict, reason: str) -> str:
+    async def task_fail_dead_letter(self, task: dict, reason: str) -> str:
         """
-        Handle a valid task execution failure with bounded retries.
+        Handle a valid task execution failure by moving it to dead-letter.
 
         Returns:
-            str: "retry" when the task was requeued, "dead_letter" when attempts
-            were exhausted, or "ignored" when the task lacks stream metadata.
+            str: "dead_letter" when written, "terminal" when already terminal,
+            or "ignored" when the task cannot be finalized.
         """
         stream_name = task.get("__redis_stream__")
         msg_id = task.get("__redis_message_id__")
         if not stream_name or not msg_id:
             MutyLogger.get_instance().warning(
-                "task_fail_retry_or_dead_letter called without Redis envelope metadata: task_type=%s req_id=%s",
+                "task_fail_dead_letter called without Redis envelope metadata: task_type=%s req_id=%s",
                 task.get("task_type"),
                 task.get("req_id"),
             )
@@ -2494,7 +2398,7 @@ class GulpRedis:
         status = await self._task_lifecycle_status(task)
         if status in GulpRedis.TASK_TERMINAL_STATUSES:
             MutyLogger.get_instance().warning(
-                "not retrying/dead-lettering task because lifecycle is already terminal: task_type=%s req_id=%s status=%s",
+                "not dead-lettering task because lifecycle is already terminal: task_type=%s req_id=%s status=%s",
                 task.get("task_type"),
                 task.get("req_id"),
                 status,
@@ -2510,7 +2414,7 @@ class GulpRedis:
             return "terminal"
         if task.get("req_id") and not await self._task_execution_lock_matches(task):
             MutyLogger.get_instance().warning(
-                "not retrying/dead-lettering task because execution lock is owned by another worker: task_type=%s req_id=%s",
+                "not dead-lettering task because execution lock is owned by another worker: task_type=%s req_id=%s",
                 task.get("task_type"),
                 task.get("req_id"),
             )
@@ -2525,186 +2429,36 @@ class GulpRedis:
             k: v for k, v in task.items() if not k.startswith("__redis_")
         }
         task_payload["__task_last_error__"] = reason
-        now_msec = int(time.time() * 1000)
-        task_payload["__task_last_failed_at_msec__"] = now_msec
-        attempts = int(task_payload.get("__task_attempts__", 0)) + 1
-        task_payload["__task_attempts__"] = attempts
-
-        max_attempts = max(1, GulpRedis.TASK_MAX_ATTEMPTS)
-        if attempts >= max_attempts:
-            finished_at_msec = int(time.time() * 1000)
-            await self._record_task_execution_duration(
-                task_payload,
-                "dead_letter",
-                finished_at_msec=finished_at_msec,
-            )
-            await self._record_task_drain_sample(
-                str(task_payload.get("task_type") or "unknown"),
-                finished_at_msec=finished_at_msec,
-            )
-            await self._task_lifecycle_hset(
-                task_payload,
-                "dead_lettered",
-                extra={
-                    "finished_at_msec": finished_at_msec,
-                    "last_error": reason,
-                },
-            )
-            await self._release_task_admission(task_payload)
-            await self._dead_letter_task(
-                stream_name,
-                msg_id,
-                f"task failed after {attempts} attempt(s): {reason}",
-                task_payload=task_payload,
-            )
-            await self._task_release_execution_lock(task)
-            await self._task_release_side_effect_lock(task)
-            self._record_task_transition(
-                "failure",
-                task_payload.get("task_type"),
-                "dead_letter",
-            )
-            return "dead_letter"
-
-        try:
-            await self._record_task_execution_duration(
-                task_payload,
-                "retry",
-                finished_at_msec=now_msec,
-            )
-            backoff_ms = self._task_retry_backoff_ms(attempts)
-            task_payload["__task_retry_backoff_msec__"] = backoff_ms
-            if backoff_ms > 0:
-                due_msec = now_msec + backoff_ms
-                task_payload["__task_next_attempt_after_msec__"] = due_msec
-                await self._task_lifecycle_hset(
-                    task_payload,
-                    "retrying",
-                    extra={
-                        "next_attempt_after_msec": due_msec,
-                        "last_error": reason,
-                    },
-                )
-                await self._redis.zadd(
-                    GulpRedis.TASK_RETRY_DELAYED_ZSET,
-                    {orjson.dumps(task_payload): due_msec},
-                )
-            else:
-                await self._redis.xadd(
-                    stream_name,
-                    {"data": orjson.dumps(task_payload)},
-                )
-                await self._task_lifecycle_hset(
-                    task_payload,
-                    "queued",
-                    extra={"last_error": reason},
-                )
-            ttype = task_payload.get("task_type")
-            if ttype:
-                await self._redis.sadd(GulpRedis.TASK_TYPES_SET, ttype)
-            await self._ack_and_delete_task(stream_name, msg_id)
-            await self._task_release_execution_lock(task)
-            await self._task_release_side_effect_lock(task)
-            self._record_task_transition(
-                "failure",
-                task_payload.get("task_type"),
-                "retry",
-            )
-            return "retry"
-        except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to requeue failed task stream=%s msg_id=%s task_type=%s req_id=%s",
-                stream_name,
-                msg_id,
-                task_payload.get("task_type"),
-                task_payload.get("req_id"),
-            )
-            self._record_task_transition(
-                "failure",
-                task_payload.get("task_type"),
-                "retry_error",
-            )
-            return "ignored"
-
-    @staticmethod
-    def _task_retry_backoff_ms(attempts: int) -> int:
-        """Return exponential retry backoff for a 1-based attempt count."""
-        base_ms = max(0, GulpRedis.TASK_RETRY_BACKOFF_BASE_MS)
-        if base_ms <= 0:
-            return 0
-        max_ms = max(base_ms, GulpRedis.TASK_RETRY_BACKOFF_MAX_MS)
-        return min(max_ms, base_ms * (2 ** max(0, attempts - 1)))
-
-    async def task_promote_due_retries(self, limit: int = 100) -> int:
-        """Move delayed retry tasks whose backoff expired back to task streams."""
-        now_msec = int(time.time() * 1000)
-        try:
-            due_items = await self._redis.zrangebyscore(
-                GulpRedis.TASK_RETRY_DELAYED_ZSET,
-                0,
-                now_msec,
-                start=0,
-                num=max(1, limit),
-            )
-        except Exception:
-            MutyLogger.get_instance().exception("failed to read delayed task retries")
-            return 0
-
-        promoted = 0
-        for raw in due_items:
-            try:
-                removed = await self._redis.zrem(
-                    GulpRedis.TASK_RETRY_DELAYED_ZSET,
-                    raw,
-                )
-                if not removed:
-                    continue
-
-                task_payload = orjson.loads(raw)
-                if not isinstance(task_payload, dict):
-                    raise TypeError("delayed retry payload must decode to dict")
-
-                ttype = task_payload.get("task_type")
-                if not ttype:
-                    raise ValueError("delayed retry task missing task_type")
-
-                task_payload["__task_promoted_at_msec__"] = now_msec
-                stream_name = f"{GulpRedis.STREAM_TASK_PREFIX}:{ttype}"
-                await self._redis.xadd(
-                    stream_name,
-                    {"data": orjson.dumps(task_payload)},
-                )
-                await self._redis.sadd(GulpRedis.TASK_TYPES_SET, ttype)
-                await self._task_lifecycle_hset(task_payload, "queued")
-                promoted += 1
-                self._record_task_transition(
-                    "promote_retry",
-                    ttype,
-                    "promoted",
-                )
-            except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to promote delayed retry task"
-                )
-                task_type = "unknown"
-                try:
-                    decoded = orjson.loads(raw)
-                    if isinstance(decoded, dict):
-                        task_type = str(decoded.get("task_type") or task_type)
-                except Exception:
-                    pass
-                self._record_task_transition(
-                    "promote_retry",
-                    task_type,
-                    "error",
-                )
-
-        if promoted:
-            MutyLogger.get_instance().warning(
-                "promoted %d delayed retry task(s) back to task streams",
-                promoted,
-            )
-        return promoted
+        finished_at_msec = int(time.time() * 1000)
+        task_payload["__task_last_failed_at_msec__"] = finished_at_msec
+        await self._record_task_execution_duration(
+            task_payload,
+            "dead_letter",
+            finished_at_msec=finished_at_msec,
+        )
+        await self._task_lifecycle_hset(
+            task_payload,
+            "dead_lettered",
+            extra={
+                "finished_at_msec": finished_at_msec,
+                "last_error": reason,
+            },
+        )
+        await self._release_task_admission(task_payload)
+        await self._dead_letter_task(
+            stream_name,
+            msg_id,
+            f"task failed: {reason}",
+            task_payload=task_payload,
+        )
+        await self._task_release_execution_lock(task)
+        await self._task_release_side_effect_lock(task)
+        self._record_task_transition(
+            "failure",
+            task_payload.get("task_type"),
+            "dead_letter",
+        )
+        return "dead_letter"
 
     async def task_dead_letter(self, task: dict, reason: str) -> bool:
         """Move a dequeued task directly to the dead-letter stream."""
@@ -2823,11 +2577,7 @@ class GulpRedis:
                         ttype,
                         queue_depth,
                         GulpRedis.STREAM_TASK_MAXLEN,
-                        retry_after_msec=await self._task_adaptive_retry_after_msec(
-                            ttype,
-                            queue_depth,
-                            GulpRedis.STREAM_TASK_MAXLEN,
-                        ),
+                        retry_after_msec=self._task_admission_retry_after_msec(),
                         work_units=work_units,
                     )
             await self._reserve_task_admission(task, work_units)
