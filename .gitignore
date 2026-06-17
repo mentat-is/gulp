@@ -50,8 +50,7 @@ gulp-sdk
 gulp-dissect
 gulp-agent
 img
-*plan*.md
-*specs*.md
+plans
 _version.py
 .python-version
 .devcontainer/devcontainer-lock.json
