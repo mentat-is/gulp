@@ -68,5 +68,5 @@
     "CODEX_HOME": "/home/vscode/.codex"
   },
   "postCreateCommand": "chmod +x .devcontainer/devsetup.sh && .devcontainer/devsetup.sh",
-  "postStartCommand": "sudo mkdir -p /run/rsyslog && (pgrep -x rsyslogd >/dev/null || sudo rsyslogd)"
+  "postStartCommand": "sudo mkdir -p /run/rsyslog && (pgrep -x rsyslogd >/dev/null || sudo rsyslogd) && .devcontainer/localhost-forward-services.sh"
 }
