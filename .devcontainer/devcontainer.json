@@ -15,8 +15,7 @@
         "fuadpashayev.bottom-terminal",
         "Gerrnperl.outline-map",
         "github.copilot-chat",
-        "github.vscode-github-actions",
-        "GitHub.vscode-pull-request-github",
+        "openai.chatgpt",
         "Gruntfuggly.todo-tree",
         "kevinkyang.auto-comment-blocks",
         "ms-python.black-formatter",
@@ -28,11 +27,19 @@
         "Tyriar.sort-lines",
         "yzhang.markdown-all-in-one",
         "zh9528.file-size"
-      ]
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {
+          "zsh": {
+            "path": "/usr/bin/zsh"
+          }
+        },
+        "python.defaultInterpreterPath": "/home/vscode/.pyenv/shims/python"
+      }
     }
   },
   "features": {
-    "ghcr.io/meaningful-ooo/devcontainer-features/fish:1": {},
     "ghcr.io/jungaretti/features/vim:1": {}
   },
   "remoteUser": "vscode",
@@ -49,11 +56,16 @@
     // map the config for development (references the gulp-paid-plugins above for the extra plugins and mapping files)
     "source=${localEnv:HOME}/.config/gulp,target=/home/vscode/.config/gulp,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulp-paid-plugins/src/gulp-paid-plugins/plugins,target=/home/vscode/.config/gulp/plugins,type=bind,consistency=cached",
-    "source=${localWorkspaceFolder}/../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files,target=/home/vscode/.config/gulp/mapping_files,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.config/fish,target=/home/vscode/.config/fish,type=bind,consistency=cached"
+    "source=${localWorkspaceFolder}/../gulp-paid-plugins/src/gulp-paid-plugins/mapping_files,target=/home/vscode/.config/gulp/mapping_files,type=bind,consistency=cached"
   ],
   "remoteEnv": {
-    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"
+    "PYENV_ROOT": "/home/vscode/.pyenv",
+    "PATH": "/home/vscode/.pyenv/shims:/home/vscode/.pyenv/bin:${containerEnv:PATH}:/home/vscode/.local/bin",
+    "DISPLAY": "${containerEnv:DISPLAY}",
+    "WAYLAND_DISPLAY": "${containerEnv:WAYLAND_DISPLAY}",
+    "LIBGL_ALWAYS_INDIRECT": "0",
+    "QT_X11_NO_MITSHM": "1",
+    "CODEX_HOME": "/home/vscode/.codex"
   },
   "postCreateCommand": "chmod +x .devcontainer/devsetup.sh && .devcontainer/devsetup.sh",
   "postStartCommand": "sudo mkdir -p /run/rsyslog && (pgrep -x rsyslogd >/dev/null || sudo rsyslogd)"

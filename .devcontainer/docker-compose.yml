@@ -4,8 +4,19 @@ services:
     volumes:
       - ..:/gulp:cached
       - /var/run/docker.sock:/var/run/docker.sock
+      # Linux and WSLg X11 forwarding. macOS/XQuartz usually uses TCP via host.docker.internal.
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Share Codex configuration with the host. Override CODEX_CONFIG_DIR when
+      # neither HOME nor USERPROFILE points at the desired host profile.
+      - ${CODEX_CONFIG_DIR:-${HOME:-${USERPROFILE}}/.codex}:/home/vscode/.codex:cached
       # use a named volume for pip cache to persist it across container rebuilds
       - pip-cache:/home/vscode/.cache/pip
+    environment:
+      # Linux/WSLg: inherit DISPLAY. macOS/XQuartz: export GULP_GUI_DISPLAY=host.docker.internal:0.
+      DISPLAY: ${GULP_GUI_DISPLAY:-${DISPLAY:-host.docker.internal:0}}
+      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-}
+      LIBGL_ALWAYS_INDIRECT: "0"
+      QT_X11_NO_MITSHM: "1"
     command: sleep infinity
     ports:
       # gulp
@@ -13,8 +24,6 @@ services:
     privileged: true
     group_add:
       - docker
-
-    network_mode: "host"
     init: true
 
 volumes:
