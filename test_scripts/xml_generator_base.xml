@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<events xmlns="https://example.com/gulp/security-events" generated="2026-06-15T10:00:00Z">
+  <event id="evt-001" type="authentication">
+    <observed>2026-06-15T09:58:10Z</observed>
+    <action>login_failed</action>
+    <severity>medium</severity>
+    <host>
+      <name>vpn-gateway-01</name>
+      <ip>10.0.5.10</ip>
+    </host>
+    <user>
+      <name>alice</name>
+      <id>1001</id>
+    </user>
+    <source>
+      <ip>203.0.113.20</ip>
+      <port>54820</port>
+    </source>
+    <destination>
+      <ip>10.0.5.10</ip>
+      <port>443</port>
+    </destination>
+    <labels>
+      <label key="mfa">disabled</label>
+      <label key="service">vpn</label>
+    </labels>
+  </event>
+  <event id="evt-002" type="process">
+    <observed>2026-06-15T09:59:02Z</observed>
+    <action>process_started</action>
+    <severity>low</severity>
+    <host>
+      <name>workstation-17</name>
+      <ip>10.0.9.17</ip>
+    </host>
+    <user>
+      <name>bob</name>
+      <id>1002</id>
+    </user>
+    <process>
+      <name>powershell.exe</name>
+      <pid>4884</pid>
+      <command_line>powershell.exe -NoProfile -ExecutionPolicy Bypass</command_line>
+    </process>
+    <labels>
+      <label key="rule">suspicious_powershell</label>
+      <label key="severity_reason">encoded_flags</label>
+    </labels>
+  </event>
+  <event id="evt-003" type="network">
+    <observed>2026-06-15T09:59:48Z</observed>
+    <action>connection_allowed</action>
+    <severity>info</severity>
+    <host>
+      <name>firewall-02</name>
+      <ip>10.0.1.2</ip>
+    </host>
+    <source>
+      <ip>10.0.9.17</ip>
+      <port>51422</port>
+    </source>
+    <destination>
+      <ip>198.51.100.44</ip>
+      <port>443</port>
+    </destination>
+    <network>
+      <protocol>tcp</protocol>
+      <transport>tcp</transport>
+      <bytes>48120</bytes>
+    </network>
+  </event>
+</events>

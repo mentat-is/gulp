@@ -627,7 +627,7 @@ to customize `mapping` and specific `plugin` parameters.
         glyph_id: Annotated[
             str,
             Query(
-                description="id of a `glyph` in the collab database.",
+                description="id of a `glyph` for the object: it is up to the client to resolve it internally or retrieve it from the backend Glyph table (i.e. for a custom icon)",
             ),
         ] = None,
     ) -> str:

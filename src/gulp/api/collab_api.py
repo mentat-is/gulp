@@ -134,7 +134,6 @@ class GulpCollab:
             if force_recreate:
                 await self.create_tables()
                 await self.create_default_users()
-                await self.create_default_glyphs()
 
             # check tables exists
             async with self._collab_sessionmaker() as sess:
@@ -583,6 +582,7 @@ class GulpCollab:
                 "admin",
                 "admin",
                 permission=[GulpUserPermission.ADMIN],
+                glyph_id="UserCross",
             )
 
             # login admin user
@@ -593,6 +593,7 @@ class GulpCollab:
                 sess,
                 user_id="guest",
                 password="guest",
+                glyph_id="UserCross",
             )
             group: GulpUserGroup = await GulpUserGroup.create_internal(
                 sess,
@@ -626,82 +627,6 @@ class GulpCollab:
                     admin_user.to_dict(nested=True), option=orjson.OPT_INDENT_2
                 ).decode()
             )
-
-    async def _load_icons(self, sess: AsyncSession, user_id: str) -> None:
-        """
-        load icons from the included zip file
-
-        Args:
-            sess (AsyncSession): The database session to use.
-            user_id (str): The user ID to use (will be set as the owner of the created objects).
-
-        """
-        from gulp.api.collab.glyph import GulpGlyph
-
-        assets_path = resources.files("gulp.api.collab.assets")
-        icon_path = muty.file.safe_path_join(assets_path, "icons.txt")
-
-        glyphs: list[dict] = []
-        try:
-            async with aiofiles.open(icon_path, mode="r", newline="") as f:
-                chunk_size = 256
-                async for row in f:
-                    d = GulpGlyph.build_object_dict(
-                        user_id, name=row.strip(), obj_id=row.strip(), private=False
-                    )
-
-                    glyphs.append(d)
-                    if len(glyphs) == chunk_size:
-                        # insert bulk
-                        await sess.execute(insert(GulpGlyph).values(glyphs))
-                        MutyLogger.get_instance().debug(
-                            "inserted bulk of %d glyphs ..." % (len(glyphs))
-                        )
-                        glyphs = []
-
-            if glyphs:
-                # insert remaining
-                MutyLogger.get_instance().debug(
-                    "last chunk, inserting bulk of %d glyphs ..." % (len(glyphs))
-                )
-                await sess.execute(insert(GulpGlyph).values(glyphs))
-
-            # load done
-            await sess.commit()
-        except Exception as e:
-            MutyLogger.get_instance().error(
-                "error loading icons: %s" % (str(e)), exc_info=True
-            )
-            raise e
-
-    async def create_default_glyphs(self) -> None:
-        """
-        create default glyphs and assign them to users.
-        """
-
-        from gulp.api.collab.glyph import GulpGlyph
-        from gulp.api.collab.user import GulpUser
-
-        async with self._collab_sessionmaker() as sess:
-            sess: AsyncSession
-
-            # get users
-            admin_user: GulpUser = await GulpUser.get_by_id(sess, "admin")
-            guest_user: GulpUser = await GulpUser.get_by_id(sess, "guest")
-
-            # create glyphs from files
-            await self._load_icons(sess, admin_user.id)
-
-            # get user glyph
-            user_glyph: GulpGlyph = await GulpGlyph.get_by_id(sess, "UserCross")
-
-            # pylint: disable=protected-access
-
-            # assign glyphs
-            admin_user.glyph_id = user_glyph.id
-            if guest_user:
-                guest_user.glyph_id = user_glyph.id
-            await sess.commit()
 
     async def _check_all_tables_exist(self, sess: AsyncSession) -> bool:
         """

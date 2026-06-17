@@ -1,0 +1,8 @@
+Name,Extension,EntryNumber,SequenceNumber,ParentEntryNumber,ParentSequenceNumber,ParentPath,UpdateSequenceNumber,UpdateTimestamp,UpdateReasons,FileAttributes,OffsetToData,SourceFile
+sechost.dll,.dll,40503,1,16218,1,,0,2025-03-19 01:24:18.9468760,Close,Archive,0,C:\Cases\KAPE_TARGETS\dc1-C.11f6731fb786b22a\C\ntfs\%5C%5C.%5CC%3A\$Extend\$UsnJrnl%3A$J
+SOFTWARE,,97556,1,3843,1,,88,2025-03-19 01:24:22.8552644,BasicInfoChange,Archive,88,C:\Cases\KAPE_TARGETS\dc1-C.11f6731fb786b22a\C\ntfs\%5C%5C.%5CC%3A\$Extend\$UsnJrnl%3A$J
+Wldap32.dll,.dll,40899,1,12955,1,,168,2025-03-19 01:24:24.1024610,EaChange,Archive,168,C:\Cases\KAPE_TARGETS\dc1-C.11f6731fb786b22a\C\ntfs\%5C%5C.%5CC%3A\$Extend\$UsnJrnl%3A$J
+Wldap32.dll,.dll,40899,1,12955,1,,256,2025-03-19 01:24:24.1024610,EaChange|Close,Archive,256,C:\Cases\KAPE_TARGETS\dc1-C.11f6731fb786b22a\C\ntfs\%5C%5C.%5CC%3A\$Extend\$UsnJrnl%3A$J
+coml2.dll,.dll,38896,1,9311,1,,344,2025-03-19 01:24:24.1099337,Close,Archive,344,C:\Cases\KAPE_TARGETS\dc1-C.11f6731fb786b22a\C\ntfs\%5C%5C.%5CC%3A\$Extend\$UsnJrnl%3A$J
+shell32.dll,.dll,40825,1,16499,1,,424,2025-03-19 01:24:24.1703294,Close,Archive,424,C:\Cases\KAPE_TARGETS\dc1-C.11f6731fb786b22a\C\ntfs\%5C%5C.%5CC%3A\$Extend\$UsnJrnl%3A$J
+imm32.dll,.dll,39520,1,12731,1,,512,2025-03-19 01:24:24.1805511,Close,Archive,512,C:\Cases\KAPE_TARGETS\dc1-C.11f6731fb786b22a\C\ntfs\%5C%5C.%5CC%3A\$Extend\$UsnJrnl%3A$J

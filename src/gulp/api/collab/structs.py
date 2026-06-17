@@ -618,7 +618,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         doc="The id of the operation associated with the object.",
     )
     glyph_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"),
+        String,
         doc="The glyph ID associated with the object.",
     )
     description: Mapped[Optional[str]] = mapped_column(

@@ -41,7 +41,7 @@ class GulpEnhanceDocumentMap(GulpCollabBase, type=COLLABTYPE_ENHANCE_DOCUMENT_MA
     plugin: Mapped[str] = mapped_column(String, doc="The plugin whose documents this entry applies to.")
     color: Mapped[Optional[str]] = mapped_column(String, doc="The CSS hex color to apply when criteria match.")
     glyph_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("glyph.id", ondelete="SET NULL"),
+        String,
         doc="The glyph ID to apply when criteria match.",
     )
 

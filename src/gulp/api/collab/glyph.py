@@ -23,7 +23,7 @@ class GulpGlyph(GulpCollabBase, type=COLLABTYPE_GLYPH):
     Represents a glyph object.
     """
 
-    img: Optional[Mapped[bytes]] = mapped_column(
+    img: Mapped[bytes] = mapped_column(
         LargeBinary, doc="The image data of the glyph as binary blob."
     )
 
