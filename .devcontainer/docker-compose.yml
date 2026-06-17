@@ -17,10 +17,8 @@ services:
       WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-}
       LIBGL_ALWAYS_INDIRECT: "0"
       QT_X11_NO_MITSHM: "1"
+    network_mode: host
     command: sleep infinity
-    ports:
-      # gulp
-      - "8080:8080"
     privileged: true
     group_add:
       - docker

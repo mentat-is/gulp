@@ -16,7 +16,6 @@
         "Gerrnperl.outline-map",
         "github.copilot-chat",
         "openai.chatgpt",
-        "Gruntfuggly.todo-tree",
         "kevinkyang.auto-comment-blocks",
         "ms-python.black-formatter",
         "ms-python.isort",
@@ -29,13 +28,15 @@
         "zh9528.file-size"
       ],
       "settings": {
+        "remote.autoForwardPorts": false,
+        "remote.restoreForwardedPorts": false,
         "terminal.integrated.defaultProfile.linux": "zsh",
-        "terminal.integrated.profiles.linux": {
-          "zsh": {
-            "path": "/usr/bin/zsh"
-          }
+        "terminal.integrated.env.linux": {
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}",
+          "VIRTUAL_ENV": "${workspaceFolder}/.venv"
         },
-        "python.defaultInterpreterPath": "/home/vscode/.pyenv/shims/python"
+        "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+        "python.terminal.activateEnvironment": true
       }
     }
   },
@@ -45,6 +46,12 @@
   "remoteUser": "vscode",
   "init": true,
   "privileged": true,
+  "forwardPorts": [],
+  "portsAttributes": {
+    "*": {
+      "onAutoForward": "ignore"
+    }
+  },
   "mounts": [
     "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind,consistency=cached",
     // make these accessible in the container for development (must be cloned in the parent folder of this repo)
@@ -68,5 +75,5 @@
     "CODEX_HOME": "/home/vscode/.codex"
   },
   "postCreateCommand": "chmod +x .devcontainer/devsetup.sh && .devcontainer/devsetup.sh",
-  "postStartCommand": "sudo mkdir -p /run/rsyslog && (pgrep -x rsyslogd >/dev/null || sudo rsyslogd) && .devcontainer/localhost-forward-services.sh"
+  "postStartCommand": "sudo mkdir -p /run/rsyslog && (pgrep -x rsyslogd >/dev/null || sudo rsyslogd)"
 }

@@ -57,9 +57,9 @@
 
   simply go to vscode's `Ports` tab and remove the port forwarding for `8089`.
 
-- if you see gulp cannot connect to services (opensearch, postgresql, redis, ...), doublecheck each service's URL in `gulp_cfg.json`: you should use container's name instead of i.e. `localhost`.
+- if you see gulp cannot connect to services (opensearch, postgresql, redis, ...) while running inside the main docker-compose network, doublecheck each service's URL in `gulp_cfg.json`: you should use container's name instead of i.e. `localhost`.
 
-  Specifically, replace i.e. *redis://:Gulp1234!@localhost:6379/0* with *redis://:Gulp1234!@redis:6379/0*  in `redis_url`.
+Specifically, replace i.e. *redis://:Gulp1234!@localhost:6379/0* with *redis://:Gulp1234!@redis:6379/0*  in `redis_url`.
 
 ### devcontainer
 

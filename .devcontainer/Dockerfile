@@ -75,27 +75,45 @@ RUN git clone --depth=1 https://github.com/pyenv/pyenv.git "${PYENV_ROOT}" && \
     test -d /home/vscode/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting/.git || git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting.git /home/vscode/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting && \
     ln -sf /home/vscode/.oh-my-zsh/custom/themes/dracula/dracula.zsh-theme /home/vscode/.oh-my-zsh/custom/themes/dracula.zsh-theme && \
     printf '%s\n' \
-        'export ZSH="$HOME/.oh-my-zsh"' \
-        'ZSH_THEME="dracula"' \
-        'DRACULA_DISPLAY_CONTEXT=1' \
-        'DRACULA_ARROW_ICON="->"' \
-        'plugins=(git git-prompt docker docker-compose python pip zsh-autosuggestions zsh-syntax-highlighting)' \
-        'export PYENV_ROOT="$HOME/.pyenv"' \
-        'export PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$HOME/.local/bin:$PATH"' \
-        'source "$ZSH/oh-my-zsh.sh"' \
-        'eval "$(pyenv init -)"' \
-        'autoload -Uz compinit && compinit' \
-        'autoload -Uz add-zsh-hook vcs_info' \
-        'zstyle '"'"':vcs_info:git:*'"'"' check-for-changes true' \
-        'zstyle '"'"':vcs_info:git:*'"'"' unstagedstr '"'"'*'"'"'' \
-        'zstyle '"'"':vcs_info:git:*'"'"' stagedstr '"'"'+'"'"'' \
-        'zstyle '"'"':vcs_info:git:*'"'"' formats '"'"' %F{magenta}git:(%b)%f%F{yellow}%u%c%f'"'"'' \
-        'zstyle '"'"':vcs_info:git:*'"'"' actionformats '"'"' %F{magenta}git:(%b|%a)%f%F{yellow}%u%c%f'"'"'' \
-        'gulp_vcs_info() { vcs_info }' \
-        'add-zsh-hook precmd gulp_vcs_info' \
-        'setopt prompt_subst' \
-        'PROMPT='"'"'%F{magenta}->%f %F{green}%n%f %F{cyan}%1~%f${vcs_info_msg_0_} %# '"'"'' \
-        > /home/vscode/.zshrc && \
+    'export VIRTUAL_ENV_DISABLE_PROMPT=1' \
+    'export ZSH="$HOME/.oh-my-zsh"' \
+    'ZSH_THEME="dracula"' \
+    'DRACULA_DISPLAY_CONTEXT=1' \
+    'DRACULA_ARROW_ICON="->"' \
+    'plugins=(git docker docker-compose python pip zsh-autosuggestions zsh-syntax-highlighting)' \
+    'export PYENV_ROOT="$HOME/.pyenv"' \
+    'export PATH="$PYENV_ROOT/shims:$PYENV_ROOT/bin:$HOME/.local/bin:$PATH"' \
+    'source "$ZSH/oh-my-zsh.sh"' \
+    'eval "$(pyenv init -)"' \
+    'autoload -Uz compinit && compinit' \
+    'setopt prompt_subst' \
+    'cwd_prompt() {' \
+    '  [[ "$PWD" == "$HOME"* ]] && print -r -- "~${PWD#$HOME}" || print -r -- "$(basename "$PWD")"' \
+    '}' \
+    'git_prompt_compact() {' \
+    '  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return' \
+    '  local branch staged modified deleted untracked' \
+    '  branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)' \
+    '  staged=$(git diff --cached --name-only 2>/dev/null | wc -l | tr -d " ")' \
+    '  modified=$(git diff --name-only --diff-filter=M 2>/dev/null | wc -l | tr -d " ")' \
+    '  deleted=$(git diff --name-only --diff-filter=D 2>/dev/null | wc -l | tr -d " ")' \
+    '  untracked=$(git ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d " ")' \
+    '  printf " (%s)" "$branch"' \
+    '  [[ "$staged" -gt 0 ]] && printf " +%s" "$staged"' \
+    '  [[ "$modified" -gt 0 ]] && printf " ~%s" "$modified"' \
+    '  [[ "$deleted" -gt 0 ]] && printf " -%s" "$deleted"' \
+    '  [[ "$untracked" -gt 0 ]] && printf " ?%s" "$untracked"' \
+    '}' \
+    'venv_prompt() {' \
+    '  [[ -n "$VIRTUAL_ENV" ]] && printf " [venv:%s]" "$(basename "$VIRTUAL_ENV")"' \
+    '}' \
+    'if [[ -n "$VIRTUAL_ENV" ]]; then' \
+    '  export PATH="$VIRTUAL_ENV/bin:$PATH"' \
+    '  hash -r' \
+    'fi' \
+    'PROMPT='"'"'%F{magenta}->%f %F{green}%n%f %F{cyan}$(cwd_prompt)%f%F{magenta}$(git_prompt_compact)%f%F{blue}$(venv_prompt)%f %# '"'"'' \
+    > /home/vscode/.zshrc && \
+    chown vscode:vscode /home/vscode/.zshrc && \
     chown -R vscode:vscode /home/vscode/.oh-my-zsh /home/vscode/.zshrc && \
     chsh -s /usr/bin/zsh vscode
 
