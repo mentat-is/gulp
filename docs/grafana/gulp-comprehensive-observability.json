@@ -215,7 +215,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(gulp_worker_process_count)",
+          "expr": "sum(gulp_worker_process_count)",
           "format": "time_series",
           "instant": true,
           "range": false,
@@ -319,7 +319,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(gulp_redis_task_stream_depth)",
+          "expr": "max(gulp_redis_task_stream_depth)",
           "format": "time_series",
           "instant": true,
           "range": false,
@@ -371,7 +371,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(gulp_redis_task_stream_pending)",
+          "expr": "max(gulp_redis_task_stream_pending)",
           "format": "time_series",
           "instant": true,
           "range": false,
@@ -436,14 +436,14 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(gulp_redis_task_dead_letter_depth)",
+          "expr": "sum(gulp_redis_task_transition_total{action=\"failure\",outcome=\"failed\"})",
           "format": "time_series",
           "instant": true,
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Dead Letters",
+      "title": "Failed Tasks",
       "type": "stat"
     },
     {
@@ -708,7 +708,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (task_type) (gulp_redis_task_stream_depth{task_type=~\"$task_type\"})",
+          "expr": "max by (task_type) (gulp_redis_task_stream_depth{task_type=~\"$task_type\"})",
           "format": "time_series",
           "instant": true,
           "legendFormat": "{{task_type}}",
@@ -759,7 +759,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (task_type) (gulp_redis_task_stream_pending{task_type=~\"$task_type\"})",
+          "expr": "max by (task_type) (gulp_redis_task_stream_pending{task_type=~\"$task_type\"})",
           "format": "time_series",
           "instant": true,
           "legendFormat": "{{task_type}}",
@@ -810,7 +810,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (task_type) (gulp_redis_task_running{task_type=~\"$task_type\"})",
+          "expr": "sum by (task_type) (gulp_redis_task_transition_total{action=\"stale_pending\",task_type=~\"$task_type\"})",
           "format": "time_series",
           "instant": true,
           "legendFormat": "{{task_type}}",
@@ -818,7 +818,7 @@
           "refId": "A"
         }
       ],
-      "title": "Running Tasks by Type",
+      "title": "Stale Pending Drops by Type",
       "type": "bargauge"
     },
     {
@@ -861,7 +861,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (task_type) (gulp_redis_task_dead_letter_depth{task_type=~\"$task_type\"})",
+          "expr": "sum by (task_type) (gulp_redis_task_transition_total{action=\"failure\",outcome=\"failed\",task_type=~\"$task_type\"})",
           "format": "time_series",
           "instant": true,
           "legendFormat": "{{task_type}}",
@@ -869,7 +869,7 @@
           "refId": "A"
         }
       ],
-      "title": "Dead Letters by Type",
+      "title": "Failed Tasks by Type",
       "type": "bargauge"
     },
     {
@@ -919,7 +919,7 @@
           "refId": "A"
         }
       ],
-      "title": "Task Lifecycle Transitions",
+      "title": "Task Transitions by Outcome",
       "type": "timeseries"
     },
     {
@@ -961,10 +961,10 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.50, sum by (le, task_type) (rate(gulp_redis_task_execution_duration_seconds_bucket{task_type=~\"$task_type\"}[5m])))",
+          "expr": "sum by (task_type) (rate(gulp_redis_task_transition_total{task_type=~\"$task_type\"}[5m]))",
           "format": "time_series",
           "instant": false,
-          "legendFormat": "p50 {{task_type}}",
+          "legendFormat": "{{task_type}}",
           "range": true,
           "refId": "A"
         },
@@ -973,10 +973,10 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, task_type) (rate(gulp_redis_task_execution_duration_seconds_bucket{task_type=~\"$task_type\"}[5m])))",
+          "expr": "sum by (task_type) (rate(gulp_redis_task_transition_total{outcome=\"failed\",task_type=~\"$task_type\"}[5m]))",
           "format": "time_series",
           "instant": false,
-          "legendFormat": "p95 {{task_type}}",
+          "legendFormat": "failed {{task_type}}",
           "range": true,
           "refId": "B"
         },
@@ -985,15 +985,15 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.99, sum by (le, task_type) (rate(gulp_redis_task_execution_duration_seconds_bucket{task_type=~\"$task_type\"}[5m])))",
+          "expr": "sum by (task_type) (rate(gulp_redis_task_transition_total{action=\"stale_pending\",task_type=~\"$task_type\"}[5m]))",
           "format": "time_series",
           "instant": false,
-          "legendFormat": "p99 {{task_type}}",
+          "legendFormat": "stale {{task_type}}",
           "range": true,
           "refId": "C"
         }
       ],
-      "title": "Task Execution Duration p50/p95/p99",
+      "title": "Task Transitions",
       "type": "timeseries"
     },
     {
@@ -1257,7 +1257,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(gulp_postgres_pool_size)",
+          "expr": "sum(gulp_postgres_pool_size)",
           "format": "time_series",
           "instant": false,
           "legendFormat": "size",
@@ -1269,7 +1269,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(gulp_postgres_pool_checked_out)",
+          "expr": "sum(gulp_postgres_pool_checked_out)",
           "format": "time_series",
           "instant": false,
           "legendFormat": "checked out",
@@ -1281,7 +1281,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(gulp_postgres_pool_idle)",
+          "expr": "sum(gulp_postgres_pool_idle)",
           "format": "time_series",
           "instant": false,
           "legendFormat": "idle",
@@ -1293,7 +1293,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(gulp_postgres_pool_overflow)",
+          "expr": "sum(gulp_postgres_pool_overflow)",
           "format": "time_series",
           "instant": false,
           "legendFormat": "overflow",
@@ -1302,6 +1302,272 @@
         }
       ],
       "title": "PostgreSQL Pool",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 41
+      },
+      "id": 49,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (req_type) (gulp_request_stats_ongoing_by_type)",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "{{req_type}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Active Requests by Type",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 41
+      },
+      "id": 50,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (req_type) (gulp_request_stats_stale_ongoing)",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "{{req_type}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Stale Requests by Type",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 41
+      },
+      "id": 51,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (scope, entity_id) (gulp_request_stats_ongoing)",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "{{scope}} {{entity_id}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Active Requests by Owner",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 41
+      },
+      "id": 53,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (req_type, status) (gulp_request_stats_finished_recent)",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "{{req_type}} {{status}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Recent Request Outcomes",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "id": 52,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (req_type) (gulp_request_stats_oldest_ongoing_age_seconds)",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "oldest {{req_type}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (req_type, status) (gulp_request_stats_finished_recent)",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{req_type}} {{status}} recent",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Request Stats Detail",
       "type": "timeseries"
     },
     {
@@ -1343,7 +1609,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(gulp_main_process_cpu_percent)",
+          "expr": "sum(gulp_main_process_cpu_percent)",
           "format": "time_series",
           "instant": false,
           "legendFormat": "CPU %",
@@ -1355,7 +1621,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(gulp_main_process_memory_rss_bytes)",
+          "expr": "sum(gulp_main_process_memory_rss_bytes)",
           "format": "time_series",
           "instant": false,
           "legendFormat": "RSS bytes",
@@ -1367,7 +1633,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(gulp_main_process_open_fds)",
+          "expr": "sum(gulp_main_process_open_fds)",
           "format": "time_series",
           "instant": false,
           "legendFormat": "open FDs",
@@ -1459,7 +1725,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 41
+        "y": 55
       },
       "id": 24,
       "options": {
@@ -1482,7 +1748,7 @@
           "expr": "gulp_worker_cpu_percent{worker_pid=~\"$worker_pid\"}",
           "format": "time_series",
           "instant": false,
-          "legendFormat": "{{worker_pid}}",
+          "legendFormat": "{{instance}} {{worker_pid}}",
           "range": true,
           "refId": "A"
         }
@@ -1509,7 +1775,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 41
+        "y": 55
       },
       "id": 25,
       "options": {
@@ -1532,7 +1798,7 @@
           "expr": "gulp_worker_memory_rss_bytes{worker_pid=~\"$worker_pid\"}",
           "format": "time_series",
           "instant": false,
-          "legendFormat": "{{worker_pid}}",
+          "legendFormat": "{{instance}} {{worker_pid}}",
           "range": true,
           "refId": "A"
         }
@@ -1558,7 +1824,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 49
+        "y": 63
       },
       "id": 26,
       "options": {
@@ -1574,7 +1840,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "gulp_redis_task_stream_depth{task_type=~\"$task_type\"}",
+          "expr": "max by (task_type) (gulp_redis_task_stream_depth{task_type=~\"$task_type\"})",
           "format": "table",
           "instant": true,
           "legendFormat": "queued",
@@ -1586,7 +1852,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "gulp_redis_task_stream_pending{task_type=~\"$task_type\"}",
+          "expr": "max by (task_type) (gulp_redis_task_stream_pending{task_type=~\"$task_type\"})",
           "format": "table",
           "instant": true,
           "legendFormat": "pending",
@@ -1639,7 +1905,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 49
+        "y": 63
       },
       "id": 27,
       "options": {
@@ -1698,7 +1964,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 57
+        "y": 71
       },
       "id": 30,
       "options": {
@@ -1763,7 +2029,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 57
+        "y": 71
       },
       "id": 31,
       "options": {
@@ -1828,7 +2094,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 57
+        "y": 71
       },
       "id": 32,
       "options": {
@@ -1893,7 +2159,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 57
+        "y": 71
       },
       "id": 33,
       "options": {
@@ -1945,7 +2211,7 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 61
+        "y": 75
       },
       "id": 34,
       "options": {
@@ -2007,7 +2273,7 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 61
+        "y": 75
       },
       "id": 35,
       "options": {
@@ -2027,15 +2293,15 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (scope) (gulp_redis_task_active_reservations)",
+          "expr": "max by (task_type) (gulp_redis_task_stream_depth)",
           "format": "time_series",
           "instant": false,
           "range": true,
           "refId": "A",
-          "legendFormat": "active {{scope}}"
+          "legendFormat": "queued {{task_type}}"
         }
       ],
-      "title": "Active Reservations",
+      "title": "Queued Tasks",
       "type": "timeseries"
     },
     {
@@ -2057,7 +2323,7 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 61
+        "y": 75
       },
       "id": 36,
       "options": {
@@ -2119,7 +2385,7 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 68
+        "y": 82
       },
       "id": 37,
       "options": {
@@ -2193,7 +2459,7 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 68
+        "y": 82
       },
       "id": 38,
       "options": {
@@ -2255,7 +2521,7 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 68
+        "y": 82
       },
       "id": 39,
       "options": {
@@ -2317,7 +2583,7 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 75
+        "y": 89
       },
       "id": 40,
       "options": {
@@ -2403,7 +2669,7 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 75
+        "y": 89
       },
       "id": 41,
       "options": {
@@ -2435,7 +2701,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max(gulp_worker_process_count)",
+          "expr": "sum(gulp_worker_process_count)",
           "format": "time_series",
           "instant": false,
           "range": true,
@@ -2465,7 +2731,7 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 75
+        "y": 89
       },
       "id": 42,
       "options": {
@@ -2539,7 +2805,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 82
+        "y": 96
       },
       "id": 43,
       "options": {
@@ -2595,7 +2861,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 82
+        "y": 96
       },
       "id": 44,
       "options": {
@@ -2664,7 +2930,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 90
+        "y": 104
       },
       "id": 45,
       "options": {
@@ -2745,7 +3011,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 90
+        "y": 104
       },
       "id": 46,
       "options": {
@@ -2827,7 +3093,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 98
+        "y": 112
       },
       "id": 47,
       "options": {
@@ -2884,7 +3150,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 98
+        "y": 112
       },
       "id": 48,
       "options": {

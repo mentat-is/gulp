@@ -122,18 +122,12 @@
   "redis_compression_threshold": 256,
   // redis pubsub max chunk size (default=128kb)
   "redis_pubsub_max_chunk_size": 128,
-  // idle time in milliseconds after which pending stream messages can be auto-claimed by another consumer (default=60000ms = 60s)
+  // idle time in milliseconds after which stale pending task messages are dropped and marked failed (default=60000ms = 60s)
   "redis_task_autoclaim_idle_ms": 60000,
   // interval in milliseconds used by dispatchers to refresh leases for live pending tasks (default=20000ms = 20s)
   "redis_task_lease_refresh_interval_ms": 20000,
-  // optional timeout in seconds for one queued task execution attempt (default=0, disabled). When set, timed-out tasks are dead-lettered.
+  // optional timeout in seconds for one queued task execution attempt (default=0, disabled). When set, timed-out tasks are marked failed.
   "redis_task_execution_timeout_sec": 0,
-  // retention for Redis task lifecycle records used for duplicate suppression (default=3600s = 1 hour)
-  "redis_task_lifecycle_ttl_sec": 3600,
-  // maximum admitted queued/running Redis stream tasks per user (0=disabled, default=0)
-  "redis_task_active_user_max": 0,
-  // maximum admitted queued/running Redis stream tasks per operation (0=disabled, default=0)
-  "redis_task_active_operation_max": 0,
   // hard maximum queued task backlog per task type before API admission rejects new work (default=10000)
   "redis_stream_task_maxlen": 10000,
   // max login attempts per IP address during login_ip_rate_limit_window_sec (0=disabled, default=0)

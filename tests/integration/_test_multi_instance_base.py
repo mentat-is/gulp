@@ -602,7 +602,6 @@ async def _assert_client_data_ws_routing(
         )
 
         soak_deadline = _large_pointer_soak_deadline()
-        targeted_seqs: list[int] = []
         msg_idx = 0
         while _continue_large_pointer_stress(msg_idx, soak_deadline):
             sender_idx = msg_idx % len(client_data_sockets)
@@ -633,13 +632,9 @@ async def _assert_client_data_ws_routing(
                 "client_data targeted message:",
                 {
                     "kind": targeted_kind,
-                    "seq": targeted_msg.get("seq"),
                     "blob_len": len(targeted_msg["payload"]["data"]["blob"]),
                 },
             )
-            assert isinstance(targeted_msg.get("seq"), int)
-            assert targeted_msg["seq"] > 0
-            targeted_seqs.append(targeted_msg["seq"])
             assert (
                 targeted_msg["payload"]["data"]["blob"]
                 == _LARGE_CLIENT_DATA_BLOB
@@ -649,11 +644,9 @@ async def _assert_client_data_ws_routing(
                     continue
                 await _assert_no_client_data(ws, timeout=0.2)
             msg_idx += 1
-        assert targeted_seqs == sorted(targeted_seqs)
 
         await _assert_no_client_data(default_probe)
 
-        broadcast_seqs: list[int] = []
         msg_idx = 0
         while _continue_large_pointer_stress(msg_idx, soak_deadline):
             sender_idx = msg_idx % len(client_data_sockets)
@@ -668,7 +661,6 @@ async def _assert_client_data_ws_routing(
                 },
             }
             await client_data_sockets[sender_idx].send(json.dumps(broadcast_payload))
-            broadcast_seq: int | None = None
             for ws in client_data_sockets:
                 broadcast_msg = await _assert_client_data_message(
                     ws,
@@ -679,24 +671,14 @@ async def _assert_client_data_ws_routing(
                     "client_data broadcast message:",
                     {
                         "kind": broadcast_kind,
-                        "seq": broadcast_msg.get("seq"),
                         "blob_len": len(broadcast_msg["payload"]["data"]["blob"]),
                     },
                 )
-                assert isinstance(broadcast_msg.get("seq"), int)
-                assert broadcast_msg["seq"] > 0
                 assert (
                     broadcast_msg["payload"]["data"]["blob"]
                     == _LARGE_CLIENT_DATA_BLOB
                 )
-                if broadcast_seq is None:
-                    broadcast_seq = broadcast_msg["seq"]
-                else:
-                    assert broadcast_msg["seq"] == broadcast_seq
-            assert broadcast_seq is not None
-            broadcast_seqs.append(broadcast_seq)
             msg_idx += 1
-        assert broadcast_seqs == sorted(broadcast_seqs)
         await _assert_no_client_data(default_probe)
     finally:
         for ws in client_data_sockets:

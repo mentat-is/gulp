@@ -48,9 +48,8 @@ transport for task lifecycle events; add any new lifecycle messages through
 Useful log patterns during incidents:
 
 - `queue full`, `TaskQueueFullError`, or HTTP `503`: admission pressure.
-- `dead-letter`: failed task or malformed task payload retained for inspection.
-- `duplicate_running`: a duplicate delivery was suppressed by lifecycle state.
-- `side-effect lease`: duplicate task side effects were suppressed.
+- `outcome="failed"` in task transition metrics: task handler failure.
+- `stale_pending`: an abandoned Redis stream task was dropped.
 - `payload pointer`: Redis pub/sub large-payload pointer resolution.
 - `queue full for ws` or websocket enqueue timeout: client is not draining.
 - `ws ingest`: raw websocket ingest stream creation, pressure, or cleanup.
@@ -63,12 +62,18 @@ Primary metrics:
 - `gulp_redis_task_stream_pending{task_type}`
 - `gulp_redis_task_oldest_queued_age_seconds{task_type}`
 - `gulp_redis_task_oldest_pending_age_seconds{task_type}`
-- `gulp_redis_task_running{server_id,task_type}`
-- `gulp_redis_task_dead_letter_depth{task_type}`
-- `gulp_redis_task_active_reservations{scope}`
 - `gulp_redis_task_transition_total{action,task_type,outcome}`
-- `gulp_redis_task_execution_duration_seconds{task_type,outcome}`
+- `gulp_request_stats_ongoing{scope,entity_id}`
+- `gulp_request_stats_ongoing_by_type{req_type}`
+- `gulp_request_stats_oldest_ongoing_age_seconds{req_type}`
+- `gulp_request_stats_stale_ongoing{req_type}`
+- `gulp_request_stats_finished_recent{req_type,status}`
 - `gulp_api_request_rejected_total{endpoint,reason,task_type,scope}`
+
+When Prometheus scrapes multiple gULP instances, aggregate local process metrics
+with `sum(...)` and cluster-global Redis/PostgreSQL state gauges with
+`max(...)`. Task queue depth and request stats are read from shared backends by
+each instance, so summing those gauges double-counts.
 
 Quick Prometheus queries:
 
@@ -80,20 +85,30 @@ curl -G http://localhost:9090/api/v1/query \
 curl -G http://localhost:9090/api/v1/query \
   --data-urlencode 'query=rate(gulp_api_request_rejected_total[5m])'
 curl -G http://localhost:9090/api/v1/query \
-  --data-urlencode 'query=gulp_redis_task_dead_letter_depth'
+  --data-urlencode 'query=rate(gulp_redis_task_transition_total{action="failure",outcome="failed"}[5m])'
+curl -G http://localhost:9090/api/v1/query \
+  --data-urlencode 'query=gulp_request_stats_ongoing'
+curl -G http://localhost:9090/api/v1/query \
+  --data-urlencode 'query=gulp_request_stats_oldest_ongoing_age_seconds'
+curl -G http://localhost:9090/api/v1/query \
+  --data-urlencode 'query=gulp_request_stats_finished_recent'
 ~~~
 
 Triage rules:
 
-- High queued depth with low running count usually means not enough eligible
-  workers, too narrow `instance_roles`, or workers cannot reach dependencies.
-- High pending age with live running owners usually means long-running work; use
-  task duration histograms before assuming a stuck task.
-- High pending age with no corresponding live running owner points to worker
-  failure; inspect `duplicate_running` and side-effect lease logs.
-- Dead-letter growth means failed tasks or invalid payloads are being produced;
-  inspect the request stats row for the affected `req_id` and the `MutyLogger`
-  exception at the first failure.
+- High queued depth usually means not enough eligible workers, too narrow
+  `instance_roles`, or workers cannot reach dependencies.
+- High pending age means work is long-running or the worker stopped refreshing
+  its Redis stream lease; stale pending cleanup drops abandoned entries.
+- Failed task growth means handlers are failing; inspect the PostgreSQL request
+  stats row for the affected `req_id` and the `MutyLogger` exception.
+- High `gulp_request_stats_ongoing{scope="user"}` or `{scope="operation"}`
+  means PostgreSQL has many active user-visible requests for that owner.
+- High `gulp_request_stats_oldest_ongoing_age_seconds` or non-zero
+  `gulp_request_stats_stale_ongoing` means PostgreSQL still sees old active
+  user-visible requests; inspect the stats rows and task logs before retrying.
+- `gulp_request_stats_finished_recent{status="failed"}` and
+  `{status="canceled"}` show recent terminal outcomes by request type.
 - API rejections with `scope="task_type"` mean the task-type stream reached
   `redis_stream_task_maxlen`.
 - API rejections with `scope="user"` or `scope="operation"` mean active fairness
@@ -233,8 +248,6 @@ Use this for development, demos, or a small single-tenant backend:
   "postgres_idle_in_transaction_session_timeout_ms": 30000,
   "postgres_user_session_touch_interval_ms": 60000,
   "redis_stream_task_maxlen": 1000,
-  "redis_task_active_user_max": 0,
-  "redis_task_active_operation_max": 0,
   "ws_queue_max_size": 4096,
   "ws_enqueue_timeout": 5.0,
   "ws_ingest_stream_max_entries": 1000,
@@ -265,8 +278,6 @@ PostgreSQL, and OpenSearch:
   "postgres_idle_in_transaction_session_timeout_ms": 30000,
   "postgres_user_session_touch_interval_ms": 60000,
   "redis_stream_task_maxlen": 10000,
-  "redis_task_active_user_max": 50,
-  "redis_task_active_operation_max": 100,
   "redis_task_lease_refresh_interval_ms": 20000,
   "ws_queue_max_size": 8192,
   "ws_enqueue_timeout": 5.0,
@@ -295,10 +306,7 @@ Use this only with measured backend capacity and active alerting:
   "postgres_idle_in_transaction_session_timeout_ms": 30000,
   "postgres_user_session_touch_interval_ms": 60000,
   "redis_stream_task_maxlen": 50000,
-  "redis_task_active_user_max": 100,
-  "redis_task_active_operation_max": 250,
   "redis_task_lease_refresh_interval_ms": 30000,
-  "redis_task_lifecycle_ttl_sec": 86400,
   "ws_queue_max_size": 16384,
   "ws_enqueue_timeout": 10.0,
   "ws_ingest_stream_max_entries": 5000,
@@ -324,9 +332,9 @@ Use these as initial alert conditions, then tune thresholds from production
 traffic:
 
 - `gulp_redis_task_oldest_queued_age_seconds > 300` for 10 minutes.
-- `gulp_redis_task_oldest_pending_age_seconds > 900` with no matching live
-  `gulp_redis_task_running` owner.
-- `gulp_redis_task_dead_letter_depth > 0`.
+- `gulp_redis_task_oldest_pending_age_seconds > 900`.
+- `gulp_request_stats_stale_ongoing > 0`.
+- `rate(gulp_redis_task_transition_total{action="failure",outcome="failed"}[5m]) > 0`.
 - `rate(gulp_api_request_rejected_total[5m]) > 0` outside expected load tests.
 - `rate(gulp_ws_enqueue_timeout_total[5m]) > 0`.
 - `rate(gulp_ws_payload_pointer_resolve_total{outcome=~"missing|error"}[5m]) > 0`.

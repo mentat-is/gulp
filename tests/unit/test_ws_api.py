@@ -313,55 +313,6 @@ def test_wsdata_check_type_in_broadcast_types():
 
 
 @pytest.mark.unit
-def test_redis_broker_assigns_scoped_ws_sequence_numbers():
-    GulpRedisBroker._instance = None
-    broker = GulpRedisBroker.get_instance()
-    first = GulpWsData(
-        timestamp=1,
-        type="stats_update",
-        origin_server_id="server-a",
-        operation_id="op-1",
-        req_id="req-1",
-        ws_id="ws-1",
-    )
-    second = GulpWsData(
-        timestamp=2,
-        type="stats_update",
-        origin_server_id="server-a",
-        operation_id="op-1",
-        req_id="req-1",
-        ws_id="ws-1",
-    )
-    different_request = GulpWsData(
-        timestamp=3,
-        type="stats_update",
-        origin_server_id="server-a",
-        operation_id="op-1",
-        req_id="req-2",
-        ws_id="ws-1",
-    )
-    forwarded = GulpWsData(
-        timestamp=4,
-        type="stats_update",
-        origin_server_id="server-b",
-        operation_id="op-1",
-        req_id="req-forwarded",
-        ws_id="ws-1",
-        seq=42,
-    )
-
-    broker._assign_sequence(first)
-    broker._assign_sequence(second)
-    broker._assign_sequence(different_request)
-    broker._assign_sequence(forwarded)
-
-    assert first.seq == 1
-    assert second.seq == 2
-    assert different_request.seq == 1
-    assert forwarded.seq == 42
-
-
-@pytest.mark.unit
 def test_gulp_connected_sockets_cache_and_queue_utilization():
     # reset singleton to avoid pollution
     GulpConnectedSockets._instance = None
@@ -1065,7 +1016,6 @@ async def test_redis_broker_client_data_pointer_resolves_without_deleting_chunks
     resolved_message = {
         "@timestamp": 123,
         "type": "client_data",
-        "seq": 7,
         "operation_id": "op-client-data",
         "payload": {
             "operation_id": "op-client-data",
@@ -1140,7 +1090,6 @@ async def test_redis_broker_client_data_pointer_resolves_without_deleting_chunks
     target_socket.enqueue_message.assert_awaited_once()
     routed_message = target_socket.enqueue_message.await_args.args[0]
     assert routed_message["payload"]["data"]["blob"] == "x" * 1024
-    assert routed_message["seq"] == 7
     other_socket.enqueue_message.assert_not_awaited()
     default_socket.enqueue_message.assert_not_awaited()
     assert "client-data-payload:0" in fake_redis._redis._data
@@ -1159,7 +1108,6 @@ async def test_redis_broker_local_client_data_pointer_keeps_chunks(
     resolved_message = {
         "@timestamp": 123,
         "type": "client_data",
-        "seq": 8,
         "operation_id": "op-client-data-local",
         "payload": {
             "operation_id": "op-client-data-local",
@@ -1228,7 +1176,6 @@ async def test_redis_broker_local_client_data_pointer_keeps_chunks(
     target_socket.enqueue_message.assert_awaited_once()
     routed_message = target_socket.enqueue_message.await_args.args[0]
     assert routed_message["payload"]["data"]["blob"] == "y" * 1024
-    assert routed_message["seq"] == 8
     other_socket.enqueue_message.assert_not_awaited()
     assert "client-data-local-payload:0" in fake_redis._redis._data
     assert "client-data-local-payload:1" in fake_redis._redis._data

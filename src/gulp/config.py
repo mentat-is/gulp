@@ -1214,7 +1214,7 @@ class GulpConfig:
 
     def redis_task_autoclaim_idle_ms(self) -> int:
         """
-        Returns idle time before stale pending Redis stream tasks can be reclaimed.
+        Returns idle time before stale pending Redis stream tasks are dropped.
 
         Default: 60000 (60 seconds)
         """
@@ -1227,30 +1227,6 @@ class GulpConfig:
         Default: 0 (disabled)
         """
         return self._config.get("redis_task_execution_timeout_sec", 0)
-
-    def redis_task_lifecycle_ttl_sec(self) -> int:
-        """
-        Returns retention for Redis task lifecycle records.
-
-        Default: 3600 (1 hour)
-        """
-        return self._config.get("redis_task_lifecycle_ttl_sec", 3600)
-
-    def redis_task_active_user_max(self) -> int:
-        """
-        Returns maximum active Redis stream tasks admitted per user.
-
-        Default: 0 (disabled)
-        """
-        return self._config.get("redis_task_active_user_max", 0)
-
-    def redis_task_active_operation_max(self) -> int:
-        """
-        Returns maximum active Redis stream tasks admitted per operation.
-
-        Default: 0 (disabled)
-        """
-        return self._config.get("redis_task_active_operation_max", 0)
 
     def redis_stream_task_maxlen(self) -> int:
         """

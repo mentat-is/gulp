@@ -260,6 +260,7 @@ RESULT_DETAIL=""
 PYTEST_EXIT=""
 START_TS="$(date +%s)"
 PHASE="initializing"
+TIMEOUT_PATTERN='TimeoutError|timed out|timeout:|Condition not met within timeout|did not .* within [0-9]+([.][0-9]+)?s'
 
 print_summary() {
   local status="$1"
@@ -290,9 +291,9 @@ print_summary() {
   echo "  tests:"
   printf '    - %s\n' "${TEST_FILES[@]}"
 
-  if [[ -n "$TEST_LOG" && -s "$TEST_LOG" ]] && grep -Eiq 'timeout|timed out|TimeoutError' "$TEST_LOG"; then
+  if [[ -n "$TEST_LOG" && -s "$TEST_LOG" ]] && grep -Eiq "$TIMEOUT_PATTERN" "$TEST_LOG"; then
     echo "  timeout_indicators:"
-    grep -Ein 'timeout|timed out|TimeoutError' "$TEST_LOG" | tail -n 20 | sed 's/^/    /'
+    grep -Ein "$TIMEOUT_PATTERN" "$TEST_LOG" | tail -n 20 | sed 's/^/    /'
   fi
 }
 
@@ -370,7 +371,7 @@ PYTEST_EXIT="${PIPESTATUS[0]}"
 set -e
 
 if [[ "$PYTEST_EXIT" -ne 0 ]]; then
-  if [[ "$PYTEST_EXIT" -eq 124 ]] || grep -Eiq 'timeout|timed out|TimeoutError' "$TEST_LOG"; then
+  if [[ "$PYTEST_EXIT" -eq 124 ]] || grep -Eiq "$TIMEOUT_PATTERN" "$TEST_LOG"; then
     RESULT_STATUS="timeout"
     RESULT_DETAIL="pytest failed with timeout indicators"
   else

@@ -265,20 +265,6 @@ class _FakeLabeledCounter:
         return _Child()
 
 
-class _FakeLabeledHistogram:
-    def __init__(self):
-        self.calls: list[tuple[dict[str, str], float]] = []
-
-    def labels(self, **labels):
-        parent = self
-
-        class _Child:
-            def observe(self, value: float):
-                parent.calls.append((labels, value))
-
-        return _Child()
-
-
 @pytest.fixture(autouse=True)
 def _reset_redis_singleton():
     GulpRedis._instance = None
@@ -289,23 +275,17 @@ def _reset_redis_singleton():
 @pytest.fixture
 def task_transition_counter(monkeypatch):
     counter = _FakeLabeledCounter()
-    histogram = _FakeLabeledHistogram()
     monkeypatch.setattr(
         redis_api_module.GulpMetrics,
         "redis_task_transition_total",
         counter,
     )
     monkeypatch.setattr(
-        redis_api_module.GulpMetrics,
-        "redis_task_execution_duration_seconds",
-        histogram,
-    )
-    monkeypatch.setattr(
         redis_api_module.GulpConfig,
         "get_instance",
         lambda: _FakePrometheusConfig(),
     )
-    return counter, histogram
+    return counter
 
 
 @pytest.fixture
@@ -348,7 +328,7 @@ async def test_task_enqueue_rejects_when_queue_depth_hits_limit(monkeypatch):
     assert exc_info.value.task_type == "query"
     assert exc_info.value.queue_depth == 3
     assert exc_info.value.queue_limit == 3
-    assert exc_info.value.work_units == 2
+    assert exc_info.value.work_units == 1
     assert fake_redis.xlen_calls == ["gulp:stream:tasks:query"]
     assert fake_redis.xadd_calls == []
     assert fake_redis.sadd_calls == []
@@ -386,259 +366,6 @@ async def test_task_enqueue_queue_full_uses_fixed_wait_hint(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_task_enqueue_records_queued_lifecycle():
-    redis_client = GulpRedis.get_instance()
-    fake_redis = _FakeTaskRedisClient()
-    redis_client._redis = fake_redis
-    redis_client.server_id = "server-a"
-
-    task = {
-        "task_type": "query",
-        "operation_id": "op-queued",
-        "user_id": "user-queued",
-        "ws_id": "ws-queued",
-        "req_id": "req-queued",
-        "params": {},
-    }
-
-    await redis_client.task_enqueue(task)
-
-    lifecycle = fake_redis.hashes["gulp:task:lifecycle:req-queued"]
-    assert lifecycle["status"] == "queued"
-    assert lifecycle["task_type"] == "query"
-    assert lifecycle["operation_id"] == "op-queued"
-    assert fake_redis.expire_calls[-1] == (
-        "gulp:task:lifecycle:req-queued",
-        GulpRedis.TASK_LIFECYCLE_TTL_SEC,
-    )
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_task_enqueue_rejects_when_user_active_limit_hits(monkeypatch):
-    redis_client = GulpRedis.get_instance()
-    fake_redis = _FakeTaskRedisClient()
-    redis_client._redis = fake_redis
-    redis_client.server_id = "server-a"
-    monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_USER_MAX", 1)
-    fake_redis.hashes[GulpRedis.TASK_ACTIVE_USER_HASH] = {"user-1": "1"}
-
-    task = {
-        "task_type": "query",
-        "operation_id": "op-1",
-        "user_id": "user-1",
-        "ws_id": "ws-1",
-        "req_id": "req-user-limit",
-        "params": {},
-    }
-
-    with pytest.raises(TaskQueueFullError) as exc_info:
-        await redis_client.task_enqueue(task)
-
-    assert exc_info.value.scope == "user"
-    assert exc_info.value.queue_depth == 1
-    assert exc_info.value.queue_limit == 1
-    assert exc_info.value.retry_after_msec == 1000
-    assert fake_redis.xadd_calls == []
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_task_enqueue_rejects_when_operation_active_limit_hits(monkeypatch):
-    redis_client = GulpRedis.get_instance()
-    fake_redis = _FakeTaskRedisClient()
-    redis_client._redis = fake_redis
-    redis_client.server_id = "server-a"
-    monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_OPERATION_MAX", 2)
-    fake_redis.hashes[GulpRedis.TASK_ACTIVE_OPERATION_HASH] = {"op-1": "2"}
-
-    task = {
-        "task_type": "query",
-        "operation_id": "op-1",
-        "user_id": "user-2",
-        "ws_id": "ws-2",
-        "req_id": "req-operation-limit",
-        "params": {},
-    }
-
-    with pytest.raises(TaskQueueFullError) as exc_info:
-        await redis_client.task_enqueue(task)
-
-    assert exc_info.value.scope == "operation"
-    assert exc_info.value.queue_depth == 2
-    assert exc_info.value.queue_limit == 2
-    assert fake_redis.xadd_calls == []
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_task_enqueue_reserves_and_releases_query_work_units(monkeypatch):
-    redis_client = GulpRedis.get_instance()
-    fake_redis = _FakeTaskRedisClient()
-    redis_client._redis = fake_redis
-    redis_client.server_id = "server-a"
-    monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_USER_MAX", 5)
-
-    task = {
-        "task_type": "query",
-        "operation_id": "op-work-units",
-        "user_id": "user-work-units",
-        "ws_id": "ws-work-units",
-        "req_id": "req-work-units",
-        "__redis_stream__": "gulp:stream:tasks:query",
-        "__redis_message_id__": "1-0",
-        "params": {
-            "total_num_queries": 3,
-            "queries": [{"query": {"match_all": {}}}],
-        },
-    }
-
-    await redis_client.task_enqueue(task)
-
-    lifecycle = fake_redis.hashes["gulp:task:lifecycle:req-work-units"]
-    assert fake_redis.hashes[GulpRedis.TASK_ACTIVE_USER_HASH]["user-work-units"] == "3"
-    assert lifecycle["active_user_units"] == "3"
-
-    with pytest.raises(TaskQueueFullError) as exc_info:
-        await redis_client.task_enqueue(
-            {
-                **task,
-                "req_id": "req-work-units-too-large",
-                "__redis_message_id__": "2-0",
-            }
-        )
-
-    assert exc_info.value.scope == "user"
-    assert exc_info.value.queue_depth == 3
-    assert exc_info.value.queue_limit == 5
-    assert exc_info.value.work_units == 3
-
-    assert await redis_client.task_claim_execution(task) == "claimed"
-    await redis_client.task_mark_succeeded(task)
-    assert "user-work-units" not in fake_redis.hashes[GulpRedis.TASK_ACTIVE_USER_HASH]
-
-
-@pytest.mark.unit
-def test_task_work_units_calibrates_endpoint_costs():
-    assert (
-        GulpRedis._task_work_units(
-            {
-                "task_type": "query",
-                "params": {
-                    "queries": [{"query": {"match_all": {}}}],
-                    "q_options": {"limit": 10000, "highlight_results": True},
-                },
-            }
-        )
-        == 3
-    )
-    assert (
-        GulpRedis._task_work_units(
-            {
-                "task_type": "external_query",
-                "params": {
-                    "queries": [{"query": {"match_all": {}}}],
-                    "plugin": "query_elasticsearch",
-                },
-            }
-        )
-        == 2
-    )
-    assert (
-        GulpRedis._task_work_units(
-            {
-                "task_type": "ingest",
-                "params": {
-                    "file_total": 2,
-                    "file_size": 300 * 1024 * 1024,
-                    "payload": {"plugin_params": {"store_file": True}},
-                },
-            }
-        )
-        == 4
-    )
-    assert GulpRedis._task_work_units(
-        {
-            "task_type": "rebase",
-            "params": {"fields": ["event.code"], "flt": {}},
-        }
-    ) > GulpRedis._task_work_units(
-        {
-            "task_type": "rebase",
-            "params": {
-                "fields": ["event.code"],
-                "flt": {"source_id": ["source-1"]},
-            },
-        }
-    )
-    assert GulpRedis._task_work_units(
-        {
-            "task_type": "enrich",
-            "params": {
-                "action": "enrich_documents",
-                "fields": {"source.ip": None, "destination.ip": None},
-                "plugin": "enrich_whois",
-                "flt": {},
-            },
-        }
-    ) > GulpRedis._task_work_units(
-        {
-            "task_type": "enrich",
-            "params": {
-                "action": "update_documents",
-                "data": {"field": "value"},
-                "flt": {"source_ids": ["source-1"]},
-            },
-        }
-    )
-    assert (
-        GulpRedis._task_work_units(
-            {
-                "task_type": "enrich",
-                "params": {
-                    "action": "enrich_remove",
-                    "remove_fields": ["gulp.enriched", "threat.indicator"],
-                    "flt": {"operation_ids": ["op-1"]},
-                },
-            }
-        )
-        >= 3
-    )
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_task_success_releases_active_user_and_operation_slots(monkeypatch):
-    redis_client = GulpRedis.get_instance()
-    fake_redis = _FakeTaskRedisClient()
-    redis_client._redis = fake_redis
-    redis_client.server_id = "server-a"
-    monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_USER_MAX", 2)
-    monkeypatch.setattr(GulpRedis, "TASK_ACTIVE_OPERATION_MAX", 2)
-
-    task = {
-        "task_type": "query",
-        "operation_id": "op-release",
-        "user_id": "user-release",
-        "ws_id": "ws-release",
-        "req_id": "req-release",
-        "__redis_stream__": "gulp:stream:tasks:query",
-        "__redis_message_id__": "1-0",
-        "params": {},
-    }
-
-    await redis_client.task_enqueue(task)
-    assert fake_redis.hashes[GulpRedis.TASK_ACTIVE_USER_HASH]["user-release"] == "1"
-    assert fake_redis.hashes[GulpRedis.TASK_ACTIVE_OPERATION_HASH]["op-release"] == "1"
-    assert await redis_client.task_claim_execution(task) == "claimed"
-    await redis_client.task_mark_succeeded(task)
-
-    assert "user-release" not in fake_redis.hashes[GulpRedis.TASK_ACTIVE_USER_HASH]
-    assert "op-release" not in fake_redis.hashes[GulpRedis.TASK_ACTIVE_OPERATION_HASH]
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
 async def test_task_metrics_snapshot_reports_queue_operator_state():
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
@@ -646,37 +373,9 @@ async def test_task_metrics_snapshot_reports_queue_operator_state():
     redis_client.server_id = "server-a"
     fake_redis.known_task_types.add("query")
     fake_redis.stream_depths["gulp:stream:tasks:query"] = 7
-    fake_redis.stream_depths["gulp:stream:tasks:dead:query"] = 2
     fake_redis.stream_first_ids["gulp:stream:tasks:query"] = "1000000-0"
     fake_redis.pending_counts["gulp:stream:tasks:query"] = 3
     fake_redis.pending_min_ids["gulp:stream:tasks:query"] = "1000500-0"
-    fake_redis.hashes[GulpRedis.TASK_ACTIVE_USER_HASH] = {
-        "user-a": "2",
-        "user-b": "1",
-    }
-    fake_redis.hashes[GulpRedis.TASK_ACTIVE_OPERATION_HASH] = {
-        "op-a": "4",
-    }
-    fake_redis.hashes["gulp:task:lifecycle:req-running-a"] = {
-        "status": "running",
-        "server_id": "server-a",
-        "task_type": "query",
-    }
-    fake_redis.hashes["gulp:task:lifecycle:req-running-b"] = {
-        "status": "running",
-        "server_id": "server-a",
-        "task_type": "query",
-    }
-    fake_redis.hashes["gulp:task:lifecycle:req-running-c"] = {
-        "status": "running",
-        "server_id": "server-b",
-        "task_type": "ingest",
-    }
-    fake_redis.hashes["gulp:task:lifecycle:req-succeeded"] = {
-        "status": "succeeded",
-        "server_id": "server-a",
-        "task_type": "query",
-    }
 
     original_time = redis_api_module.time.time
     redis_api_module.time.time = lambda: 1002.0
@@ -690,29 +389,16 @@ async def test_task_metrics_snapshot_reports_queue_operator_state():
             "query": {
                 "queued": 7,
                 "pending": 3,
-                "dead_lettered": 2,
                 "oldest_queued_age_msec": 2000,
                 "oldest_pending_age_msec": 1500,
             }
-        },
-        "active": {
-            "user": 3,
-            "operation": 4,
-        },
-        "running": {
-            "server-a": {
-                "query": 2,
-            },
-            "server-b": {
-                "ingest": 1,
-            },
         },
     }
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_task_autoclaim_stale_reclaims_pending_messages(task_transition_counter):
+async def test_task_drop_stale_pending_deletes_pending_messages(task_transition_counter):
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
     redis_client._redis = fake_redis
@@ -725,28 +411,31 @@ async def test_task_autoclaim_stale_reclaims_pending_messages(task_transition_co
                 b"data": orjson.dumps(
                     {
                         "task_type": "query",
-                        "operation_id": "op-reclaim",
-                        "req_id": "req-reclaim",
+                        "operation_id": "op-stale",
+                        "req_id": "req-stale",
                     }
                 )
             },
         )
     ]
 
-    reclaimed = await redis_client.task_autoclaim_stale()
+    dropped = await redis_client.task_drop_stale_pending()
 
-    assert reclaimed == [
+    assert dropped == [
         {
             "task_type": "query",
-            "operation_id": "op-reclaim",
-            "req_id": "req-reclaim",
+            "operation_id": "op-stale",
+            "req_id": "req-stale",
             "__redis_stream__": "gulp:stream:tasks:query",
             "__redis_message_id__": "10-0",
             "__redis_consumer_group__": GulpRedis.STREAM_CONSUMER_GROUP,
             "__redis_consumer_name__": "server-b",
-            "__redis_autoclaimed__": True,
         }
     ]
+    assert fake_redis.xack_calls == [
+        ("gulp:stream:tasks:query", GulpRedis.STREAM_CONSUMER_GROUP, "10-0")
+    ]
+    assert fake_redis.xdel_calls == [("gulp:stream:tasks:query", "10-0")]
     args, kwargs = fake_redis.xautoclaim_calls[0]
     assert args[:3] == (
         "gulp:stream:tasks:query",
@@ -754,12 +443,12 @@ async def test_task_autoclaim_stale_reclaims_pending_messages(task_transition_co
         "server-b",
     )
     assert kwargs["min_idle_time"] == GulpRedis.TASK_AUTOCLAIM_IDLE_MS
-    counter, _ = task_transition_counter
+    counter = task_transition_counter
     assert (
         {
-            "action": "autoclaim",
+            "action": "stale_pending",
             "task_type": "query",
-            "outcome": "reclaimed",
+            "outcome": "dropped",
         },
         1,
     ) in counter.calls
@@ -767,73 +456,10 @@ async def test_task_autoclaim_stale_reclaims_pending_messages(task_transition_co
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_task_transition_metrics_cover_success_lifecycle(
+async def test_task_transition_metrics_cover_failed_task(
     task_transition_counter,
 ):
-    transition_counter, duration_histogram = task_transition_counter
-    redis_client = GulpRedis.get_instance()
-    fake_redis = _FakeTaskRedisClient()
-    redis_client._redis = fake_redis
-    redis_client.server_id = "server-a"
-
-    task = {
-        "task_type": "query",
-        "operation_id": "op-metrics",
-        "user_id": "user-metrics",
-        "ws_id": "ws-metrics",
-        "req_id": "req-metrics",
-        "params": {},
-    }
-    envelope = {
-        **task,
-        "__redis_stream__": "gulp:stream:tasks:query",
-        "__redis_message_id__": "1-0",
-        "__redis_consumer_name__": "server-a",
-    }
-
-    await redis_client.task_enqueue(task)
-    assert await redis_client.task_claim_execution(envelope) == "claimed"
-    fake_redis.hashes["gulp:task:lifecycle:req-metrics"]["started_at_msec"] = "1000"
-    original_time = redis_api_module.time.time
-    redis_api_module.time.time = lambda: 2.5
-    try:
-        await redis_client.task_mark_succeeded(envelope)
-    finally:
-        redis_api_module.time.time = original_time
-    await redis_client.task_ack_delete(envelope)
-
-    assert (
-        {"action": "record_queued", "task_type": "query", "outcome": "queued"},
-        1,
-    ) in transition_counter.calls
-    assert (
-        {"action": "enqueue", "task_type": "query", "outcome": "queued"},
-        1,
-    ) in transition_counter.calls
-    assert (
-        {"action": "claim", "task_type": "query", "outcome": "claimed"},
-        1,
-    ) in transition_counter.calls
-    assert (
-        {"action": "succeed", "task_type": "query", "outcome": "succeeded"},
-        1,
-    ) in transition_counter.calls
-    assert (
-        {"action": "ack_delete", "task_type": "query", "outcome": "success"},
-        1,
-    ) in transition_counter.calls
-    assert (
-        {"task_type": "query", "outcome": "succeeded"},
-        1.5,
-    ) in duration_histogram.calls
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_task_transition_metrics_cover_dead_letter(
-    task_transition_counter,
-):
-    transition_counter, duration_histogram = task_transition_counter
+    transition_counter = task_transition_counter
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
     redis_client._redis = fake_redis
@@ -848,35 +474,12 @@ async def test_task_transition_metrics_cover_dead_letter(
         "__redis_consumer_name__": "server-a",
     }
 
-    assert await redis_client.task_claim_execution(task) == "claimed"
-    fake_redis.hashes["gulp:task:lifecycle:req-dead-metrics"][
-        "started_at_msec"
-    ] = "1000"
-    original_time = redis_api_module.time.time
-    redis_api_module.time.time = lambda: 3.0
-    try:
-        assert (
-            await redis_client.task_fail_dead_letter(
-                task,
-                "terminal failure",
-            )
-            == "dead_letter"
-        )
-    finally:
-        redis_api_module.time.time = original_time
+    assert await redis_client.task_mark_failed(task, "terminal failure") == "failed"
 
     assert (
-        {"action": "failure", "task_type": "query", "outcome": "dead_letter"},
+        {"action": "failure", "task_type": "query", "outcome": "failed"},
         1,
     ) in transition_counter.calls
-    assert (
-        {"action": "dead_letter", "task_type": "query", "outcome": "written"},
-        1,
-    ) in transition_counter.calls
-    assert (
-        {"task_type": "query", "outcome": "dead_letter"},
-        2.0,
-    ) in duration_histogram.calls
 
 
 @pytest.mark.unit
@@ -1054,136 +657,11 @@ def test_login_ip_throttle_response_includes_wait_guidance(api_rejection_counter
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_task_claim_execution_suppresses_duplicate_stream_delivery():
+async def test_task_mark_failed_ack_deletes_message():
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
     redis_client._redis = fake_redis
     redis_client.server_id = "server-a"
-
-    first = {
-        "task_type": "query",
-        "operation_id": "op-claim",
-        "req_id": "req-claim",
-        "__redis_stream__": "gulp:stream:tasks:query",
-        "__redis_message_id__": "1-0",
-    }
-    duplicate = {
-        **first,
-        "__redis_message_id__": "2-0",
-    }
-
-    assert await redis_client.task_claim_execution(first) == "claimed"
-    assert await redis_client.task_claim_execution(duplicate) == "duplicate_running"
-    lifecycle = fake_redis.hashes["gulp:task:lifecycle:req-claim"]
-    assert lifecycle["status"] == "running"
-    assert lifecycle["message_id"] == "1-0"
-    assert lifecycle["side_effect_lock"] == redis_client._task_lock_value(first)
-    assert fake_redis.strings[
-        "gulp:task:side_effect_lock:req-claim"
-    ] == redis_client._task_lock_value(first)
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_task_claim_execution_skips_terminal_stream_delivery():
-    redis_client = GulpRedis.get_instance()
-    fake_redis = _FakeTaskRedisClient()
-    redis_client._redis = fake_redis
-    redis_client.server_id = "server-a"
-    fake_redis.hashes["gulp:task:lifecycle:req-terminal"] = {
-        "status": "succeeded",
-    }
-
-    task = {
-        "task_type": "query",
-        "operation_id": "op-terminal",
-        "req_id": "req-terminal",
-        "__redis_stream__": "gulp:stream:tasks:query",
-        "__redis_message_id__": "3-0",
-    }
-
-    assert await redis_client.task_claim_execution(task) == "terminal"
-    assert fake_redis.strings == {}
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_task_mark_succeeded_preserves_canceled_lifecycle():
-    redis_client = GulpRedis.get_instance()
-    fake_redis = _FakeTaskRedisClient()
-    redis_client._redis = fake_redis
-    redis_client.server_id = "server-a"
-    task = {
-        "task_type": "query",
-        "operation_id": "op-canceled",
-        "req_id": "req-canceled",
-        "__redis_stream__": "gulp:stream:tasks:query",
-        "__redis_message_id__": "4-0",
-    }
-    fake_redis.hashes["gulp:task:lifecycle:req-canceled"] = {
-        "status": "canceled",
-        "task_type": "query",
-        "operation_id": "op-canceled",
-    }
-    fake_redis.strings["gulp:task:execution_lock:req-canceled"] = (
-        redis_client._task_lock_value(task)
-    )
-    fake_redis.strings["gulp:task:side_effect_lock:req-canceled"] = (
-        redis_client._task_lock_value(task)
-    )
-
-    await redis_client.task_mark_succeeded(task)
-
-    lifecycle = fake_redis.hashes["gulp:task:lifecycle:req-canceled"]
-    assert lifecycle["status"] == "canceled"
-    assert fake_redis.delete_calls == [
-        "gulp:task:execution_lock:req-canceled",
-        "gulp:task:side_effect_lock:req-canceled",
-    ]
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_task_mark_succeeded_finalizes_when_execution_lock_expired():
-    redis_client = GulpRedis.get_instance()
-    fake_redis = _FakeTaskRedisClient()
-    redis_client._redis = fake_redis
-    redis_client.server_id = "server-a"
-    task = {
-        "task_type": "ingest",
-        "operation_id": "op-expired-lock",
-        "req_id": "req-expired-lock",
-        "__redis_stream__": "gulp:stream:tasks:ingest",
-        "__redis_message_id__": "6-0",
-    }
-    fake_redis.hashes["gulp:task:lifecycle:req-expired-lock"] = {
-        "status": "running",
-        "task_type": "ingest",
-        "operation_id": "op-expired-lock",
-        "server_id": "server-a",
-        "message_id": "6-0",
-    }
-
-    await redis_client.task_mark_succeeded(task)
-
-    lifecycle = fake_redis.hashes["gulp:task:lifecycle:req-expired-lock"]
-    assert lifecycle["status"] == "succeeded"
-    assert lifecycle["finished_at_msec"]
-    assert fake_redis.delete_calls == []
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_task_fail_dead_letter_ack_deletes_canceled_lifecycle():
-    redis_client = GulpRedis.get_instance()
-    fake_redis = _FakeTaskRedisClient()
-    redis_client._redis = fake_redis
-    redis_client.server_id = "server-a"
-    fake_redis.hashes["gulp:task:lifecycle:req-canceled-failure"] = {
-        "status": "canceled",
-        "task_type": "query",
-        "operation_id": "op-canceled-failure",
-    }
     task = {
         "task_type": "query",
         "operation_id": "op-canceled-failure",
@@ -1193,57 +671,14 @@ async def test_task_fail_dead_letter_ack_deletes_canceled_lifecycle():
     }
 
     assert (
-        await redis_client.task_fail_dead_letter(task, "worker returned false")
-        == "terminal"
+        await redis_client.task_mark_failed(task, "worker returned false")
+        == "failed"
     )
     assert fake_redis.xack_calls == [
         ("gulp:stream:tasks:query", GulpRedis.STREAM_CONSUMER_GROUP, "5-0")
     ]
     assert fake_redis.xdel_calls == [("gulp:stream:tasks:query", "5-0")]
     assert fake_redis.pipeline_exec_count == 1
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_dispatcher_ack_deletes_duplicate_delivery_without_handler(monkeypatch):
-    GulpServer._instance = None
-    server = GulpServer.get_instance()
-    task = {
-        "task_type": "query",
-        "operation_id": "op-duplicate",
-        "req_id": "req-duplicate",
-        "__redis_stream__": "gulp:stream:tasks:query",
-        "__redis_message_id__": "4-0",
-    }
-    fake_redis = MagicMock()
-    fake_redis.task_claim_execution = AsyncMock(return_value="duplicate_running")
-    fake_redis.task_ack_delete = AsyncMock()
-
-    assert await server._claim_task_or_ack_duplicate(fake_redis, task) is False
-    fake_redis.task_claim_execution.assert_awaited_once_with(task)
-    fake_redis.task_ack_delete.assert_awaited_once_with(task)
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_dispatcher_leaves_autoclaimed_duplicate_pending(monkeypatch):
-    GulpServer._instance = None
-    server = GulpServer.get_instance()
-    task = {
-        "task_type": "query",
-        "operation_id": "op-duplicate",
-        "req_id": "req-duplicate",
-        "__redis_stream__": "gulp:stream:tasks:query",
-        "__redis_message_id__": "4-0",
-        "__redis_autoclaimed__": True,
-    }
-    fake_redis = MagicMock()
-    fake_redis.task_claim_execution = AsyncMock(return_value="duplicate_running")
-    fake_redis.task_ack_delete = AsyncMock()
-
-    assert await server._claim_task_or_ack_duplicate(fake_redis, task) is False
-    fake_redis.task_claim_execution.assert_awaited_once_with(task)
-    fake_redis.task_ack_delete.assert_not_awaited()
 
 
 async def _return_value(value):
@@ -1263,24 +698,20 @@ async def test_dispatch_claimed_queued_task_runs_handler_then_ack_deletes():
         "__redis_message_id__": "6-0",
     }
     fake_redis = MagicMock()
-    fake_redis.task_claim_execution = AsyncMock(return_value="claimed")
-    fake_redis.task_mark_succeeded = AsyncMock()
     fake_redis.task_ack_delete = AsyncMock()
-    fake_redis.task_fail_dead_letter = AsyncMock()
+    fake_redis.task_mark_failed = AsyncMock()
     server._run_claimed_task = MagicMock(return_value=_return_value(True))
 
     await server._dispatch_claimed_tasks(fake_redis, [task], source="queued")
 
-    fake_redis.task_claim_execution.assert_awaited_once_with(task)
     server._run_claimed_task.assert_called_once_with(task)
-    fake_redis.task_mark_succeeded.assert_awaited_once_with(task)
     fake_redis.task_ack_delete.assert_awaited_once_with(task)
-    fake_redis.task_fail_dead_letter.assert_not_awaited()
+    fake_redis.task_mark_failed.assert_not_awaited()
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_dispatch_claimed_queued_failure_dead_letters():
+async def test_dispatch_claimed_queued_failure_marks_failed():
     GulpServer._instance = None
     server = GulpServer.get_instance()
     task = {
@@ -1291,21 +722,17 @@ async def test_dispatch_claimed_queued_failure_dead_letters():
         "__redis_message_id__": "8-0",
     }
     fake_redis = MagicMock()
-    fake_redis.task_claim_execution = AsyncMock(return_value="claimed")
-    fake_redis.task_mark_succeeded = AsyncMock()
     fake_redis.task_ack_delete = AsyncMock()
-    fake_redis.task_fail_dead_letter = AsyncMock(return_value="dead_letter")
-    server._mark_dead_lettered_task_stats_failed = AsyncMock()
+    fake_redis.task_mark_failed = AsyncMock(return_value="failed")
+    server._mark_failed_task_stats_failed = AsyncMock()
     server._run_claimed_task = MagicMock(return_value=_return_value(False))
 
     await server._dispatch_claimed_tasks(fake_redis, [task], source="queued")
 
-    fake_redis.task_claim_execution.assert_awaited_once_with(task)
     server._run_claimed_task.assert_called_once_with(task)
-    fake_redis.task_mark_succeeded.assert_not_awaited()
     fake_redis.task_ack_delete.assert_not_awaited()
-    fake_redis.task_fail_dead_letter.assert_awaited_once_with(task, "False")
-    server._mark_dead_lettered_task_stats_failed.assert_awaited_once_with(
+    fake_redis.task_mark_failed.assert_awaited_once_with(task, "False")
+    server._mark_failed_task_stats_failed.assert_awaited_once_with(
         task,
         "False",
     )
@@ -1313,7 +740,7 @@ async def test_dispatch_claimed_queued_failure_dead_letters():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_dispatch_claimed_task_timeout_dead_letters():
+async def test_dispatch_claimed_task_timeout_marks_failed():
     GulpServer._instance = None
     server = GulpServer.get_instance()
     task = {
@@ -1325,10 +752,8 @@ async def test_dispatch_claimed_task_timeout_dead_letters():
         "__redis_message_id__": "9-0",
     }
     fake_redis = MagicMock()
-    fake_redis.task_claim_execution = AsyncMock(return_value="claimed")
-    fake_redis.task_mark_succeeded = AsyncMock()
     fake_redis.task_ack_delete = AsyncMock()
-    fake_redis.task_fail_dead_letter = AsyncMock(return_value="dead_letter")
+    fake_redis.task_mark_failed = AsyncMock(return_value="failed")
     fake_redis.task_refresh_lease = AsyncMock()
 
     async def _never_finishes():
@@ -1338,10 +763,8 @@ async def test_dispatch_claimed_task_timeout_dead_letters():
 
     await server._dispatch_claimed_tasks(fake_redis, [task], source="batch")
 
-    fake_redis.task_claim_execution.assert_awaited_once_with(task)
-    fake_redis.task_mark_succeeded.assert_not_awaited()
     fake_redis.task_ack_delete.assert_not_awaited()
-    fake_redis.task_fail_dead_letter.assert_awaited_once()
+    fake_redis.task_mark_failed.assert_awaited_once()
 
 
 @pytest.mark.unit
@@ -1425,7 +848,7 @@ async def test_task_dequeue_batch_preserves_envelope_without_ack_or_delete():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_task_dequeue_batch_dead_letters_invalid_payload():
+async def test_task_dequeue_batch_drops_invalid_payload():
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
     redis_client._redis = fake_redis
@@ -1442,12 +865,7 @@ async def test_task_dequeue_batch_dead_letters_invalid_payload():
     batch = await redis_client.task_dequeue_batch(10)
 
     assert batch == []
-    assert len(fake_redis.xadd_calls) == 1
-    dead_stream, dead_fields = fake_redis.xadd_calls[0]
-    assert dead_stream == "gulp:stream:tasks:dead:unknown"
-    dead_payload = orjson.loads(dead_fields["data"])
-    assert dead_payload["stream_name"] == "gulp:stream:tasks:query"
-    assert dead_payload["message_id"] == "1-0"
+    assert fake_redis.xadd_calls == []
     assert fake_redis.pipeline_calls == [False]
     assert fake_redis.xack_calls == [
         ("gulp:stream:tasks:query", GulpRedis.STREAM_CONSUMER_GROUP, "1-0")
@@ -1487,13 +905,7 @@ async def test_task_refresh_lease_resets_pending_idle_timer():
             },
         )
     ]
-    assert fake_redis.pexpire_calls == [
-        ("gulp:task:execution_lock:req-lease", redis_client._task_lock_ttl_ms()),
-        (
-            "gulp:task:side_effect_lock:req-lease",
-            redis_client._task_side_effect_lock_ttl_ms(),
-        ),
-    ]
+    assert fake_redis.pexpire_calls == []
 
 
 @pytest.mark.unit
@@ -1522,7 +934,7 @@ async def test_task_metrics_snapshot_treats_missing_consumer_group_as_zero_pendi
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_task_fail_dead_letters_immediately():
+async def test_task_mark_failed_acks_and_deletes_immediately():
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
     redis_client._redis = fake_redis
@@ -1537,20 +949,14 @@ async def test_task_fail_dead_letters_immediately():
         "__redis_consumer_name__": "server-a",
     }
 
-    assert await redis_client.task_claim_execution(task) == "claimed"
-    result = await redis_client.task_fail_dead_letter(
+    result = await redis_client.task_mark_failed(
         task,
         "handler returned False",
     )
 
-    assert result == "dead_letter"
-    assert len(fake_redis.xadd_calls) == 1
-    dead_stream, fields = fake_redis.xadd_calls[0]
-    assert dead_stream == "gulp:stream:tasks:dead:query"
-    dead_payload = orjson.loads(fields["data"])
-    assert dead_payload["reason"] == "task failed: handler returned False"
-    assert dead_payload["task"]["__task_last_error__"] == "handler returned False"
-    assert "__task_attempts__" not in dead_payload["task"]
+    assert result == "failed"
+    assert fake_redis.xadd_calls == []
+    assert fake_redis.hashes == {}
     assert fake_redis.xack_calls == [
         ("gulp:stream:tasks:query", GulpRedis.STREAM_CONSUMER_GROUP, "1-0")
     ]
@@ -1559,7 +965,7 @@ async def test_task_fail_dead_letters_immediately():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_task_dead_letter_moves_valid_payload_directly():
+async def test_task_mark_failed_handles_unknown_task_type():
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
     redis_client._redis = fake_redis
@@ -1572,16 +978,10 @@ async def test_task_dead_letter_moves_valid_payload_directly():
         "__redis_message_id__": "1-0",
     }
 
-    assert await redis_client.task_claim_execution(task) == "claimed"
-    assert await redis_client.task_dead_letter(task, "unknown task_type") is True
+    assert await redis_client.task_mark_failed(task, "unknown task_type") == "failed"
 
-    dead_stream, fields = fake_redis.xadd_calls[0]
-    assert dead_stream == "gulp:stream:tasks:dead:unknown_task"
-    dead_payload = orjson.loads(fields["data"])
-    assert dead_payload["reason"] == "unknown task_type"
-    assert dead_payload["task"]["task_type"] == "unknown_task"
-    assert dead_payload["task"]["__task_last_error__"] == "unknown task_type"
-    assert "__redis_stream__" not in dead_payload["task"]
+    assert fake_redis.xadd_calls == []
+    assert fake_redis.hashes == {}
 
 
 @pytest.mark.unit
@@ -1675,7 +1075,7 @@ async def test_dispatch_tasks_refills_free_slots_before_slow_task_finishes(monke
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_dead_lettered_task_marks_existing_request_stats_failed(monkeypatch):
+async def test_failed_task_marks_existing_request_stats_failed(monkeypatch):
     from gulp.api import server_api as server_api_module
 
     GulpServer._instance = None
@@ -1698,7 +1098,7 @@ async def test_dead_lettered_task_marks_existing_request_stats_failed(monkeypatc
         "ws_id": "ws-dead",
     }
 
-    await server._mark_dead_lettered_task_stats_failed(task, "dead-letter reason")
+    await server._mark_failed_task_stats_failed(task, "failure reason")
 
     get_by_id.assert_awaited_once_with(
         "fake-session",
@@ -1710,13 +1110,13 @@ async def test_dead_lettered_task_marks_existing_request_stats_failed(monkeypatc
         status=GulpRequestStatus.FAILED,
         user_id="user-dead",
         ws_id="ws-dead",
-        errors=["dead-letter reason"],
+        errors=["failure reason"],
     )
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_dead_lettered_task_does_not_rewrite_terminal_request_stats(monkeypatch):
+async def test_failed_task_does_not_rewrite_terminal_request_stats(monkeypatch):
     from gulp.api import server_api as server_api_module
 
     GulpServer._instance = None
@@ -1735,9 +1135,9 @@ async def test_dead_lettered_task_does_not_rewrite_terminal_request_stats(monkey
         AsyncMock(return_value=fake_stats),
     )
 
-    await server._mark_dead_lettered_task_stats_failed(
+    await server._mark_failed_task_stats_failed(
         {"task_type": "query", "req_id": "req-done"},
-        "dead-letter reason",
+        "failure reason",
     )
 
     fake_stats.set_finished.assert_not_awaited()

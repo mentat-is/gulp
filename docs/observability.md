@@ -86,9 +86,9 @@ docker compose --profile metrics restart prometheus
 ## 5) Backend runbook
 
 Prometheus provides the backend metrics, while runtime logs remain the existing
-`MutyLogger` stdout/syslog stream. For queue pressure, dead-letter tasks,
-websocket pressure, pub/sub pointer failures, and recommended backend config
-profiles, see [production_runbook.md](./production_runbook.md).
+`MutyLogger` stdout/syslog stream. For queue pressure, failed tasks, websocket
+pressure, pub/sub pointer failures, and recommended backend config profiles,
+see [production_runbook.md](./production_runbook.md).
 
 ## 6) Visualize metrics in Grafana
 
@@ -114,8 +114,9 @@ It covers:
 - gULP target health, uptime, live servers, workers, and websocket sessions
 - Prometheus target health and scrape behavior per instance
 - API request rate and latency
-- Redis task queue depth, pending work, dead letters, lifecycle transitions, and execution duration
-- task queue age, active reservations, delayed retries, recovered retries, and admission rejections
+- Redis task queue depth, pending work, task transitions, and queue age
+- PostgreSQL-backed active, stale, and recently finished request counts
+- task admission rejections and websocket/pub-sub backpressure
 - Redis pub/sub throughput and websocket queue pressure
 - Redis pub/sub bytes, subscriber counts, reconnects, subscriber errors, targeted publishes, and token bucket pressure
 - websocket connections by type, enqueue timeouts, broadcast dedup drops, and payload pointer resolution outcomes

@@ -19,25 +19,32 @@ groups:
           summary: "gULP task queue is not draining"
           description: "The oldest queued {{ $labels.task_type }} task is older than 5 minutes."
 
-      - alert: GulpTaskPendingWithoutRunningOwner
-        expr: |
-          max by (task_type) (gulp_redis_task_oldest_pending_age_seconds) > 900
-          unless on (task_type) sum by (task_type) (gulp_redis_task_running) > 0
+      - alert: GulpTaskPendingTooOld
+        expr: max by (task_type) (gulp_redis_task_oldest_pending_age_seconds) > 900
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "gULP pending task has no running owner"
-          description: "A {{ $labels.task_type }} task has been pending for more than 15 minutes without a live running owner."
+          summary: "gULP pending task is too old"
+          description: "A {{ $labels.task_type }} task has been pending for more than 15 minutes."
 
-      - alert: GulpTaskDeadLetterPresent
-        expr: max by (task_type) (gulp_redis_task_dead_letter_depth) > 0
-        for: 1m
+      - alert: GulpTaskFailures
+        expr: sum by (task_type) (rate(gulp_redis_task_transition_total{action="failure",outcome="failed"}[5m])) > 0
+        for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "gULP task dead-letter stream is non-empty"
-          description: "At least one {{ $labels.task_type }} task has reached the dead-letter stream."
+          summary: "gULP task failures"
+          description: "{{ $labels.task_type }} task handlers are failing."
+
+      - alert: GulpRequestStatsStaleOngoing
+        expr: max by (req_type) (gulp_request_stats_stale_ongoing) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "gULP request stats are stale"
+          description: "{{ $labels.req_type }} request stats have been ongoing without updates for at least 15 minutes."
 
       - alert: GulpApiRequestRejected
         expr: sum by (endpoint, reason, task_type, scope) (rate(gulp_api_request_rejected_total[5m])) > 0

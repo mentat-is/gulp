@@ -131,29 +131,12 @@ async def _close_task_metrics_client() -> None:
         redis_client._pubsub = None
 
 
-def _dead_letter_totals(snapshot: dict[str, Any]) -> dict[str, int]:
-    task_types = snapshot.get("task_types") or {}
-    return {
-        str(task_type): int(metrics.get("dead_lettered", 0) or 0)
-        for task_type, metrics in task_types.items()
-    }
-
-
 def _task_metric_health_issues(
     before: dict[str, Any],
     after: dict[str, Any],
 ) -> list[str]:
     """Return production-health issues visible in task telemetry."""
     issues: list[str] = []
-    before_dead = _dead_letter_totals(before)
-    after_dead = _dead_letter_totals(after)
-    for task_type in sorted(set(before_dead) | set(after_dead)):
-        before_count = before_dead.get(task_type, 0)
-        after_count = after_dead.get(task_type, 0)
-        if after_count > before_count:
-            issues.append(
-                f"dead letters grew for {task_type}: {before_count} -> {after_count}"
-            )
 
     for task_type, metrics in (after.get("task_types") or {}).items():
         queued = int(metrics.get("queued", 0) or 0)
@@ -168,22 +151,13 @@ def _task_metric_health_issues(
         if total_int:
             issues.append(f"active {scope} reservations still held={total_int}")
 
-    for server_id, task_counts in (after.get("running") or {}).items():
-        for task_type, count in task_counts.items():
-            count_int = int(count or 0)
-            if count_int:
-                issues.append(
-                    f"running tasks still visible for {server_id}/{task_type}: {count_int}"
-                )
     return issues
 
 
 _STRESS_PROMETHEUS_METRICS = (
     "gulp_redis_task_stream_depth",
     "gulp_redis_task_stream_pending",
-    "gulp_redis_task_dead_letter_depth",
     "gulp_redis_task_transition_total",
-    "gulp_redis_task_execution_duration_seconds",
     "gulp_opensearch_bulk_docs_total",
 )
 

@@ -1020,12 +1020,13 @@ class GulpAPIWebsocket:
                     payload=client_ui_data.model_dump(exclude_none=True),
                 )
 
-                broker = GulpRedisBroker.get_instance()
-                broker._assign_sequence(data)
                 msg = data.model_dump(exclude_none=True)
 
                 # route to local connected client_data websockets
-                await broker._route_message_to_local_client_data_websockets(data, dict(msg))
+                await (
+                    GulpRedisBroker.get_instance()
+                    ._route_message_to_local_client_data_websockets(data, dict(msg))
+                )
 
                 # publish to other instances via dedicated client_data Redis channel
                 try:

@@ -76,14 +76,6 @@ def test_production_runbook_profiles_scale_capacity_monotonically():
     for key in increasing_keys:
         assert small[key] < medium[key] < high[key]
 
-    assert small["redis_task_active_user_max"] == 0
-    assert small["redis_task_active_operation_max"] == 0
-    assert medium["redis_task_active_user_max"] < high["redis_task_active_user_max"]
-    assert (
-        medium["redis_task_active_operation_max"]
-        < high["redis_task_active_operation_max"]
-    )
-
     for profile in (small, medium, high):
         assert profile["ws_enqueue_timeout"] > 0
         assert profile["redis_stream_task_maxlen"] > 0

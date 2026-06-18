@@ -11,7 +11,6 @@ capabilities for the application.
 """
 
 import asyncio
-from collections import deque
 from contextlib import suppress
 import os
 import ssl
@@ -487,10 +486,10 @@ class GulpServer:
         except (TypeError, ValueError):
             return 0
 
-    async def _mark_dead_lettered_task_stats_failed(
+    async def _mark_failed_task_stats_failed(
         self, task: dict, reason: str
     ) -> None:
-        """Mark an existing request stats object failed after terminal dead-letter."""
+        """Mark an existing request stats object failed after terminal task failure."""
         req_id = task.get("req_id")
         if not req_id:
             return
@@ -504,7 +503,7 @@ class GulpServer:
                 )
                 if not stats:
                     MutyLogger.get_instance().warning(
-                        "dead-lettered task has no request stats: task_type=%s req_id=%s",
+                        "failed task has no request stats: task_type=%s req_id=%s",
                         task.get("task_type"),
                         req_id,
                     )
@@ -512,7 +511,7 @@ class GulpServer:
 
                 if stats.status != GulpRequestStatus.ONGOING.value:
                     MutyLogger.get_instance().warning(
-                        "dead-lettered task request stats already terminal: task_type=%s req_id=%s status=%s",
+                        "failed task request stats already terminal: task_type=%s req_id=%s status=%s",
                         task.get("task_type"),
                         req_id,
                         stats.status,
@@ -528,34 +527,10 @@ class GulpServer:
                 )
         except Exception:
             MutyLogger.get_instance().exception(
-                "failed to mark dead-lettered task request stats failed: task_type=%s req_id=%s",
+                "failed to mark task request stats failed: task_type=%s req_id=%s",
                 task.get("task_type"),
                 req_id,
             )
-
-    async def _claim_task_or_ack_duplicate(
-        self, redis_inst: GulpRedis, task: dict
-    ) -> bool:
-        """Claim a task lifecycle or ACK/delete duplicate terminal work."""
-        claim_state = await redis_inst.task_claim_execution(task)
-        if claim_state in {"claimed", "untracked"}:
-            return True
-
-        MutyLogger.get_instance().warning(
-            "skipping duplicate task execution: task_type=%s req_id=%s claim_state=%s",
-            task.get("task_type"),
-            task.get("req_id"),
-            claim_state,
-        )
-        if claim_state == "duplicate_running" and task.get("__redis_autoclaimed__"):
-            MutyLogger.get_instance().warning(
-                "leaving autoclaimed duplicate task pending until execution lock expires: task_type=%s req_id=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-            )
-            return False
-        await redis_inst.task_ack_delete(task)
-        return False
 
     def _run_claimed_task(self, task: dict) -> Awaitable[Any]:
         """Return the handler awaitable for a claimed queued task."""
@@ -583,11 +558,9 @@ class GulpServer:
         *,
         source: str,
     ) -> None:
-        """Claim, execute, and finalize queued or reclaimed tasks."""
+        """Execute and finalize queued tasks."""
         task_coros: list[tuple[dict, Awaitable[Any]]] = []
         for obj in tasks:
-            if not await self._claim_task_or_ack_duplicate(redis_inst, obj):
-                continue
             try:
                 task_coros.append((obj, self._run_claimed_task(obj)))
             except ValueError as ex:
@@ -597,9 +570,9 @@ class GulpServer:
                     source,
                     obj.get("task_type"),
                 )
-                dead_lettered = await redis_inst.task_dead_letter(obj, reason)
-                if dead_lettered:
-                    await self._mark_dead_lettered_task_stats_failed(obj, reason)
+                failure_state = await redis_inst.task_mark_failed(obj, reason)
+                if failure_state == "failed":
+                    await self._mark_failed_task_stats_failed(obj, reason)
 
         if not task_coros:
             return
@@ -621,15 +594,14 @@ class GulpServer:
                     res,
                 )
                 reason = repr(res)
-                failure_state = await redis_inst.task_fail_dead_letter(
+                failure_state = await redis_inst.task_mark_failed(
                     obj,
                     reason,
                 )
-                if failure_state == "dead_letter":
-                    await self._mark_dead_lettered_task_stats_failed(obj, reason)
+                if failure_state == "failed":
+                    await self._mark_failed_task_stats_failed(obj, reason)
                 continue
 
-            await redis_inst.task_mark_succeeded(obj)
             await redis_inst.task_ack_delete(obj)
 
     async def _dispatch_tasks(self):
@@ -647,8 +619,6 @@ class GulpServer:
         MutyLogger.get_instance().info("STARTING dispatch_tasks loop ...")
 
         in_flight: set[asyncio.Task[None]] = set()
-        reclaimed_queue: deque[dict] = deque()
-
         def _consume_dispatch_result(task: asyncio.Task[None]) -> None:
             in_flight.discard(task)
             with suppress(asyncio.CancelledError):
@@ -676,32 +646,30 @@ class GulpServer:
                 try:
                     redis_inst = GulpRedis.get_instance()
                     now = time.monotonic()
-                    autoclaim = getattr(redis_inst, "task_autoclaim_stale", None)
-                    last_autoclaim = getattr(redis_inst, "_last_autoclaim_time", 0.0)
-                    if autoclaim and now - last_autoclaim >= 30.0:
-                        redis_inst._last_autoclaim_time = now
+                    last_cleanup = getattr(
+                        redis_inst, "_last_stale_pending_cleanup_time", 0.0
+                    )
+                    if now - last_cleanup >= 30.0:
+                        redis_inst._last_stale_pending_cleanup_time = now
                         try:
-                            reclaimed = await autoclaim()
-                            if reclaimed:
+                            failed = await redis_inst.task_drop_stale_pending()
+                            if failed:
                                 MutyLogger.get_instance().warning(
-                                    "re-dispatching %d autoclaimed stale task(s)",
-                                    len(reclaimed),
+                                    "dropped %d stale pending task(s)",
+                                    len(failed),
                                 )
-                                reclaimed_queue.extend(reclaimed)
+                                reason = "task abandoned by worker"
+                                for obj in failed:
+                                    await self._mark_failed_task_stats_failed(
+                                        obj, reason
+                                    )
                         except Exception:
                             MutyLogger.get_instance().exception(
-                                "error during task autoclaim sweep"
+                                "error during stale pending task cleanup"
                             )
 
-                    while reclaimed_queue and len(in_flight) < limit:
-                        _start_dispatch_task(
-                            redis_inst,
-                            reclaimed_queue.popleft(),
-                            source="reclaimed",
-                        )
-
                     capacity = limit - len(in_flight)
-                    if capacity > 0 and not reclaimed_queue:
+                    if capacity > 0:
                         # block briefly while tasks are running so new arrivals can
                         # fill idle slots without waiting for current work to finish.
                         first = await redis_inst.task_pop_blocking(

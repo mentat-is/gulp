@@ -95,12 +95,6 @@ class GulpWsData(BaseModel):
             description="The type of data carried by the websocket, see WSDATA_* constants.",
         ),
     ]
-    seq: Annotated[
-        Optional[int],
-        Field(
-            description="Best-effort monotonic sequence number scoped to origin server, operation_id, req_id, ws_id, and type. Clients can use gaps to trigger recovery through the documented REST APIs.",
-        ),
-    ] = None
     private: Annotated[
         bool,
         Field(
@@ -1762,7 +1756,6 @@ class GulpRedisBroker:
 
         # internal state
         self._initialized: bool = False
-        self._sequence_counters: dict[tuple[str, str, str, str, str], int] = {}
 
     def __new__(cls):
         """
@@ -1804,26 +1797,6 @@ class GulpRedisBroker:
         """
         if t in self.broadcast_types:
             self.broadcast_types.remove(t)
-
-    @staticmethod
-    def _sequence_key(wsd: GulpWsData) -> tuple[str, str, str, str, str]:
-        """Return the sequence scope for one websocket message."""
-        return (
-            str(wsd.origin_server_id or "local"),
-            str(wsd.operation_id or ""),
-            str(wsd.req_id or ""),
-            str(wsd.ws_id or ""),
-            str(wsd.type or ""),
-        )
-
-    def _assign_sequence(self, wsd: GulpWsData) -> None:
-        """Assign a monotonic sequence number if the message does not have one."""
-        if wsd.seq is not None:
-            return
-        key = self._sequence_key(wsd)
-        next_seq = self._sequence_counters.get(key, 0) + 1
-        self._sequence_counters[key] = next_seq
-        wsd.seq = next_seq
 
     @staticmethod
     def _record_pointer_resolve(outcome: str) -> None:
@@ -2271,7 +2244,6 @@ class GulpRedisBroker:
         redis_client = GulpRedis.get_instance()
         if not wsd.origin_server_id:
             wsd.origin_server_id = redis_client.server_id
-        self._assign_sequence(wsd)
 
         # Routing policy
         # - workers ALWAYS publish to main process using WORKER_TO_MAIN

@@ -33,7 +33,6 @@ from prometheus_client import (
     CollectorRegistry,
     Counter,
     Gauge,
-    Histogram,
     Info,
     generate_latest,
     multiprocess,
@@ -44,6 +43,8 @@ class GulpMetrics:
     """Singleton holding all Prometheus metric objects for gULP."""
 
     _instance: "GulpMetrics" = None
+    REQUEST_STATS_STALE_AFTER_MSEC = 15 * 60 * 1000
+    REQUEST_STATS_RECENT_WINDOW_MSEC = 5 * 60 * 1000
     # directory where prometheus_client writes per-process metric files;
     # retained so cleanup_prometheus() can remove it on shutdown.
     _multiproc_dir: str = _prom_dir
@@ -147,18 +148,6 @@ class GulpMetrics:
         ["task_type"],
         multiprocess_mode="livesum",
     )
-    redis_task_dead_letter_depth = Gauge(
-        "gulp_redis_task_dead_letter_depth",
-        "Number of messages retained in a Redis task dead-letter stream",
-        ["task_type"],
-        multiprocess_mode="livesum",
-    )
-    redis_task_active_reservations = Gauge(
-        "gulp_redis_task_active_reservations",
-        "Number of active task admission reservations by fairness scope",
-        ["scope"],
-        multiprocess_mode="livesum",
-    )
     redis_task_oldest_queued_age_seconds = Gauge(
         "gulp_redis_task_oldest_queued_age_seconds",
         "Age in seconds of the oldest queued task stream entry",
@@ -171,22 +160,40 @@ class GulpMetrics:
         ["task_type"],
         multiprocess_mode="livesum",
     )
-    redis_task_running = Gauge(
-        "gulp_redis_task_running",
-        "Number of running tasks by owning server instance and task type",
-        ["server_id", "task_type"],
-        multiprocess_mode="livesum",
-    )
     redis_task_transition_total = Counter(
         "gulp_redis_task_transition_total",
         "Task queue lifecycle transitions and terminal outcomes",
         ["action", "task_type", "outcome"],
     )
-    redis_task_execution_duration_seconds = Histogram(
-        "gulp_redis_task_execution_duration_seconds",
-        "Task execution duration from claim to success or dead-letter outcome",
-        ["task_type", "outcome"],
-        buckets=(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, float("inf")),
+    request_stats_ongoing = Gauge(
+        "gulp_request_stats_ongoing",
+        "Ongoing request stats grouped by user or operation",
+        ["scope", "entity_id"],
+        multiprocess_mode="livesum",
+    )
+    request_stats_ongoing_by_type = Gauge(
+        "gulp_request_stats_ongoing_by_type",
+        "Ongoing request stats grouped by request type",
+        ["req_type"],
+        multiprocess_mode="livesum",
+    )
+    request_stats_oldest_ongoing_age_seconds = Gauge(
+        "gulp_request_stats_oldest_ongoing_age_seconds",
+        "Age in seconds of the oldest ongoing request stat by request type",
+        ["req_type"],
+        multiprocess_mode="livesum",
+    )
+    request_stats_stale_ongoing = Gauge(
+        "gulp_request_stats_stale_ongoing",
+        "Ongoing request stats not updated for at least 15 minutes by request type",
+        ["req_type"],
+        multiprocess_mode="livesum",
+    )
+    request_stats_finished_recent = Gauge(
+        "gulp_request_stats_finished_recent",
+        "Request stats finished in the last 5 minutes by request type and status",
+        ["req_type", "status"],
+        multiprocess_mode="livesum",
     )
     api_request_rejected_total = Counter(
         "gulp_api_request_rejected_total",
@@ -328,7 +335,10 @@ class GulpMetrics:
         self._start_time: float = time.monotonic()
         self._known_worker_pids: set[str] = set()
         self._known_task_metric_types: set[str] = set()
-        self._known_running_task_labels: set[tuple[str, str]] = set()
+        self._known_request_stats_labels: set[tuple[str, str]] = set()
+        self._known_request_stats_ongoing_types: set[str] = set()
+        self._known_request_stats_stale_types: set[str] = set()
+        self._known_request_stats_finished_labels: set[tuple[str, str]] = set()
         self._known_ws_type_labels: set[tuple[str, str]] = set()
         self._worker_psutil_procs: dict[int, object] = {}
         self._main_psutil_proc = None
@@ -440,7 +450,6 @@ class GulpMetrics:
                 self.redis_stream_pending.labels(stream=tt_str).set(0)
                 self.redis_task_stream_depth.labels(task_type=tt_str).set(0)
                 self.redis_task_stream_pending.labels(task_type=tt_str).set(0)
-                self.redis_task_dead_letter_depth.labels(task_type=tt_str).set(0)
                 self.redis_task_oldest_queued_age_seconds.labels(
                     task_type=tt_str
                 ).set(0)
@@ -450,7 +459,6 @@ class GulpMetrics:
             for tt_str, metrics in task_snapshot.get("task_types", {}).items():
                 queued = int(metrics.get("queued", 0))
                 pending = int(metrics.get("pending", 0))
-                dead_lettered = int(metrics.get("dead_lettered", 0))
                 oldest_queued_age_seconds = (
                     int(metrics.get("oldest_queued_age_msec", 0)) / 1000
                 )
@@ -461,9 +469,6 @@ class GulpMetrics:
                 self.redis_stream_pending.labels(stream=tt_str).set(pending)
                 self.redis_task_stream_depth.labels(task_type=tt_str).set(queued)
                 self.redis_task_stream_pending.labels(task_type=tt_str).set(pending)
-                self.redis_task_dead_letter_depth.labels(task_type=tt_str).set(
-                    dead_lettered
-                )
                 self.redis_task_oldest_queued_age_seconds.labels(
                     task_type=tt_str
                 ).set(oldest_queued_age_seconds)
@@ -471,26 +476,6 @@ class GulpMetrics:
                     task_type=tt_str
                 ).set(oldest_pending_age_seconds)
             self._known_task_metric_types = current_task_types
-            for scope, total in task_snapshot.get("active", {}).items():
-                self.redis_task_active_reservations.labels(scope=scope).set(int(total))
-            current_running_labels: set[tuple[str, str]] = set()
-            for server_id, task_counts in task_snapshot.get("running", {}).items():
-                for task_type, count in task_counts.items():
-                    label = (server_id, task_type)
-                    current_running_labels.add(label)
-                    self.redis_task_running.labels(
-                        server_id=server_id,
-                        task_type=task_type,
-                    ).set(int(count))
-            for server_id, task_type in (
-                self._known_running_task_labels - current_running_labels
-            ):
-                self.redis_task_running.labels(
-                    server_id=server_id,
-                    task_type=task_type,
-                ).set(0)
-            self._known_running_task_labels = current_running_labels
-
             # cluster liveness from heartbeat keys
             try:
                 live_servers = 0
@@ -522,6 +507,10 @@ class GulpMetrics:
         # ── PostgreSQL pool stats ──
         try:
             from gulp.api.collab_api import GulpCollab
+            from gulp.api.collab.stats import GulpRequestStats
+            from gulp.api.collab.structs import GulpRequestStatus
+            from sqlalchemy import func, select
+
             collab = GulpCollab.get_instance()
             if collab._engine is not None:
                 pool = collab._engine.pool
@@ -529,6 +518,133 @@ class GulpMetrics:
                 self.postgres_pool_checked_out.set(pool.checkedout())
                 self.postgres_pool_idle.set(pool.checkedin())
                 self.postgres_pool_overflow.set(pool.overflow())
+                now_msec = int(time.time() * 1000)
+                terminal_statuses = (
+                    GulpRequestStatus.DONE.value,
+                    GulpRequestStatus.FAILED.value,
+                    GulpRequestStatus.CANCELED.value,
+                )
+
+                current_labels: set[tuple[str, str]] = set()
+                current_ongoing_types: set[str] = set()
+                current_stale_types: set[str] = set()
+                current_finished_labels: set[tuple[str, str]] = set()
+                async with collab.session() as sess:
+                    for scope, column in (
+                        ("user", GulpRequestStats.user_id),
+                        ("operation", GulpRequestStats.operation_id),
+                    ):
+                        rows = await sess.execute(
+                            select(column, func.count())
+                            .where(
+                                GulpRequestStats.status
+                                == GulpRequestStatus.ONGOING.value,
+                                column.is_not(None),
+                            )
+                            .group_by(column)
+                        )
+                        for entity_id, count in rows:
+                            label = (scope, str(entity_id))
+                            current_labels.add(label)
+                            self.request_stats_ongoing.labels(
+                                scope=scope,
+                                entity_id=str(entity_id),
+                            ).set(int(count))
+
+                    rows = await sess.execute(
+                        select(
+                            GulpRequestStats.req_type,
+                            func.count(),
+                            func.min(GulpRequestStats.time_created),
+                        )
+                        .where(
+                            GulpRequestStats.status
+                            == GulpRequestStatus.ONGOING.value,
+                            GulpRequestStats.req_type.is_not(None),
+                        )
+                        .group_by(GulpRequestStats.req_type)
+                    )
+                    for req_type, count, oldest_created in rows:
+                        req_type = str(req_type)
+                        current_ongoing_types.add(req_type)
+                        self.request_stats_ongoing_by_type.labels(
+                            req_type=req_type
+                        ).set(int(count))
+                        oldest_created = int(oldest_created or now_msec)
+                        self.request_stats_oldest_ongoing_age_seconds.labels(
+                            req_type=req_type
+                        ).set(max(0, now_msec - oldest_created) / 1000)
+
+                    rows = await sess.execute(
+                        select(GulpRequestStats.req_type, func.count())
+                        .where(
+                            GulpRequestStats.status
+                            == GulpRequestStatus.ONGOING.value,
+                            GulpRequestStats.req_type.is_not(None),
+                            GulpRequestStats.time_updated
+                            < now_msec - self.REQUEST_STATS_STALE_AFTER_MSEC,
+                        )
+                        .group_by(GulpRequestStats.req_type)
+                    )
+                    for req_type, count in rows:
+                        req_type = str(req_type)
+                        current_stale_types.add(req_type)
+                        self.request_stats_stale_ongoing.labels(
+                            req_type=req_type
+                        ).set(int(count))
+
+                    rows = await sess.execute(
+                        select(
+                            GulpRequestStats.req_type,
+                            GulpRequestStats.status,
+                            func.count(),
+                        )
+                        .where(
+                            GulpRequestStats.status.in_(terminal_statuses),
+                            GulpRequestStats.req_type.is_not(None),
+                            GulpRequestStats.time_finished
+                            >= now_msec - self.REQUEST_STATS_RECENT_WINDOW_MSEC,
+                        )
+                        .group_by(GulpRequestStats.req_type, GulpRequestStats.status)
+                    )
+                    for req_type, status, count in rows:
+                        label = (str(req_type), str(status))
+                        current_finished_labels.add(label)
+                        self.request_stats_finished_recent.labels(
+                            req_type=label[0],
+                            status=label[1],
+                        ).set(int(count))
+
+                for scope, entity_id in (
+                    self._known_request_stats_labels - current_labels
+                ):
+                    self.request_stats_ongoing.labels(
+                        scope=scope,
+                        entity_id=entity_id,
+                    ).set(0)
+                self._known_request_stats_labels = current_labels
+                for req_type in (
+                    self._known_request_stats_ongoing_types - current_ongoing_types
+                ):
+                    self.request_stats_ongoing_by_type.labels(req_type=req_type).set(0)
+                    self.request_stats_oldest_ongoing_age_seconds.labels(
+                        req_type=req_type
+                    ).set(0)
+                self._known_request_stats_ongoing_types = current_ongoing_types
+                for req_type in (
+                    self._known_request_stats_stale_types - current_stale_types
+                ):
+                    self.request_stats_stale_ongoing.labels(req_type=req_type).set(0)
+                self._known_request_stats_stale_types = current_stale_types
+                for req_type, status in (
+                    self._known_request_stats_finished_labels
+                    - current_finished_labels
+                ):
+                    self.request_stats_finished_recent.labels(
+                        req_type=req_type,
+                        status=status,
+                    ).set(0)
+                self._known_request_stats_finished_labels = current_finished_labels
         except Exception:
             pass
 

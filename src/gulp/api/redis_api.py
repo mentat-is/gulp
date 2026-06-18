@@ -4,8 +4,6 @@ This module provides a singleton class `GulpRedis` for managing asynchronous Red
 
 import asyncio
 import hashlib
-import math
-import os
 import time
 import zlib
 from typing import Annotated, Any, Callable, Optional
@@ -111,18 +109,7 @@ class GulpRedis:
     TASK_TYPES_SET = "gulp:queue:types"
     # redis stream key prefix for task streams (one stream per task_type)
     STREAM_TASK_PREFIX = "gulp:stream:tasks"
-    # redis stream prefix used to retain failed or malformed tasks for inspection
-    STREAM_TASK_DLQ_PREFIX = "gulp:stream:tasks:dead"
-    # redis hash/lock prefixes used to track task execution lifecycle.
-    # By default lifecycle keys use req_id. Multi-task request producers may set
-    # __task_id__ to keep duplicate suppression scoped to one queued stream entry.
-    TASK_LIFECYCLE_PREFIX = "gulp:task:lifecycle"
-    TASK_EXECUTION_LOCK_PREFIX = "gulp:task:execution_lock"
-    TASK_SIDE_EFFECT_LOCK_PREFIX = "gulp:task:side_effect_lock"
-    TASK_ACTIVE_USER_HASH = "gulp:task:active:user"
-    TASK_ACTIVE_OPERATION_HASH = "gulp:task:active:operation"
     IP_RATE_LIMIT_PREFIX = "gulp:rate:ip"
-    TASK_TERMINAL_STATUSES = {"succeeded", "dead_lettered", "canceled"}
     # consumer group name for task streams
     STREAM_CONSUMER_GROUP = "gulp:stream:group:tasks"
     # redis key for broadcasting aggregate websocket queue utilization from main to workers
@@ -136,12 +123,8 @@ class GulpRedis:
     WS_INGEST_ORPHAN_CLEANUP_INTERVAL: float = 30.0
     # interval (ms) used by dispatchers to refresh live task stream leases
     TASK_LEASE_REFRESH_INTERVAL_MS: int = 20_000
-    # idle time (ms) after which stale pending stream entries can be reclaimed
+    # idle time (ms) after which stale pending stream entries can be dropped
     TASK_AUTOCLAIM_IDLE_MS: int = 60_000
-    # retention for terminal task lifecycle records
-    TASK_LIFECYCLE_TTL_SEC: int = 86_400
-    TASK_ACTIVE_USER_MAX: int = 0
-    TASK_ACTIVE_OPERATION_MAX: int = 0
     # hard cap for queued task backlog before admission control rejects new work
     STREAM_TASK_MAXLEN: int = 10_000
     # heartbeat key prefix and TTL for node liveness detection
@@ -186,8 +169,8 @@ class GulpRedis:
         self._last_heartbeat_update: float = 0.0
         # timestamp of last raw websocket ingest orphan cleanup (main process only)
         self._last_ws_ingest_orphan_cleanup: float = 0.0
-        # timestamp of last stale task autoclaim sweep (main process only)
-        self._last_autoclaim_time: float = 0.0
+        # timestamp of last stale pending task cleanup (main process only)
+        self._last_stale_pending_cleanup_time: float = 0.0
         # cached utilization value for workers (read from Redis)
         self._cached_queue_utilization: float = 0.0
         self._cached_queue_utilization_time: float = 0.0
@@ -248,9 +231,6 @@ class GulpRedis:
             cfg.redis_task_lease_refresh_interval_ms()
         )
         GulpRedis.TASK_AUTOCLAIM_IDLE_MS = cfg.redis_task_autoclaim_idle_ms()
-        GulpRedis.TASK_LIFECYCLE_TTL_SEC = cfg.redis_task_lifecycle_ttl_sec()
-        GulpRedis.TASK_ACTIVE_USER_MAX = cfg.redis_task_active_user_max()
-        GulpRedis.TASK_ACTIVE_OPERATION_MAX = cfg.redis_task_active_operation_max()
         GulpRedis.STREAM_TASK_MAXLEN = cfg.redis_stream_task_maxlen()
         GulpRedis.HEARTBEAT_TTL = cfg.redis_heartbeat_ttl()
         GulpRedis.HEARTBEAT_INTERVAL = cfg.redis_heartbeat_interval()
@@ -1277,11 +1257,6 @@ class GulpRedis:
         """Return task queue metrics for Prometheus collection and diagnostics."""
         snapshot: dict[str, Any] = {
             "task_types": {},
-            "active": {
-                "user": 0,
-                "operation": 0,
-            },
-            "running": {},
         }
         now_msec = int(time.time() * 1000)
 
@@ -1296,11 +1271,9 @@ class GulpRedis:
         for t in types:
             task_type = t.decode() if isinstance(t, bytes) else str(t)
             stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
-            dead_letter_stream = f"{GulpRedis.STREAM_TASK_DLQ_PREFIX}:{task_type}"
             metrics = {
                 "queued": 0,
                 "pending": 0,
-                "dead_lettered": 0,
                 "oldest_queued_age_msec": 0,
                 "oldest_pending_age_msec": 0,
             }
@@ -1344,53 +1317,7 @@ class GulpRedis:
                 MutyLogger.get_instance().exception(
                     "failed to collect task pending depth for %s", stream_key
                 )
-            try:
-                metrics["dead_lettered"] = int(
-                    await self._redis.xlen(dead_letter_stream)
-                )
-            except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to collect task dead-letter depth for %s",
-                    dead_letter_stream,
-                )
             snapshot["task_types"][task_type] = metrics
-
-        for scope, counter_hash in (
-            ("user", GulpRedis.TASK_ACTIVE_USER_HASH),
-            ("operation", GulpRedis.TASK_ACTIVE_OPERATION_HASH),
-        ):
-            try:
-                values = await self._redis.hvals(counter_hash)
-                total = 0
-                for value in values:
-                    if isinstance(value, bytes):
-                        value = value.decode()
-                    total += max(0, int(value or 0))
-                snapshot["active"][scope] = total
-            except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to collect active task reservations for scope=%s",
-                    scope,
-                )
-
-        try:
-            async for lifecycle_key in self._redis.scan_iter(
-                match=f"{GulpRedis.TASK_LIFECYCLE_PREFIX}:*"
-            ):
-                lifecycle = self._decode_redis_mapping(
-                    await self._redis.hgetall(lifecycle_key)
-                )
-                status = lifecycle.get("status")
-                task_type = lifecycle.get("task_type") or "unknown"
-                if status != "running":
-                    continue
-                server_id = lifecycle.get("server_id") or "unknown"
-                running_by_server = snapshot["running"].setdefault(server_id, {})
-                running_by_server[task_type] = running_by_server.get(task_type, 0) + 1
-        except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to collect running task lifecycle metrics"
-            )
 
         return snapshot
 
@@ -1412,45 +1339,6 @@ class GulpRedis:
         envelope["__redis_consumer_group__"] = GulpRedis.STREAM_CONSUMER_GROUP
         envelope["__redis_consumer_name__"] = consumer_name or self.server_id
         return envelope
-
-    @staticmethod
-    def _task_lifecycle_key(task_id: str) -> str:
-        """Return the Redis key for a task lifecycle hash."""
-        return f"{GulpRedis.TASK_LIFECYCLE_PREFIX}:{task_id}"
-
-    @staticmethod
-    def _task_execution_lock_key(task_id: str) -> str:
-        """Return the Redis key for a task execution lock."""
-        return f"{GulpRedis.TASK_EXECUTION_LOCK_PREFIX}:{task_id}"
-
-    @staticmethod
-    def _task_side_effect_lock_key(task_id: str) -> str:
-        """Return the Redis key for a task side-effect lease."""
-        return f"{GulpRedis.TASK_SIDE_EFFECT_LOCK_PREFIX}:{task_id}"
-
-    @staticmethod
-    def _task_lifecycle_id(task: dict) -> str | None:
-        """Return the internal lifecycle id for one queued task."""
-        return task.get("__task_id__") or task.get("task_id") or task.get("req_id")
-
-    @staticmethod
-    def _decode_redis_mapping(raw: dict | None) -> dict[str, str]:
-        """Decode a Redis hash returned with byte keys/values into strings."""
-        if not raw:
-            return {}
-        decoded: dict[str, str] = {}
-        for key, value in raw.items():
-            if isinstance(key, bytes):
-                key = key.decode()
-            if isinstance(value, bytes):
-                value = value.decode()
-            decoded[str(key)] = str(value)
-        return decoded
-
-    @staticmethod
-    def _task_active_status(status: str | None) -> bool:
-        """Return whether a lifecycle status should count against active limits."""
-        return status in {"queued", "running"}
 
     @staticmethod
     def _task_admission_retry_after_msec() -> int:
@@ -1490,310 +1378,6 @@ class GulpRedis:
                 outcome,
             )
 
-    async def _record_task_execution_duration(
-        self,
-        task: dict,
-        outcome: str,
-        finished_at_msec: int | None = None,
-    ) -> None:
-        """Observe task execution duration from claim to terminal outcome."""
-        try:
-            if not GulpConfig.get_instance().prometheus_enabled():
-                return
-
-            task_id = self._task_lifecycle_id(task)
-            if not task_id:
-                return
-            lifecycle = self._decode_redis_mapping(
-                await self._redis.hgetall(self._task_lifecycle_key(task_id))
-            )
-            started_at = lifecycle.get("started_at_msec")
-            if not started_at:
-                return
-            if finished_at_msec is None:
-                finished_at_msec = int(time.time() * 1000)
-            duration_seconds = max(
-                0,
-                (finished_at_msec - int(started_at)) / 1000,
-            )
-            GulpMetrics.redis_task_execution_duration_seconds.labels(
-                task_type=str(task.get("task_type") or "unknown"),
-                outcome=outcome,
-            ).observe(duration_seconds)
-        except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to record task execution duration metric task_type=%s req_id=%s outcome=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-                outcome,
-            )
-
-    def _task_admission_counters(self, task: dict) -> list[tuple[str, str, int, str]]:
-        """Return active admission counters relevant to a task."""
-        counters: list[tuple[str, str, int, str]] = []
-        user_id = task.get("user_id")
-        if user_id and GulpRedis.TASK_ACTIVE_USER_MAX > 0:
-            counters.append(
-                (
-                    GulpRedis.TASK_ACTIVE_USER_HASH,
-                    str(user_id),
-                    GulpRedis.TASK_ACTIVE_USER_MAX,
-                    "user",
-                )
-            )
-
-        operation_id = task.get("operation_id")
-        if operation_id and GulpRedis.TASK_ACTIVE_OPERATION_MAX > 0:
-            counters.append(
-                (
-                    GulpRedis.TASK_ACTIVE_OPERATION_HASH,
-                    str(operation_id),
-                    GulpRedis.TASK_ACTIVE_OPERATION_MAX,
-                    "operation",
-                )
-            )
-        return counters
-
-    @staticmethod
-    def _positive_int(value: Any, default: int = 0) -> int:
-        """Return value as a non-negative integer, or default on invalid input."""
-        try:
-            return max(0, int(value))
-        except (TypeError, ValueError):
-            return default
-
-    @classmethod
-    def _query_clause_count(cls, value: Any) -> int:
-        """Return a rough count of query DSL clauses for admission estimation."""
-        if isinstance(value, dict):
-            count = 1
-            for child in value.values():
-                count += cls._query_clause_count(child)
-            return count
-        if isinstance(value, list):
-            return sum(cls._query_clause_count(child) for child in value)
-        return 0
-
-    @classmethod
-    def _query_work_units(cls, task_type: str, params: dict) -> int:
-        """Estimate query task cost from query count, result window, and options."""
-        total_num_queries = params.get("total_num_queries")
-        query_count = cls._positive_int(total_num_queries)
-        queries = params.get("queries")
-        if query_count <= 0 and isinstance(queries, list):
-            query_count = len(queries)
-        query_count = max(1, query_count)
-
-        q_options = (
-            params.get("q_options") if isinstance(params.get("q_options"), dict) else {}
-        )
-        limit = cls._positive_int(q_options.get("limit"), default=1000) or 1000
-        total_limit = cls._positive_int(q_options.get("total_limit"))
-        result_window = total_limit if total_limit > 0 else limit
-        window_units = max(1, math.ceil(result_window / 5_000))
-
-        option_units = 0
-        if q_options.get("highlight_results"):
-            option_units += 1
-        if q_options.get("create_notes") or q_options.get("group"):
-            option_units += 1
-        if task_type.startswith("external_query") or params.get("plugin"):
-            option_units += 1
-
-        clause_count = 0
-        if isinstance(queries, list):
-            clause_count = sum(cls._query_clause_count(q) for q in queries)
-        clause_units = max(0, math.ceil(max(0, clause_count - 20) / 20))
-
-        return max(1, (query_count * window_units) + option_units + clause_units)
-
-    @classmethod
-    def _ingest_work_units(cls, params: dict) -> int:
-        """Estimate ingest task cost from file count, declared size, and storage work."""
-        file_count = cls._positive_int(params.get("file_total"), default=1) or 1
-        size_bytes = 0
-        for key in ("file_size", "size", "upload_size", "declared_size"):
-            size_bytes = cls._positive_int(params.get(key))
-            if size_bytes > 0:
-                break
-
-        payload = (
-            params.get("payload") if isinstance(params.get("payload"), dict) else {}
-        )
-        if size_bytes <= 0:
-            for key in ("file_size", "size", "original_size", "declared_size"):
-                size_bytes = cls._positive_int(payload.get(key))
-                if size_bytes > 0:
-                    break
-
-        if size_bytes <= 0:
-            file_path = params.get("file_path") or params.get("local_file_path")
-            if file_path:
-                try:
-                    size_bytes = max(0, os.path.getsize(str(file_path)))
-                except OSError:
-                    size_bytes = 0
-
-        size_units = max(1, math.ceil(size_bytes / (128 * 1024 * 1024)))
-        store_file_units = 0
-        plugin_params = payload.get("plugin_params")
-        if isinstance(plugin_params, dict) and plugin_params.get("store_file"):
-            store_file_units = 1
-        return max(1, file_count, size_units + store_file_units)
-
-    @classmethod
-    def _filter_clause_count(cls, value: Any) -> int:
-        """Return a rough count of filter predicates for admission estimation."""
-        if value in (None, {}, []):
-            return 0
-        if isinstance(value, dict):
-            return len(value) + sum(cls._filter_clause_count(v) for v in value.values())
-        if isinstance(value, list):
-            return sum(cls._filter_clause_count(v) for v in value)
-        return 1
-
-    @classmethod
-    def _rebase_work_units(cls, params: dict) -> int:
-        """Estimate rebase cost from field count and filter selectivity."""
-        fields = params.get("fields")
-        field_units = len(fields) if isinstance(fields, list) and fields else 1
-        flt = params.get("flt")
-        filter_clauses = cls._filter_clause_count(flt)
-        if filter_clauses <= 0:
-            filter_units = 4
-        else:
-            filter_units = max(1, min(4, math.ceil(filter_clauses / 4)))
-        return max(1, field_units + filter_units)
-
-    @classmethod
-    def _enrich_work_units(cls, params: dict) -> int:
-        """Estimate enrich/update cost from action, fields, and filter breadth."""
-        action = params.get("action")
-        fields = params.get("fields")
-        remove_fields = params.get("remove_fields")
-        data = params.get("data")
-        tags = params.get("tags")
-
-        field_units = 1
-        if isinstance(fields, dict) and fields:
-            field_units = len(fields)
-        elif isinstance(remove_fields, list) and remove_fields:
-            field_units = len(remove_fields)
-        elif isinstance(data, dict) and data:
-            field_units = len(data)
-        elif isinstance(tags, list) and tags:
-            field_units = len(tags)
-
-        flt = params.get("flt")
-        filter_clauses = cls._filter_clause_count(flt)
-        filter_units = (
-            4 if filter_clauses <= 0 else max(1, min(4, math.ceil(filter_clauses / 4)))
-        )
-        plugin_units = 1 if action == "enrich_documents" or params.get("plugin") else 0
-        return max(1, field_units + filter_units + plugin_units)
-
-    @classmethod
-    def _task_work_units(cls, task: dict) -> int:
-        """Estimate how many admission units a task should reserve."""
-        explicit_units = task.get("__task_work_units__") or task.get("work_units")
-        if explicit_units is not None:
-            try:
-                return max(1, int(explicit_units))
-            except (TypeError, ValueError):
-                return 1
-
-        params = task.get("params") if isinstance(task.get("params"), dict) else {}
-        task_type = str(task.get("task_type") or "")
-        if task_type.startswith(("query", "external_query")):
-            return cls._query_work_units(task_type, params)
-        if task_type.startswith("ingest"):
-            return cls._ingest_work_units(params)
-        if task_type.startswith("rebase"):
-            return cls._rebase_work_units(params)
-        if task_type.startswith("enrich"):
-            return cls._enrich_work_units(params)
-
-        return 1
-
-    async def _reserve_task_admission(self, task: dict, work_units: int) -> None:
-        """Reserve active-task admission capacity for a new unique request."""
-        task_id = self._task_lifecycle_id(task)
-        lifecycle: dict[str, str] = {}
-        if task_id:
-            lifecycle = self._decode_redis_mapping(
-                await self._redis.hgetall(self._task_lifecycle_key(task_id))
-            )
-            if self._task_active_status(lifecycle.get("status")):
-                return
-
-        counters = self._task_admission_counters(task)
-        for counter_hash, counter_key, limit, scope in counters:
-            raw_depth = await self._redis.hget(counter_hash, counter_key)
-            if isinstance(raw_depth, bytes):
-                raw_depth = raw_depth.decode()
-            depth = int(raw_depth or 0)
-            if depth + work_units > limit:
-                raise TaskQueueFullError(
-                    str(task.get("task_type") or "unknown"),
-                    depth,
-                    limit,
-                    scope=scope,
-                    retry_after_msec=self._task_admission_retry_after_msec(),
-                    work_units=work_units,
-                )
-
-        if not task_id:
-            return
-
-        reservation_fields: dict[str, str] = {}
-        for counter_hash, counter_key, _, scope in counters:
-            await self._redis.hincrby(counter_hash, counter_key, work_units)
-            reservation_fields[f"active_{scope}_hash"] = counter_hash
-            reservation_fields[f"active_{scope}_key"] = counter_key
-            reservation_fields[f"active_{scope}_units"] = str(work_units)
-
-        if reservation_fields:
-            reservation_fields["active_reserved"] = "1"
-            await self._redis.hset(
-                self._task_lifecycle_key(task_id),
-                mapping=reservation_fields,
-            )
-            await self._redis.expire(
-                self._task_lifecycle_key(task_id),
-                GulpRedis.TASK_LIFECYCLE_TTL_SEC,
-            )
-
-    async def _release_task_admission(self, task: dict) -> None:
-        """Release active-task admission capacity for a terminal request."""
-        task_id = self._task_lifecycle_id(task)
-        if not task_id:
-            return
-
-        lifecycle_key = self._task_lifecycle_key(task_id)
-        lifecycle = self._decode_redis_mapping(await self._redis.hgetall(lifecycle_key))
-        if lifecycle.get("active_reserved") != "1":
-            return
-
-        fields_to_clear = ["active_reserved"]
-        for scope in ("user", "operation"):
-            counter_hash = lifecycle.get(f"active_{scope}_hash")
-            counter_key = lifecycle.get(f"active_{scope}_key")
-            if not counter_hash or not counter_key:
-                continue
-            units = int(lifecycle.get(f"active_{scope}_units") or 1)
-            depth = await self._redis.hincrby(counter_hash, counter_key, -units)
-            if depth <= 0:
-                await self._redis.hdel(counter_hash, counter_key)
-            fields_to_clear.extend(
-                [
-                    f"active_{scope}_hash",
-                    f"active_{scope}_key",
-                    f"active_{scope}_units",
-                ]
-            )
-
-        await self._redis.hdel(lifecycle_key, *fields_to_clear)
-
     @classmethod
     def _ip_rate_limit_key(cls, scope: str, ip: str) -> str:
         """Return the Redis key for a per-IP rate limit bucket."""
@@ -1831,349 +1415,17 @@ class GulpRedis:
                 retry_after_msec=max(1, ttl) * 1000,
             )
 
-    @staticmethod
-    def _task_lock_ttl_ms() -> int:
-        """Return execution lock TTL in milliseconds."""
-        return max(
-            1_000,
-            GulpRedis.TASK_AUTOCLAIM_IDLE_MS
-            + GulpRedis.TASK_LEASE_REFRESH_INTERVAL_MS,
-        )
-
-    @staticmethod
-    def _task_side_effect_lock_ttl_ms() -> int:
-        """Return side-effect lease TTL in milliseconds."""
-        return max(300_000, GulpRedis._task_lock_ttl_ms() * 3)
-
-    def _task_lock_value(self, task: dict) -> str:
-        """Return the lock owner value for a dequeued task."""
-        return "%s:%s:%s" % (
-            self.server_id,
-            task.get("__redis_stream__", ""),
-            task.get("__redis_message_id__", ""),
-        )
-
-    async def _task_execution_lock_matches(self, task: dict) -> bool:
-        """Return whether the current execution lock belongs to this task."""
-        current = await self._task_execution_lock_owner(task)
-        return current == self._task_lock_value(task)
-
-    async def _task_execution_lock_owner(self, task: dict) -> str | None:
-        """Return the current execution lock owner for this task."""
-        task_id = self._task_lifecycle_id(task)
-        if not task_id:
-            return self._task_lock_value(task)
-        current = await self._redis.get(self._task_execution_lock_key(task_id))
-        if isinstance(current, bytes):
-            current = current.decode()
-        return current
-
-    async def _task_side_effect_lock_matches(self, task: dict) -> bool:
-        """Return whether the current side-effect lease belongs to this task."""
-        task_id = self._task_lifecycle_id(task)
-        if not task_id:
-            return True
-        current = await self._redis.get(self._task_side_effect_lock_key(task_id))
-        if isinstance(current, bytes):
-            current = current.decode()
-        return current == self._task_lock_value(task)
-
-    async def _task_lifecycle_hset(
-        self,
-        task: dict,
-        status: str,
-        extra: dict[str, Any] | None = None,
-    ) -> None:
-        """Update lifecycle hash fields for a task with a req_id."""
-        task_id = self._task_lifecycle_id(task)
-        if not task_id:
-            return
-
-        now_msec = int(time.time() * 1000)
-        mapping: dict[str, Any] = {
-            "task_id": task_id,
-            "req_id": task.get("req_id", ""),
-            "task_type": task.get("task_type", ""),
-            "operation_id": task.get("operation_id", ""),
-            "status": status,
-            "updated_at_msec": now_msec,
-            "server_id": self.server_id,
-            "stream": task.get("__redis_stream__", ""),
-            "message_id": task.get("__redis_message_id__", ""),
-        }
-        if extra:
-            mapping.update(extra)
-        await self._redis.hset(
-            self._task_lifecycle_key(task_id),
-            mapping={k: v for k, v in mapping.items() if v is not None},
-        )
-        await self._redis.expire(
-            self._task_lifecycle_key(task_id),
-            GulpRedis.TASK_LIFECYCLE_TTL_SEC,
-        )
-
-    async def _task_lifecycle_status(self, task: dict) -> str | None:
-        """Return the current lifecycle status for a queued task."""
-        task_id = self._task_lifecycle_id(task)
-        if not task_id:
-            return None
-        lifecycle = self._decode_redis_mapping(
-            await self._redis.hgetall(self._task_lifecycle_key(task_id))
-        )
-        return lifecycle.get("status")
-
-    async def task_record_queued(self, task: dict) -> str:
-        """Record that a task is queued unless it is already terminal."""
-        task_id = self._task_lifecycle_id(task)
-        if not task_id:
-            self._record_task_transition(
-                "record_queued",
-                task.get("task_type"),
-                "untracked",
-            )
-            return "untracked"
-
-        lifecycle = self._decode_redis_mapping(
-            await self._redis.hgetall(self._task_lifecycle_key(task_id))
-        )
-        status = lifecycle.get("status")
-        if status in GulpRedis.TASK_TERMINAL_STATUSES:
-            self._record_task_transition(
-                "record_queued",
-                task.get("task_type"),
-                status,
-            )
-            return status
-        await self._task_lifecycle_hset(task, "queued")
-        self._record_task_transition(
-            "record_queued",
-            task.get("task_type"),
-            "queued",
-        )
-        return "queued"
-
-    async def task_claim_execution(self, task: dict) -> str:
-        """
-        Claim a task for execution by req_id.
-
-        Returns:
-            str: "claimed", "duplicate_running", "terminal", or "untracked".
-        """
-        task_id = self._task_lifecycle_id(task)
-        if not task_id:
-            self._record_task_transition(
-                "claim",
-                task.get("task_type"),
-                "untracked",
-            )
-            return "untracked"
-
-        lifecycle_key = self._task_lifecycle_key(task_id)
-        lock_key = self._task_execution_lock_key(task_id)
-        lifecycle = self._decode_redis_mapping(await self._redis.hgetall(lifecycle_key))
-        if lifecycle.get("status") in GulpRedis.TASK_TERMINAL_STATUSES:
-            self._record_task_transition(
-                "claim",
-                task.get("task_type"),
-                "terminal",
-            )
-            return "terminal"
-        lifecycle_owner = lifecycle.get("server_id")
-        if (
-            task.get("__redis_autoclaimed__")
-            and lifecycle.get("status") == "running"
-            and lifecycle_owner
-            and lifecycle_owner != self.server_id
-            and await self.is_server_alive(lifecycle_owner)
-        ):
-            MutyLogger.get_instance().warning(
-                "not claiming autoclaimed task because lifecycle owner is still alive: task_type=%s req_id=%s owner=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-                lifecycle_owner,
-            )
-            self._record_task_transition(
-                "claim",
-                task.get("task_type"),
-                "duplicate_running",
-            )
-            return "duplicate_running"
-
-        lock_value = self._task_lock_value(task)
-        acquired = await self._redis.set(
-            lock_key,
-            lock_value,
-            nx=True,
-            px=self._task_lock_ttl_ms(),
-        )
-        if not acquired:
-            existing_lock = await self._redis.get(lock_key)
-            if isinstance(existing_lock, bytes):
-                existing_lock = existing_lock.decode()
-            if existing_lock != lock_value:
-                self._record_task_transition(
-                    "claim",
-                    task.get("task_type"),
-                    "duplicate_running",
-                )
-                return "duplicate_running"
-
-        side_effect_lock_key = self._task_side_effect_lock_key(task_id)
-        side_effect_acquired = await self._redis.set(
-            side_effect_lock_key,
-            lock_value,
-            nx=True,
-            px=self._task_side_effect_lock_ttl_ms(),
-        )
-        if not side_effect_acquired:
-            existing_side_effect_lock = await self._redis.get(side_effect_lock_key)
-            if isinstance(existing_side_effect_lock, bytes):
-                existing_side_effect_lock = existing_side_effect_lock.decode()
-            if existing_side_effect_lock != lock_value:
-                MutyLogger.get_instance().warning(
-                    "not claiming task because side-effect lease is owned by another worker: task_type=%s req_id=%s",
-                    task.get("task_type"),
-                    task.get("req_id"),
-                )
-                await self._task_release_execution_lock(task)
-                self._record_task_transition(
-                    "claim",
-                    task.get("task_type"),
-                    "duplicate_running",
-                )
-                return "duplicate_running"
-
-        await self._task_lifecycle_hset(
-            task,
-            "running",
-            extra={
-                "started_at_msec": int(time.time() * 1000),
-                "lock": lock_value,
-                "side_effect_lock": lock_value,
-                "side_effect_lock_ttl_msec": self._task_side_effect_lock_ttl_ms(),
-            },
-        )
-        self._record_task_transition(
-            "claim",
-            task.get("task_type"),
-            "claimed",
-        )
-        return "claimed"
-
-    async def task_mark_succeeded(self, task: dict) -> None:
-        """Mark a task lifecycle as succeeded and release its execution lock."""
-        task_id = self._task_lifecycle_id(task)
-        if not task_id:
-            self._record_task_transition(
-                "succeed",
-                task.get("task_type"),
-                "untracked",
-            )
-            return
-        status = await self._task_lifecycle_status(task)
-        if status in GulpRedis.TASK_TERMINAL_STATUSES:
-            MutyLogger.get_instance().warning(
-                "not marking task succeeded because lifecycle is already terminal: task_type=%s req_id=%s status=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-                status,
-            )
-            self._record_task_transition(
-                "succeed",
-                task.get("task_type"),
-                "terminal",
-            )
-            await self._task_release_execution_lock(task)
-            await self._task_release_side_effect_lock(task)
-            return
-        lock_owner = await self._task_execution_lock_owner(task)
-        lock_value = self._task_lock_value(task)
-        if lock_owner is not None and lock_owner != lock_value:
-            MutyLogger.get_instance().warning(
-                "not marking task succeeded because execution lock is owned by another worker: task_type=%s req_id=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-            )
-            self._record_task_transition(
-                "succeed",
-                task.get("task_type"),
-                "lock_mismatch",
-            )
-            return
-        if lock_owner is None:
-            MutyLogger.get_instance().warning(
-                "marking task succeeded after execution lock expired: task_type=%s req_id=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-            )
-        finished_at_msec = int(time.time() * 1000)
-        await self._record_task_execution_duration(
-            task,
-            "succeeded",
-            finished_at_msec=finished_at_msec,
-        )
-        await self._task_lifecycle_hset(
-            task,
-            "succeeded",
-            extra={"finished_at_msec": finished_at_msec},
-        )
-        await self._release_task_admission(task)
-        await self._task_release_execution_lock(task)
-        await self._task_release_side_effect_lock(task)
-        self._record_task_transition(
-            "succeed",
-            task.get("task_type"),
-            "succeeded",
-        )
-
     async def task_mark_canceled(
         self,
         task: dict,
         reason: str = "request canceled",
     ) -> None:
-        """Mark a task lifecycle as canceled and release queued reservations."""
-        task_id = self._task_lifecycle_id(task)
-        if not task_id:
-            self._record_task_transition(
-                "cancel",
-                task.get("task_type"),
-                "untracked",
-            )
-            return
-
-        lifecycle = self._decode_redis_mapping(
-            await self._redis.hgetall(self._task_lifecycle_key(task_id))
-        )
-        task_payload = {**lifecycle, **{k: v for k, v in task.items() if v is not None}}
-        finished_at_msec = int(time.time() * 1000)
-        await self._task_lifecycle_hset(
-            task_payload,
-            "canceled",
-            extra={
-                "finished_at_msec": finished_at_msec,
-                "last_error": reason,
-            },
-        )
-        await self._release_task_admission(task_payload)
-        await self._task_release_execution_lock(task_payload)
-        await self._task_release_side_effect_lock(task_payload)
+        """Record a cancellation transition; PostgreSQL owns cancel state."""
         self._record_task_transition(
             "cancel",
-            task_payload.get("task_type"),
+            task.get("task_type"),
             "canceled",
         )
-
-    async def _task_release_execution_lock(self, task: dict) -> None:
-        """Release a task execution lock if it exists."""
-        task_id = self._task_lifecycle_id(task)
-        if task_id and await self._task_execution_lock_matches(task):
-            await self._redis.delete(self._task_execution_lock_key(task_id))
-
-    async def _task_release_side_effect_lock(self, task: dict) -> None:
-        """Release a task side-effect lease if it belongs to this task."""
-        task_id = self._task_lifecycle_id(task)
-        if task_id and await self._task_side_effect_lock_matches(task):
-            await self._redis.delete(self._task_side_effect_lock_key(task_id))
 
     async def _ack_and_delete_task(self, stream_name: str, msg_id: str) -> None:
         """Acknowledge and delete one task stream entry."""
@@ -2249,8 +1501,8 @@ class GulpRedis:
         Refresh the pending-entry idle timer for a live task.
 
         Redis Streams use pending-entry idle time for XAUTOCLAIM. A long-running
-        task must periodically reset that idle timer so another dispatcher does
-        not reclaim and execute it while it is still alive.
+        task must periodically reset that idle timer so stale cleanup does not
+        drop it while it is still alive.
         """
         stream_name = task.get("__redis_stream__")
         msg_id = task.get("__redis_message_id__")
@@ -2280,31 +1532,6 @@ class GulpRedis:
                     task.get("req_id"),
                 )
                 return False
-            task_id = self._task_lifecycle_id(task)
-            if task_id:
-                now_msec = int(time.time() * 1000)
-                await self._redis.hset(
-                    self._task_lifecycle_key(task_id),
-                    mapping={
-                        "status": "running",
-                        "updated_at_msec": now_msec,
-                        "server_id": self.server_id,
-                        "stream": stream_name,
-                        "message_id": msg_id,
-                    },
-                )
-                await self._redis.expire(
-                    self._task_lifecycle_key(task_id),
-                    GulpRedis.TASK_LIFECYCLE_TTL_SEC,
-                )
-                await self._redis.pexpire(
-                    self._task_execution_lock_key(task_id),
-                    self._task_lock_ttl_ms(),
-                )
-                await self._redis.pexpire(
-                    self._task_side_effect_lock_key(task_id),
-                    self._task_side_effect_lock_ttl_ms(),
-                )
             return True
         except ResponseError as ex:
             if "NOGROUP" not in str(ex):
@@ -2324,232 +1551,58 @@ class GulpRedis:
             )
             return False
 
-    async def _dead_letter_task(
+    async def _drop_task(
         self,
         stream_name: str,
         msg_id: str,
         reason: str,
-        raw_payload: bytes | bytearray | str | None = None,
-        task_payload: dict | None = None,
     ) -> None:
-        """Store a malformed or unsupported task in a dead-letter stream."""
+        """Drop an invalid queued task entry."""
         if isinstance(stream_name, bytes):
             stream_name = stream_name.decode()
         if isinstance(msg_id, bytes):
             msg_id = msg_id.decode()
-        task_type = "unknown"
-        if isinstance(task_payload, dict):
-            task_type = str(task_payload.get("task_type") or task_type)
-        elif isinstance(raw_payload, (bytes, bytearray, str)):
-            try:
-                task_payload = orjson.loads(raw_payload)
-                if isinstance(task_payload, dict):
-                    task_type = str(task_payload.get("task_type") or task_type)
-            except Exception:
-                task_payload = None
-
-        dead_letter_stream = f"{GulpRedis.STREAM_TASK_DLQ_PREFIX}:{task_type}"
-        dead_letter = {
-            "stream_name": stream_name,
-            "message_id": msg_id,
-            "reason": reason,
-            "task": task_payload,
-            "raw": (
-                raw_payload.decode()
-                if isinstance(raw_payload, (bytes, bytearray))
-                else raw_payload
-            ),
-            "server_id": self.server_id,
-        }
-
-        try:
-            await self._redis.xadd(
-                dead_letter_stream,
-                {"data": orjson.dumps(dead_letter)},
-            )
-            self._record_task_transition(
-                "dead_letter",
-                task_type,
-                "written",
-            )
-        except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to write task %s %s to dead-letter stream %s",
-                stream_name,
-                msg_id,
-                dead_letter_stream,
-            )
-            self._record_task_transition(
-                "dead_letter",
-                task_type,
-                "write_error",
-            )
-        finally:
-            await self._ack_and_delete_task(stream_name, msg_id)
-
-    async def task_fail_dead_letter(self, task: dict, reason: str) -> str:
-        """
-        Handle a valid task execution failure by moving it to dead-letter.
-
-        Returns:
-            str: "dead_letter" when written, "terminal" when already terminal,
-            or "ignored" when the task cannot be finalized.
-        """
-        stream_name = task.get("__redis_stream__")
-        msg_id = task.get("__redis_message_id__")
-        if not stream_name or not msg_id:
-            MutyLogger.get_instance().warning(
-                "task_fail_dead_letter called without Redis envelope metadata: task_type=%s req_id=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-            )
-            self._record_task_transition(
-                "failure",
-                task.get("task_type"),
-                "missing_metadata",
-            )
-            return "ignored"
-        status = await self._task_lifecycle_status(task)
-        if status in GulpRedis.TASK_TERMINAL_STATUSES:
-            MutyLogger.get_instance().warning(
-                "not dead-lettering task because lifecycle is already terminal: task_type=%s req_id=%s status=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-                status,
-            )
-            self._record_task_transition(
-                "failure",
-                task.get("task_type"),
-                "terminal",
-            )
-            await self.task_ack_delete(task)
-            await self._task_release_execution_lock(task)
-            await self._task_release_side_effect_lock(task)
-            return "terminal"
-        if task.get("req_id") and not await self._task_execution_lock_matches(task):
-            MutyLogger.get_instance().warning(
-                "not dead-lettering task because execution lock is owned by another worker: task_type=%s req_id=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-            )
-            self._record_task_transition(
-                "failure",
-                task.get("task_type"),
-                "lock_mismatch",
-            )
-            return "ignored"
-
-        task_payload = {k: v for k, v in task.items() if not k.startswith("__redis_")}
-        task_payload["__task_last_error__"] = reason
-        finished_at_msec = int(time.time() * 1000)
-        task_payload["__task_last_failed_at_msec__"] = finished_at_msec
-        await self._record_task_execution_duration(
-            task_payload,
-            "dead_letter",
-            finished_at_msec=finished_at_msec,
-        )
-        await self._task_lifecycle_hset(
-            task_payload,
-            "dead_lettered",
-            extra={
-                "finished_at_msec": finished_at_msec,
-                "last_error": reason,
-            },
-        )
-        await self._release_task_admission(task_payload)
-        await self._dead_letter_task(
-            stream_name,
-            msg_id,
-            f"task failed: {reason}",
-            task_payload=task_payload,
-        )
-        await self._task_release_execution_lock(task)
-        await self._task_release_side_effect_lock(task)
-        self._record_task_transition(
-            "failure",
-            task_payload.get("task_type"),
-            "dead_letter",
-        )
-        return "dead_letter"
-
-    async def task_dead_letter(self, task: dict, reason: str) -> bool:
-        """Move a dequeued task directly to the dead-letter stream."""
-        stream_name = task.get("__redis_stream__")
-        msg_id = task.get("__redis_message_id__")
-        if not stream_name or not msg_id:
-            MutyLogger.get_instance().warning(
-                "task_dead_letter called without Redis envelope metadata: task_type=%s req_id=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-            )
-            self._record_task_transition(
-                "dead_letter",
-                task.get("task_type"),
-                "missing_metadata",
-            )
-            return False
-        status = await self._task_lifecycle_status(task)
-        if status in GulpRedis.TASK_TERMINAL_STATUSES:
-            MutyLogger.get_instance().warning(
-                "not dead-lettering task because lifecycle is already terminal: task_type=%s req_id=%s status=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-                status,
-            )
-            self._record_task_transition(
-                "dead_letter",
-                task.get("task_type"),
-                "terminal",
-            )
-            await self.task_ack_delete(task)
-            await self._task_release_execution_lock(task)
-            await self._task_release_side_effect_lock(task)
-            return False
-        if task.get("req_id") and not await self._task_execution_lock_matches(task):
-            MutyLogger.get_instance().warning(
-                "not dead-lettering task because execution lock is owned by another worker: task_type=%s req_id=%s",
-                task.get("task_type"),
-                task.get("req_id"),
-            )
-            self._record_task_transition(
-                "dead_letter",
-                task.get("task_type"),
-                "lock_mismatch",
-            )
-            return False
-
-        task_payload = {k: v for k, v in task.items() if not k.startswith("__redis_")}
-        task_payload["__task_last_error__"] = reason
-        finished_at_msec = int(time.time() * 1000)
-        task_payload["__task_last_failed_at_msec__"] = finished_at_msec
-        await self._record_task_execution_duration(
-            task_payload,
-            "dead_letter",
-            finished_at_msec=finished_at_msec,
-        )
-        await self._task_lifecycle_hset(
-            task_payload,
-            "dead_lettered",
-            extra={
-                "finished_at_msec": finished_at_msec,
-                "last_error": reason,
-            },
-        )
-        await self._release_task_admission(task_payload)
-        await self._dead_letter_task(
+        MutyLogger.get_instance().warning(
+            "dropping queued task %s %s: %s",
             stream_name,
             msg_id,
             reason,
-            task_payload=task_payload,
         )
-        await self._task_release_execution_lock(task)
-        await self._task_release_side_effect_lock(task)
         self._record_task_transition(
-            "dead_letter",
-            task_payload.get("task_type"),
-            "direct",
+            "drop",
+            self._task_type_from_stream(stream_name),
+            "invalid",
         )
-        return True
+        await self._ack_and_delete_task(stream_name, msg_id)
+
+    async def task_mark_failed(self, task: dict, reason: str) -> str:
+        """
+        Drop a failed task stream entry.
+
+        Returns:
+            str: "failed" when finalized or "ignored" when metadata is missing.
+        """
+        stream_name = task.get("__redis_stream__")
+        msg_id = task.get("__redis_message_id__")
+        if not stream_name or not msg_id:
+            MutyLogger.get_instance().warning(
+                "task_mark_failed called without Redis envelope metadata: task_type=%s req_id=%s",
+                task.get("task_type"),
+                task.get("req_id"),
+            )
+            self._record_task_transition(
+                "failure",
+                task.get("task_type"),
+                "missing_metadata",
+            )
+            return "ignored"
+        await self.task_ack_delete(task)
+        self._record_task_transition(
+            "failure",
+            task.get("task_type"),
+            "failed",
+        )
+        return "failed"
 
     async def task_enqueue(self, task: dict) -> None:
         """
@@ -2572,9 +1625,7 @@ class GulpRedis:
 
         # stream key per task type
         stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{ttype}"
-        admission_reserved = False
         try:
-            work_units = self._task_work_units(task)
             if GulpRedis.STREAM_TASK_MAXLEN > 0:
                 queue_depth = await self.task_queue_depth(ttype)
                 if queue_depth >= GulpRedis.STREAM_TASK_MAXLEN:
@@ -2588,21 +1639,15 @@ class GulpRedis:
                         queue_depth,
                         GulpRedis.STREAM_TASK_MAXLEN,
                         retry_after_msec=self._task_admission_retry_after_msec(),
-                        work_units=work_units,
                     )
-            await self._reserve_task_admission(task, work_units)
-            admission_reserved = True
             # add to stream under field 'data'
             await self._redis.xadd(stream_key, {"data": payload})
             # record known task type
             await self._redis.sadd(GulpRedis.TASK_TYPES_SET, ttype)
-            await self.task_record_queued(task)
             self._record_task_transition("enqueue", ttype, "queued")
         except TaskQueueFullError:
             raise
         except Exception:
-            if admission_reserved:
-                await self._release_task_admission(task)
             # best-effort: log and continue
             MutyLogger.get_instance().exception(
                 "failed to push task into role-specific stream '%s'", stream_key
@@ -2671,11 +1716,10 @@ class GulpRedis:
                     else fields.get("data")
                 )
                 if raw is None:
-                    await self._dead_letter_task(
+                    await self._drop_task(
                         stream_name,
                         msg_id,
                         "missing data field",
-                        raw_payload=None,
                     )
                     continue
                 try:
@@ -2693,11 +1737,10 @@ class GulpRedis:
                     MutyLogger.get_instance().error(
                         "invalid task payload in stream %s: %s", stream_name, ex
                     )
-                    await self._dead_letter_task(
+                    await self._drop_task(
                         stream_name,
                         msg_id,
                         f"invalid task payload: {ex}",
-                        raw_payload=raw,
                     )
 
         return items
@@ -2762,11 +1805,10 @@ class GulpRedis:
                         MutyLogger.get_instance().error(
                             "invalid task payload on XREADGROUP, skipping: %s", ex
                         )
-                        await self._dead_letter_task(
+                        await self._drop_task(
                             stream_name,
                             msg_id,
                             f"invalid task payload: {ex}",
-                            raw_payload=raw,
                         )
                         continue
             return None
@@ -2777,14 +1819,14 @@ class GulpRedis:
             await asyncio.sleep(0.5)
             return None
 
-    async def task_autoclaim_stale(self) -> list[dict]:
+    async def task_drop_stale_pending(self) -> list[dict]:
         """
-        Reclaim stale pending stream tasks whose consumer has stopped refreshing them.
+        Drop stale pending stream tasks whose consumer stopped refreshing them.
 
         Returns:
-            list[dict]: Reclaimed task envelopes ready for dispatch.
+            list[dict]: Task envelopes that were dropped as abandoned.
         """
-        reclaimed: list[dict] = []
+        dropped: list[dict] = []
         keys = await self._task_stream_keys()
         for stream in keys:
             try:
@@ -2807,12 +1849,12 @@ class GulpRedis:
                 if "NOGROUP" in str(ex):
                     continue
                 MutyLogger.get_instance().exception(
-                    "error autoclaiming stale tasks from %s: %s", stream, ex
+                    "error cleaning stale pending tasks from %s: %s", stream, ex
                 )
                 continue
             except Exception as ex:
                 MutyLogger.get_instance().exception(
-                    "error autoclaiming stale tasks from %s: %s", stream, ex
+                    "error cleaning stale pending tasks from %s: %s", stream, ex
                 )
                 continue
 
@@ -2823,11 +1865,10 @@ class GulpRedis:
                     else fields.get("data")
                 )
                 if raw is None:
-                    await self._dead_letter_task(
+                    await self._drop_task(
                         stream,
                         msg_id,
-                        "missing data field in autoclaimed message",
-                        raw_payload=None,
+                        "missing data field in stale pending message",
                     )
                     continue
                 try:
@@ -2835,37 +1876,36 @@ class GulpRedis:
                     if not isinstance(task, dict):
                         raise TypeError("task payload must decode to dict")
                     envelope = self._task_envelope(task, stream, msg_id, self.server_id)
-                    envelope["__redis_autoclaimed__"] = True
-                    reclaimed.append(envelope)
+                    await self.task_ack_delete(envelope)
+                    dropped.append(envelope)
                 except Exception as ex:
                     MutyLogger.get_instance().error(
-                        "invalid task payload in autoclaimed message %s/%s: %s",
+                        "invalid task payload in stale pending message %s/%s: %s",
                         stream,
                         msg_id,
                         ex,
                     )
-                    await self._dead_letter_task(
+                    await self._drop_task(
                         stream,
                         msg_id,
-                        f"invalid task payload in autoclaimed message: {ex}",
-                        raw_payload=raw,
+                        f"invalid task payload in stale pending message: {ex}",
                     )
 
             if claimed_msgs:
                 task_type = self._task_type_from_stream(stream)
                 self._record_task_transition(
-                    "autoclaim",
+                    "stale_pending",
                     task_type,
-                    "reclaimed",
+                    "dropped",
                     amount=len(claimed_msgs),
                 )
                 MutyLogger.get_instance().warning(
-                    "autoclaimed %d stale task(s) from %s",
+                    "dropped %d stale pending task(s) from %s",
                     len(claimed_msgs),
                     stream,
                 )
 
-        return reclaimed
+        return dropped
 
     async def task_purge_by_filter(
         self, operation_id: str | None = None, req_id: str | None = None
@@ -2925,7 +1965,6 @@ class GulpRedis:
                     cond_ok = False
 
                 if cond_ok:
-                    await self._release_task_admission(d)
                     await self.task_mark_canceled(
                         d,
                         reason="request canceled while queued",
