@@ -631,7 +631,7 @@ async def ingest_file_handler(
     context_name: Annotated[
         str,
         Query(
-            description=_DESC_CONTEXT_NAME,
+            description="may be a context name (`context_id` will be created if it doesn't exist) or an existing `context_id`",
             examples={"default": {"value": _EXAMPLE_CONTEXT_NAME}},
         ),
     ],
@@ -669,6 +669,15 @@ async def ingest_file_handler(
             )
             index = operation.index
             user_id = s.user.id
+
+            # check if name is a context id
+            ctx: GulpContext = await GulpContext.get_by_id(sess, context_name, throw_if_not_found=False)
+            if ctx:
+                MutyLogger.get_instance().warning(
+                    "context_name=%s is a context id, using it as context id instead of name",
+                    context_name,
+                )
+                context_name = ctx.name
 
             # handle multipart request manually
             file_path, payload_dict, result = (
