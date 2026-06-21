@@ -206,11 +206,12 @@ _DESC_HEADER_SIZE = "the total size of the uploaded file in bytes."
 _DESC_HEADER_CONTINUE_OFFSET = "the offset in the file to continue the upload from."
 
 _DESC_CONTEXT_NAME = """
-`name` of a `context` object.
+`name` of a `context` object
 
 a `context` is a group of `sources` in the collab database, and is always referred to an `operation`.
 
 - if not yet present, a `context` with `id=SHA1(operation_id+context_name)` and `name`=`context_id` will be created on the collab database.
+- if `context_name` is an existing `context_id`, it will be used as is and no new context will be created.
 """
 
 _EXAMPLE_CONTEXT_NAME = "test_context"
@@ -222,6 +223,21 @@ _DESC_SOURCE_NAME = """
 - if not yet present, a `source` with id=SHA1(operation_id+context_id+source_name)` will be created on the collab database.
 """
 _EXAMPLE_SOURCE_NAME = "test_source"
+
+
+async def _check_existing_context(sess: AsyncSession, context_name: str) -> str:
+    # check if context_name is an existing context id, if so return that
+    # otherwise return the context_name as is
+    ctx: GulpContext = await GulpContext.get_by_id(
+        sess, context_name, throw_if_not_found=False
+    )
+    if ctx:
+        MutyLogger.get_instance().warning(
+            "context_name=%s is a context id, using it as context id instead of name",
+            context_name,
+        )
+        context_name = ctx.name
+    return context_name
 
 
 async def _ingest_file_internal(
@@ -631,7 +647,7 @@ async def ingest_file_handler(
     context_name: Annotated[
         str,
         Query(
-            description="may be a context name (`context_id` will be created if it doesn't exist) or an existing `context_id`",
+            description=_DESC_CONTEXT_NAME,
             examples={"default": {"value": _EXAMPLE_CONTEXT_NAME}},
         ),
     ],
@@ -671,13 +687,7 @@ async def ingest_file_handler(
             user_id = s.user.id
 
             # check if name is a context id
-            ctx: GulpContext = await GulpContext.get_by_id(sess, context_name, throw_if_not_found=False)
-            if ctx:
-                MutyLogger.get_instance().warning(
-                    "context_name=%s is a context id, using it as context id instead of name",
-                    context_name,
-                )
-                context_name = ctx.name
+            context_name = await _check_existing_context(sess, context_name)
 
             # handle multipart request manually
             file_path, payload_dict, result = (
@@ -740,7 +750,8 @@ async def ingest_file_handler(
     summary="ingest file to an existing source",
     description="""
 - ingest `operation_id` is taken from the source and checked for access.
-- if payload contains `plugin_params`, they will override the existing plugin parameters associated with the source.
+- if `plugin` is set, it overrides the plugin associated with the source and payload must contain `plugin_params` (empty is allowed).
+- if payload contains `plugin_params` without `plugin`, they will override the existing plugin parameters associated with the source.
 
 ### tracking progress
 
@@ -761,6 +772,13 @@ async def ingest_file_to_source_handler(
         str,
         Depends(APIDependencies.param_ws_id),
     ],
+    plugin: Annotated[
+        Optional[str],
+        Query(
+            description="if set, overrides the plugin associated with the source.",
+            examples={"default": {"value": "win_evtx"}},
+        ),
+    ] = None,
     req_id: Annotated[
         str,
         Depends(APIDependencies.ensure_req_id_optional),
@@ -802,17 +820,26 @@ async def ingest_file_to_source_handler(
                 )
                 return JSONResponse(d, status_code=206)
 
+            plugin_params_was_supplied = (
+                isinstance(payload, dict) and "plugin_params" in payload
+            )
+
             # ensure payload is valid
             payload = GulpIngestPayload.model_validate(payload)
 
             # get plugin parameters either from payload or from the existing source
             plugin_params = payload.plugin_params
-            if plugin_params.is_empty():
+            if plugin and not plugin_params_was_supplied:
+                raise ValueError("plugin_params must be supplied when overriding plugin")
+            if not plugin and plugin_params.is_empty():
+                # use existing plugin parameters from source if not supplied in payload and not overriding plugin
                 plugin_params = GulpPluginParameters(
                     mapping_parameters=GulpMappingParameters.model_validate(
                         src.mapping_parameters.mapping if src.mapping_parameters else {}
                     )
                 )
+            payload.plugin_params = plugin_params
+            plugin = plugin or src.plugin
             MutyLogger.get_instance().debug(
                 "ingesting to existing source %s: context_name=%s, operation_id=%s, index=%s, user_id=%s, plugin=%s, plugin_params=%s",
                 src.id,
@@ -820,7 +847,7 @@ async def ingest_file_to_source_handler(
                 src.operation_id,
                 op.index,
                 user_id,
-                src.plugin,
+                plugin,
                 plugin_params,
             )
 
@@ -833,7 +860,7 @@ async def ingest_file_to_source_handler(
                 context_name=ctx.name,
                 source_name=src.name,
                 index=op.index,
-                plugin=src.plugin,
+                plugin=plugin,
                 file_path=file_path,
                 payload=payload,
             )
@@ -937,6 +964,9 @@ async def ingest_file_local_handler(
                 sess, token, operation_id, permission=GulpUserPermission.INGEST
             )
 
+            # check if name is a context id
+            context_name = await _check_existing_context(sess, context_name)
+
             payload = GulpIngestPayload(
                 flt=flt,
                 plugin_params=plugin_params,
@@ -974,6 +1004,7 @@ async def ingest_file_local_handler(
 same as `ingest_file_to_source` but expects the file to be in the `$GULP_WORKING_DIR/ingest_local` directory on the server.
 
 - ingest `operation_id` is taken from the source and checked for access.
+- if `plugin` is set, it overrides the plugin associated with the source and `plugin_params` must be supplied (empty is allowed).
 - this API does not require custom request handling by the server and can be used from the `FastAPI /docs` page.
 
 ### tracking progress
@@ -1004,10 +1035,17 @@ async def ingest_file_local_to_source_handler(
         str,
         Depends(APIDependencies.param_ws_id),
     ],
+    plugin: Annotated[
+        Optional[str],
+        Query(
+            description="if set, overrides the plugin associated with the source.",
+            examples={"default": {"value": "win_evtx"}},
+        ),
+    ] = None,
     plugin_params: Annotated[
         Optional[GulpPluginParameters],
         Body(
-            description="if set, they will override the existing plugin parameters associated with the source."
+            description="if set, they will override the existing plugin parameters associated with the source. required when overriding plugin, empty is allowed."
         ),
     ] = None,
     flt: Annotated[
@@ -1027,6 +1065,7 @@ async def ingest_file_local_to_source_handler(
 ) -> JSONResponse:
     params = locals()
     params["flt"] = flt.model_dump(exclude_none=True)
+    plugin_params_was_supplied = plugin_params is not None
     if not plugin_params:
         plugin_params = GulpPluginParameters()
     params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
@@ -1055,13 +1094,17 @@ async def ingest_file_local_to_source_handler(
             # get context
             ctx: GulpContext = await GulpContext.get_by_id(sess, src.context_id)
 
+            if plugin and not plugin_params_was_supplied:
+                raise ValueError("plugin_params must be supplied when overriding plugin")
+
             # use existing plugin parameters if not overridden
-            if plugin_params.is_empty():
+            if not plugin and plugin_params.is_empty():
                 plugin_params = GulpPluginParameters(
                     mapping_parameters=GulpMappingParameters.model_validate(
                         src.mapping_parameters.mapping if src.mapping_parameters else {}
                     )
                 )
+            plugin = plugin or src.plugin
             payload = GulpIngestPayload(
                 flt=flt,
                 plugin_params=plugin_params,
@@ -1078,7 +1121,7 @@ async def ingest_file_local_to_source_handler(
                 context_name=ctx.name,
                 source_name=src.name,
                 index=op.index,
-                plugin=src.plugin,
+                plugin=plugin,
                 file_path=path,
                 payload=payload,
                 delete_after=delete_after,
@@ -1512,6 +1555,9 @@ async def ingest_zip_handler(
                     sess, token, operation_id, permission=GulpUserPermission.INGEST
                 )
 
+                # check if name is a context id
+                context_name = await _check_existing_context(sess, context_name)
+
                 # handle multipart request manually
                 file_path: str = None
                 result: GulpUploadResponse = None
@@ -1655,6 +1701,9 @@ async def ingest_zip_local_handler(
                 )
                 if existing_response:
                     return existing_response
+
+                # check if name is a context id
+                context_name = await _check_existing_context(sess, context_name)
 
                 # process in background: the background task will unzip the file and enqueue the tasks
                 coro = _ingest_zip_internal(

@@ -43,14 +43,16 @@ class ServerUtils:
         sess, req_id: str, *, allow_ongoing: bool = False
     ) -> JSONResponse | None:
         """Return existing request stats when a req_id must not enqueue again."""
-        stats = await GulpRequestStats.get_by_id(
+        stats: GulpRequestStats = await GulpRequestStats.get_by_id(
             sess, req_id, throw_if_not_found=False
         )
         if not stats:
             return None
         if allow_ongoing and not GulpRequestStats.is_terminal_status(stats.status):
             return None
-        return JSONResponse({**stats.to_dict(), "already_exist": True})
+
+        # use 409 Conflict to indicate the request already exists, and include the existing request stats in the response body for debugging/monitoring purposes
+        return JSONResponse({**stats.to_dict(), "already_exist": True}, status_code=409)
 
     @staticmethod
     def task_queue_full_response(
