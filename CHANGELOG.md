@@ -1,3 +1,11 @@
+# v1.7.600
+
+- some API improvements (ingest, better compatibility with recent gulp-cli improvements)
+- revamped devcontainer
+- reworked glyph support, removed unnecessary handling
+- redis improvements
+- better observability and metrics support
+
 # v1.7.500
 
 - fully code reviewed (gpt5.5/xhigh) and polished, with many improvements across the whole codebase, including better error handling, more robust and performant code, better documentation, and more tests.

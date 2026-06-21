@@ -48,7 +48,7 @@ gulp-cli
 muty-python
 gulp-sdk
 gulp-dissect
-gulp-agent
+gulp-collector
 img
 plans
 _version.py
