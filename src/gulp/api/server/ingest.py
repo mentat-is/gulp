@@ -4,24 +4,28 @@ API Routes for Ingestion Operations in the Gulp Framework
 This module defines FastAPI routes that handle various ingestion operations:
 - Single file ingestion (`ingest_file_handler`)
 - Raw document ingestion (`ingest_raw_handler`)
-- ZIP file ingestion with metadata (`ingest_zip_handler`)
 
 Each handler implements a different ingestion strategy:
 - File ingestion processes individual files through specified plugins
 - Raw ingestion processes pre-structured document chunks
-- ZIP ingestion extracts and processes multiple files based on metadata
 
 All handlers support resumable uploads, progress tracking via websocket,
 and preview mode for testing without persistence.
 
 """
 
+import asyncio
+import bz2
+import gzip
+import lzma
 import os
+import shutil
+import tempfile
+import zipfile
 from copy import deepcopy
 from typing import Annotated, Any, Optional
 
 import muty.file
-import muty.log
 import muty.pydantic
 import muty.string
 import orjson
@@ -47,7 +51,6 @@ from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import (
     TASK_TYPE_INGEST,
     APIDependencies,
-    GulpUploadResponse,
 )
 from gulp.api.server_api import GulpServer
 from gulp.config import GulpConfig
@@ -105,54 +108,6 @@ class GulpIngestPayload(GulpBaseIngestPayload):
     file_sha1: Annotated[
         Optional[str], Field(description="The SHA1 of the file being ingested.")
     ] = None
-
-
-class GulpZipIngestPayload(GulpBaseIngestPayload):
-    """
-    payload for ingest_zip
-    """
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "flt": autogenerate_model_example_by_class(GulpIngestionFilter),
-                }
-            ]
-        }
-    )
-
-
-class GulpZipMetadataEntry(BaseModel):
-    """
-    metadata entry for ingest_zip
-    """
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "plugin": "win_evtx",
-                    "files": ["file1.evtx"],
-                    "original_path": "c:\\logs",
-                    "plugin_params": autogenerate_model_example_by_class(
-                        GulpPluginParameters
-                    ),
-                }
-            ]
-        }
-    )
-    plugin: Annotated[str, Field(description="The plugin to use.")]
-    files: Annotated[list[str], Field(description="The files to ingest.")]
-    original_path: Annotated[
-        Optional[str],
-        Field(
-            description="The original base path where `files` are taken from.",
-        ),
-    ] = None
-    plugin_params: Annotated[
-        Optional[GulpPluginParameters], Field(description="The plugin parameters.")
-    ] = Field(default_factory=GulpPluginParameters)
 
 
 router = APIRouter()
@@ -240,6 +195,97 @@ async def _check_existing_context(sess: AsyncSession, context_name: str) -> str:
     return context_name
 
 
+def _decompress_file_for_ingestion_sync(file_path: str) -> str:
+    """
+    Decompress a single compressed file into a temporary file for ingestion.
+
+    Supported formats are gzip, bzip2, xz/lzma, and single-file ZIP archives.
+    The input is detected from magic bytes so clients do not need to rely on a
+    specific filename extension.
+    """
+    base_name = os.path.basename(file_path)
+    with open(file_path, "rb") as f:
+        magic = f.read(6)
+
+    opener = None
+    if magic.startswith(b"\x1f\x8b"):
+        opener = gzip.open
+    elif magic.startswith(b"BZh"):
+        opener = bz2.open
+    elif magic.startswith(b"\xfd7zXZ\x00"):
+        opener = lzma.open
+    elif base_name.endswith(".lzma"):
+        opener = lzma.open
+    elif magic.startswith(b"PK"):
+        return _decompress_zip_file_for_ingestion(file_path)
+
+    if opener is None:
+        raise ValueError(
+            "unsupported compressed file format: expected gzip, bzip2, xz/lzma, or zip"
+        )
+
+    suffix = ""
+    for ext in (".gzip", ".gz", ".bz2", ".bzip2", ".xz", ".lzma"):
+        if base_name.endswith(ext):
+            suffix = os.path.splitext(base_name[: -len(ext)])[1]
+            break
+
+    fd, decompressed_path = tempfile.mkstemp(
+        prefix=f"{base_name}.decompressed.", suffix=suffix
+    )
+    os.close(fd)
+
+    try:
+        with opener(file_path, "rb") as src, open(decompressed_path, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+    except Exception:
+        try:
+            os.unlink(decompressed_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+    return decompressed_path
+
+
+def _decompress_zip_file_for_ingestion(file_path: str) -> str:
+    """
+    Decompress a ZIP archive containing exactly one file into a temporary file.
+    """
+    with zipfile.ZipFile(file_path) as zf:
+        entries = [info for info in zf.infolist() if not info.is_dir()]
+        if len(entries) != 1:
+            raise ValueError(
+                "zip compression requires an archive containing exactly one file"
+            )
+
+        entry = entries[0]
+        suffix = os.path.splitext(os.path.basename(entry.filename))[1]
+        fd, decompressed_path = tempfile.mkstemp(
+            prefix=f"{os.path.basename(file_path)}.decompressed.", suffix=suffix
+        )
+        os.close(fd)
+
+        try:
+            with zf.open(entry, "r") as src, open(decompressed_path, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        except Exception:
+            try:
+                os.unlink(decompressed_path)
+            except FileNotFoundError:
+                pass
+            raise
+
+    return decompressed_path
+
+
+async def _decompress_file_for_ingestion(file_path: str) -> str:
+    """
+    Decompress a single compressed file into a temporary file for ingestion.
+    """
+    return await asyncio.to_thread(_decompress_file_for_ingestion_sync, file_path)
+
+
 async def _ingest_file_internal(
     user_id: str,
     req_id: str,
@@ -268,6 +314,8 @@ async def _ingest_file_internal(
     mod: GulpPluginBase = None
     ctx_id: str = None
     src_id: str = None
+    ingestion_file_path = file_path
+    delete_ingestion_file = False
 
     if payload.plugin_params.preview_mode:
         MutyLogger.get_instance().warning(
@@ -329,6 +377,17 @@ async def _ingest_file_internal(
 
             # run plugin and perform the ingestion
             try:
+                if payload.plugin_params.compressed:
+                    ingestion_file_path = await _decompress_file_for_ingestion(
+                        file_path
+                    )
+                    delete_ingestion_file = True
+                    MutyLogger.get_instance().debug(
+                        "decompressed file for ingestion: %s -> %s",
+                        file_path,
+                        ingestion_file_path,
+                    )
+
                 mod = await GulpPluginBase.load(plugin)
                 status = await mod.ingest_file(
                     sess=sess,
@@ -340,7 +399,7 @@ async def _ingest_file_internal(
                     operation_id=operation_id,
                     context_id=ctx_id,
                     source_id=src_id,
-                    file_path=file_path,
+                    file_path=ingestion_file_path,
                     original_file_path=payload.original_file_path,
                     plugin_params=payload.plugin_params,
                     flt=payload.flt,
@@ -380,17 +439,19 @@ async def _ingest_file_internal(
                 upload_task = mod.upload_task
                 await mod.unload()
 
-            # ensure background upload is finished before deleting the file. we don't want to
-            # remove the file while it's still being transferred. only do this when
-            # delete_after is requested.
-            if delete_after:
+            # Ensure background upload is finished before deleting files that
+            # may still be transferring.
+            if delete_after or delete_ingestion_file:
                 if upload_task:
                     try:
                         await upload_task
                     except Exception:
                         # ignore errors from upload, deletion should happen regardless
                         pass
-                # delete file
+            if delete_ingestion_file:
+                await muty.file.delete_file_or_dir_async(ingestion_file_path)
+            if delete_after:
+                # delete original file
                 await muty.file.delete_file_or_dir_async(file_path)
 
 
@@ -1302,436 +1363,6 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
 
             # done
             return JSONResponse(JSendResponse.pending(req_id=req_id))
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
-
-
-async def _process_metadata_json(
-    unzipped_path: str, payload: GulpZipIngestPayload
-) -> list[GulpIngestPayload]:
-    """
-    Process metadata.json file from unzipped path and extract files information.
-
-    metadata.json is expected to be a list of GulpZipMetadataEntry dictionaries, each containing information about each source file.
-
-    Args:
-        unzipped_path (str): Path to unzipped directory containing metadata.json
-        payload (GulpZipIngestPayload): The payload for the ingestion.
-
-    Returns:
-        list[GulpIngestPayload]: List of GulpIngestPayload objects.
-        each have, in model_extra, local_file_path set to the path of the file to ingest and plugin set to the plugin to use.
-
-    Raises:
-
-    """
-    # Read and parse metadata json
-    js = await muty.file.read_file_async(os.path.join(unzipped_path, "metadata.json"))
-    metadata = orjson.loads(js)
-
-    # process files entries
-    files = []
-    for entry in metadata:
-        e = GulpZipMetadataEntry.model_validate(entry)
-        for f in e.files:
-            files.append(
-                GulpIngestPayload(
-                    flt=payload.flt,
-                    plugin_params=e.plugin_params,
-                    original_file_path=(
-                        os.path.join(e.original_path, f) if e.original_path else f
-                    ),
-                    local_file_path=os.path.join(unzipped_path, f),
-                    plugin=e.plugin,
-                )
-            )
-
-    files_total = len(files)
-    if files_total == 0:
-        raise ValueError("metadata.json is empty")
-
-    return files
-
-
-async def _ingest_zip_internal(
-    path: str,
-    context_name: str,
-    operation_id: str,
-    index: str,
-    user_id: str,
-    ws_id: str,
-    req_id: str,
-    payload: GulpZipIngestPayload,
-    delete_after: bool = True,
-) -> None:
-    """
-    unzip the zip file at path, read metadata.json and enqueue ingestion tasks for each file in the zip.
-
-    the ingestion tasks will be processed by workers.
-    """
-
-    async with GulpCollab.get_instance().session() as sess:
-        try:
-            # create a stats object
-            stats: GulpRequestStats
-            stats, _ = await GulpRequestStats.create_or_get_existing(
-                sess,
-                req_id,
-                user_id,
-                operation_id,
-                ws_id=ws_id,
-                data=GulpIngestionStats(source_total=0).model_dump(exclude_none=True),
-            )
-
-            try:
-                # unzip in a temporary directory
-                unzipped = await muty.file.unzip(path)
-
-                # get file list and read metadata json
-                files: list[GulpIngestPayload] = await _process_metadata_json(
-                    unzipped, payload
-                )
-
-                # update with total number of files to ingest (update ORM object)
-                stats.data = GulpIngestionStats(source_total=len(files)).model_dump(
-                    exclude_none=True
-                )
-                await sess.commit()
-            except Exception as ex:
-                # set finished manually (we haven't reached the ingest loop yet)
-                # MutyLogger.get_instance().exception(ex)
-                await stats.set_finished(
-                    sess,
-                    GulpRequestStatus.FAILED,
-                    errors=muty.log.exception_to_string(ex),
-                )
-                raise
-
-            # enqueue tasks (they will be processed by workers)
-            for task_num, f in enumerate(files, start=1):
-                kwds = dict(
-                    context_name=context_name,
-                    source_name=f.original_file_path,
-                    req_id=req_id,
-                    ws_id=ws_id,
-                    index=index,
-                    plugin=f.model_extra.get("plugin"),
-                    file_path=f.model_extra.get("local_file_path"),
-                    payload=f.model_dump(exclude_none=True),
-                    delete_after=delete_after,
-                )
-                task_msg = {
-                    "task_type": TASK_TYPE_INGEST,
-                    "__task_id__": f"{req_id}:ingest_zip:{task_num}",
-                    "operation_id": operation_id,
-                    "user_id": user_id,
-                    "ws_id": ws_id,
-                    "req_id": req_id,
-                    "params": kwds,
-                }
-                try:
-                    await GulpRedis.get_instance().task_enqueue(task_msg)
-                except TaskQueueFullError as ex:
-                    return ServerUtils.task_queue_full_response("ingest", req_id, ex)
-        finally:
-            # delete the zip file
-            await muty.file.delete_file_or_dir_async(path)
-
-
-@router.post(
-    "/ingest_zip",
-    tags=["ingest"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        100: _EXAMPLE_INCOMPLETE_UPLOAD,
-        200: _EXAMPLE_DONE_UPLOAD,
-    },
-    openapi_extra={
-        "parameters": [
-            {
-                "name": "size",
-                "in": "header",
-                "required": True,
-                "schema": {"type": "integer"},
-                "description": _DESC_HEADER_SIZE,
-                "example": 69632,
-            },
-            {
-                "name": "continue_offset",
-                "in": "header",
-                "required": False,
-                "default": 0,
-                "schema": {"type": "integer"},
-                "description": _DESC_HEADER_CONTINUE_OFFSET,
-                "example": 0,
-            },
-        ],
-        "requestBody": {
-            "content": {
-                "multipart/form-data": {
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "f": {"type": "string", "format": "binary"},
-                            "payload": {
-                                "type": "object",
-                                "properties": {
-                                    "flt": {
-                                        "$ref": "#/components/schemas/GulpIngestionFilter",
-                                        "description": "Optional ingestion filter to restrict ingested data",
-                                        "examples": [
-                                            autogenerate_model_example_by_class(
-                                                GulpIngestionFilter
-                                            )
-                                        ],
-                                    },
-                                },
-                            },
-                        },
-                    }
-                }
-            }
-        },
-    },
-    description="""
-- **this function cannot be used from the `FastAPI /docs` page since it needs custom request handling to support resume**.
-
-the request expects a multipart request with a JSON payload (content type `application/json`) and a bytes `chunk` (content type `application/zip`) with a chunk of the file.
-
-### zip format
-
-the uploaded zip file **must include** a `metadata.json` with an array of `GulpZipMetadataEntry` to describe the zip content.
-
-```json
-[ GulpZipMetadataEntry, ... ]
-```
-
-### payload
-
-the json payload is a `GulpZipIngestPayload`, which allows to specify a `GulpIngestionFilter` to be applied to all files in the zip.
-
-for further information, refer to `ingest_file` API for the request and response internals.
-
-### tracking progress
-
-same as `ingest_file`, but the stats will contain the total number of files to be ingested and the number of files ingested so far.
-
-""",
-    summary="ingest a zip containing multiple sources, possibly using multiple plugins.",
-)
-async def ingest_zip_handler(
-    r: Request,
-    token: Annotated[
-        str,
-        Depends(APIDependencies.param_token),
-    ],
-    operation_id: Annotated[
-        str,
-        Depends(APIDependencies.param_operation_id),
-    ],
-    context_name: Annotated[
-        str,
-        Query(
-            description=_DESC_CONTEXT_NAME,
-            examples={"default": {"value": _EXAMPLE_CONTEXT_NAME}},
-        ),
-    ],
-    ws_id: Annotated[
-        str,
-        Depends(APIDependencies.param_ws_id),
-    ],
-    req_id: Annotated[
-        str,
-        Depends(APIDependencies.ensure_req_id_optional),
-    ] = None,
-) -> JSONResponse:
-    params = locals()
-    params.pop("r")
-    ServerUtils.dump_params(params)
-    try:
-        async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation
-                s: GulpUserSession
-                s, op, _ = await GulpOperation.get_by_id_wrapper(
-                    sess, token, operation_id, permission=GulpUserPermission.INGEST
-                )
-
-                # check if name is a context id
-                context_name = await _check_existing_context(sess, context_name)
-
-                # handle multipart request manually
-                file_path: str = None
-                result: GulpUploadResponse = None
-                file_path, payload, result = (
-                    await ServerUtils.handle_multipart_chunked_upload(
-                        r=r,
-                        operation_id=operation_id,
-                        context_name=context_name,
-                        prefix=req_id,
-                    )
-                )
-                if not result.done:
-                    # must continue upload with a new chunk
-                    d = JSendResponse.success(
-                        req_id=req_id, data=result.model_dump(exclude_none=True)
-                    )
-                    return JSONResponse(d, status_code=206)
-
-                # ensure payload is valid
-                payload = GulpZipIngestPayload.model_validate(payload)
-
-                existing_response = await ServerUtils.existing_request_response(
-                    sess, req_id, allow_ongoing=True
-                )
-                if existing_response:
-                    return existing_response
-
-                # process in background: the background task will unzip the file and enqueue the tasks
-                coro = _ingest_zip_internal(
-                    file_path,
-                    context_name,
-                    operation_id,
-                    op.index,
-                    s.user_id,
-                    ws_id,
-                    req_id,
-                    payload,
-                    delete_after=True,
-                )
-                from gulp.api.server_api import GulpServer
-
-                GulpServer.get_instance().spawn_bg_task(coro)
-
-                # and return pending
-                return JSONResponse(JSendResponse.pending(req_id=req_id))
-
-            except Exception as ex:
-                await muty.file.delete_file_or_dir_async(file_path)
-                raise
-    except Exception as ex:
-        raise JSendException(req_id=req_id) from ex
-
-
-@router.post(
-    "/ingest_zip_local",
-    tags=["ingest"],
-    response_model=JSendResponse,
-    response_model_exclude_none=True,
-    responses={
-        200: _EXAMPLE_DONE_UPLOAD,
-    },
-    summary="ingest a `local` zip containing multiple sources, possibly using multiple plugins.",
-    description="""
-this is basically a local version of the `ingest_zip` function, which does not require a multipart request and can be used from the `FastAPI /docs` page.
-
-the following are the differences from the default `ingest_file` function:
-
-- `flt` is optionally passed as json in the payload
-""",
-)
-async def ingest_zip_local_handler(
-    token: Annotated[
-        str,
-        Depends(APIDependencies.param_token),
-    ],
-    path: Annotated[
-        str,
-        Query(
-            description="the path of the ZIP file to be ingested, relative to must be relative to `$WORKING_DIR/ingest_local` directory.",
-            examples={"default": {"value": "/test.zip"}},
-        ),
-    ],
-    operation_id: Annotated[
-        str,
-        Depends(APIDependencies.param_operation_id),
-    ],
-    context_name: Annotated[
-        str,
-        Query(
-            description=_DESC_CONTEXT_NAME,
-            examples={"default": {"value": _EXAMPLE_CONTEXT_NAME}},
-        ),
-    ],
-    ws_id: Annotated[
-        str,
-        Depends(APIDependencies.param_ws_id),
-    ],
-    flt: Annotated[
-        GulpIngestionFilter,
-        Depends(APIDependencies.param_ingestion_flt_optional),
-    ] = None,
-    delete_after: Annotated[
-        Optional[bool],
-        Query(
-            description="if set, the ZIP file will be deleted after processing.",
-        ),
-    ] = False,
-    req_id: Annotated[
-        str,
-        Depends(APIDependencies.ensure_req_id_optional),
-    ] = None,
-) -> JSONResponse:
-    params = locals()
-    params["flt"] = flt.model_dump(exclude_none=True)
-    ServerUtils.dump_params(params)
-
-    try:
-        # compute local path
-        path: str = muty.file.safe_path_join(
-            GulpConfig.get_instance().path_ingest_local(), path
-        )
-        MutyLogger.get_instance().info("ingesting local ZIP file: %s", path)
-        if not await muty.file.exists_async(path):
-            raise FileNotFoundError(f"file not found: {path}")
-
-        async with GulpCollab.get_instance().session() as sess:
-            try:
-                # get operation and check acl
-                op: GulpOperation
-                s: GulpUserSession
-                s, op, _ = await GulpOperation.get_by_id_wrapper(
-                    sess, token, operation_id, permission=GulpUserPermission.INGEST
-                )
-
-                payload = GulpZipIngestPayload(
-                    flt=flt,
-                )
-
-                existing_response = await ServerUtils.existing_request_response(
-                    sess, req_id, allow_ongoing=True
-                )
-                if existing_response:
-                    return existing_response
-
-                # check if name is a context id
-                context_name = await _check_existing_context(sess, context_name)
-
-                # process in background: the background task will unzip the file and enqueue the tasks
-                coro = _ingest_zip_internal(
-                    path,
-                    context_name,
-                    operation_id,
-                    op.index,
-                    s.user_id,
-                    ws_id,
-                    req_id,
-                    payload,
-                    delete_after=delete_after,
-                )
-                from gulp.api.server_api import GulpServer
-
-                GulpServer.get_instance().spawn_bg_task(coro)
-
-                # and return pending
-                return JSONResponse(JSendResponse.pending(req_id=req_id))
-            except Exception as ex:
-                if delete_after:
-                    # delete the zip file
-                    await muty.file.delete_file_or_dir_async(path)
-                raise
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

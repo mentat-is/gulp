@@ -79,7 +79,7 @@ def _parse_args():
     parser.add_argument(
         "--plugin_params",
         default=None,
-        help="GulpPluginParameters as JSON, ignored if ingesting a zip file (use metadata.json)",
+        help="GulpPluginParameters as JSON",
     )
     parser.add_argument(
         "--continue_offset",
@@ -103,14 +103,13 @@ def _parse_args():
 
 
 def _create_ingest_curl_command(file_path: str, file_total: int, args):
-    def _create_payload(file_path, args, is_zip=False):
+    def _create_payload(file_path, args):
         payload = {"flt": json.loads(args.flt) if args.flt else {}}
 
-        if not is_zip:
-            payload["plugin_params"] = (
-                json.loads(args.plugin_params) if args.plugin_params else {}
-            )
-            payload["original_file_path"] = file_path
+        payload["plugin_params"] = (
+            json.loads(args.plugin_params) if args.plugin_params else {}
+        )
+        payload["original_file_path"] = file_path
 
         # add file sha1
         sha1_hash = asyncio.run(muty.crypto.hash_sha1_file(file_path))
@@ -133,11 +132,10 @@ def _create_ingest_curl_command(file_path: str, file_total: int, args):
             )
         return headers
 
-    is_zip = file_path and file_path.lower().endswith(".zip")
     preview_mode = args.preview_mode
     base_url = f"{args.host}"
     command = ["curl", "-v", "POST"]
-    payload = _create_payload(file_path, args, is_zip)
+    payload = _create_payload(file_path, args)
     temp_file_path = None
     multi_request = args.multi_req
     if multi_request:
@@ -162,16 +160,10 @@ def _create_ingest_curl_command(file_path: str, file_total: int, args):
     upload_file_size = os.path.getsize(file_path)
     MutyLogger.get_instance().info(f"uploading size: {upload_file_size}")
 
-    if is_zip:
-        url = f"{base_url}/ingest_zip"
-        params = f"operation_id={args.operation_id}&context_name={args.context_name}&ws_id={args.ws_id}&req_id={req_id}"
-        file_type = "application/zip"
-    else:
-        url = f"{base_url}/ingest_file"
-        params = f"operation_id={args.operation_id}&context_name={args.context_name}&plugin={
-            args.plugin}&ws_id={args.ws_id}&req_id={req_id}&file_total={file_total}&preview_mode={preview_mode}"
-
-        file_type = "application/octet-stream"
+    url = f"{base_url}/ingest_file"
+    params = f"operation_id={args.operation_id}&context_name={args.context_name}&plugin={
+        args.plugin}&ws_id={args.ws_id}&req_id={req_id}&file_total={file_total}&preview_mode={preview_mode}"
+    file_type = "application/octet-stream"
 
     command.extend(
         [

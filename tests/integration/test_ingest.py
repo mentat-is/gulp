@@ -1,7 +1,9 @@
 """Integration tests for ingesting EVTX samples via the win_evtx plugin."""
 
 import asyncio
+import gzip
 import hashlib
+import shutil
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -16,6 +18,19 @@ from gulp.structs import GulpMappingParameters, GulpPluginParameters
 
 def _unique_name(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+
+def _biggest_win_evtx_sample() -> Path:
+    """Return the largest sample file in samples/win_evtx."""
+    samples_dir = Path("/gulp/samples/win_evtx")
+    if not samples_dir.exists():
+        pytest.skip(f"Samples directory missing: {samples_dir}")
+
+    files = [path for path in samples_dir.iterdir() if path.is_file()]
+    if not files:
+        pytest.skip(f"No sample files found in: {samples_dir}")
+
+    return max(files, key=lambda path: path.stat().st_size)
 
 
 async def _wait_for_ingest_stats(client, req_ids: set[str], timeout: float = 120.0) -> None:
@@ -157,6 +172,59 @@ async def test_ingest_win_evtx_sample(gulp_base_url, gulp_test_user, gulp_test_p
             assert await _preview_total_hits(client, op.id) == 7
         finally:
             await client.operations.delete(op.id)
+
+
+@pytest.mark.integration
+async def test_ingest_compressed_biggest_win_evtx_sample(
+    gulp_base_url, gulp_test_user, gulp_test_password, tmp_path
+):
+    """Ingest the largest win_evtx sample through plugin_params.compressed."""
+    from gulp_sdk import GulpClient
+
+    sample_path = _biggest_win_evtx_sample()
+    compressed_path = tmp_path / f"{sample_path.name}.gz"
+    with open(sample_path, "rb") as src, gzip.open(compressed_path, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+
+        op = await client.operations.create(
+            name=_unique_name("sdk_compressed_big_win_evtx"),
+            description="SDK compressed ingestion integration test",
+        )
+
+        try:
+            result = await client.ingest.file(
+                operation_id=op.id,
+                plugin_name="win_evtx",
+                file_path=str(compressed_path),
+                context_name="sdk_compressed_context",
+                params={
+                    "plugin_params": {"compressed": True},
+                    "original_file_path": str(sample_path),
+                },
+                wait=True,
+                timeout=600,
+            )
+            print(
+                "compressed biggest win_evtx ingest result:",
+                result.model_dump(),
+                "sample:",
+                str(sample_path),
+                "compressed:",
+                str(compressed_path),
+            )
+            assert result.req_id
+            stats = await client.ingest.status("unused", result.req_id)
+            print("compressed biggest win_evtx stats:", stats)
+            assert str(result.status).lower() == "done"
+
+            total_hits = await _preview_total_hits(client, op.id)
+            print("compressed biggest win_evtx total_hits:", total_hits)
+            assert total_hits > 0
+        finally:
+            await _delete_operation_with_conflict_wait(client, op.id)
 
 
 @pytest.mark.integration
@@ -317,42 +385,6 @@ async def test_ingest_local_list(gulp_base_url, gulp_test_user, gulp_test_passwo
 
 
 @pytest.mark.integration
-async def test_ingest_zip_sample(gulp_base_url, gulp_test_user, gulp_test_password):
-    """
-    Ingest ZIP fixture similarly to core test_ingest_zip and verify docs were created.
-    """
-    from gulp_sdk import GulpClient
-
-    zip_path = Path("/gulp/tests/test_ingest_zip.zip")
-    if not zip_path.exists():
-        pytest.skip(f"ZIP fixture missing: {zip_path}")
-
-    async with GulpClient(gulp_base_url) as client:
-        await client.auth.login(gulp_test_user, gulp_test_password)
-
-        op = await client.operations.create(
-            name=_unique_name("sdk_integration_ingest_zip"),
-            description="SDK ingest_zip integration test",
-        )
-
-        try:
-            result = await client.ingest.zip(
-                operation_id=op.id,
-                plugin_name="win_evtx",
-                zipfile_path=str(zip_path),
-                wait=True,
-                timeout=300,
-            )
-            assert result.req_id
-            assert str(result.status).lower() in {"done", "failed", "canceled", "success"}
-
-            total_hits = await _preview_total_hits(client, op.id)
-            assert total_hits > 0
-        finally:
-            await client.operations.delete(op.id)
-
-
-@pytest.mark.integration
 async def test_ingest_raw_and_status(gulp_base_url, gulp_test_user, gulp_test_password):
     """Exercise ingest.raw and ingest.status on a small JSON payload."""
     from gulp_sdk import GulpClient, GulpSDKError
@@ -474,13 +506,5 @@ async def test_ingest_local_file_variants_optional(gulp_base_url, gulp_test_user
             except GulpSDKError:
                 pass
 
-            try:
-                _ = await client.ingest.zip_local(
-                    operation_id=op.id,
-                    context_name=ctx.get("name", "sdk_ctx"),
-                    path="missing.zip",
-                )
-            except GulpSDKError:
-                pass
         finally:
             await _delete_operation_with_conflict_wait(client, op.id)

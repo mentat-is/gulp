@@ -349,6 +349,12 @@ class GulpPluginParameters(BaseModel):
             description="if not 0, this is used to offset document `@timestamp` (and `gulp.timestamp`) by the given number of milliseconds (positive or negative).",
         ),
     ] = 0
+    compressed: Annotated[
+        bool,
+        Field(
+            description="if True, and if this is a **file** ingestion operation, the core will decompress the file before passing it to the plugin. Supported formats: gzip, bzip2, xz/lzma, and ZIP archives containing exactly one file.",
+        ),
+    ] = False
     custom_parameters: Annotated[
         dict,
         Field(
@@ -393,6 +399,7 @@ class GulpPluginParameters(BaseModel):
             and not self.custom_parameters
             and not self.override_chunk_size
             and not self.timestamp_offset_msec
+            and not self.compressed
             and not self.store_file
         ):
             return True
