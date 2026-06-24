@@ -1,3 +1,9 @@
+# v1.7.601
+
+- api cleanup (removed unused API)
+- support for compressed zip in ingestion API
+- bugfixes
+
 # v1.7.600
 
 - some API improvements (ingest, better compatibility with recent gulp-cli improvements)

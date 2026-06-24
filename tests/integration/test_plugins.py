@@ -140,99 +140,6 @@ async def test_request_list(gulp_base_url, gulp_test_user, gulp_test_password):
             await client.operations.delete(op.id)
 
 
-@pytest.mark.integration
-async def test_config_upload_download(gulp_base_url, gulp_test_user, gulp_test_password):
-    """Upload/download config without leaving persistent changes on server."""
-    import json
-    import tempfile
-    import pathlib
-    from gulp_sdk import GulpClient, GulpSDKError
-
-    # Minimal config-like JSON for round-trip test
-    cfg_content = json.dumps({"_test_sdk": True}).encode()
-
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="wb") as f:
-        f.write(cfg_content)
-        upload_path = f.name
-
-    download_path = upload_path + ".dl.json"
-    backup_path = upload_path + ".backup.json"
-    restore_check_path = upload_path + ".restore_check.json"
-
-    try:
-        async with GulpClient(gulp_base_url) as client:
-            await client.auth.login(gulp_test_user, gulp_test_password)
-
-            # Snapshot current server config before any mutation.
-            try:
-                await client.plugins.config_download(backup_path)
-            except GulpSDKError:
-                pytest.skip("config_upload/download not available in current server")
-
-            original_cfg_bytes = pathlib.Path(backup_path).read_bytes()
-
-            try:
-                result = await client.plugins.config_upload(upload_path)
-                assert result is not None
-
-                dl = await client.plugins.config_download(download_path)
-                assert pathlib.Path(dl).exists()
-                downloaded_cfg = json.loads(pathlib.Path(dl).read_text(encoding="utf-8"))
-                assert downloaded_cfg.get("_test_sdk") is True
-            finally:
-                # Always restore original config and verify exact content equality.
-                await client.plugins.config_upload(backup_path)
-                await client.plugins.config_download(restore_check_path)
-                restored_cfg_bytes = pathlib.Path(restore_check_path).read_bytes()
-                assert restored_cfg_bytes == original_cfg_bytes
-    finally:
-        pathlib.Path(upload_path).unlink(missing_ok=True)
-        pathlib.Path(download_path).unlink(missing_ok=True)
-        pathlib.Path(backup_path).unlink(missing_ok=True)
-        pathlib.Path(restore_check_path).unlink(missing_ok=True)
-
-
-# --------------------------------------------------------------------------- #
-# Plugin upload / download / delete                                             #
-# --------------------------------------------------------------------------- #
-
-@pytest.mark.integration
-async def test_plugin_upload_download_delete(gulp_base_url, gulp_test_user, gulp_test_password):
-    """Upload a minimal plugin .py, download it back, then delete it."""
-    import tempfile
-    import pathlib
-    from gulp_sdk import GulpClient, GulpSDKError
-
-    plugin_src = b'"""Temporary test plugin for SDK integration tests."""\n'
-
-    with tempfile.NamedTemporaryFile(
-        prefix="sdk_test_", suffix=".py", delete=False, mode="wb"
-    ) as f:
-        f.write(plugin_src)
-        upload_path = f.name
-
-    plugin_filename = pathlib.Path(upload_path).name
-    download_path = upload_path + ".dl.py"
-
-    try:
-        async with GulpClient(gulp_base_url) as client:
-            await client.auth.login(gulp_test_user, gulp_test_password)
-            try:
-                result = await client.plugins.upload(upload_path, fail_if_exists=False)
-                assert result is not None
-
-                dl = await client.plugins.download(plugin_filename, download_path)
-                assert pathlib.Path(dl).exists()
-
-                del_result = await client.plugins.delete(plugin_filename)
-                assert del_result is not None
-            except GulpSDKError as exc:
-                pytest.skip(f"plugin upload/download/delete not available: {exc}")
-    finally:
-        pathlib.Path(upload_path).unlink(missing_ok=True)
-        pathlib.Path(download_path).unlink(missing_ok=True)
-
-
 # --------------------------------------------------------------------------- #
 # Request get / delete                                                          #
 # --------------------------------------------------------------------------- #
@@ -431,6 +338,5 @@ async def test_websocket_connect_and_subscribe(gulp_base_url, gulp_test_user, gu
 
         except (GulpSDKError, Exception) as exc:
             pytest.skip(f"WebSocket support unavailable or currently failing: {exc}")
-
 
 
