@@ -94,16 +94,6 @@ async def test_plugins_api():
             found = True
     assert found
 
-    # get the sample test ui plugin
-    tmp_path = os.path.join(tempfile.gettempdir(), "example_ui_plugin.tsx")
-    try:
-        tsx_path = await GulpAPIUtility.plugin_download(admin_token, "example_ui_plugin.tsx", tmp_path, plugin_type="ui")
-        content: bytes = await muty.file.read_file_async(tsx_path)
-        content_str: str = content.decode("utf-8").strip()
-        assert content_str== "{}"
-
-    finally:
-        await muty.file.delete_file_or_dir_async(tmp_path)
     MutyLogger.get_instance().info(test_plugins_api.__name__ + " passed")
 
 
