@@ -159,7 +159,9 @@ def main():
             pids: list[tuple[str, int]] = []
             for f in files:
                 bare_file = os.path.basename(f)
-                p = int(bare_file.replace("gulp", "").replace(".pid", ""))
+                p = int(bare_file.replace("gulp", ""))
+                if p:
+                    p.replace(".pid", "")
                 pids.append((f, p))
             if not pids:
                 print("No valid gulp pidfiles found, is gulp running ?")
