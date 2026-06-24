@@ -2566,6 +2566,15 @@ class GulpPluginBase(ABC):
         Returns:
             GulpPluginParameters: the ensured plugin parameters.
         """
+        MutyLogger.get_instance().debug(
+            "---> ensuring plugin_params: plugin_params=%s, mapping_file=%s, mappings=%s, mapping_id=%s, additional_mapping_files=%s, additional_mappings=%s",
+            plugin_params,
+            mapping_file,
+            mappings,
+            mapping_id,
+            additional_mapping_files,
+            additional_mappings
+        )
         if not plugin_params:
             # initialize as empty
             MutyLogger.get_instance().debug(
@@ -2587,34 +2596,37 @@ class GulpPluginBase(ABC):
             )
         else:
             # apply overrides for each mapping parameter if provided
-            if mapping_file:
+            if mapping_file and not plugin_params.mapping_parameters.mapping_file:
                 plugin_params.mapping_parameters.mapping_file = mapping_file
-            if mapping_id:
+
+            if mapping_id and not plugin_params.mapping_parameters.mapping_id:
                 plugin_params.mapping_parameters.mapping_id = mapping_id
-            if mappings:
-                if plugin_params.mapping_parameters.mappings:
-                    """MutyLogger.get_instance().debug(
-                        "---> updating plugin_params.mapping_parameters.mappings with provided mappings"
-                    )"""
-                    plugin_params.mapping_parameters.mappings.update(mappings)
-                else:
-                    """MutyLogger.get_instance().debug(
-                        "---> setting plugin_params.mapping_parameters.mappings with provided mappings"
-                    )"""
-                    plugin_params.mapping_parameters.mappings = mappings
-            if additional_mapping_files:
+
+            if mappings and not plugin_params.mapping_parameters.mappings:
+                """MutyLogger.get_instance().debug(
+                    "---> setting plugin_params.mapping_parameters.mappings with provided mappings"
+                )"""
+                plugin_params.mapping_parameters.mappings = mappings
+            else:
+                """MutyLogger.get_instance().debug(
+                    "---> updating plugin_params.mapping_parameters.mappings with provided mappings"
+                )"""
+                plugin_params.mapping_parameters.mappings.update(mappings or {})
+
+            if additional_mapping_files and not plugin_params.mapping_parameters.additional_mapping_files:
                 plugin_params.mapping_parameters.additional_mapping_files = (
                     additional_mapping_files
                 )
-            if additional_mappings:
-                if plugin_params.mapping_parameters.additional_mappings:
-                    plugin_params.mapping_parameters.additional_mappings.update(
-                        additional_mappings
-                    )
-                else:
-                    plugin_params.mapping_parameters.additional_mappings = (
-                        additional_mappings
-                    )
+            if additional_mappings and not plugin_params.mapping_parameters.additional_mappings:
+                """MutyLogger.get_instance().debug(
+                    "---> setting plugin_params.mapping_parameters.additional_mappings with provided additional_mappings"
+                )"""
+                plugin_params.mapping_parameters.additional_mappings = additional_mappings
+            else:
+                """MutyLogger.get_instance().debug(
+                    "---> updating plugin_params.mapping_parameters.additional_mappings with provided additional_mappings"
+                )"""
+                plugin_params.mapping_parameters.additional_mappings.update(additional_mappings or {})
 
         # MutyLogger.get_instance().debug("---> ensured plugin_params: %s", plugin_params)
         return plugin_params

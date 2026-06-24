@@ -328,8 +328,8 @@ async def _ingest_file_internal(
                 src_id = src.id
 
             # run plugin and perform the ingestion
-            mod = await GulpPluginBase.load(plugin)
             try:
+                mod = await GulpPluginBase.load(plugin)
                 status = await mod.ingest_file(
                     sess=sess,
                     stats=stats,
@@ -830,7 +830,9 @@ async def ingest_file_to_source_handler(
             # get plugin parameters either from payload or from the existing source
             plugin_params = payload.plugin_params
             if plugin and not plugin_params_was_supplied:
-                raise ValueError("plugin_params must be supplied when overriding plugin")
+                raise ValueError(
+                    "plugin_params must be supplied when overriding plugin"
+                )
             if not plugin and plugin_params.is_empty():
                 # use existing plugin parameters from source if not supplied in payload and not overriding plugin
                 plugin_params = GulpPluginParameters(
@@ -1095,7 +1097,9 @@ async def ingest_file_local_to_source_handler(
             ctx: GulpContext = await GulpContext.get_by_id(sess, src.context_id)
 
             if plugin and not plugin_params_was_supplied:
-                raise ValueError("plugin_params must be supplied when overriding plugin")
+                raise ValueError(
+                    "plugin_params must be supplied when overriding plugin"
+                )
 
             # use existing plugin parameters if not overridden
             if not plugin and plugin_params.is_empty():
