@@ -26,6 +26,8 @@ RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /usr/sh
         libgl1-mesa-dri \
         libgtk-3-0 \
         liblzma-dev \
+        libasound2-dev \
+        libgbm-dev \
         libncursesw5-dev \
         libnss3 \
         libpqxx-dev \
@@ -51,9 +53,9 @@ RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /usr/sh
         xz-utils \
         zsh \
         zlib1g-dev && \
-    (corepack disable || true) && \
-    npm install -g pnpm && \
-    pnpm --version
+        (corepack disable || true) && \
+        npm install -g pnpm && \
+        pnpm --version
 
 # Install pyenv and make the newest available Python 3.13.x the default Python.
 RUN git clone --depth=1 https://github.com/pyenv/pyenv.git "${PYENV_ROOT}" && \

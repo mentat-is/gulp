@@ -49,3 +49,10 @@ echo "[.] Installing gulp-cli"
 "${PYTHON_BIN}" -m pip install --timeout=1000 -e ./gulp-cli
 
 echo "[.] development environment setup complete"
+
+# install codex cli and the ponytail plugin (then follow https://github.com/DietrichGebert/ponytail docs
+# on how to trust the hooks in codex and enable the plugin)
+npm install electron
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+codex plugin marketplace add DietrichGebert/ponytail
+

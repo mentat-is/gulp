@@ -49,8 +49,12 @@ muty-python
 gulp-sdk
 gulp-dissect
 gulp-collector
+gulp-licensing
 img
 plans
 _version.py
 .python-version
 .devcontainer/devcontainer-lock.json
+package-lock.json
+package.json
+node_modules
