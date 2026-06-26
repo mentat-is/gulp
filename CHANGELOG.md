@@ -2,6 +2,7 @@
 
 - api cleanup (removed unused API)
 - support for compressed zip in ingestion API
+- devcontainer improvements for developers
 - bugfixes
 
 # v1.7.600
