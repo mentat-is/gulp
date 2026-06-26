@@ -274,6 +274,25 @@ async def request_delete_handler(
             if obj_id:
                 # delete only the given request id
                 flt.ids = [obj_id]
+            running_flt = GulpCollabFilter(
+                operation_ids=[op.id],
+                status=GulpRequestStatus.ONGOING.value,
+            )
+            if obj_id:
+                running_flt.ids = [obj_id]
+            running_requests = await GulpRequestStats.get_by_filter(
+                sess,
+                flt=running_flt,
+                throw_if_not_found=False,
+            )
+            if running_requests:
+                running_request_ids = sorted(
+                    {r.id for r in running_requests if r and r.id}
+                )
+                raise ValueError(
+                    "cannot delete running requests for operation %s: %s"
+                    % (operation_id, running_request_ids)
+                )
             deleted = await GulpRequestStats.delete_by_filter(sess, flt, s.user_id)
             return JSendResponse.success(req_id=req_id, data={"deleted": deleted})
     except Exception as ex:

@@ -3297,8 +3297,8 @@ class GulpPluginBase(ABC):
                     # return full path
                     return os.path.abspath(os.path.expanduser(path))
 
-            # return py or pyc file if found
-            for ext in [".py", ".pyc"]:
+            # return pyc or py file if found, preferring compiled bytecode.
+            for ext in [".pyc", ".py"]:
                 with_ext_path = f"{path}{ext}"
                 if os.path.exists(with_ext_path):
                     # return full path
@@ -3359,10 +3359,18 @@ class GulpPluginBase(ABC):
             list[GulpPluginEntry]: The list of available plugins.
         """
 
+        def _plugin_key(filename: str) -> str:
+            return os.path.splitext(os.path.basename(filename))[0].lower()
+
+        def _plugin_sort_key(path: str) -> tuple[str, int, str]:
+            ext_rank = 0 if path.endswith(".pyc") else 1
+            return (_plugin_key(path), ext_rank, path.lower())
+
         def _exists(l: list[GulpPluginEntry], filename: str) -> bool:
-            # check if filename exists in the list
+            # check if the plugin basename exists in the list
+            key = _plugin_key(filename)
             for p in l:
-                if p.filename.lower() == filename.lower():
+                if _plugin_key(p.filename) == key:
                     return True
             return False
 
@@ -3377,11 +3385,13 @@ class GulpPluginBase(ABC):
             """
             MutyLogger.get_instance().debug("listing plugins in %s ..." % (path))
             path_extension = os.path.join(path, "extension")
-            plugins = await muty.file.list_directory_async(path, "*.py")
-            extensions = await muty.file.list_directory_async(path_extension, "*.py")
-            files = plugins + extensions
+            plugins = await muty.file.list_directory_async(path, "*.py*")
+            extensions = await muty.file.list_directory_async(path_extension, "*.py*")
+            files = sorted(plugins + extensions, key=_plugin_sort_key)
             for f in files:
                 if "__init__" in f or "__pycache__" in f or "/ui/" in f:
+                    continue
+                if not (f.endswith(".py") or f.endswith(".pyc")):
                     continue
 
                 if "/extension/" in f:

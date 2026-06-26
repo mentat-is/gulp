@@ -159,10 +159,17 @@ def main():
             pids: list[tuple[str, int]] = []
             for f in files:
                 bare_file = os.path.basename(f)
-                p = int(bare_file.replace("gulp", ""))
-                if p:
-                    p.replace(".pid", "")
-                pids.append((f, p))
+                try:
+                    p = int(bare_file.replace("gulp", ""))
+                    if p:
+                        p.replace(".pid", "")
+                    pids.append((f, p))
+                except ValueError as ex:
+                    print(
+                        "Failed to parse pidfile %s, skipping: %s (removed)" % (f, ex)
+                    )
+                    os.remove(f)
+                    continue
             if not pids:
                 print("No valid gulp pidfiles found, is gulp running ?")
                 return 1

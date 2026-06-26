@@ -145,15 +145,33 @@ class GulpServer:
             )
             files.extend(ff)
 
-        # remove non .py or .pyc files and remove __init__.py
-        files = [f for f in files if (f.endswith(".py") or f.endswith(".pyc"))]
-        files = [f for f in files if "__init__.py" not in f]
-
-        # order files alphabetically, considering only basename
-        files = sorted(files, key=lambda x: os.path.basename(x).lower())
+        # Remove non .py/.pyc files, prefer compiled bytecode, and avoid loading
+        # both source and bytecode for the same extension basename.
+        files = [
+            f
+            for f in files
+            if (f.endswith(".py") or f.endswith(".pyc")) and "__init__.py" not in f
+        ]
+        files = sorted(
+            files,
+            key=lambda x: (
+                os.path.splitext(os.path.basename(x))[0].lower(),
+                0 if x.endswith(".pyc") else 1,
+                x.lower(),
+            ),
+        )
+        seen: set[str] = set()
 
         count: int = 0
         for f in files:
+            basename = os.path.splitext(os.path.basename(f))[0].lower()
+            if basename in seen:
+                MutyLogger.get_instance().warning(
+                    "skipping extension plugin %s, already loaded same basename", f
+                )
+                continue
+            seen.add(basename)
+
             # load
             try:
                 p = await GulpPluginBase.load(f, extension=True)

@@ -97,12 +97,6 @@ async def _delete_operation_with_conflict_wait(
     client, operation_id: str, timeout: float = 30.0
 ) -> None:
     """Delete operation, tolerating transient 'running requests' server state."""
-    # Best-effort cleanup of stale request stats for this operation.
-    try:
-        await client.plugins.request_delete(operation_id)
-    except Exception:
-        pass
-
     deadline = asyncio.get_running_loop().time() + timeout
     last_exc: Exception | None = None
     while asyncio.get_running_loop().time() < deadline:
