@@ -169,6 +169,35 @@ class Plugin(GulpPluginBase):
                     )
         return result
 
+    @staticmethod
+    def _system_time(js_record: dict) -> str | None:
+        """Return the EVTX SystemTime field when present in the raw event."""
+        try:
+            value = js_record["Event"]["System"]["TimeCreated"]["#attributes"][
+                "SystemTime"
+            ]
+        except (KeyError, TypeError):
+            return None
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    def _clean_record_timestamp(self, ts: str | None) -> str | None:
+        """Normalize the parser timestamp and reject unusable sentinel values."""
+        if not ts:
+            return None
+        ts = re.split(r"\s+UTC", ts, flags=re.IGNORECASE)[0].strip()
+        _, _, invalid = GulpDocument.ensure_timestamp(
+            ts, plugin_params=self._plugin_params
+        )
+        return None if invalid else ts
+
+    def _event_timestamp(self, record: dict, js_record: dict) -> str | None:
+        """Choose the best timestamp available for a Windows EVTX record."""
+        # Some EVTX records expose the FILETIME zero sentinel through the parser
+        # timestamp, while the embedded event payload still has valid SystemTime.
+        return self._clean_record_timestamp(record.get("timestamp")) or self._system_time(
+            js_record
+        )
+
     @override
     async def _record_to_gulp_document(
         self, record: Any, record_idx: int, **kwargs
@@ -181,9 +210,9 @@ class Plugin(GulpPluginBase):
         # try to map event code to a more meaningful event category and type
         mapped = self._map_evt_code(d.get("event.code"))
         d.update(mapped)
-        ts = record["timestamp"]
-        ts = re.split(r"\s+UTC", ts, flags=re.IGNORECASE)[0].strip()
-        d["@timestamp"] = ts
+        ts = self._event_timestamp(record, js_record)
+        if ts:
+            d["@timestamp"] = ts
 
         # if d.get("event.code") == "0":
         #     MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2).decode())
