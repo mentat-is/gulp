@@ -50,6 +50,7 @@ gulp-sdk
 gulp-dissect
 gulp-collector
 gulp-licensing
+gulp-mcp
 img
 plans
 _version.py
