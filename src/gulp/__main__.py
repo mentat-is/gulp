@@ -35,6 +35,12 @@ async def async_test():
     pass
 
 
+def _pid_from_pidfile_path(pidfile_path: str) -> int:
+    """Extract the process id from a gulp pidfile path."""
+    bare_file = os.path.basename(pidfile_path)
+    return int(bare_file.removeprefix("gulp").removesuffix(".pid"))
+
+
 def main():
     """
     :return:
@@ -158,12 +164,8 @@ def main():
 
             pids: list[tuple[str, int]] = []
             for f in files:
-                bare_file = os.path.basename(f)
                 try:
-                    p = int(bare_file.replace("gulp", ""))
-                    if p:
-                        p.replace(".pid", "")
-                    pids.append((f, p))
+                    pids.append((f, _pid_from_pidfile_path(f)))
                 except ValueError as ex:
                     print(
                         "Failed to parse pidfile %s, skipping: %s (removed)" % (f, ex)

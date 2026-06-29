@@ -994,7 +994,7 @@ async def _query_raw_sync(
             _,
             _,
         ) = await GulpOpenSearch.get_instance().search_dsl_sync(
-            index, q, q_options, raise_on_error=True
+            index, q, q_options, raise_on_error=False
         )
         for d in docs:
             # remove highlight, not needed in preview

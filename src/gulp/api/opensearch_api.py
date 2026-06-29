@@ -2101,7 +2101,7 @@ class GulpOpenSearch:
             parsed_options (dict): The parsed query options.
             q (dict): The DSL query to execute.
             el (AsyncElasticSearch|AsyncOpenSearch, optional): an EXTERNAL ElasticSearch/OpenSearch client to use instead of the default internal gulp's OpenSearch. Defaults to None.
-            raise_on_error (bool, optional): Whether to raise an exception if no more hits are found. Defaults to False.
+            raise_on_error (bool, optional): Whether to raise an exception if no more hits are found. Defaults to False, ignored when requesting aggregations.
         Returns:
             tuple:
             - total_hits (int): The total number of hits.
@@ -2197,14 +2197,17 @@ class GulpOpenSearch:
                 await asyncio.sleep(1.0)
 
         # MutyLogger.get_instance().debug("_search_dsl_internal: res=%s", orjson.dumps(res, option=orjson.OPT_INDENT_2).decode())
+        total_hits = res["hits"]["total"]["value"]
+        aggregations: dict = res.get("aggregations", {})
         hits = res["hits"]["hits"]
         if not hits:
+            if aggregations:
+                return total_hits, [], [], aggregations
             if raise_on_error:
                 raise ObjectNotFound("no more hits")
             return 0, [], [], {}
 
         # get data
-        total_hits = res["hits"]["total"]["value"]
         docs: list[dict] = []
         add_highlight = parsed_options.get("highlight", False)
         for hit in hits:
@@ -2215,13 +2218,6 @@ class GulpOpenSearch:
             docs.append(doc)
 
         search_after = hits[-1]["sort"]
-
-        # get aggregations
-        aggregations: dict
-        try:
-            aggregations = res["aggregations"]
-        except:
-            aggregations = {}
 
         return total_hits, docs, search_after, aggregations
 

@@ -7,6 +7,46 @@ from gulp.api.opensearch_api import GulpOpenSearch
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_search_dsl_internal_returns_aggregations_without_hits(monkeypatch):
+    os_api = object.__new__(GulpOpenSearch)
+    os_api._opensearch = MagicMock()
+    os_api._opensearch.search = AsyncMock(
+        return_value={
+            "hits": {"total": {"value": 42}, "hits": []},
+            "aggregations": {
+                "result": {
+                    "buckets": [
+                        {"key": "apache_access_clf", "doc_count": 40},
+                        {"key": "win_evtx", "doc_count": 2},
+                    ]
+                }
+            },
+        }
+    )
+    monkeypatch.setattr(
+        "gulp.api.opensearch_api.GulpConfig.get_instance",
+        lambda: MagicMock(
+            opensearch_request_timeout=MagicMock(return_value=0),
+            query_circuit_breaker_backoff_attempts=MagicMock(return_value=0),
+            query_circuit_breaker_min_limit=MagicMock(return_value=1),
+        ),
+    )
+
+    total_hits, docs, search_after, aggregations = await os_api._search_dsl_internal(
+        "test_index",
+        {},
+        {"size": 0, "aggs": {"result": {"terms": {"field": "agent.type"}}}},
+        raise_on_error=True,
+    )
+
+    assert total_hits == 42
+    assert docs == []
+    assert search_after == []
+    assert aggregations["result"]["buckets"][0]["key"] == "apache_access_clf"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_rebase_by_query_rebases_extra_date_fields(monkeypatch):
     os_api = object.__new__(GulpOpenSearch)
     os_api._opensearch = MagicMock()
