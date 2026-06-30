@@ -45,8 +45,10 @@ from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gulp.api.collab.mapping_parameters import GulpMappingParametersEntry
 from gulp.api.collab.note import GulpNote
 from gulp.api.collab.operation import GulpOperation
+from gulp.api.collab.source import GulpSource
 from gulp.api.collab.stats import (
     GulpQueryStats,
     GulpRequestStats,
@@ -71,6 +73,7 @@ from gulp.api.opensearch.structs import (
     GulpQuery,
     GulpQueryParameters,
 )
+from gulp.api.mapping.mapping_utils import mapping_parameters_to_mapping
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis, TaskQueueFullError
 from gulp.api.server.ingest import GulpIngestionStats
@@ -93,9 +96,26 @@ from gulp.api.ws_api import (
 from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
 from gulp.process import GulpProcess
-from gulp.structs import GulpPluginParameters, ObjectNotFound
+from gulp.structs import GulpMappingParameters, GulpPluginParameters, ObjectNotFound
 
 router: APIRouter = APIRouter()
+_mapping_parameters_cache: dict[str, dict] = {}
+_MAPPING_PARAMETERS_CACHE_MAX_SIZE = 100
+
+
+async def _mapping_parameters_entry_to_dict(mp: GulpMappingParametersEntry) -> dict:
+    """Return mapping parameters with mapping_file expanded into mappings."""
+    data = mp.to_dict()
+    mapping = data.get("mapping") or {}
+    if mapping.get("mapping_file"):
+        mappings, _ = await mapping_parameters_to_mapping(
+            GulpMappingParameters.model_validate(mapping)
+        )
+        mapping["mappings"] = {
+            k: v.model_dump(exclude_none=True) for k, v in mappings.items()
+        }
+        mapping.pop("mapping_file", None)
+    return data
 
 
 @asynccontextmanager
@@ -2211,6 +2231,85 @@ async def query_fields_by_source_handler(
                 source_id=source_id,
             )
             return JSONResponse(JSendResponse.success(req_id=req_id, data={}))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.get(
+    "/query_mapping_by_source",
+    tags=["query"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701266243057,
+                        "req_id": "fb2759b8-b0a0-40cc-bc5b-b988f72255a8",
+                        "data": {
+                            "id": "27b0c76c040d7b4126d84bb2a53012a1f86d0623",
+                            "type": "mapping_parameters",
+                            "name": "mapping_27b0c76c040d7b4126d84bb2a53012a1f86d0623",
+                            "mapping": {
+                                "mapping_id": "default",
+                                "mappings": {
+                                    "default": {
+                                        "fields": {
+                                            "EventID": {"ecs": ["event.code"]}
+                                        }
+                                    }
+                                },
+                            },
+                        },
+                    }
+                }
+            }
+        }
+    },
+    summary="get source ingestion mapping parameters.",
+    description="""
+get the `mapping_parameters` object used to ingest the given `operation_id`, `context_id` and `source_id`.
+
+returns an empty object if the source has no stored mapping parameters.
+""",
+)
+async def query_mapping_by_source_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
+    context_id: Annotated[str, Depends(APIDependencies.param_context_id)],
+    source_id: Annotated[str, Depends(APIDependencies.param_source_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    params = locals()
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            _, src, _ = await GulpSource.get_by_id_wrapper(sess, token, source_id)
+            if src.operation_id != operation_id or src.context_id != context_id:
+                raise ObjectNotFound(
+                    f'source "{source_id}" not found in operation "{operation_id}" and context "{context_id}"'
+                )
+            if not src.mapping_parameters_id:
+                return JSONResponse(JSendResponse.success(req_id=req_id, data={}))
+
+            # prefer cached mapping parameters if available
+            cached = _mapping_parameters_cache.get(src.mapping_parameters_id)
+            if cached is not None:
+                return JSONResponse(
+                    JSendResponse.success(req_id=req_id, data=deepcopy(cached))
+                )
+
+            mp = await GulpMappingParametersEntry.get_by_id(
+                sess, src.mapping_parameters_id, throw_if_not_found=False
+            )
+            data = await _mapping_parameters_entry_to_dict(mp) if mp else {}
+            if len(_mapping_parameters_cache) >= _MAPPING_PARAMETERS_CACHE_MAX_SIZE:
+                # use a small cache to avoid querying the database too often for the same mapping parameters (which are usually the same for all sources in an operation)
+                _mapping_parameters_cache.pop(next(iter(_mapping_parameters_cache)))
+            _mapping_parameters_cache[src.mapping_parameters_id] = deepcopy(data)
+            return JSONResponse(JSendResponse.success(req_id=req_id, data=data))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

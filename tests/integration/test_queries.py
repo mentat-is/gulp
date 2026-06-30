@@ -358,6 +358,48 @@ async def test_query_fields_by_source(gulp_base_url, gulp_test_user, gulp_test_p
 
 
 @pytest.mark.integration
+async def test_query_mapping_by_source(gulp_base_url, gulp_test_user, gulp_test_password):
+    """
+    query_mapping_by_source returns the stored mapping parameters for a source.
+    """
+    from gulp.structs import GulpMappingParameters, GulpPluginParameters
+    from gulp_sdk import GulpClient
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op_id = await _setup_operation(client)
+        try:
+            ctx = await client.operations.context_create(op_id, _unique("ctx"))
+            plugin_params = GulpPluginParameters(
+                mapping_parameters=GulpMappingParameters(
+                    mapping_file="windows.json",
+                    mapping_id="windows",
+                )
+            )
+            src = await client.operations.source_create(
+                op_id,
+                ctx["id"],
+                _unique("src"),
+                plugin="win_evtx",
+                plugin_params=plugin_params,
+            )
+
+            result = await client.queries.query_mapping_by_source(
+                operation_id=op_id,
+                context_id=ctx["id"],
+                source_id=src["id"],
+            )
+            print("query_mapping_by_source response:", result)
+            assert result["id"] == src["mapping_parameters_id"]
+            assert "mapping_file" not in result["mapping"]
+            assert result["mapping"]["mapping_id"] == "windows"
+            assert "windows" in result["mapping"]["mappings"]
+            assert result["mapping"]["mappings"]["windows"]["fields"]
+        finally:
+            await _teardown_operation(client, op_id)
+
+
+@pytest.mark.integration
 async def test_query_sigma_with_ingested_sample(gulp_base_url, gulp_test_user, gulp_test_password):
     """
     Ingest a small EVTX sample then run query_sigma with preview mode.
