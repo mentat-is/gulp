@@ -158,7 +158,6 @@ class GulpCollabFilter(BaseModel):
       if a list is provided, it will match if any of the values match (OR).
       Only string value is allowed
     - wildcards ("*", escape to match literal "*") are supported for most of the strings field except noted.
-    - if "grant_user_ids" and/or "grant_user_group_ids" are provided, only objects with the defined grants will be returned.
     - all matches are case insensitive
     """
 
@@ -187,6 +186,14 @@ class GulpCollabFilter(BaseModel):
             ]
         },
     )
+
+    def model_post_init(self, __context) -> None:
+        """
+        Drop reserved server-side ACL keys if a client sends them as extra fields.
+        """
+        if self.model_extra:
+            self.model_extra.pop("granted_user_ids", None)
+            self.model_extra.pop("granted_user_group_ids", None)
 
     ids: Annotated[list[str], Field(description="filter by the given id/s.")] = None
     types: Annotated[
@@ -314,6 +321,40 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
     @override
     def __str__(self) -> str:
         return self.model_dump_json(exclude_none=True)
+
+    def _set_acl_grants(
+        self,
+        user_ids: list[str] | None,
+        group_ids: list[str] | None,
+    ) -> None:
+        """
+        Attach server-side ACL grants through model_extra.
+
+        Client-provided grant keys are stripped during model initialization; only
+        server wrappers should set these reserved extra keys.
+        """
+        if user_ids is None:
+            self.model_extra.pop("granted_user_ids", None)
+        else:
+            self.granted_user_ids = user_ids
+
+        if group_ids is None:
+            self.model_extra.pop("granted_user_group_ids", None)
+        else:
+            self.granted_user_group_ids = group_ids
+
+    def _get_acl_grants(self) -> tuple[list[str] | None, list[str] | None]:
+        """
+        Return server-side ACL grants attached by the collab wrappers.
+        """
+        return (
+            self.model_extra.get("granted_user_ids") if self.model_extra else None,
+            (
+                self.model_extra.get("granted_user_group_ids")
+                if self.model_extra
+                else None
+            ),
+        )
 
     def _bool_case(self, col, value: str) -> ColumnElement[bool]:
         """
@@ -458,39 +499,41 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             q = q.filter(or_(*text_conditions))
 
         if self.model_extra:
-            # check for granted_user_ids and granted_user_group_ids in model_extra
-            #
-            # if an object has no granted_user_ids or granted_user_group_ids, it is considered public and accessible to all users
-            # either, the object is accessible to the user if at least one of the granted_user_ids matches the user_id
-            granted_user_ids = self.model_extra.pop("granted_user_ids", None)
-            granted_group_ids = self.model_extra.pop("granted_user_group_ids", None)
-            # print("************************************************ filter: granted_user_ids=%s, granted_group_ids=%s" % (granted_user_ids, granted_group_ids))
-            if granted_user_ids or granted_group_ids:
-                # match only objects with the defined granted_user_ids or granted_group_ids
+            # Internal ACL filter, carried in model_extra by server wrappers:
+            # an object is visible when the caller owns it, is explicitly
+            # granted by user/group, or both grant arrays are empty/null.
+            acl_granted_user_ids = self.model_extra.get("granted_user_ids")
+            acl_granted_user_group_ids = self.model_extra.get("granted_user_group_ids")
+            if acl_granted_user_ids or acl_granted_user_group_ids:
                 conditions = []
-                if granted_user_ids:
+                if acl_granted_user_ids:
+                    conditions.append(obj_type.user_id.in_(acl_granted_user_ids))
                     conditions.append(
-                        obj_type.granted_user_ids.op("&&")(granted_user_ids)
+                        obj_type.granted_user_ids.op("&&")(acl_granted_user_ids)
                     )
 
-                    # append condition that the column is empty or an empty array, as OR
-                    conditions.append(obj_type.granted_user_ids is None)
-                    conditions.append(obj_type.granted_user_ids == [])
-                if granted_group_ids:
+                if acl_granted_user_group_ids:
                     conditions.append(
-                        obj_type.granted_user_group_ids.op("&&")(granted_group_ids)
+                        obj_type.granted_user_group_ids.op("&&")(
+                            acl_granted_user_group_ids
+                        )
                     )
 
-                    # append condition that the column is empty or an empty array, as OR
-                    conditions.append(obj_type.granted_user_group_ids is None)
-                    conditions.append(obj_type.granted_user_group_ids == [])
+                user_grants_empty = (
+                    func.coalesce(func.cardinality(obj_type.granted_user_ids), 0) == 0
+                )
+                group_grants_empty = (
+                    func.coalesce(func.cardinality(obj_type.granted_user_group_ids), 0)
+                    == 0
+                )
+                conditions.append(and_(user_grants_empty, group_grants_empty))
 
-                # Combine with OR
-                if conditions:
-                    q = q.filter(or_(*conditions))
+                q = q.filter(or_(*conditions))
 
             # process remaining model_extra fields (custom fields other than the GulpCollabFilter defined ones)
             for k, v in self.model_extra.items():
+                if k in ("granted_user_ids", "granted_user_group_ids"):
+                    continue
                 if k in obj_type.columns:
                     col = getattr(obj_type, k)
                     if isinstance(v, str):
@@ -1977,8 +2020,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             is_admin = u.is_admin()
             group_ids = [g.id for g in u.groups] if u.groups else []
             MutyLogger.get_instance().debug(
-                "building filter for user_id=%s, is admin=%r, group_ids=%s",
+                "building ACL filter for user_id=%s, permissions=%s, is_admin=%r, group_ids=%s",
                 user_id,
+                u.permission,
                 is_admin,
                 group_ids,
             )
@@ -1992,12 +2036,16 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         # build and run query (ensure eager loading)
         if is_admin:
             # admin must see all
-            flt.granted_user_ids = None
-            flt.granted_user_group_ids = None
+            flt._set_acl_grants(None, None)
         else:
             # user can see only objects he has access to
-            flt.granted_user_ids = [user_id]
-            flt.granted_user_group_ids = group_ids
+            flt._set_acl_grants([user_id], group_ids)
+        MutyLogger.get_instance().debug(
+            "ACL filter applied for user_id=%s: granted_user_ids=%s, granted_user_group_ids=%s",
+            user_id,
+            flt._get_acl_grants()[0],
+            flt._get_acl_grants()[1],
+        )
         return flt
 
     @classmethod

@@ -188,6 +188,123 @@ async def test_shared_object_crud(gulp_base_url, gulp_test_user, gulp_test_passw
                     pass
 
 
+@pytest.mark.integration
+async def test_shared_object_list_excludes_admin_private_objects_for_non_admin_users(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """READ and READ+INGEST users must not see shared objects private to admin."""
+    from gulp_sdk import AuthenticationError, PermissionError
+
+    read_user_id = _unique("sor")
+    ingest_user_id = _unique("soi")
+    group_name = _unique("so_group")
+    group_id = None
+    created_obj_id = None
+
+    async with (
+        GulpClient(gulp_base_url) as admin_client,
+        GulpClient(gulp_base_url) as read_client,
+        GulpClient(gulp_base_url) as ingest_client,
+    ):
+        await admin_client.auth.login(gulp_test_user, gulp_test_password)
+        plugins = await admin_client.plugins.list()
+        if not any(
+            p.get("filename") == "shared_object.py"
+            or p.get("display_name") == "Shared objects"
+            for p in plugins
+        ):
+            pytest.skip("shared_object extension plugin not available on this server")
+
+        group = await admin_client.user_groups.create(
+            name=group_name,
+            permission=["read"],
+        )
+        group_id = group["id"]
+        await admin_client.users.create(
+            user_id=read_user_id,
+            password=_TEST_USER_PASS,
+            permission=["read"],
+        )
+        await admin_client.users.create(
+            user_id=ingest_user_id,
+            password=_TEST_USER_PASS,
+            permission=["read", "ingest"],
+        )
+        await admin_client.user_groups.add_user(group_id, ingest_user_id)
+
+        try:
+            created = (
+                await admin_client._request(
+                    "POST",
+                    "/shared_object_create",
+                    params={
+                        "name": _unique("admin_private_obj"),
+                        "operation_id": TEST_OPERATION_ID,
+                        "obj_type": "query",
+                    },
+                    json={"obj": {"query": {"field": "admin-only"}}},
+                )
+            ).get("data", {})
+            created_obj_id = created.get("id")
+            assert created_obj_id, "create returned no id"
+
+            private_obj = await admin_client.acl.make_private(
+                created_obj_id,
+                "shared_object",
+            )
+            assert private_obj.get("granted_user_ids") == [gulp_test_user]
+            assert (private_obj.get("granted_user_group_ids") or []) == []
+
+            await read_client.auth.login(read_user_id, _TEST_USER_PASS)
+            await ingest_client.auth.login(ingest_user_id, _TEST_USER_PASS)
+
+            for client, user_id in (
+                (read_client, read_user_id),
+                (ingest_client, ingest_user_id),
+            ):
+                listed = (
+                    await client._request(
+                        "POST",
+                        "/shared_object_list",
+                        json={"ids": [created_obj_id]},
+                    )
+                ).get("data", [])
+                print(f"shared_object_list as {user_id}:", listed)
+                assert all(o.get("id") != created_obj_id for o in listed)
+
+                with pytest.raises(
+                    (AuthenticationError, PermissionError, NotFoundError)
+                ):
+                    await client._request(
+                        "GET",
+                        "/shared_object_get_by_id",
+                        params={"obj_id": created_obj_id},
+                    )
+        finally:
+            if created_obj_id:
+                try:
+                    await admin_client._request(
+                        "DELETE",
+                        "/shared_object_delete",
+                        params={"obj_id": created_obj_id, "ws_id": admin_client.ws_id},
+                    )
+                except Exception:
+                    pass
+            try:
+                await admin_client.users.delete(ingest_user_id)
+            except Exception:
+                pass
+            try:
+                await admin_client.users.delete(read_user_id)
+            except Exception:
+                pass
+            if group_id:
+                try:
+                    await admin_client.user_groups.delete(group_id)
+                except Exception:
+                    pass
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Multi-client broadcast tests
 # ──────────────────────────────────────────────────────────────────────────────

@@ -276,6 +276,116 @@ async def test_acl_user_without_operation_grant_cannot_access_operation_objects(
 
 
 @pytest.mark.integration
+async def test_multi_permission_user_does_not_bypass_operation_acl(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """READ plus another permission must not expose admin-only operations."""
+    from gulp_sdk import (
+        AuthenticationError,
+        GulpClient,
+        NotFoundError,
+        PermissionError,
+    )
+
+    read_user_id = _unique("aclr")
+    ingest_user_id = _unique("acli")
+    password = "TestPass!123"
+    hidden_op_id = None
+    granted_op_id = None
+
+    async with (
+        GulpClient(gulp_base_url) as admin_client,
+        GulpClient(gulp_base_url) as read_client,
+        GulpClient(gulp_base_url) as ingest_client,
+    ):
+        await admin_client.auth.login(gulp_test_user, gulp_test_password)
+        hidden_op = await admin_client.operations.create(_unique("acl_hidden_op"))
+        granted_op = await admin_client.operations.create(_unique("acl_granted_op"))
+        hidden_op_id = hidden_op.id
+        granted_op_id = granted_op.id
+
+        hidden_private = await admin_client.acl.make_private(
+            hidden_op_id, "operation"
+        )
+        granted_private = await admin_client.acl.make_private(
+            granted_op_id, "operation"
+        )
+        assert gulp_test_user in (hidden_private.get("granted_user_ids") or [])
+        assert gulp_test_user in (granted_private.get("granted_user_ids") or [])
+
+        await admin_client.users.create(
+            user_id=read_user_id,
+            password=password,
+            permission=["read"],
+        )
+        await admin_client.users.create(
+            user_id=ingest_user_id,
+            password=password,
+            permission=["read", "ingest"],
+        )
+
+        try:
+            await read_client.auth.login(read_user_id, password)
+            await ingest_client.auth.login(ingest_user_id, password)
+
+            for client, user_id in (
+                (read_client, read_user_id),
+                (ingest_client, ingest_user_id),
+            ):
+                listed = (
+                    await client._request(
+                        "POST",
+                        "/operation_list",
+                        json={"ids": [hidden_op_id]},
+                    )
+                ).get("data", [])
+                print(f"operation_list as {user_id}:", listed)
+                assert all(o.get("id") != hidden_op_id for o in listed)
+
+                with pytest.raises(
+                    (AuthenticationError, PermissionError, NotFoundError)
+                ):
+                    await client.operations.get(hidden_op_id)
+
+                with pytest.raises(
+                    (AuthenticationError, PermissionError, NotFoundError)
+                ):
+                    await client.queries.query_raw(
+                        operation_id=hidden_op_id,
+                        q=[{"query": {"match_all": {}}}],
+                        q_options={
+                            "preview_mode": True,
+                            "limit": 1,
+                            "name": "acl_hidden_preview",
+                        },
+                    )
+
+                query_ops = await client.queries.query_operations()
+                print(f"query_operations as {user_id}:", query_ops)
+                query_op_ids = {o.get("id") for o in query_ops}
+                assert hidden_op_id not in query_op_ids
+                assert granted_op_id not in query_op_ids
+
+            granted = await admin_client.acl.add_granted_user(
+                granted_op_id, "operation", ingest_user_id
+            )
+            assert ingest_user_id in (granted.get("granted_user_ids") or [])
+
+            ingest_query_ops = await ingest_client.queries.query_operations()
+            print("query_operations as granted ingest user:", ingest_query_ops)
+            ingest_query_op_ids = {o.get("id") for o in ingest_query_ops}
+            assert hidden_op_id not in ingest_query_op_ids
+            assert granted_op_id in ingest_query_op_ids
+        finally:
+            await _teardown_user(admin_client, ingest_user_id)
+            await _teardown_user(admin_client, read_user_id)
+            if granted_op_id:
+                await _teardown_operation(admin_client, granted_op_id)
+            if hidden_op_id:
+                await _teardown_operation(admin_client, hidden_op_id)
+
+
+@pytest.mark.integration
 async def test_acl_creator_can_edit_and_delete_until_operation_access_removed(
     gulp_base_url, gulp_test_user, gulp_test_password
 ):
