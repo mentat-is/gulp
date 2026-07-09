@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Optional, override
 
 from muty.log import MutyLogger
 import muty.string
+import muty.time
 from sqlalchemy import BIGINT, ForeignKey
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -29,6 +30,7 @@ from gulp.api.collab.structs import (
     GulpCollabFilter,
     GulpUserPermission,
     MissingPermission,
+    SessionExpired,
     T,
 )
 from gulp.config import GulpConfig
@@ -297,6 +299,7 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
         Returns:
             GulpUserSession: The user session object (includes GulpUser object) or None if the user does not have the required permissions and throw_on_no_permission is False.
         Raises:
+            SessionExpired: If the token is not associated with an active session.
             MissingPermission: If the user does not have the required permissions.
         """
         MutyLogger.get_instance().debug(
@@ -314,7 +317,13 @@ class GulpUserSession(GulpCollabBase, type=COLLABTYPE_USER_SESSION):
             )
             # MutyLogger.get_instance().debug("got user session for token %s: %s" % (token, user_session.to_dict()))
         except ObjectNotFound as ex:
-            raise MissingPermission('token "%s" not logged in' % (token)) from ex
+            raise SessionExpired('token "%s" not logged in' % (token)) from ex
+
+        if user_session is None:
+            return None
+
+        if user_session.time_expire and user_session.time_expire <= muty.time.now_msec():
+            raise SessionExpired('token "%s" expired' % (token))
 
         return await user_session.check_permissions(
             sess,
