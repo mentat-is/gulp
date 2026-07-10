@@ -20,6 +20,66 @@ from gulp.api.ws_api import GulpRedisBroker
 from gulp.plugin import GulpPluginBase, GulpPluginType
 
 COLLABTYPE_SHARED_OBJECT = "shared_object"
+DEFAULT_DASHBOARD_SHARED_OBJECTS: tuple[dict[str, object], ...] = (
+    {
+        "obj_type": "dashboard",
+        "obj": {
+            "id": "log_source_distribution",
+            "name": "Log Source Distribution",
+            "type": "fixed",
+            "labels": {"value": "Logs", "legend": "Source"},
+            "visible": True,
+            "dashboard": "vertical_chart",
+            "required_ecs": ["gulp.source_id"],
+            "opensearch_query": {
+                "aggs": {
+                    "sources": {
+                        "terms": {
+                            "field": "gulp.source_id",
+                            "order": {"_count": "desc"},
+                        }
+                    }
+                }
+            },
+            "size": 0,
+            "query": {},
+        },
+        "id": "dash_log_source_distribution",
+        "name": "log_source_distribution",
+    },
+    {
+        "obj_type": "dashboard",
+        "obj": {
+            "id": "global_event_rate",
+            "name": "Global Event Rate",
+            "type": "fixed",
+            "labels": {
+                "x_axis": "Time",
+                "y_axis": "Count",
+                "tooltip": "Events",
+            },
+            "visible": True,
+            "dashboard": "line_chart",
+            "required_ecs": ["@timestamp"],
+            "opensearch_query": {
+                "aggs": {
+                    "histogram": {
+                        "date_histogram": {
+                            "field": "@timestamp",
+                            "min_doc_count": 0,
+                            "fixed_interval": "15m",
+                        }
+                    }
+                },
+                "size": 0,
+                "query": {},
+            },
+            "template_version": "1.0",
+        },
+        "id": "dash_global_event_rate",
+        "name": "global_event_rate",
+    },
+)
 
 
 class Plugin(GulpPluginBase):
@@ -218,6 +278,26 @@ class Plugin(GulpPluginBase):
     def display_name(self) -> str:
         return "Shared objects"
 
+    async def _seed_default_dashboards(self) -> None:
+        """Create built-in shared dashboard objects if they are missing."""
+        async with GulpCollab.get_instance().session() as sess:
+            for dashboard in DEFAULT_DASHBOARD_SHARED_OBJECTS:
+                _, created = await Plugin.GulpSharedObject.create_internal(
+                    sess=sess,
+                    user_id="admin",
+                    obj_id=dashboard["id"],
+                    name=dashboard["name"],
+                    obj=dashboard["obj"],
+                    obj_type=dashboard["obj_type"],
+                    private=False,
+                    on_conflict="do_nothing",
+                    return_conflict_status=True,
+                )
+                action = "inserted" if created else "already present"
+                MutyLogger.get_instance().debug(
+                    "default shared dashboard %s: %s", action, dashboard["id"]
+                )
+
     async def shared_object_create_handler(
         self,
         token: Annotated[str, Depends(APIDependencies.param_token)],
@@ -389,6 +469,7 @@ class Plugin(GulpPluginBase):
     async def post_init(self, **kwargs):
         MutyLogger.get_instance().debug("creating shared objects table ...")
         await GulpCollab.get_instance().create_table(Plugin.GulpSharedObject.__table__)
+        await self._seed_default_dashboards()
 
         # this object must be broadcasted
         GulpRedisBroker.get_instance().add_broadcast_type(COLLABTYPE_SHARED_OBJECT)
