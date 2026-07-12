@@ -2012,6 +2012,23 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             return objects
 
     @classmethod
+    async def count_by_filter(
+        cls,
+        sess: AsyncSession,
+        flt: GulpCollabFilter = None,
+        user_id: str = None,
+    ) -> int:
+        """Count objects matching a filter without loading them."""
+        flt = (flt or GulpCollabFilter()).model_copy(deep=True)
+        flt.limit = 0
+        flt.offset = 0
+        flt.sort = None
+        flt = await GulpCollabBase._restrict_flt_to_user(sess, user_id, flt)
+        q = flt.to_select_query(cls).order_by(None).with_only_columns(func.count(cls.id))
+        res = await sess.execute(q)
+        return int(res.scalar_one() or 0)
+
+    @classmethod
     async def get_first_by_filter(
         cls,
         sess: AsyncSession,
@@ -2120,3 +2137,37 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             )
 
             return data
+
+    @classmethod
+    async def count_by_filter_wrapper(
+        cls,
+        token: str,
+        flt: GulpCollabFilter,
+        operation_id: str = None,
+        permission: list[GulpUserPermission] = None,
+    ) -> int:
+        """Same as count_by_filter, but handling session and ACL check."""
+        from gulp.api.collab.user_session import GulpUserSession
+        from gulp.api.collab_api import GulpCollab
+
+        async with GulpCollab.get_instance().session() as sess:
+            if not permission:
+                permission = [GulpUserPermission.READ]
+
+            flt = flt or GulpCollabFilter()
+            if operation_id:
+                from gulp.api.collab.operation import GulpOperation
+
+                s, _, _ = await GulpOperation.get_by_id_wrapper(
+                    sess, token, operation_id, permission=GulpUserPermission.READ
+                )
+                if not flt.operation_ids:
+                    flt.operation_ids = []
+                if operation_id not in flt.operation_ids:
+                    flt.operation_ids.append(operation_id)
+            else:
+                s = await GulpUserSession.check_token(
+                    sess, token, permission=permission
+                )
+
+            return await cls.count_by_filter(sess, flt, user_id=s.user.id)

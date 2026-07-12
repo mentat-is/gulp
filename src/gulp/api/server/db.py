@@ -76,9 +76,6 @@ async def db_reset() -> None:
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
 
-            # delete the operation itself
-            await op.delete(sess)
-
     # reset
     # TODO: try to handle worker processes termination gracefully
     MutyLogger.get_instance().warning(

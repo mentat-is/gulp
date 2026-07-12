@@ -127,7 +127,7 @@ class GulpCollab:
                 await GulpCollab.db_drop(url)
                 await GulpCollab.db_create(url)
 
-            self._engine = await self._create_engine(log_pool_budget=True)
+            self._engine = await self._create_engine()
             self._collab_sessionmaker = async_sessionmaker(
                 bind=self._engine, expire_on_commit=False
             )
@@ -152,7 +152,7 @@ class GulpCollab:
         # init done
         self._initialized = True
 
-    async def _create_engine(self, log_pool_budget: bool = False) -> AsyncEngine:
+    async def _create_engine(self) -> AsyncEngine:
         """
         creates the collab database engine
 
@@ -216,83 +216,52 @@ class GulpCollab:
             [opt for opt in [existing_options, *postgres_options] if opt]
         )
 
-        # determine per-process pool settings. keep conservative defaults to avoid
-        # exhausting postgres max_connections when many worker processes are active.
-        pool_size_cap: int = config.postgres_pool_size()
-        max_overflow_cap: int = config.postgres_max_overflow()
-        pool_size: int = pool_size_cap
-        max_overflow: int = max_overflow_cap
-        if config.postgres_adaptive_pool_size():
-            # derive pool size from the number of tasks per worker, with some reasonable limits to avoid too small or too large pool sizes.
-            # this is a heuristic and can be adjusted based on performance testing and expected workloads.
-            num_tasks_per_worker: int = config.concurrency_num_tasks()
-            # derive a conservative pool size from per-worker concurrency, then
-            # clamp by configured caps to keep total process-wide connections bounded.
-            adaptive_pool_size = min(50, max(2, max(1, num_tasks_per_worker) // 4))
-            adaptive_max_overflow = min(25, max(1, max(1, num_tasks_per_worker) // 6))
-            pool_size = min(pool_size_cap, adaptive_pool_size)
-            max_overflow = min(max_overflow_cap, adaptive_max_overflow)
-            if log_pool_budget:
-                MutyLogger.get_instance().debug(
-                    "using postgres adaptive pool size, adaptive=(%d,%d), capped=(%d,%d), cap=(%d,%d), num_tasks_per_worker=%d"
-                    % (
-                        adaptive_pool_size,
-                        adaptive_max_overflow,
-                        pool_size,
-                        max_overflow,
-                        pool_size_cap,
-                        max_overflow_cap,
-                        num_tasks_per_worker,
-                    )
-                )
-        else:
-            if log_pool_budget:
-                MutyLogger.get_instance().debug(
-                    "using postgres fixed pool settings, pool_size=%d, max_overflow=%d",
-                    pool_size,
-                    max_overflow,
-                )
+        # The task scheduler now adapts dispatch under PostgreSQL pressure, so
+        # the SQLAlchemy pool should be the healthy ceiling, not a second throttle.
+        pool_size: int = config.postgres_pool_size()
+        max_overflow: int = config.postgres_max_overflow()
 
         pool_timeout: int = config.postgres_pool_timeout_sec()
         pool_recycle: int = config.postgres_pool_recycle_sec()
-        per_process_cap = pool_size_cap + max_overflow_cap
-        per_process_actual = pool_size + max_overflow
+        max_connections_per_process = pool_size + max_overflow
         try:
-            processes_per_instance = 1 + max(0, config.parallel_processes_max())
+            processes_per_instance = 1 + max(0, config.workers_max())
         except Exception:
             processes_per_instance = 1
-        per_instance_cap = processes_per_instance * per_process_cap
-        per_instance_actual = processes_per_instance * per_process_actual
+        max_connections_per_instance = (
+            processes_per_instance * max_connections_per_process
+        )
 
-        if log_pool_budget:
-            MutyLogger.get_instance().info(
-                "postgres pool budget: actual_per_process=%d, cap_per_process=%d, "
-                "processes_per_instance=%d, actual_per_instance=%d, "
-                "cap_per_instance=%d, pool_timeout_sec=%d, pool_recycle_sec=%d",
-                per_process_actual,
-                per_process_cap,
+        MutyLogger.get_instance().info(
+            "postgres pool budget: max_connections_per_process=%d, "
+            "processes_per_instance=%d, max_connections_per_instance=%d, "
+            "pool_timeout_sec=%d, pool_recycle_sec=%d",
+            max_connections_per_process,
+            processes_per_instance,
+            max_connections_per_instance,
+            pool_timeout,
+            pool_recycle,
+        )
+        if (
+            max_connections_per_instance
+            >= self._POSTGRES_CONNECTION_WARNING_THRESHOLD
+        ):
+            MutyLogger.get_instance().warning(
+                "postgres connection budget is high because "
+                "max_connections_per_instance=%d "
+                "meets the warning threshold=%d "
+                "(processes_per_instance=%d, pool_size=%d, "
+                "max_overflow=%d). Estimated cluster total is "
+                "gulp_instances * max_connections_per_instance. Reduce "
+                "postgres_pool_size, postgres_max_overflow, "
+                "workers_max, or instance count before raising "
+                "caps.",
+                max_connections_per_instance,
+                self._POSTGRES_CONNECTION_WARNING_THRESHOLD,
                 processes_per_instance,
-                per_instance_actual,
-                per_instance_cap,
-                pool_timeout,
-                pool_recycle,
+                pool_size,
+                max_overflow,
             )
-            if per_instance_cap >= self._POSTGRES_CONNECTION_WARNING_THRESHOLD:
-                MutyLogger.get_instance().warning(
-                    "postgres connection budget is high because per_instance_cap=%d "
-                    "meets the warning threshold=%d "
-                    "(processes_per_instance=%d, pool_size_cap=%d, "
-                    "max_overflow_cap=%d). Estimated cluster total is "
-                    "gulp_instances * per_instance_cap. Reduce "
-                    "postgres_pool_size, postgres_max_overflow, "
-                    "parallel_processes_max, or instance count before raising "
-                    "caps.",
-                    per_instance_cap,
-                    self._POSTGRES_CONNECTION_WARNING_THRESHOLD,
-                    processes_per_instance,
-                    pool_size_cap,
-                    max_overflow_cap,
-                )
 
         # create engine
         kw = dict(
@@ -468,12 +437,13 @@ class GulpCollab:
                 $$ LANGUAGE plpgsql;
             """))
 
-            # purge stats and tokens every 1 minutes
+            # purge stats and tokens every 1 minute. Named pg_cron jobs are
+            # updated in place on repeated startup instead of duplicated.
             await sess.execute(text("""
-                    SELECT cron.schedule('* * * * *', 'SELECT delete_expired_stats_rows();');
+                    SELECT cron.schedule('gulp-delete-expired-stats', '* * * * *', 'SELECT delete_expired_stats_rows();');
                     """))
             await sess.execute(text("""
-                    SELECT cron.schedule('* * * * *', 'SELECT delete_expired_tokens_rows();');
+                    SELECT cron.schedule('gulp-delete-expired-tokens', '* * * * *', 'SELECT delete_expired_tokens_rows();');
                     """))
             await sess.commit()
 

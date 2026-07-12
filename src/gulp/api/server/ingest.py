@@ -297,7 +297,6 @@ async def _ingest_file_internal(
     plugin: str,
     file_path: str,
     payload: GulpIngestPayload,
-    file_total: int = 1,
     delete_after: bool = False,
     **kwargs: Any,
 ) -> tuple[GulpRequestStatus, list[dict]]:
@@ -339,7 +338,7 @@ async def _ingest_file_internal(
                     operation_id,
                     req_type=RequestStatsType.REQUEST_TYPE_INGESTION,
                     ws_id=ws_id,
-                    data=GulpIngestionStats(source_total=file_total).model_dump(
+                    data=GulpIngestionStats(source_total=1).model_dump(
                         exclude_none=True
                     ),
                 )
@@ -493,7 +492,6 @@ async def _preview_or_enqueue_ingest_task(
     plugin: str,
     file_path: str,
     payload: GulpIngestPayload,
-    file_total: int = 1,
     file_size: int | None = None,
     delete_after: bool = True,
 ) -> JSONResponse:
@@ -517,14 +515,11 @@ async def _preview_or_enqueue_ingest_task(
         plugin=plugin,
         file_path=file_path,
         payload=payload,
-        file_total=file_total,
         file_size=file_size,
         delete_after=delete_after,
     )
 
-    existing_response = await ServerUtils.existing_request_response(
-        sess, req_id, allow_ongoing=True
-    )
+    existing_response = await ServerUtils.existing_request_response(sess, req_id)
     if existing_response:
         return existing_response
 
@@ -720,13 +715,6 @@ async def ingest_file_handler(
         str,
         Depends(APIDependencies.param_ws_id),
     ],
-    file_total: Annotated[
-        int,
-        Query(
-            description="set to the total number of files if this call is part of a multi-file upload (same `req_id` for multiple files), default=1.",
-            examples={"default": {"value": 1}},
-        ),
-    ] = 1,
     req_id: Annotated[
         str,
         Depends(APIDependencies.ensure_req_id_optional),
@@ -789,7 +777,6 @@ async def ingest_file_handler(
                 plugin=plugin,
                 file_path=file_path,
                 payload=payload,
-                file_total=file_total,
                 file_size=file_size,
             )
     except Exception as ex:

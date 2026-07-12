@@ -1768,17 +1768,17 @@ class Plugin(GulpPluginBase):
 
             if packet.haslayer(SPNEGO_negTokenResp):
                 resp = packet.getlayer(SPNEGO_negTokenResp)
-                neg_result = getattr(resp, "negResult", None)
-                if neg_result is not None:
+                neg_state = getattr(resp, "negState", None)
+                if neg_state is not None:
                     result_int = (
-                        neg_result.val if hasattr(neg_result, "val") else neg_result
+                        neg_state.val if hasattr(neg_state, "val") else neg_state
                     )
                     try:
-                        fields["SPNEGO.result"] = _NEGTOKENRESP_RESULTS.get(
+                        fields["SPNEGO.state"] = _NEGTOKENRESP_RESULTS.get(
                             int(result_int), str(result_int)
                         )
                     except (TypeError, ValueError):
-                        fields["SPNEGO.result"] = str(neg_result)
+                        fields["SPNEGO.state"] = str(neg_state)
                 supported = getattr(resp, "supportedMech", None)
                 if supported is not None:
                     oid = str(

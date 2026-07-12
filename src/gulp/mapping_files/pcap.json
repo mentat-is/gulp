@@ -849,7 +849,7 @@
                     ],
                     "force_type": "str"
                 },
-                "SPNEGO.result": {
+                "SPNEGO.state": {
                     "ecs": [
                         "event.outcome"
                     ],

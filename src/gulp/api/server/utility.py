@@ -381,7 +381,10 @@ async def object_delete_bulk_handler(
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     obj_type: Annotated[
         str,
-        Query(description="one of the collab object types.", examples={"default": {"value": COLLABTYPE_NOTE}}),
+        Query(
+            description="one of the collab object types.",
+            examples={"default": {"value": COLLABTYPE_NOTE}},
+        ),
     ],
     flt: Annotated[
         GulpCollabFilter, Depends(APIDependencies.param_collab_flt) 
@@ -403,6 +406,62 @@ async def object_delete_bulk_handler(
             obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
             deleted = await obj_class.delete_by_filter(sess, flt, s.user_id)
             return JSendResponse.success(req_id=req_id, data={"deleted": deleted})
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.post(
+    "/object_count",
+    tags=["utility"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "timestamp_msec": 1701278479259,
+                        "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
+                        "data": {"count": 123},
+                    }
+                }
+            }
+        }
+    },
+    summary="counts objects of the given type on the collab database.",
+    description="""
+- `token` needs read permission.
+- if `operation_id` is set, the count is scoped to that operation.
+""",
+)
+async def object_count_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    obj_type: Annotated[
+        str,
+        Query(description="one of the collab object types.", examples={"default": {"value": COLLABTYPE_NOTE}}),
+    ],
+    operation_id: Annotated[
+        str | None,
+        Query(description="optional operation id to scope the count."),
+    ] = None,
+    flt: Annotated[
+        GulpCollabFilter, Depends(APIDependencies.param_collab_flt_optional)
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["flt"] = flt.model_dump(exclude_none=True)
+    ServerUtils.dump_params(params)
+    try:
+        obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
+        count = await obj_class.count_by_filter_wrapper(
+            token,
+            flt,
+            operation_id=operation_id,
+            permission=[GulpUserPermission.READ],
+        )
+        return JSendResponse.success(req_id=req_id, data={"count": count})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

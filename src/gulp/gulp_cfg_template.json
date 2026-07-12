@@ -2,16 +2,9 @@
   // bind_to is the address:port to bind to (default=0.0.0.0:8080), may be overridden by GULP_BIND_TO_ADDR, GULP_BIND_TO_PORT environment variables
   "bind_to": null,
   // each worker process will run this number of tasks concurrently (default=16)
-  // when using adaptive concurrency, this is the base for calculating max tasks per worker process
-  "concurrency_num_tasks": 16,
-  // if set, `concurrency_num_tasks` is enabled and max tasks per worker process is determined by the opensearch/postgresql cluster configurations.
-  "concurrency_adaptive_num_tasks": true,
-  // used to determine concurrency_num_tasks when `concurrency_adaptive_num_tasks` is set (default=1, single opensearch node)
-  "concurrency_opensearch_num_nodes": 1,
-  // used to determine concurrency_num_tasks when `concurrency_adaptive_num_tasks` is set (default=1, single postgresql node)
-  "concurrency_postgres_num_nodes": 1,
-  // used when `concurrency_adaptive_num_tasks` is set, caps the max tasks per worker process to this value (default=64)
-  "concurrency_tasks_cap_per_process": 64,
+  "workers_concurrency_max": 16,
+  // healthy query/external_query ceiling. set 0 for no query-specific ceiling (then bounded by workers_max * workers_concurrency_max, after workers_max=0 resolves to CPU count). default=4
+  "query_concurrency_max": 4,
   // only for debugging, abort ingestion of the current file on first error when indexing a document (default=true)
   "debug_abort_on_opensearch_ingestion_error": true,
   // allow any token (even non existent) to be used as admin, also ignores token expiration time (default=false)
@@ -24,16 +17,12 @@
   "debug_enrich_dry_run": false,
   // prevent token expiration for debugging purposes, ignored if debug_allow_any_token_as_admin is set to true (default=false)
   "debug_no_token_expiration": false,
-  // enable logging of Redis pub/sub metrics (default=false)
-  "debug_redis_log_metrics": false,
   // enforce https
   "https_enforce": false,
   // enforce client certificates signed by gulp-ca for https
   "https_enforce_client_certs": false,
   // default for index template creation
   "index_template_default_total_fields_limit": 10000,
-  // if set, tweaks the "ignore_above" setting for dynamically generated keyword fields in the index (default=not specified, use default)
-  "index_dynamic_keyword_ignore_above": 1500,
   // default for index template creation
   "index_template_default_refresh_interval": "5s",
   // defaults to true, allows fields not defined in the mapping to be ingested (generates gulp.unmapped.* keys in the document).

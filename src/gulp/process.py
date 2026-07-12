@@ -318,7 +318,7 @@ class GulpProcess:
                 % (GulpConfig.get_instance().parallel_processes_respawn_after_tasks())
             )
 
-            num_workers: int = GulpConfig.get_instance().parallel_processes_max()
+            num_workers: int = GulpConfig.get_instance().workers_max()
 
             # prepare a Redis-based spawn counter key (unique per server run)
             spawn_key: str = "gulp:spawn:%s:%d" % (server_id, int(time.time()))
@@ -338,7 +338,7 @@ class GulpProcess:
             self.process_pool = AioProcessPool(
                 exception_handler=GulpProcess._worker_exception_handler,
                 processes=num_workers,
-                childconcurrency=GulpConfig.get_instance().concurrency_num_tasks(),
+                childconcurrency=GulpConfig.get_instance().workers_concurrency_max(),
                 maxtasksperchild=GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
                 initializer=GulpProcess._worker_initializer,
                 initargs=(

@@ -623,7 +623,9 @@ if set, the query is **synchronous** and returns the preview chunk of documents,
         bool,
         Field(
             description="""
-if set, create notes on match with title=query name, tags=["auto"] (plus sigma rule tags if the query comes from a sigma rule)""",
+if set, create notes on match with title=query name, tags=["auto"] (plus sigma rule tags if the query comes from a sigma rule).
+
+Ignored for external queries.""",
         ),
     ] = False
     notes_color: Annotated[

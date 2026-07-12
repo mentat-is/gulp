@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from gulp.api.collab.structs import GulpCollabFilter
 from gulp.api.collab_api import GulpCollab
 from gulp.config import GulpConfig
 
@@ -9,8 +10,89 @@ from gulp.config import GulpConfig
 def _config_with(overrides: dict) -> GulpConfig:
     cfg = object.__new__(GulpConfig)
     cfg._config = overrides
-    cfg._concurrency_num_tasks = None
     return cfg
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_create_default_users_adds_ingest_user(monkeypatch):
+    from gulp.api.collab.structs import GulpUserPermission
+    from gulp.api.collab.user import GulpUser
+    from gulp.api.collab.user_group import GulpUserGroup
+
+    GulpCollab._instance = None
+    collab = GulpCollab.get_instance()
+    created_users = []
+
+    class _FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def refresh(self, _obj):
+            return None
+
+    class _FakeUser:
+        id = "admin"
+
+        def to_dict(self, nested=False):
+            return {"id": self.id, "nested": nested}
+
+    class _FakeGroup:
+        async def add_user(self, _sess, user_id):
+            assert user_id == "admin"
+
+    async def _create_user(_sess, user_id, password, **kwargs):
+        created_users.append((user_id, password, kwargs.get("permission")))
+        return _FakeUser()
+
+    async def _create_group(*_args, **_kwargs):
+        return _FakeGroup()
+
+    monkeypatch.setattr(GulpUser, "create_user", _create_user)
+    monkeypatch.setattr(GulpUserGroup, "create_internal", _create_group)
+    monkeypatch.setattr(GulpUserGroup, "get_by_filter", AsyncMock(return_value=[]))
+    collab._collab_sessionmaker = lambda: _FakeSession()
+
+    await collab.create_default_users()
+
+    assert created_users == [
+        ("admin", "admin", [GulpUserPermission.ADMIN]),
+        ("guest", "guest", None),
+        ("ingest", "ingest", [GulpUserPermission.INGEST]),
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_setup_collab_expirations_uses_named_pg_cron_jobs():
+    GulpCollab._instance = None
+    collab = GulpCollab.get_instance()
+    executed = []
+
+    class _FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, stmt):
+            executed.append(str(stmt))
+
+        async def commit(self):
+            executed.append("commit")
+
+    collab._collab_sessionmaker = lambda: _FakeSession()
+
+    await collab._setup_collab_expirations()
+
+    sql = "\n".join(executed)
+    assert "cron.schedule('gulp-delete-expired-stats'" in sql
+    assert "cron.schedule('gulp-delete-expired-tokens'" in sql
+    assert "commit" in executed
 
 
 @pytest.mark.unit
@@ -70,6 +152,135 @@ async def test_collab_init_shuts_down_previous_engine_before_recreate(monkeypatc
     assert collab._engine is new_engine
     assert collab._collab_sessionmaker is session_factory
     assert collab._initialized is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_object_count_handler_dispatches_to_registered_collab_type(monkeypatch):
+    from gulp.api.server import utility
+
+    seen = {}
+
+    class _FakeObject:
+        @classmethod
+        async def count_by_filter_wrapper(cls, token, flt, operation_id=None, permission=None):
+            seen.update(
+                {
+                    "token": token,
+                    "flt": flt,
+                    "operation_id": operation_id,
+                    "permission": permission,
+                }
+            )
+            return 7
+
+    monkeypatch.setattr(
+        utility.GulpCollabBase,
+        "object_type_to_class",
+        staticmethod(lambda obj_type: _FakeObject if obj_type == "note" else None),
+    )
+
+    response = await utility.object_count_handler(
+        token="tok",
+        obj_type="note",
+        operation_id="op-a",
+        flt=GulpCollabFilter(tags=["auto"]),
+        req_id="req-a",
+    )
+
+    assert response["data"] == {"count": 7}
+    assert seen == {
+        "token": "tok",
+        "flt": GulpCollabFilter(tags=["auto"]),
+        "operation_id": "op-a",
+        "permission": [utility.GulpUserPermission.READ],
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_count_by_filter_strips_paging(monkeypatch):
+    from gulp.api.collab.note import GulpNote
+
+    captured = {}
+
+    class _FakeResult:
+        def scalar_one(self):
+            return 7
+
+    class _FakeSession:
+        async def execute(self, query):
+            captured["query"] = query
+            return _FakeResult()
+
+    async def _restrict(_sess, _user_id=None, flt=None):
+        return flt
+
+    monkeypatch.setattr(
+        "gulp.api.collab.structs.GulpCollabBase._restrict_flt_to_user",
+        _restrict,
+    )
+
+    count = await GulpNote.count_by_filter(
+        _FakeSession(),
+        GulpCollabFilter(operation_ids=["op-a"], limit=10, offset=20),
+        user_id="user-a",
+    )
+
+    assert count == 7
+    query = captured["query"]
+    assert query._limit_clause is None
+    assert query._offset_clause is None
+
+
+@pytest.mark.unit
+def test_note_doc_filter_uses_indexed_doc_id_column():
+    from sqlalchemy.dialects import postgresql
+
+    from gulp.api.collab.note import GulpNote
+
+    query = GulpCollabFilter(
+        operation_ids=["op-a"],
+        doc_ids=["ABC123"],
+    ).to_select_query(GulpNote)
+    compiled = str(
+        query.compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+
+    assert "note.doc_id IN ('abc123')" in compiled
+    assert "note.doc ->>" not in compiled
+
+
+@pytest.mark.unit
+def test_note_text_filter_searches_inline_and_shared_text():
+    from sqlalchemy.dialects import postgresql
+
+    from gulp.api.collab.note import GulpNote
+
+    query = GulpCollabFilter(texts=["*needle*"]).to_select_query(GulpNote)
+    compiled = str(
+        query.compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+
+    assert "note.text ILIKE '%%needle%%'" in compiled
+    assert "note_text.text ILIKE '%%needle%%'" in compiled
+
+
+@pytest.mark.unit
+def test_note_fk_columns_are_indexed_for_large_cascades():
+    from gulp.api.collab.note import GulpNote, GulpNoteText
+
+    note_indexes = {idx.name for idx in GulpNote.__table__.indexes}
+    note_text_indexes = {idx.name for idx in GulpNoteText.__table__.indexes}
+
+    assert {"idx_note_context", "idx_note_source", "idx_note_text_id"} <= note_indexes
+    assert "idx_note_text_operation" in note_text_indexes
 
 
 @pytest.mark.unit
@@ -138,10 +349,7 @@ async def test_create_engine_uses_configured_postgres_pool_and_timeouts(monkeypa
         def postgres_max_overflow(self):
             return 2
 
-        def postgres_adaptive_pool_size(self):
-            return True
-
-        def concurrency_num_tasks(self):
+        def workers_concurrency_max(self):
             return 1000
 
         def postgres_pool_timeout_sec(self):
@@ -150,7 +358,7 @@ async def test_create_engine_uses_configured_postgres_pool_and_timeouts(monkeypa
         def postgres_pool_recycle_sec(self):
             return 89
 
-        def parallel_processes_max(self):
+        def workers_max(self):
             return 1
 
         def debug_collab(self):

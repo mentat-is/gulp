@@ -456,19 +456,6 @@ class GulpConfig:
             )
         return n
 
-    def debug_redis_log_metrics(self) -> bool:
-        """
-        Returns whether to enable logging of Redis pub/sub metrics.
-
-        default: False
-        """
-        n = self._config.get("debug_redis_log_metrics", False)
-        if n:
-            MutyLogger.get_instance().warning(
-                "!!!WARNING!!! debug_redis_log_metrics is set to True!"
-            )
-        return n
-
     def stats_ttl(self) -> int:
         """
         Returns the number of seconds stats are kept.
@@ -545,17 +532,7 @@ class GulpConfig:
         # MutyLogger.get_instance().warning('debug_abort_on_opensearch_ingestion_error is set to True.')
         return n
 
-    def concurrency_tasks_cap_per_process(self) -> int:
-        """
-        maximum number of concurrent coroutines per process which can be spawned by the API server when adaptive concurrency is enabled
-
-        default: 64
-
-        @return the maximum number of tasks executing concurrently in a process
-        """
-        return self._get_int_config("concurrency_tasks_cap_per_process", 64, minimum=1)
-
-    def concurrency_num_tasks(self) -> int:
+    def workers_concurrency_max(self) -> int:
         """
         maximum number of concurrent coroutines per process which can be spawned by the API server
 
@@ -563,39 +540,44 @@ class GulpConfig:
 
         @return the maximum number of tasks executing concurrently in a process
         """
-        if self._concurrency_num_tasks is not None:
-            # already calculated
-            return self._concurrency_num_tasks
+        return self._get_int_config("workers_concurrency_max", 16, minimum=1)
 
-        adaptive: bool = self.concurrency_adaptive_num_tasks()
-        num_tasks: int = self._config.get("concurrency_num_tasks", 0)
-        if not adaptive:
-            if num_tasks < 2:
-                MutyLogger.get_instance().warning(
-                    "invalid concurrency_num_tasks=%d, set to default=16", num_tasks
-                )
-                num_tasks = 16
-            return num_tasks
-
-        # adaptive, calculate
-        opensearch_num_nodes: int = self.concurrency_opensearch_num_nodes()
-        postgres_num_nodes: int = self.concurrency_postgres_num_nodes()
-        base_num_tasks: int = num_tasks if num_tasks > 0 else 16
-        cap_per_process: int = self.concurrency_tasks_cap_per_process()
-
-        # scale linearly with OS nodes and clamp to cap_per_process
-        scaled = (
-            base_num_tasks * max(1, opensearch_num_nodes) * max(1, postgres_num_nodes)
-        )
-        self._concurrency_num_tasks = max(1, min(cap_per_process, scaled))
-        return self._concurrency_num_tasks
-
-    def concurrency_adaptive_num_tasks(self) -> bool:
+    def query_concurrency(self) -> int:
         """
-        whether to enable adaptive concurrency max tasks per process
+        legacy query/external-query task concurrency for this instance.
+
+        Runtime dispatch uses query_concurrency_max as its healthy ceiling.
         """
-        n = self._config.get("concurrency_adaptive_num_tasks", False)
-        return n
+        return self._get_int_config("query_concurrency", 4, minimum=1)
+
+    def query_concurrency_max(self) -> int:
+        """
+        maximum query/external-query task concurrency when healthy.
+
+        0 means no query-specific ceiling; the global worker dispatch capacity
+        still applies.
+        """
+        default = self._config.get("query_concurrency", 4)
+        n = self._config.get("query_concurrency_max", default)
+        try:
+            n = int(n)
+        except Exception:
+            n = 4
+        if n == 0:
+            return 0
+        return max(1, n)
+
+    def opensearch_index_replicas(self) -> int:
+        """
+        Number of replica shards for newly created OpenSearch index templates.
+        """
+        return self._get_int_config("opensearch_index_replicas", 0, minimum=0)
+
+    def opensearch_pool_maxsize(self) -> int:
+        """
+        Per-process OpenSearch HTTP connection pool size.
+        """
+        return self._get_int_config("opensearch_pool_maxsize", 10, minimum=1)
 
     def concurrency_opensearch_num_nodes(self) -> int:
         """
@@ -622,18 +604,18 @@ class GulpConfig:
         """
         return self._get_int_config("opensearch_pool_maxsize", 10, minimum=1)
 
-    def parallel_processes_max(self) -> int:
+    def workers_max(self) -> int:
         """
         Returns the maximum number of processes to use for ingestion.
         if not set, the number of cores will be used.
         """
-        n = self._config.get("parallel_processes_max", 0)
+        n = self._config.get("workers_max", 0)
         if not n:
             n = multiprocessing.cpu_count()
-            MutyLogger.get_instance().debug(
+            """MutyLogger.get_instance().debug(
                 "using default number of processes for ingestion (=number of cores=%d)."
                 % (n)
-            )
+            )"""
         return n
 
     def parallel_processes_respawn_after_tasks(self) -> int:
@@ -688,11 +670,14 @@ class GulpConfig:
 
         This is a hard cap also applied to adaptive pool sizing.
         """
-        n = self._config.get("postgres_pool_size", 3)
+        default = self.query_concurrency_max()
+        if default == 0:
+            default = self.workers_concurrency_max()
+        n = self._config.get("postgres_pool_size", default)
         try:
             n = int(n)
         except Exception:
-            n = 3
+            n = default
         if n < 1:
             n = 1
         return n
@@ -700,14 +685,12 @@ class GulpConfig:
     def postgres_max_overflow(self) -> int:
         """
         Per-process postgres SQLAlchemy max_overflow.
-
-        This is a hard cap also applied to adaptive pool sizing.
         """
-        n = self._config.get("postgres_max_overflow", 2)
+        n = self._config.get("postgres_max_overflow", 0)
         try:
             n = int(n)
         except Exception:
-            n = 2
+            n = 0
         if n < 0:
             n = 0
         return n
@@ -1111,13 +1094,6 @@ class GulpConfig:
         Returns whether to enable adaptive rate limiting for websockets (default: False).
         """
         n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit", True)
-        return n
-
-    def ws_adaptive_rate_limit_delay(self) -> bool:
-        """
-        Returns whether to enable adaptive rate limiting for websockets (default: False).
-        """
-        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit_delay", True)
         return n
 
     def ws_rate_limit_delay(self) -> float:

@@ -150,8 +150,9 @@ async def object_add_granted_user_handler(
             obj = await _modify_grants(
                 sess, obj_id, obj_type, token, user_id, add=True, group=False
             )
+            await sess.refresh(obj)
             return JSendResponse.success(
-                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+                req_id=req_id, data=obj.to_dict(nested=False, exclude_none=True)
             )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -199,8 +200,9 @@ async def object_remove_granted_user_handler(
             obj = await _modify_grants(
                 sess, obj_id, obj_type, token, user_id, add=False, group=False
             )
+            await sess.refresh(obj)
             return JSendResponse.success(
-                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+                req_id=req_id, data=obj.to_dict(nested=False, exclude_none=True)
             )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -248,8 +250,9 @@ async def object_add_granted_group_handler(
             obj = await _modify_grants(
                 sess, obj_id, obj_type, token, group_id, add=True, group=True
             )
+            await sess.refresh(obj)
             return JSendResponse.success(
-                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+                req_id=req_id, data=obj.to_dict(nested=False, exclude_none=True)
             )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -297,8 +300,9 @@ async def object_remove_granted_group_handler(
             obj = await _modify_grants(
                 sess, obj_id, obj_type, token, group_id, add=False, group=True
             )
+            await sess.refresh(obj)
             return JSendResponse.success(
-                req_id=req_id, data=obj.to_dict(nested=True, exclude_none=True)
+                req_id=req_id, data=obj.to_dict(nested=False, exclude_none=True)
             )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

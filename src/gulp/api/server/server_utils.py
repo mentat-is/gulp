@@ -39,16 +39,12 @@ class ServerUtils:
     _multipart_upload_locks: dict[str, asyncio.Lock] = {}
 
     @staticmethod
-    async def existing_request_response(
-        sess, req_id: str, *, allow_ongoing: bool = False
-    ) -> JSONResponse | None:
+    async def existing_request_response(sess, req_id: str) -> JSONResponse | None:
         """Return existing request stats when a req_id must not enqueue again."""
         stats: GulpRequestStats = await GulpRequestStats.get_by_id(
             sess, req_id, throw_if_not_found=False
         )
         if not stats:
-            return None
-        if allow_ongoing and not GulpRequestStats.is_terminal_status(stats.status):
             return None
 
         # use 409 Conflict to indicate the request already exists, and include the existing request stats in the response body for debugging/monitoring purposes

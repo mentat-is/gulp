@@ -80,7 +80,7 @@ class Plugin(GulpPluginBase):
                 # if the field is mapped, use the mapped value in the ingested document
                 d.update(m)
                 field_mapping: GulpMappingField = mapping.fields.get(source_key)
-                if field_mapping and field_mapping.is_gulp_type:
+                if field_mapping and field_mapping.is_gulp_type and source_key not in m:
                     # if the field is a Gulp type, also keep the original value in the ingested document with dot notation (for backward compatibility and ease of querying)
                     d[source_key] = source_value
             else:

@@ -728,7 +728,7 @@ class GulpOpenSearch:
         Notes:
             - The function modifies the provided dictionary to include default settings and mappings if they are not present.
             - It applies specific patches to the mappings and settings before setting the index template.
-            - If the OpenSearch cluster is configured for a single node, the number of replicas is set to 0 to optimize performance.
+            - The configured OpenSearch replica count is applied to new index templates.
         """
         MutyLogger.get_instance().debug('setting index template for "%s" ...', index)
         template = d.get("template", None)
@@ -799,12 +799,11 @@ class GulpOpenSearch:
                 "refresh_interval"
             ] = GulpConfig.get_instance().index_template_default_refresh_interval()
 
-            if GulpConfig.get_instance().concurrency_opensearch_num_nodes() == 1:
-                # optimize for single node
-                # this also removes "yellow" node in single node mode
-                # this also removes "yellow" node in single node mode
-                MutyLogger.get_instance().warning("setting number_of_replicas to 0")
-                settings["index"]["number_of_replicas"] = 0
+            replicas = GulpConfig.get_instance().opensearch_index_replicas()
+            settings["index"]["number_of_replicas"] = replicas
+            MutyLogger.get_instance().warning(
+                "setting number_of_replicas to %d", replicas
+            )
 
         # write template
         await self.index_template_put(index, d)
@@ -1870,7 +1869,10 @@ class GulpOpenSearch:
         return self._parse_query_max_min(d)
 
     async def _parse_operation_aggregation(
-        self, aggregations: dict, user_id: str
+        self,
+        aggregations: dict,
+        user_id: str,
+        include_empty_sources: bool = False,
     ) -> list[dict]:
         """
         parse OpenSearch operations aggregations and match with collab database operations.
@@ -1878,6 +1880,7 @@ class GulpOpenSearch:
         Args:
             aggregations (dict): Raw OpenSearch aggregations results
             user_id (str): The user ID to filter operations
+            include_empty_sources (bool): Include collab sources with no indexed events.
         Returns:
             list[dict]: Parsed operations with context and source details
         """
@@ -1887,10 +1890,49 @@ class GulpOpenSearch:
             all_operations = await GulpOperation.get_by_filter(
                 sess,
                 user_id=user_id,
+                recursive=True,
             )
 
-        # create operation lookup map
         operation_map = {op.id: op for op in all_operations}
+
+        def _ensure_context(operation_entry: dict, context) -> dict:
+            for entry in operation_entry["contexts"]:
+                if entry["id"] == context.id:
+                    return entry
+
+            entry = {
+                "name": context.name,
+                "id": context.id,
+                "glyph_id": context.glyph_id,
+                "color": context.color,
+                "doc_count": 0,
+                "plugins": [],
+            }
+            operation_entry["contexts"].append(entry)
+            return entry
+
+        def _ensure_plugin(context_entry: dict, name: str | None) -> dict:
+            plugin_name = name or ""
+            for entry in context_entry["plugins"]:
+                if entry["name"] == plugin_name:
+                    return entry
+
+            entry = {"name": plugin_name, "sources": []}
+            context_entry["plugins"].append(entry)
+            return entry
+
+        def _source_exists(context_entry: dict, source_id: str) -> bool:
+            return any(
+                source["id"] == source_id
+                for plugin in context_entry["plugins"]
+                for source in plugin["sources"]
+            )
+
+        def _find_context_entry(operation_entry: dict, context_id: str) -> dict | None:
+            for entry in operation_entry["contexts"]:
+                if entry["id"] == context_id:
+                    return entry
+            return None
 
         result = []
 
@@ -1913,87 +1955,147 @@ class GulpOpenSearch:
                 "contexts": [],
             }
 
-            # process contexts
+            context_map = {context.id: context for context in operation.contexts}
+
+            # process contexts with documents from OpenSearch aggregations
             for ctx_bucket in op_bucket["context_id"]["buckets"]:
                 context_id = ctx_bucket["key"]
 
-                # Find matching context in operation
-                matching_context = next(
-                    (ctx for ctx in operation.contexts if ctx.id == context_id),
-                    None,
-                )
+                matching_context = context_map.get(context_id)
                 if not matching_context:
                     continue
 
-                context_entry = {
-                    "name": matching_context.name,
-                    "id": matching_context.id,
-                    "glyph_id": matching_context.glyph_id,
-                    "color": matching_context.color,
-                    "doc_count": ctx_bucket["doc_count"],
-                    "color": matching_context.color,
-                    "plugins": [],
-                }
+                context_entry = _ensure_context(operation_entry, matching_context)
+                context_entry["doc_count"] = ctx_bucket["doc_count"]
+                source_map = {source.id: source for source in matching_context.sources}
 
                 # Process plugins
                 for plugin_bucket in ctx_bucket["plugin"]["buckets"]:
-                    plugin_entry = {"name": plugin_bucket["key"], "sources": []}
-
                     # Process sources
                     for src_bucket in plugin_bucket["source_id"]["buckets"]:
                         source_id = src_bucket["key"]
 
-                        # Find matching source in context
-                        matching_source = next(
-                            (
-                                src
-                                for src in matching_context.sources
-                                if src.id == source_id
-                            ),
-                            None,
-                        )
+                        matching_source = source_map.get(source_id)
                         if not matching_source:
                             continue
 
-                        source_entry = {
-                            "name": matching_source.name,
-                            "id": matching_source.id,
-                            "glyph_id": matching_source.glyph_id,
-                            "color": matching_source.color,
-                            "doc_count": src_bucket["doc_count"],
-                            "max_event.code": int(
-                                src_bucket["max_event.code"]["value"]
-                            ),
-                            "min_event.code": int(
-                                src_bucket["min_event.code"]["value"]
-                            ),
-                            "min_gulp.timestamp": int(
-                                src_bucket["min_gulp.timestamp"]["value"]
-                            ),
-                            "max_gulp.timestamp": int(
-                                src_bucket["max_gulp.timestamp"]["value"]
-                            ),
-                        }
-                        plugin_entry["sources"].append(source_entry)
+                        if not _source_exists(context_entry, matching_source.id):
+                            plugin_entry = _ensure_plugin(
+                                context_entry, plugin_bucket["key"]
+                            )
+                            plugin_entry["sources"].append(
+                                self._operation_source_entry(matching_source, src_bucket)
+                            )
 
-                    if plugin_entry["sources"]:
-                        context_entry["plugins"].append(plugin_entry)
+            if include_empty_sources:
+                # Merge collab-only sources with no documents yet.
+                for context in operation.contexts:
+                    for source in context.sources:
+                        context_entry = _find_context_entry(operation_entry, context.id)
+                        if context_entry and _source_exists(context_entry, source.id):
+                            continue
 
-                if context_entry["plugins"]:
-                    operation_entry["contexts"].append(context_entry)
+                        context_entry = _ensure_context(operation_entry, context)
+                        plugin_entry = _ensure_plugin(context_entry, source.plugin)
+                        plugin_entry["sources"].append(
+                            self._operation_source_entry(source)
+                        )
 
             if operation_entry["contexts"]:
                 result.append(operation_entry)
 
         return result
 
-    async def query_operations(self, index: str, user_id: str) -> list[dict]:
+    @staticmethod
+    def _operation_source_entry(source, bucket: dict | None = None) -> dict:
+        """Build one source entry from collab metadata and an optional aggregation."""
+        entry = {
+            "name": source.name,
+            "id": source.id,
+            "glyph_id": source.glyph_id,
+            "color": source.color,
+            "doc_count": int(bucket["doc_count"]) if bucket else 0,
+        }
+        if bucket:
+            entry.update(
+                {
+                    "max_event.code": int(bucket["max_event.code"]["value"]),
+                    "min_event.code": int(bucket["min_event.code"]["value"]),
+                    "min_gulp.timestamp": int(bucket["min_gulp.timestamp"]["value"]),
+                    "max_gulp.timestamp": int(bucket["max_gulp.timestamp"]["value"]),
+                }
+            )
+        return entry
+
+    async def _query_operations_from_collab_index(
+        self,
+        index: str,
+        user_id: str,
+        include_empty_sources: bool = False,
+    ) -> list[dict]:
+        """Return operation/context/source metadata for an index with no documents."""
+        async with GulpCollab.get_instance().session() as sess:
+            operations = await GulpOperation.get_by_filter(
+                sess, user_id=user_id, recursive=True
+            )
+
+        result = []
+        for operation in operations:
+            if operation.index != index:
+                continue
+
+            contexts = []
+            if include_empty_sources:
+                for context in operation.contexts:
+                    plugins: dict[str, dict] = {}
+                    for source in context.sources:
+                        plugin_name = source.plugin or ""
+                        plugin = plugins.setdefault(
+                            plugin_name, {"name": plugin_name, "sources": []}
+                        )
+                        plugin["sources"].append(
+                            self._operation_source_entry(source)
+                        )
+
+                    if not plugins:
+                        continue
+
+                    contexts.append(
+                        {
+                            "name": context.name,
+                            "id": context.id,
+                            "glyph_id": context.glyph_id,
+                            "color": context.color,
+                            "doc_count": 0,
+                            "plugins": list(plugins.values()),
+                        }
+                    )
+
+            result.append(
+                {
+                    "name": operation.name,
+                    "index": operation.index,
+                    "id": operation.id,
+                    "glyph_id": operation.glyph_id,
+                    "contexts": contexts,
+                }
+            )
+
+        return result
+
+    async def query_operations(
+        self,
+        index: str,
+        user_id: str,
+        include_empty_sources: bool = False,
+    ) -> list[dict]:
         """
         queries the OpenSearch index for each "operation_id" value found and returns the aggregations.
 
         Args:
             index (str): Name of the index (or datastream) to query
             user_id (str): The user ID to filter operations
+            include_empty_sources (bool): Include collab sources with no indexed events.
 
         Returns:
             liist[dict]: The aggregations result (WARNING: will return at most "aggregation_max_buckets" hits, which should cover 99,99% of the usage ....).
@@ -2037,15 +2139,22 @@ class GulpOpenSearch:
             MutyLogger.get_instance().warning(
                 "no results found, returning empty aggregations (possibly no data on opensearch)!"
             )
-            # raise ObjectNotFound()
-            return []
+            return await self._query_operations_from_collab_index(
+                index,
+                user_id,
+                include_empty_sources=include_empty_sources,
+            )
         MutyLogger.get_instance().debug(
             orjson.dumps(res, option=orjson.OPT_INDENT_2).decode()
         )
 
         d = {"total": hits, "aggregations": res["aggregations"]}
         # MutyLogger.get_instance().debug(orjson.dumps(d, option=orjson.OPT_INDENT_2).decode())
-        return await self._parse_operation_aggregation(d["aggregations"], user_id)
+        return await self._parse_operation_aggregation(
+            d["aggregations"],
+            user_id,
+            include_empty_sources=include_empty_sources,
+        )
 
     async def query_single_document(
         self,

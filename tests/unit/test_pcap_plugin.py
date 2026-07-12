@@ -964,13 +964,13 @@ def test_pcap_protocol_metadata_detects_spnego_response():
         Ether()
         / IP(src="10.0.0.2", dst="10.0.0.1")
         / TCP(sport=445)
-        / SPNEGO_negTokenResp(negResult=ASN1_ENUMERATED(0))
+        / SPNEGO_negTokenResp(negState=ASN1_ENUMERATED(0))
     )
 
     metadata = Plugin._get_packet_protocol_metadata(packet, analyze_packet=True)
 
     assert metadata["top_layer"] == "spnego"
-    assert metadata["SPNEGO.result"] == "accept-completed"
+    assert metadata["SPNEGO.state"] == "accept-completed"
 
 
 # ---------------------------------------------------------------------------
