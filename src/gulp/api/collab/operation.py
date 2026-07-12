@@ -162,7 +162,7 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
             MutyLogger.get_instance().info(
                 "setting default grants for operation=%s", name
             )
-            granted_user_ids = ["admin", "guest"]
+            granted_user_ids = ["admin", "guest", "ingest"]
             granted_user_group_ids = [ADMINISTRATORS_GROUP_ID]
         try:
             op = await GulpOperation.create_internal(

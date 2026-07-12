@@ -595,6 +595,13 @@ class GulpCollab:
                 password="guest",
                 glyph_id="UserCross",
             )
+            _ = await GulpUser.create_user(
+                sess,
+                user_id="ingest",
+                password="ingest",
+                permission=[GulpUserPermission.INGEST],
+                glyph_id="UserCross",
+            )
             group: GulpUserGroup = await GulpUserGroup.create_internal(
                 sess,
                 admin_user.id,
