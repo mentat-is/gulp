@@ -148,14 +148,6 @@ class APIDependencies:
             Header(
                 description="""
 an authentication token obtained through `login`.
-
-if `GULP_INTEGRATION_TEST` is set, the following tokens are valid if the corresponding user is logged in:
-
-- `token_admin`: a token with admin permissions.
-- `token_editor`: a token with read/edit permissions.
-- `token_guest`: a token with just read permission
-- `token_ingest`: a token with read/edit/ingest permission.
-- `token_power`: a token with read/edit/delete permission.
 """,
                 examples={"default": {"value": "token_admin"}},
             ),

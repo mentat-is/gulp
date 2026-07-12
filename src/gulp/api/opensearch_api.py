@@ -2292,6 +2292,7 @@ class GulpOpenSearch:
                     not self._is_circuit_breaker_exception(ex)
                     or cb_attempt >= cb_max_attempts
                 ):
+                    # raise if not a circuit breaker exception or if we have reached the max attempts
                     raise
                 cb_attempt += 1
                 try:
@@ -2300,8 +2301,7 @@ class GulpOpenSearch:
                     size = cb_min_limit
                 if size > cb_min_limit:
                     options["size"] = max(cb_min_limit, size // 2)
-                if GulpConfig.get_instance().query_circuit_breaker_disable_highlights():
-                    options["highlight"] = None
+                options["highlight"] = None # disable highlighting to reduce memory usage
                 MutyLogger.get_instance().warning(
                     "OpenSearch circuit breaker while querying %s, backing off (attempt %d/%d, size=%s)",
                     index,

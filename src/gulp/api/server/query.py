@@ -234,7 +234,6 @@ async def _query_raw_chunk_callback(
         operation_id=operation_id,
         req_id=req_id,
         d=c.model_dump(exclude_none=True),
-        force_ignore_missing_ws=q_options.force_ignore_missing_ws,
     )
 
     if q_options.create_notes:
@@ -507,7 +506,6 @@ async def run_query(
             user_id=user_id,
             req_id=req_id,
             d=p.model_dump(exclude_none=True),
-            force_ignore_missing_ws=q_options.force_ignore_missing_ws,
         )
 
 
@@ -613,9 +611,7 @@ async def run_query_batch(
                             ignore_failures=ignore_failures,
                         )
                     except WebSocketDisconnect:
-                        # ignore if force_ignore_missing_ws is set
-                        if not q_options_input.force_ignore_missing_ws:
-                            raise
+                        pass
         except Exception:
             MutyLogger.get_instance().exception(
                 "error updating aggregated stats in run_query_batch"
@@ -692,9 +688,7 @@ async def process_queries(
                 data=data,
             )
         except WebSocketDisconnect:
-            # ignore if force_ignore_missing_ws is set
-            if not q_options.force_ignore_missing_ws:
-                raise
+            pass
 
         if (
             stats
@@ -908,7 +902,6 @@ async def process_queries(
             operation_id=operation_id,
             req_id=req_id,
             d=p.model_dump(exclude_none=True),
-            force_ignore_missing_ws=q_options.force_ignore_missing_ws,
         )
     except Exception as ex:
         if stats and not batching_step_reached:
@@ -922,9 +915,7 @@ async def process_queries(
                     errors=[muty.log.exception_to_string(ex)],
                 )
             except WebSocketDisconnect:
-                # ignore if force_ignore_missing_ws is set
-                if not q_options.force_ignore_missing_ws:
-                    raise
+                pass
 
         raise
 

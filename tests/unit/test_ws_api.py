@@ -1,4 +1,5 @@
 import asyncio
+import zlib
 from unittest.mock import AsyncMock, MagicMock
 
 import orjson
@@ -120,16 +121,10 @@ class _FakeConfig:
         ws_queue_max_size: int = 1,
         ws_enqueue_timeout: float = 0.001,
         prometheus_enabled: bool = True,
-        redis_compression_threshold: int = 1024,
-        redis_pubsub_max_chunk_size: int = 128,
-        redis_compression_enabled: bool = True,
     ):
         self._ws_queue_max_size = ws_queue_max_size
         self._ws_enqueue_timeout = ws_enqueue_timeout
         self._prometheus_enabled = prometheus_enabled
-        self._redis_compression_threshold = redis_compression_threshold
-        self._redis_pubsub_max_chunk_size = redis_pubsub_max_chunk_size
-        self._redis_compression_enabled = redis_compression_enabled
 
     def ws_queue_max_size(self) -> int:
         return self._ws_queue_max_size
@@ -137,23 +132,8 @@ class _FakeConfig:
     def ws_enqueue_timeout(self) -> float:
         return self._ws_enqueue_timeout
 
-    def ws_throttle_threshold(self) -> float:
-        return 2.0
-
-    def ws_throttle_max_delay(self) -> float:
-        return 0.0
-
     def prometheus_enabled(self) -> bool:
         return self._prometheus_enabled
-
-    def redis_compression_threshold(self) -> int:
-        return self._redis_compression_threshold
-
-    def redis_pubsub_max_chunk_size(self) -> int:
-        return self._redis_pubsub_max_chunk_size
-
-    def redis_compression_enabled(self) -> bool:
-        return self._redis_compression_enabled
 
 
 class _FakeMetricChild:
@@ -314,25 +294,12 @@ def test_wsdata_check_type_in_broadcast_types():
 
 
 @pytest.mark.unit
-def test_gulp_connected_sockets_cache_and_queue_utilization():
+def test_gulp_connected_sockets_queue_utilization():
     # reset singleton to avoid pollution
     GulpConnectedSockets._instance = None
     sockets = GulpConnectedSockets.get_instance()
 
     sockets._sockets = {}
-    sockets._ws_server_cache = {}
-
-    sockets.cache_server("ws-id-123", "server-a")
-    assert sockets.get_cached_server("ws-id-123") == "server-a"
-
-    sockets.invalidate_cached_server("ws-id-123")
-    assert sockets.get_cached_server("ws-id-123") is None
-
-    # missing owners are not cached; a future reconnect should be visible immediately
-    sockets.cache_server("ws-id-missing", None)
-    assert sockets.get_cached_server("ws-id-missing") is None
-    assert "ws-id-missing" not in sockets._ws_server_cache
-
     # a small fake socket supporting expected attributes
     class FakeSocket:
         def __init__(
@@ -677,11 +644,9 @@ async def test_gulp_redis_publish_large_payload_stores_ttl_chunks_and_pointer(
     async def _no_backpressure() -> None:
         return
 
-    fake_config = _FakeConfig(
-        redis_compression_threshold=1,
-        redis_pubsub_max_chunk_size=1,
-        redis_compression_enabled=False,
-    )
+    fake_config = _FakeConfig()
+    monkeypatch.setattr(redis_client, "PUBSUB_COMPRESSION_THRESHOLD", 1)
+    monkeypatch.setattr(redis_client, "PUBSUB_MAX_CHUNK_SIZE", 1)
     monkeypatch.setattr(
         redis_api_module.GulpConfig,
         "get_instance",
@@ -750,7 +715,7 @@ async def test_gulp_redis_publish_large_payload_stores_ttl_chunks_and_pointer(
     )
     assert base_key.startswith("gulp:pub:payload:server-large-publisher:")
     assert chunk_count > 1
-    assert pointer_payload["__compressed"] is False
+    assert pointer_payload["__compressed"] is True
     assert pointer_payload["__orig_len"] == len(original_payload)
     assert pointer_payload["__server_id"] == "server-large-publisher"
     assert chunked_publish_total.value == 1
@@ -765,7 +730,7 @@ async def test_gulp_redis_publish_large_payload_stores_ttl_chunks_and_pointer(
     assert [key for key, _, _ in chunk_set_calls] == [
         f"{base_key}:{idx}" for idx in range(chunk_count)
     ]
-    assert b"".join(value for _, value, _ in chunk_set_calls) == original_payload
+    assert zlib.decompress(b"".join(value for _, value, _ in chunk_set_calls)) == original_payload
 
 
 @pytest.mark.unit

@@ -1,10 +1,6 @@
 {
   // bind_to is the address:port to bind to (default=0.0.0.0:8080), may be overridden by GULP_BIND_TO_ADDR, GULP_BIND_TO_PORT environment variables
   "bind_to": null,
-  // each worker process will run this number of tasks concurrently (default=16)
-  "workers_concurrency_max": 16,
-  // healthy query/external_query ceiling. set 0 for no query-specific ceiling (then bounded by workers_max * workers_concurrency_max, after workers_max=0 resolves to CPU count). default=4
-  "query_concurrency_max": 4,
   // only for debugging, abort ingestion of the current file on first error when indexing a document (default=true)
   "debug_abort_on_opensearch_ingestion_error": true,
   // allow any token (even non existent) to be used as admin, also ignores token expiration time (default=false)
@@ -22,119 +18,105 @@
   // enforce client certificates signed by gulp-ca for https
   "https_enforce_client_certs": false,
   // default for index template creation
-  "index_template_default_total_fields_limit": 10000,
-  // default for index template creation
   "index_template_default_refresh_interval": "5s",
+  // default for index template creation
+  "index_template_default_total_fields_limit": 10000,
   // defaults to true, allows fields not defined in the mapping to be ingested (generates gulp.unmapped.* keys in the document).
   // warning: this may affect sigma rules matching if set to false, but may be useful to enforce strict mappings in some cases (i.e. eases AI workflow).
   "ingestion_allow_unmapped_fields": true,
+  // if set, ingestion chunk depends on the source file size (applies to file ingestion only)
+  "ingestion_documents_adaptive_chunk_size": true,
   // size of the documents chunk when ingesting/querying (default=1000). if you're getting websocket disconnections (PayloadTooBig), try lowering this value or use GulpPluginParameters.override_chunk_size
   // on file ingestion only, this is ignored if "ingestion_documents_adaptive_chunk_size" is set.
   "ingestion_documents_chunk_size": 1000,
-  // if set, ingestion chunk depends on the source file size (applies to file ingestion only)
-  "ingestion_documents_adaptive_chunk_size": true,
   // failed events in a file to consider the file ABORTED (0=disabled, ignored for raw ingestions)
   "ingestion_evt_failure_threshold": 5000,
   // after how many chunks to update raw ingestion stats (default=10)
   "ingestion_raw_update_stats_chunk_frequency": 10,
-  // max bulk ingestion attempts on transient OpenSearch pressure (default=3)
-  "ingestion_retry_max": 3,
   // delay in seconds between bulk ingestion attempts (default=1.0)
   "ingestion_retry_delay": 1.0,
-  // maximum queued raw websocket ingest packets per websocket stream (0=disabled, default=1000)
-  "ws_ingest_stream_max_entries": 1000,
-  // maximum approximate buffered raw websocket ingest bytes per websocket (0=disabled, default=268435456 = 256 MiB)
-  "ws_ingest_stream_max_buffered_bytes": 268435456,
+  // max bulk ingestion attempts on transient OpenSearch pressure (default=3)
+  "ingestion_retry_max": 3,
   // to "specialize" a gulp (from the redis pub/sub consumer point of view) instance, this instance will drain from the redis pub/sub queue just these task types: example values are [ "ingest", "query", "external_query", "rebase" ] or [] / unset to process all task types.
   "instance_roles": [],
+  // max login attempts per IP address during login_ip_rate_limit_window_sec (0=disabled, default=0)
+  "login_ip_rate_limit_max": 0,
+  // per-IP login throttle fixed window in seconds (default=60)
+  "login_ip_rate_limit_window_sec": 60,
+  // replica shards for newly created OpenSearch index templates (default=0)
+  "opensearch_index_replicas": 0,
+  // per-process OpenSearch HTTP connection pool size
+  "opensearch_pool_maxsize": 10,
+  // how many seconds to wait until timeout (default=60, tune up if you have request timeouts during ingestion/query, 0=no timeout)
+  "opensearch_request_timeout": 180,
+  // opensearch url (may be overridden by GULP_OPENSEARCH_URL environment variable)
+  "opensearch_url": "http://admin:Gulp1234!@localhost:9200", //admin:Gulp1234!@localhost:9200",
+  // set to false to skip server certificate verification
+  "opensearch_verify_certs": false,
+  // respawn a process after this number of tasks: set to -1 to never respawn processes, every other value < 100 will be set to 100 (default=100)
+  "parallel_processes_respawn_after_tasks": 100,
+  // enable cache for plugins (faster loading)
+  "plugin_cache_enabled": true,
+  // if set, disable loading of plugins with their **bare filename** containing the listed strings (e.g. "example_" will disable all plugins with "example_" in their filename, such as "example_plugin.py", but not "my_example_plugin.py")
+  "plugin_disabled": ["example"],
+  // client certificate password (if any)
+  "postgres_client_cert_password": null,
+  // PostgreSQL idle-in-transaction session timeout in milliseconds (0 disables)
+  "postgres_idle_in_transaction_session_timeout_ms": 30000,
+  // PostgreSQL lock timeout in milliseconds (0 disables)
+  "postgres_lock_timeout_ms": 5000,
+  // per-process postgres SQLAlchemy max_overflow (default=0)
+  "postgres_max_overflow": 0,
+  // seconds after which pooled PostgreSQL connections are recycled
+  "postgres_pool_recycle_sec": 3600,
+  // per-process postgres SQLAlchemy pool size (default=query_concurrency_max)
+  "postgres_pool_size": 4,
+  // seconds to wait for a PostgreSQL pool connection before failing the request
+  "postgres_pool_timeout_sec": 10,
+  // set to use SSL to connect to postgresql
+  "postgres_ssl": false,
+  // PostgreSQL statement timeout in milliseconds (0 disables)
+  "postgres_statement_timeout_ms": 0,
+  // postgresql address (may be overridden by GULP_POSTGRES_URL environment variable)
+  "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@localhost:5432/gulp", //postgres:Gulp1234!@localhost:5432/gulp",
+  // minimum interval before refreshing a validated user_session expiration (0=write on every token check)
+  "postgres_user_session_touch_interval_ms": 60000,
+  // set to false to skip server certificate verification
+  "postgres_verify_certs": false,
+  // interval in seconds for collecting gauge metrics (e.g. stream depths, pool stats) (default=15)
+  "prometheus_collect_interval": 15,
+  // enable prometheus metrics endpoint (default=false). when enabled, a /metrics endpoint is exposed for Prometheus scraping.
+  "prometheus_enabled": false,
+  // prometheus metrics endpoint path (default="/metrics")
+  "prometheus_endpoint": "/metrics",
+  // max query retries after OpenSearch circuit-breaker responses (default=5)
+  "query_circuit_breaker_backoff_attempts": 5,
+  // minimum query page size during circuit-breaker backoff (default=100)
+  "query_circuit_breaker_min_limit": 100,
+  // healthy query/external_query ceiling. set 0 for no query-specific ceiling (then bounded by workers_max * workers_concurrency_max, after workers_max=0 resolves to CPU count). default=4
+  "query_concurrency_max": 4,
+  // how many queries to keep in the history per user(default=20, max=50)
+  "query_history_max_size": 20,
+  // max Redis connections per process for redis-py async pool (0=unlimited, default=0)
+  "redis_max_connections": 0,
+  // hard maximum queued task backlog per task type before API admission rejects new work (default=10000)
+  "redis_stream_task_maxlen": 10000,
+  // idle time in milliseconds after which stale pending task messages are dropped and marked failed (default=600000ms = 10m)
+  "redis_task_autoclaim_idle_ms": 600000,
+  // optional timeout in seconds for one queued task execution attempt (default=0, disabled). When set, timed-out tasks are marked failed.
+  "redis_task_execution_timeout_sec": 0,
+  // interval in milliseconds used by dispatchers to refresh leases for live pending tasks (default=20000ms = 20s)
+  "redis_task_lease_refresh_interval_ms": 20000,
+  // redis url (may be overridden by GULP_REDIS_URL environment variable)
+  "redis_url": "redis://:Gulp1234!@localhost:6379/0", //:Gulp1234!@localhost:6379/0",
   // set to true if connecting to minio (default=true)
   "s3_minio": true,
   // s3 region, ignored for minio
   "s3_region": "us-east-1",
   // s3-compatible storage uri, in the format proto://username:password@host:port (may be overridden by GULP_S3_URL environment variable)
-  "s3_url": "http://admin:Gulp1234!@localhost:9000",
+  "s3_url": "http://admin:Gulp1234!@localhost:9000", //admin:Gulp1234!@localhost:9000",
   // set to use SSL to connect to s3-compatible storage
   "s3_verify_certs": false,
-  // how many seconds to wait until timeout (default=60, tune up if you have request timeouts during ingestion/query, 0=no timeout)
-  "opensearch_request_timeout": 180,
-  // per-process OpenSearch HTTP connection pool size
-  "opensearch_pool_maxsize": 10,
-  // on OpenSearch circuit-breaker responses, retry queries with highlights disabled (default=true)
-  "query_circuit_breaker_disables_highlights": true,
-  // max query retries after OpenSearch circuit-breaker responses (default=5)
-  "query_circuit_breaker_backoff_attempts": 5,
-  // minimum query page size during circuit-breaker backoff (default=100)
-  "query_circuit_breaker_min_limit": 100,
-  // opensearch url (may be overridden by GULP_OPENSEARCH_URL environment variable)
-  "opensearch_url": "http://admin:Gulp1234!@localhost:9200",
-  // set to false to skip server certificate verification
-  "opensearch_verify_certs": false,
-  // replica shards for newly created OpenSearch index templates (default=0)
-  "opensearch_index_replicas": 0,
-  // maximum number of processes to be used for the pool (default=0=number of CPU cores)
-  "workers_max": 0,
-  // respawn a process after this number of tasks: set to -1 to never respawn processes, every other value < 100 will be set to 100 (default=100)
-  "parallel_processes_respawn_after_tasks": 100,
-  // if set, disable loading of plugins with their **bare filename** containing the listed strings (e.g. "example_" will disable all plugins with "example_" in their filename, such as "example_plugin.py", but not "my_example_plugin.py")
-  "plugin_disabled": ["example"],
-  // enable cache for plugins (faster loading)
-  "plugin_cache_enabled": true,
-  // per-process postgres SQLAlchemy pool size (default=query_concurrency_max)
-  "postgres_pool_size": 4,
-  // per-process postgres SQLAlchemy max_overflow (default=0)
-  "postgres_max_overflow": 0,
-  // seconds to wait for a PostgreSQL pool connection before failing the request
-  "postgres_pool_timeout_sec": 10,
-  // seconds after which pooled PostgreSQL connections are recycled
-  "postgres_pool_recycle_sec": 3600,
-  // PostgreSQL lock timeout in milliseconds (0 disables)
-  "postgres_lock_timeout_ms": 5000,
-  // PostgreSQL statement timeout in milliseconds (0 disables)
-  "postgres_statement_timeout_ms": 0,
-  // PostgreSQL idle-in-transaction session timeout in milliseconds (0 disables)
-  "postgres_idle_in_transaction_session_timeout_ms": 30000,
-  // minimum interval before refreshing a validated user_session expiration (0=write on every token check)
-  "postgres_user_session_touch_interval_ms": 60000,
-  // client certificate password (if any)
-  "postgres_client_cert_password": null,
-  // set to use SSL to connect to postgresql
-  "postgres_ssl": false,
-  // postgresql address (may be overridden by GULP_POSTGRES_URL environment variable)
-  "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@localhost:5432/gulp",
-  // set to false to skip server certificate verification
-  "postgres_verify_certs": false,
-  // how many queries to keep in the history per user(default=20, max=50)
-  "query_history_max_size": 20,
-  // redis payload compression for large pub-sub messages (default=true)
-  "redis_compression_enabled": true,
-  // compression threshold in kilobytes for redis pub/sub messages: messages bigger than this size will be compressed before publishing (default=256kb)
-  "redis_compression_threshold": 256,
-  // redis pubsub max chunk size (default=128kb)
-  "redis_pubsub_max_chunk_size": 128,
-  // idle time in milliseconds after which stale pending task messages are dropped and marked failed (default=600000ms = 10m)
-  "redis_task_autoclaim_idle_ms": 600000,
-  // interval in milliseconds used by dispatchers to refresh leases for live pending tasks (default=20000ms = 20s)
-  "redis_task_lease_refresh_interval_ms": 20000,
-  // optional timeout in seconds for one queued task execution attempt (default=0, disabled). When set, timed-out tasks are marked failed.
-  "redis_task_execution_timeout_sec": 0,
-  // hard maximum queued task backlog per task type before API admission rejects new work (default=10000)
-  "redis_stream_task_maxlen": 10000,
-  // max login attempts per IP address during login_ip_rate_limit_window_sec (0=disabled, default=0)
-  "login_ip_rate_limit_max": 0,
-  // per-IP login throttle fixed window in seconds (default=60)
-  "login_ip_rate_limit_window_sec": 60,
-  // heartbeat TTL in seconds for node liveness detection (default=30)
-  "redis_heartbeat_ttl": 30,
-  // heartbeat update interval in seconds (default=10)
-  "redis_heartbeat_interval": 10.0,
-  // TTL in seconds for websocket metadata/lookup keys in Redis (default=300 = 5 minutes)
-  "redis_ws_key_ttl": 300,
-  // TTL in seconds for cached converted sigma query results (default=300)
-  "redis_sigma_cache_ttl": 300,
-  // max Redis connections per process for redis-py async pool (0=unlimited, default=0)
-  "redis_max_connections": 0,
-  // redis url (may be overridden by GULP_REDIS_URL environment variable)
-  "redis_url": "redis://:Gulp1234!@localhost:6379/0",
   // delete pending request stats on the collab database on gulp shutdown (default=true)
   "stats_delete_pending_on_shutdown": true,
   // how many seconds before automatically delete non-live stats, default=1 day (86400 seconds))
@@ -143,27 +125,19 @@
   "token_admin_ttl": 600,
   // login token (except admin) expiration time, default=1week (604800 seconds)
   "token_ttl": 604800,
-  // if set, missing websocket will not halt the ongoing operation, reconnecting a websocket with the same `ws_id` will continue receiving messages (default=true)
-  "ws_ignore_missing": true,
-  // maximum size of the websocket message queue per client (default=8192 messages). increase if you get "queue full" warnings in the gulp logs.
-  "ws_queue_max_size": 8192,
+  // each worker process will run this number of tasks concurrently (default=16)
+  "workers_concurrency_max": 16,
+  // maximum number of processes to be used for the pool (default=0=number of CPU cores)
+  "workers_max": 0,
   // timeout in seconds for blocking enqueue operations: if a message cannot be enqueued within this timeout, the client is considered unresponsive and disconnected (default=5.0 seconds)
   "ws_enqueue_timeout": 5.0,
-  // queue utilization threshold (0.0-1.0) above which intake throttling begins (default=0.7, i.e. 70% full)
-  "ws_throttle_threshold": 0.7,
-  // maximum delay in seconds for intake throttling when queue is nearly full (default=0.2 seconds)
-  "ws_throttle_max_delay": 0.2,
-  // if set, websocket delay depends on the number of connected websockets
-  "ws_adaptive_rate_limit_delay": true,
-  // rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected sockets: increment if you get clients disconnections, and also check client code if this happens too often.
-  // if `ws_adaptive_rate_limit_delay` is set, this is the base delay used to calculate the real delay depending on the number of connected sockets.
-  "ws_rate_limit_delay": 0.01,
-  // ttl in seconds for cached websocket ownership lookups, to avoid frequent redis lookups (default=5.0 seconds)
-  "ws_server_cache_ttl": 5.0,
-  // enable prometheus metrics endpoint (default=false). when enabled, a /metrics endpoint is exposed for Prometheus scraping.
-  "prometheus_enabled": false,
-  // prometheus metrics endpoint path (default="/metrics")
-  "prometheus_endpoint": "/metrics",
-  // interval in seconds for collecting gauge metrics (e.g. stream depths, pool stats) (default=15)
-  "prometheus_collect_interval": 15
+  // maximum approximate buffered raw websocket ingest bytes per websocket (0=disabled, default=268435456 = 256 MiB)
+  "ws_ingest_stream_max_buffered_bytes": 268435456,
+  // maximum queued raw websocket ingest packets per websocket stream (0=disabled, default=1000)
+  "ws_ingest_stream_max_entries": 1000,
+  // maximum size of the websocket message queue per client (default=8192 messages). increase if you get "queue full" warnings in the gulp logs.
+  "ws_queue_max_size": 8192,
+  // base rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected sockets: increment if you get clients disconnections, and also check client code if this happens too often.
+  // this base delay is adjusted depending on the number of connected sockets.
+  "ws_rate_limit_delay": 0.01
 }

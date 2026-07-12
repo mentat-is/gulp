@@ -331,7 +331,6 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 operation_id=operation_id,
                 req_id=req_id,
                 d=p.model_dump(exclude_none=True),
-                force_ignore_missing_ws=q_options.force_ignore_missing_ws,
             )
             MutyLogger.get_instance().debug(
                 "sent (inserted) notes on the websocket %s: notes=%d,inserted=%d,last=%r (if 'notes' > 'inserted', duplicate notes were skipped!)"

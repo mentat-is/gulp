@@ -173,8 +173,8 @@ async def _cache_set(
     """store converted sigma query in cache to avoid repeated conversions of the same rule with the same parameters."""
 
     if ttl is None:
-        # get ttl from configuration
-        ttl = GulpConfig.get_instance().redis_sigma_cache_ttl()
+        # default TTL for sigma cache is 5 minutes (300 seconds)
+        ttl = 300
 
     try:
         client = GulpRedis.get_instance().client()

@@ -89,21 +89,6 @@ class GulpConfig:
             n = minimum
         return n
 
-    def is_integration_test(self) -> bool:
-        """
-        Returns whether the integration test mode is enabled.
-        """
-        n: str = os.getenv("GULP_INTEGRATION_TEST", None)
-        if not n:
-            n = "0"
-
-        # if int(n) > 0:
-        #     MutyLogger.get_instance().warning(
-        #         "!!!WARNING!!! GULP_INTEGRATION_TEST is set, debug features disabled!"
-        #     )
-
-        return int(n) > 0
-
     def dump_config(self):
         """
         Dumps the configuration dictionary to the logger.
@@ -293,12 +278,6 @@ class GulpConfig:
         n = self._config.get("opensearch_request_timeout", 60)
         return n
 
-    def query_circuit_breaker_disable_highlights(self) -> bool:
-        """
-        Returns whether circuit-breaker backoff should drop highlighting.
-        """
-        return self._config.get("query_circuit_breaker_disables_highlights", True)
-
     def query_circuit_breaker_backoff_attempts(self) -> int:
         """
         Returns max query retries after OpenSearch circuit-breaker responses.
@@ -409,19 +388,6 @@ class GulpConfig:
             )
         return n
 
-    def ws_ignore_missing(self) -> bool:
-        """
-        Returns whether to ignore missing websocket connection (default: False).
-        """
-        # on integration test, skip
-        if self.is_integration_test():
-            n = True
-        else:
-            n = self._config.get("ws_ignore_missing", True)
-        """if n:
-            MutyLogger.get_instance().warning("!!!WARNING!!! IGNORING MISSING WEBSOCKET CONNECTIONS!")"""
-        return n
-
     def debug_enrich_dry_run(self) -> bool:
         """
         Returns whether to enable dry run mode (= do not update data on storage) for enrich plugins (default: False).
@@ -436,12 +402,7 @@ class GulpConfig:
     def debug_no_token_expiration(self) -> bool:
         """
         Returns whether to disable token expiration.
-
-        if GULP_INTEGRATION_TEST is set, this will be disabled (token expiration untouched).
         """
-        if self.is_integration_test():
-            return False
-
         n = self._config.get("debug_no_token_expiration", False)
         if n:
             MutyLogger.get_instance().warning(
@@ -497,14 +458,9 @@ class GulpConfig:
     def debug_allow_any_token_as_admin(self) -> bool:
         """
         Returns whether to allow any token as admin in debug mode.
-
-        this is disabled (False) if GULP_INTEGRATION_TEST is set.
         """
         n = False
         if __debug__:
-            if self.is_integration_test():
-                return False
-
             n = self._config.get("debug_allow_any_token_as_admin", False)
             if n:
                 MutyLogger.get_instance().warning(
@@ -622,9 +578,6 @@ class GulpConfig:
         Returns whether to disable password validation when creating users.
         """
         n = False
-        # if self.is_integration_test():
-        #     return False
-
         if __debug__:
             n = self._config.get("debug_allow_insecure_passwords", False)
 
@@ -1066,13 +1019,6 @@ class GulpConfig:
 
         return n
 
-    def ws_adaptive_rate_limit_delay(self) -> bool:
-        """
-        Returns whether websocket delay depends on the number of connected websockets (default: True).
-        """
-        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit_delay", True)
-        return n
-
     def ws_rate_limit_delay(self) -> float:
         """
         Returns the delay in seconds to wait in between sending messages to connected clients.
@@ -1097,67 +1043,6 @@ class GulpConfig:
         Default: 5.0 seconds.
         """
         n = self._config.get("ws_enqueue_timeout", 5.0)
-        return n
-
-    def ws_throttle_threshold(self) -> float:
-        """
-        Returns the queue utilization threshold (0.0-1.0) above which intake throttling begins.
-
-        Default: 0.7 (70% full).
-        """
-        n = self._config.get("ws_throttle_threshold", 0.7)
-        return max(0.0, min(1.0, n))  # clamp to [0, 1]
-
-    def ws_throttle_max_delay(self) -> float:
-        """
-        Returns the maximum delay in seconds for intake throttling when queue is nearly full.
-
-        Default: 0.2 seconds.
-        """
-        n = self._config.get("ws_throttle_max_delay", 0.2)
-        return n
-
-    def ws_server_cache_ttl(self) -> float:
-        """
-        Returns the TTL in seconds for cached websocket ownership lookups.
-
-        Default: 5.0 seconds.
-        """
-        ttl = self._config.get("ws_server_cache_ttl", 5.0)
-        try:
-            ttl = float(ttl)
-        except (TypeError, ValueError):
-            ttl = 5.0
-
-        if ttl <= 0:
-            ttl = 5.0
-        return ttl
-
-    def redis_compression_enabled(self) -> bool:
-        """
-        Returns whether Redis payload compression is enabled for large messages.
-
-        Default: True.
-        """
-        n = self._config.get("redis_compression_enabled", True)
-        return n
-
-    def redis_compression_threshold(self) -> int:
-        """
-        Compression threshold in kilobytes for Redis pub/sub messages: messages bigger than this size will be compressed before publishing.
-
-        Default: 256kb
-        """
-        n = self._config.get("redis_compression_threshold", 256)
-        return n
-
-    def redis_pubsub_max_chunk_size(self) -> int:
-        """
-        Returns the maximum chunk size in kilobytes for Redis pub/sub messages.
-
-        Default: 128kb
-        """
-        n = self._config.get("redis_pubsub_max_chunk_size", 128)
         return n
 
     def redis_task_lease_refresh_interval_ms(self) -> int:
@@ -1207,44 +1092,6 @@ class GulpConfig:
         Default: 60
         """
         return self._config.get("login_ip_rate_limit_window_sec", 60)
-
-    def redis_heartbeat_ttl(self) -> int:
-        """
-        Returns the heartbeat TTL in seconds for node liveness detection.
-
-        Default: 30
-        """
-        return self._config.get("redis_heartbeat_ttl", 30)
-
-    def redis_heartbeat_interval(self) -> float:
-        """
-        Returns the heartbeat update interval in seconds.
-
-        Default: 10.0
-        """
-        return self._config.get("redis_heartbeat_interval", 10.0)
-
-    def redis_ws_key_ttl(self) -> int:
-        """
-        Returns the TTL in seconds for websocket metadata/lookup keys in Redis.
-
-        Default: 300 (5 minutes)
-        """
-        return self._config.get("redis_ws_key_ttl", 300)
-
-    def redis_sigma_cache_ttl(self) -> int:
-        """Returns the TTL in seconds for cached converted sigma queries.
-
-        Default: 60 seconds.
-        """
-        ttl = self._config.get("redis_sigma_cache_ttl", 300)
-        try:
-            ttl = int(ttl)
-        except (TypeError, ValueError):
-            ttl = 300
-        if ttl <= 0:
-            ttl = 300
-        return ttl
 
     def redis_max_connections(self) -> int:
         """

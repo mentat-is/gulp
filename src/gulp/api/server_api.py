@@ -350,7 +350,6 @@ class GulpServer:
 
         # read configuration
         cfg = GulpConfig.get_instance()
-        cfg.is_integration_test()
 
         # dump environment variables and configuration
         MutyLogger.get_instance().info("environment variables:")

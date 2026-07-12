@@ -18,9 +18,6 @@ class _FakeSessionConfig:
     def postgres_user_session_touch_interval_ms(self) -> int:
         return self._touch_interval
 
-    def is_integration_test(self) -> bool:
-        return True
-
 
 def _user_session(time_expire: int):
     return SimpleNamespace(

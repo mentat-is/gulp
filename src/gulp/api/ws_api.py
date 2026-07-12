@@ -993,13 +993,13 @@ class GulpConnectedSocket:
             return 0.0
 
         utilization: float = self.q.qsize() / self._queue_capacity
-        throttle_threshold: float = GulpConfig.get_instance().ws_throttle_threshold()
+        throttle_threshold = 0.7
 
         if utilization < throttle_threshold:
             return 0.0
 
         # progressive delay from 0 to max_delay based on utilization above threshold
-        max_delay: float = GulpConfig.get_instance().ws_throttle_max_delay()
+        max_delay = 0.2
         pressure_above_threshold = (utilization - throttle_threshold) / (
             1.0 - throttle_threshold
         )
@@ -1062,35 +1062,6 @@ class GulpConnectedSocket:
             self.ws,
             self.ws_id,
         )
-
-    @staticmethod
-    async def is_alive(ws_id: str) -> bool:
-        """
-        check if a websocket is alive by querying Redis
-
-        Args:
-            ws_id (str): The WebSocket ID.
-
-        Returns:
-            bool: True if the websocket is alive, False otherwise.
-        """
-        if GulpConfig.get_instance().ws_ignore_missing():
-            return True
-
-        connected_sockets = GulpConnectedSockets.get_instance()
-
-        # check local registry first to avoid unnecessary redis round-trips
-        if connected_sockets.get(ws_id):
-            return True
-
-        cached_server: Optional[str] = connected_sockets.get_cached_server(ws_id)
-        if cached_server:
-            return True
-
-        redis_client = GulpRedis.get_instance()
-        server_id = await redis_client.ws_get_server(ws_id)
-        connected_sockets.cache_server(ws_id, server_id)
-        return server_id is not None
 
     async def cleanup_tasks(self) -> None:
         """
@@ -1380,34 +1351,6 @@ class GulpConnectedSockets:
 
     def _initialize(self):
         self._sockets: dict[str, GulpConnectedSocket] = {}
-        # cache websocket ownership lookups to reduce Redis load
-        self._ws_server_cache: dict[str, tuple[str, float]] = {}
-        # ttl for cache entries
-        self._ws_server_cache_ttl: float = (
-            GulpConfig.get_instance().ws_server_cache_ttl()
-        )
-
-    def get_cached_server(self, ws_id: str) -> Optional[str]:
-        """
-        return cached websocket ownership if the entry is still valid
-
-        Args:
-            ws_id (str): websocket identifier
-        Returns:
-            Optional[str]: cached server id or None if absent/expired
-        Throws:
-            RuntimeError: not raised explicitly but kept for parity
-        """
-        cache_entry = self._ws_server_cache.get(ws_id)
-        if not cache_entry:
-            return None
-
-        server_id, expires_at = cache_entry
-        if expires_at < time.monotonic():
-            self._ws_server_cache.pop(ws_id, None)
-            return None
-
-        return server_id
 
     def aggregate_queue_utilization(self) -> float:
         """Return aggregate websocket queue utilization across all connected sockets.
@@ -1454,38 +1397,6 @@ class GulpConnectedSockets:
                 high_watermark,
             )
         return high_watermarks
-
-    def cache_server(self, ws_id: str, server_id: Optional[str]) -> None:
-        """
-        store websocket ownership information locally to avoid extra Redis hits
-
-        Args:
-            ws_id (str): websocket identifier
-            server_id (Optional[str]): owning server id if known (None for not found)
-        Returns:
-            None
-        """
-        if not ws_id or not server_id:
-            return
-
-        expires_at: float = time.monotonic() + self._ws_server_cache_ttl
-        self._ws_server_cache[ws_id] = (server_id, expires_at)
-
-    def invalidate_cached_server(self, ws_id: str) -> None:
-        """
-        remove a websocket ownership cache entry
-
-        Args:
-            ws_id (str): websocket identifier
-        Returns:
-            None
-        Throws:
-            RuntimeError: not raised explicitly but declared for uniformity
-        """
-        if not ws_id:
-            return
-
-        self._ws_server_cache.pop(ws_id, None)
 
     async def add(
         self,
@@ -1600,7 +1511,6 @@ class GulpConnectedSockets:
         await redis_client.ws_unregister(ws_id)
 
         # drop cached ownership so workers do not rely on stale entries
-        self.invalidate_cached_server(ws_id)
 
         MutyLogger.get_instance().debug(
             "---> removed connected ws=%s, ws_id=%s, num connected sockets=%d",
@@ -2472,7 +2382,6 @@ class GulpRedisBroker:
         req_id: str = None,
         d: Any = None,
         private: bool = False,
-        force_ignore_missing_ws: bool = False,
     ) -> None:
         """
         called by workers, publishes data to the main process via Redis pub/sub.
@@ -2485,26 +2394,8 @@ class GulpRedisBroker:
             req_id (Optional[str]): the request id if applicable
             d (Optional[Any]): the payload data
             private (bool): whether this message is private to the specified ws_id
-            force_ignore_missing_ws (bool): whether to ignore missing websocket and not raise an error
-        raises:
-            WebSocketDisconnect: if websocket is not connected
         """
 
-        from gulp.process import GulpProcess
-
-        # verify websocket is alive (check Redis registry)
-
-        # Only the main process has the authoritative in-memory socket map.
-        # Workers should forward targeted packets to main and let main perform
-        # the actual routing instead of dropping them early on a stale/missing
-        # Redis lookup.
-        if (
-            GulpProcess.get_instance().is_main_process()
-            and not force_ignore_missing_ws
-            and ws_id
-        ):
-            if not await GulpConnectedSocket.is_alive(ws_id):
-                raise WebSocketDisconnect("websocket '%s' is not connected!", ws_id)
         # create the message
         wsd = GulpWsData(
             timestamp=muty.time.now_msec(),

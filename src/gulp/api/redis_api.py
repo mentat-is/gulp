@@ -128,6 +128,9 @@ class GulpRedis:
     TASK_AUTOCLAIM_IDLE_MS: int = 60_000
     # hard cap for queued task backlog before admission control rejects new work
     STREAM_TASK_MAXLEN: int = 10_000
+    # compression threshold and max chunk size for pub/sub messages (bytes)
+    PUBSUB_COMPRESSION_THRESHOLD: int = 256 * 1024
+    PUBSUB_MAX_CHUNK_SIZE: int = 128 * 1024
     # heartbeat key prefix and TTL for node liveness detection
     HEARTBEAT_KEY_PREFIX: str = "gulp:heartbeat"
     HEARTBEAT_TTL: int = 30  # seconds — key expires if not refreshed
@@ -233,9 +236,6 @@ class GulpRedis:
         )
         GulpRedis.TASK_AUTOCLAIM_IDLE_MS = cfg.redis_task_autoclaim_idle_ms()
         GulpRedis.STREAM_TASK_MAXLEN = cfg.redis_stream_task_maxlen()
-        GulpRedis.HEARTBEAT_TTL = cfg.redis_heartbeat_ttl()
-        GulpRedis.HEARTBEAT_INTERVAL = cfg.redis_heartbeat_interval()
-        GulpRedis.WS_KEY_TTL = cfg.redis_ws_key_ttl()
 
         # create redis client
         url: str = GulpConfig.get_instance().redis_url()
@@ -548,13 +548,6 @@ class GulpRedis:
             )
             payload = json.dumps(message).encode()
 
-        compression_threshold: int = (
-            GulpConfig.get_instance().redis_compression_threshold() * 1024
-        )
-        pubsub_max_chunk_size: int = (
-            GulpConfig.get_instance().redis_pubsub_max_chunk_size() * 1024
-        )
-
         await self._apply_publish_backpressure()
 
         if GulpConfig.get_instance().prometheus_enabled():
@@ -580,30 +573,21 @@ class GulpRedis:
 
         # if payload is too large, compress, chunk and store it in Redis then publish a small pointer
         try:
-            if len(payload) > compression_threshold:
-                # decide whether to compress payload based on configuration
-                compress_payload = GulpConfig.get_instance().redis_compression_enabled()
-
-                if compress_payload:
-                    # compress the serialized payload to reduce storage and network size
-                    try:
-                        stored_bytes = zlib.compress(payload)
-                        compressed_flag = True
-                    except Exception:
-                        MutyLogger.get_instance().exception(
-                            "failed to compress large payload, falling back to direct publish"
-                        )
-                        await self._redis.publish(channel_to_use, payload)
-                        return
-                else:
-                    # store uncompressed bytes
-                    stored_bytes = payload
-                    compressed_flag = False
+            if len(payload) > self.PUBSUB_COMPRESSION_THRESHOLD:
+                try:
+                    stored_bytes = zlib.compress(payload)
+                    compressed_flag = True
+                except Exception:
+                    MutyLogger.get_instance().exception(
+                        "failed to compress large payload, falling back to direct publish"
+                    )
+                    await self._redis.publish(channel_to_use, payload)
+                    return
 
                 # split bytes into chunks
                 chunks = [
-                    stored_bytes[i : i + pubsub_max_chunk_size]
-                    for i in range(0, len(stored_bytes), pubsub_max_chunk_size)
+                    stored_bytes[i : i + self.PUBSUB_MAX_CHUNK_SIZE]
+                    for i in range(0, len(stored_bytes), self.PUBSUB_MAX_CHUNK_SIZE)
                 ]
                 num_chunks = len(chunks)
 
@@ -703,10 +687,9 @@ class GulpRedis:
         # check aggregate websocket queue utilization and apply end-to-end throttling
         try:
             depth = await self._get_queue_utilization()
-            throttle_threshold = GulpConfig.get_instance().ws_throttle_threshold()
+            throttle_threshold = 0.7
             if depth > throttle_threshold:
-                # progressive delay up to ws_throttle_max_delay() based on pressure above threshold
-                max_delay = GulpConfig.get_instance().ws_throttle_max_delay()
+                max_delay = 0.2
                 pressure_above = (depth - throttle_threshold) / (
                     1.0 - throttle_threshold
                 )

@@ -572,7 +572,6 @@ async def test_process_queries_skips_terminal_request_duplicate(monkeypatch):
         num_total_queries=1,
         q_options=SimpleNamespace(
             group=None,
-            force_ignore_missing_ws=False,
         ),
     )
 
@@ -607,7 +606,6 @@ async def test_process_queries_reports_terminal_canceled_duplicate(monkeypatch):
         num_total_queries=1,
         q_options=SimpleNamespace(
             group=None,
-            force_ignore_missing_ws=False,
         ),
     )
 

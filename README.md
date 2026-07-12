@@ -118,7 +118,6 @@ The following environment variables override common runtime configuration:
 - `GULP_POSTGRES_URL`: if set, overrides `postgres_url` in the configuration.
 - `GULP_REDIS_URL`: if set, overrides `redis_url` in the configuration.
 - `GULP_S3_URL`: if set, overrides `s3_url` in the configuration.
-- `GULP_INTEGRATION_TEST`: this may be set during tests to disable debug features if they're enabled
 
 ## run examples
 
