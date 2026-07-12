@@ -1,0 +1,191 @@
+# Multi-node OpenSearch variant for local capacity testing.
+#
+# Use this instead of docker-compose.yml when testing a small OpenSearch
+# cluster on one Docker host:
+#
+#   docker compose -f docker-compose.yml down
+#   docker compose -f docker-compose.opensearch-cluster.yml --profile dev up -d
+#
+# This file uses separate OpenSearch volumes so the default single-node volume is
+# not reused by the cluster probe. Set "opensearch_index_replicas" in
+# gulp_cfg.json before creating new operations; 0 avoids replica write cost, 1
+# tests replica-capable multi-node behavior.
+services:
+  os01:
+    restart: always
+    image: opensearchproject/opensearch:3.3.2
+    environment:
+      cluster.name: "opensearch"
+      node.name: "os01"
+      discovery.seed_hosts: "os01,os02,os03"
+      cluster.initial_cluster_manager_nodes: "os01,os02,os03"
+      network.host: "0.0.0.0"
+      bootstrap.memory_lock: true
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+      OPENSEARCH_USERNAME: ${OPENSEARCH_USER}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASSWORD}
+      DISABLE_SECURITY_PLUGIN: true
+      plugins.security.ssl.http.enabled: false
+      http.cors.enabled: true
+      http.cors.allow-origin: "*"
+      http.cors.allow-headers: "*"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - 9200:9200
+    volumes:
+      - opensearch_cluster_data_os01:/usr/share/opensearch/data
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/usr/share/opensearch/config/certs
+
+  os02:
+    restart: always
+    image: opensearchproject/opensearch:3.3.2
+    environment:
+      cluster.name: "opensearch"
+      node.name: "os02"
+      discovery.seed_hosts: "os01,os02,os03"
+      cluster.initial_cluster_manager_nodes: "os01,os02,os03"
+      network.host: "0.0.0.0"
+      bootstrap.memory_lock: true
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+      OPENSEARCH_USERNAME: ${OPENSEARCH_USER}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASSWORD}
+      DISABLE_SECURITY_PLUGIN: true
+      plugins.security.ssl.http.enabled: false
+      http.cors.enabled: true
+      http.cors.allow-origin: "*"
+      http.cors.allow-headers: "*"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch_cluster_data_os02:/usr/share/opensearch/data
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/usr/share/opensearch/config/certs
+    depends_on:
+      - os01
+
+  os03:
+    restart: always
+    image: opensearchproject/opensearch:3.3.2
+    environment:
+      cluster.name: "opensearch"
+      node.name: "os03"
+      discovery.seed_hosts: "os01,os02,os03"
+      cluster.initial_cluster_manager_nodes: "os01,os02,os03"
+      network.host: "0.0.0.0"
+      bootstrap.memory_lock: true
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+      OPENSEARCH_USERNAME: ${OPENSEARCH_USER}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_PASSWORD}
+      DISABLE_SECURITY_PLUGIN: true
+      plugins.security.ssl.http.enabled: false
+      http.cors.enabled: true
+      http.cors.allow-origin: "*"
+      http.cors.allow-headers: "*"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch_cluster_data_os03:/usr/share/opensearch/data
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/usr/share/opensearch/config/certs
+    depends_on:
+      - os01
+
+  minio:
+    image: minio/minio:latest
+    restart: always
+    ports:
+      - 9000:9000
+      - 9001:9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+    depends_on:
+      - os01
+    volumes:
+      - minio_data:/mnt/data
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/mnt/certs
+    command: server /minio/data --console-address ":9001"
+
+  postgres:
+    image: cleisonfmelo/postgres-pg-cron
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/pgconf/certs
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+
+  redis:
+    image: redis:latest
+    restart: always
+    ports:
+      - 6379:6379
+    volumes:
+      - redis_data:/data
+      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/etc/certs
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    command: [ "redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}" ]
+
+  redis-insight:
+    profiles: [ "dev", "metrics" ]
+    image: redislabs/redisinsight:latest
+    ports:
+      - 5540:5540
+    depends_on:
+      - redis
+
+  elasticvue:
+    profiles: [ "dev", "metrics" ]
+    image: cars10/elasticvue:latest
+    ports:
+      - 8082:8080
+    depends_on:
+      - os01
+
+  opensearch-dashboards:
+    profiles: [ "extra" ]
+    image: opensearchproject/opensearch-dashboards:latest
+    container_name: opensearch-dashboards
+    ports:
+      - 5601:5601
+    environment:
+      OPENSEARCH_HOSTS: '["http://os01:9200","http://os02:9200","http://os03:9200"]'
+    depends_on:
+      - os01
+      - os02
+      - os03
+
+  adminer:
+    profiles: [ "dev", "metrics" ]
+    image: adminer
+    depends_on:
+      - postgres
+    ports:
+      - 8081:8080
+
+volumes:
+  postgres_data:
+  opensearch_cluster_data_os01:
+  opensearch_cluster_data_os02:
+  opensearch_cluster_data_os03:
+  redis_data:
+  minio_data:

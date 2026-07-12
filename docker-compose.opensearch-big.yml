@@ -1,0 +1,19 @@
+# Larger single-node OpenSearch override for local high-load testing.
+#
+# Use with the default compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.opensearch-big.yml up -d os01
+#
+# The default stack is intentionally unchanged; this only gives os01 a larger
+# JVM heap and the file/lock limits OpenSearch expects under heavier load.
+services:
+  os01:
+    environment:
+      OPENSEARCH_JAVA_OPTS: "-Xms4g -Xmx4g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536

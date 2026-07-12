@@ -114,6 +114,27 @@ Default expectations:
 - an already running primary instance usually lives on `:8080`
 - secondary instances should use ports `>= 8100`
 
+### Inspecting Docker Logs and Performance From Devcontainer
+
+in the standard configuration, Docker with services OpenSearch, PostgreSQL, Redis runs on the host, but the devcontainer (where usually gulp is running when testing) can inspect it with passwordless `sudo`. Normal user access to the Docker socket may be denied, so use `sudo`
+for diagnostics.
+
+Useful commands:
+
+```bash
+sudo docker ps
+sudo docker logs --since "2026-07-04T10:55:00" --until "2026-07-04T11:12:00" gulp-redis-1
+sudo docker logs --tail 300 gulp-redis-1
+sudo docker stats --no-stream gulp-redis-1 gulp-postgres-1 gulp-os01-1
+sudo docker exec gulp-redis-1 redis-cli INFO
+```
+
+For Redis task-queue investigations, check `gulp-redis-1` logs alongside
+backend logs for `task abandoned by worker`, pending stream cleanup, OOM,
+BGSAVE/fork, and slow Redis operations.
+
+If you need, in the devcontainer you have access to `top`, `htop` for process and I/O monitoring.
+
 ### Test Locations
 
 - integration tests: `tests/integration/`
