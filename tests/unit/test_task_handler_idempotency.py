@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-
 _QUERY_NOTE_DOC = {
     "_id": "doc-1",
     "@timestamp": 1720000000000,
@@ -155,7 +154,9 @@ async def test_existing_request_response_blocks_ongoing_ingest(monkeypatch):
     )
     monkeypatch.setattr(GulpRequestStats, "get_by_id", AsyncMock(return_value=stats))
 
-    response = await ServerUtils.existing_request_response("fake-session", "req-ongoing")
+    response = await ServerUtils.existing_request_response(
+        "fake-session", "req-ongoing"
+    )
 
     body = orjson.loads(response.body)
     assert body["status"] == "ongoing"
@@ -623,12 +624,14 @@ async def test_enqueue_query_tasks_batches_by_configured_concurrency(monkeypatch
     monkeypatch.setattr(
         query_mod.GulpConfig,
         "get_instance",
-        lambda: SimpleNamespace(concurrency_num_tasks=lambda: 2),
+        lambda: SimpleNamespace(workers_concurrency_max=lambda: 2),
     )
     monkeypatch.setattr(
         query_mod.GulpRedis,
         "get_instance",
-        lambda: SimpleNamespace(task_enqueue=lambda task: _append_async(enqueued, task)),
+        lambda: SimpleNamespace(
+            task_enqueue=lambda task: _append_async(enqueued, task)
+        ),
     )
 
     await query_mod._enqueue_query_tasks(
@@ -638,8 +641,7 @@ async def test_enqueue_query_tasks_batches_by_configured_concurrency(monkeypatch
         ws_id="ws-query-batch",
         req_id="req-query-batch",
         queries=[
-            GulpQuery(q={"query": {"match_all": {}}}, q_name=f"q{i}")
-            for i in range(5)
+            GulpQuery(q={"query": {"match_all": {}}}, q_name=f"q{i}") for i in range(5)
         ],
         q_options=GulpQueryParameters(add_to_history=False),
     )

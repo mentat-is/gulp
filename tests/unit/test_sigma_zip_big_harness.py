@@ -104,7 +104,6 @@ def test_gulp_concurrency_config_line_preserves_zero_query_ceiling(
         {
           "workers_max": 1,
           "workers_concurrency_max": 2,
-          "query_concurrency_max": 0,
           "opensearch_pool_maxsize": 4,
           "postgres_pool_size": 5,
           "postgres_max_overflow": 6
@@ -114,8 +113,7 @@ def test_gulp_concurrency_config_line_preserves_zero_query_ceiling(
     )
     monkeypatch.setattr(sigma_zip_big_harness, "_gulp_config_path", lambda: cfg_path)
 
-    assert "query_concurrency_max=0" in _gulp_concurrency_config_line()
-    assert "query_note_concurrency_max=2" in _gulp_concurrency_config_line()
+    assert "workers_concurrency_max=2" in _gulp_concurrency_config_line()
     assert "postgres_max_overflow=6" in _gulp_concurrency_config_line()
 
 
@@ -129,7 +127,6 @@ def test_gulp_concurrency_config_line_preserves_zero_postgres_overflow(
         {
           "workers_max": 1,
           "workers_concurrency_max": 2,
-          "query_concurrency_max": 0,
           "postgres_max_overflow": 0
         }
         """,
@@ -552,6 +549,7 @@ async def test_worker_can_use_query_only(monkeypatch) -> None:
 
     assert result["success"] is True
     assert observed["query_only"] is True
+
 
 @pytest.mark.unit
 @pytest.mark.asyncio

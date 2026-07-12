@@ -268,10 +268,6 @@ work one gULP instance may claim at once. The useful knobs are:
 
 - `workers_max`: worker process count. `0` means use the available CPU count.
 - `workers_concurrency_max`: per-worker task budget for I/O-heavy work.
-- `query_concurrency_max`: healthy query and external-query ceiling. `0`
-  removes the query-specific ceiling, so query work may use the full worker
-  dispatch capacity. Redis, PostgreSQL, or OpenSearch pressure temporarily
-  reduces the ceiling and healthy checks ramp it back up.
 - `opensearch_pool_maxsize`: OpenSearch HTTP pool size per process.
 - `postgres_pool_size` and `postgres_max_overflow`: PostgreSQL pool behavior
   per process. PostgreSQL pressure is handled by adaptive task dispatch.

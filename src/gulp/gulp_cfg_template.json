@@ -69,7 +69,7 @@
   "postgres_max_overflow": 0,
   // seconds after which pooled PostgreSQL connections are recycled
   "postgres_pool_recycle_sec": 3600,
-  // per-process postgres SQLAlchemy pool size (default=query_concurrency_max)
+  // per-process postgres SQLAlchemy pool size
   "postgres_pool_size": 4,
   // seconds to wait for a PostgreSQL pool connection before failing the request
   "postgres_pool_timeout_sec": 10,
@@ -93,8 +93,6 @@
   "query_circuit_breaker_backoff_attempts": 5,
   // minimum query page size during circuit-breaker backoff (default=100)
   "query_circuit_breaker_min_limit": 100,
-  // healthy query/external_query ceiling. set 0 for no query-specific ceiling (then bounded by workers_max * workers_concurrency_max, after workers_max=0 resolves to CPU count). default=4
-  "query_concurrency_max": 4,
   // how many queries to keep in the history per user(default=20, max=50)
   "query_history_max_size": 20,
   // max Redis connections per process for redis-py async pool (0=unlimited, default=0)

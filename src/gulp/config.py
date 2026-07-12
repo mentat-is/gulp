@@ -491,15 +491,6 @@ class GulpConfig:
         """
         return self._get_int_config("workers_concurrency_max", 16, minimum=1)
 
-    def query_concurrency_max(self) -> int:
-        """
-        maximum query/external-query task concurrency when healthy.
-
-        0 means no query-specific ceiling; the global worker dispatch capacity
-        still applies.
-        """
-        return self._get_int_config("query_concurrency_max", 4, minimum=0)
-
     def opensearch_index_replicas(self) -> int:
         """
         Number of replica shards for newly created OpenSearch index templates.
@@ -600,9 +591,7 @@ class GulpConfig:
 
         This is a hard cap also applied to adaptive pool sizing.
         """
-        default = self.query_concurrency_max()
-        if default == 0:
-            default = self.workers_concurrency_max()
+        default = self.workers_concurrency_max()
         n = self._config.get("postgres_pool_size", default)
         try:
             n = int(n)

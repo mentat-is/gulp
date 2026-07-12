@@ -167,7 +167,7 @@ remove the container with `docker container rm some_container_id` and run the co
 
   during querying usually means that OpenSearch ran out of memory while processing the query.
 
-  lower `query_concurrency_max` or `workers_concurrency_max` in the configuration
+  lower `workers_concurrency_max` in the configuration
   and/or diminish `limit` in
   `GulpQueryOptions` when querying, or scale up the OpenSearch nodes
   (**recommended**). This is a clear indication that OpenSearch is struggling.
@@ -197,8 +197,8 @@ remove the container with `docker container rm some_container_id` and run the co
 
   either, this may mean that Opensearch is not keeping up with the query rate from gulp: this may be solved in the following way, similar to ingestion issues:
 
-  - scale up OpenSearch and increase `query_concurrency_max` only when the cluster can absorb more concurrent query work **OR**
-  - reduce `query_concurrency_max` and/or `workers_concurrency_max`
+  - scale up OpenSearch and increase `workers_concurrency_max` only when the cluster can absorb more concurrent query work **OR**
+  - reduce `workers_concurrency_max`
   - reduce `opensearch_pool_maxsize` if too many concurrent HTTP requests are in flight per process
 
 ## collab database (postgreSQL)

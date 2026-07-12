@@ -97,24 +97,15 @@ def _gulp_concurrency_config_line() -> str:
     cfg = json5.loads(_gulp_config_path().read_text(encoding="utf-8"))
     configured_processes = int(cfg.get("workers_max", 0) or 0)
     resolved_processes = configured_processes or multiprocessing.cpu_count()
-    raw_query_concurrency_max = cfg.get(
-        "query_concurrency_max", cfg.get("query_concurrency", 4)
-    )
-    query_concurrency_max = (
-        int(cfg.get("query_concurrency", 4) or 4)
-        if raw_query_concurrency_max is None
-        else int(raw_query_concurrency_max)
-    )
     workers_concurrency_max = int(cfg.get("workers_concurrency_max", 16) or 16)
     postgres_pool_size = int(
-        cfg.get("postgres_pool_size",10) or 10 
+        cfg.get("postgres_pool_size",10) or 10
     )
     postgres_max_overflow = int(cfg.get("postgres_max_overflow", 0))
     return (
         f"[sigma-zip-big] gulp_config workers_max={configured_processes} "
         f"workers_max_resolved={resolved_processes} "
         f"workers_concurrency_max={workers_concurrency_max} "
-        f"query_concurrency_max={query_concurrency_max} "
         f"opensearch_pool_maxsize={int(cfg.get('opensearch_pool_maxsize', 10) or 10)} "
         f"postgres_pool_size={postgres_pool_size} "
         f"postgres_max_overflow={postgres_max_overflow}"

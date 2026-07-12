@@ -211,13 +211,6 @@ Triage rules:
 - High checked-out connections with low idle connections means requests are
   waiting for the pool or holding transactions too long. Inspect request
   latency and logs for pool checkout timeouts before increasing pool caps.
-- Query and external-query execution targets `query_concurrency_max` while the
-  system is healthy. Under Redis, OpenSearch, or PostgreSQL pressure, gULP may
-  temporarily go lower and ramp back up after the pressure clears. Set
-  `query_concurrency_max=0` for no query-specific ceiling; query tasks may then
-  use the global worker dispatch capacity, calculated as
-  `workers_max * workers_concurrency_max` after resolving `workers_max=0` to CPU
-  count.
 - Query-generated note creation is coupled to query execution and query stats
   updates; manual UI note create/update calls remain normal API requests.
 - Adaptive task pressure backoff is fixed: cut current capacity to one sixth,
@@ -256,7 +249,6 @@ Use this for development, demos, or a small single-tenant backend:
 {
   "workers_max": 1,
   "workers_concurrency_max": 1,
-  "query_concurrency_max": 1,
   "ingestion_documents_chunk_size": 500,
   "ingestion_documents_adaptive_chunk_size": false,
   "opensearch_pool_maxsize": 1,
@@ -286,7 +278,6 @@ PostgreSQL, and OpenSearch:
 {
   "workers_max": 0,
   "workers_concurrency_max": 16,
-  "query_concurrency_max": 8,
   "postgres_pool_size": 8,
   "postgres_max_overflow": 0,
   "postgres_pool_timeout_sec": 10,
@@ -311,7 +302,6 @@ Use this only with measured backend capacity and active alerting:
 {
   "workers_max": 0,
   "workers_concurrency_max": 32,
-  "query_concurrency_max": 16,
   "postgres_pool_size": 16,
   "postgres_max_overflow": 0,
   "postgres_pool_timeout_sec": 10,
@@ -359,7 +349,7 @@ traffic:
 
 - Scale out role-compatible backend instances when queued age rises and
   dependencies have spare capacity.
-- Reduce `workers_max`, `query_concurrency_max`, `workers_concurrency_max`, or
+- Reduce `workers_max`, `workers_concurrency_max`, or
   request chunk sizes when OpenSearch/PostgreSQL
   are saturated.
 - Increase `redis_stream_task_maxlen` only after verifying Redis memory headroom.

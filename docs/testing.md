@@ -246,30 +246,11 @@ Relevant gULP config keys:
 
 - `workers_max`: process count and ingest execution limit. `0` means CPU count.
 - `workers_concurrency_max`: coroutine budget per worker process.
-- `query_concurrency_max`: healthy ceiling for query/external-query tasks.
-  Under Redis, OpenSearch, or PostgreSQL pressure, gULP may temporarily go lower
-  and ramp back up after the pressure clears. Set it to `0` for no
-  query-specific ceiling; query tasks may then use the global worker dispatch
-  capacity, calculated as `workers_max * workers_concurrency_max` after resolving
-  `workers_max=0` to CPU count.
 - `opensearch_pool_maxsize`: OpenSearch HTTP pool per process.
 - `postgres_pool_size`: PostgreSQL connections per process. By default this
-  matches `query_concurrency_max`.
+  matches `workers_concurrency_max`.
 - `postgres_max_overflow`: extra PostgreSQL connections above `postgres_pool_size`;
   the default is `0`.
-
-For query-heavy runs, each queued query task carries one individual query. This
-is intentionally fine-grained: the BIG_SIGMAS rules vary widely in runtime and
-result volume, so one-query tasks give the adaptive dispatcher the best fairness
-and backpressure unit. `query_concurrency_max` controls the healthy number of
-query tasks that may run at the same time across all users. The
-dispatcher starts at that ceiling while Redis has queued query work, OpenSearch
-is green/yellow with no search queue or new search rejections, Redis responds,
-and this process's PostgreSQL pool is not exhausted. Any failed health probe or
-observed pressure cuts the current group capacity; healthy checks then ramp it
-back one slot at a time. The dispatcher fair-shares throttled execution groups
-by request id so one accepted request does not monopolize all query slots while
-another accepted request appears idle.
 
 Recommended starting points:
 
@@ -277,7 +258,6 @@ Recommended starting points:
 {
   "workers_max": 0,
   "workers_concurrency_max": 16,
-  "query_concurrency_max": 4,
   "opensearch_pool_maxsize": 10,
   "postgres_pool_size": 4,
   "postgres_max_overflow": 0
@@ -287,10 +267,7 @@ Recommended starting points:
 ### measured single-node profile
 
 This profile was used for the 10-user BIG_SIGMAS harness run on a single
-OpenSearch container under Docker Desktop/WSL. It uses `query_concurrency_max=12`
-as the healthy query and query-note ceiling only while OpenSearch, Redis, and
-PostgreSQL look healthy. Under dependency pressure, gULP may temporarily run
-fewer tasks and then ramp back toward `12`.
+OpenSearch container under Docker Desktop/WSL.
 
 Measured host/container context for this recommendation:
 
@@ -307,7 +284,6 @@ Use this gULP config in `~/.config/gulp/gulp_cfg.json`:
 {
   "workers_max": 0,
   "workers_concurrency_max": 16,
-  "query_concurrency_max": 12,
   "opensearch_pool_maxsize": 10,
   "postgres_pool_size": 12,
   "postgres_max_overflow": 0

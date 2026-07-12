@@ -1038,21 +1038,12 @@ class GulpServer:
         num_workers: int = cfg.workers_max()
         dispatch_concurrency: int = self._task_dispatch_capacity()
         ingest_concurrency: int = max(1, num_workers)
-        query_concurrency_max: int = cfg.query_concurrency_max()
-        if query_concurrency_max == 0:
-            query_concurrency_max = dispatch_concurrency
-        else:
-            query_concurrency_max = max(1, query_concurrency_max)
         MutyLogger.get_instance().debug(
             "startup concurrency: queued Redis task dispatches<=%d "
             "(worker_processes=%d * workers_concurrency_max=%d)",
             dispatch_concurrency,
             num_workers,
             child_concurrency,
-        )
-        MutyLogger.get_instance().debug(
-            "startup adaptive query concurrency per group: max=%d",
-            query_concurrency_max,
         )
         MutyLogger.get_instance().debug(
             "startup ingest concurrency: ingest execution<=%d (worker_processes=%d)",

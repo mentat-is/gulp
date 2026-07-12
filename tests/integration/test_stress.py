@@ -1043,6 +1043,7 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                                 WSMessageType.STATS_UPDATE, _on_ingest_ws_message
                             )
 
+            started_at = time.monotonic()
             if query_only:
                 if reset_query_state:
                     await _clear_query_artifacts(client, op_id)
@@ -1060,6 +1061,7 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                 result_totals["status"] = "done"
                 return result_totals
             result_totals["status"] = "running"
+            print(f"ingestion elapsed: {time.monotonic() - started_at:.2f} seconds")
 
             query_req_id = _unique("sigma_zip_req")
             ws_stats_update_count = 0
@@ -1295,6 +1297,7 @@ async def _run_query_sigma_zip_big_matches_and_notes(
 
             result_totals["completed_queries"] = expected_completed
             result_totals["status"] = "done"
+            print(f"total elapsed: {time.monotonic() - started_at:.2f} seconds")
             return result_totals
 
         finally:

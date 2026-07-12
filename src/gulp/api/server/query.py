@@ -936,7 +936,7 @@ async def _enqueue_query_tasks(
     ignore_failures: bool = False,
 ) -> None:
     """Enqueue query work as Redis batches, one process-pool batch per task."""
-    batch_size = max(1, GulpConfig.get_instance().query_concurrency_max())
+    batch_size = max(1, GulpConfig.get_instance().workers_concurrency_max())
     total_num_queries = total_num_queries or len(queries)
     q_options_payload = q_options.model_dump(exclude_none=True)
     plugin_params_payload = (

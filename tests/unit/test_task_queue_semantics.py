@@ -1055,8 +1055,8 @@ async def test_dispatch_tasks_refills_free_slots_before_slow_task_finishes(monke
 
     fake_redis = _FakeDispatchRedis()
     config = MagicMock()
-    config.concurrency_num_tasks.return_value = 2
-    config.parallel_processes_max.return_value = 1
+    config.workers_concurrency_max.return_value = 2
+    config.workers_max.return_value = 1
     monkeypatch.setattr("gulp.api.server_api.GulpConfig.get_instance", lambda: config)
     monkeypatch.setattr(
         "gulp.api.server_api.GulpRedis.get_instance",

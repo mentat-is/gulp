@@ -21,28 +21,13 @@ def test_workers_concurrency_max_defaults_and_clamps():
 
 
 @pytest.mark.unit
-def test_query_concurrency_defaults_and_clamps():
-    cfg = _config_with({})
-
-    assert cfg.query_concurrency_max() == 4
-
-    cfg = _config_with({"query_concurrency_max": 2})
-
-    assert cfg.query_concurrency_max() == 2
-
-    cfg = _config_with({"query_concurrency_max": 0})
-
-    assert cfg.query_concurrency_max() == 0
-
-
-@pytest.mark.unit
 def test_postgres_pool_defaults_and_clamps():
     cfg = _config_with({})
 
     assert cfg.postgres_pool_size() == 4
     assert cfg.postgres_max_overflow() == 0
 
-    cfg = _config_with({"query_concurrency_max": 0, "workers_concurrency_max": 16})
+    cfg = _config_with({"workers_concurrency_max": 16})
 
     assert cfg.postgres_pool_size() == 16
 
