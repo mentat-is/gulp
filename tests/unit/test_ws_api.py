@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import orjson
 import pytest
+from fastapi.websockets import WebSocketState
 
 from gulp.api.ws_api import (
     GulpConnectedSocket,
@@ -422,6 +423,45 @@ async def test_connected_socket_enqueue_timeout_records_metric(monkeypatch):
         ("socket_type", GulpWsType.WS_INGEST.value),
     )
     assert fake_counter.children[labels].value == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_connected_socket_sends_preencoded_json_as_text(monkeypatch):
+    from gulp.api import ws_api as ws_api_module
+    import gulp.process as process_module
+
+    fake_process = MagicMock()
+    fake_process.server_id = "server-a"
+    monkeypatch.setattr(
+        ws_api_module.GulpConfig,
+        "get_instance",
+        staticmethod(lambda: _FakeConfig(ws_queue_max_size=2)),
+    )
+    monkeypatch.setattr(
+        process_module.GulpProcess,
+        "get_instance",
+        staticmethod(lambda: fake_process),
+    )
+
+    ws = MagicMock()
+    ws.client_state = WebSocketState.CONNECTED
+    ws.send_text = AsyncMock()
+    ws.send_json = AsyncMock()
+    connected_socket = GulpConnectedSocket(
+        ws=ws,
+        ws_id="ws-json-text",
+        socket_type=GulpWsType.WS_DEFAULT,
+    )
+    connected_socket._ws_rate_limit_delay = AsyncMock(return_value=0)
+
+    message = {"type": "note", "payload": {"obj": [{"id": "n1"}]}}
+    await connected_socket.enqueue_message(orjson.dumps(message).decode())
+
+    assert await connected_socket._process_queue_message() is True
+    ws.send_text.assert_awaited_once()
+    ws.send_json.assert_not_awaited()
+    assert orjson.loads(ws.send_text.await_args.args[0]) == message
 
 
 @pytest.mark.unit
@@ -1088,7 +1128,7 @@ async def test_redis_broker_client_data_pointer_resolves_without_deleting_chunks
 
     assert fake_counter.children[(("outcome", "resolved"),)].value == 1
     target_socket.enqueue_message.assert_awaited_once()
-    routed_message = target_socket.enqueue_message.await_args.args[0]
+    routed_message = orjson.loads(target_socket.enqueue_message.await_args.args[0])
     assert routed_message["payload"]["data"]["blob"] == "x" * 1024
     other_socket.enqueue_message.assert_not_awaited()
     default_socket.enqueue_message.assert_not_awaited()
@@ -1174,7 +1214,7 @@ async def test_redis_broker_local_client_data_pointer_keeps_chunks(
 
     assert fake_counter.children[(("outcome", "resolved"),)].value == 1
     target_socket.enqueue_message.assert_awaited_once()
-    routed_message = target_socket.enqueue_message.await_args.args[0]
+    routed_message = orjson.loads(target_socket.enqueue_message.await_args.args[0])
     assert routed_message["payload"]["data"]["blob"] == "y" * 1024
     other_socket.enqueue_message.assert_not_awaited()
     assert "client-data-local-payload:0" in fake_redis._redis._data
@@ -1320,6 +1360,48 @@ async def test_put_common_targeted_ws_owned_locally_routes_without_publish(monke
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_put_common_private_broadcast_type_owned_locally_routes_without_publish(
+    monkeypatch,
+):
+    from gulp.api import ws_api as ws_api_module
+    import gulp.process as process_module
+
+    fake_process = MagicMock()
+    fake_process.is_main_process.return_value = True
+
+    fake_redis = MagicMock()
+    fake_redis.server_id = "instance-a"
+    fake_redis.ws_get_server = AsyncMock()
+    fake_redis.publish = AsyncMock()
+
+    fake_sockets = MagicMock()
+    fake_sockets.get.return_value = object()
+    fake_sockets.route_message_to_local_websockets = AsyncMock()
+
+    monkeypatch.setattr(
+        process_module.GulpProcess,
+        "get_instance",
+        staticmethod(lambda: fake_process),
+    )
+    monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: fake_redis)
+    monkeypatch.setattr(
+        ws_api_module.GulpConnectedSockets,
+        "get_instance",
+        lambda: fake_sockets,
+    )
+
+    broker = GulpRedisBroker.get_instance()
+    wsd = GulpWsData(timestamp=123, type="note", ws_id="local-ws", private=True)
+
+    await broker._put_common(wsd)
+
+    fake_sockets.route_message_to_local_websockets.assert_awaited_once()
+    fake_redis.ws_get_server.assert_not_awaited()
+    fake_redis.publish.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_put_internal_event_wait_returns_response(monkeypatch):
     broker = GulpRedisBroker.get_instance()
     fake_redis = _FakeRedisClient()
@@ -1399,6 +1481,9 @@ async def test_route_message_to_local_websockets_targets_matching_ws_only():
     )
 
     target_socket.enqueue_message.assert_awaited_once()
+    payload = target_socket.enqueue_message.await_args.args[0]
+    assert isinstance(payload, str)
+    assert orjson.loads(payload) == wsd.model_dump(exclude_none=True)
     other_socket.enqueue_message.assert_not_awaited()
 
 
@@ -1423,6 +1508,33 @@ async def test_route_message_to_local_websockets_keeps_broadcast_fanout_with_ws_
 
     first_socket.enqueue_message.assert_awaited_once()
     second_socket.enqueue_message.assert_awaited_once()
+    first_payload = first_socket.enqueue_message.await_args.args[0]
+    second_payload = second_socket.enqueue_message.await_args.args[0]
+    assert first_payload is second_payload
+    assert orjson.loads(first_payload) == wsd.model_dump(exclude_none=True)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_route_message_to_local_websockets_keeps_private_note_targeted():
+    GulpConnectedSockets._instance = None
+    sockets = GulpConnectedSockets.get_instance()
+
+    target_socket = _FakeConnectedSocket("target-ws")
+    other_socket = _FakeConnectedSocket("other-ws")
+    sockets._sockets = {
+        target_socket.ws_id: target_socket,
+        other_socket.ws_id: other_socket,
+    }
+
+    wsd = GulpWsData(timestamp=1, type="note", ws_id="target-ws", private=True)
+    await sockets.route_message_to_local_websockets(
+        wsd,
+        wsd.model_dump(exclude_none=True),
+    )
+
+    target_socket.enqueue_message.assert_awaited_once()
+    other_socket.enqueue_message.assert_not_awaited()
 
 
 @pytest.mark.unit
