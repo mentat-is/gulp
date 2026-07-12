@@ -436,6 +436,13 @@ class GulpS3:
                 d,
             )
             return d
+        except client.exceptions.NoSuchBucket:
+            return {
+                "status": "not_found",
+                "bucket": bucket_name,
+                "tags": tags,
+                "num_deleted": 0,
+            }
         except Exception as e:
             raise Exception(
                 f"failed to delete objects with tags {tags} from bucket {bucket_name}: {str(e)}"
@@ -715,5 +722,3 @@ class GulpS3:
             return d
         except Exception as e:
             raise Exception(f"failed to delete file {object_name} from bucket {bucket_name}: {str(e)}")
-        
-    
