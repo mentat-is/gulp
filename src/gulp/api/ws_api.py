@@ -2,7 +2,7 @@ import asyncio
 import time
 import zlib
 from enum import StrEnum
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Awaitable, Optional
 
 import muty
 import muty.string
@@ -98,7 +98,7 @@ class GulpWsData(BaseModel):
     private: Annotated[
         bool,
         Field(
-            description="Marks the message as socket-private. Non-broadcast messages with `ws_id` are targeted to that socket regardless; this flag preserves the explicit private intent. Ignored if `internal` is set.",
+            description="Marks the message as socket-private. Private messages with `ws_id` are targeted to that socket even if their object type is broadcastable. Ignored if `internal` is set.",
         ),
     ] = False
     internal: Annotated[
@@ -893,7 +893,7 @@ class GulpConnectedSocket:
         # throttle repeated pressure logs
         self._last_pressure_log_ts: float = 0.0
 
-    async def enqueue_message(self, message: dict) -> bool:
+    async def enqueue_message(self, message: dict | str | bytes) -> bool:
         """
         enqueue a websocket message with backpressure handling
 
@@ -903,7 +903,7 @@ class GulpConnectedSocket:
         3. Disconnection on timeout (client considered unresponsive)
 
         Args:
-            message (dict): payload ready for serialization
+            message (dict|str|bytes): payload ready for websocket transmission
         Returns:
             bool: True when the message has been enqueued, False if client should be disconnected
         Throws:
@@ -1183,7 +1183,12 @@ class GulpConnectedSocket:
             self.validate_connection()
 
             # connection is verified, send the message
-            await self.ws.send_json(item)
+            if isinstance(item, str):
+                await self.ws.send_text(item)
+            elif isinstance(item, bytes):
+                await self.ws.send_text(item.decode())
+            else:
+                await self.ws.send_json(item)
             # MutyLogger.get_instance().debug(
             #     "---> SENT message to ws_id=%s, type=%s, content=%s",
             #     self.ws_id,
@@ -1290,16 +1295,26 @@ class GulpConnectedSocket:
     def __str__(self):
         return f"ConnectedSocket(ws_id={self.ws_id}, types={self.types}, operation_ids={self.operation_ids})"
 
-    async def run_loop(self) -> None:
+    async def run_loop(self, receive_loop: Awaitable[None] | None = None) -> None:
         """
-        Runs the websocket loop with optimized task management and cleanup
+        Run the websocket send loop alongside the supplied receive loop.
+
+        Args:
+            receive_loop: Custom receive coroutine. Defaults to the standard
+                disconnect-detection loop.
         """
+        task_prefix = (
+            ""
+            if self.socket_type == GulpWsType.WS_DEFAULT
+            else f"{self.socket_type.value}-"
+        )
         # create tasks with names for better debugging
         send_task: asyncio.Task = asyncio.create_task(
-            self._send_loop(), name=f"send_loop-{self.ws_id}"
+            self._send_loop(), name=f"{task_prefix}send_loop-{self.ws_id}"
         )
         receive_task: asyncio.Task = asyncio.create_task(
-            self._receive_loop(), name=f"receive_loop-{self.ws_id}"
+            receive_loop or self._receive_loop(),
+            name=f"{task_prefix}receive_loop-{self.ws_id}",
         )
         self._tasks.extend([send_task, receive_task])
 
@@ -1327,6 +1342,9 @@ class GulpConnectedSocket:
                     MutyLogger.get_instance().debug(
                         "pending task %s cancelled successfully", t.get_name()
                     )
+
+        # propagate disconnects and unexpected errors to the endpoint handler
+        await asyncio.gather(*done)
 
 
 class GulpConnectedSockets:
@@ -1671,13 +1689,14 @@ class GulpConnectedSockets:
         socket_items = list(self._sockets.items())
 
         # ws-targeted messages are exclusive unless their payload type is marked as broadcast.
-        targeted_ws_only: bool = (
-            bool(wsd.ws_id) and not wsd.check_type_in_broadcast_types()
+        targeted_ws_only: bool = bool(wsd.ws_id) and (
+            wsd.private or not wsd.check_type_in_broadcast_types()
         )
 
         # collect routing tasks
         tasks = []
         ws_ids = []
+        wsd_json = orjson.dumps(wsd_dict).decode()
         for ws_id, cws in socket_items:
             if skip_list and ws_id in skip_list:
                 continue
@@ -1708,7 +1727,7 @@ class GulpConnectedSockets:
                 if cws.ws_id != wsd.ws_id:
                     continue
 
-            tasks.append(cws.enqueue_message(wsd_dict))
+            tasks.append(cws.enqueue_message(wsd_json))
             ws_ids.append(ws_id)
 
         if tasks:
@@ -2114,7 +2133,9 @@ class GulpRedisBroker:
                 else:
                     # this also just sends message to single ws_id if ws_id is set
                     connected_sockets = GulpConnectedSockets.get_instance()
-                    if wsd.ws_id and not wsd.check_type_in_broadcast_types():
+                    if wsd.ws_id and (
+                        wsd.private or not wsd.check_type_in_broadcast_types()
+                    ):
                         if connected_sockets.get(wsd.ws_id):
                             await connected_sockets.route_message_to_local_websockets(
                                 wsd, message
@@ -2183,6 +2204,7 @@ class GulpRedisBroker:
         # collect routing tasks
         tasks = []
         ws_ids = []
+        wsd_json = orjson.dumps(wsd_dict).decode()
         socket_items = list(s.sockets().items())
         for ws_id, cws in socket_items:
             # skip if not client_data socket
@@ -2209,7 +2231,7 @@ class GulpRedisBroker:
                 target_user_ids = list(pl.get("target_user_ids", []))
             if target_user_ids and cws.user_id not in target_user_ids:
                 continue
-            tasks.append(cws.enqueue_message(wsd_dict))
+            tasks.append(cws.enqueue_message(wsd_json))
             ws_ids.append(ws_id)
 
         if tasks:
@@ -2264,7 +2286,7 @@ class GulpRedisBroker:
         is_broadcast = wsd.check_type_in_broadcast_types()
         connected_sockets = GulpConnectedSockets.get_instance()
 
-        if wsd.ws_id and not is_broadcast:
+        if wsd.ws_id and (wsd.private or not is_broadcast):
             # Targeted messages are owned by exactly one websocket. If that
             # socket lives on a different instance, forward to that instance's
             # main process instead of only checking local sockets.

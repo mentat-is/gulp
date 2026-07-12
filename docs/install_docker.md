@@ -2,6 +2,9 @@
   - [pull latest image directly from docker hub](#pull-latest-image-directly-from-docker-hub)
   - [(re)build image](#rebuild-image)
   - [run with docker-compose](#run-with-docker-compose)
+    - [compose profiles](#compose-profiles)
+    - [exposed services](#exposed-services)
+    - [SSL certificates](#ssl-certificates)
     - [cleanup](#cleanup)
 
 # docker Installation
@@ -18,9 +21,9 @@ docker run mentatis/gulp-core:latest
 
 ## (re)build image
 
-> **NOTE TO DEVTEAM**: to build an image, a proper `requirements.txt` is needed, with all the python packages needed to at least startup the core and the basic plugins.
->
-> **it is the responsibility of the devteam, indeed, to keep  `requirements.txt` updated using [update_requirements.sh](../update_requirements_txt.sh) script before committing a stable tag/release on the repository.**
+> **NOTE TO DEVTEAM**: Docker image dependencies are resolved from
+> [pyproject.toml](../pyproject.toml). Keep that file current before cutting a
+> stable tag or release.
 
 1. clone repository
 
@@ -65,14 +68,76 @@ multiple profiles (one or more) may be specified using on the `docker compose` c
 
 > opensearch, postgresql, minio, redis, are always run regardless of the profile.
 
+### compose profiles
+
 - `--profile gui`: run gulp-web client ui
 - `--profile gulp`: also run gulp
 - `--profile dev`: also run adminer, elasticvue, redis-insight
-- `--profile extra`: also run `opensearch-dahsboards` to manage opensearch and `sftpd` to manage files in the `GULP_WORKING_DIR`
+- `--profile extra`: also run `opensearch-dashboards` to manage opensearch and `sftpd` to manage files in the `GULP_WORKING_DIR`
 
 of course, you may provide your own compose file to suit your particular configuration (multiple OpenSearch nodes, ...).
 
 > please note that the provided [docker-compose.yml](../docker-compose.yml) is just an example (albeit working!), and also have the `OpenSearch security plugin DISABLED`: you may want to change this for your production environment!
+
+### exposed services
+
+With the default [docker-compose.yml](../docker-compose.yml), services are
+exposed as follows. Extra profiles expose extra tools; check the compose file
+when changing profiles.
+
+- gULP API: [http://localhost:8080/docs](http://localhost:8080/docs)
+- gULP web UI, with `--profile gui`: [http://localhost:3000](http://localhost:3000)
+  - default gULP admin user: `admin/admin`
+- PostgreSQL: `localhost:5432`
+  - user/password: `postgres/Gulp1234!`
+- Adminer, with `--profile dev`: [http://localhost:8081](http://localhost:8081)
+  - server/user/password: `postgres/postgres/Gulp1234!`
+- OpenSearch: [http://localhost:9200](http://localhost:9200)
+  - user/password: `admin/Gulp1234!`
+- Elasticvue, with `--profile dev`: [http://localhost:8082](http://localhost:8082)
+- OpenSearch Dashboards, with `--profile extra`: [http://localhost:5601](http://localhost:5601)
+- Redis: `localhost:6379`
+  - user/password: `default/Gulp1234!`
+- Redis Insight, with `--profile dev`: [http://localhost:5540](http://localhost:5540)
+- MinIO: [http://localhost:9000](http://localhost:9000)
+  - MinIO console: [http://localhost:9001](http://localhost:9001)
+  - user/password: `admin/Gulp1234!`
+  - used as S3-compatible storage for plugins that need it
+- Prometheus, with `--profile dev`: [http://localhost:9090](http://localhost:9090)
+- Grafana, with `--profile dev`: [http://localhost:3030](http://localhost:3030)
+- FTP, with `--profile extra`: `localhost:21`, passive ports `21000-21010`
+
+### SSL certificates
+
+Put certificates under `$GULP_WORKING_DIR/certs`, which is mounted into the
+containers by the compose file.
+
+OpenSearch:
+
+- `opensearch_verify_certs`: set to `false` to skip server verification.
+- `$GULP_WORKING_DIR/certs/opensearch-ca.pem`: CA certificate.
+- `$GULP_WORKING_DIR/certs/opensearch.pem`: client certificate.
+- `$GULP_WORKING_DIR/certs/opensearch.key`: passwordless client key.
+
+PostgreSQL:
+
+- `postgres_ssl`: use SSL for PostgreSQL connections.
+- `postgres_verify_certs`: set to `false` to skip server verification.
+- `$GULP_WORKING_DIR/certs/postgres-ca.pem`: CA certificate.
+- `$GULP_WORKING_DIR/certs/postgres.pem`: client certificate.
+- `$GULP_WORKING_DIR/certs/postgres.key`: client key.
+
+gULP HTTPS:
+
+- `https_enforce`: require HTTPS.
+- `https_enforce_client_certs`: require client certificates signed by
+  `gulp-ca.pem`.
+- `$GULP_WORKING_DIR/certs/gulp-ca.pem`: gULP CA.
+- `$GULP_WORKING_DIR/certs/gulp.pem`: gULP server certificate.
+- `$GULP_WORKING_DIR/certs/gulp.key`: gULP server key.
+
+For Redis and MinIO TLS, use their service-specific configuration and mount any
+needed files under `$GULP_WORKING_DIR/certs`.
 
 ### cleanup
 

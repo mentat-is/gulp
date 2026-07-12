@@ -73,7 +73,7 @@ remove the container with `docker container rm some_container_id` and run the co
 
 ## general
 
-- environment variables to customize postgresql and opensearch installations are defined in [.env](./.env) which is automatically read by docker-compose when starting the containers.
+- environment variables to customize postgresql and opensearch installations are defined in [.env](../.env) which is automatically read by docker-compose when starting the containers.
 
 ## os
 
@@ -125,9 +125,9 @@ remove the container with `docker container rm some_container_id` and run the co
   a possible solution is to disable disk thresholds in opensearch's configuration after the node starts:
 
     ~~~bash
-    curl -k -u "opensearch:Gulp1234!" -XPUT -H "Content-Type: application/json" https://localhost:9200/_cluster/settings -d '{ "transient": { "cluster.routing.allocation.disk.threshold_enabled": false } }'
+    curl -u "admin:Gulp1234!" -XPUT -H "Content-Type: application/json" http://localhost:9200/_cluster/settings -d '{ "transient": { "cluster.routing.allocation.disk.threshold_enabled": false } }'
 
-    curl -k -u "opensearch:Gulp1234!" -XPUT -H "Content-Type: application/json" https://localhost:9200/_all/_settings -d '{"index.blocks.read_only_allow_delete": null}'
+    curl -u "admin:Gulp1234!" -XPUT -H "Content-Type: application/json" http://localhost:9200/_all/_settings -d '{"index.blocks.read_only_allow_delete": null}'
     ~~~
 
 ### runtime errors
@@ -136,8 +136,8 @@ remove the container with `docker container rm some_container_id` and run the co
 
 - error `elastic_transport.ConnectionTimeout: Connection timed out` usually means your opensearch istance is not keeping up with ingestion:
   - increase `ingestion_request_timeout` (**almost always this is the easiest solution**) **OR**
-  - scale up OpenSearch nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration **OR**
-  - reduce parallelism with `parallel_processes_max` **AND/OR** `concurrency_num_tasks` **OR**
+  - scale up OpenSearch and increase `workers_max` only when the cluster can absorb more concurrent ingest work **OR**
+  - reduce parallelism with `workers_max` **AND/OR** `workers_concurrency_max` **OR**
   - tune `ingestion_documents_chunk_size` configuration parameter (i.e. default is 1000, try with 500 to reduce per-request pressure)
     - for file ingestion, this only applies when `ingestion_documents_adaptive_chunk_size` is false
     - keep in mind, though, that a too big `ingestion_documents_chunk_size` may cause client websocket disconnections (`PayloadTooBig`)
@@ -167,7 +167,8 @@ remove the container with `docker container rm some_container_id` and run the co
 
   during querying usually means that OpenSearch ran out of memory while processing the query.
 
-  lower `concurrency` settings in the configuration and/or diminish `limit` in
+  lower `query_concurrency_max` or `workers_concurrency_max` in the configuration
+  and/or diminish `limit` in
   `GulpQueryOptions` when querying, or scale up the OpenSearch nodes
   (**recommended**). This is a clear indication that OpenSearch is struggling.
 
@@ -196,8 +197,8 @@ remove the container with `docker container rm some_container_id` and run the co
 
   either, this may mean that Opensearch is not keeping up with the query rate from gulp: this may be solved in the following way, similar to ingestion issues:
 
-  - scale up opensearch nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration **OR**
-  - also reducing `parallel_processes_max` **AND/OR** `concurrency_num_tasks` as for ingestion may help
+  - scale up OpenSearch and increase `query_concurrency_max` only when the cluster can absorb more concurrent query work **OR**
+  - reduce `query_concurrency_max` and/or `workers_concurrency_max`
   - reduce `opensearch_pool_maxsize` if too many concurrent HTTP requests are in flight per process
 
 ## collab database (postgreSQL)
@@ -208,8 +209,8 @@ remove the container with `docker container rm some_container_id` and run the co
   - **do not forget to restart gulp after the migration is done!**
 - error `too many connections already` from postgres usually happens when ingesting too many files at once, and should be handled by tuning the configuration parameters:
   - in postgres configuration, increase `max_connections`
-  - scale up postgreSQL nodes and set the `concurrency_adaptive_num_tasks` configuration parameter in the gulp configuration
-  - play with configuration parameters `postgres_pool_size` and `postgres_max_overflow` to tune connections pool, and enable `postgres_adaptive_pool_size` to allow adaptive resizing of the pool (**recommended**)
+  - reduce `workers_max`, `workers_concurrency_max`, or instance count if gULP is opening too many concurrent database connections
+  - tune `postgres_pool_size` and `postgres_max_overflow`; PostgreSQL pressure is handled by adaptive task dispatch
   
 ## websocket
 

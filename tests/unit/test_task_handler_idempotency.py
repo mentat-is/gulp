@@ -111,7 +111,11 @@ def _patch_stats_persistence(monkeypatch):
 async def test_existing_request_response_returns_terminal_stats(monkeypatch):
     import orjson
 
-    from gulp.api.collab.stats import GulpIngestionStats, GulpRequestStats, RequestStatsType
+    from gulp.api.collab.stats import (
+        GulpIngestionStats,
+        GulpRequestStats,
+        RequestStatsType,
+    )
     from gulp.api.collab.structs import GulpRequestStatus
     from gulp.api.server.server_utils import ServerUtils
 
@@ -133,8 +137,14 @@ async def test_existing_request_response_returns_terminal_stats(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_existing_request_response_allows_ongoing_ingest(monkeypatch):
-    from gulp.api.collab.stats import GulpIngestionStats, GulpRequestStats, RequestStatsType
+async def test_existing_request_response_blocks_ongoing_ingest(monkeypatch):
+    import orjson
+
+    from gulp.api.collab.stats import (
+        GulpIngestionStats,
+        GulpRequestStats,
+        RequestStatsType,
+    )
     from gulp.api.collab.structs import GulpRequestStatus
     from gulp.api.server.server_utils import ServerUtils
 
@@ -145,11 +155,11 @@ async def test_existing_request_response_allows_ongoing_ingest(monkeypatch):
     )
     monkeypatch.setattr(GulpRequestStats, "get_by_id", AsyncMock(return_value=stats))
 
-    response = await ServerUtils.existing_request_response(
-        "fake-session", "req-ongoing", allow_ongoing=True
-    )
+    response = await ServerUtils.existing_request_response("fake-session", "req-ongoing")
 
-    assert response is None
+    body = orjson.loads(response.body)
+    assert body["status"] == "ongoing"
+    assert body["already_exist"] is True
 
 
 @pytest.mark.unit

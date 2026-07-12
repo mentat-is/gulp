@@ -52,10 +52,11 @@ graph TD
     A[Gulp Bridge] <==fetch data==> F[External Source]
 ```
 
-examples for both methods are provided in the test code:
+examples are provided in the integration test code:
 
-- [/ingest_raw](../tests/ingest/test_ingest.py#async-def-test_raw)
-- [for /ws/ingest_raw](../tests/ingest/test_ingest.py#async-def-test_ws_raw)
+- [/ingest_raw](../tests/integration/test_ingest.py)
+- [raw plugin mapping behavior](../tests/integration/test_raw_plugin.py)
+- [/ws_ingest_raw disconnect behavior](../tests/integration/test_ws_ingest_raw_disconnect.py)
 
 > for `/ws/ingest_raw`, [here is the detailed inner working of the endpoint](../src/gulp/api/server/ws.py#async_def_ws_ingest_raw_handler)
 

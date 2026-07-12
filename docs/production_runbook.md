@@ -181,7 +181,6 @@ Primary metrics:
 
 Primary knobs:
 
-- `postgres_adaptive_pool_size`
 - `postgres_pool_size`
 - `postgres_max_overflow`
 - `postgres_pool_timeout_sec`
@@ -201,16 +200,32 @@ total_possible_connections =
 ~~~
 
 `processes_per_instance` is the main process plus configured worker processes.
-With the default PostgreSQL settings, each process may open up to
-`1 + 0 = 1` PostgreSQL connection. A single instance with one worker can
-therefore use up to `1 * 2 * 1 = 2` PostgreSQL connections before any other
-gULP instance is counted.
+With the template defaults, each process may open up to
+`4 + 0 = 4` PostgreSQL connections. A single instance with one worker can
+therefore use up to `1 * 2 * 4 = 8` PostgreSQL connections before any other
+gULP instance is counted. The small controlled profile below intentionally
+reduces that to `1 + 0 = 1` connection per process.
 
 Triage rules:
 
 - High checked-out connections with low idle connections means requests are
   waiting for the pool or holding transactions too long. Inspect request
   latency and logs for pool checkout timeouts before increasing pool caps.
+- Query and external-query execution targets `query_concurrency_max` while the
+  system is healthy. Under Redis, OpenSearch, or PostgreSQL pressure, gULP may
+  temporarily go lower and ramp back up after the pressure clears. Set
+  `query_concurrency_max=0` for no query-specific ceiling; query tasks may then
+  use the global worker dispatch capacity, calculated as
+  `workers_max * workers_concurrency_max` after resolving `workers_max=0` to CPU
+  count.
+- Query-generated note creation is coupled to query execution and query stats
+  updates; manual UI note create/update calls remain normal API requests.
+- Adaptive task pressure backoff is fixed: cut current capacity to one sixth,
+  down to at least one task, and hold the reduced capacity for thirty seconds
+  before ramping again.
+- File-ingest execution is throttled to the configured worker process count.
+  The queue can still admit more work, but a single instance will not claim or
+  run more than `workers_max` OpenSearch-writing ingest jobs at once.
 - Lock timeout failures usually mean a hot collaboration row or request-stats
   row is serializing work. Reduce transaction scope and keep Redis,
   websocket, and OpenSearch work outside PostgreSQL transactions before raising
@@ -220,8 +235,13 @@ Triage rules:
   a sliding expiration window while avoiding a commit on every authenticated
   call.
 - For multi-instance deployments, reduce `postgres_pool_size`,
-  `postgres_max_overflow`, `parallel_processes_max`, or instance count before
+  `postgres_max_overflow`, `workers_max`, or instance count before
   raising per-process pool caps.
+
+Measured Docker Desktop/WSL load-test profiles live in
+[testing.md](./testing.md). Do not treat those as production defaults without
+retesting against the production OpenSearch, PostgreSQL, Redis, and websocket
+clients.
 
 ## config profiles
 
@@ -234,15 +254,12 @@ Use this for development, demos, or a small single-tenant backend:
 
 ~~~json
 {
-  "parallel_processes_max": 1,
-  "concurrency_adaptive_num_tasks": true,
-  "concurrency_opensearch_num_nodes": 1,
-  "concurrency_postgres_num_nodes": 1,
-  "concurrency_tasks_cap_per_process": 1,
+  "workers_max": 1,
+  "workers_concurrency_max": 1,
+  "query_concurrency_max": 1,
   "ingestion_documents_chunk_size": 500,
   "ingestion_documents_adaptive_chunk_size": false,
   "opensearch_pool_maxsize": 1,
-  "postgres_adaptive_pool_size": true,
   "postgres_pool_size": 1,
   "postgres_max_overflow": 0,
   "postgres_pool_timeout_sec": 10,
@@ -267,14 +284,11 @@ PostgreSQL, and OpenSearch:
 
 ~~~json
 {
-  "parallel_processes_max": 0,
-  "concurrency_adaptive_num_tasks": true,
-  "concurrency_opensearch_num_nodes": 3,
-  "concurrency_postgres_num_nodes": 1,
-  "concurrency_tasks_cap_per_process": 32,
-  "postgres_adaptive_pool_size": true,
-  "postgres_pool_size": 3,
-  "postgres_max_overflow": 2,
+  "workers_max": 0,
+  "workers_concurrency_max": 16,
+  "query_concurrency_max": 8,
+  "postgres_pool_size": 8,
+  "postgres_max_overflow": 0,
   "postgres_pool_timeout_sec": 10,
   "postgres_pool_recycle_sec": 3600,
   "postgres_lock_timeout_ms": 5000,
@@ -295,14 +309,11 @@ Use this only with measured backend capacity and active alerting:
 
 ~~~json
 {
-  "parallel_processes_max": 0,
-  "concurrency_adaptive_num_tasks": true,
-  "concurrency_opensearch_num_nodes": 6,
-  "concurrency_postgres_num_nodes": 2,
-  "concurrency_tasks_cap_per_process": 64,
-  "postgres_adaptive_pool_size": true,
-  "postgres_pool_size": 3,
-  "postgres_max_overflow": 2,
+  "workers_max": 0,
+  "workers_concurrency_max": 32,
+  "query_concurrency_max": 16,
+  "postgres_pool_size": 16,
+  "postgres_max_overflow": 0,
   "postgres_pool_timeout_sec": 10,
   "postgres_pool_recycle_sec": 3600,
   "postgres_lock_timeout_ms": 5000,
@@ -348,8 +359,9 @@ traffic:
 
 - Scale out role-compatible backend instances when queued age rises and
   dependencies have spare capacity.
-- Reduce `parallel_processes_max`, `concurrency_tasks_cap_per_process`, or
-  request chunk sizes when OpenSearch/PostgreSQL are saturated.
+- Reduce `workers_max`, `query_concurrency_max`, `workers_concurrency_max`, or
+  request chunk sizes when OpenSearch/PostgreSQL
+  are saturated.
 - Increase `redis_stream_task_maxlen` only after verifying Redis memory headroom.
 - Increase websocket queue sizes only after verifying clients can eventually
   drain; otherwise it only moves memory pressure into the backend.

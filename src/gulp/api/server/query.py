@@ -315,6 +315,9 @@ async def run_query_task(t: dict) -> bool:
             if isinstance(q_options, dict)
             else q_options
         )
+        if plugin:
+            # for external queries, we do not create notes in the query task
+            q_options_model.create_notes = False
 
         # rebuild plugin_params if needed
         plugin_params_model = None
@@ -942,7 +945,7 @@ async def _enqueue_query_tasks(
     ignore_failures: bool = False,
 ) -> None:
     """Enqueue query work as Redis batches, one process-pool batch per task."""
-    batch_size = max(1, GulpConfig.get_instance().concurrency_num_tasks())
+    batch_size = max(1, GulpConfig.get_instance().query_concurrency_max())
     total_num_queries = total_num_queries or len(queries)
     q_options_payload = q_options.model_dump(exclude_none=True)
     plugin_params_payload = (
@@ -2083,11 +2086,15 @@ async def query_max_min_per_field(
     description="""
 for each `operation` returns `sources` and `contexts` with their max/min `event.code` and `gulp.timestamp`.
 
-NOTE: if there is no data in any operation, this function returns an empty array.
+Sources with 0 indexed events are returned only when `include_empty_sources=true`.
 """,
 )
 async def query_operations(
     token: Annotated[str, Depends(APIDependencies.param_token)],
+    include_empty_sources: Annotated[
+        bool,
+        Query(description="Include sources with 0 indexed events."),
+    ] = False,
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -2107,7 +2114,9 @@ async def query_operations(
             for o in ops:
                 # get each op details by querying the associated index
                 d = await GulpOpenSearch.get_instance().query_operations(
-                    o["index"], user_id
+                    o["index"],
+                    user_id,
+                    include_empty_sources=include_empty_sources,
                 )
                 if d:
                     operations.extend(d)

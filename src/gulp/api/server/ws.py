@@ -1058,55 +1058,5 @@ class GulpAPIWebsocket:
             
     @staticmethod
     async def ws_client_data_run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
-        """
-        main loop for the client_data websocket connection
-
-        Args:
-            ws (GulpConnectedSocket): the websocket connection
-            user_id (str): the user id
-
-        Throws:
-            WebSocketDisconnect: when the client disconnects
-            Exception: for any unexpected errors during processing
-        """
-        # create tasks with names for better debugging
-        send_task: asyncio.Task = asyncio.create_task(
-            ws._send_loop(), name=f"client_data-send_loop-{ws.ws_id}"
-        )
-        receive_task: asyncio.Task = asyncio.create_task(
-            GulpAPIWebsocket.ws_client_data_receive_loop(ws, user_id),
-            name=f"client_data-receive_loop-{ws.ws_id}",
-        )
-        ws._tasks.extend([send_task, receive_task])
-
-        # wait for first task to complete
-        done, pending = await asyncio.wait(ws._tasks, return_when=asyncio.FIRST_EXCEPTION)
-        
-        # cancel all pending tasks to ensure clean shutdown
-        MutyLogger.get_instance().debug("ws_id=%s done=%s, pending=%s", ws.ws_id, done, pending)
-        if pending:
-            for t in pending:
-                MutyLogger.get_instance().debug(
-                    "cancelling pending task %s for ws_id=%s",
-                    t.get_name(),
-                    ws.ws_id,
-                )
-                t.cancel()
-                try:
-                    await t
-                except asyncio.CancelledError:
-                    MutyLogger.get_instance().debug(
-                        "pending task %s cancelled successfully", t.get_name()
-                    )
-        
-        # check if any completed task raised an exception
-        task = done.pop()
-        try:
-            await task
-        except WebSocketDisconnect as ex:
-            MutyLogger.get_instance().debug(f"websocket {ws.ws_id} disconnected: {ex}")
-            raise
-        except Exception as ex:
-            MutyLogger.get_instance().error(f"error in {task.get_name()}: {ex}")
-            raise
-        MutyLogger.get_instance().debug("ws_id=%s ws_client_data_run_loop exiting!",ws.ws_id)
+        """Run client-data receive handling with the shared socket supervisor."""
+        await ws.run_loop(GulpAPIWebsocket.ws_client_data_receive_loop(ws, user_id))

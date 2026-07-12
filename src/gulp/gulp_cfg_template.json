@@ -55,8 +55,6 @@
   "s3_url": "http://admin:Gulp1234!@localhost:9000",
   // set to use SSL to connect to s3-compatible storage
   "s3_verify_certs": false,
-  // client certificate password (not supported, ignored)
-  "opensearch_client_cert_password": null,
   // how many seconds to wait until timeout (default=60, tune up if you have request timeouts during ingestion/query, 0=no timeout)
   "opensearch_request_timeout": 180,
   // per-process OpenSearch HTTP connection pool size
@@ -71,20 +69,20 @@
   "opensearch_url": "http://admin:Gulp1234!@localhost:9200",
   // set to false to skip server certificate verification
   "opensearch_verify_certs": false,
+  // replica shards for newly created OpenSearch index templates (default=0)
+  "opensearch_index_replicas": 0,
   // maximum number of processes to be used for the pool (default=0=number of CPU cores)
-  "parallel_processes_max": 0,
+  "workers_max": 0,
   // respawn a process after this number of tasks: set to -1 to never respawn processes, every other value < 100 will be set to 100 (default=100)
   "parallel_processes_respawn_after_tasks": 100,
   // if set, disable loading of plugins with their **bare filename** containing the listed strings (e.g. "example_" will disable all plugins with "example_" in their filename, such as "example_plugin.py", but not "my_example_plugin.py")
   "plugin_disabled": ["example"],
   // enable cache for plugins (faster loading)
   "plugin_cache_enabled": true,
-  // if set, adapts postgresql connection pool size to concurrency (max tasks/num workers)
-  "postgres_adaptive_pool_size": true,
-  // per-process postgres SQLAlchemy pool size hard cap (used also as fixed size when adaptive is false)
-  "postgres_pool_size": 3,
-  // per-process postgres SQLAlchemy max_overflow hard cap
-  "postgres_max_overflow": 2,
+  // per-process postgres SQLAlchemy pool size (default=query_concurrency_max)
+  "postgres_pool_size": 4,
+  // per-process postgres SQLAlchemy max_overflow (default=0)
+  "postgres_max_overflow": 0,
   // seconds to wait for a PostgreSQL pool connection before failing the request
   "postgres_pool_timeout_sec": 10,
   // seconds after which pooled PostgreSQL connections are recycled
@@ -113,8 +111,8 @@
   "redis_compression_threshold": 256,
   // redis pubsub max chunk size (default=128kb)
   "redis_pubsub_max_chunk_size": 128,
-  // idle time in milliseconds after which stale pending task messages are dropped and marked failed (default=60000ms = 60s)
-  "redis_task_autoclaim_idle_ms": 60000,
+  // idle time in milliseconds after which stale pending task messages are dropped and marked failed (default=600000ms = 10m)
+  "redis_task_autoclaim_idle_ms": 600000,
   // interval in milliseconds used by dispatchers to refresh leases for live pending tasks (default=20000ms = 20s)
   "redis_task_lease_refresh_interval_ms": 20000,
   // optional timeout in seconds for one queued task execution attempt (default=0, disabled). When set, timed-out tasks are marked failed.
@@ -145,8 +143,6 @@
   "token_admin_ttl": 600,
   // login token (except admin) expiration time, default=1week (604800 seconds)
   "token_ttl": 604800,
-  // if set, websocket delay depends on the number of connected websockets
-  "ws_adaptive_rate_limit_delay": true,
   // if set, missing websocket will not halt the ongoing operation, reconnecting a websocket with the same `ws_id` will continue receiving messages (default=true)
   "ws_ignore_missing": true,
   // maximum size of the websocket message queue per client (default=8192 messages). increase if you get "queue full" warnings in the gulp logs.
@@ -157,6 +153,8 @@
   "ws_throttle_threshold": 0.7,
   // maximum delay in seconds for intake throttling when queue is nearly full (default=0.2 seconds)
   "ws_throttle_max_delay": 0.2,
+  // if set, websocket delay depends on the number of connected websockets
+  "ws_adaptive_rate_limit_delay": true,
   // rate limit for websocket (in seconds), introduces a small delay between sends to better handle high throughput when sending data to connected sockets: increment if you get clients disconnections, and also check client code if this happens too often.
   // if `ws_adaptive_rate_limit_delay` is set, this is the base delay used to calculate the real delay depending on the number of connected sockets.
   "ws_rate_limit_delay": 0.01,
@@ -167,14 +165,5 @@
   // prometheus metrics endpoint path (default="/metrics")
   "prometheus_endpoint": "/metrics",
   // interval in seconds for collecting gauge metrics (e.g. stream depths, pool stats) (default=15)
-  "prometheus_collect_interval": 15,
-  // ai plugin configuration
-  "ai_configuration": {
-    // The default model to use.
-    "default_model": "",
-    // LLM api base url
-    "api_base_url": "https://openrouter.ai/api/v1",
-    // Insert your OpenRouter API key here.
-    "openrouter_key": ""
-  }
+  "prometheus_collect_interval": 15
 }

@@ -23,7 +23,7 @@ _made with :heart: by Mentat._
 
 <div align="center">
 
-[Description](#description) - [Architecture](#architecture) - [Installation](#installation) - [Run & examples](#commandline-examples) - [GUI](#clients) - [Troubleshooting](./docs/troubleshooting.md)
+[Description](#description) - [Quick start](#quick-start) - [Documentation](#documentation) - [Run examples](#run-examples)
 
 </div>
 
@@ -49,24 +49,24 @@ Gulp is a powerful software tool designed to streamline incident response and an
 
 [here is a detailed datasheet](./DATASHEET.md)
 
-## architecture
+## documentation
 
-- [GULP architecture](./docs/architecture.md)
+- [Architecture and scaling](./docs/architecture.md)
+- [Docker install and exposed services](./docs/install_docker.md)
+- [Development install](./docs/install_dev.md)
+- [Plugins and mapping](./docs/plugins_and_mapping.md)
+- [Integration API and raw ingestion](./docs/integration.md)
+- [Query behavior](./docs/query.md)
+- [Testing and load-test harnesses](./docs/testing.md)
+- [Observability](./docs/observability.md)
+- [Production runbook](./docs/production_runbook.md)
+- [Troubleshooting](./docs/troubleshooting.md)
+- [Websocket recovery contract](./docs/websocket_recovery.md)
 
-### plugins development
+## quick start
 
-- [plugins and mapping](./docs/plugins_and_mapping.md)
-- [testing guidelines](./docs/testing.md)
-
-### integration with other applications
-
-gulp can be of course [integrated with other applications](./docs/integration.md) !
-
-> both websocket and REST API is available!
-
-## installation
-
-install our pypi package and run the necessary services via the example [docker-compose](./docker-compose.yml) and you should be good to go with the backend:
+Install the PyPI package and run the required services with the example
+[docker-compose.yml](./docker-compose.yml):
 
 > **WARNING**: gulp has been tested extensiely with python3.13, 3.14 is also working and will be the next recommended version after some more testing (but seems ok). it should work with python3.12 too, but was rarely tested and not recommended.
 
@@ -77,44 +77,40 @@ curl -o .env https://raw.githubusercontent.com/mentat-is/gulp/develop/.env \
   &&pip install mentat-gulp
 ~~~
 
-then, start the docker compose to start the necessary services:
-
 ~~~bash
 docker compose up -d
 ~~~
-
-and finally start the backend creating a fresh collab database and operation:
 
 ~~~bash
 gulp --reset-collab --create some_operation
 ~~~
 
-> gulp creates a default configuration in `$HOME/.config/gulp/gulp_cfg.json` if not already present and starts listening on `http://localhost:8080`
+gulp creates a default configuration in `$HOME/.config/gulp/gulp_cfg.json` if
+not already present and starts listening on `http://localhost:8080`.
 
-for advanced deployment, always check the following:
+Common next steps:
 
-- [install with docker](./docs/install_docker.md)
-- [install from sources/dev setup](./docs/install_dev.md)
-- [installing extra plugins](./docs/install_dev.md#7-optional-installing-extra-plugins)
+- open the API docs at [http://localhost:8080/docs](http://localhost:8080/docs)
+- use the default admin user: `admin/admin`
+- run the web UI from [gulpui-web](https://github.com/mentat-is/gulpui-web)
+- use [install_docker.md](./docs/install_docker.md) for Docker profiles, service
+  ports, and certificates
+- use [install_dev.md](./docs/install_dev.md) for source installs and extra
+  plugins
 
 > pypi/docker registry versions may be outdated... to use the bleeding edge version of gulp, install from sources and use the 'develop' branches.
 
-### clients
+### configuration
 
-[gulp web ui](https://github.com/mentat-is/gulpui-web)
-
-### environment variables
-
-the following environment variables may be set to override configuration options.
+The following environment variables override common runtime configuration:
 
 - `GULP_BIND_TO_ADDR`, `GULP_BIND_TO_PORT` : if set, gulp will listen to this interface and port (either, the default `0.0.0.0`, `8080` is used).
   - for the override to work, both `GULP_BIND_TO_ADDR` and `GULP_BIND_TO_PORT` must be specified, either the value of one alone is ignored.
-
 - `GULP_WORKING_DIR`: this is the **working directory** for gulp (defaults to `~/.config/gulp`), which contains:
   - `gulp_cfg.json`: the configuration, initialized with [template](./src/gulp/gulp_cfg_template.json) if not present
   - `plugins`: optional extra plugins (have precedence over `$INSTALLDIR/plugins`)
   - `mapping_files`: optional extra mapping files (have precedence over `$INSTALLDIR/mapping_files`)
-  - `certs`: optional [SSL](#ssl) certificates for HTTPS
+  - `certs`: optional [SSL](./docs/install_docker.md#ssl-certificates) certificates for HTTPS
   - `ingest_local` directory to store big files for quick ingestion (`ingest_local` API)
   - `tmp_upload` folder to cache partial uploads during ingestion
 
@@ -124,86 +120,7 @@ the following environment variables may be set to override configuration options
 - `GULP_S3_URL`: if set, overrides `s3_url` in the configuration.
 - `GULP_INTEGRATION_TEST`: this may be set during tests to disable debug features if they're enabled
 
-### exposed services
-
-> using the default [docker-compose.yml](./docker-compose.yml) with no profile set.
-> further profiles (i.e. `dev`, `metrics`) may expose additional services, check the compose file for details.
-
-#### gulp
-
-- [gulp swagger page on http://localhost:8080/docs](http://localhost:8080/docs)
-- [gulp web UI on http://localhost:3000](http://localhost:3000)
-  - **user/pwd: `admin/admin`** (default gulp admin user)
-
-#### postgreSQL
-
-- postgreSQL on **localhost:5432**
-  - **user/pwd: `postgres/Gulp1234!`**
-
-- [adminer on http://localhost:8001](http://localhost:8081) to manage postgreSQL (use `--profile dev`)
-  - **server/user/pwd: `postgres/postgres/Gulp1234!`**
-
-#### OpenSearch
-
-- [opensearch on http://localhost:9200](http://localhost:9200)
-  - **user/pwd: `admin/Gulp1234!`**
-
-- [elasticvue on http://localhost:8082](http://localhost:8082) to visualize OpensSearch indexes  (use `--profile dev`)
-
-- [opensearch dashboards on http://localhost:5001](http://localhost:5601) for a more comprehensive OpenSearch management.
-
-#### redis
-
-- redis on **localhost:6379**
-  - **user/pwd: `default/Gulp1234!`**
-
-- [redis insight on http://localhost:5540](http://localhost:8002) to manage redis  (use `--profile dev`)
-
-#### MinIO
-
-- [minio on http://localhost:9000](http://localhost:9000)
-
-  - **user/pwd: `admin/Gulp1234!`**
-  - this is used as S3-compatible filestore for plugins which may need it.
-  
-### SSL
-
-to use SSL, the following configuration options and files variables may be provided:
-
-#### OpenSearch
-
-- Gulp configuration
-  - `opensearch_verify_certs`: set to `false` to skip server verification
-- certificate files
-  - `$GULP_WORKING_DIR/certs/opensearch-ca.pem`: CA certificate for Gulp to connect to the Opensearch server
-  - `$GULP_WORKING_DIR/certs/opensearch.pem`: client certificate for Gulp to connect to the Opensearch server
-  - `$GULP_WORKING_DIR/certs/opensearch.key`: _**passwordless**_ client certificate key
-
-#### PostgreSQL
-
-- Gulp configuration
-  - `postgres_ssl`: use SSL for postgres connection, set to `false` to not use.
-  - `postgres_verify_certs`: set to `false` to skip server verification
-- certificate files
-  - `$GULP_WORKING_DIR/certs/postgres-ca.pem`: CA certificate for Gulp to connect to the PostgreSQL server
-  - `$GULP_WORKING_DIR/certs/postgres.pem`: client certificate for Gulp to connect to PostgreSQL server
-  - `$GULP_WORKING_DIR/certs/postgres.key`: client certificate key
-
-#### gulp
-
-- Gulp configuration
-  - `https_enforce`: set to `true` to enforce connection to Gulp only through HTTPS
-  - `https_enforce_client_certs`: set to `true` to enforce check of client certificates signed by `gulp-ca.pem` CA
-- certificate files
-  - `$GULP_WORKING_DIR/certs/gulp-ca.pem`: Gulp CA
-  - `$GULP_WORKING_DIR/certs/gulp.pem`: Gulp server certificate
-  - `$GULP_WORKING_DIR/certs/gulp.key`: Gulp server certificate key
-
-#### redis & minIO
-
-check their specific documentation: basically you have to put certificates in `$GULP_WORKING_DIR/certs`, whcih is [mounted in the containers](./docker-compose.yml), and tweak their configuration.
-
-## commandline examples
+## run examples
 
 default startup, creates collab database with an operation names `test_operation` on the very first run.
 

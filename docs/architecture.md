@@ -263,18 +263,58 @@ gULP can be scaled by both providing more hardware resources and/or by running m
 
 ### increase concurrency
 
-tune configuration parameters in [gulp_cfg.json](../src/gulp/gulp_cfg_template.json) according to hardware resources available:
+tune [gulp_cfg.json](../src/gulp/gulp_cfg_template.json) by deciding how much
+work one gULP instance may claim at once. The useful knobs are:
 
-- `concurrency_num_tasks`
-- `concurrency_opensearch_num_nodes`
-- `concurrency_postgres_num_nodes`
-- `concurrency_adaptive_num_tasks`
-- `parallel_processes_max`
-- `postgres_adaptive_pool_size`
+- `workers_max`: worker process count. `0` means use the available CPU count.
+- `workers_concurrency_max`: per-worker task budget for I/O-heavy work.
+- `query_concurrency_max`: healthy query and external-query ceiling. `0`
+  removes the query-specific ceiling, so query work may use the full worker
+  dispatch capacity. Redis, PostgreSQL, or OpenSearch pressure temporarily
+  reduces the ceiling and healthy checks ramp it back up.
+- `opensearch_pool_maxsize`: OpenSearch HTTP pool size per process.
+- `postgres_pool_size` and `postgres_max_overflow`: PostgreSQL pool behavior
+  per process. PostgreSQL pressure is handled by adaptive task dispatch.
+
+Tune against the bottleneck you measured. More Python workers do not help when
+OpenSearch, PostgreSQL, Redis, or client websocket drains are already saturated.
+Use [testing.md](./testing.md) for load-test harness setup and
+[production_runbook.md](./production_runbook.md) for operational profiles.
 
 ### scale OpenSearch, PostgreSQL and Redis
 
-just [scale them up as needed](../docker-compose.yml), gULP instances will connect to the cluster as per the configuration in [gulp_cfg.json](../src/gulp/gulp_cfg_template.json).
+gULP can use larger or clustered OpenSearch, PostgreSQL, and Redis deployments
+without changing application code. The gULP configuration still points at the
+service endpoint, and the external service absorbs more work behind that
+endpoint.
+
+Use the service scaling knobs for the bottleneck you actually measured:
+
+- OpenSearch: add CPU/RAM, faster disk, or more OpenSearch nodes when searches
+  queue up, query latency climbs, or circuit breakers/restarts appear while
+  PostgreSQL and Redis are healthy.
+- PostgreSQL: add CPU/RAM, tune the database, or move to a larger PostgreSQL
+  host when note/collaboration writes are the slow part or connection pools stay
+  exhausted.
+- Redis: add memory/CPU or a managed Redis service when task queue operations or
+  pub/sub are slow. Redis should not be the bottleneck for the BIG_SIGMAS
+  profile once stale interrupted streams are cleaned up.
+- gULP instances: add more gULP processes only when the external services still
+  have headroom. `More gULP workers cannot make an overloaded OpenSearch or
+  PostgreSQL faster`.
+
+For OpenSearch, set `opensearch_index_replicas` before creating operations. Use
+`0` for local write-heavy tests or analysis-time working data where replica
+availability is not required. Use replicas when you need OpenSearch node failure
+tolerance during an active investigation and can afford the write cost.
+
+For PostgreSQL, gULP uses one configured endpoint (`postgres_url` or
+`GULP_POSTGRES_URL`) and one SQLAlchemy engine per process. Multi-node
+PostgreSQL should therefore be exposed to gULP as one writer/proxy endpoint
+managed outside the application. Do not add app-side PostgreSQL node routing
+unless the collaboration layer is redesigned for read/write splitting and
+consistency. For the current write-heavy collaboration workload, keep per-process
+pool caps bounded and tune the PostgreSQL cluster behind that single endpoint.
 
 ### gulp server roles
 
@@ -285,7 +325,7 @@ to *specialize* a gulp **consumer** instance you can set the `instance_roles` co
   "instance_roles": [ "ingest"]
 ```
 
-available values are `[ "ingest", "query", "external_query", "rebase" ]`, all resource intensive tasks.
+available values are `[ "ingest", "query", "external_query", "rebase", "enrich" ]`, all resource intensive tasks.
 
 if the list is empty or unset, the instance will process all task types, and anyway other kind of `non-specialized`/non computationally intensive 
 API tasks will always be processed by all instances (i.e. user management, collaboration objects management, etc...).

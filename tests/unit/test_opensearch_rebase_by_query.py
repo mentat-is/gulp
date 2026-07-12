@@ -44,6 +44,224 @@ def test_opensearch_client_uses_pool_and_compression_config(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_query_operations_omits_collab_sources_without_documents_by_default(
+    monkeypatch,
+):
+    os_api = object.__new__(GulpOpenSearch)
+
+    class _FakeSource:
+        def __init__(self, source_id, name, plugin):
+            self.id = source_id
+            self.name = name
+            self.plugin = plugin
+            self.glyph_id = "File"
+            self.color = None
+
+    class _FakeContext:
+        id = "ctx-1"
+        name = "ctx"
+        glyph_id = "Folder"
+        color = "#123456"
+        sources = [
+            _FakeSource("src-with-docs", "with-docs.evtx", "win_evtx"),
+            _FakeSource("src-empty", "empty.evtx", "win_evtx"),
+        ]
+
+    class _FakeOperation:
+        id = "op-1"
+        name = "op"
+        index = "op-1"
+        glyph_id = "Box"
+        contexts = [_FakeContext()]
+
+    class _FakeCollab:
+        def session(self):
+            class _Session:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+            return _Session()
+
+    monkeypatch.setattr(
+        "gulp.api.opensearch_api.GulpCollab.get_instance",
+        lambda: _FakeCollab(),
+    )
+    monkeypatch.setattr(
+        "gulp.api.opensearch_api.GulpOperation.get_by_filter",
+        AsyncMock(return_value=[_FakeOperation()]),
+    )
+
+    result = await os_api._parse_operation_aggregation(
+        {
+            "operations": {
+                "buckets": [
+                    {
+                        "key": "op-1",
+                        "context_id": {
+                            "buckets": [
+                                {
+                                    "key": "ctx-1",
+                                    "doc_count": 2,
+                                    "plugin": {
+                                        "buckets": [
+                                            {
+                                                "key": "win_evtx",
+                                                "source_id": {
+                                                    "buckets": [
+                                                        {
+                                                            "key": "src-with-docs",
+                                                            "doc_count": 2,
+                                                            "max_event.code": {
+                                                                "value": 2
+                                                            },
+                                                            "min_event.code": {
+                                                                "value": 1
+                                                            },
+                                                            "min_gulp.timestamp": {
+                                                                "value": 1000
+                                                            },
+                                                            "max_gulp.timestamp": {
+                                                                "value": 2000
+                                                            },
+                                                        }
+                                                    ]
+                                                },
+                                            }
+                                        ]
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        },
+        "admin",
+    )
+
+    sources = result[0]["contexts"][0]["plugins"][0]["sources"]
+    assert [source["id"] for source in sources] == ["src-with-docs"]
+    assert sources[0]["doc_count"] == 2
+    assert sources[0]["min_gulp.timestamp"] == 1000
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_query_operations_includes_all_collab_sources_without_documents(
+    monkeypatch,
+):
+    os_api = object.__new__(GulpOpenSearch)
+
+    class _FakeSource:
+        def __init__(self, source_id, name, plugin):
+            self.id = source_id
+            self.name = name
+            self.plugin = plugin
+            self.glyph_id = "File"
+            self.color = None
+
+    class _FakeContext:
+        id = "ctx-1"
+        name = "ctx"
+        glyph_id = "Folder"
+        color = "#123456"
+        sources = [
+            _FakeSource("src-with-docs", "with-docs.evtx", "win_evtx"),
+            _FakeSource("src-empty-1", "empty-1.evtx", "win_evtx"),
+            _FakeSource("src-empty-2", "empty-2.evtx", "win_evtx"),
+        ]
+
+    class _FakeOperation:
+        id = "op-1"
+        name = "op"
+        index = "op-1"
+        glyph_id = "Box"
+        contexts = [_FakeContext()]
+
+    class _FakeCollab:
+        def session(self):
+            class _Session:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+            return _Session()
+
+    monkeypatch.setattr(
+        "gulp.api.opensearch_api.GulpCollab.get_instance",
+        lambda: _FakeCollab(),
+    )
+    monkeypatch.setattr(
+        "gulp.api.opensearch_api.GulpOperation.get_by_filter",
+        AsyncMock(return_value=[_FakeOperation()]),
+    )
+
+    result = await os_api._parse_operation_aggregation(
+        {
+            "operations": {
+                "buckets": [
+                    {
+                        "key": "op-1",
+                        "context_id": {
+                            "buckets": [
+                                {
+                                    "key": "ctx-1",
+                                    "doc_count": 2,
+                                    "plugin": {
+                                        "buckets": [
+                                            {
+                                                "key": "win_evtx",
+                                                "source_id": {
+                                                    "buckets": [
+                                                        {
+                                                            "key": "src-with-docs",
+                                                            "doc_count": 2,
+                                                            "max_event.code": {
+                                                                "value": 2
+                                                            },
+                                                            "min_event.code": {
+                                                                "value": 1
+                                                            },
+                                                            "min_gulp.timestamp": {
+                                                                "value": 1000
+                                                            },
+                                                            "max_gulp.timestamp": {
+                                                                "value": 2000
+                                                            },
+                                                        }
+                                                    ]
+                                                },
+                                            }
+                                        ]
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        },
+        "admin",
+        include_empty_sources=True,
+    )
+
+    sources = result[0]["contexts"][0]["plugins"][0]["sources"]
+    assert [source["id"] for source in sources] == [
+        "src-with-docs",
+        "src-empty-1",
+        "src-empty-2",
+    ]
+    assert sources[1]["doc_count"] == sources[2]["doc_count"] == 0
+    assert "min_gulp.timestamp" not in sources[1]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_search_dsl_internal_returns_aggregations_without_hits(monkeypatch):
     os_api = object.__new__(GulpOpenSearch)
     os_api._opensearch = MagicMock()

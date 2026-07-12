@@ -30,14 +30,14 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
   mkdir ./repos && cd ./repos
   git clone https://github.com/mentat-is/gulp.git
   git clone https://github.com/mentat-is/muty-python.git
-  git clone https://githu8b.com/mentat-is/gulp-sdk.git
+  git clone https://github.com/mentat-is/gulp-sdk.git
   # clone other repos, i.e. the devteam may want to clone also the paid-plugins repo...
   git clone https://github.com/mentat-is/gulp-paid-plugins.git
   ~~~
 
 3. in vscode, open the [gulp workspace](../gulp.code-workspace) and it should prompt you to reopen it in the dev container: the devcontainer will be built *first time only*.
 
-4. **on the host**, start the main [docker-compose](../docker-compose.yml) to start postgresql and opensearch.
+4. **on the host**, start the main [docker-compose](../docker-compose.yml) to start PostgreSQL, OpenSearch, Redis, and MinIO.
 
   ~~~bash
   docker compose --profile dev up -d
@@ -117,7 +117,7 @@ install all packages as editable
 
 ~~~bash
 # install all packages as editable (-e)
-pip3 install -e . && pip3 install -e ./muty-python && pip3 install -e ./gulp-sdk
+pip3 install -e . && pip3 install -e ../muty-python && pip3 install -e ../gulp-sdk
 ~~~
 
 ### 6. run
@@ -125,7 +125,7 @@ pip3 install -e . && pip3 install -e ./muty-python && pip3 install -e ./gulp-sdk
 > you may need to ensure proper docker cleanup first (i.e. previous installation) with [reset_docker](../reset_docker.sh)
 
 ~~~bash
-# start postgresql and opensearch
+# start required services (postgresql, opensearch, redis, minio) in detached mode
 # if you find any problem, remove -d and check docker logs (and check our troubleshooting guide)
 docker compose --profile dev up -d
 
@@ -143,7 +143,7 @@ follow the [instructions](https://github.com/mentat-is/gulpui-web/blob/master/RE
 
 ## troubleshoot
 
-[troubleshoot](./Troubleshooting.md)
+[troubleshoot](./troubleshooting.md)
 
 ## extras
 

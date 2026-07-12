@@ -33,7 +33,6 @@ class GulpConfig:
         self._path_mapping_files_extra: str = None
         self._path_plugins_extra: str = None
         self._config: dict = None
-        self._concurrency_num_tasks: int = None  # avoid to recalculate every time
 
         # read configuration on init
         self._read_config()
@@ -206,12 +205,6 @@ class GulpConfig:
             raise ValueError("invalid bind_to format: %s" % (p))
 
         return (splitted[0], int(splitted[1]))
-
-    def index_dynamic_keyword_ignore_above(self) -> int:
-        """
-        Returns the default ignore_above value for dynamic keyword fields in the index template (default=not specified, use default).
-        """
-        return self._config.get("index_dynamic_keyword_ignore_above", None)
 
     def index_template_default_total_fields_limit(self) -> int:
         """
@@ -542,14 +535,6 @@ class GulpConfig:
         """
         return self._get_int_config("workers_concurrency_max", 16, minimum=1)
 
-    def query_concurrency(self) -> int:
-        """
-        legacy query/external-query task concurrency for this instance.
-
-        Runtime dispatch uses query_concurrency_max as its healthy ceiling.
-        """
-        return self._get_int_config("query_concurrency", 4, minimum=1)
-
     def query_concurrency_max(self) -> int:
         """
         maximum query/external-query task concurrency when healthy.
@@ -557,15 +542,7 @@ class GulpConfig:
         0 means no query-specific ceiling; the global worker dispatch capacity
         still applies.
         """
-        default = self._config.get("query_concurrency", 4)
-        n = self._config.get("query_concurrency_max", default)
-        try:
-            n = int(n)
-        except Exception:
-            n = 4
-        if n == 0:
-            return 0
-        return max(1, n)
+        return self._get_int_config("query_concurrency_max", 4, minimum=0)
 
     def opensearch_index_replicas(self) -> int:
         """
@@ -1089,11 +1066,11 @@ class GulpConfig:
 
         return n
 
-    def ws_adaptive_rate_limit(self) -> bool:
+    def ws_adaptive_rate_limit_delay(self) -> bool:
         """
-        Returns whether to enable adaptive rate limiting for websockets (default: False).
+        Returns whether websocket delay depends on the number of connected websockets (default: True).
         """
-        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit", True)
+        n = GulpConfig.get_instance()._config.get("ws_adaptive_rate_limit_delay", True)
         return n
 
     def ws_rate_limit_delay(self) -> float:
@@ -1294,13 +1271,6 @@ class GulpConfig:
         if not isinstance(disabled, list):
             disabled = []
         return disabled
-
-    def plugin_allow_load_examples(self) -> bool:
-        """
-        Returns whether to enable loading of plugins which filename starts with "example_" (default: False).
-        """
-        n = self._config.get("plugin_allow_load_example", False)
-        return n
 
     def plugin_cache_enabled(self) -> bool:
         """

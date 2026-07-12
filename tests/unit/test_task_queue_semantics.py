@@ -398,6 +398,23 @@ async def test_task_metrics_snapshot_reports_queue_operator_state():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_task_known_types_respects_instance_roles():
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeTaskRedisClient()
+    redis_client._redis = fake_redis
+    redis_client._instance_roles = ["ingest"]
+
+    fake_redis.known_task_types.update({"ingest", "query", "enrich"})
+
+    assert await redis_client.task_known_types() == ["ingest"]
+    assert await redis_client._task_stream_keys(task_types=["query"]) == []
+    assert await redis_client._task_stream_keys(task_types=["ingest", "query"]) == [
+        "gulp:stream:tasks:ingest"
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_task_drop_stale_pending_deletes_pending_messages(task_transition_counter):
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()

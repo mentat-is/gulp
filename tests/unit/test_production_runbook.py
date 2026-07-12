@@ -68,8 +68,8 @@ def test_production_runbook_profiles_scale_capacity_monotonically():
     high = blocks["high-volume deployment"]
 
     increasing_keys = [
-        "concurrency_opensearch_num_nodes",
-        "concurrency_tasks_cap_per_process",
+        "workers_concurrency_max",
+        "query_concurrency_max",
         "redis_stream_task_maxlen",
         "ws_queue_max_size",
     ]

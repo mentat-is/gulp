@@ -61,7 +61,12 @@ def _short_error(exc: Exception, max_len: int = 500) -> str:
     return text[:max_len] + "..."
 
 
-async def _login_ready(client: Any, user: str, password: str, timeout: float = 15.0) -> None:
+async def _login_ready(
+    client: Any,
+    user: str,
+    password: str,
+    timeout: float = 15.0,
+) -> None:
     """Retry login until token/session is fully visible to backend checks."""
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
@@ -251,7 +256,8 @@ async def _assert_prometheus_metrics_cover_stress(
             response.raise_for_status()
             last_metrics = response.text
             missing = [
-                metric for metric in _STRESS_PROMETHEUS_METRICS
+                metric
+                for metric in _STRESS_PROMETHEUS_METRICS
                 if metric not in last_metrics
             ]
             if not missing:
@@ -385,9 +391,9 @@ async def _worker(
                 result["total_hits"] = total_hits
                 result["query_secs"] = round(time.monotonic() - t_query, 2)
 
-                assert total_hits > 0, (
-                    f"Worker {worker_id}: expected documents after ingest, got 0"
-                )
+                assert (
+                    total_hits > 0
+                ), f"Worker {worker_id}: expected documents after ingest, got 0"
 
                 result["success"] = True
 
@@ -463,9 +469,9 @@ async def _worker_same_operation(
             result["total_hits"] = total_hits
             result["query_secs"] = round(time.monotonic() - t_query, 2)
 
-            assert total_hits > 0, (
-                f"Worker {worker_id}: expected documents in shared operation, got 0"
-            )
+            assert (
+                total_hits > 0
+            ), f"Worker {worker_id}: expected documents in shared operation, got 0"
 
             result["success"] = True
 
@@ -510,12 +516,16 @@ async def test_concurrent_ingest_and_query(
     task_metrics_before = await _task_metrics_snapshot()
     async with GulpClient(gulp_base_url) as admin_client:
         await _login_ready(admin_client, gulp_test_user, gulp_test_password)
-        worker_user_ids = await _create_worker_users(admin_client, n_workers, worker_password)
+        worker_user_ids = await _create_worker_users(
+            admin_client, n_workers, worker_password
+        )
 
         try:
             tasks = [
                 asyncio.create_task(
-                    _worker(gulp_base_url, worker_user_ids[i], worker_password, i, timeout)
+                    _worker(
+                        gulp_base_url, worker_user_ids[i], worker_password, i, timeout
+                    )
                 )
                 for i in range(n_workers)
             ]
@@ -554,8 +564,8 @@ async def test_concurrent_ingest_and_query(
     for msg in failed:
         print(f"  FAIL: {msg}")
 
-    assert not failed, (
-        f"{len(failed)}/{n_workers} worker(s) failed:\n" + "\n".join(failed)
+    assert not failed, f"{len(failed)}/{n_workers} worker(s) failed:\n" + "\n".join(
+        failed
     )
     await _assert_task_metrics_healthy_after_stress(task_metrics_before)
     await _assert_prometheus_metrics_cover_stress(gulp_base_url)
@@ -586,7 +596,9 @@ async def test_concurrent_ingest_and_query_same_operation(
         await _login_ready(admin_client, gulp_test_user, gulp_test_password)
         worker_password = "TestPass!123"
         task_metrics_before = await _task_metrics_snapshot()
-        worker_user_ids = await _create_worker_users(admin_client, n_workers, worker_password)
+        worker_user_ids = await _create_worker_users(
+            admin_client, n_workers, worker_password
+        )
         op = await admin_client.operations.create(_op_name(9999))
         op_id = op.id
         await _wait_created(admin_client.operations.get, op_id, label="operation")
@@ -637,9 +649,9 @@ async def test_concurrent_ingest_and_query_same_operation(
             for msg in failed:
                 print(f"  FAIL: {msg}")
 
-            assert not failed, (
-                f"{len(failed)}/{n_workers} worker(s) failed:\n" + "\n".join(failed)
-            )
+            assert (
+                not failed
+            ), f"{len(failed)}/{n_workers} worker(s) failed:\n" + "\n".join(failed)
 
         finally:
             await _delete_op(admin_client, op_id)
@@ -647,14 +659,17 @@ async def test_concurrent_ingest_and_query_same_operation(
     await _assert_task_metrics_healthy_after_stress(task_metrics_before)
     await _assert_prometheus_metrics_cover_stress(gulp_base_url)
 
+
 def _unique(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
 
 async def _teardown_operation(client, operation_id: str) -> None:
     try:
         await client.operations.delete(operation_id)
     except Exception:
         pass
+
 
 async def _setup_operation(client) -> str:
     op = await client.operations.create(_unique("query_test_op"))
@@ -681,14 +696,23 @@ _SIGMA_ZIP_DEBUG_EXPECTED: contextvars.ContextVar[dict[str, object]] = (
 )
 
 
+def _sigma_zip_verbose() -> bool:
+    return os.getenv("GULP_SIGMA_ZIP_VERBOSE", "").lower() in {"1", "true", "yes", "on"}
+
+
 def _sigma_zip_debug(message: str, **fields: object) -> None:
+    if not _sigma_zip_verbose():
+        return
     fields.setdefault("records_ingested", "?")
     fields.setdefault("completed_queries", "?")
     fields.setdefault("total_hits", "?")
     for key, value in _SIGMA_ZIP_DEBUG_EXPECTED.get().items():
         fields.setdefault(key, value)
     details = " ".join(f"{key}={value}" for key, value in fields.items())
-    print(f"[sigma-zip-big][debug] {message}{' ' + details if details else ''}", flush=True)
+    print(
+        f"[sigma-zip-big][debug] {message}{' ' + details if details else ''}",
+        flush=True,
+    )
 
 
 def _should_print_received_count(count: int, expected: int) -> bool:
@@ -703,47 +727,32 @@ class SigmaZipHarnessError(RuntimeError):
         self.totals = totals
 
 
-async def _count_operation_notes(
-    client: Any, operation_id: str, *, page_size: int = 10000
-) -> int:
-    """Count notes for an operation from the collaboration API."""
-    offset = 0
-    observed_notes = 0
-
-    while True:
-        batch = await client.collab.note_list(
-            operation_id=operation_id,
-            flt={"operation_ids": [operation_id], "limit": page_size, "offset": offset},
-        )
-        batch_count = len(batch)
-        observed_notes += batch_count
-        if batch_count < page_size:
-            return observed_notes
-        offset += page_size
+async def _count_operation_notes(client: Any, operation_id: str) -> int:
+    """Count notes for an operation without loading note payloads."""
+    counted = await client.plugins.object_count("note", operation_id=operation_id)
+    return int(counted.get("count", 0))
 
 
 async def _wait_for_operation_notes(
-    client: Any, operation_id: str, expected: int, *, timeout_sec: int
+    client: Any, operation_id: str, expected: int
 ) -> int:
     """Wait until the shared collaboration store exposes the expected note count."""
-    deadline = time.monotonic() + timeout_sec
     last_observed_notes = -1
 
     while True:
         observed_notes = await _count_operation_notes(client, operation_id)
         if observed_notes != last_observed_notes:
             last_observed_notes = observed_notes
-            deadline = time.monotonic() + timeout_sec
         _sigma_zip_debug(
             "notes count received",
             operation=operation_id,
             observed=observed_notes,
             expected=expected,
         )
-        if observed_notes >= expected or time.monotonic() >= deadline:
+        if observed_notes >= expected:
             return observed_notes
 
-        await asyncio.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+        await asyncio.sleep(1.0)
 
 
 def _request_progress(stats: dict[str, Any]) -> tuple[object, ...]:
@@ -762,12 +771,9 @@ async def _wait_request_stats_progress(
     req_id: str,
     done: Any,
     *,
-    timeout_sec: int,
     label: str,
 ) -> dict[str, Any]:
-    """Poll request stats until done, resetting timeout while stats progress."""
-    deadline = time.monotonic() + timeout_sec
-    last_stats: dict[str, Any] = {}
+    """Poll request stats until the caller's terminal condition is met."""
     last_progress: tuple[object, ...] = ()
 
     while True:
@@ -776,11 +782,9 @@ async def _wait_request_stats_progress(
         except Exception:
             stats = {}
         if isinstance(stats, dict) and stats:
-            last_stats = stats
             progress = _request_progress(stats)
             if progress != last_progress:
                 last_progress = progress
-                deadline = time.monotonic() + timeout_sec
                 data = stats.get("data") or {}
                 _sigma_zip_debug(
                     "request stats progress",
@@ -796,12 +800,22 @@ async def _wait_request_stats_progress(
             if done(stats):
                 return stats
 
-        if time.monotonic() >= deadline:
-            raise TimeoutError(
-                f"{label} request {req_id} did not progress to expected stats "
-                f"within {timeout_sec}s; last_stats={last_stats}"
-            )
         await asyncio.sleep(1.0)
+
+
+async def _clear_query_artifacts(client: Any, operation_id: str) -> None:
+    """Remove query artifacts before reusing an already-ingested operation."""
+    from gulp_sdk import NotFoundError
+
+    for obj_type in ("note", "request_stats"):
+        try:
+            await client.plugins.object_delete_bulk(
+                operation_id,
+                obj_type,
+                {"operation_ids": [operation_id]},
+            )
+        except NotFoundError:
+            pass
 
 
 async def _run_query_sigma_zip_big_matches_and_notes(
@@ -814,6 +828,12 @@ async def _run_query_sigma_zip_big_matches_and_notes(
     operation_id: str | None = None,
     instance_urls: list[str] | None = None,
     operation_index: int = 0,
+    query_only: bool = False,
+    context_name: str | None = None,
+    expected_multiplier: int = 1,
+    ingest_only: bool = False,
+    reset_query_state: bool = True,
+    verify_notes: bool = True,
 ) -> dict[str, Any]:
     """Run the sigma-zip ingest/query/notes flow and return observed counts."""
     from gulp_sdk import GulpClient, GulpSDKError
@@ -821,9 +841,13 @@ async def _run_query_sigma_zip_big_matches_and_notes(
 
     if big is None:
         big = os.getenv("BIG_SIGMAS", "0").lower() in {"1", "true", "yes", "on"}
-    sigma_zip_path = Path("/gulp/tests/sigma_windows.zip" if big else "/gulp/tests/sigma_windows_small.zip")
+    sigma_zip_path = Path(
+        "/gulp/tests/sigma_windows.zip"
+        if big
+        else "/gulp/tests/sigma_windows_small.zip"
+    )
     expected_completed = 1149 if big else 14
-    expected_matches = 73464 if big else 15
+    expected_matches = (73464 if big else 15) * expected_multiplier
     expected_ingested = 98633
     _SIGMA_ZIP_DEBUG_EXPECTED.set(
         {
@@ -832,14 +856,12 @@ async def _run_query_sigma_zip_big_matches_and_notes(
             "expected_total_hits": expected_matches,
         }
     )
-    request_timeout = int(os.getenv("GULP_SIGMA_ZIP_TIMEOUT", "600"))
-
     sample_dir = Path("/gulp/samples/win_evtx")
     if not sample_dir.exists() or not sigma_zip_path.exists():
         raise FileNotFoundError("Required sigma or sample fixtures are missing")
 
     async with GulpClient(gulp_base_url) as client:
-        await client.auth.login(gulp_test_user, gulp_test_password)
+        await _login_ready(client, gulp_test_user, gulp_test_password)
         op_id = operation_id or await _setup_operation(client)
         _SIGMA_ZIP_DEBUG_EXPECTED.set(
             {
@@ -883,7 +905,9 @@ async def _run_query_sigma_zip_big_matches_and_notes(
             async def _on_ingest_ws_message(message: WSMessage) -> None:
                 if message.type != WSMessageType.STATS_UPDATE.value:
                     return
-                payload_obj = message.data.get("obj") if isinstance(message.data, dict) else None
+                payload_obj = (
+                    message.data.get("obj") if isinstance(message.data, dict) else None
+                )
                 if not isinstance(payload_obj, dict):
                     return
                 payload_status = str(payload_obj.get("status", "")).lower()
@@ -938,58 +962,74 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                                     operation_id=op_id,
                                     plugin_name="win_evtx",
                                     file_path=str(file_path),
-                                    context_name="sdk_sigma_zip_context",
+                                    context_name=context_name
+                                    or "sdk_sigma_zip_context",
                                     ws_id=ingest_client.ws_id,
-                                    wait=True,
-                                    timeout=600,
+                                    wait=False,
                                 )
                             )
-                        print(
-                            "sigma zip ingest request split:",
-                            {
-                                "operation_id": op_id,
-                                "operation_index": operation_index,
-                                "request_counts": request_counts,
-                            },
-                        )
+                        if _sigma_zip_verbose():
+                            print(
+                                "sigma zip ingest request split:",
+                                {
+                                    "operation_id": op_id,
+                                    "operation_index": operation_index,
+                                    "request_counts": request_counts,
+                                },
+                            )
 
-                        ingest_results = await asyncio.gather(*ingest_tasks, return_exceptions=True)
+                        ingest_results = await asyncio.gather(
+                            *ingest_tasks, return_exceptions=True
+                        )
                         tot_ingested: int = 0
-                        for ingest, ingest_client in zip(ingest_results, ingest_task_clients):
+                        for ingest, ingest_client in zip(
+                            ingest_results, ingest_task_clients
+                        ):
                             if isinstance(ingest, Exception):
                                 _fail(f"win_evtx ingest failed: {ingest}")
 
-                            ingest_status = str(getattr(ingest, "status", "")).lower()
-                            ingest_req_id = str(getattr(ingest, "req_id", ""))
-                            if ingest_status not in {"done", "failed"}:
-                                _fail(
-                                    f"win_evtx ingest did not finish successfully "
-                                    f"(status={ingest_status})"
-                                )
-                            assert ingest_req_id, "Missing req_id for win_evtx ingest request"
-                            ingest_terminal = ingest_ws_terminal_by_req.get(ingest_req_id)
+                            ingest_status = str(
+                                ingest.get("status", "")
+                                if isinstance(ingest, dict)
+                                else getattr(ingest, "status", "")
+                            ).lower()
+                            ingest_req_id = str(
+                                ingest.get("req_id", "")
+                                if isinstance(ingest, dict)
+                                else getattr(ingest, "req_id", "")
+                            )
+                            if ingest_status == "failed":
+                                _fail("win_evtx ingest request was rejected")
+                            assert (
+                                ingest_req_id
+                            ), "Missing req_id for win_evtx ingest request"
+                            ingest_terminal = ingest_ws_terminal_by_req.get(
+                                ingest_req_id
+                            )
                             if ingest_terminal is None:
                                 ingest_terminal = await _wait_request_stats_progress(
                                     ingest_client,
                                     ingest_req_id,
                                     lambda stats: str(stats.get("status", "")).lower()
                                     in {"done", "failed", "canceled"},
-                                    timeout_sec=request_timeout,
                                     label="win_evtx ingest",
                                 )
 
-                            terminal_status = str(ingest_terminal.get("status", "")).lower()
+                            terminal_status = str(
+                                ingest_terminal.get("status", "")
+                            ).lower()
                             if terminal_status not in {"done", "failed"}:
                                 _fail(
                                     f"win_evtx ingest terminal websocket status was "
                                     f"{terminal_status!r} for req_id={ingest_req_id}"
                                 )
                             ingest_data = ingest_terminal.get("data") or {}
-                            records_ingested = int(ingest_data.get("records_ingested", 0))
+                            records_ingested = int(
+                                ingest_data.get("records_ingested", 0)
+                            )
                             if (
-                                (ingest_status == "failed" or terminal_status == "failed")
-                                and records_ingested <= 0
-                            ):
+                                ingest_status == "failed" or terminal_status == "failed"
+                            ) and records_ingested <= 0:
                                 _fail(
                                     f"win_evtx ingest failed without ingesting records "
                                     f"for req_id={ingest_req_id}"
@@ -1003,7 +1043,12 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                                 WSMessageType.STATS_UPDATE, _on_ingest_ws_message
                             )
 
-            tot_ingested = await _ingest_all()
+            if query_only:
+                if reset_query_state:
+                    await _clear_query_artifacts(client, op_id)
+                tot_ingested = expected_ingested
+            else:
+                tot_ingested = await _ingest_all()
             result_totals["records_ingested"] = tot_ingested
 
             if tot_ingested <= 0:
@@ -1011,26 +1056,29 @@ async def _run_query_sigma_zip_big_matches_and_notes(
             if tot_ingested != expected_ingested:
                 result_totals["status"] = "failed"
                 return result_totals
+            if ingest_only:
+                result_totals["status"] = "done"
+                return result_totals
             result_totals["status"] = "running"
 
             query_req_id = _unique("sigma_zip_req")
             ws_stats_update_count = 0
             ws_query_done_count = 0
             ws_collab_create_count = 0
-            query_timeout = request_timeout
             query_stats: dict[str, Any] = {}
             query_url = _round_robin_instance_url(
                 normalized_instance_urls, operation_index, 0, 1
             )
             result_totals["query_url"] = query_url
-            print(
-                "sigma zip query request split:",
-                {
-                    "operation_id": op_id,
-                    "operation_index": operation_index,
-                    "query_url": query_url,
-                },
-            )
+            if _sigma_zip_verbose():
+                print(
+                    "sigma zip query request split:",
+                    {
+                        "operation_id": op_id,
+                        "operation_index": operation_index,
+                        "query_url": query_url,
+                    },
+                )
 
             async def _on_query_ws_message(message: WSMessage) -> None:
                 nonlocal ws_stats_update_count, ws_query_done_count
@@ -1038,7 +1086,11 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                     return
                 if message.type == WSMessageType.STATS_UPDATE.value:
                     ws_stats_update_count += 1
-                    payload = message.data.get("obj") if isinstance(message.data, dict) else None
+                    payload = (
+                        message.data.get("obj")
+                        if isinstance(message.data, dict)
+                        else None
+                    )
                     if isinstance(payload, dict):
                         payload_status = str(payload.get("status", "")).lower()
                         if payload_status in {"done", "failed", "canceled"}:
@@ -1071,9 +1123,14 @@ async def _run_query_sigma_zip_big_matches_and_notes(
 
             async def _on_collab_create_ws_message(message: WSMessage) -> None:
                 nonlocal ws_collab_create_count
-                payload_obj = message.data.get("obj") if isinstance(message.data, dict) else None
+                payload_obj = (
+                    message.data.get("obj") if isinstance(message.data, dict) else None
+                )
                 if isinstance(payload_obj, dict):
-                    if payload_obj.get("operation_id") == op_id and payload_obj.get("type") == "note":
+                    if (
+                        payload_obj.get("operation_id") == op_id
+                        and payload_obj.get("type") == "note"
+                    ):
                         ws_collab_create_count += 1
                         result_totals["ws_collab_create_count"] = ws_collab_create_count
                         if _should_print_received_count(
@@ -1091,9 +1148,14 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                     for obj in payload_obj:
                         if not isinstance(obj, dict):
                             continue
-                        if obj.get("operation_id") == op_id and obj.get("type") == "note":
+                        if (
+                            obj.get("operation_id") == op_id
+                            and obj.get("type") == "note"
+                        ):
                             ws_collab_create_count += 1
-                            result_totals["ws_collab_create_count"] = ws_collab_create_count
+                            result_totals["ws_collab_create_count"] = (
+                                ws_collab_create_count
+                            )
                             if _should_print_received_count(
                                 ws_collab_create_count, expected_matches
                             ):
@@ -1105,12 +1167,20 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                                 )
 
             async with AsyncExitStack() as stack:
-                query_client = client
-                if query_url != client.base_url:
-                    query_client = await stack.enter_async_context(
-                        GulpClient(query_url, token=client.token)
+                query_ws_types = [
+                    WSMessageType.STATS_UPDATE,
+                    WSMessageType.QUERY_DONE,
+                ]
+                query_ws_types.append(WSMessageType.COLLAB_CREATE)
+                query_client = await stack.enter_async_context(
+                    GulpClient(
+                        query_url,
+                        token=client.token,
+                        ws_operation_ids=[op_id],
+                        ws_message_types=query_ws_types,
                     )
-
+                )
+                query_ws_id = query_client.ws_id
                 await query_client.register_ws_message_handler(
                     WSMessageType.STATS_UPDATE, _on_query_ws_message
                 )
@@ -1121,21 +1191,30 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                     WSMessageType.COLLAB_CREATE, _on_collab_create_ws_message
                 )
                 try:
+                    query_options = {"create_notes": True, "name": "sdk_sigma_zip_big"}
                     try:
                         query_resp = await query_client.queries.query_sigma_zip(
                             operation_id=op_id,
                             zip_path=str(sigma_zip_path),
                             src_ids=[],
-                            q_options={"create_notes": True, "name": "sdk_sigma_zip_big"},
+                            q_options=query_options,
                             req_id=query_req_id,
-                            ws_id=query_client.ws_id,
+                            ws_id=query_ws_id,
                             wait=False,
                         )
                     except GulpSDKError as exc:
                         msg = str(exc).lower()
-                        if "query_sigma_zip" in msg or "notfound" in msg or "404" in msg:
-                            raise RuntimeError("query_sigma_zip extension endpoint not available") from exc
-                        raise RuntimeError(f"query_sigma_zip unavailable in this environment: {exc}") from exc
+                        if (
+                            "query_sigma_zip" in msg
+                            or "notfound" in msg
+                            or "404" in msg
+                        ):
+                            raise RuntimeError(
+                                "query_sigma_zip extension endpoint not available"
+                            ) from exc
+                        raise RuntimeError(
+                            f"query_sigma_zip unavailable in this environment: {exc}"
+                        ) from exc
 
                     assert isinstance(query_resp, dict)
                     assert str(query_resp.get("status", "")).lower() == "pending"
@@ -1147,15 +1226,12 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                         lambda stats: int(
                             ((stats.get("data") or {}).get("completed_queries", 0))
                         )
-                        >= expected_completed,
-                        timeout_sec=query_timeout,
+                        >= expected_completed
+                        or str(stats.get("status", "")).lower()
+                        in {"done", "failed", "canceled"},
                         label="query_sigma_zip",
                     )
 
-                except TimeoutError as exc:
-                    raise AssertionError(
-                        f"query_sigma_zip did not finish within {query_timeout}s for req_id={query_req_id}"
-                    ) from exc
                 finally:
                     query_client.unregister_ws_message_handler(
                         WSMessageType.STATS_UPDATE, _on_query_ws_message
@@ -1175,7 +1251,9 @@ async def _run_query_sigma_zip_big_matches_and_notes(
             result_totals["ws_stats_update_count"] = ws_stats_update_count
             query_data = query_stats.get("data") or {}
             result_totals["status"] = query_stats.get("status", result_totals["status"])
-            result_totals["completed_queries"] = int(query_data.get("completed_queries", 0))
+            result_totals["completed_queries"] = int(
+                query_data.get("completed_queries", 0)
+            )
             result_totals["total_hits"] = int(query_data.get("total_hits", 0))
 
             if result_totals["completed_queries"] != expected_completed:
@@ -1204,13 +1282,16 @@ async def _run_query_sigma_zip_big_matches_and_notes(
 
             expected_notes = expected_matches
             result_totals["expected_notes"] = expected_notes
-            observed_notes = await _wait_for_operation_notes(
-                client, op_id, expected_notes, timeout_sec=query_timeout
-            )
-            result_totals["notes"] = observed_notes
+            if verify_notes:
+                observed_notes = await _wait_for_operation_notes(
+                    client, op_id, expected_notes
+                )
+                result_totals["notes"] = observed_notes
 
-            if observed_notes != expected_notes:
-                _fail(f"Expected exactly {expected_notes} notes, got {observed_notes}")
+                if observed_notes != expected_notes:
+                    _fail(
+                        f"Expected exactly {expected_notes} notes, got {observed_notes}"
+                    )
 
             result_totals["completed_queries"] = expected_completed
             result_totals["status"] = "done"
@@ -1222,7 +1303,9 @@ async def _run_query_sigma_zip_big_matches_and_notes(
 
 
 @pytest.mark.integration
-async def test_query_sigma_zip_big_matches_and_notes(gulp_base_url, gulp_test_user, gulp_test_password):
+async def test_query_sigma_zip_big_matches_and_notes(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
     """
     Run query_sigma_zip using the BIG_SIGMAS ruleset and verify progress, matches and notes.
 

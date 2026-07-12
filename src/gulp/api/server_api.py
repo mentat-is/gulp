@@ -569,6 +569,14 @@ class GulpServer:
 
         raise ValueError(f"unknown task_type: {ttype!r}")
 
+    @staticmethod
+    def _task_dispatch_capacity() -> int:
+        """Return the broad worker-task capacity for this instance."""
+        cfg = GulpConfig.get_instance()
+        child_concurrency = max(1, cfg.workers_concurrency_max())
+        num_workers = max(1, cfg.workers_max())
+        return max(1, num_workers * child_concurrency)
+
     async def _dispatch_claimed_tasks(
         self,
         redis_inst: GulpRedis,
@@ -629,11 +637,7 @@ class GulpServer:
         Keeps up to the configured capacity in flight instead of waiting for a
         whole drained batch to finish before dequeuing more work.
         """
-        # compute total capacity: number of worker processes * per-worker concurrency
-        child_concurrency: int = GulpConfig.get_instance().concurrency_num_tasks()
-        num_workers: int = GulpConfig.get_instance().parallel_processes_max()
-        total_capacity: int = max(1, num_workers * child_concurrency)
-        limit: int = total_capacity
+        limit: int = self._task_dispatch_capacity()
         MutyLogger.get_instance().info("STARTING dispatch_tasks loop ...")
 
         in_flight: set[asyncio.Task[None]] = set()
@@ -1031,42 +1035,31 @@ class GulpServer:
             await self._test()
 
         cfg = GulpConfig.get_instance()
-        configured_tasks: int = getattr(cfg, "_config", {}).get(
-            "concurrency_num_tasks", 0
-        )
-        child_concurrency: int = cfg.concurrency_num_tasks()
-        num_workers: int = cfg.parallel_processes_max()
-        total_concurrency: int = max(1, num_workers * child_concurrency)
-        if cfg.concurrency_adaptive_num_tasks():
-            base_tasks = configured_tasks if configured_tasks > 0 else 16
-            opensearch_nodes = max(1, cfg.concurrency_opensearch_num_nodes())
-            postgres_nodes = max(1, cfg.concurrency_postgres_num_nodes())
-            scaled_tasks = base_tasks * opensearch_nodes * postgres_nodes
-            MutyLogger.get_instance().debug(
-                "startup concurrency: queued worker operations<=%d "
-                "(workers=%d, per_worker=%d, adaptive=true: "
-                "max(8, min(cap_per_process=%d, base_tasks=%d * "
-                "opensearch_nodes=%d * postgres_nodes=%d = %d)))",
-                total_concurrency,
-                num_workers,
-                child_concurrency,
-                cfg.concurrency_tasks_cap_per_process(),
-                base_tasks,
-                opensearch_nodes,
-                postgres_nodes,
-                scaled_tasks,
-            )
+        child_concurrency: int = cfg.workers_concurrency_max()
+        num_workers: int = cfg.workers_max()
+        dispatch_concurrency: int = self._task_dispatch_capacity()
+        ingest_concurrency: int = max(1, num_workers)
+        query_concurrency_max: int = cfg.query_concurrency_max()
+        if query_concurrency_max == 0:
+            query_concurrency_max = dispatch_concurrency
         else:
-            MutyLogger.get_instance().debug(
-                "startup concurrency: queued worker operations<=%d "
-                "(workers=%d, per_worker=%d, adaptive=false: "
-                "configured_concurrency_num_tasks=%d)",
-                total_concurrency,
-                num_workers,
-                child_concurrency,
-                configured_tasks,
-            )
-
+            query_concurrency_max = max(1, query_concurrency_max)
+        MutyLogger.get_instance().debug(
+            "startup concurrency: queued Redis task dispatches<=%d "
+            "(worker_processes=%d * workers_concurrency_max=%d)",
+            dispatch_concurrency,
+            num_workers,
+            child_concurrency,
+        )
+        MutyLogger.get_instance().debug(
+            "startup adaptive query concurrency per group: max=%d",
+            query_concurrency_max,
+        )
+        MutyLogger.get_instance().debug(
+            "startup ingest concurrency: ingest execution<=%d (worker_processes=%d)",
+            ingest_concurrency,
+            num_workers,
+        )
         # start the dequeue task for long running tasks
         self._poll_tasks_task = asyncio.create_task(self._dispatch_tasks())
 

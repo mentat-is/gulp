@@ -97,7 +97,7 @@ Along side the specific ones we also provide some generic "base" plugins which c
 
 ### extension
 
-- use [`example`](../src/gulp/plugins/extension/example.py) plugin as a base, currently we have extension plugins (i.e. support for `OAUTH` login) on our paid offer only.
+- use [`example_extension`](../src/gulp/plugins/example/example_extension.py) plugin as a base.
 
 ### enrichment
 
@@ -127,7 +127,7 @@ then, different methods may be implemented:
   - the [`raw`](../src/gulp/plugins/raw.py) plugin ingests pre-processed `GulpDocuments`
 
 - `query_external`: implemented by `external` plugins, queries and ingest from an external source.
-  - look in [elasticsearch](../src/gulp/plugins/elasticsearch.py) for a complete example.
+  - look in [query_elasticsearch](../src/gulp/plugins/query_elasticsearch.py) for a complete example.
   - `GulpQueryExternalParameters` holds parameters to query the external source, including the `plugin` and `GulpPluginParameters` to be used.
 
 - `enrich_documents` and `enrich_single_document`: implemented in `enrichment` plugins to enrich one or more document.
@@ -173,7 +173,7 @@ the plugins must implement:
 
 `ingest_file`, `query_external` are guaranteed to be called in a task running in a *worker process*, so each ingest/query operation will run in parallel, unless `preview_mode` is set.
 
-> gulp spawns different worker processes at startup (controlled by `parallel_processes_max` in the configuration) to maximize the usage of available cores, using both `multiprocessing` and `asyncio` to run lenghty operations (queries, ingestion) `concurrently` and in `parallel` as much as possible.
+> gulp spawns different worker processes at startup (controlled by `workers_max` in the configuration) to maximize the usage of available cores, using both `multiprocessing` and `asyncio` to run lenghty operations (queries, ingestion) `concurrently` and in `parallel` as much as possible.
 
 following are basic rules to use multiprocessing and concurrency effectively in gulp plugins:
 
@@ -284,7 +284,7 @@ These callbacks are typically registered in the main process, while worker proce
 
 The payload of the event is a `GulpChunkPrePostIngestInternalEvent` containing the chunk, index, request/ws/operation/user ids, and the plugin name. For `EVENT_CHUNK_PRE_INGEST`, the callback may return a modified chunk in `GulpInternalEventResult.result`.
 
-an example is provided in [example_chunk_callbacks](../src/gulp/plugins/extension/example_chunk_callbacks.py) plugin.
+an example is provided in [example_chunk_callbacks](../src/gulp/plugins/example/example_chunk_callbacks.py) plugin.
 
 #### file storage
 
@@ -329,7 +329,7 @@ enrichment plugins takes one or more `GulpDocuments` and returns them augmented 
 
 they must implement `enrich_documents`, `enrich_single_documents` and `_enrich_documents_chunk`.
 
-[here is a basic example](../src/gulp/plugins/enrich_example.py).
+[here is a basic example](../src/gulp/plugins/example/enrich_example.py).
 
 here is the illustrated data flow for the [enrich_whois plugin](../src/gulp/plugins/enrich_whois.py), which enriches gulp data with whois information.
 
@@ -399,7 +399,7 @@ to query an external source with an `external plugin`, a client uses the `query_
 3. pass the `q` parameter, which is the query in the `external specific DSL(Domain Specific Language) format`.
 4. optionally pass the `q_options` parameter, which controls how the query is performed (*not all parameters may be supported by the plugin*)
 
-> look at [test_elasticsearch](../tests/query/test_query_external_elasticsearch.py) in the query tests for an example usage
+> look at [test_query_external_optional](../tests/integration/test_queries.py) in the query tests for an example usage
 
 ### extension plugins
 
@@ -407,7 +407,7 @@ extensions plugins starts with gulp and mostly runs **in the main process contex
 
 they may be used to extend gulp API, i.e. implement new sign-in code, ...
 
-> this is [just an example](../src/gulp/plugins/extension/example.py) which adds a REST API entrypoint and runs sample code in a worker when the API is called.
+> this is [just an example](../src/gulp/plugins/example/example_extension.py) which adds a REST API entrypoint and runs sample code in a worker when the API is called.
 
 ~~~mermaid
 sequenceDiagram
@@ -450,15 +450,15 @@ to emit events, an extension plugin must use `GulpInternalEventsManager.get_inst
 
 > events may be emitted both from the main process (i.e. from an extension plugin task running in the main process) or from tasks in worker processes started from the extension, but the `internal_event_callback` will always run in the main process.
 
-a complete example about this is in [example_custom_internal_event](../src/gulp/plugins/extension/example_custom_internal_event.py) plugin, which registers for custom internal events and emits them both from the main process and worker processes.
+a complete example about this is in [example_custom_internal_event](../src/gulp/plugins/example/example_custom_internal_event.py) plugin, which registers for custom internal events and emits them both from the main process and worker processes.
   
 ## stacked plugins
 
 `ingestion`, `enrichment`, `external` plugins may be stacked above another plugin of the same type (**only one stacking is supported**), as a `lower` and `higher` plugin: the idea is the `lower` plugin processes the source data into basic `GulpDocuments`, while the `higher` plugin further process/enrich each document generated by the lower plugin.
 
-stacked plugins are usually based on generic *ingestion* plugins such as [csv](../src/gulp/plugins/csv) or [sqlite](../src/gulp/plugins/sqlite.py)
+stacked plugins are usually based on generic *ingestion* plugins such as `csv` or [sqlite](../src/gulp/plugins/sqlite.py)
 
-An example of a basic extension plugin is [stacked_example](../src/gulp/plugins/stacked_example.py), or for a real one you may look at [chrome_history](../src/gulp/plugins/chrome_history_sqlite_stacked.py) which sits on top of the [sqlite](../src/gulp/plugins/sqlite.py) plugin.
+An example of a basic stacked plugin is [stacked_example](../src/gulp/plugins/example/stacked_example.py), or for a real one you may look at [chrome_history](../src/gulp/plugins/chrome_history_sqlite_stacked.py) which sits on top of the [sqlite](../src/gulp/plugins/sqlite.py) plugin.
 
 ### flow in stacked plugins
 
