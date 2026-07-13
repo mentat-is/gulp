@@ -56,7 +56,7 @@ Core services used by the backend:
 
 ## Change Coordination Rules
 
-- If you change backend API behavior, check whether `gulp-sdk/` must be updated.
+- If you change backend API behavior, also update `gulp-sdk/` and if necessary, `gulpui-web/`.
 - If you update `gulp-sdk/`, also check whether `gulp-cli/` must change to stay aligned.
 - Reuse existing examples in the repo instead of inventing new file structure or test style.
 - For plugin work, prefer the documented reference plugins below.
