@@ -71,3 +71,4 @@ Counts are `records / completed queries / hits / notes`; times are harness wall-
 | 2026-07-13 | 1 user, full | bounded plugin batches | 181.92s | PASS `98,633 / 1,149 / 73,464 / 73,464`; 288 batches, sampled entries 3-667 KB |
 | 2026-07-13 | 2 users, full | bounded plugin batches | 308.47s | PASS `197,266 / 2,298 / 146,928 / 146,928`; users finished in 232.56s and 305.23s |
 | 2026-07-13 | 2 users, full | fair request streams | 231.62s | PASS `197,266 / 2,298 / 146,928 / 146,928`; users finished in 211.01s and 228.49s; PostgreSQL 19 connections, Redis 19.71 MiB, OpenSearch 70% heap with no queue/rejections |
+| 2026-07-13 | 4 users, full | fair request streams | 441.31s | PASS `394,532 / 4,596 / 293,856 / 293,856`; all runnable requests progressed; sampled peak OpenSearch 72% heap, 60% CPU, 5 active searches with no queue/rejections; PostgreSQL 19 connections |
