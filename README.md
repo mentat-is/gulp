@@ -24,7 +24,7 @@ _made with :heart: by Mentat._
 
 <div align="center">
 
-[Description](#description) · [Quick start](#quick-start) · [Web UI](#web-ui) · [Documentation](#documentation) · [Examples](#run-examples)
+[Description](#description) · [Quick start](#quick-start) · [Web UI](#web-ui) · [Documentation](#documentation) · [Examples](#backend-run-examples)
 
 </div>
 
@@ -38,9 +38,10 @@ web UI provides the investigation workspace.
 - **OpenSearch and ECS** for storage and a consistent event schema.
 - **Multiprocessing** for ingestion and querying.
 - **Sigma queries**, collaboration, notes, links, enrichment, and plugins.
+- **AI assistant** for [automatic enrichment and analysis of events and documents](./plugins/extension/ai_assistant.py) (*).
 - **Scalable deployments**; see the [scaling guide](docs/scaling.md).
 
-[Read the detailed datasheet.](DATASHEET.md)
+(*) extra AI features, including an enhanced assistant and an automated `MCP server` to completely automatize incident response, are available in our paid tier.
 
 ## quick start
 
@@ -51,12 +52,11 @@ builds the included UI from this checkout:
 git clone https://github.com/mentat-is/gulp.git && cd gulp && docker compose --profile gui up -d --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000), sign in with `admin/admin`,
-and use [http://localhost:8080/docs](http://localhost:8080/docs) for the API.
-The default compose setup is for local evaluation; see the [Docker guide](docs/install_docker.md) before production use.
+Open [http://localhost:3000](http://localhost:3000), sign in with `admin/admin`, backend API reference is available at [http://localhost:8080/docs](http://localhost:8080/docs).
 
-To run the UI directly while developing it, install Node.js `22.14.1` and pnpm
-`10.8.1`, then run:
+The default compose setup is an example for local evaluation and to be used as a base for more complex setups; see the [Docker guide](docs/install_docker.md) before production use.
+
+To run the UI directly while developing it, install Node.js `22.14.1` and pnpm `10.8.1`, then run:
 
 ```bash
 pnpm --dir gulpui-web install && pnpm --dir gulpui-web start
@@ -102,7 +102,7 @@ focused on the investigation.
 - [Observability](docs/observability.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
-## configuration
+## backend configuration
 
 The following environment variables override common runtime configuration:
 
@@ -110,7 +110,7 @@ The following environment variables override common runtime configuration:
 - `GULP_WORKING_DIR`: defaults to `~/.config/gulp` and contains the generated `gulp_cfg.json`, optional `plugins/` and `mapping_files/`, certificates, local ingestion files, and temporary uploads.
 - `GULP_OPENSEARCH_URL`, `GULP_POSTGRES_URL`, `GULP_REDIS_URL`, `GULP_S3_URL`: override their corresponding configuration values.
 
-## run examples
+## backend run examples
 
 The `gulp` command creates the default configuration and initial `test_operation`
 on its first run.
