@@ -633,6 +633,13 @@ async def sigmas_to_queries(
 
     if no sources are provided, we get all available sources
 
+    Converted rules are cached in Redis for one hour. Each cache entry is keyed
+    by the rule content, resolved source IDs, filters, and mapping parameters,
+    so it is reused only for an equivalent conversion; rules filtered out or
+    failing conversion are cached as zero results too. Non-count requests also
+    use a short-lived batch lock: concurrent identical batches wait for the
+    first caller to populate the per-rule entries, then reuse them.
+
     Args:
         sess (AsyncSession): the database session
         user_id (str): the user id
@@ -709,6 +716,7 @@ async def sigmas_to_queries(
 
     gulp_queries: list[GulpQuery] = []
 
+    # Per-rule keys allow partially overlapping batches to reuse conversions.
     cache_keys = [
         _make_sigma_cache_key(
             yml=yml,
@@ -725,6 +733,8 @@ async def sigmas_to_queries(
     owns_batch = False
     batch_cache_key = None
     if cache_keys and not count_only:
+        # The marker's lock prevents concurrent identical batches from doing
+        # the same expensive conversions while the per-rule cache is populated.
         batch_cache_key = _make_sigma_batch_cache_key(cache_keys)
         owns_batch = await _cache_get_or_claim(batch_cache_key) is None
 
