@@ -76,3 +76,9 @@ append progress in this file each time you progress.
 - Added one `note_text` row per distinct operation/query body. Automatic notes reference that row and store only per-hit highlight text inline, while serialization still returns the original combined `text` field; no REST/SDK/UI contract changed.
 - Added scalar `doc_id` plus indexes for note context, source, document, shared text, and shared-text operation cascades. Note filtering now uses the indexed document ID and searches both inline and shared text.
 - Manual note edits detach shared text so edited content remains independent. Focused note, scheduler, and idempotency tests pass: `63 passed`.
+
+### 2026-07-13: Sigma ZIP request queueing and single conversion
+
+- The extension REST handler now queues the completed ZIP as a Redis query task instead of starting untracked main-process background work.
+- A scheduler-assigned worker unzips and converts the full rule set exactly once, creates request stats from the resulting query count, then uses the core atomic fan-out helper to enqueue one Redis message per query. Empty conversions finish cleanly and preprocessing/fan-out errors mark request stats failed.
+- Added paid-plugin coverage for immediate preprocessing queueing and one-pass conversion. Combined focused coverage passes: `65 passed`.

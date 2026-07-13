@@ -781,7 +781,7 @@ async def process_queries(
         raise
 
 
-async def _enqueue_query_tasks(
+async def enqueue_query_tasks(
     *,
     task_type: str,
     operation_id: str,
@@ -1122,7 +1122,7 @@ one query according to the [OpenSearch DSL specifications](https://opensearch.or
                 return existing_response
 
             try:
-                await _enqueue_query_tasks(
+                await enqueue_query_tasks(
                     task_type=TASK_TYPE_QUERY,
                     operation_id=operation_id,
                     user_id=user_id,
@@ -1335,7 +1335,7 @@ async def query_gulp_handler(
                 return existing_response
 
             try:
-                await _enqueue_query_tasks(
+                await enqueue_query_tasks(
                     task_type=TASK_TYPE_QUERY,
                     operation_id=operation_id,
                     user_id=user_id,
@@ -1487,7 +1487,7 @@ async def query_external_handler(
                 return existing_response
 
             try:
-                await _enqueue_query_tasks(
+                await enqueue_query_tasks(
                     task_type=TASK_TYPE_EXTERNAL_QUERY,
                     operation_id=operation_id,
                     user_id=user_id,
@@ -1673,7 +1673,7 @@ async def query_sigma_handler(
                 return existing_response
 
             try:
-                await _enqueue_query_tasks(
+                await enqueue_query_tasks(
                     task_type=TASK_TYPE_QUERY,
                     operation_id=operation_id,
                     user_id=user_id,

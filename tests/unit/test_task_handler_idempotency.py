@@ -355,6 +355,28 @@ async def test_run_query_batch_updates_stats(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_run_query_task_dispatches_queued_extension(monkeypatch):
+    from gulp.api.server import query as query_mod
+
+    plugin = SimpleNamespace(
+        run_queued_task=AsyncMock(return_value=True), unload=AsyncMock()
+    )
+    load = AsyncMock(return_value=plugin)
+    monkeypatch.setattr(query_mod.GulpPluginBase, "load", load)
+    task = {
+        "task_type": "query",
+        "req_id": "req-extension",
+        "params": {"extension": "query_sigma_zip"},
+    }
+
+    assert await query_mod.run_query_task(task) is True
+    load.assert_awaited_once_with("query_sigma_zip", extension=True)
+    plugin.run_queued_task.assert_awaited_once_with(task)
+    plugin.unload.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_modify_documents_chunk_updates_stats(monkeypatch):
     from gulp.api.server import enrich as enrich_mod
 
@@ -626,7 +648,7 @@ async def test_enqueue_query_tasks_leaves_batching_to_scheduler(monkeypatch):
         ),
     )
 
-    await query_mod._enqueue_query_tasks(
+    await query_mod.enqueue_query_tasks(
         task_type=TASK_TYPE_QUERY,
         operation_id="op-query-batch",
         user_id="user-query-batch",
