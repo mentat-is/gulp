@@ -150,7 +150,21 @@ class GulpProcess:
         return
 
     @staticmethod
-    def _worker_initializer(server_id: str, spawn_key: str, log_level: int = None, logger_file_path: str = None, log_to_syslog: tuple[str, str] = None):  # type: ignore
+    def _apply_worker_runtime_config(workers_concurrency_max: int) -> None:
+        """Apply main-process runtime values to a newly spawned worker."""
+        GulpConfig.get_instance().config()["workers_concurrency_max"] = max(
+            1, workers_concurrency_max
+        )
+
+    @staticmethod
+    def _worker_initializer(
+        server_id: str,
+        spawn_key: str,
+        log_level: int = None,
+        logger_file_path: str = None,
+        log_to_syslog: tuple[str, str] = None,
+        workers_concurrency_max: int = 1,
+    ):  # type: ignore
         """
         initializes a worker process
 
@@ -164,11 +178,14 @@ class GulpProcess:
             log_to_syslog (tuple[str,str], optional): the syslog address and facility to log to syslog. Defaults to (None, None).
                 if (None, None) is passed, it defaults to ("/var/log" or "/var/run/syslog" depending what is available, "LOG_USER").
                 cannot be used with logger_file_path.
+            workers_concurrency_max (int): runtime concurrency resolved by the main process.
         """
         # we do not have mutylogger initialized yet here, so we use print statements
         print(
             "_worker_initializer, server_id=%s, spawn_key=%s" % (server_id, spawn_key)
         )
+
+        GulpProcess._apply_worker_runtime_config(workers_concurrency_max)
 
         # initialize paths immediately, before any unpickling happens
         plugins_path = GulpConfig.get_instance().path_plugins_default()
@@ -335,10 +352,11 @@ class GulpProcess:
 
             # start workers
             # each worker will call finish_initialization as well and INCR the spawn_key
+            child_concurrency = GulpConfig.get_instance().workers_concurrency_max()
             self.process_pool = AioProcessPool(
                 exception_handler=GulpProcess._worker_exception_handler,
                 processes=num_workers,
-                childconcurrency=GulpConfig.get_instance().workers_concurrency_max(),
+                childconcurrency=child_concurrency,
                 maxtasksperchild=GulpConfig.get_instance().parallel_processes_respawn_after_tasks(),
                 initializer=GulpProcess._worker_initializer,
                 initargs=(
@@ -347,6 +365,7 @@ class GulpProcess:
                     MutyLogger.log_level,
                     MutyLogger.logger_file_path,
                     self._log_to_syslog,
+                    child_concurrency,
                 ),
             )
 

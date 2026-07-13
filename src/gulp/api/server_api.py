@@ -75,6 +75,7 @@ class GulpServer:
         self._poll_tasks_task: asyncio.Task = None
         self._extension_plugins: list[GulpPluginBase] = []
         self._last_opensearch_search_rejected: int | None = None
+        self._opensearch_search_capacity: int | None = None
 
     def __new__(cls):
         """
@@ -438,6 +439,7 @@ class GulpServer:
                 self._app,
                 host=address,
                 port=port,
+                ws_ping_interval=None,
                 ssl_keyfile=ssl_keyfile,  # gulp server cert key
                 ssl_keyfile_password=cert_password,  # key password
                 ssl_certfile=ssl_certfile,  # gulp server cert
@@ -459,7 +461,12 @@ class GulpServer:
             except Exception:
                 MutyLogger.get_instance().exception("failed to write pidfile")
 
-            uvicorn.run(self._app, host=address, port=port)
+            uvicorn.run(
+                self._app,
+                host=address,
+                port=port,
+                ws_ping_interval=None,
+            )
 
     @staticmethod
     def _task_lease_refresh_interval() -> float:
@@ -641,12 +648,13 @@ class GulpServer:
         maximum: int,
         service_ceiling: int,
         under_pressure: bool,
+        recovery_step: int = 4,
     ) -> int:
-        """Halve under pressure and recover four slots per healthy sample."""
+        """Halve under pressure and recover slots per healthy sample."""
         ceiling = max(1, min(maximum, service_ceiling))
         if under_pressure:
             return max(1, min(current, ceiling) // 2)
-        return min(ceiling, current + 4)
+        return min(ceiling, current + max(1, recovery_step))
 
     async def _task_service_state(self) -> tuple[bool, int, dict[str, int]]:
         """Return service pressure and a safe concurrency ceiling."""
@@ -663,10 +671,9 @@ class GulpServer:
                 ).one()
                 return int(row[0]), int(row[1])
 
-        async def _opensearch_state() -> tuple[int, int, int, int]:
-            stats = await GulpOpenSearch.get_instance()._opensearch.nodes.stats(
-                metric="jvm,process,thread_pool"
-            )
+        async def _opensearch_state() -> tuple[int, int, int, int, int]:
+            nodes_client = GulpOpenSearch.get_instance()._opensearch.nodes
+            stats = await nodes_client.stats(metric="jvm,process,thread_pool")
             nodes = stats.get("nodes", {}).values()
             search_threads = heap = cpu = rejected = 0
             for node in nodes:
@@ -683,7 +690,27 @@ class GulpServer:
                 )
                 if int(search.get("queue", 0)) > 0:
                     cpu = 100
-            return search_threads, heap, cpu, rejected
+
+            if self._opensearch_search_capacity is None:
+                info = await nodes_client.info(metric="thread_pool")
+                search_capacity = sum(
+                    int(
+                        node.get("thread_pool", {})
+                        .get("search", {})
+                        .get("size", 0)
+                    )
+                    for node in info.get("nodes", {}).values()
+                )
+                if search_capacity:
+                    self._opensearch_search_capacity = search_capacity
+
+            return (
+                search_threads,
+                self._opensearch_search_capacity or search_threads,
+                heap,
+                cpu,
+                rejected,
+            )
 
         try:
             async with asyncio.timeout(2):
@@ -699,14 +726,20 @@ class GulpServer:
             return True, 1, {}
 
         postgres_max, postgres_used = postgres
-        search_threads, heap, cpu, rejected = opensearch
+        (
+            search_threads,
+            search_capacity,
+            heap,
+            cpu,
+            rejected,
+        ) = opensearch
         rejected_increased = (
             self._last_opensearch_search_rejected is not None
             and rejected > self._last_opensearch_search_rejected
         )
         self._last_opensearch_search_rejected = rejected
         postgres_ceiling = max(1, int(postgres_max * 0.8))
-        service_ceiling = max(1, min(postgres_ceiling, search_threads or 1))
+        service_ceiling = max(1, min(postgres_ceiling, search_capacity or 1))
         under_pressure = (
             not redis_ok
             or postgres_used >= postgres_ceiling
@@ -723,6 +756,7 @@ class GulpServer:
                 "opensearch_heap": heap,
                 "opensearch_cpu": cpu,
                 "opensearch_search_threads": search_threads,
+                "opensearch_search_capacity": search_capacity,
                 "opensearch_search_rejected": rejected,
             },
         )
@@ -786,13 +820,17 @@ class GulpServer:
         """
         maximum: int = self._task_dispatch_capacity()
         limit: int = maximum
+        query_limit = 1
+        query_tuning_active = False
         last_health_check = 0.0
         MutyLogger.get_instance().info("STARTING dispatch_tasks loop ...")
 
         in_flight: set[asyncio.Task[None]] = set()
+        query_in_flight: set[asyncio.Task[None]] = set()
 
         def _consume_dispatch_result(task: asyncio.Task[None]) -> None:
             in_flight.discard(task)
+            query_in_flight.discard(task)
             with suppress(asyncio.CancelledError):
                 try:
                     task.result()
@@ -811,6 +849,8 @@ class GulpServer:
                 self._dispatch_claimed_tasks(redis_inst, [task_obj], source=source)
             )
             in_flight.add(task)
+            if task_obj.get("task_type") == TASK_TYPE_QUERY:
+                query_in_flight.add(task)
             task.add_done_callback(_consume_dispatch_result)
 
         try:
@@ -818,7 +858,11 @@ class GulpServer:
                 try:
                     redis_inst = GulpRedis.get_instance()
                     now = time.monotonic()
+                    known_types = await redis_inst.task_known_types()
                     if now - last_health_check >= 2.0:
+                        query_demand = bool(query_in_flight) or (
+                            await redis_inst.task_queue_depth(TASK_TYPE_QUERY) > 0
+                        )
                         under_pressure, service_ceiling, state = (
                             await self._task_service_state()
                         )
@@ -837,6 +881,32 @@ class GulpServer:
                                 state,
                             )
                             limit = new_limit
+                        if not query_demand:
+                            query_tuning_active = False
+                            new_query_limit = 1
+                        elif not query_tuning_active:
+                            query_tuning_active = True
+                            new_query_limit = 1
+                        else:
+                            # Queries can consume much more OpenSearch heap than other
+                            # tasks. Ramp them one slot at a time so the next service
+                            # sample can react before admitting another large wave.
+                            new_query_limit = self._next_task_dispatch_limit(
+                                query_limit,
+                                maximum,
+                                min(new_limit, service_ceiling),
+                                under_pressure,
+                                recovery_step=1,
+                            )
+                        if new_query_limit != query_limit:
+                            MutyLogger.get_instance().info(
+                                "query dispatch concurrency %d -> %d, pressure=%r, services=%s",
+                                query_limit,
+                                new_query_limit,
+                                under_pressure,
+                                state,
+                            )
+                            query_limit = new_query_limit
                         last_health_check = now
 
                     last_cleanup = getattr(
@@ -863,16 +933,58 @@ class GulpServer:
 
                     capacity = limit - len(in_flight)
                     if capacity > 0:
+                        non_query_types = [
+                            task_type
+                            for task_type in known_types
+                            if task_type != TASK_TYPE_QUERY
+                        ]
+                        query_slots = max(
+                            0,
+                            min(
+                                capacity,
+                                query_limit - len(query_in_flight),
+                            ),
+                        )
+                        allowed_types = list(non_query_types)
+                        if query_slots:
+                            allowed_types.append(TASK_TYPE_QUERY)
+
                         # block briefly while tasks are running so new arrivals can
                         # fill idle slots without waiting for current work to finish.
                         first = await redis_inst.task_pop_blocking(
-                            timeout=1 if in_flight else 5
+                            timeout=1 if in_flight else 5,
+                            task_types=allowed_types,
                         )
                         if first is not None:
                             batch: list[dict] = [first]
-                            if capacity > 1:
+                            remaining = capacity - 1
+                            query_slots = max(
+                                0,
+                                min(
+                                    remaining,
+                                    query_limit
+                                    - len(query_in_flight)
+                                    - (
+                                        1
+                                        if first.get("task_type") == TASK_TYPE_QUERY
+                                        else 0
+                                    ),
+                                ),
+                            )
+                            if query_slots:
                                 batch.extend(
-                                    await redis_inst.task_dequeue_batch(capacity - 1)
+                                    await redis_inst.task_dequeue_batch(
+                                        query_slots,
+                                        task_types=[TASK_TYPE_QUERY],
+                                    )
+                                )
+                            remaining = capacity - len(batch)
+                            if remaining and non_query_types:
+                                batch.extend(
+                                    await redis_inst.task_dequeue_batch(
+                                        remaining,
+                                        task_types=non_query_types,
+                                    )
                                 )
                             MutyLogger.get_instance().debug(
                                 "dispatching %d task(s), in_flight=%d, capacity=%d",

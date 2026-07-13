@@ -1747,12 +1747,17 @@ class GulpRedis:
             stream_key,
         )
 
-    async def task_dequeue_batch(self, max_items: int) -> list[dict]:
+    async def task_dequeue_batch(
+        self,
+        max_items: int,
+        task_types: list[str] | None = None,
+    ) -> list[dict]:
         """
         Read up to max_items tasks from the Redis stream queue.
 
         Args:
             max_items (int): Maximum number of tasks to pop.
+            task_types: Optional task types to read.
 
         Returns:
             list[dict]: Decoded task dicts.
@@ -1763,7 +1768,7 @@ class GulpRedis:
         items: list[dict] = []
 
         # determine stream keys to poll (per-type streams)
-        keys: list[str] = await self._task_stream_keys()
+        keys: list[str] = await self._task_stream_keys(task_types=task_types)
 
         if not keys:
             return []
@@ -1834,19 +1839,24 @@ class GulpRedis:
                     )
         return items
 
-    async def task_pop_blocking(self, timeout: int = 5) -> Optional[dict]:
+    async def task_pop_blocking(
+        self,
+        timeout: int = 5,
+        task_types: list[str] | None = None,
+    ) -> Optional[dict]:
         """
         Blocking read for a single task from the Redis stream queue.
 
         Args:
             timeout (int): Seconds to wait before returning None if queue is empty.
+            task_types: Optional task types to read.
 
         Returns:
             Optional[dict]: Decoded task dict or None if timed out.
         """
         try:
             # build stream keys to read from
-            keys: list[str] = await self._task_stream_keys()
+            keys: list[str] = await self._task_stream_keys(task_types=task_types)
 
             if not keys:
                 return None

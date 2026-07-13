@@ -6,11 +6,12 @@ from Sigma rules. The module integrates with the Sigma framework for threat dete
 serves as a bridge between Sigma rules and Gulp's search capabilities.
 """
 
+import asyncio
+import hashlib
+import json
 from typing import TYPE_CHECKING
 
 import aiofiles.os
-import hashlib
-import json
 import muty.file
 import muty.string
 import orjson
@@ -33,6 +34,11 @@ from gulp.api.opensearch.structs import GulpQuery
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.config import GulpConfig
 from gulp.structs import GulpMappingParameters, GulpProgressCallback
+
+
+_SIGMA_CACHE_TTL_SEC = 3600
+_SIGMA_CACHE_LOCK_TTL_SEC = 60
+_SIGMA_CACHE_WAIT_SEC = 0.05
 
 
 async def _read_sigma_mappings_from_file(
@@ -149,6 +155,13 @@ def _make_sigma_cache_key(
     return "gulp:sigma_cache:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def _make_sigma_batch_cache_key(cache_keys: list[str]) -> str:
+    """Return a stable completion-marker key for a batch of Sigma rules."""
+    serialized = "\0".join(sorted(cache_keys))
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return f"gulp:sigma_cache:batch:{digest}"
+
+
 async def _cache_get(
     key: str,
 ) -> dict | None:
@@ -167,6 +180,30 @@ async def _cache_get(
         return None
 
 
+async def _cache_get_or_claim(key: str) -> dict | None:
+    """Return a cached batch marker, or ``None`` when this caller owns it."""
+    client = GulpRedis.get_instance().client()
+    lock_key = f"{key}:lock"
+    while True:
+        cached = await _cache_get(key)
+        if cached is not None:
+            return cached
+        try:
+            claimed = await client.set(
+                lock_key, b"1", ex=_SIGMA_CACHE_LOCK_TTL_SEC, nx=True
+            )
+        except Exception:
+            MutyLogger.get_instance().exception(
+                "error claiming sigma cache key %s", key
+            )
+            return None
+        if claimed:
+            # ponytail: a batch taking over 60 seconds may be converted twice;
+            # use token-owned lock release if that becomes a measured workload.
+            return None
+        await asyncio.sleep(_SIGMA_CACHE_WAIT_SEC)
+
+
 async def _cache_set(
     key: str,
     value: dict,
@@ -175,8 +212,7 @@ async def _cache_set(
     """store converted sigma query in cache to avoid repeated conversions of the same rule with the same parameters."""
 
     if ttl is None:
-        # default TTL for sigma cache is 5 minutes (300 seconds)
-        ttl = 300
+        ttl = _SIGMA_CACHE_TTL_SEC
 
     try:
         client = GulpRedis.get_instance().client()
@@ -673,13 +709,8 @@ async def sigmas_to_queries(
 
     gulp_queries: list[GulpQuery] = []
 
-    count: int = 0
-    total: int = len(yamls)
-
-    for yml in yamls:
-        count += 1
-
-        cache_key = _make_sigma_cache_key(
+    cache_keys = [
+        _make_sigma_cache_key(
             yml=yml,
             src_ids=src_ids,
             levels=levels,
@@ -689,6 +720,19 @@ async def sigmas_to_queries(
             tags=tags,
             mapping_parameters=mp_by_source_id,
         )
+        for yml in yamls
+    ]
+    owns_batch = False
+    batch_cache_key = None
+    if cache_keys and not count_only:
+        batch_cache_key = _make_sigma_batch_cache_key(cache_keys)
+        owns_batch = await _cache_get_or_claim(batch_cache_key) is None
+
+    count: int = 0
+    total: int = len(yamls)
+
+    for yml, cache_key in zip(yamls, cache_keys, strict=True):
+        count += 1
 
         # check if we have a cached converted query for this rule with the same parameters
         cached = await _cache_get(cache_key)
@@ -838,6 +882,13 @@ async def sigmas_to_queries(
 
         # for query in gulp_queries:
         #     print(query)
+
+    if owns_batch:
+        await _cache_set(
+            batch_cache_key,
+            {"complete": True},
+            ttl=_SIGMA_CACHE_TTL_SEC - _SIGMA_CACHE_LOCK_TTL_SEC,
+        )
 
     if count_only:
         MutyLogger.get_instance().warning(

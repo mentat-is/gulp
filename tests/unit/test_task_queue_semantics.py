@@ -1,5 +1,6 @@
 import asyncio
 import fnmatch
+import time
 from contextlib import suppress
 
 import pytest
@@ -12,6 +13,7 @@ from gulp.api.collab.structs import GulpRequestStatus
 from gulp.api.redis_api import GulpRedis, IpRateLimitError, TaskQueueFullError
 from gulp.api.server.db import run_rebase_task
 from gulp.api.server_api import GulpServer
+from gulp.process import GulpProcess
 
 
 class _FakeTaskPipeline:
@@ -1068,6 +1070,44 @@ async def test_task_pop_blocking_claims_from_only_one_stream_per_read():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_task_reads_can_filter_task_types():
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeTaskRedisClient()
+    redis_client._redis = fake_redis
+    redis_client.server_id = "server-a"
+    fake_redis.known_task_types.update({"ingest", "query"})
+
+    async def _xreadgroup(*args, **kwargs):
+        fake_redis.xreadgroup_calls.append((args, kwargs))
+        stream = next(iter(kwargs["streams"]))
+        task_type = stream.rsplit(":", 1)[-1]
+        return [
+            (
+                stream,
+                [("1-0", {b"data": orjson.dumps({"task_type": task_type})})],
+            )
+        ]
+
+    fake_redis.xreadgroup = _xreadgroup
+
+    batch = await redis_client.task_dequeue_batch(1, task_types=["query"])
+    task = await redis_client.task_pop_blocking(
+        timeout=1,
+        task_types=["ingest"],
+    )
+
+    assert [item["task_type"] for item in batch] == ["query"]
+    assert task["task_type"] == "ingest"
+    assert all(
+        next(iter(call[1]["streams"])).endswith(
+            ":query" if index == 0 else ":ingest"
+        )
+        for index, call in enumerate(fake_redis.xreadgroup_calls)
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_task_dequeue_batch_drops_invalid_payload():
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
@@ -1245,13 +1285,21 @@ async def test_dispatch_tasks_refills_free_slots_before_slow_task_finishes(monke
     ]
 
     class _FakeDispatchRedis:
-        async def task_pop_blocking(self, timeout: int):
+        _last_stale_pending_cleanup_time = time.monotonic()
+
+        async def task_known_types(self):
+            return ["ingest"]
+
+        async def task_queue_depth(self, task_type=None):
+            return 0
+
+        async def task_pop_blocking(self, timeout: int, task_types=None):
             if tasks:
                 return tasks.pop(0)
             await asyncio.sleep(0.01)
             return None
 
-        async def task_dequeue_batch(self, max_items: int):
+        async def task_dequeue_batch(self, max_items: int, task_types=None):
             batch = tasks[:max_items]
             del tasks[:max_items]
             return batch
@@ -1288,6 +1336,84 @@ async def test_dispatch_tasks_refills_free_slots_before_slow_task_finishes(monke
     assert started[:2] == ["slow", "fast"]
     assert "third" in started
     assert not release_slow.is_set()
+
+    dispatch_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await dispatch_task
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_dispatch_tasks_caps_queries_without_blocking_ingestion(monkeypatch):
+    """Local-query admission must leave capacity for other task types."""
+    GulpServer._instance = None
+    server = GulpServer.get_instance()
+    queued = {
+        "query": [
+            {"task_type": "query", "req_id": "query-1"},
+            {"task_type": "query", "req_id": "query-2"},
+        ],
+        "ingest": [{"task_type": "ingest", "req_id": "ingest-1"}],
+    }
+
+    class _FakeDispatchRedis:
+        _last_stale_pending_cleanup_time = time.monotonic()
+
+        async def task_known_types(self):
+            return ["ingest", "query"]
+
+        async def task_queue_depth(self, task_type=None):
+            return len(queued.get(task_type, []))
+
+        async def task_pop_blocking(self, timeout: int, task_types=None):
+            for task_type in task_types or []:
+                if queued[task_type]:
+                    return queued[task_type].pop(0)
+            await asyncio.sleep(0.01)
+            return None
+
+        async def task_dequeue_batch(self, max_items: int, task_types=None):
+            tasks = []
+            for task_type in task_types or []:
+                while queued[task_type] and len(tasks) < max_items:
+                    tasks.append(queued[task_type].pop(0))
+            return tasks
+
+    fake_redis = _FakeDispatchRedis()
+    config = MagicMock()
+    config.workers_concurrency_max.return_value = 4
+    config.workers_max.return_value = 1
+    monkeypatch.setattr("gulp.api.server_api.GulpConfig.get_instance", lambda: config)
+    monkeypatch.setattr(
+        "gulp.api.server_api.GulpRedis.get_instance",
+        lambda: fake_redis,
+    )
+    server._task_service_state = AsyncMock(return_value=(True, 4, {}))
+
+    release_first_query = asyncio.Event()
+    first_query_started = asyncio.Event()
+    second_query_started = asyncio.Event()
+    ingest_started = asyncio.Event()
+
+    async def _dispatch_one(_redis_inst, claimed_tasks, *, source: str):
+        req_id = claimed_tasks[0]["req_id"]
+        if req_id == "query-1":
+            first_query_started.set()
+            await release_first_query.wait()
+        elif req_id == "query-2":
+            second_query_started.set()
+        elif req_id == "ingest-1":
+            ingest_started.set()
+
+    server._dispatch_claimed_tasks = AsyncMock(side_effect=_dispatch_one)
+
+    dispatch_task = asyncio.create_task(server._dispatch_tasks())
+    await asyncio.wait_for(first_query_started.wait(), timeout=1)
+    await asyncio.wait_for(ingest_started.wait(), timeout=1)
+    assert not second_query_started.is_set()
+
+    release_first_query.set()
+    await asyncio.wait_for(second_query_started.wait(), timeout=1)
 
     dispatch_task.cancel()
     with suppress(asyncio.CancelledError):
@@ -1335,12 +1461,87 @@ async def test_zero_workers_concurrency_uses_runtime_service_nodes(monkeypatch):
     assert config.config.return_value["workers_concurrency_max"] == 43
 
 
+def test_worker_uses_main_resolved_concurrency(monkeypatch):
+    """Spawned workers must not reinterpret automatic concurrency as one."""
+    config = MagicMock()
+    config.config.return_value = {"workers_concurrency_max": 0}
+    monkeypatch.setattr("gulp.process.GulpConfig.get_instance", lambda: config)
+
+    GulpProcess._apply_worker_runtime_config(43)
+
+    assert config.config.return_value["workers_concurrency_max"] == 43
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_task_service_ceiling_uses_configured_search_capacity(monkeypatch):
+    """A cold resizable OpenSearch pool must not cap dispatch at live threads."""
+    GulpServer._instance = None
+    server = GulpServer.get_instance()
+
+    redis = MagicMock()
+    redis.client.return_value.ping = AsyncMock(return_value=True)
+    postgres_result = MagicMock()
+    postgres_result.one.return_value = (100, 7)
+    postgres_session = AsyncMock()
+    postgres_session.execute.return_value = postgres_result
+    postgres = MagicMock()
+    postgres.session.return_value.__aenter__ = AsyncMock(
+        return_value=postgres_session
+    )
+    nodes = MagicMock()
+    nodes.stats = AsyncMock(
+        return_value={
+            "nodes": {
+                "os01": {
+                    "thread_pool": {
+                        "search": {"threads": 3, "queue": 0, "rejected": 0}
+                    },
+                    "jvm": {
+                        "mem": {"heap_used_percent": 20}
+                    },
+                    "process": {"cpu": {"percent": 0}},
+                }
+            }
+        }
+    )
+    nodes.info = AsyncMock(
+        return_value={
+            "nodes": {
+                "os01": {"thread_pool": {"search": {"size": 25}}}
+            }
+        }
+    )
+    opensearch = MagicMock()
+    opensearch._opensearch.nodes = nodes
+
+    monkeypatch.setattr(
+        "gulp.api.server_api.GulpRedis.get_instance", lambda: redis
+    )
+    monkeypatch.setattr(
+        "gulp.api.server_api.GulpCollab.get_instance", lambda: postgres
+    )
+    monkeypatch.setattr(
+        "gulp.api.server_api.GulpOpenSearch.get_instance", lambda: opensearch
+    )
+
+    pressure, ceiling, state = await server._task_service_state()
+    await server._task_service_state()
+
+    assert pressure is False
+    assert ceiling == 25
+    assert state["opensearch_search_threads"] == 3
+    assert state["opensearch_search_capacity"] == 25
+    nodes.info.assert_awaited_once_with(metric="thread_pool")
+
+
 def test_task_dispatch_limit_backs_off_and_ramps_within_service_ceiling():
     tune = GulpServer._next_task_dispatch_limit
 
     assert tune(32, 128, 24, True) == 12
     assert tune(12, 128, 24, False) == 16
     assert tune(24, 128, 24, False) == 24
+    assert tune(12, 128, 24, False, recovery_step=1) == 13
 
 
 @pytest.mark.unit
