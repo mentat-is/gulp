@@ -51,9 +51,9 @@ Keep implementation history compact by merging superseded details; keep every be
 - Redis: multi-stream reads never overclaim requested capacity, rotate fairly, and leave no hidden pending entries.
 - Notes: automatic query/Sigma text is stored once per operation in `note_text`; indexed notes retain only per-hit text while preserving the REST representation.
 - Sigma: source metadata transactions end before CPU-heavy conversion; `query_sigma_zip` queues preprocessing, converts each rule once, spools the exact total, and sends count/byte-bounded batches to the plugin-agnostic scheduler. Queries larger than 1 MiB are isolated because they cannot be split semantically.
-- Harness/profile: multi-user correctness and five-second progress work with `workers_max=2`, `workers_concurrency_max=4`, PostgreSQL `4+0`, and Redis backlog `20000`.
+- Harness/profile: the 10-user full-Sigma target passes with `workers_max=2`, `workers_concurrency_max=4`, PostgreSQL `4+0`, and Redis backlog `20000`; all requests progress concurrently once runnable.
 - Proof: backend `277 passed`; Sigma ZIP `4 passed` including 1,001 rules and 200 KB queries; paid plugins otherwise `61 passed` with two unrelated Vir.IT expectation failures.
-- Next gate: increase the full-Sigma single-instance workload toward 10 users while exact counts, request fairness, and service health remain stable; stop below 10 if smaller runs expose queue growth or service pressure.
+- Next gate: set the default `workers_max=0`, verify its runtime process count and PostgreSQL pool budget on this host, then repeat load validation without assuming automatic CPU-based sizing is safe.
 
 ## benchmark history
 
@@ -73,3 +73,4 @@ Counts are `records / completed queries / hits / notes`; times are harness wall-
 | 2026-07-13 | 2 users, full | fair request streams | 231.62s | PASS `197,266 / 2,298 / 146,928 / 146,928`; users finished in 211.01s and 228.49s; PostgreSQL 19 connections, Redis 19.71 MiB, OpenSearch 70% heap with no queue/rejections |
 | 2026-07-13 | 4 users, full | fair request streams | 441.31s | PASS `394,532 / 4,596 / 293,856 / 293,856`; all runnable requests progressed; sampled peak OpenSearch 72% heap, 60% CPU, 5 active searches with no queue/rejections; PostgreSQL 19 connections |
 | 2026-07-13 | 6 users, full | fair request streams | 718.82s | PASS `591,798 / 6,894 / 440,784 / 440,784`; three concurrent conversions plus five query batches filled all 8 dispatcher slots; PostgreSQL 19 connections and OpenSearch had no queue/rejections |
+| 2026-07-13 | 10 users, full | fair request streams | 1312.81s | PASS `986,330 / 11,490 / 734,640 / 734,640`; all 10 requests progressed; sampled peak Redis 87.56 MiB and OpenSearch 77% heap, 67% CPU, 11 active searches with no queue/rejections; PostgreSQL 20 connections |
