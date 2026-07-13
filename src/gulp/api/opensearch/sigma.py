@@ -50,7 +50,9 @@ async def _read_sigma_mappings_from_file(
         # if the path is absolute, use it as is, otherwise build the path from working/extra dir
         mapping_file_path = mapping_file
     else:
-        mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(mapping_file)
+        mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
+            mapping_file
+        )
     file_content = await muty.file.read_file_async(mapping_file_path)
     mapping_data = orjson.loads(file_content)
     mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
@@ -648,6 +650,10 @@ async def sigmas_to_queries(
 
     # get unique mapping parameters sets
     my_mapping = set(mp_by_source_id)
+
+    # Source metadata is now detached into plain models. End the read
+    # transaction before rule parsing/conversion, which can be CPU-heavy.
+    await sess.rollback()
 
     # get content for every rules passed, reading from files if they're paths
     yamls: list[str] = []
