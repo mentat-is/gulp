@@ -32,7 +32,15 @@ class _FakeTaskPipeline:
 
     def sadd(self, key: str, value: str):
         self._client.sadd_calls.append((key, value))
-        self._client.known_task_types.add(value)
+        if key == GulpRedis.TASK_TYPES_SET:
+            self._client.known_task_types.add(value)
+        else:
+            self._client.known_batch_streams.add(value)
+        return self
+
+    def srem(self, key: str, value: str):
+        self._client.srem_calls.append((key, value))
+        self._client.known_batch_streams.discard(value)
         return self
 
     async def execute(self):
@@ -43,6 +51,7 @@ class _FakeTaskPipeline:
 class _FakeTaskRedisClient:
     def __init__(self):
         self.known_task_types: set[str] = set()
+        self.known_batch_streams: set[str] = set()
         self.stream_depths: dict[str, int] = {}
         self.stream_first_ids: dict[str, str] = {}
         self.read_entries: list[tuple[str, list[tuple[str, dict[bytes, bytes]]]]] = []
@@ -51,6 +60,7 @@ class _FakeTaskRedisClient:
         self.zrem_calls: list[tuple[str, bytes]] = []
         self.zset_entries: dict[bytes, int] = {}
         self.sadd_calls: list[tuple[str, str]] = []
+        self.srem_calls: list[tuple[str, str]] = []
         self.xlen_calls: list[str] = []
         self.pending_counts: dict[str, int] = {}
         self.pending_min_ids: dict[str, str] = {}
@@ -72,11 +82,23 @@ class _FakeTaskRedisClient:
         self.pipeline_exec_count = 0
 
     async def smembers(self, key: str):
-        return {member.encode() for member in self.known_task_types}
+        members = (
+            self.known_task_types
+            if key == GulpRedis.TASK_TYPES_SET
+            else self.known_batch_streams
+        )
+        return {member.encode() for member in members}
 
     async def xlen(self, key: str):
         self.xlen_calls.append(key)
         return self.stream_depths.get(key, 0)
+
+    async def eval(self, _script: str, _numkeys: int, stream: str, set_key: str):
+        if self.stream_depths.get(stream, 0) == 0:
+            await self.srem(set_key, stream)
+            await self.delete(stream)
+            return 1
+        return 0
 
     async def xpending(self, stream_name: str, group_name: str):
         return {
@@ -149,7 +171,15 @@ class _FakeTaskRedisClient:
 
     async def sadd(self, key: str, value: str):
         self.sadd_calls.append((key, value))
-        self.known_task_types.add(value)
+        if key == GulpRedis.TASK_TYPES_SET:
+            self.known_task_types.add(value)
+        else:
+            self.known_batch_streams.add(value)
+        return 1
+
+    async def srem(self, key: str, value: str):
+        self.srem_calls.append((key, value))
+        self.known_batch_streams.discard(value)
         return 1
 
     async def xgroup_create(self, *args, **kwargs):
@@ -391,8 +421,82 @@ async def test_task_enqueue_many_keeps_queries_as_individual_messages(monkeypatc
         orjson.loads(fields["data"])["params"]["queries"][0]
         for _, fields in fake_redis.xadd_calls
     ] == [0, 1, 2]
-    assert fake_redis.sadd_calls == [(GulpRedis.TASK_TYPES_SET, "query")]
+    batch_stream = fake_redis.xadd_calls[0][0]
+    assert all(stream == batch_stream for stream, _ in fake_redis.xadd_calls)
+    assert batch_stream.startswith("gulp:stream:tasks:query:")
+    assert fake_redis.sadd_calls == [
+        (GulpRedis.TASK_TYPES_SET, "query"),
+        (GulpRedis.TASK_BATCH_STREAMS_SET, batch_stream),
+    ]
     assert fake_redis.pipeline_exec_count == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_task_enqueue_many_separates_requests_for_fair_dequeue(monkeypatch):
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeTaskRedisClient()
+    redis_client._redis = fake_redis
+    redis_client.server_id = "server-a"
+    monkeypatch.setattr(GulpRedis, "STREAM_TASK_MAXLEN", 10)
+
+    for req_id in ("req-a", "req-b"):
+        await redis_client.task_enqueue_many(
+            [
+                {"task_type": "query", "req_id": req_id, "params": {"query": i}}
+                for i in range(3)
+            ]
+        )
+
+    streams = {stream for stream, _ in fake_redis.xadd_calls}
+    assert len(streams) == 2
+    assert streams == fake_redis.known_batch_streams
+
+    req_by_stream = {
+        stream: orjson.loads(fields["data"])["req_id"]
+        for stream, fields in fake_redis.xadd_calls
+    }
+
+    async def _xreadgroup(*args, **kwargs):
+        stream = next(iter(kwargs["streams"]))
+        req_id = req_by_stream.get(stream)
+        if req_id is None:
+            return []
+        return [
+            (
+                stream,
+                [
+                    (
+                        "1-0",
+                        {
+                            b"data": orjson.dumps(
+                                {"task_type": "query", "req_id": req_id}
+                            )
+                        },
+                    )
+                ],
+            )
+        ]
+
+    fake_redis.xreadgroup = _xreadgroup
+    dequeued = await redis_client.task_dequeue_batch(2)
+
+    assert {task["req_id"] for task in dequeued} == {"req-a", "req-b"}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_drained_batch_stream_is_atomically_unregistered_and_deleted():
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeTaskRedisClient()
+    redis_client._redis = fake_redis
+    stream = "gulp:stream:tasks:query:req"
+    fake_redis.known_batch_streams.add(stream)
+
+    await redis_client._remove_empty_batch_stream(stream)
+
+    assert stream not in fake_redis.known_batch_streams
+    assert fake_redis.delete_calls == [stream]
 
 
 @pytest.mark.unit

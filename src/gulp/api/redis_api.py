@@ -108,7 +108,9 @@ class GulpRedis:
     _instance: "GulpRedis" = None
     # redis set key to track known task types (members are task_type strings)
     TASK_TYPES_SET = "gulp:queue:types"
-    # redis stream key prefix for task streams (one stream per task_type)
+    # request-scoped streams created by batched enqueueing
+    TASK_BATCH_STREAMS_SET = "gulp:queue:batch_streams"
+    # redis stream key prefix for task streams
     STREAM_TASK_PREFIX = "gulp:stream:tasks"
     IP_RATE_LIMIT_PREFIX = "gulp:rate:ip"
     # consumer group name for task streams
@@ -1201,19 +1203,34 @@ class GulpRedis:
             known_types = await self.task_known_types()
             if task_types is not None:
                 known_types = [known for known in known_types if known in task_types]
+            if task_type is not None:
+                known_types = [known for known in known_types if known == task_type]
             keys.extend(
                 f"{GulpRedis.STREAM_TASK_PREFIX}:{known}" for known in known_types
             )
+            batch_streams = await self._redis.smembers(
+                GulpRedis.TASK_BATCH_STREAMS_SET
+            )
+            keys.extend(
+                stream
+                for raw_stream in batch_streams
+                if (
+                    stream := raw_stream.decode()
+                    if isinstance(raw_stream, bytes)
+                    else raw_stream
+                )
+                and self._task_type_from_stream(stream) in known_types
+            )
         except Exception:
             MutyLogger.get_instance().exception(
-                "failed to read known task types from %s", GulpRedis.TASK_TYPES_SET
+                "failed to read task streams"
             )
 
         if task_type:
             stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
             if stream_key not in keys:
                 keys.append(stream_key)
-        return keys
+        return sorted(set(keys))
 
     async def task_queue_depth(self, task_type: str | None = None) -> int:
         """Return the total queued task depth across all known task streams."""
@@ -1268,53 +1285,56 @@ class GulpRedis:
 
         for t in types:
             task_type = t.decode() if isinstance(t, bytes) else str(t)
-            stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
             metrics = {
                 "queued": 0,
                 "pending": 0,
                 "oldest_queued_age_msec": 0,
                 "oldest_pending_age_msec": 0,
             }
-            try:
-                metrics["queued"] = int(await self._redis.xlen(stream_key))
-                if metrics["queued"] > 0:
-                    oldest = await self._redis.xrange(
-                        stream_key,
-                        min="-",
-                        max="+",
-                        count=1,
-                    )
-                    if oldest:
-                        metrics["oldest_queued_age_msec"] = self._redis_stream_age_msec(
-                            oldest[0][0], now_msec
+            for stream_key in await self._task_stream_keys(task_type):
+                try:
+                    queued = int(await self._redis.xlen(stream_key))
+                    metrics["queued"] += queued
+                    if queued > 0:
+                        oldest = await self._redis.xrange(
+                            stream_key,
+                            min="-",
+                            max="+",
+                            count=1,
                         )
-            except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to collect task stream depth for %s", stream_key
-                )
-            try:
-                pending_info = await self._redis.xpending(
-                    stream_key,
-                    GulpRedis.STREAM_CONSUMER_GROUP,
-                )
-                if isinstance(pending_info, dict):
-                    metrics["pending"] = int(pending_info.get("pending", 0) or 0)
-                    if metrics["pending"] > 0:
-                        metrics["oldest_pending_age_msec"] = (
-                            self._redis_stream_age_msec(
-                                pending_info.get("min"),
-                                now_msec,
+                        if oldest:
+                            age = self._redis_stream_age_msec(oldest[0][0], now_msec)
+                            metrics["oldest_queued_age_msec"] = max(
+                                metrics["oldest_queued_age_msec"], age
                             )
+                except Exception:
+                    MutyLogger.get_instance().exception(
+                        "failed to collect task stream depth for %s", stream_key
+                    )
+                try:
+                    pending_info = await self._redis.xpending(
+                        stream_key,
+                        GulpRedis.STREAM_CONSUMER_GROUP,
+                    )
+                    if isinstance(pending_info, dict):
+                        pending = int(pending_info.get("pending", 0) or 0)
+                        metrics["pending"] += pending
+                        if pending > 0:
+                            age = self._redis_stream_age_msec(
+                                pending_info.get("min"), now_msec
+                            )
+                            metrics["oldest_pending_age_msec"] = max(
+                                metrics["oldest_pending_age_msec"], age
+                            )
+                except ResponseError as ex:
+                    if "NOGROUP" not in str(ex):
+                        MutyLogger.get_instance().exception(
+                            "failed to collect task pending depth for %s", stream_key
                         )
-            except ResponseError as ex:
-                if "NOGROUP" not in str(ex):
+                except Exception:
                     MutyLogger.get_instance().exception(
                         "failed to collect task pending depth for %s", stream_key
                     )
-            except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to collect task pending depth for %s", stream_key
-                )
             snapshot["task_types"][task_type] = metrics
 
         return snapshot
@@ -1350,7 +1370,8 @@ class GulpRedis:
             return "unknown"
         if isinstance(stream_name, bytes):
             stream_name = stream_name.decode()
-        return str(stream_name).rsplit(":", 1)[-1] or "unknown"
+        suffix = str(stream_name).removeprefix(f"{GulpRedis.STREAM_TASK_PREFIX}:")
+        return suffix.split(":", 1)[0] or "unknown"
 
     def _record_task_transition(
         self,
@@ -1432,6 +1453,7 @@ class GulpRedis:
             pipe.xack(stream_name, GulpRedis.STREAM_CONSUMER_GROUP, msg_id)
             pipe.xdel(stream_name, msg_id)
             await pipe.execute()
+            await self._remove_empty_batch_stream(stream_name)
             self._record_task_transition(
                 "ack_delete",
                 self._task_type_from_stream(stream_name),
@@ -1441,6 +1463,7 @@ class GulpRedis:
             if "NOGROUP" in str(ex):
                 try:
                     await self._redis.xdel(stream_name, msg_id)
+                    await self._remove_empty_batch_stream(stream_name)
                     self._record_task_transition(
                         "ack_delete",
                         self._task_type_from_stream(stream_name),
@@ -1475,6 +1498,19 @@ class GulpRedis:
                 self._task_type_from_stream(stream_name),
                 "error",
             )
+
+    async def _remove_empty_batch_stream(self, stream_name: str) -> None:
+        """Atomically unregister a drained request stream."""
+        if stream_name.count(":") <= GulpRedis.STREAM_TASK_PREFIX.count(":") + 1:
+            return
+        await self._redis.eval(
+            "if redis.call('XLEN', KEYS[1]) == 0 then "
+            "redis.call('SREM', KEYS[2], KEYS[1]); "
+            "return redis.call('DEL', KEYS[1]) end return 0",
+            2,
+            stream_name,
+            GulpRedis.TASK_BATCH_STREAMS_SET,
+        )
 
     async def task_ack_delete(self, task: dict) -> None:
         """Acknowledge and delete a dequeued task using its Redis envelope metadata."""
@@ -1660,7 +1696,7 @@ class GulpRedis:
         )
 
     async def task_enqueue_many(self, tasks: list[dict]) -> None:
-        """Atomically enqueue multiple tasks of one type as individual messages."""
+        """Atomically enqueue one request's tasks on its own fair stream."""
         if not tasks:
             return
 
@@ -1669,7 +1705,11 @@ class GulpRedis:
             raise ValueError("batched enqueue requires one non-empty task_type")
 
         task_type = task_types.pop()
-        stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
+        req_ids = {task.get("req_id") for task in tasks}
+        if None in req_ids or len(req_ids) != 1:
+            raise ValueError("batched enqueue requires one non-empty req_id")
+        req_hash = hashlib.sha256(str(req_ids.pop()).encode()).hexdigest()
+        stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}:{req_hash}"
         queue_depth = await self.task_queue_depth(task_type)
         if (
             GulpRedis.STREAM_TASK_MAXLEN > 0
@@ -1688,6 +1728,7 @@ class GulpRedis:
         for task in tasks:
             pipe.xadd(stream_key, {"data": orjson.dumps(task)})
         pipe.sadd(GulpRedis.TASK_TYPES_SET, task_type)
+        pipe.sadd(GulpRedis.TASK_BATCH_STREAMS_SET, stream_key)
         try:
             await pipe.execute()
         except Exception:
@@ -1952,21 +1993,9 @@ class GulpRedis:
         Returns:
             int: Number of removed tasks.
         """
-        # purge matching tasks from all type-specific streams known in TASK_TYPES_SET
+        # purge matching tasks from every known task stream
         removed_total: int = 0
-
-        try:
-            types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
-        except Exception:
-            types = None
-
-        if not types:
-            return 0
-
-        for t in types:
-            if isinstance(t, bytes):
-                t = t.decode()
-            stream = f"{GulpRedis.STREAM_TASK_PREFIX}:{t}"
+        for stream in await self._task_stream_keys():
             try:
                 entries = await self._redis.xrange(stream, min="-", max="+")
             except Exception:
@@ -2010,6 +2039,7 @@ class GulpRedis:
                     pipe.xack(stream, GulpRedis.STREAM_CONSUMER_GROUP, *ids_to_del)
                     pipe.xdel(stream, *ids_to_del)
                     await pipe.execute()
+                    await self._remove_empty_batch_stream(stream)
                     MutyLogger.get_instance().debug(
                         "purged %d task(s) from %s", removed, stream
                     )
@@ -2067,18 +2097,7 @@ class GulpRedis:
         Args:
             server_id (str): The server instance ID whose consumers should be removed.
         """
-        try:
-            types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
-        except Exception:
-            types = None
-
-        if not types:
-            return
-
-        for t in types:
-            if isinstance(t, bytes):
-                t = t.decode()
-            stream = f"{GulpRedis.STREAM_TASK_PREFIX}:{t}"
+        for stream in await self._task_stream_keys():
             try:
                 # remove this consumer from the group; returns number of pending messages
                 try:
