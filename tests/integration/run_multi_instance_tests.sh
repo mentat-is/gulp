@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: run_multi_instance_tests.sh [--help|-h]
+Usage: run_multi_instance_tests.sh [--role-split-sigma|--help|-h]
 
 Run the multi-instance integration tests by starting two local gULP instances
 (primary on GULP_BASE_URL / default http://localhost:8080 and secondary on
@@ -13,6 +13,10 @@ instances to expose /docs, and then executing the three integration tests in
 concurrently for query, websocket client-data, and collaboration routing.
 
 Options:
+  --role-split-sigma
+      Start an ingest-only primary and query-only secondary, then run the
+      one-user small Sigma ZIP harness across both. This proves task consumers
+      are split by role while either node can still produce requests.
   -h, --help   Show this help message and exit.
 
 Environment variables:
@@ -50,6 +54,9 @@ EOF
 
 for arg in "$@"; do
   case "$arg" in
+    --role-split-sigma)
+      ROLE_SPLIT_SIGMA=1
+      ;;
     -h|--help)
       usage
       exit 0
@@ -61,10 +68,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 GULP_BIN="$ROOT_DIR/.venv/bin/gulp"
 PYTEST_BIN="$ROOT_DIR/.venv/bin/pytest"
+PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 PRIMARY_URL="${GULP_BASE_URL:-http://localhost:8080}"
 SECONDARY_URL="${GULP_SECOND_BASE_URL:-http://localhost:8100}"
 SOAK="${GULP_MULTI_INSTANCE_SOAK:-0}"
 QUIET="${QUIET:-0}"
+ROLE_SPLIT_SIGMA="${ROLE_SPLIT_SIGMA:-0}"
 PROMETHEUS_URL="${PROMETHEUS_URL:-http://localhost:9090}"
 url_port() {
   python3 - "$1" <<'PY'
@@ -289,7 +298,11 @@ print_summary() {
     echo "  pytest_log: ${TEST_LOG}"
   fi
   echo "  tests:"
-  printf '    - %s\n' "${TEST_FILES[@]}"
+  if [[ "$ROLE_SPLIT_SIGMA" == "1" ]]; then
+    echo "    - Sigma ZIP harness with primary=ingest, secondary=query"
+  else
+    printf '    - %s\n' "${TEST_FILES[@]}"
+  fi
 
   if [[ -n "$TEST_LOG" && -s "$TEST_LOG" ]] && grep -Eiq "$TIMEOUT_PATTERN" "$TEST_LOG"; then
     echo "  timeout_indicators:"
@@ -327,11 +340,17 @@ TEST_LOG="$(mktemp /tmp/gulp-multi-instance-tests-XXXX.log)"
 
 echo "starting primary gulp on ${PRIMARY_URL}"
 PHASE="starting primary"
-start_gulp PRIMARY_PID "$PRIMARY_LOG" "primary" env GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT="$PRIMARY_PORT" "$GULP_BIN" --reset-collab --create test_operation
+PRIMARY_ROLES=()
+SECONDARY_ROLES=()
+if [[ "$ROLE_SPLIT_SIGMA" == "1" ]]; then
+  PRIMARY_ROLES=(GULP_INSTANCE_ROLES=ingest)
+  SECONDARY_ROLES=(GULP_INSTANCE_ROLES=query)
+fi
+start_gulp PRIMARY_PID "$PRIMARY_LOG" "primary" env "${PRIMARY_ROLES[@]}" GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT="$PRIMARY_PORT" "$GULP_BIN" --reset-collab --create test_operation
 
 echo "starting secondary gulp on ${SECONDARY_URL}"
 PHASE="starting secondary"
-start_gulp SECONDARY_PID "$SECONDARY_LOG" "secondary" env GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT="$SECONDARY_PORT" "$GULP_BIN"
+start_gulp SECONDARY_PID "$SECONDARY_LOG" "secondary" env "${SECONDARY_ROLES[@]}" GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT="$SECONDARY_PORT" "$GULP_BIN"
 
 PHASE="waiting for primary readiness"
 if ! wait_for_docs "$PRIMARY_URL" "primary"; then
@@ -351,18 +370,28 @@ check_metrics_endpoint "$PRIMARY_URL" "primary"
 check_metrics_endpoint "$SECONDARY_URL" "secondary"
 check_prometheus_targets
 
-echo "running multi-instance tests"
+if [[ "$ROLE_SPLIT_SIGMA" == "1" ]]; then
+  echo "running ingest/query role-split Sigma ZIP test"
+else
+  echo "running multi-instance tests"
+fi
 if [[ "$QUIET" == "1" ]]; then
   echo "QUIET=1 enabled: instance logs are captured to temp files only"
 fi
 echo "large-payload fanout count=${GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT:-3} soak_seconds=${GULP_MULTI_INSTANCE_POINTER_SOAK_SECONDS:-0} collab_count=${GULP_MULTI_INSTANCE_COLLAB_STRESS_COUNT:-1} raw_ingest_docs=${GULP_MULTI_INSTANCE_RAW_INGEST_DOCS:-25}"
-PHASE="running pytest"
+PHASE="running role-split Sigma ZIP test"
 set +e
-if [[ -n "${GULP_MULTI_INSTANCE_PYTEST_TIMEOUT:-}" ]]; then
+if [[ "$ROLE_SPLIT_SIGMA" == "1" ]]; then
+  "$PYTHON_BIN" "$ROOT_DIR/test_scripts/sigma_zip_big_harness.py" \
+    --users 1 --instances 2 --instance-url "$SECONDARY_URL" --small-sigmas \
+    2>&1 | tee "$TEST_LOG"
+elif [[ -n "${GULP_MULTI_INSTANCE_PYTEST_TIMEOUT:-}" ]]; then
+  PHASE="running pytest"
   GULP_BASE_URL="$PRIMARY_URL" GULP_SECOND_BASE_URL="$SECONDARY_URL" \
     timeout "$GULP_MULTI_INSTANCE_PYTEST_TIMEOUT" "$PYTEST_BIN" -q "${TEST_FILES[@]}" \
     2>&1 | tee "$TEST_LOG"
 else
+  PHASE="running pytest"
   GULP_BASE_URL="$PRIMARY_URL" GULP_SECOND_BASE_URL="$SECONDARY_URL" \
     "$PYTEST_BIN" -q "${TEST_FILES[@]}" \
     2>&1 | tee "$TEST_LOG"
@@ -382,5 +411,9 @@ if [[ "$PYTEST_EXIT" -ne 0 ]]; then
 fi
 
 RESULT_STATUS="succeeded"
-RESULT_DETAIL="pytest completed successfully"
+if [[ "$ROLE_SPLIT_SIGMA" == "1" ]]; then
+  RESULT_DETAIL="role-split Sigma ZIP harness completed successfully"
+else
+  RESULT_DETAIL="pytest completed successfully"
+fi
 echo "multi-instance tests passed"

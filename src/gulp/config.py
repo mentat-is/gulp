@@ -712,6 +712,9 @@ class GulpConfig:
         default supported roles are: "query", "ingest", "rebase"
 
         """
+        roles_env = os.getenv("GULP_INSTANCE_ROLES")
+        if roles_env is not None:
+            return [role.strip() for role in roles_env.split(",") if role.strip()]
         roles = self._config.get("instance_roles", None)
         if not roles:
             return []

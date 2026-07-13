@@ -77,3 +77,12 @@ def test_opensearch_pool_config_defaults_and_clamps():
     )
 
     assert cfg.opensearch_pool_maxsize() == 1
+
+
+@pytest.mark.unit
+def test_instance_roles_environment_override(monkeypatch):
+    cfg = _config_with({"instance_roles": ["ingest"]})
+
+    monkeypatch.setenv("GULP_INSTANCE_ROLES", " query, ingest ,, ")
+
+    assert cfg.instance_roles() == ["query", "ingest"]

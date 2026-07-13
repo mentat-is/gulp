@@ -91,6 +91,15 @@ environment-specific experiment. Point the harness at the added backend URLs
 with `--instance-url`, then retune and measure the whole deployment; the local
 reference results above do not predict a different topology.
 
+To verify dedicated task consumers, run the role-split integration test. It
+starts an ingest-only node and a query-only node, then completes the small Sigma
+ZIP ingest/query flow through both. The runner sets `GULP_INSTANCE_ROLES` for
+each temporary node:
+
+~~~bash
+tests/integration/run_multi_instance_tests.sh --role-split-sigma
+~~~
+
 Stop a backend started for testing when finished:
 
 ~~~bash
