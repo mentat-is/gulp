@@ -26,6 +26,15 @@ class _FakeTaskPipeline:
         self._client.xdel_calls.append((stream_name, msg_id))
         return self
 
+    def xadd(self, stream_name: str, fields: dict[str, bytes]):
+        self._client.xadd_calls.append((stream_name, fields))
+        return self
+
+    def sadd(self, key: str, value: str):
+        self._client.sadd_calls.append((key, value))
+        self._client.known_task_types.add(value)
+        return self
+
     async def execute(self):
         self._client.pipeline_exec_count += 1
         return []
@@ -49,9 +58,7 @@ class _FakeTaskRedisClient:
         self.xreadgroup_calls: list[tuple[tuple, dict]] = []
         self.xclaim_calls: list[tuple[tuple, dict]] = []
         self.xautoclaim_calls: list[tuple[tuple, dict]] = []
-        self.autoclaim_entries: dict[
-            str, list[tuple[str, dict[bytes, bytes]]]
-        ] = {}
+        self.autoclaim_entries: dict[str, list[tuple[str, dict[bytes, bytes]]]] = {}
         self.hset_calls: list[tuple[str, dict]] = []
         self.expire_calls: list[tuple[str, int]] = []
         self.pexpire_calls: list[tuple[str, int]] = []
@@ -366,6 +373,30 @@ async def test_task_enqueue_queue_full_uses_fixed_wait_hint(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_task_enqueue_many_keeps_queries_as_individual_messages(monkeypatch):
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeTaskRedisClient()
+    redis_client._redis = fake_redis
+    redis_client.server_id = "server-a"
+    monkeypatch.setattr(GulpRedis, "STREAM_TASK_MAXLEN", 10)
+
+    tasks = [
+        {"task_type": "query", "req_id": "req-a", "params": {"queries": [i]}}
+        for i in range(3)
+    ]
+    await redis_client.task_enqueue_many(tasks)
+
+    assert len(fake_redis.xadd_calls) == 3
+    assert [
+        orjson.loads(fields["data"])["params"]["queries"][0]
+        for _, fields in fake_redis.xadd_calls
+    ] == [0, 1, 2]
+    assert fake_redis.sadd_calls == [(GulpRedis.TASK_TYPES_SET, "query")]
+    assert fake_redis.pipeline_exec_count == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_task_metrics_snapshot_reports_queue_operator_state():
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
@@ -415,7 +446,9 @@ async def test_task_known_types_respects_instance_roles():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_task_drop_stale_pending_deletes_pending_messages(task_transition_counter):
+async def test_task_drop_stale_pending_deletes_pending_messages(
+    task_transition_counter,
+):
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
     redis_client._redis = fake_redis
@@ -688,8 +721,7 @@ async def test_task_mark_failed_ack_deletes_message():
     }
 
     assert (
-        await redis_client.task_mark_failed(task, "worker returned false")
-        == "failed"
+        await redis_client.task_mark_failed(task, "worker returned false") == "failed"
     )
     assert fake_redis.xack_calls == [
         ("gulp:stream:tasks:query", GulpRedis.STREAM_CONSUMER_GROUP, "5-0")
@@ -814,15 +846,14 @@ async def test_run_claimed_task_routes_to_task_type_handlers(monkeypatch):
     assert await server._run_claimed_task(ingest_task) is True
     assert await server._run_claimed_task(enrich_task) is True
 
-    query.assert_any_await(query_task)
-    query.assert_any_await(external_query_task)
+    query.assert_not_awaited()
     rebase.assert_awaited_once_with(rebase_task)
     enrich.assert_awaited_once_with(enrich_task)
-    server.spawn_worker_task.assert_awaited_once_with(
-        ingest_mod.run_ingest_file_task,
-        ingest_task,
-        wait=True,
-    )
+    assert server.spawn_worker_task.await_args_list == [
+        ((query_mod.run_query_task, query_task), {"wait": True}),
+        ((query_mod.run_query_task, external_query_task), {"wait": True}),
+        ((ingest_mod.run_ingest_file_task, ingest_task), {"wait": True}),
+    ]
 
 
 @pytest.mark.unit
@@ -1062,6 +1093,7 @@ async def test_dispatch_tasks_refills_free_slots_before_slow_task_finishes(monke
         "gulp.api.server_api.GulpRedis.get_instance",
         lambda: fake_redis,
     )
+    server._task_service_state = AsyncMock(return_value=(False, 2, {}))
 
     release_slow = asyncio.Event()
     third_started = asyncio.Event()
@@ -1088,6 +1120,14 @@ async def test_dispatch_tasks_refills_free_slots_before_slow_task_finishes(monke
     dispatch_task.cancel()
     with suppress(asyncio.CancelledError):
         await dispatch_task
+
+
+def test_task_dispatch_limit_backs_off_and_ramps_within_service_ceiling():
+    tune = GulpServer._next_task_dispatch_limit
+
+    assert tune(32, 128, 24, True, 16) == 12
+    assert tune(12, 128, 24, False, 16) == 24
+    assert tune(24, 128, 24, False, 16) == 24
 
 
 @pytest.mark.unit

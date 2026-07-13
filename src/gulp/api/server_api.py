@@ -30,6 +30,7 @@ from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
 from opensearchpy import RequestError
+from sqlalchemy import text
 from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab.stats import GulpRequestStats
@@ -73,6 +74,7 @@ class GulpServer:
         self._lifespan_task: asyncio.Task = None
         self._poll_tasks_task: asyncio.Task = None
         self._extension_plugins: list[GulpPluginBase] = []
+        self._last_opensearch_search_rejected: int | None = None
 
     def __new__(cls):
         """
@@ -476,7 +478,9 @@ class GulpServer:
             await asyncio.sleep(interval)
             await GulpRedis.get_instance().task_refresh_lease(task)
 
-    async def _await_task_with_lease(self, task: dict, awaitable: Awaitable[Any]) -> Any:
+    async def _await_task_with_lease(
+        self, task: dict, awaitable: Awaitable[Any]
+    ) -> Any:
         """Await a task while keeping its Redis stream pending entry fresh."""
         lease_task = asyncio.create_task(self._refresh_task_lease_until_done(task))
         try:
@@ -503,9 +507,7 @@ class GulpServer:
         except (TypeError, ValueError):
             return 0
 
-    async def _mark_failed_task_stats_failed(
-        self, task: dict, reason: str
-    ) -> None:
+    async def _mark_failed_task_stats_failed(self, task: dict, reason: str) -> None:
         """Mark an existing request stats object failed after terminal task failure."""
         req_id = task.get("req_id")
         if not req_id:
@@ -562,7 +564,7 @@ class GulpServer:
         if ttype == TASK_TYPE_ENRICH:
             return run_enrich_task(task)
         if ttype == TASK_TYPE_QUERY or ttype == TASK_TYPE_EXTERNAL_QUERY:
-            return run_query_task(task)
+            return self.spawn_worker_task(run_query_task, task, wait=True)
         if ttype == TASK_TYPE_REBASE:
             return run_rebase_task(task)
 
@@ -575,6 +577,99 @@ class GulpServer:
         child_concurrency = max(1, cfg.workers_concurrency_max())
         num_workers = max(1, cfg.workers_max())
         return max(1, num_workers * child_concurrency)
+
+    @staticmethod
+    def _next_task_dispatch_limit(
+        current: int,
+        maximum: int,
+        service_ceiling: int,
+        under_pressure: bool,
+        step: int,
+    ) -> int:
+        """Back off quickly under pressure and ramp up gradually when healthy."""
+        ceiling = max(1, min(maximum, service_ceiling))
+        if under_pressure:
+            return max(1, min(current, ceiling) // 2)
+        return min(ceiling, current + max(1, step))
+
+    async def _task_service_state(self) -> tuple[bool, int, dict[str, int]]:
+        """Return service pressure and a safe concurrency ceiling."""
+
+        async def _postgres_state() -> tuple[int, int]:
+            async with GulpCollab.get_instance().session() as sess:
+                row = (
+                    await sess.execute(
+                        text(
+                            "SELECT current_setting('max_connections')::int, "
+                            "count(*)::int FROM pg_stat_activity"
+                        )
+                    )
+                ).one()
+                return int(row[0]), int(row[1])
+
+        async def _opensearch_state() -> tuple[int, int, int, int]:
+            stats = await GulpOpenSearch.get_instance()._opensearch.nodes.stats(
+                metric="jvm,process,thread_pool"
+            )
+            nodes = stats.get("nodes", {}).values()
+            search_threads = heap = cpu = rejected = 0
+            for node in nodes:
+                search = node.get("thread_pool", {}).get("search", {})
+                search_threads += int(search.get("threads", 0))
+                rejected += int(search.get("rejected", 0))
+                heap = max(
+                    heap,
+                    int(node.get("jvm", {}).get("mem", {}).get("heap_used_percent", 0)),
+                )
+                cpu = max(
+                    cpu,
+                    int(node.get("process", {}).get("cpu", {}).get("percent", 0)),
+                )
+                if int(search.get("queue", 0)) > 0:
+                    cpu = 100
+            return search_threads, heap, cpu, rejected
+
+        try:
+            async with asyncio.timeout(2):
+                redis_ok, postgres, opensearch = await asyncio.gather(
+                    GulpRedis.get_instance().client().ping(),
+                    _postgres_state(),
+                    _opensearch_state(),
+                )
+        except Exception as ex:
+            MutyLogger.get_instance().warning(
+                "task scheduler health check failed, reducing concurrency: %s", ex
+            )
+            return True, 1, {}
+
+        postgres_max, postgres_used = postgres
+        search_threads, heap, cpu, rejected = opensearch
+        rejected_increased = (
+            self._last_opensearch_search_rejected is not None
+            and rejected > self._last_opensearch_search_rejected
+        )
+        self._last_opensearch_search_rejected = rejected
+        postgres_ceiling = max(1, int(postgres_max * 0.8))
+        service_ceiling = max(1, min(postgres_ceiling, search_threads or 1))
+        under_pressure = (
+            not redis_ok
+            or postgres_used >= postgres_ceiling
+            or heap >= 85
+            or cpu >= 90
+            or rejected_increased
+        )
+        return (
+            under_pressure,
+            service_ceiling,
+            {
+                "postgres_used": postgres_used,
+                "postgres_max": postgres_max,
+                "opensearch_heap": heap,
+                "opensearch_cpu": cpu,
+                "opensearch_search_threads": search_threads,
+                "opensearch_search_rejected": rejected,
+            },
+        )
 
     async def _dispatch_claimed_tasks(
         self,
@@ -603,10 +698,7 @@ class GulpServer:
             return
 
         task_results = await asyncio.gather(
-            *[
-                self._await_task_with_lease(obj, coro)
-                for obj, coro in task_coros
-            ],
+            *[self._await_task_with_lease(obj, coro) for obj, coro in task_coros],
             return_exceptions=True,
         )
         for (obj, _), res in zip(task_coros, task_results):
@@ -636,10 +728,14 @@ class GulpServer:
         Keeps up to the configured capacity in flight instead of waiting for a
         whole drained batch to finish before dequeuing more work.
         """
-        limit: int = self._task_dispatch_capacity()
+        maximum: int = self._task_dispatch_capacity()
+        step = max(1, GulpConfig.get_instance().workers_concurrency_max())
+        limit: int = maximum
+        last_health_check = 0.0
         MutyLogger.get_instance().info("STARTING dispatch_tasks loop ...")
 
         in_flight: set[asyncio.Task[None]] = set()
+
         def _consume_dispatch_result(task: asyncio.Task[None]) -> None:
             in_flight.discard(task)
             with suppress(asyncio.CancelledError):
@@ -667,6 +763,28 @@ class GulpServer:
                 try:
                     redis_inst = GulpRedis.get_instance()
                     now = time.monotonic()
+                    if now - last_health_check >= 2.0:
+                        under_pressure, service_ceiling, state = (
+                            await self._task_service_state()
+                        )
+                        new_limit = self._next_task_dispatch_limit(
+                            limit,
+                            maximum,
+                            service_ceiling,
+                            under_pressure,
+                            step,
+                        )
+                        if new_limit != limit:
+                            MutyLogger.get_instance().info(
+                                "task dispatch concurrency %d -> %d, pressure=%r, services=%s",
+                                limit,
+                                new_limit,
+                                under_pressure,
+                                state,
+                            )
+                            limit = new_limit
+                        last_health_check = now
+
                     last_cleanup = getattr(
                         redis_inst, "_last_stale_pending_cleanup_time", 0.0
                     )
@@ -771,7 +889,9 @@ class GulpServer:
                     "***ERROR*** in background task: %s", ex
                 )
             finally:
-                MutyLogger.get_instance().debug("background task name=%s completed!", name)
+                MutyLogger.get_instance().debug(
+                    "background task name=%s completed!", name
+                )
 
         if name:
             # check if a task with the same name already exists in the current process

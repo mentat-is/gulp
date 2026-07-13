@@ -91,9 +91,7 @@ from gulp.api.ws_api import (
     GulpQueryDonePacket,
     GulpRedisBroker,
 )
-from gulp.config import GulpConfig
 from gulp.plugin import GulpPluginBase
-from gulp.process import GulpProcess
 from gulp.structs import GulpMappingParameters, GulpPluginParameters, ObjectNotFound
 
 router: APIRouter = APIRouter()
@@ -279,6 +277,21 @@ async def run_query_task(t: dict) -> bool:
     This function rehydrates the payload and calls the existing `process_queries` routine.
     """
     # MutyLogger.get_instance().debug("run_query_task, t=%s", muty.string.make_shorter(str(t),max_len=260))
+    extension = t.get("params", {}).get("extension")
+    if extension:
+        mod = None
+        try:
+            mod = await GulpPluginBase.load(extension, extension=True)
+            return await mod.run_queued_task(t)
+        except Exception:
+            MutyLogger.get_instance().exception(
+                "***ERROR*** in queued extension query task, extension=%s", extension
+            )
+            return False
+        finally:
+            if mod:
+                await mod.unload()
+
     try:
         params: dict = t.get("params", {})
         user_id: str = t.get("user_id")
@@ -728,113 +741,28 @@ async def process_queries(
                 u: GulpUser = await GulpUser.get_by_id(sess, user_id)
                 await u.add_query_history_entry_batch(sess, history)
 
-        # 2. fan out query work. The API enqueues query batches in Redis; each
-        # Redis task processes its own batch without multiplying fanout again.
-        # NOTE: for query_external, we will always have just one query to run.
-        batch_size: int = max(1, len(queries))
-        MutyLogger.get_instance().debug(
-            "processing %d queries in batches of %d ...",
-            len(queries),
-            batch_size,
+        # The Redis scheduler owns concurrency; this worker executes only the
+        # query payload it was assigned.
+        batching_step_reached = True
+        results = await run_query_batch(
+            user_id=user_id,
+            req_id=req_id,
+            operation_id=operation_id,
+            ws_id=ws_id,
+            queries=[q.model_dump(exclude_none=True) for q in queries],
+            q_options=q_options.model_dump(exclude_none=True),
+            index=index,
+            plugin=plugin,
+            plugin_params=(
+                plugin_params.model_dump(exclude_none=True) if plugin_params else None
+            ),
+            ignore_failures=ignore_failures,
         )
-
-        pending_batches: dict[asyncio.Future, tuple[int, int]] = {}
-        next_batch_start: int = 0
-
-        def _start_query_batch(batch_start: int) -> None:
-            batch: list[GulpQuery] = queries[batch_start : batch_start + batch_size]
-            batch_payloads: list[dict] = []
-            for offset, q in enumerate(batch):
-                payload = q.model_dump(exclude_none=True)
-                payload.setdefault("query_ordinal", batch_start + offset)
-                batch_payloads.append(payload)
-
-            run_query_batch_args = dict(
-                user_id=user_id,
-                req_id=req_id,
-                operation_id=operation_id,
-                ws_id=ws_id,
-                queries=batch_payloads,
-                q_options=q_options.model_dump(exclude_none=True),
-                index=index,
-                plugin=plugin,
-                plugin_params=(
-                    plugin_params.model_dump(exclude_none=True)
-                    if plugin_params
-                    else None
-                ),
-                ignore_failures=ignore_failures,
-            )
-            coro = GulpProcess.get_instance().process_pool.apply(
-                run_query_batch, kwds=run_query_batch_args
-            )
-            task = asyncio.ensure_future(coro)
-            pending_batches[task] = (batch_start, len(batch))
-            MutyLogger.get_instance().debug(
-                "submitted query batch start=%d, size=%d, pending=%d",
-                batch_start,
-                len(batch),
-                len(pending_batches),
-            )
-
-        def _submit_available_batches() -> None:
-            nonlocal next_batch_start
-            while (
-                next_batch_start < len(queries)
-                and len(pending_batches) < 1
-                and not req_canceled
-            ):
-                _start_query_batch(next_batch_start)
-                next_batch_start += batch_size
-
-        _submit_available_batches()
-        while pending_batches:
-            done, _ = await asyncio.wait(
-                pending_batches.keys(), return_when=asyncio.FIRST_COMPLETED
-            )
-            batching_step_reached = True
-
-            for task in done:
-                batch_start, completed_batch_size = pending_batches.pop(task)
-                try:
-                    batch_res = task.result()
-                except Exception as ex:
-                    # worker-level exception: treat whole batch as failed
-                    batch_res = [ex]
-
-                # the worker should return a list of results (one entry per query)
-                if isinstance(batch_res, list):
-                    per_query_results = batch_res
-                elif isinstance(batch_res, Exception):
-                    per_query_results = [batch_res]
-                else:
-                    # unexpected shape
-                    per_query_results = [batch_res]
-
-                MutyLogger.get_instance().debug(
-                    "query batch completed start=%d, size=%d, pending=%d",
-                    batch_start,
-                    completed_batch_size,
-                    len(pending_batches),
-                )
-
-                # detect cancellation reported by a worker
-                for r in per_query_results:
-                    if isinstance(r, tuple) and len(r) == 4:
-                        *_, canceled = r
-                        if canceled:
-                            req_canceled = True
-                    elif isinstance(r, Exception) and "RequestCanceledError" in str(r):
-                        req_canceled = True
-
-            # NOTE: stats update for non-external queries is performed inside the worker (aggregated)
-
-            if req_canceled:
-                MutyLogger.get_instance().warning(
-                    "request canceled, stop scheduling new query batches!"
-                )
-            _submit_available_batches()
-
+        req_canceled = any(
+            (isinstance(result, tuple) and result[3])
+            or (isinstance(result, Exception) and "RequestCanceledError" in str(result))
+            for result in results
+        )
         return req_canceled
     except Exception as ex:
         if stats and not batching_step_reached:
@@ -868,24 +796,19 @@ async def _enqueue_query_tasks(
     total_num_queries: int = None,
     ignore_failures: bool = False,
 ) -> None:
-    """Enqueue query work as Redis batches, one process-pool batch per task."""
-    batch_size = max(1, GulpConfig.get_instance().workers_concurrency_max())
+    """Enqueue each query separately so the scheduler owns batching."""
     total_num_queries = total_num_queries or len(queries)
     q_options_payload = q_options.model_dump(exclude_none=True)
     plugin_params_payload = (
         plugin_params.model_dump(exclude_none=True) if plugin_params else None
     )
 
-    for batch_num, start in enumerate(range(0, len(queries), batch_size), start=1):
-        batch = queries[start : start + batch_size]
-        query_payloads: list[dict] = []
-        for offset, q in enumerate(batch):
-            payload = q.model_dump(exclude_none=True)
-            payload.setdefault("query_ordinal", start + offset)
-            query_payloads.append(payload)
-
+    tasks: list[dict] = []
+    for query_num, query in enumerate(queries, start=1):
+        query_payload = query.model_dump(exclude_none=True)
+        query_payload.setdefault("query_ordinal", query_num - 1)
         params: dict = {
-            "queries": query_payloads,
+            "queries": [query_payload],
             "q_options": q_options_payload,
             "total_num_queries": total_num_queries,
         }
@@ -897,10 +820,10 @@ async def _enqueue_query_tasks(
         if ignore_failures:
             params["ignore_failures"] = True
 
-        await GulpRedis.get_instance().task_enqueue(
+        tasks.append(
             {
                 "task_type": task_type,
-                "__task_id__": f"{req_id}:{task_type}:{batch_num}",
+                "__task_id__": f"{req_id}:{task_type}:{query_num}",
                 "operation_id": operation_id,
                 "user_id": user_id,
                 "ws_id": ws_id,
@@ -908,6 +831,8 @@ async def _enqueue_query_tasks(
                 "params": params,
             }
         )
+
+    await GulpRedis.get_instance().task_enqueue_many(tasks)
 
 
 async def _query_raw_sync(
@@ -2174,9 +2099,7 @@ async def query_fields_by_source_handler(
                                 "mapping_id": "default",
                                 "mappings": {
                                     "default": {
-                                        "fields": {
-                                            "EventID": {"ecs": ["event.code"]}
-                                        }
+                                        "fields": {"EventID": {"ecs": ["event.code"]}}
                                     }
                                 },
                             },

@@ -1181,25 +1181,31 @@ class GulpRedis:
         """Return the Redis key used for the task queue."""
         return self._task_queue_key
 
-    async def _task_stream_keys(self, task_type: str | None = None) -> list[str]:
+    async def task_known_types(self) -> list[str]:
+        """Return task types this instance is configured to consume."""
+        if self._instance_roles:
+            return sorted(self._instance_roles)
+        types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
+        return sorted(t.decode() if isinstance(t, bytes) else t for t in types)
+
+    async def _task_stream_keys(
+        self,
+        task_type: str | None = None,
+        task_types: list[str] | None = None,
+    ) -> list[str]:
         """Return the task stream keys relevant to this instance."""
         keys: list[str] = []
-        if self._instance_roles:
+        try:
+            known_types = await self.task_known_types()
+            if task_types is not None:
+                known_types = [known for known in known_types if known in task_types]
             keys.extend(
-                f"{GulpRedis.STREAM_TASK_PREFIX}:{r}" for r in self._instance_roles
+                f"{GulpRedis.STREAM_TASK_PREFIX}:{known}" for known in known_types
             )
-        else:
-            try:
-                types = await self._redis.smembers(GulpRedis.TASK_TYPES_SET)
-                if types:
-                    for t in types:
-                        if isinstance(t, bytes):
-                            t = t.decode()
-                        keys.append(f"{GulpRedis.STREAM_TASK_PREFIX}:{t}")
-            except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to read known task types from %s", GulpRedis.TASK_TYPES_SET
-                )
+        except Exception:
+            MutyLogger.get_instance().exception(
+                "failed to read known task types from %s", GulpRedis.TASK_TYPES_SET
+            )
 
         if task_type:
             stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
@@ -1649,6 +1655,53 @@ class GulpRedis:
             ttype,
             stream_key,
             muty.string.make_shorter(str(task), max_len=260),
+        )
+
+    async def task_enqueue_many(self, tasks: list[dict]) -> None:
+        """Atomically enqueue multiple tasks of one type as individual messages."""
+        if not tasks:
+            return
+
+        task_types = {task.get("task_type") for task in tasks}
+        if None in task_types or len(task_types) != 1:
+            raise ValueError("batched enqueue requires one non-empty task_type")
+
+        task_type = task_types.pop()
+        stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
+        queue_depth = await self.task_queue_depth(task_type)
+        if (
+            GulpRedis.STREAM_TASK_MAXLEN > 0
+            and queue_depth + len(tasks) > GulpRedis.STREAM_TASK_MAXLEN
+        ):
+            self._record_task_transition("enqueue", task_type, "queue_full")
+            raise TaskQueueFullError(
+                task_type,
+                queue_depth,
+                GulpRedis.STREAM_TASK_MAXLEN,
+                retry_after_msec=self._task_admission_retry_after_msec(),
+                work_units=len(tasks),
+            )
+
+        pipe = self._redis.pipeline(transaction=True)
+        for task in tasks:
+            pipe.xadd(stream_key, {"data": orjson.dumps(task)})
+        pipe.sadd(GulpRedis.TASK_TYPES_SET, task_type)
+        try:
+            await pipe.execute()
+        except Exception:
+            MutyLogger.get_instance().exception(
+                "failed to enqueue %d task_type=%s messages", len(tasks), task_type
+            )
+            self._record_task_transition("enqueue", task_type, "error")
+            raise
+
+        for _ in tasks:
+            self._record_task_transition("enqueue", task_type, "queued")
+        MutyLogger.get_instance().debug(
+            "enqueued %d individual task_type=%s messages on %s",
+            len(tasks),
+            task_type,
+            stream_key,
         )
 
     async def task_dequeue_batch(self, max_items: int) -> list[dict]:

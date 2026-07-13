@@ -60,6 +60,10 @@ async def _append_async(items: list, item: object) -> None:
     items.append(item)
 
 
+async def _append_many_async(items: list, new_items: list) -> None:
+    items.extend(new_items)
+
+
 def _make_request_stats(req_type, data, status="ongoing"):
     from gulp.api.collab_api import GulpCollab
     from gulp.api.collab.stats import GulpRequestStats
@@ -551,16 +555,10 @@ async def test_process_queries_skips_terminal_request_duplicate(monkeypatch):
 
     stats = SimpleNamespace(status=GulpRequestStatus.DONE.value)
     create_or_get = AsyncMock(return_value=(stats, False))
-    worker_apply = AsyncMock(side_effect=AssertionError("worker should not run"))
     monkeypatch.setattr(
         query_mod.GulpRequestStats,
         "create_or_get_existing",
         create_or_get,
-    )
-    monkeypatch.setattr(
-        query_mod.GulpProcess,
-        "get_instance",
-        lambda: SimpleNamespace(process_pool=SimpleNamespace(apply=worker_apply)),
     )
 
     canceled = await query_mod.process_queries(
@@ -581,7 +579,6 @@ async def test_process_queries_skips_terminal_request_duplicate(monkeypatch):
     assert create_or_get.await_args.kwargs["data"]["q"] == [
         {"query": {"match_all": {}}}
     ]
-    worker_apply.assert_not_called()
 
 
 @pytest.mark.unit
@@ -615,22 +612,17 @@ async def test_process_queries_reports_terminal_canceled_duplicate(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_enqueue_query_tasks_batches_by_configured_concurrency(monkeypatch):
+async def test_enqueue_query_tasks_leaves_batching_to_scheduler(monkeypatch):
     from gulp.api.opensearch.structs import GulpQuery, GulpQueryParameters
     from gulp.api.server import query as query_mod
     from gulp.api.server.structs import TASK_TYPE_QUERY
 
     enqueued: list[dict] = []
     monkeypatch.setattr(
-        query_mod.GulpConfig,
-        "get_instance",
-        lambda: SimpleNamespace(workers_concurrency_max=lambda: 2),
-    )
-    monkeypatch.setattr(
         query_mod.GulpRedis,
         "get_instance",
         lambda: SimpleNamespace(
-            task_enqueue=lambda task: _append_async(enqueued, task)
+            task_enqueue_many=lambda tasks: _append_many_async(enqueued, tasks)
         ),
     )
 
@@ -646,18 +638,20 @@ async def test_enqueue_query_tasks_batches_by_configured_concurrency(monkeypatch
         q_options=GulpQueryParameters(add_to_history=False),
     )
 
-    assert [len(task["params"]["queries"]) for task in enqueued] == [2, 2, 1]
+    assert [len(task["params"]["queries"]) for task in enqueued] == [1, 1, 1, 1, 1]
     assert [task["__task_id__"] for task in enqueued] == [
         "req-query-batch:query:1",
         "req-query-batch:query:2",
         "req-query-batch:query:3",
+        "req-query-batch:query:4",
+        "req-query-batch:query:5",
     ]
     assert all(task["params"]["total_num_queries"] == 5 for task in enqueued)
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_process_queries_submits_one_pool_job_for_redis_batch(
+async def test_process_queries_runs_scheduler_assigned_payload_directly(
     monkeypatch,
 ):
     from gulp.api.collab.structs import GulpRequestStatus
@@ -673,19 +667,12 @@ async def test_process_queries_submits_one_pool_job_for_redis_batch(
     )
     submitted_batches: list[list[str]] = []
 
-    def _apply(_fn, kwds):
-        async def _run_batch():
-            q_names = [q["q_name"] for q in kwds["queries"]]
-            submitted_batches.append(q_names)
-            return [(1, 1, q_name, False) for q_name in q_names]
+    async def _run_batch(**kwargs):
+        q_names = [q["q_name"] for q in kwargs["queries"]]
+        submitted_batches.append(q_names)
+        return [(1, 1, q_name, False) for q_name in q_names]
 
-        return _run_batch()
-
-    monkeypatch.setattr(
-        query_mod.GulpProcess,
-        "get_instance",
-        lambda: SimpleNamespace(process_pool=SimpleNamespace(apply=_apply)),
-    )
+    monkeypatch.setattr(query_mod, "run_query_batch", _run_batch)
 
     process_task = asyncio.create_task(
         query_mod.process_queries(
