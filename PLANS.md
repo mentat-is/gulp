@@ -16,8 +16,10 @@ particularly, it has been noted that batch notes generation implemented in colla
 
 1. parallelism and concurrency must be maintained, gulp have a `workers_max` sized process pool which executes asynchronous tasks in worker processes : no slow task must block other tasks to run if the server is healthy (read later)
 2. all received requests must be queued on redis on request reception by the REST API handlers, those will be dequeued and dispatched by the task scheduler implemented in server_api.py::dispatch_tasks : you have to consider the implementation sub-optimal and to be highly optimized.
+2.1. implement the scheduler so it always aims at maximum concurrency per worker as defined in config.worker_concurrency_max (missing defaults to 16; 0 derives a fixed value from runtime PostgreSQL/OpenSearch/Redis topology): tasks are dequeued in batch from redis and feeded to the workers pool. the scheduler should monitor postgres/opensearch/redis health, gradually tuning concurrency depending on the services load
 3. keep a particular eye on note batching as said above: consider to rearchitect the note table if needed to reduce pressure.
 4. query_sigma_zip plugin already batches the queries, they would be double-batched then by the scheduler, avoid it, only the scheduler should batch. it also parses the rules twice, once to count, once to convert them. fix it.
+5. if you change the collab database layout (i.e. adding a table), you must provide a migration script in collab_migrate/v2.0.0
 
 you must never attempt to fix/implement the following:
 
@@ -26,10 +28,6 @@ you must never attempt to fix/implement the following:
 2. requests replay / retry : gulp doesn't support this by design, never try to implement it.
 
 3. req_id are unique, no duplicate requests are possible
-
-# my idea
-
-(do not trust blindly, validate it): implement the scheduler so it always start with the maximum concurrency per worker as defined in config.worker_concurrency_max: tasks are dequeued in batch from redis and feeded to the workers pool. the scheduler should monitor postgres/opensearch/redis health, gradually tuning concurrency depending on the services load
 
 # testing
 
@@ -40,24 +38,19 @@ currently, the harness allows to specify the number of concurrent users (which i
 - concentrate on single instance first, multiple gulp instances will be addressed once single instance is stable and satisfies the requirements.
 - consider the full BIG_SIGMAS query phase the dangerous part of the harness: it submits 1149 queries per user, so the 10-user target means 11490 query submissions after ingest. Do not run the 10-user full-sigma harness until smaller query-side validation shows the target environment can drain that backlog without locking the machine.
 
-## running gulp
+## running gulp and monitoring services
 
-use gulp --reset-collab --create test_operation to spawn the first instance (will use localhost, port 8080), and spawn subsequent instances using ports >=8100, i.e. GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8100 gulp. in the end, using gulp --stop you can stop all running instances.
+use gulp --reset-collab --create test_operation to spawn the first instance (will use localhost, port 8080), and spawn subsequent instances using ports >=8100, i.e. GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8100 gulp. once done with it, using gulp --stop you can stop all running gulp instances.
 
-Docker is reachable from this devcontainer through passwordless sudo. Use:
+Docker is reachable from this devcontainer through sudo: use docker/redis-cli/top/ps to monitor containers load periodically and always report the current load and the current gulp concurrency status.
 
-- inspect services: `sudo docker ps`
-- service logs: `sudo docker logs --since ... --until ... <container>`
-- live resources: `sudo docker stats --no-stream`
-- Redis CLI: `sudo docker exec gulp-redis-1 redis-cli ...`
-
-use top/htop to inspect containers load.
+WARNING: never leave tools you run hanging in the background, always ensure to stop them once you are done.
 
 ## implementation status
 
 Keep implementation history compact by merging superseded details; keep every benchmark elapsed time in the append-only table below.
 
-- Scheduler: every REST request enters a typed Redis stream; generic dispatch owns worker concurrency, samples Redis/PostgreSQL/OpenSearch health, and avoids nested query process-pool fan-out.
+- Scheduler: every REST request enters a typed Redis stream; generic dispatch owns worker concurrency, samples Redis/PostgreSQL/OpenSearch health, avoids nested query process-pool fan-out, and resolves `workers_concurrency_max=0` from runtime service node counts with PostgreSQL/OpenSearch weighted above Redis before spawning workers.
 - Redis: multi-stream reads never overclaim requested capacity, rotate fairly, and leave no hidden pending entries.
 - Notes: automatic query/Sigma text is stored once per operation in `note_text`; indexed notes retain only per-hit text while preserving the REST representation.
 - Sigma: source metadata transactions end before CPU-heavy conversion; `query_sigma_zip` queues preprocessing, converts each rule once, spools the exact total, and sends count/byte-bounded batches to the plugin-agnostic scheduler. Queries larger than 1 MiB are isolated because they cannot be split semantically.

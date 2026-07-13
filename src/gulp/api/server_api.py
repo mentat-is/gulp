@@ -578,6 +578,65 @@ class GulpServer:
         num_workers = max(1, cfg.workers_max())
         return max(1, num_workers * child_concurrency)
 
+    async def _resolve_workers_concurrency(self) -> None:
+        """Resolve automatic worker concurrency before spawning workers."""
+        cfg = GulpConfig.get_instance()
+        if cfg.get("workers_concurrency_max", 16) != 0:
+            return
+
+        try:
+            redis_info = await GulpRedis.get_instance().client().info("cluster")
+            redis_nodes = max(1, int(redis_info.get("cluster_known_nodes", 1)))
+        except Exception as ex:
+            redis_nodes = 1
+            MutyLogger.get_instance().warning(
+                "failed to inspect Redis node count, assuming one node: %s", ex
+            )
+
+        try:
+            opensearch_info = (
+                await GulpOpenSearch.get_instance()._opensearch.nodes.info()
+            )
+            opensearch_nodes = max(1, len(opensearch_info.get("nodes", {})))
+        except Exception as ex:
+            opensearch_nodes = 1
+            MutyLogger.get_instance().warning(
+                "failed to inspect OpenSearch node count, assuming one node: %s", ex
+            )
+
+        try:
+            async with GulpCollab.get_instance().session() as sess:
+                result = await sess.execute(
+                    text(
+                        "SELECT CASE WHEN pg_is_in_recovery() THEN 1 "
+                        "ELSE 1 + count(*) END "
+                        "FROM pg_stat_replication WHERE state = 'streaming'"
+                    )
+                )
+                postgres_nodes = max(1, int(result.scalar_one()))
+        except Exception as ex:
+            postgres_nodes = 1
+            MutyLogger.get_instance().warning(
+                "failed to inspect PostgreSQL node count, assuming one node: %s", ex
+            )
+
+        # calculate weighted concurrency based on node counts, with OpenSearch and PostgreSQL weighted higher than Redis
+        # 7 is the sum of the weights: 3 for OpenSearch, 3 for PostgreSQL, and 1 for Redis
+        # on single-node deployments, this will resolve to 16, which is the default value
+        concurrency = (
+            16 * (3 * opensearch_nodes + 3 * postgres_nodes + redis_nodes) // 7
+        )
+        cfg.config()["workers_concurrency_max"] = concurrency
+        MutyLogger.get_instance().info(
+            "resolved workers_concurrency_max=%d "
+            "(base=16, weights: opensearch_nodes=%d*3, "
+            "postgres_nodes=%d*3, redis_nodes=%d*1)",
+            concurrency,
+            opensearch_nodes,
+            postgres_nodes,
+            redis_nodes,
+        )
+
     @staticmethod
     def _next_task_dispatch_limit(
         current: int,
@@ -1112,6 +1171,9 @@ class GulpServer:
         from gulp.api.redis_api import GulpRedis
 
         GulpRedis.get_instance().initialize(self.server_id)
+
+        # tune the worker concurrency based on the number of nodes in the cluster (if workers_concurrency_max is set to 0)
+        await self._resolve_workers_concurrency()
 
         # initialize Redis pub/sub for worker->main process and instance<->instance communication
         redis_broker = GulpRedisBroker.get_instance()

@@ -503,18 +503,6 @@ class GulpConfig:
         """
         return self._get_int_config("opensearch_pool_maxsize", 10, minimum=1)
 
-    def concurrency_opensearch_num_nodes(self) -> int:
-        """
-        number of opensearch nodes used to determine concurrency max tasks when adaptive concurrency is enabled
-        """
-        return self._get_int_config("concurrency_opensearch_num_nodes", 1, minimum=1)
-
-    def concurrency_postgres_num_nodes(self) -> int:
-        """
-        number of postgres nodes used to determine concurrency max tasks when adaptive concurrency is enabled
-        """
-        return self._get_int_config("concurrency_postgres_num_nodes", 1, minimum=1)
-
     def opensearch_client_cert_password(self) -> str:
         """
         Returns the password for the opensearch client certificate.

@@ -123,8 +123,8 @@
   "token_admin_ttl": 600,
   // login token (except admin) expiration time, default=1week (604800 seconds)
   "token_ttl": 604800,
-  // each worker process will run this number of tasks concurrently (default=16)
-  "workers_concurrency_max": 16,
+  // each worker process will run this number of tasks concurrently (default=16, 0 derives it from opensearch/postgresql/redis node counts)
+  "workers_concurrency_max": 0,
   // maximum number of processes to be used for the pool (default=0=number of CPU cores)
   "workers_max": 0,
   // timeout in seconds for blocking enqueue operations: if a message cannot be enqueued within this timeout, the client is considered unresponsive and disconnected (default=5.0 seconds)

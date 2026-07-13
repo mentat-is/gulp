@@ -1190,6 +1190,47 @@ async def test_dispatch_tasks_refills_free_slots_before_slow_task_finishes(monke
         await dispatch_task
 
 
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_zero_workers_concurrency_uses_runtime_service_nodes(monkeypatch):
+    GulpServer._instance = None
+    server = GulpServer.get_instance()
+    config = MagicMock()
+    config.get.return_value = 0
+    config.config.return_value = {"workers_concurrency_max": 0}
+    redis_client = MagicMock()
+    redis_client.client.return_value.info = AsyncMock(
+        return_value={"cluster_known_nodes": 4}
+    )
+    opensearch_client = MagicMock()
+    opensearch_client._opensearch.nodes.info = AsyncMock(
+        return_value={"nodes": {"os01": {}, "os02": {}, "os03": {}}}
+    )
+    postgres_result = MagicMock()
+    postgres_result.scalar_one.return_value = 2
+    postgres_session = AsyncMock()
+    postgres_session.execute.return_value = postgres_result
+    postgres_client = MagicMock()
+    postgres_client.session.return_value.__aenter__ = AsyncMock(
+        return_value=postgres_session
+    )
+    monkeypatch.setattr("gulp.api.server_api.GulpConfig.get_instance", lambda: config)
+    monkeypatch.setattr(
+        "gulp.api.server_api.GulpRedis.get_instance", lambda: redis_client
+    )
+    monkeypatch.setattr(
+        "gulp.api.server_api.GulpOpenSearch.get_instance",
+        lambda: opensearch_client,
+    )
+    monkeypatch.setattr(
+        "gulp.api.server_api.GulpCollab.get_instance", lambda: postgres_client
+    )
+
+    await server._resolve_workers_concurrency()
+
+    assert config.config.return_value["workers_concurrency_max"] == 43
+
+
 def test_task_dispatch_limit_backs_off_and_ramps_within_service_ceiling():
     tune = GulpServer._next_task_dispatch_limit
 
