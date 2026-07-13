@@ -1338,9 +1338,9 @@ async def test_zero_workers_concurrency_uses_runtime_service_nodes(monkeypatch):
 def test_task_dispatch_limit_backs_off_and_ramps_within_service_ceiling():
     tune = GulpServer._next_task_dispatch_limit
 
-    assert tune(32, 128, 24, True, 16) == 12
-    assert tune(12, 128, 24, False, 16) == 24
-    assert tune(24, 128, 24, False, 16) == 24
+    assert tune(32, 128, 24, True) == 12
+    assert tune(12, 128, 24, False) == 16
+    assert tune(24, 128, 24, False) == 24
 
 
 @pytest.mark.unit

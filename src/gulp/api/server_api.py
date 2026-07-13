@@ -641,13 +641,12 @@ class GulpServer:
         maximum: int,
         service_ceiling: int,
         under_pressure: bool,
-        step: int,
     ) -> int:
-        """Back off quickly under pressure and ramp up gradually when healthy."""
+        """Halve under pressure and recover four slots per healthy sample."""
         ceiling = max(1, min(maximum, service_ceiling))
         if under_pressure:
             return max(1, min(current, ceiling) // 2)
-        return min(ceiling, current + max(1, step))
+        return min(ceiling, current + 4)
 
     async def _task_service_state(self) -> tuple[bool, int, dict[str, int]]:
         """Return service pressure and a safe concurrency ceiling."""
@@ -786,7 +785,6 @@ class GulpServer:
         whole drained batch to finish before dequeuing more work.
         """
         maximum: int = self._task_dispatch_capacity()
-        step = max(1, GulpConfig.get_instance().workers_concurrency_max())
         limit: int = maximum
         last_health_check = 0.0
         MutyLogger.get_instance().info("STARTING dispatch_tasks loop ...")
@@ -829,7 +827,6 @@ class GulpServer:
                             maximum,
                             service_ceiling,
                             under_pressure,
-                            step,
                         )
                         if new_limit != limit:
                             MutyLogger.get_instance().info(
