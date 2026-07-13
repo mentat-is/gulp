@@ -70,3 +70,9 @@ append progress in this file each time you progress.
 - Core query producers now enqueue one Redis message per query in one atomic Redis transaction. Redis dequeue batching is therefore the only query batching layer.
 - Added scheduler service sampling every two seconds. Redis failure, PostgreSQL connection usage, OpenSearch search queue/rejections, JVM heap, and CPU drive multiplicative backoff; healthy service capacity drives gradual ramp-up. The initial ceiling is bounded by PostgreSQL headroom and OpenSearch search threads rather than blindly starting `workers_max * workers_concurrency_max` work against a single node.
 - Focused scheduler/query queue tests pass: `50 passed`.
+
+### 2026-07-13: automatic note storage pressure
+
+- Added one `note_text` row per distinct operation/query body. Automatic notes reference that row and store only per-hit highlight text inline, while serialization still returns the original combined `text` field; no REST/SDK/UI contract changed.
+- Added scalar `doc_id` plus indexes for note context, source, document, shared text, and shared-text operation cascades. Note filtering now uses the indexed document ID and searches both inline and shared text.
+- Manual note edits detach shared text so edited content remains independent. Focused note, scheduler, and idempotency tests pass: `63 passed`.

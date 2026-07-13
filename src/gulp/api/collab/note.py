@@ -26,9 +26,13 @@ from sqlalchemy import ARRAY, BIGINT, ForeignKey, Index, Insert, String
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict, MutableList
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabBase
+from gulp.api.collab.structs import (
+    COLLABTYPE_NOTE,
+    COLLABTYPE_NOTE_TEXT,
+    GulpCollabBase,
+)
 from gulp.api.opensearch.structs import GulpBasicDocument, GulpQueryParameters
 from gulp.api.ws_api import (
     WSDATA_COLLAB_CREATE,
@@ -62,6 +66,14 @@ class GulpNoteEdit(BaseModel):
     text: str = Field(..., description="The note text.")
 
 
+class GulpNoteText(GulpCollabBase, type=COLLABTYPE_NOTE_TEXT):
+    """Text shared by automatic notes generated for the same query."""
+
+    text: Mapped[str] = mapped_column(String, doc="The shared note text.")
+
+    __table_args__ = (Index("idx_note_text_operation", "operation_id"),)
+
+
 class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
     """
     a note in the gulp collaboration system
@@ -72,6 +84,15 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         doc="The context associated with the note.",
     )
     text: Mapped[str] = mapped_column(String, doc="The text of the note.")
+    text_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("note_text.id", ondelete="SET NULL"),
+        doc="Shared automatic note text.",
+    )
+    shared_text: Mapped[Optional[GulpNoteText]] = relationship(
+        GulpNoteText,
+        lazy="selectin",
+        init=False,
+    )
 
     source_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("source.id", ondelete="CASCADE"),
@@ -80,6 +101,10 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
     doc: Mapped[Optional[GulpBasicDocument]] = mapped_column(
         MutableDict.as_mutable(JSONB),
         doc="a GulpBasicDocument associated with the note.",
+    )
+    doc_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        doc="Indexed ID of the associated document.",
     )
     time_pin: Mapped[Optional[int]] = mapped_column(
         BIGINT,
@@ -95,8 +120,26 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         default_factory=list,
     )
 
-    # add an index on the operation_id for faster queries
-    __table_args__ = (Index("idx_note_operation", "operation_id"),)
+    __table_args__ = (
+        Index("idx_note_operation", "operation_id"),
+        Index("idx_note_context", "context_id"),
+        Index("idx_note_source", "source_id"),
+        Index("idx_note_doc", "doc_id"),
+        Index("idx_note_text_id", "text_id"),
+    )
+
+    @override
+    def to_dict(self, *args, **kwargs) -> dict:
+        """Serialize shared automatic text through the existing text field."""
+        data = super().to_dict(*args, **kwargs)
+        excluded = kwargs.get("exclude") or []
+        if "text" not in excluded:
+            data["text"] = (self.text or "") + (
+                self.shared_text.text if self.shared_text else ""
+            )
+        data.pop("text_id", None)
+        data.pop("shared_text", None)
+        return data
 
     @override
     @classmethod
@@ -221,12 +264,31 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
 
         tt = GulpNote._normalise_auto_note_tags(tags, name)
 
+        shared_text = ""
+        if sigma_yml:
+            shared_text += f"\n\n### sigma rule:\n\n````yaml\n{sigma_yml}````"
+        shared_text += f"\n\n### query:\n\n````json\n{str(q)}````"
+        text_id = muty.crypto.hash_xxh128(f"{operation_id}\0{shared_text}")
+        text_data = GulpNoteText.build_object_dict(
+            user_id,
+            name=name,
+            operation_id=operation_id,
+            obj_id=text_id,
+            private=False,
+            text=shared_text,
+        )
+        await sess.execute(
+            insert(GulpNoteText)
+            .values(text_data)
+            .on_conflict_do_nothing(index_elements=["id"])
+        )
+
         # creates a list of notes, one for each document
         notes: list[dict] = []
         MutyLogger.get_instance().info("creating a bulk of %d notes ..." % len(docs))
         for idx, doc in enumerate(docs):
             # remove highlights from the document, if any
-            highlights: dict = doc.pop("_highlight", {})
+            highlights: dict = doc.get("_highlight", {})
 
             # use basic fields from the document and builds an associated doc for the note
             associated_doc: dict = {
@@ -244,7 +306,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 ]
             }
 
-            # build the note text
+            # Keep only per-hit highlights inline; query/rule text is shared.
             text: str = ""
             if highlights:
                 # if highlights are present, add highlights to the text
@@ -255,15 +317,6 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                     + orjson.dumps(highlights, option=orjson.OPT_INDENT_2).decode()
                     + "\n````"
                 )
-
-            if sigma_yml:
-                # if a sigma rule is provided, add it to the text
-                text += "\n\n### sigma rule:\n\n"
-                text += f"````yaml\n{sigma_yml}````"
-
-            # always add the query
-            text += "\n\n### query:\n\n"
-            text += f"````json\n{str(q)}````"
 
             obj_id = GulpNote._deterministic_query_note_id(
                 associated_doc,
@@ -289,7 +342,9 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 obj_id=obj_id,
                 private=False,
                 doc=associated_doc,
+                doc_id=associated_doc.get("_id", "").lower() or None,
                 text=text,
+                text_id=text_id,
                 context_id=associated_doc["gulp.context_id"],
                 source_id=associated_doc["gulp.source_id"],
             )

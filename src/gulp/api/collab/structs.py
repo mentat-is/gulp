@@ -127,6 +127,7 @@ collaboration types (may be extended by plugins)
 """
 COLLABTYPE_GENERIC = "collab_obj"
 COLLABTYPE_NOTE = "note"
+COLLABTYPE_NOTE_TEXT = "note_text"
 COLLABTYPE_HIGHLIGHT = "highlight"
 COLLABTYPE_STORY = "story"
 COLLABTYPE_LINK = "link"
@@ -209,7 +210,10 @@ class GulpCollabFilter(BaseModel):
     user_ids: Annotated[
         list[str], Field(description="filter by the given owner user id/s.")
     ] = None
-    tags: Annotated[list[str], Field(description="filter by the given tag/s (no wildcards accepted).")] = None
+    tags: Annotated[
+        list[str],
+        Field(description="filter by the given tag/s (no wildcards accepted)."),
+    ] = None
     names: Annotated[list[str], Field(description="filter by the given name/s.")] = None
     texts: Annotated[
         list[str],
@@ -288,10 +292,25 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         Returns:
             bool: True if the filter is empty, False otherwise
         """
-        if not self.ids and not self.types and not self.operation_ids and not self.context_ids and not self.source_ids and not self.user_ids and not self.tags and not self.names and not self.texts and not self.time_created_range and not self.time_pin_range and not self.doc_ids and not self.doc_time_range and not self.model_extra:
+        if (
+            not self.ids
+            and not self.types
+            and not self.operation_ids
+            and not self.context_ids
+            and not self.source_ids
+            and not self.user_ids
+            and not self.tags
+            and not self.names
+            and not self.texts
+            and not self.time_created_range
+            and not self.time_pin_range
+            and not self.doc_ids
+            and not self.doc_time_range
+            and not self.model_extra
+        ):
             return True
         return False
-    
+
     @override
     def __str__(self) -> str:
         return self.model_dump_json(exclude_none=True)
@@ -421,7 +440,22 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
         if self.names and "name" in obj_type.columns:
             q = q.filter(self._case_insensitive_or_ilike(obj_type.name, self.names))
         if self.texts and "text" in obj_type.columns:
-            q = q.filter(self._case_insensitive_or_ilike(obj_type.text, self.texts))
+            text_conditions = [
+                self._case_insensitive_or_ilike(obj_type.text, self.texts)
+            ]
+            if "text_id" in obj_type.columns:
+                from gulp.api.collab.note import GulpNoteText
+
+                text_conditions.append(
+                    obj_type.text_id.in_(
+                        select(GulpNoteText.id).where(
+                            self._case_insensitive_or_ilike(
+                                GulpNoteText.text, self.texts
+                            )
+                        )
+                    )
+                )
+            q = q.filter(or_(*text_conditions))
 
         if self.model_extra:
             # check for granted_user_ids and granted_user_group_ids in model_extra
@@ -466,7 +500,9 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                     # check if column type is ARRAY using SQLAlchemy's inspection
                     is_array = isinstance(getattr(col, "type", None), ARRAY)
                     is_bool = isinstance(getattr(col, "type", None), Boolean)
-                    is_number = isinstance(getattr(col, "type", None), (BIGINT, Integer))  # treat numbers as strings for filtering with wildcards
+                    is_number = isinstance(
+                        getattr(col, "type", None), (BIGINT, Integer)
+                    )  # treat numbers as strings for filtering with wildcards
                     if is_array:
                         # if it's an array, use array overlap (matches if any element matches)
                         q = q.filter(self._case_insensitive_or_ilike(k, v))
@@ -475,7 +511,9 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                         q = q.filter(self._bool_case(col, v))
                     elif is_number:
                         # if it's a number column, convert to string and apply case-insensitive match with wildcards support
-                        q = q.filter(self._case_insensitive_or_ilike(func.cast(col, String), v))
+                        q = q.filter(
+                            self._case_insensitive_or_ilike(func.cast(col, String), v)
+                        )
                     else:
                         # either a simple column, use case insensitive OR ilike match
                         q = q.filter(self._case_insensitive_or_ilike(col, v))
@@ -483,9 +521,20 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
                 else:
                     raise ValueError("invalid filter field: %s" % k)
 
-        if self.doc_ids and "doc_ids" in obj_type.columns:
-            # return all collab objects that have at least one of the associated document "_id" (obj.doc_ids) in the given doc_ids list
-            q = q.filter(obj_type.doc_ids.op("&&")(self.doc_ids))
+        if self.doc_ids:
+            if "doc_id" in obj_type.columns:
+                q = q.filter(obj_type.doc_id.in_([d.lower() for d in self.doc_ids]))
+            elif "doc_ids" in obj_type.columns:
+                q = q.filter(obj_type.doc_ids.op("&&")(self.doc_ids))
+            elif "doc" in obj_type.columns:
+                q = q.filter(
+                    or_(
+                        *[
+                            obj_type.doc["_id"].astext == doc_id.lower()
+                            for doc_id in self.doc_ids
+                        ]
+                    )
+                )
 
         if self.time_pin_range and "time_pin" in obj_type.columns:
             # returns all collab objects that have time_pin in time_pin_range
@@ -501,14 +550,6 @@ if set, a `gulp.timestamp` range [start, end] to match documents in a `CollabObj
             if self.time_created_range[1]:
                 q = q.where(obj_type.time_created <= self.time_created_range[1])
 
-        if self.doc_ids and "doc" in obj_type.columns:
-            # returns all collab objects that have the associated document (obj.doc) with "_id" in doc_ids
-            conditions = []
-            for doc_id in self.doc_ids:
-                # check if the document has _id matching doc_id
-                # using ->> to extract the _id field from the JSONB doc object
-                conditions.append(obj_type.doc["_id"].astext == doc_id.lower())
-            q = q.filter(or_(*conditions))
         if self.doc_time_range and "doc" in obj_type.columns:
             # returns all collab objects that have the associated document (obj.doc) with "gulp.timestamp" in doc_time_range
             conditions = []
@@ -892,7 +933,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             # if grants are specified, private is overridden
             if private:
                 MutyLogger.get_instance().warning(
-                    "granted_user_ids or granted_user_group_ids set for object type=%s, private set but overridden!", cls.__gulp_collab_type__
+                    "granted_user_ids or granted_user_group_ids set for object type=%s, private set but overridden!",
+                    cls.__gulp_collab_type__,
                 )
 
             if granted_user_ids:
@@ -967,8 +1009,8 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             T: The created instance of the class.
             or, if on_conflict=="do_nothing" and a conflict occurs (i.e. an object with the same ID already exists):
             T: The existing instance of the class with the conflicting ID.
-            bool: True if the object was created, False if a conflict occurred and the existing object was returned (only if `return_conflict_status` is True). 
-            
+            bool: True if the object was created, False if a conflict occurred and the existing object was returned (only if `return_conflict_status` is True).
+
         Raises:
             Exception: If there is an error during the creation or storage process.
         """
@@ -993,7 +1035,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             d.update(extra_object_data)
 
         MutyLogger.get_instance().debug(
-            "creating object in table=%s, dict=%s", cls.__tablename__, muty.string.make_shorter(str(d),max_len=260)
+            "creating object in table=%s, dict=%s",
+            cls.__tablename__,
+            muty.string.make_shorter(str(d), max_len=260),
         )
 
         async with cls.advisory_lock(sess, obj_id):
@@ -1020,7 +1064,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     loading_options = cls._build_eager_loading_options()
                     instance = (
                         await sess.execute(
-                            select(cls).options(*loading_options).where(cls.id == d["id"])
+                            select(cls)
+                            .options(*loading_options)
+                            .where(cls.id == d["id"])
                         )
                     ).scalar_one_or_none()
                     if not instance:
@@ -1030,7 +1076,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                         return instance, False
                     return instance
                 # otherwise raise as before
-                raise Exception("failed to insert object into table %s" % cls.__tablename__)
+                raise Exception(
+                    "failed to insert object into table %s" % cls.__tablename__
+                )
 
             # inserted successfully — re-query as ORM instance so relationships are loaded
             loading_options = cls._build_eager_loading_options()
@@ -1219,7 +1267,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 "---> updated (type=%s, ws_id=%s): %s",
                 self.type,
                 ws_id,
-                muty.string.make_shorter(str(updated_dict),max_len=260)
+                muty.string.make_shorter(str(updated_dict), max_len=260),
             )
 
         # send update to websocket
@@ -1286,7 +1334,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                     self.__class__,
                     obj_id,
                     operation_id,
-                    ws_id
+                    ws_id,
                 )
                 await sess.delete(self)
                 await sess.commit()
@@ -1310,14 +1358,16 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         if ws_data:
             data = ws_data
         else:
-            p: GulpCollabDeletePacket = GulpCollabDeletePacket(id=obj_id, type=self.type)
+            p: GulpCollabDeletePacket = GulpCollabDeletePacket(
+                id=obj_id, type=self.type
+            )
             data = p.model_dump()
 
         MutyLogger.get_instance().debug(
             "notifying websocket of deletion: type=%s, ws_id=%s, data=%s",
             ws_data_type,
             ws_id,
-            muty.string.make_shorter(str(data),max_len=260)
+            muty.string.make_shorter(str(data), max_len=260),
         )
         redis_broker = GulpRedisBroker.get_instance()
         await redis_broker.put(
@@ -1375,10 +1425,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
 
     @classmethod
     async def delete_by_id_internal(
-        cls,
-        sess: AsyncSession,
-        obj_id: str,
-        throw_on_error: bool=True
+        cls, sess: AsyncSession, obj_id: str, throw_on_error: bool = True
     ) -> None:
         """
         to delete an object by ID, without permission checks or websocket notification
@@ -1393,7 +1440,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             ObjectNotFoundError: If the object is not found.
             Exception: If there is an error during deletion.
         """
-        obj: GulpCollabBase = await cls.get_by_id(sess, obj_id, throw_if_not_found=throw_on_error)
+        obj: GulpCollabBase = await cls.get_by_id(
+            sess, obj_id, throw_if_not_found=throw_on_error
+        )
         if obj:
             await obj.delete(sess, raise_on_error=throw_on_error)
 
@@ -1853,9 +1902,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
     ) -> tuple["GulpUserSession", T, "GulpOperation":None]:
         """
         helper to get an object by ID and the GulpUserSession, after checking if the token has the required permission
-        
+
         if `obj_id` have an `operation_id` set, the token will be checked for READ access on the operation first.
-        
+
         Args:
             sess (AsyncSession): The database session to use.
             token (str): The user token.
@@ -1927,10 +1976,17 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             u: GulpUser = await GulpUser.get_by_id(sess, user_id)
             is_admin = u.is_admin()
             group_ids = [g.id for g in u.groups] if u.groups else []
-            MutyLogger.get_instance().debug("building filter for user_id=%s, is admin=%r, group_ids=%s", user_id, is_admin, group_ids)
+            MutyLogger.get_instance().debug(
+                "building filter for user_id=%s, is admin=%r, group_ids=%s",
+                user_id,
+                is_admin,
+                group_ids,
+            )
         else:
             # no user_id provided, assume admin
-            MutyLogger.get_instance().debug("building filter for admin user (no user_id provided)")
+            MutyLogger.get_instance().debug(
+                "building filter for admin user (no user_id provided)"
+            )
             is_admin = True
 
         # build and run query (ensure eager loading)
@@ -1975,7 +2031,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         flt: GulpCollabFilter = await GulpCollabBase._restrict_flt_to_user(
             sess, user_id, flt
         )
-        
+
         # MutyLogger.get_instance().debug("pre to_select_query: user=%s, admin=%r, groups=%s, flt=%s", u.to_dict(), is_admin, group_ids, flt)
         q = flt.to_select_query(cls)
         q = q.options(*cls._build_eager_loading_options(recursive=recursive))
@@ -2023,7 +2079,11 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         flt.offset = 0
         flt.sort = None
         flt = await GulpCollabBase._restrict_flt_to_user(sess, user_id, flt)
-        q = flt.to_select_query(cls).order_by(None).with_only_columns(func.count(cls.id))
+        q = (
+            flt.to_select_query(cls)
+            .order_by(None)
+            .with_only_columns(func.count(cls.id))
+        )
         res = await sess.execute(q)
         return int(res.scalar_one() or 0)
 

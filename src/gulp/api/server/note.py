@@ -131,6 +131,7 @@ async def note_create_handler(
                 context_id=context_id,
                 source_id=source_id,
                 doc=(doc.model_dump(by_alias=True, exclude_none=True) if doc else None),
+                doc_id=(doc.id.lower() if doc else None),
                 time_pin=time_pin,
                 text=text,
             )
@@ -222,6 +223,8 @@ async def note_update_handler(
                 obj.color = color
             if text:
                 obj.text = text
+                obj.text_id = None
+                obj.shared_text = None
             # ensure only one in time_pin and docs is set
             if time_pin:
                 obj.doc = None
@@ -230,6 +233,7 @@ async def note_update_handler(
                 obj.doc = doc.model_dump(
                     by_alias=True, exclude_none=True, exclude_defaults=True
                 )
+                obj.doc_id = doc.id.lower()
             # add an edit
             p = GulpNoteEdit(
                 user_id=s.user.id, text=text, timestamp=muty.time.now_msec()

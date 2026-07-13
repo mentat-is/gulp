@@ -163,7 +163,9 @@ async def test_object_count_handler_dispatches_to_registered_collab_type(monkeyp
 
     class _FakeObject:
         @classmethod
-        async def count_by_filter_wrapper(cls, token, flt, operation_id=None, permission=None):
+        async def count_by_filter_wrapper(
+            cls, token, flt, operation_id=None, permission=None
+        ):
             seen.update(
                 {
                     "token": token,
@@ -239,6 +241,7 @@ def test_note_doc_filter_uses_indexed_doc_id_column():
 
     from gulp.api.collab.note import GulpNote
 
+    GulpCollab.init_mappers()
     query = GulpCollabFilter(
         operation_ids=["op-a"],
         doc_ids=["ABC123"],
@@ -260,6 +263,7 @@ def test_note_text_filter_searches_inline_and_shared_text():
 
     from gulp.api.collab.note import GulpNote
 
+    GulpCollab.init_mappers()
     query = GulpCollabFilter(texts=["*needle*"]).to_select_query(GulpNote)
     compiled = str(
         query.compile(
@@ -281,6 +285,52 @@ def test_note_fk_columns_are_indexed_for_large_cascades():
 
     assert {"idx_note_context", "idx_note_source", "idx_note_text_id"} <= note_indexes
     assert "idx_note_text_operation" in note_text_indexes
+
+
+def test_note_serialization_combines_inline_and_shared_text():
+    from gulp.api.collab.note import GulpNote, GulpNoteText
+
+    GulpCollab.init_mappers()
+    common = {
+        "user_id": "user-a",
+        "time_created": 1,
+        "time_updated": 1,
+        "operation_id": "op-a",
+        "glyph_id": None,
+        "description": None,
+        "tags": [],
+        "color": None,
+        "granted_user_ids": [],
+        "granted_user_group_ids": [],
+    }
+    shared = GulpNoteText(
+        id="text-a",
+        type="note_text",
+        name="shared",
+        text="\nquery",
+        **common,
+    )
+    note = GulpNote(
+        id="note-a",
+        type="note",
+        name="note",
+        context_id="context-a",
+        source_id="source-a",
+        text="match",
+        text_id="text-a",
+        doc={"_id": "doc-a"},
+        doc_id="doc-a",
+        time_pin=None,
+        last_editor_id=None,
+        **common,
+    )
+    note.shared_text = shared
+
+    data = note.to_dict()
+
+    assert data["text"] == "match\nquery"
+    assert "text_id" not in data
+    assert "shared_text" not in data
 
 
 @pytest.mark.unit
