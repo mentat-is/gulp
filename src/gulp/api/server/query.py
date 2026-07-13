@@ -87,10 +87,8 @@ from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import (
     WSDATA_DOCUMENTS_CHUNK,
     WSDATA_QUERY_DONE,
-    WSDATA_QUERY_GROUP_MATCH,
     GulpDocumentsChunkPacket,
     GulpQueryDonePacket,
-    GulpQueryGroupMatchPacket,
     GulpRedisBroker,
 )
 from gulp.config import GulpConfig
@@ -172,7 +170,6 @@ async def _query_raw_chunk_callback(
     last: bool = False,
     req_id: str = None,
     q_name: str = None,
-    q_group: str = None,
     **kwargs,
 ) -> list[dict]:
     """
@@ -498,7 +495,6 @@ async def run_query(
             status=status.value,
             errors=[err] if err else [],
             total_hits=total_hits,
-            q_group=gq.q_group,
         )
         await GulpRedisBroker.get_instance().put(
             t=WSDATA_QUERY_DONE,
@@ -667,9 +663,9 @@ async def process_queries(
         data: dict = (
             GulpIngestionStats().model_dump(exclude_none=True)
             if plugin
-            else GulpQueryStats(
-                num_queries=num_total_queries, q_group=q_options.group
-            ).model_dump(exclude_none=True)
+            else GulpQueryStats(num_queries=num_total_queries).model_dump(
+                exclude_none=True
+            )
         )
         # Keep single-query stats useful without dumping large multi-query payloads.
         data["q"] = [queries[0].q] if len(queries) == 1 else {}
@@ -709,8 +705,8 @@ async def process_queries(
             req_canceled = True
             return req_canceled
 
-        # 1. add query history entries, only if group is not set: we want this only for manual queries
-        if q_options.add_to_history and not q_options.group:
+        # 1. add query history entries
+        if q_options.add_to_history:
             history: list[GulpUserDataQueryHistoryEntry] = []
             for gq in queries:
                 q_opts = deepcopy(
@@ -742,8 +738,6 @@ async def process_queries(
             batch_size,
         )
 
-        results: list[tuple[int, int, str, bool] | Exception] = []
-        matched_queries: dict[str, int] = {}
         pending_batches: dict[asyncio.Future, tuple[int, int]] = {}
         next_batch_start: int = 0
 
@@ -824,36 +818,14 @@ async def process_queries(
                     len(pending_batches),
                 )
 
-                # extend global results with per-query results
-                for r in per_query_results:
-                    results.append(r)
-
-                # aggregate per-query results for local handling (group match, cancellation, errors)
-                total_hits: int = 0
-                total_processed: int = 0
-                errors: list[str] = []
+                # detect cancellation reported by a worker
                 for r in per_query_results:
                     if isinstance(r, tuple) and len(r) == 4:
-                        processed, hits, q_name, canceled = r
-                        if hits > 0 and q_options.group:
-                            if not matched_queries.get(q_name):
-                                matched_queries[q_name] = 0
-                            MutyLogger.get_instance().debug(
-                                "query group, adding match for query %s", q_name
-                            )
-                            matched_queries[q_name] += 1
-
-                        total_processed += processed
-                        total_hits += hits
+                        *_, canceled = r
                         if canceled:
                             req_canceled = True
-                    elif isinstance(r, Exception):
-                        if "RequestCanceledError" in str(r):
-                            req_canceled = True
-
-                        err = muty.log.exception_to_string(r)
-                        if err not in errors:
-                            errors.append(err)
+                    elif isinstance(r, Exception) and "RequestCanceledError" in str(r):
+                        req_canceled = True
 
             # NOTE: stats update for non-external queries is performed inside the worker (aggregated)
 
@@ -863,46 +835,7 @@ async def process_queries(
                 )
             _submit_available_batches()
 
-        # 3. process results
-        if not q_options.group:
-            # we're done
-            MutyLogger.get_instance().debug("no query group set, we're done!")
-            return req_canceled
-
-        num_queries_in_group = len(queries)
-        if len(matched_queries) < num_queries_in_group:
-            # no matches at all
-            MutyLogger.get_instance().warning(
-                "query group set but no query group match (%d/%d matched)",
-                len(matched_queries),
-                num_queries_in_group,
-            )
-            return req_canceled
-        MutyLogger.get_instance().info(
-            "we have a query_group match for group %s !", q_options.group
-        )
-
-        # now, get all the keys in matched_queries and retag each note having the key as tag also with the group name
-        query_names = list(matched_queries.keys())
-        await GulpNote.bulk_update_for_group_match(
-            sess, operation_id, query_names, q_options
-        )
-
-        # finally send the group match to the websocket
-        p = GulpQueryGroupMatchPacket(
-            group=q_options.group,
-            matches=matched_queries,
-            color=q_options.group_color,
-            glyph_id=q_options.group_glyph_id,
-        )
-        await GulpRedisBroker.get_instance().put(
-            WSDATA_QUERY_GROUP_MATCH,
-            user_id,
-            ws_id=ws_id,
-            operation_id=operation_id,
-            req_id=req_id,
-            d=p.model_dump(exclude_none=True),
-        )
+        return req_canceled
     except Exception as ex:
         if stats and not batching_step_reached:
             # ensure we set the stats as failed on error (unless we reached batching code, in which case the stats will be auto-finalized)
@@ -1194,7 +1127,7 @@ query Gulp with a raw OpenSearch DSL query.
 
 - this API returns `pending` and results are streamed to the `ws_id` websocket (unless `q_options.preview_mode` is set, read later).
 - `q` must be one or more queries with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
-- if `q_options.create_notes` is set, notes are created for each query match: each note `tags` will include `q_options.name` and, if set, `q_options.group` if all queries in `q` matches.
+- if `q_options.create_notes` is set, notes are created for each query match with `q_options.name` in their tags.
 - if `q_options.preview_mode` is set, this API takes the first query in the `q` array and the data is returned directly as `{ "total_hits": <total_hits>, "docs": <docs> }` in the response.
   size of `docs` in preview mode is limited to `q_options.preview_mode_max_records` (default=10).
 
@@ -1206,7 +1139,6 @@ during `raw_query, the flow of data on `ws_id` is the following:
 - `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpQueryStats` (once every batch of queries in `q` completed)
 - `WSDATA_DOCUMENTS_CHUNK`.payload: `GulpDocumentsChunkPacket` on each documents chunk retrieved
 - `WSDATA_QUERY_DONE`.payload: `GulpIngestSourceDonePacket` when each **single** query in `q` is completed
-- `WSDATA_QUERY_GROUP_MATCH`.payload: `GulpQueryGroupMatchPacket` if `q_options.q_group` is set and all queries in `q` matches.
 """,
 )
 async def query_raw_handler(
@@ -1268,11 +1200,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
             else:
                 # we build names for each query
                 for qq in q:
-                    gq = GulpQuery(
-                        q_name="%s-%d" % (q_options.name, count),
-                        q=qq,
-                        q_group=q_options.group,
-                    )
+                    gq = GulpQuery(q_name="%s-%d" % (q_options.name, count), q=qq)
                     count += 1
                     queries.append(gq)
 
@@ -1603,8 +1531,7 @@ async def query_external_handler(
     params["plugin_params"] = plugin_params.model_dump(exclude_none=True)
     ServerUtils.dump_params(params)
 
-    # ensure these are not set
-    q_options.group = None
+    # notes are not supported for external queries
     q_options.create_notes = False
     try:
         async with GulpCollab.get_instance().session() as sess:
@@ -1718,7 +1645,6 @@ query using [sigma rules](https://github.com/SigmaHQ/sigma).
 
 - `create_notes` may be set to `True` to create notes on match (as in `query_raw`)
 - if `q_options.preview_mode` is set, only the first sigma rule in `sigmas` is converted and run, and the data is returned directly without using the websocket.
-- if `q_options.group` is set, and all sigma rules match, notes created will include the group in their tags.
 
 ### src_ids
 
@@ -2329,7 +2255,6 @@ async def _write_file_callback(
     last: bool = False,
     req_id: str = None,
     q_name: str = None,
-    q_group: str = None,
     **kwargs,
 ) -> list[dict]:
     """

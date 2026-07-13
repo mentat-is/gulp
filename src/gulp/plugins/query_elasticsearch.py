@@ -224,7 +224,6 @@ class Plugin(GulpPluginBase):
         last: bool = False,
         req_id: str = None,
         q_name: str = None,
-        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
         for iter in range(len(chunk)):
@@ -377,7 +376,6 @@ class Plugin(GulpPluginBase):
                     last=True if last or canceled else False,
                     req_id=req_id,
                     q_name=q_options.name,
-                    q_group_by=q_options.group,
                     **kwargs,
                 )
 

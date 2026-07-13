@@ -118,7 +118,6 @@ class Plugin(GulpPluginBase):
         last: bool = False,
         req_id: str = None,
         q_name: str = None,
-        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
         hash_type = self._plugin_params.custom_parameters.get("hash_type")

@@ -274,7 +274,6 @@ class GulpDocumentsChunkCallback(Protocol):
         last: bool = False,
         req_id: str = None,
         q_name: str = None,
-        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
         """
@@ -289,7 +288,6 @@ class GulpDocumentsChunkCallback(Protocol):
             last (bool): True if this is the last chunk. Defaults to False.
             req_id (str|None): the originating request id, if any. Defaults to None.
             q_name (str|None): query name, if any. Defaults to None.
-            q_group (str|None): query group, if any. Defaults to None.
             **kwargs: additional arguments passed to the callback
         Returns:
             list[dict]: the processed chunk of documents

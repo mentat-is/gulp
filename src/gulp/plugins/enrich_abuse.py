@@ -186,7 +186,6 @@ class Plugin(GulpPluginBase):
         last: bool = False,
         req_id: str = None,
         q_name: str = None,
-        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
         auth_key: str = self._get_auth_key()

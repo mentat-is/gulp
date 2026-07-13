@@ -1117,7 +1117,7 @@ class GulpPluginBase(ABC):
             stats (GulpRequestStats): the request stats, ignored if q_options.preview_mode is set
             user_id (str): the user performing the query, ignored if q_options.preview_mode is set
             req_id (str): the request id, ignored if q_options.preview_mode is set
-            ws_id (str): the websocket id to receive WSDATA_DOCUMENTS_CHUNK, WSDATA_QUERY_DONE, WSDATA_QUERY_GROUP_MATCH packets, ignored if q_options.preview_mode is set
+            ws_id (str): the websocket id to receive WSDATA_DOCUMENTS_CHUNK and WSDATA_QUERY_DONE packets, ignored if q_options.preview_mode is set
             operation_id (str): the operation id
             q(Any): the query to perform, format is plugin specific
             plugin_params (GulpPluginParameters): the plugin parameters, they are mandatory here (custom_parameters should usually be set with specific external source parameters, i.e. how to connect)
@@ -1247,7 +1247,6 @@ class GulpPluginBase(ABC):
         last: bool = False,
         req_id: str = None,
         q_name: str = None,
-        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
         """
@@ -1269,7 +1268,6 @@ class GulpPluginBase(ABC):
                 last=last,
                 req_id=req_id,
                 q_name=q_name,
-                q_group=q_group,
                 **kwargs,
             )
             u = u._upper_instance
@@ -1285,7 +1283,6 @@ class GulpPluginBase(ABC):
         last: bool = False,
         req_id: str = None,
         q_name: str = None,
-        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
         """a GulpDocumentsChunk callback wrapper to enrich each chunk of documents during query"""
@@ -1304,7 +1301,6 @@ class GulpPluginBase(ABC):
             last=last,
             req_id=req_id,
             q_name=q_name,
-            q_group=q_group,
             **kwargs,
         )
 

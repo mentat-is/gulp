@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
-from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabBase, GulpCollabFilter
+from gulp.api.collab.structs import COLLABTYPE_NOTE, GulpCollabBase
 from gulp.api.opensearch.structs import GulpBasicDocument, GulpQueryParameters
 from gulp.api.ws_api import (
     WSDATA_COLLAB_CREATE,
@@ -337,79 +337,3 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
                 % (ws_id, len(notes), len(inserted_notes), last)
             )
         return len(inserted_notes)
-
-    @staticmethod
-    async def bulk_update_for_group_match(
-        sess: AsyncSession,
-        operation_id: str,
-        tags: list[str],
-        q_options: GulpQueryParameters,
-        user_id: str = None,
-    ) -> None:
-        """
-        update all notes matching "tags" to also include q_options.group as tag, and also update color and glyph_id with group_color and group_glyph_id if any
-
-        NOTE: this is meant for internal usage, access checks should be done before calling this method
-
-        Args:
-            sess (AsyncSession): the database session, use None to create a new session internally (only valid within this function scope)
-            operation_id (str): the operation id the notes belong to
-            tags (list[str]): the list of tags to match to trigger update: if a note have any of these tags, it will be updated
-            q_options (GulpQueryParameters): the query options containing group, group_color, group_glyph_id to update the notes with
-            user_id (str, optional): the user id to perform the update with. Defaults to None (no access check).
-        """
-
-        async def _internal(sess: AsyncSession) -> None:
-            MutyLogger.get_instance().debug("updating notes with %s tags ...", tags)
-            offset = 0
-            chunk_size = 1000
-
-            # build filter
-            flt = GulpCollabFilter(
-                tags=tags,
-                limit=chunk_size,
-                offset=offset,
-                operation_ids=[operation_id],
-            )
-
-            updated = 0
-            while True:
-                # get all notes matching "tags"
-                notes: list[GulpNote] = await GulpNote.get_by_filter(
-                    sess,
-                    flt,
-                    user_id=user_id,
-                    throw_if_not_found=False,
-                )
-                if not notes:
-                    break
-
-                # for each note, add the group tag, color and glyph_id
-                for n in notes:
-                    if q_options.group and q_options.group not in n.tags:
-                        n.tags.append(q_options.group)
-                    if q_options.group_color:
-                        n.color = q_options.group_color
-                    if q_options.group_glyph_id:
-                        n.glyph_id = q_options.group_glyph_id
-
-                await sess.commit()
-                rows_updated = len(notes)
-                MutyLogger.get_instance().debug(
-                    "updated %d notes tags/colors/glyphs", rows_updated
-                )
-
-                # next chunk
-                offset += rows_updated
-                flt.offset = offset
-                updated += rows_updated
-
-            MutyLogger.get_instance().info(
-                "updated %d notes tags/colors/glyphs (total)", updated
-            )
-
-        if not sess:
-            async with GulpCollab.get_instance().session() as sess:
-                await _internal(sess)
-        else:
-            await _internal(sess)

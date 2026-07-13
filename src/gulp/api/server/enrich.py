@@ -472,7 +472,6 @@ async def _modify_documents_chunk(
     last: bool = False,
     req_id: str = None,
     q_name: str = None,
-    q_group: str = None,
     **kwargs,
 ) -> list[dict]:
     """GulpDocumentsChunkCallback to modify each chunk of documents"""

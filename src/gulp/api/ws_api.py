@@ -50,7 +50,6 @@ WSDATA_DOCUMENTS_CHUNK = "docs_chunk"  # GulpDocumentsChunkPacket, whenever a ch
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
 WSDATA_INGEST_RAW_PROGRESS = "ingest_raw_progress"  # GulpIngestRawProgress, this is sent in the end of an ingestion operation for realtime ingestion using `/ingest_raw` API or `/ws_ingest_raw` websocket
 WSDATA_REBASE_DONE = "rebase_done"  # GulpUpdateDocumentsStats, sent when a rebase operation is done via `/opensearch_rebase_by_query` API
-WSDATA_QUERY_GROUP_MATCH = "query_group_match"  # GulpQueryGroupMatchPacket, this is sent to indicate a query group match, i.e. a query group that matched some queries when `GulpQueryParameters.group` has been set
 WSDATA_QUERY_DONE = "query_done"  # GulpQueryDonePacket, this is sent in the end of a query operation, one per single query (i.e. a sigma zip query may generate multiple single queries, called a query group)
 WSDATA_CLIENT_DATA = "client_data"  # arbitrary content, to be routed to all connected websockets having type=`WS_CLIENT_DATA`: this is used by the UI clients to communicate data each other via an ui-specific protocol, the backend just routes the packets.
 
@@ -410,41 +409,6 @@ class GulpSourceFieldsChunkPacket(BaseModel):
     ] = False
 
 
-class GulpQueryGroupMatchPacket(BaseModel):
-    """
-    Represents a query group match.
-
-    once receiving a query group match, the client should query notes with tag=group name
-    """
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "name": "the query group name",
-                    "total_hits": 100,
-                }
-            ]
-        }
-    )
-    group: Annotated[str, Field(description="The query group name.")]
-    matches: Annotated[dict, Field(description="The matched queries.")]
-    color: Annotated[
-        Optional[str],
-        Field(
-            None,
-            description="The color associated with the query group, if any.",
-        ),
-    ] = None
-    glyph_id: Annotated[
-        Optional[str],
-        Field(
-            None,
-            description="The glyph associated with the query group, if any.",
-        ),
-    ] = None
-
-
 class GulpQueryDonePacket(BaseModel):
     """
     Represents a query done event on the websocket.
@@ -464,9 +428,6 @@ class GulpQueryDonePacket(BaseModel):
         },
     )
     q_name: Annotated[str, Field(description="The query name.")]
-    q_group: Annotated[
-        Optional[str], Field(description="The query group name, if any.")
-    ] = None
     status: Annotated[
         str, Field(description="The status of the query operation (done/failed).")
     ]

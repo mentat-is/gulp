@@ -2525,7 +2525,6 @@ class GulpOpenSearch:
                     last=True if last or canceled else False,
                     req_id=req_id,
                     q_name=q_options.name,
-                    q_group_by=q_options.group,
                     **kwargs,
                 )
 

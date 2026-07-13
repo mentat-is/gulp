@@ -46,7 +46,6 @@ class Plugin(GulpPluginBase):
         last: bool = False,
         req_id: str = None,
         q_name: str = None,
-        q_group: str = None,
         **kwargs,
     ) -> list[dict]:
         for doc in chunk:
@@ -67,7 +66,6 @@ class Plugin(GulpPluginBase):
             last=last,
             req_id=req_id,
             q_name=q_name,
-            q_group=q_group,
             **kwargs,
         )
 

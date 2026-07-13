@@ -145,7 +145,6 @@ COLLABTYPE_MAPPING_PARAMETERS = "mapping_parameters"
 COLLABTYPE_FIELD_TYPES = "field_types_entries"
 COLLABTYPE_QUERY_HISTORY = "query_history"
 COLLABTYPE_TASK = "task"
-COLLABTYPE_QUERY_GROUP_MATCH = "query_group_match"
 
 T = TypeVar("T", bound="GulpCollabBase")
 

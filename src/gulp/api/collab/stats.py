@@ -147,9 +147,7 @@ class GulpQueryStats(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         json_schema_extra={
-            "examples": [
-                {"total_hits": 100, "q_group": "my_query_group"},
-            ]
+            "examples": [{"total_hits": 100}]
         },
     )
     q: Annotated[Optional[dict | list[dict] | list[str]], Field(description="The query/queries")] = None
@@ -163,9 +161,6 @@ class GulpQueryStats(BaseModel):
     failed_queries: Annotated[
         int, Field(description="Number of queries that failed.")
     ] = 0
-    q_group: Annotated[
-        Optional[str], Field(description="The query group this query belongs to.")
-    ] = None
 
 
 class GulpUpdateDocumentsStats(BaseModel):
