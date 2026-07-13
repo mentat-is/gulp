@@ -4,7 +4,7 @@ the plan is about optimizing gulp for high loads query/ingestion requests.
 
 # expected results
 
-high volume ingestion and query must be supported, current target is 10 users massively ingesting and querying using `sigma_zip_big_harness` which exercises gulp with massive ingestion and sigma queries in parallel and concurrently (the harness is currently buggy and not guaranteed to work correctly)
+high volume ingestion and query must be supported, current target is 10 users massively ingesting and querying using the stable `sigma_zip_big_harness`, which exercises gulp with massive ingestion and sigma queries in parallel and concurrently.
 
 # the current problems
 
@@ -53,7 +53,7 @@ Keep implementation history compact by merging superseded details; keep every be
 - Sigma: source metadata transactions end before CPU-heavy conversion; `query_sigma_zip` queues preprocessing, converts each rule once, spools the exact total, and sends count/byte-bounded batches to the plugin-agnostic scheduler. Queries larger than 1 MiB are isolated because they cannot be split semantically.
 - Harness/profile: the 10-user full-Sigma target passes with the default `workers_max=0` and `workers_concurrency_max=0`, resolving on this host to 16 processes, 16 coroutine slots per process, a nominal capacity of 256, and a health-limited OpenSearch ceiling of 25. PostgreSQL `4+0` gives a theoretical 68-connection gULP budget; all users progress independently once runnable.
 - Proof: backend `299 passed`; Sigma ZIP `4 passed` including 1,001 rules and 200 KB queries; paid plugins otherwise `61 passed` with two unrelated Vir.IT expectation failures. The final 10-user run had no OpenSearch restart/OOM, WebSocket disconnect, abandoned task, or keepalive timeout.
-- Next gate: design and verify the cluster-wide process and PostgreSQL budget before starting a second default-sized instance. Two naive `workers_max=0` instances would budget `2 * (1 + 16) * 4 = 136` PostgreSQL connections against `max_connections=100`, so the single-instance default cannot be assumed safe for multi-instance deployment.
+- Two default-sized instances were verified with the bounded `4+0` PostgreSQL pool configuration: no connection exhaustion or service restart occurred. Cluster sizing must still be based on the aggregate process and pool budget, not on the single-instance defaults alone.
 
 ## benchmark history
 
@@ -87,3 +87,4 @@ Counts are `records / completed queries / hits / notes`; times are harness wall-
 | 2026-07-13 | 10 users, full | fixed query limit `2`, cold cache | 248.01s partial | ABORT at exact ingestion and before completed query results; fixed memory-per-query assumption rejected as workload-specific, not a performance failure |
 | 2026-07-13 | 10 users, full | service-adaptive query admission, cold cache | 969.50s | PASS `986,330 / 11,490 / 734,640 / 734,640`; workload 955.63s; 233.46s (19.4%) less elapsed than the previous successful multiple-operation run at 1202.96s, equivalent to 24.1% more end-to-end throughput for the same totals. Queries began before aggregate ingestion completed, users finished independently, query admission adapted from `1` up to `20`, repeatedly backed down to `1`-`6` on search/heap pressure, and reset `19 -> 1` after drain; no OpenSearch restart/OOM or WebSocket/worker failure. This is an end-to-end comparison across several landed optimizations, not an isolated scheduler A/B. |
 | 2026-07-13 | 10 users, shared operation, full | service-adaptive query admission, cold cache | 1770.51s | PASS `986,330 / 11,490 / 7,346,400 / 7,346,400`; workload 1768.23s; 113.22s (6.0%) less elapsed than the previous shared-operation pass at 1883.73s, equivalent to 6.4% more end-to-end throughput. Query admission rose to `25` during CPU-bound conversion, backed down as low as `1` under OpenSearch/PostgreSQL pressure, and reset `25 -> 1` after drain; users completed independently and no OpenSearch restart/OOM, WebSocket disconnect, or abandoned task occurred. Automatic API cleanup again hit PostgreSQL lock timeouts on 7.35M shared notes; the failed cleanup path was stopped and test state was reset directly. |
+| 2026-07-13 | 10 users, full, 2 gULP instances | service-adaptive query admission, cold cache | 1449.92s | PASS `986,330 / 11,490 / 734,640 / 734,640`; instances split five flows each with no service restart, polling error, or WebSocket/worker failure. Slower than the one-instance 969.50s run because the single OpenSearch node was saturated; this proves stability, not a throughput gain. |

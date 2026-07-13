@@ -7,8 +7,6 @@
     - [ws\_client\_data](#ws_client_data)
     - [tracking status](#tracking-status)
 - [scaling](#scaling)
-  - [increase concurrency](#increase-concurrency)
-  - [scale OpenSearch, PostgreSQL and Redis](#scale-opensearch-postgresql-and-redis)
   - [gulp server roles](#gulp-server-roles)
   - [raw ingestion scaling](#raw-ingestion-scaling)
 
@@ -262,58 +260,8 @@ a client can keep track of operations [via data sent by gulp on the connected we
 
 ## scaling
 
-gULP can be scaled by both providing more hardware resources and/or by running multiple instances of gulp connected to the same OpenSearch, Redis and PostgreSQL (`collab` database).
-
-### increase concurrency
-
-tune [gulp_cfg.json](../src/gulp/gulp_cfg_template.json) by deciding how much
-work one gULP instance may claim at once. The useful knobs are:
-
-- `workers_max`: worker process count. `0` means use the available CPU count.
-- `workers_concurrency_max`: per-worker task budget for I/O-heavy work.
-- `opensearch_pool_maxsize`: OpenSearch HTTP pool size per process.
-- `postgres_pool_size` and `postgres_max_overflow`: PostgreSQL pool behavior
-  per process. PostgreSQL pressure is handled by adaptive task dispatch.
-
-Tune against the bottleneck you measured. More Python workers do not help when
-OpenSearch, PostgreSQL, Redis, or client websocket drains are already saturated.
-Use [testing.md](./testing.md) for the stress harness and
-[observability.md](./observability.md) for metrics.
-
-### scale OpenSearch, PostgreSQL and Redis
-
-gULP can use larger or clustered OpenSearch, PostgreSQL, and Redis deployments
-without changing application code. The gULP configuration still points at the
-service endpoint, and the external service absorbs more work behind that
-endpoint.
-
-Use the service scaling knobs for the bottleneck you actually measured:
-
-- OpenSearch: add CPU/RAM, faster disk, or more OpenSearch nodes when searches
-  queue up, query latency climbs, or circuit breakers/restarts appear while
-  PostgreSQL and Redis are healthy.
-- PostgreSQL: add CPU/RAM, tune the database, or move to a larger PostgreSQL
-  host when note/collaboration writes are the slow part or connection pools stay
-  exhausted.
-- Redis: add memory/CPU or a managed Redis service when task queue operations or
-  pub/sub are slow. Redis should not be the bottleneck for the BIG_SIGMAS
-  profile once stale interrupted streams are cleaned up.
-- gULP instances: add more gULP processes only when the external services still
-  have headroom. `More gULP workers cannot make an overloaded OpenSearch or
-  PostgreSQL faster`.
-
-For OpenSearch, set `opensearch_index_replicas` before creating operations. Use
-`0` for local write-heavy tests or analysis-time working data where replica
-availability is not required. Use replicas when you need OpenSearch node failure
-tolerance during an active investigation and can afford the write cost.
-
-For PostgreSQL, gULP uses one configured endpoint (`postgres_url` or
-`GULP_POSTGRES_URL`) and one SQLAlchemy engine per process. Multi-node
-PostgreSQL should therefore be exposed to gULP as one writer/proxy endpoint
-managed outside the application. Do not add app-side PostgreSQL node routing
-unless the collaboration layer is redesigned for read/write splitting and
-consistency. For the current write-heavy collaboration workload, keep per-process
-pool caps bounded and tune the PostgreSQL cluster behind that single endpoint.
+See [scaling.md](./scaling.md) for topology choices, trade-offs, and measured
+two-node stress-run results. This page retains architecture-specific routing.
 
 ### gulp server roles
 

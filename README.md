@@ -44,14 +44,15 @@ Gulp is a powerful software tool designed to streamline incident response and an
     <div class="slide" id="slide-3"><img src="screenshot-3.png" alt="screenshot 3"></div>
   </div>
 
-- **Scalable**: Gulp is designed with scalability in mind. As your data and team grow, you can simply add more gulp nodes, more cores to increase parallel ingestion and query capabilities, more OpenSearch and PostgreSQL nodes. This makes Gulp a flexible solution that can adapt to your evolving needs!
+- **Scalable**: scale the measured bottleneck; see the [scaling guide](./docs/scaling.md).
 - **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
 
 [here is a detailed datasheet](./DATASHEET.md)
 
 ## documentation
 
-- [Architecture and scaling](./docs/architecture.md)
+- [Architecture](./docs/architecture.md)
+- [Scaling guide](./docs/scaling.md)
 - [Docker install and exposed services](./docs/install_docker.md)
 - [Development install](./docs/install_dev.md)
 - [Plugins and mapping](./docs/plugins_and_mapping.md)
