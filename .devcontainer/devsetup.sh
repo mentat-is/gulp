@@ -39,9 +39,6 @@ source "${VENV_DIR}/bin/activate"
 echo "[.] Installing gulp"
 "${PYTHON_BIN}" -m pip install --timeout=1000 -e .
 
-echo "[.] Installing muty-python"
-"${PYTHON_BIN}" -m pip install --timeout=1000 -e ./muty-python
-
 echo "[.] Installing gulp sdk (for tests, bridges, ...)"
 "${PYTHON_BIN}" -m pip install --timeout=1000 -e ./gulp-sdk
 
@@ -55,4 +52,3 @@ echo "[.] development environment setup complete"
 npm install electron
 curl -fsSL https://chatgpt.com/codex/install.sh | sh
 codex plugin marketplace add DietrichGebert/ponytail
-

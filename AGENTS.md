@@ -47,7 +47,7 @@ Core services used by the backend:
 - `gulp-sdk/`: Python SDK for the gULP API
 - `gulp-cli/`: CLI built on top of the SDK
 - `gulp-paid-plugins/`: non-free plugins
-- `muty-python/`: shared utility library
+- `src/muty/`: built-in shared utility library
 - `gulpui-web/`: React + TypeScript web client
 
 ## Backend conventions

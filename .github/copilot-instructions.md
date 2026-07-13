@@ -3,7 +3,7 @@
 gULP is a Python FastAPI service + workers that stores documents in OpenSearch and keeps collaboration metadata in PostgreSQL; Redis is used for the task queue & pub/sub. (see `docs/architecture.md`).
 
 - Main code lives in `src/gulp/` — important entry points: `src/gulp/__main__.py` (CLI), `src/gulp/api/server_api.py` (FastAPI server), `src/gulp/plugin.py` (plugin base).
-- Separate repositories are symlinked for the client SDK (`gulp-sdk/`), non-free plugins (`gulp-paid-plugins`), and utility library (`muty-python/`).
+- Separate repositories are symlinked for the client SDK (`gulp-sdk/`) and non-free plugins (`gulp-paid-plugins`). The `muty` utility package is built into this repository at `src/muty/`.
 
 ## General instructions for coding agents 🤖
 - **ALWAYS** use memory to track progress and decisions made during implementation
@@ -28,4 +28,3 @@ gULP is a Python FastAPI service + workers that stores documents in OpenSearch a
 3. If DB schema changes, add migration under `collab_migrate/`.
 4. Ensure tests starts with a clean state (use pytest fixtures as i.e. in `tests/ingest/test_ingest.py:::_setup` or `--reset-collab --create test_operation` to start gulp in a clean state with a test operation).
 5. Run tests and ensure they pass before submitting PR.
-

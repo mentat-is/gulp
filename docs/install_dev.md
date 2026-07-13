@@ -29,7 +29,6 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
   ~~~bash
   mkdir ./repos && cd ./repos
   git clone https://github.com/mentat-is/gulp.git
-  git clone https://github.com/mentat-is/muty-python.git
   git clone https://github.com/mentat-is/gulp-sdk.git
   # clone other repos, i.e. the devteam may want to clone also the paid-plugins repo...
   git clone https://github.com/mentat-is/gulp-paid-plugins.git
@@ -84,7 +83,6 @@ gh auth login
 ~~~bash
 mkdir ./repos && cd ./repos
 git clone https://github.com/mentat-is/gulp.git
-git clone https://github.com/mentat-is/muty-python.git
 git clone https://github.com/mentat-is/gulp-sdk.git
 git clone https://github.com/mentat-is/gulp-paid-plugins.git
 ~~~
@@ -117,7 +115,7 @@ install all packages as editable
 
 ~~~bash
 # install all packages as editable (-e)
-pip3 install -e . && pip3 install -e ../muty-python && pip3 install -e ../gulp-sdk
+pip3 install -e . && pip3 install -e ../gulp-sdk
 ~~~
 
 ### 6. run

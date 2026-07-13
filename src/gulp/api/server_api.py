@@ -20,7 +20,6 @@ from typing import Any, Awaitable, Callable, Sequence
 import muty.file
 import muty.os
 import muty.string
-import muty.version
 import orjson
 import uvicorn
 from fastapi import FastAPI, Request
@@ -105,10 +104,7 @@ class GulpServer:
             str: version string
         """
         ver: str = f"{__version__} ({commit_id})" if commit_id else __version__
-        return "gulp_%s, muty_%s" % (
-            ver,
-            muty.version.muty_version(),
-        )
+        return f"gulp_{ver}"
 
     async def _unload_extension_plugins(self) -> None:
         """

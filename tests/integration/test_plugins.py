@@ -20,14 +20,15 @@ from pathlib import Path
 
 @pytest.mark.integration
 async def test_version(gulp_base_url, gulp_test_user, gulp_test_password):
-    """Server /version should return a non-empty version string."""
+    """Server /version should report only the gULP version."""
     from gulp_sdk import GulpClient
 
     async with GulpClient(gulp_base_url) as client:
         await client.auth.login(gulp_test_user, gulp_test_password)
         ver = await client.plugins.version()
         assert isinstance(ver, str)
-        assert len(ver) > 0
+        assert ver.startswith("gulp_")
+        assert "muty" not in ver.lower()
 
 
 @pytest.mark.integration
@@ -338,5 +339,4 @@ async def test_websocket_connect_and_subscribe(gulp_base_url, gulp_test_user, gu
 
         except (GulpSDKError, Exception) as exc:
             pytest.skip(f"WebSocket support unavailable or currently failing: {exc}")
-
 

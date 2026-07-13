@@ -83,7 +83,6 @@ dependencies = [
     "MarkupSafe==3.0.3",
     "msoffcrypto-tool==6.0.0",
     "multidict==6.7.1",
-    "muty-python",
     "ntplib==0.4.0",
     "numba==0.65.1",
     "numpy==2.4.4",

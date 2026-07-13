@@ -45,7 +45,6 @@ build_test.sh
 .specstory
 .coverage
 gulp-cli
-muty-python
 gulp-sdk
 gulp-dissect
 gulp-collector
@@ -60,4 +59,3 @@ package-lock.json
 package.json
 node_modules
 dc1-logs
-

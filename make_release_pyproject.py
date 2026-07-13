@@ -164,7 +164,7 @@ def main() -> None:
         "--exclude",
         metavar="PACKAGES",
         default="",
-        help='Comma-separated list of package names to exclude from pinning (e.g. "gulp-sdk,muty-python")',
+        help='Comma-separated list of package names to exclude from pinning (e.g. "gulp-sdk")',
     )
     args = parser.parse_args()
 

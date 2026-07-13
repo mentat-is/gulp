@@ -1,3 +1,11 @@
+# v2.0.0
+
+- completely new scheduler and task management system, with better observability and metrics, more robust and performant code: now supports up to 10 users in a very irrealistic stress test with thousands of concurrent ingestion and queries, millions of generated notes, and hundreds of concurrent tasks (see `test_scripts/sigma_zip_big_harness.py` for details), this means that the realistic deployment will support many more users on a single instance, and more instances can be added to scale horizontally (as before, see the [scaling guide](./docs/scaling.md) for details)
+- move `muty-python` inside the gulp repo, now it is a built-in shared utility library (see `src/muty/`), and the old `muty-python` repo is deprecated (you may remove it from your local clone or uninstall it if you installed it via pip)
+- many bugfixes and improvements across the whole codebase, including better error handling, better documentation, code and configuration cleanup and more tests.
+
+> IMPORTANT: existing user must run the migration script in `/migrate/v2.0.0` to upgrade the collab database to the new schema, and also update the configuration file with the new required fields (see `gulp_cfg_template.json` for details).
+
 # v1.7.601
 
 - api cleanup (removed unused API)

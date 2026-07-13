@@ -90,13 +90,13 @@ File storage:
 
 a `minIO` instance is provided to allow `ingestion` plugins to store files (i.e. binary files) which could not be stored on OpenSearch directly: note that this affects `file ingestion` operations only (no `ingest_raw/ws_ingest_raw`).
 
-> Most of the gulp core components uses the [muty utility library](https://github.com/mentat-is/muty-python) to abstract common operations and primitives.
+> Most gULP core components use the built-in `muty` utility package to abstract common operations and primitives.
 
 ```mermaid
 flowchart TB
 
 muty[muty
-  utilities & primitives lib]
+  built into gULP]
 
 muty<-.->gULP
 muty<-.->Plugins

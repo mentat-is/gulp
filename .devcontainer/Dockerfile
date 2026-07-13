@@ -20,6 +20,7 @@ RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /usr/sh
         git-lfs \
         inetutils-ping \
         jq \
+        htop \
         libbz2-dev \
         libffi-dev \
         libgl1 \
