@@ -92,3 +92,8 @@ append progress in this file each time you progress.
 - 1 user, full 1,149 Sigma: PASS in 142.66s overall (query phase about 78s) with exact `98,633 / 1,149 / 73,464 / 73,464`. A live sample at 20,810 notes had only 4 `note_text` rows; OpenSearch search queue/rejections were zero and PostgreSQL used 21/100 connections.
 - 2 users concurrently, full Sigma: PASS in 231.33s with exact aggregate `197,266 / 2,298 / 146,928 / 146,928`. This clears the staged query-side safety gate before attempting the 10-user target.
 - Full backend unit suite passes: `271 passed` (two third-party Scapy deprecation warnings). PostgreSQL pool defaults now remain conservative at 4 unless worker concurrency is explicitly configured.
+
+### 2026-07-13: target-run Redis claim correction
+
+- The first 10-user full-Sigma attempt exposed a Redis Streams semantic bug under simultaneous ingest and query traffic: `XREADGROUP COUNT` applies per stream, so the scheduler could claim more than its free capacity, and the single-task blocking path claimed one entry from every stream while returning only the first. The unreturned query preprocessing entries later became abandoned and failed with zero completed queries.
+- Redis task reads now poll one stream at a time, divide each dequeue batch across task types without exceeding the requested total, and rotate the first stream for fairness. The blocking path also claims exactly one entry per read, preventing hidden pending entries. Task queue unit coverage passes: `31 passed`.

@@ -896,6 +896,74 @@ async def test_task_dequeue_batch_preserves_envelope_without_ack_or_delete():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_task_dequeue_batch_never_overclaims_across_streams():
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeTaskRedisClient()
+    redis_client._redis = fake_redis
+    redis_client.server_id = "server-a"
+    redis_client._task_stream_cursor = 0
+    fake_redis.known_task_types.update({"ingest", "query"})
+
+    async def _xreadgroup(*args, **kwargs):
+        fake_redis.xreadgroup_calls.append((args, kwargs))
+        stream = next(iter(kwargs["streams"]))
+        count = kwargs["count"]
+        task_type = stream.rsplit(":", 1)[-1]
+        return [
+            (
+                stream,
+                [
+                    (
+                        f"{index + 1}-0",
+                        {b"data": orjson.dumps({"task_type": task_type})},
+                    )
+                    for index in range(count)
+                ],
+            )
+        ]
+
+    fake_redis.xreadgroup = _xreadgroup
+
+    batch = await redis_client.task_dequeue_batch(3)
+
+    assert len(batch) == 3
+    assert [call[1]["count"] for call in fake_redis.xreadgroup_calls] == [2, 1]
+    assert all(len(call[1]["streams"]) == 1 for call in fake_redis.xreadgroup_calls)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_task_pop_blocking_claims_from_only_one_stream_per_read():
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeTaskRedisClient()
+    redis_client._redis = fake_redis
+    redis_client.server_id = "server-a"
+    redis_client._task_stream_cursor = 0
+    fake_redis.known_task_types.update({"ingest", "query"})
+
+    async def _xreadgroup(*args, **kwargs):
+        fake_redis.xreadgroup_calls.append((args, kwargs))
+        stream = next(iter(kwargs["streams"]))
+        if stream.endswith(":query"):
+            return [
+                (
+                    stream,
+                    [("1-0", {b"data": orjson.dumps({"task_type": "query"})})],
+                )
+            ]
+        return []
+
+    fake_redis.xreadgroup = _xreadgroup
+
+    task = await redis_client.task_pop_blocking(timeout=1)
+
+    assert task is not None
+    assert task["task_type"] == "query"
+    assert all(len(call[1]["streams"]) == 1 for call in fake_redis.xreadgroup_calls)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_task_dequeue_batch_drops_invalid_payload():
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()

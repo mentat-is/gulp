@@ -171,6 +171,8 @@ class GulpRedis:
         self._last_utilization_update: float = 0.0
         # timestamp of last heartbeat update (main process only)
         self._last_heartbeat_update: float = 0.0
+        # Rotate the first task stream polled so one busy type cannot starve others.
+        self._task_stream_cursor: int = 0
         # timestamp of last raw websocket ingest orphan cleanup (main process only)
         self._last_ws_ingest_orphan_cleanup: float = 0.0
         # timestamp of last stale pending task cleanup (main process only)
@@ -1714,6 +1716,9 @@ class GulpRedis:
         Returns:
             list[dict]: Decoded task dicts.
         """
+        if max_items <= 0:
+            return []
+
         items: list[dict] = []
 
         # determine stream keys to poll (per-type streams)
@@ -1733,59 +1738,59 @@ class GulpRedis:
                 # ignore if group exists or other recoverable errors
                 pass
 
-        # build streams dict for xreadgroup: {stream: '>'}
-        streams_dict = {k: ">" for k in keys}
+        start = self._task_stream_cursor % len(keys)
+        ordered_keys = keys[start:] + keys[:start]
+        self._task_stream_cursor = (start + 1) % len(keys)
 
-        try:
-            # read up to max_items across streams (non-blocking)
-            entries = await self._redis.xreadgroup(
-                GulpRedis.STREAM_CONSUMER_GROUP,
-                self.server_id,
-                streams=streams_dict,
-                count=max_items,
-                block=None,
-                noack=False,
-            )
-        except Exception as ex:
-            MutyLogger.get_instance().exception("error reading from streams: %s", ex)
-            return []
+        # Redis applies COUNT to each stream, not to the combined response. Read
+        # streams separately so this method never claims more than max_items.
+        for index, stream in enumerate(ordered_keys):
+            remaining = max_items - len(items)
+            if remaining <= 0:
+                break
+            streams_left = len(ordered_keys) - index
+            count = max(1, (remaining + streams_left - 1) // streams_left)
+            try:
+                entries = await self._redis.xreadgroup(
+                    GulpRedis.STREAM_CONSUMER_GROUP,
+                    self.server_id,
+                    streams={stream: ">"},
+                    count=count,
+                    block=None,
+                    noack=False,
+                )
+            except Exception as ex:
+                MutyLogger.get_instance().exception(
+                    "error reading from stream %s: %s", stream, ex
+                )
+                continue
+            items.extend(await self._decode_task_entries(entries))
 
-        # entries: list of (stream, [(id, {field: value}), ...])
+        return items
+
+    async def _decode_task_entries(self, entries: list) -> list[dict]:
+        """Decode claimed Redis stream entries and drop malformed payloads."""
+        items: list[dict] = []
         for stream_name, msgs in entries:
             for msg_id, fields in msgs:
-                raw = (
-                    fields.get(b"data")
-                    if isinstance(fields, dict)
-                    else fields.get("data")
-                )
+                raw = fields.get(b"data", fields.get("data"))
                 if raw is None:
-                    await self._drop_task(
-                        stream_name,
-                        msg_id,
-                        "missing data field",
-                    )
+                    await self._drop_task(stream_name, msg_id, "missing data field")
                     continue
                 try:
-                    # raw may be bytes
-                    if isinstance(raw, bytes):
-                        d = orjson.loads(raw)
-                    else:
-                        d = orjson.loads(raw)
-                    if not isinstance(d, dict):
+                    task = orjson.loads(raw)
+                    if not isinstance(task, dict):
                         raise TypeError("task payload must decode to dict")
                     items.append(
-                        self._task_envelope(d, stream_name, msg_id, self.server_id)
+                        self._task_envelope(task, stream_name, msg_id, self.server_id)
                     )
                 except Exception as ex:
                     MutyLogger.get_instance().error(
                         "invalid task payload in stream %s: %s", stream_name, ex
                     )
                     await self._drop_task(
-                        stream_name,
-                        msg_id,
-                        f"invalid task payload: {ex}",
+                        stream_name, msg_id, f"invalid task payload: {ex}"
                     )
-
         return items
 
     async def task_pop_blocking(self, timeout: int = 5) -> Optional[dict]:
@@ -1815,45 +1820,29 @@ class GulpRedis:
                 except Exception:
                     pass
 
-            streams_dict = {k: ">" for k in keys}
-            # block is in milliseconds
-            block_ms = int(timeout * 1000) if timeout else 0
-            res = await self._redis.xreadgroup(
-                GulpRedis.STREAM_CONSUMER_GROUP,
-                self.server_id,
-                streams=streams_dict,
-                count=1,
-                block=block_ms,
-                noack=False,
-            )
-            if not res:
-                return None
-
-            # pick first message found
-            for stream_name, msgs in res:
-                for msg_id, fields in msgs:
-                    raw = (
-                        fields.get(b"data")
-                        if isinstance(fields, dict)
-                        else fields.get("data")
-                    )
-                    try:
-                        d = orjson.loads(raw)
-                        if not isinstance(d, dict):
-                            raise TypeError("task payload must decode to dict")
-                        return self._task_envelope(
-                            d, stream_name, msg_id, self.server_id
-                        )
-                    except Exception as ex:
-                        MutyLogger.get_instance().error(
-                            "invalid task payload on XREADGROUP, skipping: %s", ex
-                        )
-                        await self._drop_task(
-                            stream_name,
-                            msg_id,
-                            f"invalid task payload: {ex}",
-                        )
-                        continue
+            start = self._task_stream_cursor % len(keys)
+            deadline = time.monotonic() + timeout if timeout > 0 else None
+            index = start
+            while deadline is None or time.monotonic() < deadline:
+                stream = keys[index]
+                index = (index + 1) % len(keys)
+                self._task_stream_cursor = index
+                remaining = (
+                    0.25
+                    if deadline is None
+                    else min(0.25, max(0.001, deadline - time.monotonic()))
+                )
+                res = await self._redis.xreadgroup(
+                    GulpRedis.STREAM_CONSUMER_GROUP,
+                    self.server_id,
+                    streams={stream: ">"},
+                    count=1,
+                    block=max(1, int(remaining * 1000)),
+                    noack=False,
+                )
+                items = await self._decode_task_entries(res)
+                if items:
+                    return items[0]
             return None
         except asyncio.CancelledError:
             raise
