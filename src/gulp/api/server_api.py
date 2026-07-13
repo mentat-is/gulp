@@ -734,6 +734,8 @@ class GulpServer:
             and rejected > self._last_opensearch_search_rejected
         )
         self._last_opensearch_search_rejected = rejected
+        # Dispatch is limited by the smaller of PostgreSQL's usable connections
+        # and OpenSearch's configured search-thread pool.
         postgres_ceiling = max(1, int(postgres_max * 0.8))
         service_ceiling = max(1, min(postgres_ceiling, search_capacity or 1))
         under_pressure = (
@@ -749,11 +751,13 @@ class GulpServer:
             {
                 "postgres_used": postgres_used,
                 "postgres_max": postgres_max,
+                "postgres_dispatch_capacity": postgres_ceiling,
                 "opensearch_heap": heap,
                 "opensearch_cpu": cpu,
                 "opensearch_search_threads": search_threads,
                 "opensearch_search_capacity": search_capacity,
                 "opensearch_search_rejected": rejected,
+                "service_capacity_ceiling": service_ceiling,
             },
         )
 
@@ -869,10 +873,11 @@ class GulpServer:
                             under_pressure,
                         )
                         if new_limit != limit:
-                            MutyLogger.get_instance().info(
-                                "task dispatch concurrency %d -> %d, pressure=%r, services=%s",
+                            MutyLogger.get_instance().warning(
+                                "adjusted task dispatch concurrency from %d to %d to fit service capacity ceiling=%d (under_pressure=%r, service_state=%s)",
                                 limit,
                                 new_limit,
+                                service_ceiling,
                                 under_pressure,
                                 state,
                             )

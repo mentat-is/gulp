@@ -1530,8 +1530,10 @@ async def test_task_service_ceiling_uses_configured_search_capacity(monkeypatch)
 
     assert pressure is False
     assert ceiling == 25
+    assert state["postgres_dispatch_capacity"] == 80
     assert state["opensearch_search_threads"] == 3
     assert state["opensearch_search_capacity"] == 25
+    assert state["service_capacity_ceiling"] == 25
     nodes.info.assert_awaited_once_with(metric="thread_pool")
 
 

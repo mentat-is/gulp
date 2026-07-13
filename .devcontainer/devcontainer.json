@@ -61,6 +61,7 @@
     "source=${localWorkspaceFolder}/../gulp-collector,target=${containerWorkspaceFolder}/gulp-collector,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulp-licensing,target=${containerWorkspaceFolder}/gulp-licensing,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulp-dissect,target=${containerWorkspaceFolder}/gulp-dissect,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/../gulp-mcp,target=${containerWorkspaceFolder}/gulp-mcp,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../gulpui-web,target=${containerWorkspaceFolder}/gulpui-web,type=bind,consistency=cached",
     // map the config for development (references the gulp-paid-plugins above for the extra plugins and mapping files)
     "source=${localEnv:HOME}/.config/gulp,target=/home/vscode/.config/gulp,type=bind,consistency=cached",

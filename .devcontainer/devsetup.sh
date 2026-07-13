@@ -42,8 +42,21 @@ echo "[.] Installing gulp"
 echo "[.] Installing gulp sdk (for tests, bridges, ...)"
 "${PYTHON_BIN}" -m pip install --timeout=1000 -e ./gulp-sdk
 
-echo "[.] Installing gulp-cli"
-"${PYTHON_BIN}" -m pip install --timeout=1000 -e ./gulp-cli
+# the below packages are optional, but if they exist, we install them in editable mode for development purposes
+if [ -f "./gulp-cli/pyproject.toml" ]; then
+	echo "[.] Installing gulp-cli"
+	"${PYTHON_BIN}" -m pip install --timeout=1000 -e ./gulp-cli
+fi
+
+if [ -f "./gulp-mcp/pyproject.toml" ]; then
+	echo "[.] Installing gulp-mcp"
+	"${PYTHON_BIN}" -m pip install --timeout=1000 -e ./gulp-mcp
+fi
+
+if [ -f "./gulp-dissect/pyproject.toml" ]; then
+	echo "[.] Installing gulp-dissect"
+	"${PYTHON_BIN}" -m pip install --timeout=1000 -e ./gulp-dissect
+fi
 
 echo "[.] development environment setup complete"
 
