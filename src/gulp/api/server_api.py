@@ -230,11 +230,9 @@ class GulpServer:
             status_code = 409
         elif isinstance(ex, ValueError):
             status_code = 400
-        elif (
-            isinstance(ex, MissingPermission)
-            or isinstance(ex, WrongUsernameOrPassword)
-            or isinstance(ex, SessionExpired)
-        ):
+        elif isinstance(ex, MissingPermission):
+            status_code = 403
+        elif isinstance(ex, WrongUsernameOrPassword) or isinstance(ex, SessionExpired):
             status_code = 401
 
         try:
