@@ -81,8 +81,11 @@ bridges<-->|fetch| external_source
 Task queue and pub/sub:
 
 - gULP uses Redis for both the ingestion task queue and lightweight pub/sub.
-- Ingestion requests enqueue task dictionaries on a Redis list (key `gulp:queue:tasks`).
-- The main process polls the Redis queue and dispatches tasks to worker processes.
+- Resource-intensive requests enqueue typed Redis Streams. Batched requests use
+  request-scoped streams so work can be shared fairly.
+- The main process dispatches queued work to worker processes and adapts
+  concurrency to Redis, PostgreSQL, and OpenSearch pressure. Local query tasks
+  have a separate admission limit so a query burst cannot starve other work.
 - Redis pub/sub is used for WebSocket fan-out and inter-instance coordination.
 
 File storage:
@@ -274,8 +277,8 @@ work one gULP instance may claim at once. The useful knobs are:
 
 Tune against the bottleneck you measured. More Python workers do not help when
 OpenSearch, PostgreSQL, Redis, or client websocket drains are already saturated.
-Use [testing.md](./testing.md) for load-test harness setup and
-[production_runbook.md](./production_runbook.md) for operational profiles.
+Use [testing.md](./testing.md) for the stress harness and
+[observability.md](./observability.md) for metrics.
 
 ### scale OpenSearch, PostgreSQL and Redis
 

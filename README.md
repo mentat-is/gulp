@@ -59,9 +59,7 @@ Gulp is a powerful software tool designed to streamline incident response and an
 - [Query behavior](./docs/query.md)
 - [Testing and load-test harnesses](./docs/testing.md)
 - [Observability](./docs/observability.md)
-- [Production runbook](./docs/production_runbook.md)
 - [Troubleshooting](./docs/troubleshooting.md)
-- [Websocket recovery contract](./docs/websocket_recovery.md)
 
 ## quick start
 

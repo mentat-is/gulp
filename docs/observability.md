@@ -3,7 +3,7 @@
   - [2) Run Prometheus (i.e. via Docker Compose)](#2-run-prometheus-ie-via-docker-compose)
   - [3) Confirm Prometheus is scraping gULP](#3-confirm-prometheus-is-scraping-gulp)
   - [4) Customizing scrape targets](#4-customizing-scrape-targets)
-  - [5) Backend runbook](#5-backend-runbook)
+  - [5) Operational checks](#5-operational-checks)
   - [6) Visualize metrics in Grafana](#6-visualize-metrics-in-grafana)
     - [Add Prometheus as a data source](#add-prometheus-as-a-data-source)
     - [Import the sample dashboard](#import-the-sample-dashboard)
@@ -60,7 +60,7 @@ You can also query metrics directly in Prometheus, e.g.:
 
 ## 4) Customizing scrape targets
 
-The example [prometheus.yml](../prometheus.yml) scrapes gULP at `host.docker.internal:8080` and `host.docker.internal:8100`, and uses the default `/metrics` path. This covers the default ports used by [run_multi_instance_tests.sh](../tests/integration/run_multi_instance_tests.sh).
+The example [prometheus.yml](../prometheus.yml) scrapes gULP at `host.docker.internal:8080` and `host.docker.internal:8100`, using the default `/metrics` path.
 
 If you run gULP on a different host/port (or inside the same Docker network), update [prometheus.yml](../prometheus.yml) accordingly.
 If gULP runs inside a devcontainer while Prometheus runs as a sibling Docker
@@ -83,12 +83,13 @@ docker compose --profile metrics restart prometheus
 
 > Note: When running Prometheus inside Docker, `host.docker.internal` points to the Docker host (where gULP is exposed on the host port). If Prometheus runs on the same Docker network as gULP, you can also use service names such as `gulp:8080`.
 
-## 5) Backend runbook
+## 5) Operational checks
 
-Prometheus provides the backend metrics, while runtime logs remain the existing
-`MutyLogger` stdout/syslog stream. For queue pressure, failed tasks, websocket
-pressure, pub/sub pointer failures, and recommended backend config profiles,
-see [production_runbook.md](./production_runbook.md).
+Prometheus provides backend metrics, while runtime logs remain the existing
+`MutyLogger` stdout/syslog stream. Watch task queue age, task failures,
+PostgreSQL pool pressure, websocket enqueue timeouts, and OpenSearch health.
+Tune from observed service pressure rather than applying a generic production
+profile.
 
 ## 6) Visualize metrics in Grafana
 
