@@ -63,7 +63,7 @@ Keep implementation history compact by merging superseded details; keep every be
 - Sigma: source metadata transactions end before CPU-heavy conversion; `query_sigma_zip` queues preprocessing, converts each rule once, spools the exact total, and sends count/byte-bounded batches to the plugin-agnostic scheduler. Queries larger than 1 MiB are isolated because they cannot be split semantically.
 - Harness/profile: multi-user correctness and five-second progress work with `workers_max=2`, `workers_concurrency_max=4`, PostgreSQL `4+0`, and Redis backlog `20000`.
 - Proof: backend `274 passed`; Sigma ZIP `4 passed` including 1,001 rules and 200 KB queries; paid plugins otherwise `61 passed` with two unrelated Vir.IT expectation failures.
-- Next gate: rerun concurrent full-Sigma users with bounded batching, then increase toward 10 users only while exact counts and service health remain stable.
+- Next gate: preserve generic scheduling while preventing one request's contiguous batch run from dominating FIFO tail latency, then increase toward 10 users while exact counts and service health remain stable.
 
 ## benchmark history
 
@@ -79,3 +79,4 @@ Counts are `records / completed queries / hits / notes`; times are harness wall-
 | 2026-07-13 | 1 user, full | rejected whole-ZIP Redis envelope | 165.21s | PASS; one 4.8 MB task payload |
 | 2026-07-13 | 1 user, small | bounded plugin batches | 79.64s | PASS `98,633 / 14 / 15 / 15` |
 | 2026-07-13 | 1 user, full | bounded plugin batches | 181.92s | PASS `98,633 / 1,149 / 73,464 / 73,464`; 288 batches, sampled entries 3-667 KB |
+| 2026-07-13 | 2 users, full | bounded plugin batches | 308.47s | PASS `197,266 / 2,298 / 146,928 / 146,928`; users finished in 232.56s and 305.23s |
