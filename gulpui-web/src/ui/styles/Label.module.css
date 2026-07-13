@@ -1,0 +1,8 @@
+.label {
+  cursor: text;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--second);
+  max-width: 100%;
+}

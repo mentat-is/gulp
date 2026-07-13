@@ -1,0 +1,52 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--modal-overlay, #000000d8);
+}
+
+.modal {
+  width: fit-content;
+  max-width: min(720px, calc(100vw - 48px));
+  padding: 20px 22px;
+  border: var(--geist-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-border);
+  background: var(--geist-background);
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 0;
+}
+
+.list {
+  list-style: auto;
+  list-style-position: inside;
+  font-family: var(--font-mono);
+  margin: 0;
+  padding: 0;
+}
+
+.list li {
+  line-height: 20px;
+}
+
+.list li kbd {
+  margin: 0 2px;
+}
+
+.list li::marker {
+  font-family: var(--font-mono);
+  width: 12px;
+}
+
+.list li:not(:first-child) {
+  margin-top: 8px;
+}

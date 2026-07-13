@@ -1,0 +1,57 @@
+.skeleton::after {
+  z-index: 2;
+}
+
+.tooltip {
+  max-width: 512px;
+  max-height: 100vh;
+  min-height: 30vh;
+  overflow: auto;
+}
+
+.helperText {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--second);
+}
+
+.fieldsSection {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--second);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.fieldRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fieldColumn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.actionColumn {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}

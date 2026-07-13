@@ -1,0 +1,64 @@
+.combination {
+  padding-right: 8px;
+}
+.combination canvas {
+  box-shadow: var(--shadow-border);
+}
+.combination .general {
+  height: 32px;
+}
+.combination .general p {
+  font-size: 16px;
+}
+.combination .general span {
+  font-size: 12px;
+  color: var(--second);
+  font-family: var(--font-mono);
+}
+.role {
+  width: 100%;
+}
+.role p {
+  width: 48px;
+}
+.role button {
+  height: 16px;
+  width: 36px;
+  padding: 1px;
+}
+.role button span {
+  height: 14px;
+  width: 14px;
+}
+.role button span[data-state="checked"] {
+  transform: translateX(20px);
+}
+
+.textarea {
+  width: 100%;
+  min-height: 96px;
+}
+
+.tableScroll {
+  height: 100%;
+  overflow: auto;
+  gap: 24px;
+  padding-bottom: 24px;
+}
+
+.tableSection {
+  width: 100%;
+}
+
+.sectionLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--second);
+  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
+.tableSkeleton {
+  height: 100px;
+}

@@ -1,0 +1,243 @@
+/* ─── Wrapper ─── */
+.wrapper {
+	flex: 1 1 auto;
+	width: 100%;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: auto;
+	background: var(--background-100);
+	border: 1px solid var(--gray-400);
+	border-radius: 6px;
+	box-shadow: none;
+}
+
+/* ─── Table ─── */
+.table {
+	width: max-content;
+	min-width: 100%;
+	user-select: text;
+	-webkit-user-select: text;
+	border-collapse: separate;
+	border-spacing: 0;
+	table-layout: fixed;
+}
+
+.table * {
+	user-select: text;
+	-webkit-user-select: text;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	line-height: 1.35;
+	white-space: nowrap;
+}
+
+/* ─── Header cells ─── */
+.table th {
+	padding: 0 12px;
+	text-align: left;
+	background: var(--background-100);
+	border-right: 1px solid var(--gray-400);
+	border-bottom: 1px solid var(--gray-400);
+	font-weight: 700;
+	font-size: 11px;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--second);
+	font-family: var(--font-mono);
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	overflow: hidden;
+	height: 32px;
+	vertical-align: middle;
+}
+
+.table th:last-child {
+	border-right: none;
+}
+
+.table th span {
+	text-overflow: ellipsis;
+	overflow: hidden;
+}
+
+.headerCell {
+	cursor: default;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.headerCellSortable {
+	cursor: pointer;
+}
+
+/* ─── Data cells ─── */
+.value {
+	white-space: nowrap;
+	padding: 0 12px;
+	height: 28px;
+	vertical-align: middle;
+	border-right: 1px solid var(--gray-400);
+	border-bottom: 1px solid var(--gray-400);
+	color: var(--gray-1000);
+	font-weight: 300;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.value:last-child {
+	border-right: none;
+}
+
+.blank {
+	color: var(--second);
+	font-weight: 300;
+}
+
+.cellIcon {
+	transform: translateY(1px);
+	margin-right: 4px;
+}
+
+/* ─── Centered content (checkbox / action cells) ─── */
+.centered {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	position: relative;
+	height: 100%;
+	width: 100%;
+}
+
+/* ─── Action cells ─── */
+.actionCell {
+	padding: 0 !important;
+	text-align: center;
+	vertical-align: middle;
+	width: 40px;
+	min-width: 40px;
+}
+
+.Button_Icon {
+	padding: 0px !important;
+	flex-shrink: 0;
+}
+
+/* ─── Actions column (multi-action) ─── */
+.actionsCell {
+	padding: 0 4px !important;
+	text-align: center;
+	vertical-align: middle;
+}
+
+/* ─── Row items ─── */
+.item {
+	height: 28px;
+	background: var(--background-100);
+	transition: background 0.1s ease;
+}
+
+.virtualSpacerRow {
+	height: 0;
+	pointer-events: none;
+}
+
+.virtualSpacerCell {
+	padding: 0 !important;
+	border: 0 !important;
+	height: 0;
+}
+
+/* Hover is only active when parent tbody has data-clickable attribute */
+[data-clickable] .item:hover {
+	background: var(--background-200);
+	cursor: pointer;
+}
+
+/* ─── Active row (click-selected) ─── */
+.activeRow {
+	background: color-mix(
+		in srgb,
+		var(--accent) 8%,
+		var(--background-100)
+	) !important;
+	box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
+/* ─── Highlighted row (external highlight by _id) ─── */
+.highlighted {
+	background: color-mix(
+		in srgb,
+		var(--highlight-color) 30%,
+		transparent
+	) !important;
+	outline: 1px solid var(--highlight-color);
+	outline-offset: -1px;
+}
+
+/* ─── Column resize handle (Phase 3) ─── */
+.resizeHandle {
+	position: absolute;
+	right: 0;
+	top: 0;
+	bottom: 0;
+	width: 4px;
+	cursor: col-resize;
+	z-index: 11;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.resizeHandle:hover,
+.resizeHandle.resizing {
+	background: var(--accent);
+	opacity: 0.5;
+}
+
+/* ─── Select-all header cell ─── */
+.selectAllCell {
+	width: 40px;
+	min-width: 40px;
+	text-align: center;
+	vertical-align: middle;
+}
+
+.headerStack {
+	height: 100%;
+	min-width: 0;
+	width: 100%;
+}
+
+.headerSortIcon {
+	flex-shrink: 0;
+}
+
+.triggerSpan {
+	display: block;
+	width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sharedTooltip {
+	position: fixed;
+	max-width: 400px;
+	max-height: 300px;
+	overflow: auto;
+	white-space: pre-wrap;
+	text-align: left;
+	background: var(--background-100);
+	padding: 8px;
+	border: 1px solid var(--gray-400);
+	border-radius: 6px;
+	z-index: 1500;
+	color: var(--gray-1000);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	line-height: 1.35;
+	box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+	pointer-events: none;
+}

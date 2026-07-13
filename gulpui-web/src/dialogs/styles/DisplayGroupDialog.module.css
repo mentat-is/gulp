@@ -1,0 +1,269 @@
+.dialog :global([data-content]) {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.menuShell {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--gray-400);
+  border-radius: 6px;
+  background: var(--background-100);
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  min-height: 250px;
+  min-width: 450px;
+  resize: both;
+}
+
+.groupContent {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+.listPane {
+  display: flex;
+  flex: 1 1 450px;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 320px;
+}
+
+.header,
+.menuHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--gray-300);
+  flex: none;
+  padding: 6px;
+  width: 100%;
+}
+
+.menuHeader {
+  min-height: 40px;
+}
+
+.titleContainer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.iconWrapper {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 8px;
+  color: var(--accent);
+  display: flex;
+  flex: none;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.menuHeader .iconWrapper {
+  height: 24px;
+  width: 24px;
+}
+
+.title,
+.menuTitle {
+  color: var(--accent);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.menuTitle {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.buttonGroup {
+  align-items: center;
+  display: flex;
+  flex: none;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.dialogEventList {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 12px;
+}
+
+.menuBody {
+  flex: 1;
+  padding: 6px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.virtualSpacer {
+  position: relative;
+  width: 100%;
+}
+
+.virtualRow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.event {
+  width: 100%;
+  border-radius: 0;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 4px;
+  transition: all 0.125s var(--transition);
+  cursor: pointer;
+}
+
+.event:hover {
+  background: var(--gray-alpha-400);
+  border-color: var(--gray-400);
+}
+
+.event[data-active="true"] {
+  background: var(--gray-alpha-400);
+}
+
+.info {
+  align-items: flex-start;
+  display: flex;
+  flex: 0 0 250px;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: space-evenly;
+  max-width: 250px;
+  min-width: 250px;
+  overflow: hidden;
+  width: 250px;
+}
+
+.id {
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.description {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--second);
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.noteInfo {
+  align-items: center;
+  border-left: 1px solid var(--gray-alpha-300);
+  color: var(--note-color, var(--accent));
+  display: flex;
+  flex: 1 1 auto;
+  gap: 8px;
+  height: 32px;
+  justify-content: flex-start;
+  margin-left: auto;
+  min-width: 96px;
+  overflow: hidden;
+  padding-left: 10px;
+  width: auto;
+}
+
+.noteInfo span {
+  color: currentColor;
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noteInfo svg {
+  flex-shrink: 0;
+}
+
+.previewPanel {
+  background: var(--background-100);
+  border-left: 1px solid var(--gray-400);
+  flex: 0 0 520px;
+  max-width: 50%;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.floatingPreviewPanel {
+  border: 1px solid var(--gray-400);
+  border-radius: 6px;
+  box-sizing: border-box;
+  flex: none;
+  max-width: none;
+  z-index: 1001;
+}
+
+.previewContent {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+}
+
+.previewTitle {
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.previewCode {
+  color: var(--second);
+  margin: 0 0 4px;
+}
+
+.previewMarkdown {
+  flex: 1;
+  font-size: 10px;
+  min-height: 0;
+  width: 100%;
+  overflow-x: scroll;
+  overflow-y: auto;
+}
+
+.previewLoading {
+  align-items: center;
+  display: flex;
+  font-size: 11px;
+  height: 100%;
+  justify-content: center;
+}

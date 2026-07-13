@@ -1,0 +1,54 @@
+.content {
+  overflow: hidden;
+  width: 100%;
+  min-width: 0;
+}
+
+.content:focus-visible {
+  outline: var(--ring);
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  border-radius: 6px;
+  height: 100%;
+  padding: 0px 8px;
+  color: var(--second);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.25s var(--transition);
+}
+
+.trigger:focus-visible {
+  outline: var(--ring);
+}
+
+.trigger:disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.trigger[data-state="active"] {
+  background: var(--geist-background);
+  color: var(--accent);
+  border: var(--geist-border);
+}
+
+.list {
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--background-100);
+  position: relative;
+  box-shadow: inset 0px 0px 0px 1px var(--gray-400);
+  color: var(--second);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}

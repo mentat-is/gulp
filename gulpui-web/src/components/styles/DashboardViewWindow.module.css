@@ -1,0 +1,473 @@
+.main {
+	width: 100vw;
+	height: 100vh;
+	background: var(--soft-black);
+	color: var(--gray-1000);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	overflow: hidden;
+}
+
+.body {
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	display: grid;
+	grid-template-columns: 320px minmax(0, 1fr);
+	overflow: hidden;
+}
+
+.column {
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.explorerColumn {
+	border-right: 1px solid var(--gray-400);
+}
+
+.dashboardColumn {
+	min-width: 0;
+}
+
+.columnHeader {
+	height: 52px;
+	min-height: 52px;
+	border-bottom: 1px solid var(--gray-400);
+	background: var(--soft-black);
+	color: var(--gray-1000);
+	padding: 0 12px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	flex: none;
+	box-sizing: border-box;
+	position: relative;
+	z-index: 1;
+}
+
+.columnHeader h2 {
+	margin: 0;
+	font-size: 18px;
+	font-weight: 600;
+}
+
+.columnBody {
+	min-height: 0;
+	flex: 1;
+	overflow-y: auto;
+}
+
+.explorerBody {
+	min-width: 0;
+	min-height: 0;
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.section h3,
+.panel h4 {
+	margin: 0;
+	font-weight: 600;
+}
+
+.section h3 {
+	font-size: 14px;
+}
+
+.panel,
+.dashboardCard,
+.aggregationPanel {
+	background: var(--background-100);
+	border: 1px solid var(--gray-alpha-400);
+	border-radius: 8px;
+}
+
+.panel {
+	padding: 10px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.panel h4 {
+	font-size: 12px;
+	color: var(--gray-1000);
+}
+
+.filterControl {
+	width: 100%;
+}
+
+.filterButton {
+	width: 100%;
+}
+
+.filterBanner {
+	width: min(760px, calc(100vw - 64px));
+	max-width: calc(100vw - 64px);
+}
+
+.filterEditor {
+	min-width: min(680px, calc(100vw - 96px));
+}
+
+.timeGrid {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 10px;
+}
+
+.fieldList {
+	max-height: 360px;
+	overflow-y: auto;
+	padding-right: 2px;
+}
+
+.fieldListContent {
+	width: 100%;
+	position: relative;
+}
+
+.fieldListVirtualRow {
+	width: 100%;
+	position: absolute;
+	top: 0;
+	left: 0;
+	padding-bottom: 4px;
+	box-sizing: border-box;
+}
+
+.fieldRow,
+.fieldRowActive {
+	width: 100%;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--gray-1000);
+	border-radius: 6px;
+	padding: 7px 8px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 8px;
+	align-items: center;
+	text-align: left;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.fieldRow:hover,
+.fieldRowActive {
+	background: var(--background-200);
+	border-color: var(--gray-alpha-400);
+}
+
+.fieldRow span,
+.fieldRowActive span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.fieldRow small,
+.fieldRowActive small {
+	color: var(--gray-alpha-700);
+	font-size: 10px;
+}
+
+.dashboardBody {
+	min-width: 0;
+	min-height: 0;
+	width: 100%;
+	box-sizing: border-box;
+	padding: 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.dashboardBody > [hidden] {
+	display: none !important;
+}
+
+.section {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.cardGrid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+	gap: 12px;
+	align-items: stretch;
+}
+
+.dashboardCard {
+	min-height: 280px;
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	position: relative;
+}
+
+.cardHeader {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 8px;
+	align-items: center;
+	min-height: 32px;
+}
+
+.cardTitle {
+	min-width: 0;
+	margin: 0;
+	color: var(--gray-1000);
+	font-size: 12px;
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cardSettingsPopover {
+	min-width: 190px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.cardSettingsOption {
+	width: 100%;
+	justify-content: flex-start;
+}
+
+.chartArea {
+	position: relative;
+	min-height: 190px;
+	height: 220px;
+}
+
+.placeholder {
+	width: 100%;
+	min-height: 80px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--gray-alpha-700);
+	font-size: 12px;
+	text-align: center;
+}
+
+.aggregationPanel {
+	min-width: 0;
+	min-height: 100%;
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	overflow: auto;
+	box-sizing: border-box;
+}
+
+.aggregationTitleRow {
+	min-height: 32px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 8px;
+	align-items: center;
+}
+
+.aggregationTitle {
+	min-width: 0;
+	margin: 0;
+	color: var(--gray-1000);
+	font-size: 14px;
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.aggregationControls {
+	display: grid;
+	grid-template-columns:
+		minmax(180px, 1fr) minmax(120px, 160px) minmax(120px, 160px)
+		auto;
+	gap: 10px;
+	align-items: end;
+}
+
+.intervalControl {
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.intervalLabelRow {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 14px;
+}
+
+.intervalLabel {
+	color: var(--gray-1000);
+	font-size: 11px;
+	line-height: 1;
+}
+
+.intervalHelpButton {
+	width: 18px;
+	height: 18px;
+	border: 0;
+	padding: 0;
+	background: transparent;
+	color: var(--gray-alpha-700);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	cursor: help;
+}
+
+.intervalHelpButton:hover {
+	color: var(--gray-1000);
+}
+
+.aggregationResults {
+	display: grid;
+	grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1fr);
+	gap: 12px;
+	min-height: 260px;
+}
+
+.smallChart {
+	position: relative;
+	min-height: 240px;
+	background: var(--background-200);
+	border: 1px solid var(--gray-alpha-400);
+	border-radius: 8px;
+	padding: 10px;
+}
+
+.tablePanel {
+	min-height: 240px;
+	max-height: 420px;
+	overflow: auto;
+	background: var(--background-200);
+	border: 1px solid var(--gray-alpha-400);
+	border-radius: 8px;
+}
+
+.timeTablePanel {
+	overflow: hidden;
+}
+
+.timeResultTable {
+	width: 100%;
+	height: 100%;
+	min-height: 240px;
+	display: flex;
+	flex-direction: column;
+	background: var(--background-100);
+	color: var(--gray-1000);
+	font-family: var(--font-mono);
+	font-size: 11px;
+}
+
+.timeResultHeader,
+.timeResultRow {
+	display: grid;
+	grid-template-columns: minmax(160px, 220px) minmax(180px, 1fr) 96px;
+	align-items: center;
+}
+
+.timeResultHeader {
+	height: 32px;
+	min-height: 32px;
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	background: var(--background-100);
+	border-bottom: 1px solid var(--gray-400);
+	color: var(--second);
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.timeResultHeader > div,
+.timeResultCell {
+	min-width: 0;
+	height: 100%;
+	padding: 0 12px;
+	display: flex;
+	align-items: center;
+	border-right: 1px solid var(--gray-400);
+	box-sizing: border-box;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.timeResultHeader > div:last-child,
+.timeResultCell:last-child {
+	border-right: 0;
+}
+
+.timeResultBody {
+	min-height: 0;
+	flex: 1;
+	overflow: auto;
+}
+
+.timeResultContent {
+	width: 100%;
+	position: relative;
+}
+
+.timeResultRow {
+	width: 100%;
+	height: 28px;
+	position: absolute;
+	top: 0;
+	left: 0;
+	background: var(--background-100);
+	border-bottom: 1px solid var(--gray-400);
+	box-sizing: border-box;
+}
+
+@media (max-width: 920px) {
+	.body {
+		grid-template-columns: 1fr;
+		overflow-y: auto;
+	}
+
+	.explorerColumn {
+		border-right: none;
+		border-bottom: 1px solid var(--gray-400);
+	}
+
+	.explorerBody {
+		max-height: none;
+		overflow: visible;
+	}
+
+	.dashboardBody {
+		overflow: visible;
+	}
+
+	.aggregationControls,
+	.aggregationResults {
+		grid-template-columns: 1fr;
+	}
+}

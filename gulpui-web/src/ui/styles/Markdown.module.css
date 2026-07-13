@@ -1,0 +1,62 @@
+.markdown {
+  overflow: auto !important;
+  overflow-x: hidden !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  overflow-wrap: break-word !important;
+  word-wrap: break-word !important;
+}
+
+.noScroll {
+  overflow: visible !important;
+  overflow-x: visible !important;
+}
+
+.markdown * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+.markdown > h1:first-of-type {
+  margin-top: 0;
+}
+.markdown > * {
+  all: revert;
+  line-height: 150%;
+  font-family: var(--font-sans);
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+.markdown a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdown ul,
+.markdown li {
+  all: revert;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+.markdown li {
+  margin-bottom: 8px;
+}
+pre[class*="language-"] {
+  padding: 1em;
+  margin: .5em 0;
+  overflow: auto;
+}
+
+.noScroll pre[class*="language-"] {
+  overflow: visible !important;
+}
+
+.markdown code:not(pre[class*="language-"] code) {
+  background: var(--gray-200);
+  border: var(--geist-border);
+  border-radius: 4px;
+  padding: 1px 3px;
+  font-family: var(--font-mono);
+  color: var(--gray-900);
+}
+.markdown a:has(code) {
+  text-decoration-color: var(--gray-900);
+}

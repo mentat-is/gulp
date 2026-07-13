@@ -1,0 +1,24 @@
+.toast {
+  background: var(--background-100);
+  color: var(--accent);
+  border: 1px solid var(--geist-border);
+  box-shadow: var(--shadow-border);
+  border-radius: 6px;
+  padding: 16px 24px;
+  transition: all 0.25s var(--transition);
+  gap: 24px;
+}
+
+.description {
+  color: var(--second);
+}
+
+.actionButton {
+  background: var(--accent);
+  color: var(--black);
+}
+
+.cancelButton {
+  background: var(--second);
+  color: var(--soft-black);
+}

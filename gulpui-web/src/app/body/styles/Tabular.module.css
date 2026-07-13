@@ -1,0 +1,79 @@
+.table {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 1px;
+}
+.entity {
+  width: 100%;
+}
+.entity .header {
+  width: 100%;
+  z-index: 1;
+  justify-content: flex-start;
+  background: var(--background-100);
+  border: 1px solid var(--gray-400);
+}
+.entity .body {
+  z-index: 0;
+  height: 0px;
+  transition: height 0.3s var(--transition);
+}
+.context:not(.expanded) .body {
+  overflow: hidden;
+}
+.source {
+  margin-left: 32px;
+  width: calc(100% - 48px);
+}
+.source .header {
+  border-radius: 0;
+  border-top: none;
+}
+.source .body {
+  overflow: hidden;
+  transition: height 0.3s var(--transition);
+  margin-left: 32px;
+  width: calc(100% - 48px);
+  border: 1px solid var(--gray-400);
+  border-top: none;
+  background: var(--background-100);
+  position: relative;
+}
+.source.expanded .body {
+  height: 512px;
+  overflow: auto;
+}
+.context .entity:last-child .header,
+.source.expanded .header,
+.source .body {
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+.entity:not(.expanded) .body {
+  border: none;
+}
+.context .source.expanded:not(:first-child) .header {
+  border: 1px solid var(--gray-400);
+  border-radius: 6px;
+}
+.context .source.source.expanded:not(:last-child) .body {
+  border-bottom: none;
+  border-radius: 0;
+}
+.source:not(.expanded) + .source.expanded .header {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-top: none;
+}
+.source.expanded + .source:not(.expanded) .header {
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  border-top: 1px solid var(--gray-400);
+}
+.source .body > div {
+  border: none;
+  border-radius: 0;
+  height: 100%;
+  width: 100%;
+}

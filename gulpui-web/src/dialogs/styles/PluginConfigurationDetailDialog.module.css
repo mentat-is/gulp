@@ -1,0 +1,100 @@
+.editorGroup {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: 100%;
+}
+
+.editorGroupHeader {
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--gray-1000);
+	padding: 4px 0;
+	border-bottom: 1px solid var(--gray-300);
+}
+
+.editorChildren {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding-left: 12px;
+	border-left: 1px solid var(--gray-300);
+}
+
+.editorChildrenRoot {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	width: 100%;
+}
+
+.editorField {
+	display: grid;
+	grid-template-columns: minmax(96px, 34%) minmax(0, 1fr);
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+}
+
+.editorLabel {
+	min-width: 0;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	color: var(--second);
+	word-break: break-word;
+}
+
+.editorTextarea {
+	width: 100%;
+	min-height: 90px;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	resize: vertical;
+}
+
+.readOnlyValue {
+	display: grid;
+	grid-template-columns: minmax(96px, 34%) minmax(0, 1fr);
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	color: var(--gray-700);
+}
+
+.previewField {
+	display: grid;
+	grid-template-columns: minmax(96px, 34%) minmax(0, 1fr);
+	align-items: flex-start;
+	gap: 10px;
+	width: 100%;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+.previewValue {
+	color: var(--gray-1000);
+	font-weight: 500;
+	text-align: right;
+	word-break: break-word;
+	white-space: pre-wrap;
+}
+
+.bannerField,
+.bannerTextarea {
+	width: 100%;
+}
+
+.bannerTextarea {
+	min-height: 96px;
+}
+
+.bannerEditor {
+	width: min(720px, calc(100vw - 420px));
+	max-height: min(540px, calc(100vh - 220px));
+	overflow: auto;
+	padding-right: 4px;
+}

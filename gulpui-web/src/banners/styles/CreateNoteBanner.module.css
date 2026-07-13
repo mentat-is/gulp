@@ -1,0 +1,95 @@
+.color > div {
+  flex-direction: column;
+}
+.color p {
+  text-wrap: nowrap;
+  flex: 1;
+}
+.save {
+  width: min-content;
+  align-self: flex-end;
+}
+.tags {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.group {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+}
+.tags .content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-direction: row;
+  max-width: 534px;
+}
+.trigger {
+  width: min-content;
+  height: 32px;
+}
+.trigger:hover {
+  border: 1px solid var(--accent);
+}
+.level > div {
+  padding: var(--p3) var(--p4);
+  flex-direction: row;
+  align-items: center;
+}
+.focus {
+  border: 1px solid var(--gray-400);
+  background: var(--soft-black);
+  color: var(--accent);
+}
+.focus img {
+  filter: var(--filter-to-white);
+}
+.unit {
+  display: flex;
+  align-items: center;
+  flex-direction: row;
+  gap: 8px;
+  justify-content: space-between;
+}
+.overview p {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+}
+.popover {
+  gap: 8px;
+  display: flex;
+  flex-direction: column;
+}
+.general {
+  width: 100%;
+}
+.inp > p {
+  font-size: 14px;
+  min-width: 88px;
+}
+.chooser_wrapper > div:first-child {
+  flex: 1 !important;
+}
+.selection input {
+  pointer-events: none;
+  color: var(--second);
+}
+.textarea {
+  width: 100%;
+  min-height: 128px;
+  max-height: 256px;
+  resize: none;
+  font-family: var(--font-mono);
+}
+.textarea::placeholder {
+  color: var(--second);
+}
+.sidebar {
+  height: 100%;
+  overflow: auto;
+  padding: 8px;
+}

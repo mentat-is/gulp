@@ -1,0 +1,150 @@
+.subTrigger {
+  display: flex;
+  cursor: default;
+  gap: 6px;
+  user-select: none;
+  align-items: center;
+  border-radius: 4px;
+  padding: 6px;
+  font-size: 0.875rem;
+  outline: none;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.subTrigger:hover,
+.subTrigger:focus {
+  background: var(--gray-400);
+}
+
+.subTriggerInset {
+  padding-left: 2rem;
+}
+
+.subTriggerIcon {
+  margin-left: auto;
+  height: 1rem;
+  width: 1rem;
+}
+
+.subContent,
+.content {
+  z-index: 1500;
+  min-width: 256px;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid var(--gray-400);
+  background: var(--background-100);
+  padding: 2px;
+  animation: fadeIn 0.2s;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  cursor: pointer;
+  user-select: none;
+  align-items: center;
+  border-radius: 4px;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.875rem;
+  outline: none;
+  gap: 6px;
+  transition: background-color 0.2s, color 0.2s;
+}
+.item.revert {
+  flex-direction: row-reverse;
+}
+
+.item:hover,
+.item:focus {
+  background: var(--gray-400);
+}
+
+.icon {
+  height: 14px;
+  width: 14px;
+}
+
+.itemInset {
+  padding-left: 2rem;
+}
+
+.checkboxItem,
+.radioItem {
+  position: relative;
+  display: flex;
+  cursor: default;
+  user-select: none;
+  align-items: center;
+  border-radius: 0.375rem;
+  padding: 0.375rem 2rem 0.375rem 2rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.checkboxItem:hover,
+.checkboxItem:focus,
+.radioItem:hover,
+.radioItem:focus {
+  background-color: var(--gray24);
+  color: var(--accent);
+}
+
+.checkboxItemIndicator,
+.radioItemIndicator {
+  position: absolute;
+  left: 0.5rem;
+  display: flex;
+  height: 0.875rem;
+  width: 0.875rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.checkboxItemIcon,
+.radioItemIcon {
+  height: 1rem;
+  width: 1rem;
+}
+
+.label {
+  padding: 0.375rem 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.labelInset {
+  padding-left: 2rem;
+}
+
+.separator {
+  margin: 4px 0;
+  width: calc(100% + 4px);
+  transform: translateX(-2px);
+  height: 1px;
+  background-color: var(--gray-400);
+}
+
+.shortcut {
+  margin-left: auto;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  color: var(--second);
+}
+
+.shortcut:hover {
+  color: var(--accent);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

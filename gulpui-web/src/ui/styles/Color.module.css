@@ -1,0 +1,168 @@
+.button {
+  background-color: var(--background-100);
+  border: 1px solid var(--gray-400);
+  width: 128px;
+  padding-left: 2px;
+  justify-content: start;
+  text-align: left;
+  font-weight: normal;
+  color: var(--accent);
+}
+
+.button .content {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.preview {
+  height: 24px;
+  width: 24px;
+  border-radius: 4px;
+  background-size: cover;
+  background-position: center;
+  transition: all .3s var(--transition);
+}
+
+.icon {
+  height: 20px;
+  width: 20px;
+  margin-left: 6px;
+}
+
+.popover {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--card-gap) / 2);
+}
+
+.tabs {
+  width: 100%;
+}
+
+.list {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.trigger {
+  flex: 1;
+  width: 100%;
+}
+
+.trigger div:last-child {
+  width: 100%;
+}
+
+.tabs .content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 0;
+}
+
+.custom_group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.custom_label {
+  color: var(--gray-900);
+  font-size: 12px;
+}
+
+.custom_colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.gradients,
+.images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.color {
+  border-radius: 4px;
+  height: 24px;
+  width: 24px;
+  cursor: pointer;
+  transition: transform 0.2s;
+  box-shadow: inset 0 0 0 1px var(--gray-alpha-600);
+}
+
+.color:active {
+  transform: scale(1.05);
+}
+
+.image {
+  border-radius: 4px;
+  background-size: cover;
+  background-position: center;
+  height: 48px;
+  width: 100%;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.image:active {
+  transform: scale(1.05);
+}
+
+.picker .select {
+  position: absolute;
+  z-index: 3;
+  border: transparent;
+  background: none;
+  width: 32px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  min-height: unset;
+}
+
+.picker .select input::-webkit-color-swatch-wrapper {
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+}
+
+.picker .select input::-webkit-color-swatch {
+  height: 100%;
+  width: 100%;
+  aspect-ratio: auto;
+  border: 1px solid var(--gray-alpha-600);
+  border-radius: 3px;
+}
+
+.picker .select input::-moz-color-swatch {
+  border: 1px solid var(--gray-alpha-600);
+  border-radius: 3px;
+}
+
+.picker .manual input {
+  width: 100%;
+}
+
+.trigger input {
+  pointer-events: none;
+}
+
+.gradient_indicator {
+  height: 20px;
+  position: absolute;
+  width: 20px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--gray-alpha-600);
+  left: 6px;
+  top: 6px;
+  z-index: 3;
+}

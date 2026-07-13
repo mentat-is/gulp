@@ -1,0 +1,143 @@
+.result {
+	flex: 1;
+	min-height: 0;
+}
+
+.resultScroll {
+	flex: 1;
+	overflow-y: auto;
+	overflow-x: hidden;
+	padding: 0;
+}
+
+.emptyState {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	font-size: 14px;
+	font-family: var(--font-mono);
+	color: var(--second);
+	opacity: 0.6;
+}
+
+.entityIcon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--accent, #4f8ef7) 12%, transparent);
+	color: var(--accent);
+	flex-shrink: 0;
+}
+
+.entityNameCell {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	width: 100%;
+}
+
+.entityNameText {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.footer {
+	border-top: 1px solid var(--gray-400);
+	margin-top: 16px;
+	padding: 12px 8px 0 8px;
+	flex-shrink: 0;
+}
+
+.detailHeader {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	border-bottom: 1px solid var(--gray-300);
+	width: 100%;
+	padding: 6px;
+}
+
+.detailTitleContainer {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.detailIcon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--accent, #4f8ef7) 12%, transparent);
+	color: var(--accent);
+	flex-shrink: 0;
+}
+
+.detailTitle {
+	font-size: 18px;
+	font-weight: 600;
+	color: var(--accent);
+	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.detailList {
+	flex: 1;
+	min-height: 0;
+	width: 100%;
+	overflow-y: auto !important;
+	padding-right: 4px;
+}
+
+.detailSection {
+	width: 100%;
+	padding: 6px;
+}
+
+.detailsList {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: 100%;
+}
+
+.detailItem {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 1.5;
+	padding: 4px 0;
+}
+
+.detailLabel {
+	color: var(--second);
+	flex-shrink: 0;
+	margin-right: 16px;
+}
+
+.detailValue {
+	color: var(--gray-1000);
+	font-weight: 500;
+	text-align: right;
+	word-break: break-all;
+	min-width: 0;
+}
+
+.buttonGroup {
+	display: flex;
+	gap: 8px;
+}

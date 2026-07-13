@@ -9,7 +9,7 @@
     - [5. install gulp](#5-install-gulp)
     - [6. run](#6-run)
     - [7. optional: installing extra plugins](#7-optional-installing-extra-plugins)
-  - [install the client](#install-the-client)
+  - [run the web UI](#run-the-web-ui)
   - [troubleshoot](#troubleshoot)
   - [extras](#extras)
     - [coding style tips](#coding-style-tips)
@@ -30,7 +30,7 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
   mkdir ./repos && cd ./repos
   git clone https://github.com/mentat-is/gulp.git
   git clone https://github.com/mentat-is/gulp-sdk.git
-  # clone other repos, i.e. the devteam may want to clone also the paid-plugins repo...
+  # clone other repositories only when you need them
   git clone https://github.com/mentat-is/gulp-paid-plugins.git
   ~~~
 
@@ -135,9 +135,16 @@ GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 gulp
 
 plugins are just files, so it is enough to copy/symlink extra plugins in `$GULP_WORKING_DIR/plugins` and `$GULP_WORKING_DIR/mapping_files`
 
-## install the client
+## run the web UI
 
-follow the [instructions](https://github.com/mentat-is/gulpui-web/blob/master/README.md#installation) to install the web client.
+The React UI is included at `gulpui-web/`; it is not a separate checkout. With
+Node.js `22.14.1` and pnpm `10.8.1` installed, run it from the repository root:
+
+~~~bash
+pnpm --dir gulpui-web install && pnpm --dir gulpui-web start
+~~~
+
+For the containerized UI, use the one-command [quick start](../README.md#quick-start).
 
 ## troubleshoot
 

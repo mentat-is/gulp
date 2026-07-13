@@ -1,0 +1,31 @@
+.button {
+  flex: 1;
+}
+.wrapper {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  justify-content: space-between;
+  color: var(--second);
+}
+.wrapper span {
+  font-size: 14px;
+  color: var(--second);
+  width: 64px;
+}
+.input_group {
+  display: flex;
+  flex: 1;
+  flex-direction: row;
+  gap: 8px;
+}
+.calendar {
+  height: 380px;
+}
+.input svg {
+  cursor: pointer;
+}
+.input input::-webkit-calendar-picker-indicator {
+  display: none;
+}

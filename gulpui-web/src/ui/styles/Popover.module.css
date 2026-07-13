@@ -1,0 +1,118 @@
+.popover {
+  z-index: 1000;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 0;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: min(70vh, calc(100vh - 16px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-radius: 8px;
+  border: 1px solid var(--gray-alpha-400);
+  background: var(--background-100);
+  padding: 8px;
+  outline: none;
+  word-break: break-word;
+}
+
+.popover :where(button, [role="menuitem"], [role="option"]) {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.popover[data-state="open"] {
+  animation: fadeIn 0.3s, zoomIn 0.3s;
+}
+
+.popover[data-state="closed"] {
+  animation: fadeOut 0.3s, zoomOut 0.3s;
+}
+
+.popover[data-side="bottom"] {
+  animation: slideInFromTop 0.3s;
+}
+
+.popover[data-side="left"] {
+  animation: slideInFromRight 0.3s;
+}
+
+.popover[data-side="right"] {
+  animation: slideInFromLeft 0.3s;
+}
+
+.popover[data-side="top"] {
+  animation: slideInFromBottom 0.3s;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes zoomIn {
+  from {
+    transform: scale(0.95);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes zoomOut {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(0.95);
+  }
+}
+
+@keyframes slideInFromTop {
+  from {
+    transform: translateY(-0.5rem);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInFromRight {
+  from {
+    transform: translateX(0.5rem);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInFromLeft {
+  from {
+    transform: translateX(-0.5rem);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInFromBottom {
+  from {
+    transform: translateY(0.5rem);
+  }
+  to {
+    transform: translateY(0);
+  }
+}

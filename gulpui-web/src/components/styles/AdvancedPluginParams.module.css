@@ -1,0 +1,196 @@
+.overlayBase {
+  position: fixed;
+  inset: 0;
+}
+
+.contentBase {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  overflow: auto;
+  background-color: var(--background-100);
+  border-radius: 8px;
+  border: 1px solid var(--gray-alpha-400);
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.titleBase {
+  font-weight: bold;
+  margin: 0;
+  color: var(--gray-900);
+}
+
+.titleL {
+  font-size: 18px;
+}
+
+.titleM {
+  font-size: 16px;
+}
+
+.titleS {
+  font-size: 13px;
+}
+
+.resetButton {
+  color: var(--red-500) !important;
+}
+
+.labelBold {
+  font-weight: bold;
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+/* Level 1: Main Dialog */
+.overlayL1 {
+  composes: overlayBase;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 1100;
+}
+
+.contentL1 {
+  composes: contentBase;
+  min-width: 600px;
+  max-width: 800px;
+  max-height: 80vh;
+  padding: 24px;
+  z-index: 1101;
+}
+
+/* Level 2: Mapping / Sigma Panels */
+.overlayL2 {
+  composes: overlayBase;
+  background-color: rgba(0, 0, 0, 0.4);
+  z-index: 1200;
+}
+
+.contentL2 {
+  composes: contentBase;
+  min-width: 600px;
+  max-height: 80vh;
+  padding: 24px;
+  z-index: 1201;
+}
+
+/* Level 2 Small: Sigma Mapping Panel */
+.contentL2Small {
+  composes: contentBase;
+  min-width: 320px;
+  padding: 16px;
+  z-index: 1201;
+}
+
+.lastMappingsContent {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.savedMappingsList {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.savedMappingsEmpty {
+  color: var(--second);
+  padding: 12px 0;
+  text-align: center;
+}
+
+.savedMappingItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-400);
+  border-radius: 6px;
+  background: var(--background-100);
+  color: var(--gray-1000);
+  cursor: pointer;
+  text-align: left;
+}
+
+.savedMappingItem:hover {
+  background: var(--gray-alpha-200);
+  border-color: var(--gray-alpha-500);
+}
+
+.savedMappingItem:focus-visible {
+  box-shadow: var(--ring);
+  outline: none;
+}
+
+.savedMappingDetails {
+  min-width: 0;
+}
+
+.savedMappingActions {
+  flex-shrink: 0;
+}
+
+.savedMappingTitle,
+.savedMappingMeta,
+.savedMappingDate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.savedMappingTitle {
+  font-weight: 700;
+  color: var(--gray-1000);
+}
+
+.savedMappingMeta,
+.savedMappingDate {
+  color: var(--second);
+}
+
+.mappingPreviewContent {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.mappingPreviewCode {
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--gray-400);
+  border-radius: 6px;
+  background: var(--background-200);
+  color: var(--gray-1000);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+/* Level 3: Field / Alias Sub-Panels */
+.overlayL3 {
+  composes: overlayBase;
+  background-color: rgba(0, 0, 0, 0.4);
+  z-index: 1300;
+}
+
+.contentL3 {
+  composes: contentBase;
+  min-width: 400px;
+  max-height: 80vh;
+  padding: 16px;
+  z-index: 1301;
+}
+
+/* Level 3 Small: Value Alias Panel */
+.contentL3Small {
+  composes: contentBase;
+  min-width: 320px;
+  padding: 16px;
+  z-index: 1301;
+}

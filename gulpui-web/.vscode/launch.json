@@ -1,0 +1,16 @@
+{
+  "configurations": [
+    {
+      "type": "node-terminal",
+      "name": "Browser",
+      "request": "launch",
+      "command": "npm run start",
+    },
+    {
+      "type": "node-terminal",
+      "name": "Build",
+      "request": "launch",
+      "command": "npm run build"
+    }
+  ]
+}

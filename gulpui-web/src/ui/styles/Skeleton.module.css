@@ -1,0 +1,94 @@
+.skeleton {
+  position: relative;
+  pointer-events: none;
+  display: block;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  border-radius: 6px;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: linear-gradient(270deg, var(--gray-100), var(--gray-400), var(--gray-400), var(--gray-100));
+  background-size: 400% 100%;
+  animation: pulse 6s cubic-bezier(.4,0,.6,1) infinite var(--delay, 0s);
+  flex-shrink: 0;
+}
+.defaultWidth {
+  width: 128px;
+}
+.defaultHeight {
+  height: 32px;
+}
+.defaultBorder,
+.border_s {
+  border-radius: var(--border-s);
+}
+.border_m {
+  border-radius: var(--border-m);
+}
+.border_l {
+  border-radius: var(--border-l);
+}
+.border_r {
+  border-radius: var(--round);
+}
+
+.avatar {
+  border-radius: var(--round);
+  height: 32px;
+  width: 32px;
+  min-height: 32px;
+  min-width: 32px;
+}
+
+.short {
+  width: 64px;
+}
+.long {
+  width: 256px;
+}
+.w_unset {
+  width: unset;
+}
+.w_full {
+  width: 100%;
+}
+.low {
+  min-height: 24px;
+}
+.high {
+  min-height: 48px;
+}
+.h_unset {
+  height: unset;
+}
+.h_full {
+  height: 100%;
+}
+
+.badge {
+  height: 30px;
+  width: 100px;
+  border-radius: var(--round);
+}
+
+.button {
+  min-height: 32px;
+  height: 32px;
+  min-width: 32px;
+  width: 32px;
+  border-radius: 6px;
+}
+
+@keyframes pulse {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}

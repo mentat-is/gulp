@@ -1,0 +1,53 @@
+.navigation {
+  min-height: 46px;
+  height: 46px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px 3px;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.navigation:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.content {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  height: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+}
+
+.content canvas {
+  cursor: pointer;
+  margin-top: 1px;
+}
+
+.focus {
+  transform: translateY(-1px);
+  border-color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 10%, var(--background-100)) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  z-index: 1;
+}
+
+.placeholder {
+  width: 38px;
+  height: 32px;
+}
+
+.arrow {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0 !important;
+  flex: none;
+}

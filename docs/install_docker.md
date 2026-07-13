@@ -7,7 +7,7 @@
     - [SSL certificates](#ssl-certificates)
     - [cleanup](#cleanup)
 
-# docker Installation
+# docker installation
 
 > **WARNING**: for any issue refer to [troubleshooting.md](./troubleshooting.md)
 
@@ -50,15 +50,15 @@ you have to just provide your `GULP_WORKING_DIR` to the image, with a valid [gul
 > if a configuration is not provided, a default one will be created in the `GULP_WORKING_DIR` you specified (may need some tweaking afterwards, though).
 
 ~~~bash
-# supplying GULP_IMAGE is optional, either the latest is pulled from our registry.
-# starts gulp backend and dev tools (--profile dev), ui must be run separately
+# supplying GULP_IMAGE is optional; otherwise the latest backend image is pulled.
+# starts the backend and dev tools (--profile dev), UI runs separately
 GULP_IMAGE=gulp-core:latest GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
 
-# also run the ui (--profile gui) in a container
-GULP_IMAGE=gulp-core:latest GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gui --profile dev up
+# build and run the included UI with the backend
+docker compose --profile gui up -d --build
 
 # add extra arguments to pass on the gulp commandline with EXTRA_ARGS, i.e. to tweak log-level
-EXTRA_ARGS="--log-level warning" GULP_IMAGE=gulp-core:latest GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gui --profile dev up
+EXTRA_ARGS="--log-level warning" GULP_IMAGE=gulp-core:latest GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gui --profile dev up --build
 
 # run gulp service only, oneshot (--rm)
 GULP_IMAGE=gulp-core:latest GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose run -p 8080:8080 --rm gulp gulp --log-level warning
@@ -70,7 +70,7 @@ multiple profiles (one or more) may be specified using on the `docker compose` c
 
 ### compose profiles
 
-- `--profile gui`: run gulp-web client ui
+- `--profile gui`: build and run the included gULP web UI
 - `--profile gulp`: also run gulp
 - `--profile dev`: also run adminer, elasticvue, redis-insight
 - `--profile extra`: also run `opensearch-dashboards` to manage opensearch and `sftpd` to manage files in the `GULP_WORKING_DIR`

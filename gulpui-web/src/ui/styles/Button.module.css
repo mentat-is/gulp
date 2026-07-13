@@ -1,0 +1,163 @@
+.button {
+	display: inline-flex;
+	width: fit-content;
+	align-items: center;
+	justify-content: center;
+	line-height: 8px;
+	white-space: nowrap;
+	border-radius: 6px;
+	font-size: 11px;
+	font-family: var(--font-mono);
+	cursor: pointer;
+	font-weight: 400;
+	transition: all 0.15s var(--transition);
+	border: 1px solid transparent;
+	gap: 8px;
+}
+
+.rounded {
+	border-radius: var(--round) !important;
+}
+
+.button:focus-visible {
+	box-shadow: var(--ring);
+}
+
+.button svg {
+	transition: all 0.15s var(--transition);
+}
+
+.default {
+	background: var(--gray-1000);
+	color: var(--background-100);
+}
+
+.default:hover {
+	box-shadow: var(--ring);
+}
+
+.secondary {
+	background: transparent;
+	color: var(--second);
+	border: 1px solid transparent;
+}
+
+.secondary:hover {
+	background: var(--gray-alpha-200);
+	color: var(--accent);
+	border-color: transparent;
+}
+
+.tertiary {
+	background: transparent;
+	color: var(--second);
+	border: 1px solid transparent;
+}
+
+.tertiary:hover {
+	background: var(--gray-alpha-200);
+	color: var(--accent);
+	border-color: transparent;
+}
+
+.destructive {
+	background: var(--red-800);
+	color: var(--background-100);
+}
+
+.destructive:hover {
+	background: var(--red-900);
+}
+
+.disabled {
+	filter: var(--disabled);
+	cursor: default;
+	pointer-events: none;
+}
+
+.glass {
+	background: var(--geist-background);
+	border: none;
+	box-shadow: inset 0 0 0 1px var(--gray-alpha-400);
+	color: var(--accent);
+	font-weight: 400;
+	backdrop-filter: blur(8px);
+}
+
+.glass:hover {
+	box-shadow: inset 0 0 0 1px var(--gray-alpha-500);
+}
+
+.defaultSize {
+	height: 32px;
+	min-height: 32px;
+	padding: 0 12px;
+}
+
+.defaultSize.icon {
+	width: 32px;
+}
+
+.sm {
+	min-height: 24px;
+	height: 24px;
+	padding: 0 12px;
+	line-height: 4px;
+	gap: 6px;
+	font-size: 13px;
+	font-weight: 400;
+	border-radius: 4px;
+}
+
+.sm.icon {
+	width: 24px;
+}
+
+.md {
+	min-height: 36px;
+	height: 36px;
+	min-width: 36px;
+}
+
+.mg.icon {
+	width: 36px;
+}
+
+.lg {
+	min-height: 48px;
+	height: 48px;
+	border-radius: 0.5rem;
+	font-size: 16px;
+	padding: 0 16px;
+}
+
+.lg.icon {
+	width: 48px;
+}
+
+.icon {
+	padding: 0;
+	flex-shrink: 0;
+}
+
+.withImage {
+	width: fit-content;
+}
+
+.lg.withImage {
+	padding: 0 16px 0 12px;
+}
+
+.revert {
+	width: fit-content;
+	padding: 0 8px 0 12px;
+	flex-direction: row-reverse;
+}
+
+.lg.revert {
+	padding: 0 12px 0 16px;
+}
+
+.loading {
+	pointer-events: none;
+}

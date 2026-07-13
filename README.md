@@ -19,129 +19,120 @@ _made with :heart: by Mentat._
 ![GitHub languages](https://img.shields.io/github/languages/top/mentat-is/gulp)
 ![GitHub issues](https://img.shields.io/github/issues/mentat-is/gulp)
 ![GitHub sponsors](https://img.shields.io/github/sponsors/mentat-is)
+
 </div>
 
 <div align="center">
 
-[Description](#description) - [Quick start](#quick-start) - [Documentation](#documentation) - [Run examples](#run-examples)
+[Description](#description) · [Quick start](#quick-start) · [Web UI](#web-ui) · [Documentation](#documentation) · [Examples](#run-examples)
 
 </div>
 
 ## description
 
-Gulp is a powerful software tool designed to streamline incident response and analysis. Its core features includes:
+gULP is a log-ingestion and incident-response platform. The FastAPI backend uses
+OpenSearch, PostgreSQL, Redis, and optional MinIO storage; the included React
+web UI provides the investigation workspace.
 
-- **Data Ingestion Plugins**: Gulp can ingest data from a variety of sources, thanks to its versatile plugin system.
-- **OpenSearch and ECS**: Gulp is built on OpenSearch and uses the _Elasticsearch Common Scheme (ECS)_ as its ingestion format, ensuring compatibility and ease of use.
-- **High-Speed Multiprocessing Engine**: Gulp's engine is designed for speed, offering fast ingestion and querying capabilities through multiprocessing.
-- **Query using SIGMA rules**: Gulp supports querying using Sigma Rules, allowing for easy, one-click queries with thousands of rules in parallel.
-- **Collaboration Platform**: Gulp includes a collaboration platform, enabling teams to work together on the same incident. Features include note-taking, highlighting, and link adding.
-- [**An innovative UI**](https://github.com/mentat-is/gulpui-web): Gulp's user interface includes multiple on-screen per-context(i.e. a log source) zoomable timelines for visualizing events, making it easier to understand and analyze incidents.
+- **Ingestion plugins** for many log and artifact formats.
+- **OpenSearch and ECS** for storage and a consistent event schema.
+- **Multiprocessing** for ingestion and querying.
+- **Sigma queries**, collaboration, notes, links, enrichment, and plugins.
+- **Scalable deployments**; see the [scaling guide](docs/scaling.md).
 
-  <div class="slides">
-    <div class="slide" id="slide-1"><img src="screenshot-1.png" alt="screenshot 1"></div>
-    <div class="slide" id="slide-2"><img src="screenshot-2.png" alt="screenshot 2"></div>
-    <div class="slide" id="slide-3"><img src="screenshot-3.png" alt="screenshot 3"></div>
-  </div>
-
-- **Scalable**: scale the measured bottleneck; see the [scaling guide](./docs/scaling.md).
-- **Python based**: Gulp is written in Python, leveraging open-source libraries whenever possible. This maximizes ease of adoption from the community, as Python is widely used and understood.
-
-[here is a detailed datasheet](./DATASHEET.md)
-
-## documentation
-
-- [Architecture](./docs/architecture.md)
-- [Scaling guide](./docs/scaling.md)
-- [Docker install and exposed services](./docs/install_docker.md)
-- [Development install](./docs/install_dev.md)
-- [Plugins and mapping](./docs/plugins_and_mapping.md)
-- [Integration API and raw ingestion](./docs/integration.md)
-- [Query behavior](./docs/query.md)
-- [Testing and load-test harnesses](./docs/testing.md)
-- [Observability](./docs/observability.md)
-- [Troubleshooting](./docs/troubleshooting.md)
+[Read the detailed datasheet.](DATASHEET.md)
 
 ## quick start
 
-Install the PyPI package and run the required services with the example
-[docker-compose.yml](./docker-compose.yml):
+Requirements: Docker Compose and Git. This starts the backend services and
+builds the included UI from this checkout:
 
-> **WARNING**: gulp has been tested extensiely with python3.13, 3.14 is also working and will be the next recommended version after some more testing (but seems ok). it should work with python3.12 too, but was rarely tested and not recommended.
+```bash
+git clone https://github.com/mentat-is/gulp.git && cd gulp && docker compose --profile gui up -d --build
+```
 
-~~~bash
-set -e
-curl -o .env https://raw.githubusercontent.com/mentat-is/gulp/develop/.env \
-  && curl -o docker-compose.yml https://raw.githubusercontent.com/mentat-is/gulp/develop/docker-compose.yml \
-  &&pip install mentat-gulp
-~~~
+Open [http://localhost:3000](http://localhost:3000), sign in with `admin/admin`,
+and use [http://localhost:8080/docs](http://localhost:8080/docs) for the API.
+The default compose setup is for local evaluation; see the [Docker guide](docs/install_docker.md) before production use.
 
-~~~bash
-docker compose up -d
-~~~
+To run the UI directly while developing it, install Node.js `22.14.1` and pnpm
+`10.8.1`, then run:
 
-~~~bash
-gulp --reset-collab --create some_operation
-~~~
+```bash
+pnpm --dir gulpui-web install && pnpm --dir gulpui-web start
+```
 
-gulp creates a default configuration in `$HOME/.config/gulp/gulp_cfg.json` if
-not already present and starts listening on `http://localhost:8080`.
+For a source backend install, use [development installation](docs/install_dev.md).
 
-Common next steps:
+## web UI
 
-- open the API docs at [http://localhost:8080/docs](http://localhost:8080/docs)
-- use the default admin user: `admin/admin`
-- run the web UI from [gulpui-web](https://github.com/mentat-is/gulpui-web)
-- use [install_docker.md](./docs/install_docker.md) for Docker profiles, service
-  ports, and certificates
-- use [install_dev.md](./docs/install_dev.md) for source installs and extra
-  plugins
+The browser UI lives in [`gulpui-web/`](gulpui-web/README.md). Its focused
+guides cover [installation](gulpui-web/docs/installation.md),
+[ingestion](gulpui-web/docs/ingestion.md), [workflow](gulpui-web/docs/flow.md),
+[features](gulpui-web/docs/features.md), and [views](gulpui-web/docs/view.md).
 
-> pypi/docker registry versions may be outdated... to use the bleeding edge version of gulp, install from sources and use the 'develop' branches.
+Start by connecting to a backend and choosing an investigation operation.
 
-### configuration
+![gULP login](gulpui-web/docs/images/login.png)
+
+The timeline groups sources by context, lets analysts zoom into activity, and
+opens an event in place for investigation.
+
+![gULP timeline](gulpui-web/docs/images/timeline.png)
+
+Analysts can add collaboration notes directly to event details.
+
+![Event-detail notes](gulpui-web/docs/images/event-detail-notes.png)
+
+Dashboards summarize event rate and source distribution while the timeline stays
+focused on the investigation.
+
+![gULP dashboard](gulpui-web/docs/images/dashboard-fixed.png)
+
+## documentation
+
+- [Architecture](docs/architecture.md)
+- [Docker installation and services](docs/install_docker.md)
+- [Development installation](docs/install_dev.md)
+- [Web UI documentation](gulpui-web/README.md)
+- [Plugins and mappings](docs/plugins_and_mapping.md)
+- [Integration API and raw ingestion](docs/integration.md)
+- [Query behavior](docs/query.md)
+- [Testing](docs/testing.md)
+- [Observability](docs/observability.md)
+- [Troubleshooting](docs/troubleshooting.md)
+
+## configuration
 
 The following environment variables override common runtime configuration:
 
-- `GULP_BIND_TO_ADDR`, `GULP_BIND_TO_PORT` : if set, gulp will listen to this interface and port (either, the default `0.0.0.0`, `8080` is used).
-  - for the override to work, both `GULP_BIND_TO_ADDR` and `GULP_BIND_TO_PORT` must be specified, either the value of one alone is ignored.
-- `GULP_WORKING_DIR`: this is the **working directory** for gulp (defaults to `~/.config/gulp`), which contains:
-  - `gulp_cfg.json`: the configuration, initialized with [template](./src/gulp/gulp_cfg_template.json) if not present
-  - `plugins`: optional extra plugins (have precedence over `$INSTALLDIR/plugins`)
-  - `mapping_files`: optional extra mapping files (have precedence over `$INSTALLDIR/mapping_files`)
-  - `certs`: optional [SSL](./docs/install_docker.md#ssl-certificates) certificates for HTTPS
-  - `ingest_local` directory to store big files for quick ingestion (`ingest_local` API)
-  - `tmp_upload` folder to cache partial uploads during ingestion
-
-- `GULP_OPENSEARCH_URL`: if set, overrides `opensearch_url` in the configuration to.
-- `GULP_POSTGRES_URL`: if set, overrides `postgres_url` in the configuration.
-- `GULP_REDIS_URL`: if set, overrides `redis_url` in the configuration.
-- `GULP_S3_URL`: if set, overrides `s3_url` in the configuration.
+- `GULP_BIND_TO_ADDR`, `GULP_BIND_TO_PORT`: set both to change the listen address (defaults: `0.0.0.0:8080`).
+- `GULP_WORKING_DIR`: defaults to `~/.config/gulp` and contains the generated `gulp_cfg.json`, optional `plugins/` and `mapping_files/`, certificates, local ingestion files, and temporary uploads.
+- `GULP_OPENSEARCH_URL`, `GULP_POSTGRES_URL`, `GULP_REDIS_URL`, `GULP_S3_URL`: override their corresponding configuration values.
 
 ## run examples
 
-default startup, creates collab database with an operation names `test_operation` on the very first run.
+The `gulp` command creates the default configuration and initial `test_operation`
+on its first run.
 
-~~~bash
+```bash
 gulp
-~~~
+```
 
-> to detect if gulp has already run once check for `~/.config/gulp/.first_run_done` and delete it to revert to first run on the next run.
+Reset all collaboration and OpenSearch operation data:
 
-deletes data related to `ALL` existing operations, both on collaboration database and OpenSearch.
-
-~~~bash
+```bash
 gulp --reset-collab
-~~~
+```
 
-deletes data related to `ALL` existing operations, both on collaboration database and OpenSearch, in the end creates/recreates `my_operation`.
+Reset all data and create an operation:
 
-~~~bash
+```bash
 gulp --reset-collab --create my_operation
-~~~
+```
 
-acts only on `my_operation`: creates/recreates operation, deletes all related data both on collaboration database and OpenSearch.
+Recreate only one operation and its data:
 
-~~~bash
+```bash
 gulp --create my_operation
-~~~
+```

@@ -1,0 +1,254 @@
+.wrapper {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  min-height: 32px;
+  width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--gray-alpha-400);
+  background-color: var(--background-100);
+  outline-offset: var(--accent);
+  transition: all 0.125s var(--transition);
+}
+
+.wrapper input {
+  width: 100%;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 8px;
+  text-overflow: ellipsis;
+  text-align: start;
+  overflow: hidden;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.wrapper:hover {
+  border-color: var(--gray-alpha-500);
+}
+
+.wrapper input::placeholder {
+  color: var(--gray-700);
+}
+
+.wrapper:focus-visible,
+.wrapper:focus-within {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.wrapper.disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.color {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.color input {
+  display: block;
+  cursor: pointer;
+}
+
+.color input::-webkit-color-swatch-wrapper {
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  margin: 0;
+}
+
+.color input::-webkit-color-swatch {
+  margin: 0;
+  padding: 0;
+  transition: all .3s var(--transition);
+  border: none;
+  height: 100%;
+  width: 100%;
+  border-radius: 4px;
+}
+
+.color input::-moz-color-swatch {
+  border: none;
+  height: 100%;
+  width: 100%;
+  border-radius: 4px;
+}
+
+.revert {
+  flex-direction: row-reverse;
+  justify-content: space-between;
+}
+
+.wrapper::file-selector-button,
+.wrapper input::file-selector-button {
+  background: transparent;
+  outline: none;
+  border: none;
+  color: var(--second);
+  margin-inline-end: 8px;
+  cursor: pointer;
+}
+
+.invalid {
+  border: 1px solid var(--red-800) !important;
+  box-shadow: 0 0 1px var(--red-900), 0 0 0 4px var(--red-300);
+  animation: shake .5s var(--transition);
+}
+
+.invalid:hover {
+  box-shadow: none;
+}
+
+.invalid svg {
+  stroke: var(--red-800);
+}
+
+.highlighted {
+  background: var(--background-100);
+  position: relative;
+  overflow: hidden;
+}
+
+.highlighted input {
+  font-family: var(--font-mono);
+  overflow: hidden;
+  align-content: center;
+  flex: 1;
+  text-overflow: ellipsis;
+}
+
+.highlighted svg {
+  z-index: 2;
+  width: 32px;
+}
+
+.hasEndIcon input {
+  padding-inline-end: 0;
+}
+
+.endIcon,
+.endIconButton {
+  border-inline-start: 1px solid var(--gray-400);
+}
+
+.highlighted:hover .endIconButton,
+.highlighted:hover .endIcon {
+  border-inline-start-color: var(--gray-500);
+}
+
+.endIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 32px;
+  background: var(--background-200);
+}
+
+.endIconButton {
+  flex-shrink: 0;
+  background: var(--background-200);
+}
+
+.endIconButton:hover {
+  background: var(--gray-alpha-200);
+}
+
+.lg {
+  height: 48px;
+}
+
+.lg input {
+  padding: 0 12px;
+  font-size: 1rem;
+}
+
+.highlighted::before {
+  position: absolute;
+  content: '';
+  height: 100%;
+  width: 32px;
+  z-index: 0;
+  border-inline-end: 1px solid var(--gray-400);
+  background: var(--background-200);
+}
+
+.highlighted:hover::before {
+  border-inline-end: 1px solid var(--gray-500);
+}
+
+@keyframes shake {
+
+  8%,
+  41% {
+    -webkit-transform: translateX(-5px);
+  }
+
+  25%,
+  58% {
+    -webkit-transform: translateX(5px);
+  }
+
+  75% {
+    -webkit-transform: translateX(-3px);
+  }
+
+  92% {
+    -webkit-transform: translateX(3px);
+  }
+
+  0%,
+  100% {
+    -webkit-transform: translateX(0);
+  }
+}
+
+@-webkit-keyframes shake {
+
+  8%,
+  41% {
+    -webkit-transform: translateX(-10px);
+  }
+
+  25%,
+  58% {
+    -webkit-transform: translateX(10px);
+  }
+
+  75% {
+    -webkit-transform: translateX(-5px);
+  }
+
+  92% {
+    -webkit-transform: translateX(5px);
+  }
+
+  0%,
+  100% {
+    -webkit-transform: translateX(0);
+  }
+}
+
+.iconButton {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  height: 100%;
+  width: 32px;
+  z-index: 5;
+  transition: background 0.125s var(--transition);
+}
+
+.iconButton:hover {
+  background: var(--gray-alpha-200);
+}

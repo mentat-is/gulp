@@ -1,0 +1,9 @@
+.inp {
+  background-color: var(--black);
+}
+.nameLabel {
+  white-space: nowrap;
+}
+.buttons button:first-child {
+  flex: 1;
+}

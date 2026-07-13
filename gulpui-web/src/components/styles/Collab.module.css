@@ -1,0 +1,18 @@
+.detailed {
+  width: 100%;
+  background: var(--background-100);
+  border: 1px solid var(--gray-400);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.descriptionWrapper {
+  min-height: 32px;
+}
+
+.detailed .description {
+  padding-left: 6px;
+  padding-bottom: 6px;
+  height: auto;
+  max-height: none;
+}

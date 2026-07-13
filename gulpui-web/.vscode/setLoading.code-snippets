@@ -1,0 +1,9 @@
+{
+  "useState with loading": {
+    "prefix": "ll",
+    "body": [
+      "const [loading, setLoading] = useState<boolean>(false);"
+    ],
+    "description": "useState hook for loading state"
+  }
+}

@@ -1,0 +1,9 @@
+.fullscreen {
+  position: fixed;
+  top: 87px;
+  left: 87px;
+  height: calc(100vh - 173px);
+  width: calc(100vw - 173px);
+  max-width: unset;
+  max-height: unset;
+}

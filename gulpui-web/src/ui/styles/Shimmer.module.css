@@ -1,0 +1,27 @@
+.shimmer {
+  --offset: calc(6 * 0.5ch);
+  --angle: -45deg;
+  --classic: linear-gradient(
+    var(--angle),
+    #0000 calc(50% - var(--offset)),
+    var(--accent),
+    #0000 calc(50% + var(--offset))
+  );
+  --bg: var(--classic) 0 0 / 300% 100% no-repeat border-box, var(--color) padding-box;
+  white-space: nowrap;
+  line-height: 1.2;
+  background: var(--bg);
+  animation: shimmer calc(var(--duration) * 1s) infinite both ease-in-out;
+  background-clip: text;
+  color: transparent;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  50%,
+  100% {
+    background-position: 0% 0;
+  }
+}

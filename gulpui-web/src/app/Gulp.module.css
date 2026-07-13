@@ -1,0 +1,50 @@
+.timeline {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: row;
+}
+
+.timeline>span {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.content {
+  display: flex;
+  position: relative;
+}
+
+.controls {
+  position: absolute;
+  bottom: 12px;
+  z-index: 3;
+  left: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.cm_title {
+  max-width: 256px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delete {
+  background: var(--red-100);
+  transition: all 0.125s var(--transition);
+  color: var(--red-1000);
+}
+
+.delete:hover {
+  background: var(--red-200);
+}
+.glass {
+  background: var(--geist-background);
+  border: var(--geist-border);
+}

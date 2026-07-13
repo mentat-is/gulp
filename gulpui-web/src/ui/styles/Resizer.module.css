@@ -1,0 +1,25 @@
+.resize {
+  height: 100%;
+  left: -9px;
+  position: absolute;
+  z-index: 5;
+  width: 6px;
+  border-radius: 6px;
+  opacity: 0;
+  transition: all 0.125s var(--transition);
+}
+
+.resize:hover {
+  opacity: 1;
+  border: var(--geist-border);
+  background: var(--geist-background);
+  cursor: col-resize;
+}
+
+.resize.horizontal {
+  cursor: row-resize;
+  height: 6px;
+  width: 100%;
+  left: 0;
+  top: -9px;
+}

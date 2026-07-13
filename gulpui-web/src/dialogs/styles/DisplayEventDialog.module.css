@@ -1,0 +1,637 @@
+.header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	border-bottom: 1px solid var(--gray-300);
+	padding: 6px;
+	width: 100%;
+	flex: none;
+}
+
+.dialog :global([data-content]) {
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.titleContainer {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.iconWrapper {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--accent) 12%, transparent);
+	color: var(--accent);
+	flex: none;
+}
+
+.title {
+	font-size: 18px;
+	font-weight: 600;
+	color: var(--accent);
+	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.buttonGroup {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	flex: none;
+}
+
+.actionMenu {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 4px;
+	min-width: 220px;
+}
+
+.menuAction {
+	justify-content: flex-start;
+	width: 100%;
+	min-height: 30px;
+	padding: 6px 8px !important;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--accent);
+	text-align: left;
+	box-shadow: none;
+}
+
+.menuAction:hover,
+.menuAction:focus-visible {
+	background: var(--gray-400);
+	outline: none;
+}
+
+.menuAction span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pluginMenuAction {
+	display: flex;
+	width: 100%;
+}
+
+.pluginMenuAction :global(button) {
+	justify-content: flex-start;
+	width: 100%;
+	min-height: 30px;
+	height: auto;
+	padding: 6px 8px !important;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--accent);
+	text-align: left;
+	box-shadow: none;
+}
+
+.pluginMenuAction :global(button:hover),
+.pluginMenuAction :global(button:focus-visible) {
+	background: var(--gray-400);
+	outline: none;
+}
+
+.pluginMenuAction :global(button span) {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.eventViewer {
+	position: relative;
+	display: flex;
+	flex: 1 1 0;
+	min-height: 160px;
+	width: 100%;
+	overflow: hidden;
+}
+
+.copyJsonButton {
+	position: absolute;
+	top: 46px;
+	right: 10px;
+	z-index: 5;
+}
+
+.collabTabs {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	width: 100%;
+	flex: 0 1 auto;
+	min-height: 0;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.collabResizeHandle {
+	position: relative;
+	height: 8px;
+	margin: -3px 4px 0;
+	border-radius: 999px;
+	cursor: row-resize;
+	flex: none;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.collabResizeHandle::before {
+	content: "";
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 48px;
+	height: 3px;
+	border-radius: 999px;
+	background: var(--gray-500);
+	opacity: 0.6;
+	transform: translate(-50%, -50%);
+	transition:
+		background 0.15s var(--transition),
+		opacity 0.15s var(--transition);
+}
+
+.collabResizeHandle:hover::before {
+	background: var(--accent);
+	opacity: 0.85;
+}
+
+.collabTabsHeader {
+	display: flex;
+	align-items: center;
+	justify-content: stretch;
+	gap: 8px;
+	width: 100%;
+	min-width: 0;
+}
+
+.collabPanel {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	max-width: 100%;
+	height: var(--collab-panel-height, 240px);
+	min-height: 140px;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.collabContent {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+	min-width: 0;
+	width: 100%;
+	max-width: 100%;
+	overflow: auto !important;
+	scrollbar-color: var(--second) var(--background-100);
+	scrollbar-width: thin;
+}
+
+.collabContent::-webkit-scrollbar,
+.collabTable::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+.collabContent::-webkit-scrollbar-track,
+.collabTable::-webkit-scrollbar-track {
+	background: var(--background-100);
+}
+
+.collabContent::-webkit-scrollbar-thumb,
+.collabTable::-webkit-scrollbar-thumb {
+	border: 2px solid var(--background-100);
+	border-radius: 999px;
+	background: var(--gray-600);
+}
+
+.collabTable {
+	flex: 1 1 auto;
+	min-height: 0;
+	min-width: 0;
+	max-width: 100%;
+	scrollbar-color: var(--second) var(--background-100);
+	scrollbar-width: thin;
+}
+
+.collabContent[data-state="inactive"] {
+	display: none;
+}
+
+.emptyState {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 120px;
+	color: var(--second);
+	border: 1px solid var(--gray-400);
+	border-radius: 6px;
+	background: var(--background-100);
+}
+
+.linkName {
+	display: inline-flex;
+	align-items: center;
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.linkName svg {
+	flex: none;
+}
+
+.highlighter {
+	padding-right: 8px;
+	height: 100%;
+}
+
+.highlighter * {
+	font-size: 10px;
+	white-space: break-spaces !important;
+	user-select: text !important;
+}
+
+.highlighter > pre {
+	margin: 0 !important;
+}
+
+.group button {
+	width: 100%;
+}
+
+.topActions {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	align-items: stretch;
+	justify-items: stretch;
+}
+
+.topActions > * {
+	width: 100%;
+}
+
+.actionButtons {
+	flex-wrap: wrap;
+}
+
+.actionButtons button {
+	flex: 1;
+	height: 36px;
+	min-width: 36px;
+	font-size: 11px;
+}
+
+.basic ul div span {
+	margin-left: 6px;
+}
+
+.node {
+	color: var(--accent);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	line-height: 1.45;
+	margin: 1px 0;
+}
+
+.container {
+	border: 1px solid var(--gray-400);
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--background-100) 82%, transparent);
+	padding: 6px;
+	margin-right: 8px;
+	overflow: auto;
+}
+
+.container,
+.container * {
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+.basic {
+	margin: 0;
+	padding-left: 18px;
+}
+
+.label {
+	color: var(--second);
+	font-weight: 500;
+}
+
+.clickableLabel {
+	color: var(--gray-1000);
+}
+
+.punctuation {
+	color: var(--gray-700);
+	font-weight: 500;
+}
+
+.numeric {
+	color: var(--blue-900);
+}
+
+.string {
+	color: var(--amber-900);
+}
+
+.bool {
+	color: var(--red-900);
+}
+
+.null {
+	color: var(--gray-700);
+}
+
+.undefined {
+	color: var(--gray-700);
+}
+
+.other {
+	color: var(--teal-900);
+}
+
+.expandIcon,
+.collapseIcon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 14px;
+	height: 14px;
+	margin-right: 6px;
+	border: 1px solid var(--gray-500);
+	border-radius: 3px;
+	background: color-mix(in srgb, var(--background-200) 88%, transparent);
+	color: var(--gray-900);
+	user-select: none;
+	-webkit-user-select: none;
+	cursor: pointer;
+	font-size: 0;
+	line-height: 1;
+}
+
+.expandIcon::after {
+	content: "+";
+	font-size: 10px;
+	font-weight: 700;
+}
+
+.collapseIcon::after {
+	content: "-";
+	font-size: 12px;
+	font-weight: 700;
+	transform: translateY(-1px);
+}
+
+.collapsed {
+	color: var(--gray-800);
+	font-style: italic;
+}
+
+.tabs_wrapper {
+	display: flex;
+	gap: 12px;
+	height: 100%;
+	width: 100%;
+	max-height: 100%;
+	flex: 1 1 auto;
+	min-height: 0;
+	min-width: 0;
+	overflow: hidden !important;
+	flex-direction: column;
+}
+
+.tabs_wrapper > span {
+	max-height: calc(100% - 36px);
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	padding-bottom: 8px;
+}
+
+.contextTrigger {
+	position: relative;
+	display: block;
+	flex: 1 1 auto;
+	min-height: 0;
+	min-width: 0;
+	height: 100%;
+	width: 100%;
+	overflow: hidden;
+}
+
+.scrollable {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+	height: 100%;
+	width: 100%;
+	max-width: 100%;
+	overflow: auto !important;
+}
+
+.scrollable[data-state="inactive"] {
+	display: none !important;
+}
+
+.tableView {
+	flex: 0 1 auto;
+	min-height: 0;
+	min-width: 0;
+	width: 100%;
+	max-width: 100%;
+	overflow: auto;
+}
+
+.tableView :global(table) {
+	width: 100%;
+	height: auto;
+	min-height: 0;
+}
+
+.triggers {
+	width: 100%;
+	justify-content: flex-start;
+	background: transparent;
+	box-shadow: none;
+	border: 1px solid var(--gray-400);
+	border-radius: 6px;
+	padding: 2px;
+}
+
+.triggers button {
+	font-family: var(--font-mono);
+	background: transparent;
+	border: 1px solid transparent;
+	box-shadow: none;
+}
+
+.triggers button[data-state="active"] {
+	flex: 1;
+	background: var(--background-100);
+	border-color: var(--gray-400);
+	box-shadow: none;
+}
+
+.triggers button svg {
+	margin-right: 6px;
+}
+
+.indicator {
+	padding: 0 !important;
+	position: relative;
+	width: 38px;
+	height: 32px;
+	min-width: 38px;
+	min-height: 32px;
+	border: 1px solid var(--gray-400) !important;
+	border-radius: 6px !important;
+	background: var(--background-100) !important;
+	color: var(--accent) !important;
+	box-shadow: var(--shadow-border);
+	overflow: visible !important;
+}
+
+.indicator::after {
+	content: "";
+	position: absolute;
+	left: 5px;
+	right: 5px;
+	bottom: 3px;
+	height: 3px;
+	border-radius: 999px;
+	background: var(--event-color, var(--accent));
+}
+
+.indicatorIconWrap {
+	width: 100%;
+	height: 100%;
+	padding: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+}
+
+.indicator p {
+	z-index: 1;
+	font-weight: 700;
+	color: var(--accent);
+	font-family: var(--font-mono);
+	text-shadow: none;
+	white-space: nowrap;
+	line-height: 1;
+	text-align: center;
+	margin: 0;
+	max-width: 32px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.indicator .marker {
+	border: 1px solid color-mix(in srgb, var(--gray-400) 70%, transparent);
+	width: 15px;
+	height: 15px;
+	background: var(--background-100);
+	border-radius: var(--round);
+	transform: translate(16.5%, 16.5%);
+	z-index: 2;
+	color: var(--accent);
+}
+
+.indicator .collab {
+	bottom: 0;
+	right: 0;
+}
+
+.flagged {
+	top: -6px;
+	right: 0;
+}
+
+.linkMarker {
+	left: -5px;
+}
+
+.transformBar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 10px;
+	margin: 0 4px 6px 4px;
+	background: color-mix(in srgb, var(--gray-100) 60%, transparent);
+	border: 1px solid var(--gray-200);
+	border-radius: 6px;
+	font-size: 11px;
+}
+
+.transformBarLabel {
+	color: var(--gray-700);
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	margin-right: 4px;
+}
+
+.transformChip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 6px 2px 5px;
+	border-radius: 4px;
+	border: 1px solid var(--gray-300);
+	background: var(--background-100);
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	line-height: 1.2;
+}
+
+.transformChip code {
+	font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+	font-size: 11px;
+}
+
+.transformChipOn {
+	border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+	background: color-mix(in srgb, var(--accent) 12%, var(--background-100));
+	color: var(--accent);
+}
+
+.transformChipOff {
+	border-color: var(--gray-300);
+	background: transparent;
+	color: var(--gray-700);
+	text-decoration: line-through;
+}

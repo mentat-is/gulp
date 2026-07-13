@@ -1,0 +1,33 @@
+.idle {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--soft-black);
+  color: var(--geist-foreground);
+  font-family: var(--font-mono);
+  padding: 24px;
+}
+
+.panel {
+  width: min(460px, 100%);
+  border: 1px solid var(--geist-border);
+  border-radius: 6px;
+  background: var(--background-100);
+  padding: 22px;
+  text-align: center;
+}
+
+.panel h2 {
+  margin: 0 0 10px 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.panel p {
+  margin: 0;
+  color: var(--gray-700);
+  font-size: 12px;
+  line-height: 1.5;
+}

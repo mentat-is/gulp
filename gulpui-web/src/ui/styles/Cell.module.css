@@ -1,0 +1,21 @@
+.cell {
+  position: relative;
+  height: var(--cell-size);
+  width: var(--cell-size);
+  flex-shrink: 0;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  border: 1px solid;
+}
+.cell > * {
+  height: 100% !important;
+  width: 100% !important;
+  border-radius: 0 !important;
+}
+.cell svg {
+  height: 24px;
+  width: 24px;
+}
+.cell [data-spinner-wrapper] {
+  --spinner-size: 32px !important;
+}

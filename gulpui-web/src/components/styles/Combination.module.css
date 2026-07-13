@@ -1,0 +1,34 @@
+.unit {
+  height: 32px;
+  display: flex;
+  gap: 12px;
+  cursor: pointer;
+}
+.unit svg {
+  min-height: 32px;
+  min-width: 32px;
+  border-radius: var(--round);
+  border: var(--geist-border);
+}
+.unit .text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-evenly;
+}
+.unit .text p {
+  max-width: calc(600px - 128px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.unit .text .top {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--accent);
+}
+.unit .text .bottom {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--second);
+}

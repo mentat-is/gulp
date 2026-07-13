@@ -139,7 +139,11 @@ services:
 
   gulp-web:
     profiles: [ "gui" ]
-    image: mentatis/gulp-web:latest
+    build:
+      context: ./gulpui-web
+      args:
+        _VERSION: ${GULP_UI_VERSION:-local}
+    image: ${GULP_UI_IMAGE:-gulp-web:local}
     depends_on:
       - gulp
     container_name: gulp-web
@@ -218,4 +222,3 @@ volumes:
   minio_data:
   prometheus_data:
   grafana_data:
-

@@ -1,0 +1,22 @@
+.main {
+  width: 100vw;
+  height: 100vh;
+  background: var(--black);
+  animation: onLoad 0.3s var(--transition) 2.5s forwards;
+  opacity: 1;
+}
+
+@keyframes onLoad {
+  to {
+    opacity: 0;
+  }
+}
+.main h1 {
+  font-size: 3vw;
+  font-family: var(--font-mono);
+  font-weight: 300;
+}
+.main p {
+  font-family: var(--font-mono);
+  font-size: 24px;
+}

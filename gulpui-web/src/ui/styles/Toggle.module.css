@@ -1,0 +1,21 @@
+.toggle p {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+  flex: 1;
+  color: var(--second);
+  transition: all 0.125s var(--transition);
+}
+
+.toggle p:first-child {
+  text-align: end;
+}
+
+.toggle p:last-child {
+  text-align: start;
+}
+
+.toggle p.selected {
+  font-weight: 500;
+  color: var(--accent);
+}

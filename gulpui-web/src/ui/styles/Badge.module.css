@@ -1,0 +1,126 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--round);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  line-height: 0;
+  cursor: default;
+}
+
+.gray {
+  background-color: var(--gray-700);
+  color: var(--accent);
+}
+
+.gray_subtle {
+  background-color: var(--gray-200);
+  color: var(--accent);
+}
+
+.blue {
+  background-color: var(--blue-700);
+  color: var(--accent);
+}
+
+.blue_subtle {
+  background-color: var(--blue-200);
+  color: var(--blue-900);
+}
+
+.purple {
+  background-color: var(--purple-700);
+  color: var(--accent);
+}
+
+.purple_subtle {
+  background-color: var(--purple-200);
+  color: var(--purple-900);
+}
+
+.amber {
+  background-color: var(--amber-700);
+  color: var(--second);
+}
+
+.amber_subtle {
+  background-color: var(--amber-200);
+  color: var(--amber-900);
+}
+
+.red {
+  background-color: var(--red-700);
+  color: var(--accent);
+}
+
+.red_subtle {
+  background-color: var(--red-200);
+  color: var(--red-900);
+}
+
+.pink {
+  background-color: var(--pink-700);
+  color: var(--accent);
+}
+
+.pink_subtle {
+  background-color: var(--pink-200);
+  color: var(--pink-900);
+}
+
+.green {
+  background-color: var(--green-700);
+  color: var(--accent);
+}
+
+.green_subtle {
+  background-color: var(--green-200);
+  color: var(--green-900);
+}
+
+.teal {
+  background-color: var(--teal-700);
+  color: var(--accent);
+}
+
+.teal_subtle {
+  background-color: var(--teal-200);
+  color: var(--teal-900);
+}
+
+.inverted {
+  background-color: var(--accent);
+  color: var(--second);
+}
+
+.lg {
+  height: 32px;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.md {
+  height: 24px;
+  gap: 4px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.sm {
+  height: 20px;
+  gap: 3px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.disabled {
+  filter: brightness(0.75);
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}

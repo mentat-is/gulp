@@ -1,0 +1,35 @@
+.wrapper {
+  width: 100vw;
+  height: 100vh;
+  padding: 0 33vw;
+}
+.wrapper > div {
+  width: 100%;
+}
+.title {
+  color: var(--gray-800);
+  font-size: 24px;
+  font-family: var(--font-mono);
+  margin-bottom: 12px;
+}
+.operation {
+  overflow: hidden;
+  height: 0px;
+}
+.operation.visible {
+  height: 52px;
+  overflow: visible;
+}
+.banner .wrapper {
+  padding: unset;
+  width: 100%;
+  height: 100%;
+}
+.operation_description {
+  max-width: 500px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block !important;
+  color: var(--second) !important;
+}

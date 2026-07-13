@@ -1,0 +1,55 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background-color: var(--geist-background);
+}
+
+.content {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 50;
+  margin-top: 6rem;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px 10px 0 0;
+  border: var(--geist-border);
+  box-shadow: var(--shadow-border);
+  background: var(--geist-background);
+  backdrop-filter: blur(6px) brightness(0.5);
+}
+
+.handle {
+  margin: 16px auto 0;
+  height: 8px;
+  width: 128px;
+  border-radius: var(--round);
+  background: var(--gray-800);
+}
+
+.header {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  text-align: center;
+}
+
+.footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.description {
+  font-size: 12px;
+  color: var(--muted-foreground, #6b7280);
+}

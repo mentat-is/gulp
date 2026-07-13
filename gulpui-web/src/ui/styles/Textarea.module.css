@@ -1,0 +1,16 @@
+.textarea {
+  background: var(--background-100);
+  border: 1px solid var(--gray-400);
+  border-radius: 6px;
+  padding: 12px;
+}
+.textarea::placeholder {
+  color: var(--gray-700) !important;
+}
+.fixed {
+  resize: none;
+}
+.invalid {
+  border-color: var(--red-500) !important;
+  outline: 1px solid var(--red-500);
+}

@@ -1,0 +1,18 @@
+.magnifier {
+  position: absolute;
+  border: 1px solid var(--gray-alpha-400);
+  border-radius: 6px;
+  transform: translate(-50%, calc(-50% + 24px));
+  pointer-events: none;
+  opacity: 0.9;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.glass {
+  background: var(--geist-background);
+  z-index: 2;
+  height: 100%;
+  width: 100%;
+  position: absolute;
+}

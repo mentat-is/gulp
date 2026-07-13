@@ -1,0 +1,31 @@
+.root {
+  overflow: hidden;
+  background-color: var(--background-100);
+  border: 1px solid var(--gray-400);
+  border-radius: var(--round);
+  min-height: 12px;
+  height: 12px;
+  flex: 1;
+  background: var(--geist-background);
+}
+
+.bar {
+  height: 100%;
+  transition: width .125s var(--transition);
+  position: relative;
+}
+
+.label {
+  position: absolute;
+  border-radius: var(--round);
+  width: 100%;
+  text-align: center;
+  color: var(--background-100);
+  background: var(--accent);
+  border: var(--geist-border);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-rendering: optimizeLegibility;
+  font-size: 10px;
+  height: 100%;
+}

@@ -1,0 +1,33 @@
+.wrapper {
+  width: 100%;
+}
+
+.custom {
+  width: 100%;
+}
+
+.custom>p {
+  font-size: 13px;
+  width: 100%;
+  min-width: 96px;
+}
+
+.hint {
+  display: flex;
+  align-items: flex-end;
+  height: 24px;
+  font-size: 14px;
+  color: var(--second);
+  font-family: var(--font-mono);
+  gap: 8px;
+}
+
+.description {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--gray-600);
+}
+
+.jsonInput {
+  font-family: var(--font-mono);
+}

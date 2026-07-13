@@ -1,0 +1,40 @@
+.main {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--soft-black);
+  color: var(--geist-foreground);
+  overflow: hidden;
+}
+
+.header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--geist-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--geist-foreground);
+}
+
+.content {
+  flex: 1;
+  padding: 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--geist-border);
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.1);
+}

@@ -1,0 +1,180 @@
+.banner [data-banner-content] {
+  gap: 12px !important;
+}
+.selection {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+}
+.context {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+}
+.context p {
+  flex: 1;
+  color: var(--second);
+  font-weight: 300;
+  font-size: 14px;
+  transition: all 0.3s var(--transition);
+}
+.context p:first-child {
+  text-align: right;
+}
+.context p.available {
+  color: var(--accent);
+  font-weight: 500;
+}
+.done {
+  align-self: flex-end;
+}
+.p {
+  font-size: 12px;
+  padding: 0 12px;
+  font-family: var(--font-mono);
+}
+.bottom {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.fileCounter {
+  flex: 0 0 auto;
+  line-height: 1;
+  white-space: nowrap;
+}
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.defines {
+  padding-right: 12px;
+  height: 14px;
+  min-height: unset !important;
+}
+.files {
+  overflow-y: auto;
+}
+.inner {
+  border: 1px solid var(--gray-alpha-400);
+  margin-right: 8px;
+  background: var(--background-100);
+  border-radius: 8px;
+}
+.fill {
+  min-height: 64px;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer;
+}
+.fill div {
+  color: var(--second);
+}
+.fill p {
+  color: var(--second);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.filePreview {
+  width: 100%;
+  max-width: 60vw;
+  height: 32px;
+  background: var(--background-100);
+}
+.filePreview > button {
+  border-radius: 0;
+}
+.filePreview > svg {
+  padding: 8px;
+  background: var(--background-200);
+  border-right: 1px solid var(--gray-alpha-400);
+}
+.files .filePreview:not(:last-child) {
+  border-bottom: 1px solid var(--gray-alpha-400);
+}
+.files .filePreview:first-child,
+.files .filePreview:last-child {
+  overflow: hidden;
+}
+.files .filePreview:first-child {
+  border-radius: 7px 7px 0 0;
+}
+.files .filePreview:last-child {
+  border-radius: 0 0 7px 7px;
+}
+.filePreview *:not(path) {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.frame_selector [data-input] {
+  flex: 1;
+}
+.weight {
+  min-width: 64px;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--second);
+  margin-left: 8px;
+}
+.filename {
+  flex: 1;
+  height: 32px;
+  line-height: 32px;
+  overflow: hidden;
+  margin: 0 8px;
+}
+.progress {
+  background: var(--background-100);
+  height: 100%;
+  width: 100%;
+  padding: 8px;
+  z-index: 5;
+}
+.progress .bar {
+  background: var(--soft-black);
+}
+.frame_selector > div {
+  flex: 1 !important;
+}
+.allSettingsPopover.allSettingsPopover {
+  max-width: calc(100vw - 24px);
+  overflow-x: auto;
+  word-break: normal;
+}
+.allSettingsPopover.allSettingsPopover :where(button, [role="menuitem"], [role="option"]) {
+  white-space: nowrap;
+}
+.allSettings {
+  width: max-content;
+  align-items: flex-end !important;
+}
+.allSettings [data-input] {
+  flex: 0 0 160px !important;
+  min-width: 160px;
+}
+.allSettings .select {
+  width: 100%;
+  gap: 8px;
+}
+.allSettings .select > svg {
+  flex: 0 0 auto;
+}
+.select > span {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reset_font * {
+  font-family: var(--font-sans) !important;
+}

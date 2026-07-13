@@ -1,0 +1,39 @@
+.navigator {
+  width: 100%;
+  flex-basis: unset !important;
+}
+
+.navigator [data-input] {
+  flex: 1 !important;
+}
+
+.filter {
+  height: 36px;
+}
+
+.filter svg {
+  height: 18px;
+  width: 36px;
+}
+
+.filter::before {
+  width: 36px;
+}
+
+.filter input {
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.goto p {
+  font-family: var(--font-mono);
+}
+
+.notes_visibility {
+  color: var(--accent);
+}
+
+.chat {
+  min-width: 220px;
+  padding: 0 !important;
+}

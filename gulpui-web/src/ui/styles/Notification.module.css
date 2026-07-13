@@ -1,0 +1,45 @@
+.notification {
+  width: 100%;
+  height: 40px;
+  padding: 12px 48px;
+  border-left: none !important;
+  border-right: none !important;
+}
+.notification p {
+  color: currentColor;
+  font-size: 14px;
+  max-width: 100%;
+  overflow: hidden;
+  height: 16px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notification svg {
+  margin-right: 8px;
+}
+.notification span {
+  font-weight: 700;
+  color: currentColor;
+  margin-left: 4px;
+}
+.error {
+  background: var(--red-100);
+  border: 1px solid var(--red-400);
+  color: var(--red-900);
+}
+.warning {
+  background: var(--amber-100);
+  border: 1px solid var(--amber-400);
+  color: var(--amber-900);
+}
+.success {
+  background: var(--green-100);
+  border: 1px solid var(--green-400);
+  color: var(--green-900);
+}
+.informational {
+  background: var(--blue-100);
+  border: 1px solid var(--blue-400);
+  color: var(--blue-900);
+}

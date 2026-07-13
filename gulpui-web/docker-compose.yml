@@ -1,0 +1,8 @@
+services:
+  gulpui-web:
+    container_name: gulpui-web
+    build:
+      context: .
+    restart: on-failure
+    ports:
+      - 3000:80

@@ -1,0 +1,88 @@
+.preview {
+  padding: 8px;
+  height: 100%;
+  width: 100%;
+}
+
+.preview>pre {
+  width: 100%;
+}
+
+.preview>button {
+  right: 24px;
+}
+
+.card {
+  background: var(--geist-background);
+  border: 1px solid var(--gray-400);
+  padding: 8px;
+  border-radius: 6px;
+}
+
+.key_input {
+  flex: 1;
+  padding-right: 0;
+}
+
+.key_input input {
+  padding-right: 38px;
+}
+
+.trigger {
+  width: 32px;
+  height: 30px;
+  min-height: unset;
+  flex-shrink: 0;
+  justify-content: center;
+  position: absolute;
+  right: 1px;
+  border-radius: 0;
+  border: none;
+  border-top-right-radius: 5px;
+  border-bottom-right-radius: 5px;
+  border-left: 1px solid var(--gray-400);
+}
+
+.trigger::before {
+  content: none;
+}
+
+.value>span {
+  gap: 16px;
+}
+
+.copy {
+  position: absolute;
+  top: 8px;
+}
+
+.disabled {
+  opacity: 0.5;
+}
+
+.disabled *:not([role="switch"]):not(div) {
+  pointer-events: none;
+}
+
+.disabled *:not([role="switch"]) {
+  box-shadow: none !important;
+}
+
+.query_string_input {
+  width: 100%;
+}
+
+.group_container {
+  background: var(--geist-background);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.group_children {
+  margin-top: 6px;
+  margin-left: 12px;
+  padding-left: 10px;
+  border-left: 2px solid var(--gray-400);
+  gap: 6px;
+}

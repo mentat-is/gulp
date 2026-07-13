@@ -1,0 +1,31 @@
+._ {
+  max-width: calc(100vw - 48px);
+  display: flex;
+  background: var(--background-100);
+  border-radius: var(--border-m);
+  border: 1px solid var(--gray-400);
+  flex-direction: column;
+}
+.content {
+  gap: var(--card-gap);
+  display: flex;
+  padding: var(--card-padding);
+  flex: 1;
+  flex-direction: column;
+  position: relative;
+}
+.description {
+  min-height: 56px;
+  border-top: 1px solid var(--gray-400);
+  padding: 0 var(--card-padding);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--card-gap);
+}
+.description p {
+  font-size: var(--text-medium);
+  line-height: 1.2;
+  color: var(--second);
+  margin: var(--card-padding) 0px;
+}

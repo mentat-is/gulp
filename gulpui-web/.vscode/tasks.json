@@ -1,0 +1,10 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "wsl-up",
+      "type": "shell",
+      "command": "wsl -d Ubuntu -- cd /home/gulp ;; docker compose up -d ;; gulp"
+    }
+  ]
+}

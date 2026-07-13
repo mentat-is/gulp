@@ -1,0 +1,78 @@
+.combination {
+  background-color: var(--background-100);
+  /* border: 1px solid var(--gray-400); */
+  border-radius: 6px;
+  padding: 8px;
+  padding-right: 0px;
+  height: 32px;
+  min-height: 32px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.combination p {
+  color: currentColor;
+  font-size: 13px;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  max-width: 256px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.combination span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+
+.wrapper {
+  height: 32px;
+  width: 32px;
+  transform: translate(-50%, -50%);
+}
+
+.wrapper>button {
+  position: relative !important;
+  transform: none;
+}
+
+.wrapper .content {
+  pointer-events: none;
+  opacity: 0;
+  transition: all 0.125s var(--transition);
+  max-width: 256px;
+  border: 1px solid var(--gray-400);
+  background: var(--background-100);
+  border-radius: 8px;
+  transform: translateY(16px);
+  padding: 8px;
+}
+
+.wrapper:hover .content {
+  opacity: 1;
+  pointer-events: all;
+  transform: translateY(0px);
+
+}
+
+.content>button {
+  position: relative;
+}
+
+.hidden {
+  opacity: 0.5;
+}
+.badge_wrapper {
+  display: flex;
+  max-width: 60%;
+  overflow: scroll hidden;
+  height: 48px;
+  margin-top: 8px;
+}
+.badge_wrapper > div {
+  white-space: nowrap;
+}

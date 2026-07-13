@@ -1,0 +1,77 @@
+.chat {
+  width: 100%;
+  flex: 1 1 0% !important;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+}
+.chat > * {
+  flex: 0 0 auto !important;
+}
+.actions {
+  width: 100%;
+  flex: 0 0 auto !important;
+  padding-top: 12px;
+}
+.wrapper_flex {
+  height: 100%;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.clear {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  word-break: unset;
+  white-space: nowrap;
+}
+.textarea {
+  width: 100%;
+  max-height: 150px;
+  min-height: 60px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid var(--gray-200);
+  background-color: var(--background-100);
+  overflow-y: auto;
+  resize: none;
+  }
+
+.message {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background-color: var(--background-100);
+  border: 1px solid var(--gray-400);
+  overflow-wrap: break-word;
+  word-break: break-word;
+  flex: 0 0 auto !important;
+  height: auto !important;
+}
+.message > span {
+  font-size: 10px;
+  color: var(--gray-900);
+  font-family: var(--font-mono);
+  width: 100%;
+}
+.message.user > span {
+  text-align: end;
+}
+.copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.message.ai {
+  align-self: flex-start;
+  max-width: 95%;
+  background-color: var(--gray-200);
+  border-color: var(--gray-400);
+}
+
+.message.user {
+  align-self: flex-end;
+  background-color: var(--blue-200);
+  border-color: var(--blue-500);
+}

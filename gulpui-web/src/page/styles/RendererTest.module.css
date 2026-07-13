@@ -1,0 +1,135 @@
+/* RendererTest overlay styles */
+
+.overlay {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    z-index: 9999;
+    background: rgba(10, 10, 20, 0.85);
+    border: 1px solid rgba(100, 160, 255, 0.35);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 220px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    color: #c8d8f0;
+    backdrop-filter: blur(6px);
+    pointer-events: auto;
+    user-select: none;
+}
+
+.controls {
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sliderRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.sliderLabel {
+    color: #9bb3cd;
+    font-size: 11px;
+    line-height: 1.3;
+    flex: 1;
+}
+
+.numberInput {
+    width: 80px;
+    background: rgba(30, 40, 60, 0.8);
+    border: 1px solid rgba(100, 160, 255, 0.3);
+    border-radius: 4px;
+    color: #e0ecff;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 2px 5px;
+    text-align: right;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.numberInput::-webkit-outer-spin-button,
+.numberInput::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.numberInput:disabled {
+    opacity: 0.45;
+}
+
+.numberInput:focus {
+    outline: none;
+    border-color: rgba(122, 184, 255, 0.7);
+}
+
+.slider {
+    width: 100%;
+    accent-color: #7ab8ff;
+}
+
+.slider:disabled {
+    opacity: 0.45;
+}
+
+.checkRow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #c0d4ea;
+    font-size: 11px;
+}
+
+.restartButton {
+    border: 1px solid rgba(122, 184, 255, 0.45);
+    border-radius: 6px;
+    background: rgba(122, 184, 255, 0.15);
+    color: #e7f2ff;
+    padding: 6px 8px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.restartButton:hover {
+    background: rgba(122, 184, 255, 0.25);
+}
+
+.badge {
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: #7ab8ff;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+.row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    line-height: 1.7;
+}
+
+.label {
+    color: #7a90a8;
+}
+
+.value {
+    color: #e0ecff;
+    font-weight: 600;
+}
+
+.done {
+    margin-top: 8px;
+    color: #4caf80;
+    font-weight: 700;
+    font-size: 11px;
+    text-align: center;
+}

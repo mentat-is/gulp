@@ -1,0 +1,196 @@
+.main {
+  height: 100vh;
+  width: 100vw;
+  background: var(--soft-black);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  box-sizing: border-box;
+  gap: 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.main {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--geist-foreground);
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.row1 {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.timeRow {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.timeRow>div {
+  flex: 1;
+}
+
+.sourceRow {
+  width: 100%;
+}
+
+.sourceRow>div {
+  width: 100%;
+}
+
+.sourceSelectTrigger {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 6px 12px !important;
+  border: 1px solid var(--gray-alpha-400) !important;
+  background: transparent !important;
+  border-radius: 6px !important;
+  cursor: pointer;
+  transition: all 0.125s var(--transition) !important;
+  color: var(--gray-1000) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  box-shadow: none !important;
+}
+
+.sourceSelectTrigger:hover {
+  background: var(--background-200) !important;
+}
+
+.sourceSelectTrigger:focus {
+  outline: none !important;
+  box-shadow: var(--ring) !important;
+}
+
+.filtersSection {
+  background: var(--background-200);
+  border: 1px solid var(--gray-alpha-400);
+  border-radius: 8px;
+  padding: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.filtersToggle {
+  width: 100%;
+  justify-content: flex-start !important;
+}
+
+.filtersContent {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gray-alpha-400);
+}
+
+.row2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.row2Left,
+.row2Right {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sortSelect {
+  width: 120px;
+}
+
+.sortSelect[data-no-icon]>svg {
+  display: none;
+}
+
+.pageSelect {
+  width: 75px;
+}
+
+.result {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.result :global(.wrapper) {
+  border: none;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--geist-secondary);
+  font-size: 14px;
+}
+
+.result>div {
+  height: 100%;
+}
+
+.label {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.pointer {
+  cursor: pointer;
+  user-select: none;
+}
+
+.popoverContent {
+  background: var(--background-100);
+  border: 1px solid var(--gray-alpha-400);
+  padding: 4px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  min-width: 140px;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--gray-1000);
+  cursor: pointer;
+  transition: background-color 0.15s;
+  user-select: none;
+}
+
+.menuItem:hover {
+  background: var(--gray-alpha-200);
+}
+
+.menuItem svg {
+  opacity: 0.8;
+}

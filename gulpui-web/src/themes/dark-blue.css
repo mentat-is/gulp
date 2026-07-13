@@ -1,0 +1,121 @@
+/* DarkBlue Theme (OpenCTI style) */
+:root[data-theme="dark-blue"] {
+	--theme-mode: dark;
+	--gray-100-value: 220, 24%, 10%;
+	--gray-200-value: 220, 24%, 12%;
+	--gray-300-value: 220, 22%, 16%;
+	--gray-400-value: 220, 20%, 20%;
+	--gray-500-value: 220, 16%, 30%;
+	--gray-600-value: 220, 12%, 50%;
+	--gray-700-value: 220, 12%, 58%;
+	--gray-800-value: 220, 15%, 66%;
+	--gray-900-value: 220, 20%, 80%;
+	--gray-1000-value: 220, 25%, 93%;
+
+	--blue-100-value: 210, 65%, 11%;
+	--blue-200-value: 210, 70%, 14%;
+	--blue-300-value: 210, 75%, 18%;
+	--blue-400-value: 210, 80%, 23%;
+	--blue-500-value: 210, 85%, 32%;
+	--blue-600-value: 210, 95%, 48%;
+	--blue-700-value: 210, 95%, 55%;
+	--blue-800-value: 210, 88%, 42%;
+	--blue-900-value: 210, 95%, 72%;
+	--blue-1000-value: 210, 90%, 94%;
+
+	--red-100-value: 357, 45%, 11%;
+	--red-200-value: 357, 50%, 15%;
+	--red-300-value: 357, 55%, 20%;
+	--red-400-value: 357, 60%, 25%;
+	--red-500-value: 357, 65%, 31%;
+	--red-600-value: 358, 80%, 55%;
+	--red-700-value: 358, 85%, 62%;
+	--red-800-value: 358, 75%, 48%;
+	--red-900-value: 358, 90%, 70%;
+	--red-1000-value: 353, 90%, 94%;
+
+	--amber-100-value: 38, 70%, 8%;
+	--amber-200-value: 38, 80%, 11%;
+	--amber-300-value: 40, 85%, 15%;
+	--amber-400-value: 41, 90%, 18%;
+	--amber-500-value: 42, 92%, 25%;
+	--amber-600-value: 43, 95%, 46%;
+	--amber-700-value: 43, 95%, 54%;
+	--amber-800-value: 43, 90%, 38%;
+	--amber-900-value: 41, 95%, 68%;
+	--amber-1000-value: 38, 90%, 92%;
+
+	--green-100-value: 142, 60%, 8%;
+	--green-200-value: 142, 65%, 11%;
+	--green-300-value: 142, 70%, 14%;
+	--green-400-value: 142, 75%, 18%;
+	--green-500-value: 142, 80%, 24%;
+	--green-600-value: 142, 85%, 40%;
+	--green-700-value: 142, 90%, 48%;
+	--green-800-value: 142, 80%, 34%;
+	--green-900-value: 142, 90%, 62%;
+	--green-1000-value: 142, 75%, 92%;
+
+	--teal-100-value: 174, 75%, 7%;
+	--teal-200-value: 174, 80%, 10%;
+	--teal-300-value: 174, 85%, 13%;
+	--teal-400-value: 174, 85%, 18%;
+	--teal-500-value: 174, 90%, 25%;
+	--teal-600-value: 174, 95%, 38%;
+	--teal-700-value: 174, 95%, 45%;
+	--teal-800-value: 174, 88%, 32%;
+	--teal-900-value: 174, 95%, 58%;
+	--teal-1000-value: 174, 80%, 92%;
+
+	--purple-100-value: 262, 50%, 10%;
+	--purple-200-value: 262, 55%, 13%;
+	--purple-300-value: 262, 60%, 17%;
+	--purple-400-value: 262, 65%, 22%;
+	--purple-500-value: 262, 70%, 30%;
+	--purple-600-value: 262, 85%, 52%;
+	--purple-700-value: 262, 90%, 60%;
+	--purple-800-value: 262, 80%, 45%;
+	--purple-900-value: 262, 90%, 72%;
+	--purple-1000-value: 262, 80%, 94%;
+
+	--pink-100-value: 328, 45%, 10%;
+	--pink-200-value: 328, 50%, 13%;
+	--pink-300-value: 328, 55%, 17%;
+	--pink-400-value: 328, 60%, 22%;
+	--pink-500-value: 328, 65%, 28%;
+	--pink-600-value: 328, 80%, 50%;
+	--pink-700-value: 328, 85%, 58%;
+	--pink-800-value: 328, 75%, 42%;
+	--pink-900-value: 328, 85%, 70%;
+	--pink-1000-value: 328, 80%, 93%;
+
+	--gray-alpha-100: hsla(220, 20%, 100%, 0.06);
+	--gray-alpha-200: hsla(220, 20%, 100%, 0.09);
+	--gray-alpha-300: hsla(220, 20%, 100%, 0.13);
+	--gray-alpha-400: hsla(220, 20%, 100%, 0.14);
+	--gray-alpha-500: hsla(220, 20%, 100%, 0.24);
+	--gray-alpha-600: hsla(220, 20%, 100%, 0.51);
+	--gray-alpha-700: hsla(220, 20%, 100%, 0.54);
+	--gray-alpha-800: hsla(220, 20%, 100%, 0.47);
+	--gray-alpha-900: hsla(220, 20%, 100%, 0.61);
+	--gray-alpha-1000: hsla(220, 20%, 100%, 0.92);
+
+	--background-100: #070d1e;
+	--background-200: #0f172a;
+
+	--disabled: brightness(0.75);
+	--geist-background:
+		radial-gradient(
+			100% 100% at 50% 0,
+			hsla(210, 95%, 48%, 0.14) 0,
+			hsla(210, 95%, 48%, 0) 100%
+		),
+		linear-gradient(
+			103.94deg,
+			hsla(210, 85%, 32%, 0.08) 7.66%,
+			hsla(220, 24%, 20%, 0.04) 32.57%,
+			hsla(220, 24%, 20%, 0.04) 72.45%,
+			hsla(210, 95%, 48%, 0.08) 96.25%
+		);
+	--modal-overlay: rgba(7, 13, 30, 0.84);
+}

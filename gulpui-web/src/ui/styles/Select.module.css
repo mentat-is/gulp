@@ -1,0 +1,343 @@
+.trigger {
+  display: flex;
+  min-height: 32px;
+  height: 32px;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  align-items: center;
+  justify-content: flex-start;
+  border-radius: 6px;
+  border: 1px solid var(--gray-alpha-400);
+  background: var(--background-100);
+  outline-offset: var(--accent);
+  gap: 16px;
+  overflow: hidden;
+  padding: 8px;
+  color: var(--accent);
+  text-align: start;
+  transition: box-shadow 0.2s;
+  position: relative;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  text-wrap: nowrap;
+}
+
+.trigger:hover {
+  border-color: var(--gray-alpha-500);
+}
+
+.trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.trigger * {
+  z-index: 1;
+}
+
+.trigger p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: currentColor;
+}
+
+.trigger:not([data-no-icon]):before {
+  position: absolute;
+  inset-inline-start: 0;
+  content: '';
+  height: 100%;
+  width: 32px;
+  z-index: 0;
+  border-inline-end: 1px solid var(--gray-alpha-400);
+  background: var(--background-200);
+}
+
+.trigger:hover::before {
+  border-inline-end: 1px solid var(--gray-alpha-500);
+}
+
+.trigger:focus {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.trigger:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.trigger>span {
+  overflow: hidden;
+  display: flex;
+  text-overflow: ellipsis;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.trigger svg:not(:first-of-type) {
+  color: var(--gray-1000);
+}
+
+.scroll {
+  background: var(--background-200);
+  display: flex;
+  width: 100%;
+  z-index: 5;
+  cursor: default;
+  inset-inline-start: 0;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+}
+
+.up {
+  top: 0;
+  border-bottom: 1px solid var(--gray-400);
+}
+
+.down {
+  bottom: 0;
+  border-top: 1px solid var(--gray-400);
+}
+
+.content {
+  position: relative;
+  z-index: 1500;
+  max-height: 312px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  min-width: 128px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--background-100);
+  color: var(--accent);
+  display: flex;
+  transition: all 0.25s var(--transition);
+  flex-direction: column;
+  padding: 4px;
+  box-shadow: none;
+  border: 1px solid var(--gray-alpha-400);
+}
+
+.content:hover {
+  box-shadow: var(--ring);
+}
+
+.content[data-state="open"] {
+  animation: fade-in 0.2s ease-out, zoom-in 0.2s ease-out;
+}
+
+.content[data-state="closed"] {
+  animation: fade-out 0.2s ease-in, zoom-out 0.2s ease-in;
+}
+
+.content[data-side="bottom"] {
+  animation: slide-in-from-top 0.2s ease-out;
+}
+
+.content[data-side="left"] {
+  animation: slide-in-from-right 0.2s ease-out;
+}
+
+.content[data-side="right"] {
+  animation: slide-in-from-left 0.2s ease-out;
+}
+
+.content[data-side="top"] {
+  animation: slide-in-from-bottom 0.2s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes zoom-in {
+  from {
+    transform: scale(0.95);
+  }
+
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes zoom-out {
+  from {
+    transform: scale(1);
+  }
+
+  to {
+    transform: scale(0.95);
+  }
+}
+
+@keyframes slide-in-from-top {
+  from {
+    transform: translateY(-8px);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-from-bottom {
+  from {
+    transform: translateY(8px);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-from-left {
+  from {
+    transform: translateX(-8px);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(8px);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+.popper {
+  transform: translate(var(--popper-translate-x), var(--popper-translate-y));
+  overflow: unset !important;
+}
+
+.popper[data-side="bottom"] {
+  transform: translateY(4px);
+}
+
+.popper[data-side="left"] {
+  transform: translateX(-4px);
+}
+
+.popper[data-side="right"] {
+  transform: translateX(4px);
+}
+
+.popper[data-side="top"] {
+  transform: translateY(-4px);
+}
+
+.podder {
+  height: var(--radix-select-trigger-height);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: var(--radix-select-trigger-width);
+}
+
+.viewport {
+  padding: 4px;
+}
+
+.label {
+  padding: 8px 8px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  justify-content: center;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  width: 100%;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  min-height: 32px;
+  height: min-content;
+  user-select: none;
+  gap: 8px;
+  border-radius: 4px;
+  padding: 0 8px;
+  align-items: center;
+  outline: none;
+  transition: background-color 0.2s, color 0.2s;
+  transition-duration: 150ms;
+  transition-timing-function: var(--transition);
+  color: var(--gray-900);
+}
+
+.item p {
+  color: currentColor;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item span {
+  color: currentColor;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  text-align: start;
+}
+
+.item[data-state="checked"] {
+  color: var(--gray-1000);
+}
+
+.item[data-state="checked"] span {
+  color: currentColor;
+}
+
+.item:focus,
+.item:hover {
+  background-color: var(--gray-alpha-200);
+  color: var(--gray-1000);
+}
+
+.item[data-disabled] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.separator {
+  margin-inline: -4px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+  height: 1px;
+  background-color: var(--gray-alpha-400);
+}
+
+.item button[role='checkbox'] svg {
+  transform: translateY(0px);
+}

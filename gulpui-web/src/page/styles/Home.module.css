@@ -1,0 +1,218 @@
+/* ====================================================
+ * Home.module.css
+ * 3-panel layout: left nav | main content | right drawer
+ * ==================================================== */
+
+/* Root wrapper: full viewport, flex-row, no overflow.
+ * Matches MainDashboard's Stack.window: position relative, padding 12px, gap 12px */
+.wrapper {
+	display: flex;
+	flex-direction: row;
+	position: relative;
+	width: 100vw;
+	height: 100vh;
+	padding: 12px;
+	gap: 12px;
+	overflow: hidden;
+}
+
+/* ---- Left navigation panel (Menu placeholder) ---- */
+.leftPanel {
+	flex-shrink: 0;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	z-index: 10;
+}
+
+/* ---- Main content area ---- */
+.main {
+	flex: 1;
+	min-width: 0;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	overflow: hidden;
+}
+
+.pageHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex-shrink: 0;
+	min-width: 0;
+}
+
+.pageTitleGroup {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1;
+	min-width: 0;
+}
+
+.pageTitle {
+	font-size: 20px;
+	font-family: var(--font-mono);
+	color: var(--gray-800);
+	font-weight: 600;
+	letter-spacing: -0.01em;
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pageActions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	flex-shrink: 0;
+}
+
+/* Results container: wrapper for the Table component */
+.result {
+	flex: 1;
+	min-height: 0;
+}
+
+/* Scrollable list inside .result */
+.resultScroll {
+	flex: 1;
+	overflow-y: auto;
+	overflow-x: hidden;
+	padding: 0;
+}
+
+/* ---- Operation card row ---- */
+.operationRow {
+	display: grid;
+	grid-template-columns: 56px 56px 1fr 110px;
+	align-items: center;
+	height: 44px;
+	border-bottom: 1px solid var(--gray-400);
+	cursor: pointer;
+	transition: background 0.12s ease;
+}
+
+.operationRow:last-child {
+	border-bottom: none;
+}
+
+.operationRow:hover {
+	background: color-mix(in srgb, var(--gray-400) 20%, transparent);
+}
+
+.operationIcon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--accent, #4f8ef7) 12%, transparent);
+	flex-shrink: 0;
+}
+
+.operationName {
+	font-size: 13px;
+	font-family: var(--font-mono);
+	color: var(--accent, #e0e0e0);
+	font-weight: 500;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Empty / loading states */
+.emptyState {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	font-size: 14px;
+	font-family: var(--font-mono);
+	color: var(--second);
+	opacity: 0.6;
+}
+
+/* Table-like header row (mirrors NotesWindow.tableHeaderRow) */
+.tableHeader {
+	display: grid;
+	grid-template-columns: 56px 56px 1fr 110px;
+	height: 40px;
+	align-items: center;
+	border-bottom: 1px solid var(--gray-300);
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	flex-shrink: 0;
+}
+
+.tableCell {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	height: 100%;
+	padding: 0 12px;
+	border-right: 1px solid var(--gray-400);
+	font-size: 13px;
+	font-family: var(--font-mono);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tableCell:last-child {
+	border-right: none;
+}
+
+.selectCell {
+	justify-content: center;
+}
+
+.iconCell {
+	justify-content: center;
+}
+
+.actionsCell {
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.headerLabel {
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--second);
+	font-family: var(--font-mono);
+}
+
+/* ---- Right drawer placeholder ---- */
+.rightDrawer {
+	flex-shrink: 0;
+	width: 0;
+	height: 100%;
+	overflow: hidden;
+	border-left: 1px solid var(--gray-400);
+	background: var(--background-100, #111);
+	transition: width 0.2s ease;
+}
+
+.dialog {
+	flex-shrink: 0;
+	height: 100%;
+	overflow: visible;
+	position: relative;
+}
+
+.footer {
+	border-top: 1px solid var(--gray-400);
+	margin-top: 16px;
+	padding: 12px 8px 0px 8px;
+	flex-shrink: 0;
+}

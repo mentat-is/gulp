@@ -1,0 +1,34 @@
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: scroll;
+  padding-right: 8px;
+}
+.plugins button {
+  width: 100%;
+  justify-content: flex-start;
+}
+.param {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--gray-400);
+  background: var(--soft-black);
+  height: 32px;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+.param span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.param * {
+  font-size: 14px;
+}
+.param p {
+  font-weight: 500;
+}
