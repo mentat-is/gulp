@@ -82,3 +82,13 @@ append progress in this file each time you progress.
 - The extension REST handler now queues the completed ZIP as a Redis query task instead of starting untracked main-process background work.
 - A scheduler-assigned worker unzips and converts the full rule set exactly once, creates request stats from the resulting query count, then uses the core atomic fan-out helper to enqueue one Redis message per query. Empty conversions finish cleanly and preprocessing/fan-out errors mark request stats failed.
 - Added paid-plugin coverage for immediate preprocessing queueing and one-pass conversion. Combined focused coverage passes: `65 passed`.
+
+### 2026-07-13: staged single-instance validation
+
+- Fixed harness setup discovered at runtime: generated worker passwords now satisfy normal backend validation, configured PostgreSQL defaults are reported correctly, and operation creation no longer re-adds default grants (which triggered an expired async relationship load). Removed two stale CLI tests for flags the harness never implemented.
+- Temporary validation profile: `workers_max=2`, `workers_concurrency_max=4`, PostgreSQL pool `4+0`, Redis task backlog `20000`; service containers stayed alive throughout.
+- 1 user, small Sigma: PASS in 66.44s with exact `98,633 / 14 / 15 / 15` records, completed queries, hits, and notes.
+- 2 users concurrently, small Sigma: PASS in 92.70s with exact aggregate `197,266 / 28 / 30 / 30`.
+- 1 user, full 1,149 Sigma: PASS in 142.66s overall (query phase about 78s) with exact `98,633 / 1,149 / 73,464 / 73,464`. A live sample at 20,810 notes had only 4 `note_text` rows; OpenSearch search queue/rejections were zero and PostgreSQL used 21/100 connections.
+- 2 users concurrently, full Sigma: PASS in 231.33s with exact aggregate `197,266 / 2,298 / 146,928 / 146,928`. This clears the staged query-side safety gate before attempting the 10-user target.
+- Full backend unit suite passes: `271 passed` (two third-party Scapy deprecation warnings). PostgreSQL pool defaults now remain conservative at 4 unless worker concurrency is explicitly configured.

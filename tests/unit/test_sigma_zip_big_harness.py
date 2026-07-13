@@ -269,27 +269,6 @@ def test_parse_args_supports_small_sigmas(monkeypatch) -> None:
 
 
 @pytest.mark.unit
-def test_parse_args_supports_no_query_ws(monkeypatch) -> None:
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "sigma_zip_big_harness.py",
-            "--users",
-            "1",
-            "--instances",
-            "1",
-            "--small-sigmas",
-            "--no-query-ws",
-        ],
-    )
-
-    args = _parse_args()
-
-    assert args.no_query_ws is True
-
-
-@pytest.mark.unit
 def test_parse_args_rejects_multi_user_big_sigma_without_override(monkeypatch) -> None:
     monkeypatch.setattr(
         sys,
@@ -374,28 +353,8 @@ def test_parse_args_shared_query_only_reuses_one_operation_id(monkeypatch) -> No
 @pytest.mark.unit
 def test_worker_credentials_default_to_user_id() -> None:
     assert sigma_zip_big_harness._worker_user_id(0) == "user1"
-    assert sigma_zip_big_harness._worker_password("user1", None) == "user1"
+    assert sigma_zip_big_harness._worker_password("user1", None) == "Aa1!user1"
     assert sigma_zip_big_harness._worker_password("user1", "pw") == "pw"
-
-
-@pytest.mark.unit
-def test_parse_args_supports_skipping_note_ws_count(monkeypatch) -> None:
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "sigma_zip_big_harness.py",
-            "--users",
-            "1",
-            "--instances",
-            "1",
-            "--skip-note-ws-count",
-        ],
-    )
-
-    args = _parse_args()
-
-    assert args.skip_note_ws_count is True
 
 
 @pytest.mark.unit

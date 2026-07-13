@@ -591,7 +591,7 @@ class GulpConfig:
 
         This is a hard cap also applied to adaptive pool sizing.
         """
-        default = self.workers_concurrency_max()
+        default = self._get_int_config("workers_concurrency_max", 4, minimum=1)
         n = self._config.get("postgres_pool_size", default)
         try:
             n = int(n)

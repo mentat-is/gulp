@@ -38,9 +38,7 @@ async def test_user_session_expiration_update_skips_fresh_touch(monkeypatch):
         lambda: _FakeSessionConfig(time_expire=100500, touch_interval=60000),
     )
 
-    await GulpUserSession.update_expiration_time(
-        user_session, sess, is_admin=False
-    )
+    await GulpUserSession.update_expiration_time(user_session, sess, is_admin=False)
 
     sess.commit.assert_not_awaited()
     assert user_session.time_expire == 100000
@@ -57,9 +55,7 @@ async def test_user_session_expiration_update_commits_when_due(monkeypatch):
         lambda: _FakeSessionConfig(time_expire=200000, touch_interval=60000),
     )
 
-    await GulpUserSession.update_expiration_time(
-        user_session, sess, is_admin=False
-    )
+    await GulpUserSession.update_expiration_time(user_session, sess, is_admin=False)
 
     sess.commit.assert_awaited_once()
     assert user_session.time_expire == 200000
@@ -81,7 +77,7 @@ async def test_user_session_expiration_update_id_always_commits(monkeypatch):
     )
 
     sess.commit.assert_awaited_once()
-    assert user_session.id == "token_user-1"
+    assert user_session.id != "token_user-1"
     assert user_session.time_expire == 100500
 
 

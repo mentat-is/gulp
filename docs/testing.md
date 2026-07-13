@@ -247,8 +247,8 @@ Relevant gULP config keys:
 - `workers_max`: process count and ingest execution limit. `0` means CPU count.
 - `workers_concurrency_max`: coroutine budget per worker process.
 - `opensearch_pool_maxsize`: OpenSearch HTTP pool per process.
-- `postgres_pool_size`: PostgreSQL connections per process. By default this
-  matches `workers_concurrency_max`.
+- `postgres_pool_size`: PostgreSQL connections per process. It defaults to an
+  explicitly configured `workers_concurrency_max`, or a conservative `4`.
 - `postgres_max_overflow`: extra PostgreSQL connections above `postgres_pool_size`;
   the default is `0`.
 

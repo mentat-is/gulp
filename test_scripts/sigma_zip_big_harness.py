@@ -27,7 +27,6 @@ from tests.integration.test_stress import (  # noqa: E402
     _wait_created,
 )
 
-
 _EXPECTED_RECORDS_INGESTED = 98633
 _EXPECTED_COMPLETED_QUERIES = 1149
 _EXPECTED_TOTAL_HITS = 73464
@@ -83,7 +82,7 @@ def _worker_user_id(worker_id: int) -> str:
 
 def _worker_password(user_id: str, override: str | None) -> str:
     """Return the password for a deterministic harness user."""
-    return override or user_id
+    return override or f"Aa1!{user_id}"
 
 
 def _gulp_config_path() -> Path:
@@ -99,7 +98,8 @@ def _gulp_concurrency_config_line() -> str:
     resolved_processes = configured_processes or multiprocessing.cpu_count()
     workers_concurrency_max = int(cfg.get("workers_concurrency_max", 16) or 16)
     postgres_pool_size = int(
-        cfg.get("postgres_pool_size",10) or 10
+        cfg.get("postgres_pool_size", workers_concurrency_max)
+        or workers_concurrency_max
     )
     postgres_max_overflow = int(cfg.get("postgres_max_overflow", 0))
     return (
@@ -112,7 +112,9 @@ def _gulp_concurrency_config_line() -> str:
     )
 
 
-def _instance_urls(base_url: str, extra_urls: list[str] | None, instances: int) -> list[str]:
+def _instance_urls(
+    base_url: str, extra_urls: list[str] | None, instances: int
+) -> list[str]:
     urls = [base_url, *(extra_urls or [])]
     if instances < 1:
         raise ValueError("--instances must be >= 1")
@@ -158,7 +160,13 @@ def _service_container_snapshot(containers: list[str]) -> dict[str, str]:
         return {}
     try:
         res = subprocess.run(
-            [*cmd, "inspect", "--format", "{{.Name}} {{.State.StartedAt}}", *containers],
+            [
+                *cmd,
+                "inspect",
+                "--format",
+                "{{.Name}} {{.State.StartedAt}}",
+                *containers,
+            ],
             capture_output=True,
             text=True,
             timeout=5,
@@ -182,9 +190,7 @@ def _assert_service_containers_alive(initial: dict[str, str]) -> None:
         return
     current = _service_container_snapshot(list(initial))
     restarted = [
-        name
-        for name, started_at in initial.items()
-        if current.get(name) != started_at
+        name for name, started_at in initial.items() if current.get(name) != started_at
     ]
     if restarted:
         raise RuntimeError(
@@ -248,8 +254,8 @@ def _parse_args() -> argparse.Namespace:
         "--worker-password",
         default=os.getenv("GULP_SIGMA_ZIP_USER_PASSWORD", ""),
         help=(
-            "Password assigned to every created user. Default empty means each "
-            "user's password matches its id, e.g. user1/user1 "
+            "Password assigned to every created user. Default empty generates a "
+            "valid deterministic password from the user id "
             "(env: GULP_SIGMA_ZIP_USER_PASSWORD)"
         ),
     )
@@ -294,7 +300,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--progress-interval",
         type=float,
-        default=float(os.getenv("GULP_SIGMA_ZIP_PROGRESS_INTERVAL", str(_PROGRESS_INTERVAL_SEC))),
+        default=float(
+            os.getenv("GULP_SIGMA_ZIP_PROGRESS_INTERVAL", str(_PROGRESS_INTERVAL_SEC))
+        ),
         help=(
             "Seconds between live aggregate count lines while workers run "
             "(env: GULP_SIGMA_ZIP_PROGRESS_INTERVAL, default: 30)"
@@ -332,9 +340,8 @@ def _parse_args() -> argparse.Namespace:
     if args.query_only:
         if not args.operation_ids:
             parser.error("--query-only requires at least one --operation-id")
-        users_was_default = (
-            os.getenv("GULP_SIGMA_ZIP_USERS") is None
-            and not any(arg == "--users" or arg.startswith("--users=") for arg in sys.argv)
+        users_was_default = os.getenv("GULP_SIGMA_ZIP_USERS") is None and not any(
+            arg == "--users" or arg.startswith("--users=") for arg in sys.argv
         )
         if args.shared_operation and len(args.operation_ids) == 1:
             args.operation_ids = args.operation_ids * args.users
@@ -343,7 +350,9 @@ def _parse_args() -> argparse.Namespace:
         elif len(args.operation_ids) != args.users:
             parser.error("--query-only requires one --operation-id per user")
     try:
-        args.instance_urls = _instance_urls(args.base_url, cli_urls or env_urls, args.instances)
+        args.instance_urls = _instance_urls(
+            args.base_url, cli_urls or env_urls, args.instances
+        )
     except ValueError as exc:
         parser.error(str(exc))
     if args.concurrency == 0:
@@ -386,7 +395,9 @@ async def _operation_counts(client: Any, operation_ids: list[str]) -> dict[str, 
             totals["completed_queries"] += int(data.get("completed_queries", 0) or 0)
             totals["total_hits"] += int(data.get("total_hits", 0) or 0)
         try:
-            counted = await client.plugins.object_count("note", operation_id=operation_id)
+            counted = await client.plugins.object_count(
+                "note", operation_id=operation_id
+            )
             totals["notes"] += int(counted.get("count", 0) or 0)
         except Exception:
             totals["poll_errors"] += 1
@@ -598,7 +609,9 @@ async def _run(args: argparse.Namespace) -> int:
     workload_started = started
     worker_users: list[str] = []
     operation_ids: list[str] = []
-    worker_urls = [args.instance_urls[i % len(args.instance_urls)] for i in range(args.users)]
+    worker_urls = [
+        args.instance_urls[i % len(args.instance_urls)] for i in range(args.users)
+    ]
     worker_concurrency = getattr(args, "concurrency", args.users)
     big = not getattr(args, "small_sigmas", False)
     query_only = getattr(args, "query_only", False)
@@ -621,13 +634,20 @@ async def _run(args: argparse.Namespace) -> int:
             for i, operation_id in enumerate(operation_ids):
                 op = await admin_client.operations.get(operation_id)
                 owner = getattr(op, "user_id", None) or getattr(op, "owner_id", None)
-                worker_users.append(_worker_user_id(i) if shared_operation else str(owner))
+                worker_users.append(
+                    _worker_user_id(i) if shared_operation else str(owner)
+                )
         else:
-            worker_users = [f"{_worker_user_id(i)}{run_suffix}" for i in range(args.users)]
+            worker_users = [
+                f"{_worker_user_id(i)}{run_suffix}" for i in range(args.users)
+            ]
             await _create_harness_worker_users(
                 admin_client,
                 worker_users,
-                [_worker_password(user, configured_worker_password) for user in worker_users],
+                [
+                    _worker_password(user, configured_worker_password)
+                    for user in worker_users
+                ],
                 permission=["read", "edit", "ingest", "delete"],
             )
         try:
@@ -638,7 +658,7 @@ async def _run(args: argparse.Namespace) -> int:
                         worker_users[0],
                         _worker_password(worker_users[0], configured_worker_password),
                         f"op1_{run_suffix}",
-                        ["guest", "admin", *worker_users],
+                        worker_users[1:],
                     )
                     operation_ids = [op_id] * args.users
                 else:
@@ -649,7 +669,6 @@ async def _run(args: argparse.Namespace) -> int:
                                 user,
                                 _worker_password(user, configured_worker_password),
                                 f"op{i + 1}_{run_suffix}",
-                                ["guest", "admin", user],
                             )
                             for i, user in enumerate(worker_users)
                         ]
@@ -694,7 +713,9 @@ async def _run(args: argparse.Namespace) -> int:
                         verify_notes=verify_notes,
                     )
 
-            async def _run_task_set(tasks: list[asyncio.Task[dict[str, Any]]], label: str) -> list[dict[str, Any]]:
+            async def _run_task_set(
+                tasks: list[asyncio.Task[dict[str, Any]]], label: str
+            ) -> list[dict[str, Any]]:
                 task_results: list[dict[str, Any]] = []
                 pending: set[asyncio.Task[dict[str, Any]]] = set(tasks)
                 try:
@@ -711,13 +732,17 @@ async def _run(args: argparse.Namespace) -> int:
                             pending.remove(completed_task)
                             result = await completed_task
                             task_results.append(result)
-                            passed_count = sum(1 for r in task_results if r.get("success"))
+                            passed_count = sum(
+                                1 for r in task_results if r.get("success")
+                            )
                             failed_count = len(task_results) - passed_count
                             total_records_ingested = sum(
-                                int(r.get("records_ingested", 0) or 0) for r in task_results
+                                int(r.get("records_ingested", 0) or 0)
+                                for r in task_results
                             )
                             total_completed_queries = sum(
-                                int(r.get("completed_queries", 0) or 0) for r in task_results
+                                int(r.get("completed_queries", 0) or 0)
+                                for r in task_results
                             )
                             total_hits = sum(
                                 int(r.get("total_hits", 0) or 0) for r in task_results
@@ -755,7 +780,9 @@ async def _run(args: argparse.Namespace) -> int:
                     list(dict.fromkeys(operation_ids)),
                     progress_done,
                     started=workload_started,
-                    interval_sec=float(getattr(args, "progress_interval", _PROGRESS_INTERVAL_SEC)),
+                    interval_sec=float(
+                        getattr(args, "progress_interval", _PROGRESS_INTERVAL_SEC)
+                    ),
                     service_snapshot=service_snapshot,
                 )
             )
@@ -813,7 +840,9 @@ async def _run(args: argparse.Namespace) -> int:
                             asyncio.create_task(
                                 _run_worker(
                                     i,
-                                    expected_multiplier=args.users if shared_operation else 1,
+                                    expected_multiplier=(
+                                        args.users if shared_operation else 1
+                                    ),
                                     reset_query_state=not shared_operation,
                                     verify_notes=not shared_operation,
                                 )
@@ -832,10 +861,16 @@ async def _run(args: argparse.Namespace) -> int:
                         await progress_task
             passed = [r for r in results if r.get("success")]
             failed = [r for r in results if not r.get("success")]
-            total_records_ingested = sum(int(r.get("records_ingested", 0) or 0) for r in results)
-            total_completed_queries = sum(int(r.get("completed_queries", 0) or 0) for r in results)
+            total_records_ingested = sum(
+                int(r.get("records_ingested", 0) or 0) for r in results
+            )
+            total_completed_queries = sum(
+                int(r.get("completed_queries", 0) or 0) for r in results
+            )
             total_hits = sum(int(r.get("total_hits", 0) or 0) for r in results)
-            expected_total_hits = expected_hits * args.users * (args.users if shared_operation else 1)
+            expected_total_hits = (
+                expected_hits * args.users * (args.users if shared_operation else 1)
+            )
             expected_total_notes = expected_total_hits
             observed_total_notes = 0
             shared_notes_ok = True
