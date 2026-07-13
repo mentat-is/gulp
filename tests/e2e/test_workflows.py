@@ -71,7 +71,7 @@ async def test_full_workflow(gulp_base_url, gulp_test_user, gulp_test_password):
 
             query_result = await client.queries.query_raw(
                 operation_id=operation.id,
-                q=[{"query": {"match_all": {}}}],
+                q={"query": {"match_all": {}}},
                 q_options={"preview_mode": True, "name": "sdk_e2e_preview"},
             )
 

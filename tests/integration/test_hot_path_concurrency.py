@@ -128,12 +128,11 @@ async def test_live_multi_query_request_reports_all_units_via_websocket(
             assert seed_req_id
             await _wait_terminal_stats_ws(client, {seed_req_id})
 
-            query_count = 8
-            query_req_id = _unique("req_hot_multi_query")
+            query_req_id = _unique("req_hot_query")
             response = await client.queries.query_raw(
                 operation_id=op.id,
-                q=[{"query": {"match_all": {}}} for _ in range(query_count)],
-                q_options={"limit": 1, "name": "hot_multi_query"},
+                q={"query": {"match_all": {}}},
+                q_options={"limit": 1, "name": "hot_query"},
                 req_id=query_req_id,
             )
             print("live multi-query response:", response)
@@ -143,8 +142,8 @@ async def test_live_multi_query_request_reports_all_units_via_websocket(
             stats = terminal[query_req_id]
             assert str(stats.get("status", "")).lower() == "done"
             data = stats.get("data") or {}
-            assert int(data.get("num_queries", 0)) == query_count
-            assert int(data.get("completed_queries", 0)) == query_count
+            assert int(data.get("num_queries", 0)) == 1
+            assert int(data.get("completed_queries", 0)) == 1
         finally:
             await _delete_operation_with_conflict_wait(client, op.id)
 
@@ -195,7 +194,7 @@ async def test_live_ingest_enrich_and_query_hot_paths_overlap_via_websocket(
             query_task = asyncio.create_task(
                 client.queries.query_raw(
                     operation_id=op.id,
-                    q=[{"query": {"match_all": {}}} for _ in range(4)],
+                    q={"query": {"match_all": {}}},
                     q_options={"limit": 1, "name": "hot_mix_query"},
                     req_id=query_req_id,
                 )

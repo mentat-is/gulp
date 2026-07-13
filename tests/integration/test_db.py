@@ -161,7 +161,7 @@ async def test_rebase_by_query_optional(
             # get first document's original timestamps for later verification
             results = await client.queries.query_raw(
                 operation_id=op.id,
-                q=[{"query": {"match_all": {}}}],
+                q={"query": {"match_all": {}}},
                 q_options={"preview_mode": True},
             )
             original_doc = results["data"]["docs"][0]

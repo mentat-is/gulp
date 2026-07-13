@@ -1126,9 +1126,9 @@ one aggregation query according to the [OpenSearch DSL specifications](https://o
 query Gulp with a raw OpenSearch DSL query.
 
 - this API returns `pending` and results are streamed to the `ws_id` websocket (unless `q_options.preview_mode` is set, read later).
-- `q` must be one or more queries with a format according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/)
+- `q` must be one query in the [OpenSearch DSL format](https://opensearch.org/docs/latest/query-dsl/).
 - if `q_options.create_notes` is set, notes are created for each query match with `q_options.name` in their tags.
-- if `q_options.preview_mode` is set, this API takes the first query in the `q` array and the data is returned directly as `{ "total_hits": <total_hits>, "docs": <docs> }` in the response.
+- if `q_options.preview_mode` is set, data is returned directly as `{ "total_hits": <total_hits>, "docs": <docs> }` in the response.
   size of `docs` in preview mode is limited to `q_options.preview_mode_max_records` (default=10).
 
 ### tracking progress
@@ -1136,9 +1136,9 @@ query Gulp with a raw OpenSearch DSL query.
 during `raw_query, the flow of data on `ws_id` is the following:
 
 - `WSDATA_STATS_CREATE`.payload: `GulpRequestStats`, data=`GulpQueryStats` (at start)
-- `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpQueryStats` (once every batch of queries in `q` completed)
+- `WSDATA_STATS_UPDATE`.payload: `GulpRequestStats`, data=updated `GulpQueryStats`
 - `WSDATA_DOCUMENTS_CHUNK`.payload: `GulpDocumentsChunkPacket` on each documents chunk retrieved
-- `WSDATA_QUERY_DONE`.payload: `GulpIngestSourceDonePacket` when each **single** query in `q` is completed
+- `WSDATA_QUERY_DONE`.payload: `GulpIngestSourceDonePacket` when the query is completed
 """,
 )
 async def query_raw_handler(
@@ -1146,14 +1146,12 @@ async def query_raw_handler(
     ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
     operation_id: Annotated[str, Depends(APIDependencies.param_operation_id)],
     q: Annotated[
-        list[dict],
+        dict,
         Body(
             description="""
-one or more queries according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
-
-- each query in `q` is run in a task in one of the worker processes
+one query according to the [OpenSearch DSL specifications](https://opensearch.org/docs/latest/query-dsl/).
 """,
-            examples=[[EXAMPLE_QUERY_RAW], [{"query": {"match_all": {}}}]],
+            examples=[EXAMPLE_QUERY_RAW, {"query": {"match_all": {}}}],
         ),
     ],
     q_options: Annotated[
@@ -1173,10 +1171,10 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
             s = await GulpUserSession.check_token(sess, token, obj=op)
             user_id = s.user.id
             if q_options.preview_mode:
-                # preview mode, run the first query and return sync
+                # preview mode, run the query and return sync
                 total_hits, docs = await _query_raw_sync(
                     sess,
-                    q[0],
+                    q,
                     q_options,
                     index=op.index,
                 )
@@ -1190,19 +1188,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                     )
                 )
 
-            # build queries
-            queries: list[GulpQuery] = []
-            count: int = 0
-            if len(q) == 1:
-                # single query, use the provided name
-                gq = GulpQuery(q_name=q_options.name, q=q[0])
-                queries.append(gq)
-            else:
-                # we build names for each query
-                for qq in q:
-                    gq = GulpQuery(q_name="%s-%d" % (q_options.name, count), q=qq)
-                    count += 1
-                    queries.append(gq)
+            query = GulpQuery(q_name=q_options.name, q=q)
 
             existing_response = await ServerUtils.existing_request_response(
                 sess, req_id
@@ -1217,7 +1203,7 @@ one or more queries according to the [OpenSearch DSL specifications](https://ope
                     user_id=user_id,
                     ws_id=ws_id,
                     req_id=req_id,
-                    queries=queries,
+                    queries=[query],
                     q_options=q_options,
                 )
             except TaskQueueFullError as ex:

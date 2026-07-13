@@ -38,7 +38,7 @@ async def _query_docs(client, operation_id: str, timeout: float = 15.0) -> list[
     while True:
         result = await client.queries.query_raw(
             operation_id=operation_id,
-            q=[{"query": {"match_all": {}}}],
+            q={"query": {"match_all": {}}},
             q_options={"preview_mode": True, "limit": 50, "name": "raw_plugin_preview"},
         )
         docs = (result.get("data") or {}).get("docs") or []

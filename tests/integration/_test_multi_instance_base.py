@@ -177,7 +177,7 @@ async def _wait_for_queryable_docs(
         nonlocal last_total_hits
         result = await client.queries.query_raw(
             operation_id=operation_id,
-            q=[{"query": {"match_all": {}}}],
+            q={"query": {"match_all": {}}},
             q_options={"preview_mode": True, "limit": 1, "name": _unique("preview")},
             wait=False,
         )
@@ -433,7 +433,7 @@ async def _assert_cross_instance_query_ws_routing(
     websocket_owner_idx: int,
     operation_id: str,
     req_id_prefix: str,
-    q: list[dict[str, Any]] | None = None,
+    q: dict[str, Any] | None = None,
     q_options: dict[str, Any] | None = None,
     expected_docs_chunk_marker: str | None = None,
 ) -> None:
@@ -455,7 +455,7 @@ async def _assert_cross_instance_query_ws_routing(
         query_response = await request_client.queries.query_raw(
             operation_id=operation_id,
             ws_id=websocket_owner_client.ws_id,
-            q=q or [{"query": {"match_all": {}}}],
+            q=q or {"query": {"match_all": {}}},
             q_options=q_options or {"limit": 25, "name": _unique("cross_qn")},
             req_id=query_req_id,
             wait=False,
@@ -970,13 +970,7 @@ async def _run_multi_user_scenario(
                     "done",
                     "success",
                 }
-                large_query = [
-                    {
-                        "query": {
-                            "match_all": {},
-                        }
-                    }
-                ]
+                large_query = {"query": {"match_all": {}}}
                 large_query_options = {
                     "limit": 1,
                     "fields": "*",
@@ -1034,7 +1028,7 @@ async def _run_multi_user_scenario(
                 query_response = await actor_client.queries.query_raw(
                     operation_id=shared_operation_id,
                     ws_id=actor_client.ws_id,
-                    q=[{"query": {"match_all": {}}}],
+                    q={"query": {"match_all": {}}},
                     q_options={"limit": 100, "name": _unique("qn")},
                     req_id=query_req_id,
                     wait=False,

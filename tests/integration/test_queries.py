@@ -77,7 +77,7 @@ async def _wait_query_docs(client, operation_id: str, timeout: float = 30.0) -> 
     while True:
         result = await client.queries.query_raw(
             operation_id=operation_id,
-            q=[{"query": {"match_all": {}}}],
+            q={"query": {"match_all": {}}},
             q_options={"preview_mode": True, "limit": 10, "name": "query_docs_ready"},
         )
         docs = (result.get("data") or {}).get("docs") or []
@@ -95,7 +95,7 @@ async def _preview_total_hits(client, operation_id: str) -> int:
     try:
         result = await client.queries.query_raw(
             operation_id=operation_id,
-            q=[{"query": {"match_all": {}}}],
+            q={"query": {"match_all": {}}},
             q_options={"preview_mode": True, "limit": 1, "name": "query_total_hits"},
         )
     except NotFoundError:
@@ -127,7 +127,7 @@ async def test_query_raw_empty_result(gulp_base_url, gulp_test_user, gulp_test_p
         try:
             result = await client.queries.query_raw(
                 operation_id=op_id,
-                q=[qq],
+                q=qq,
                 q_options={"limit": 1},
                 wait=True,
                 timeout=120,
@@ -183,7 +183,7 @@ async def test_query_raw_create_notes_for_each_request_match(
 
             first = await client.queries.query_raw(
                 operation_id=op_id,
-                q=[query],
+                q=query,
                 q_options=q_options,
                 req_id=f"req_{marker}_first",
                 wait=True,
@@ -191,7 +191,7 @@ async def test_query_raw_create_notes_for_each_request_match(
             )
             second = await client.queries.query_raw(
                 operation_id=op_id,
-                q=[query],
+                q=query,
                 q_options=q_options,
                 req_id=f"req_{marker}_second",
                 wait=True,

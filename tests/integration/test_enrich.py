@@ -45,7 +45,7 @@ async def _ingest_small_evtx(client, operation_id: str) -> str:
 
     preview = await client.queries.query_raw(
         operation_id=operation_id,
-        q=[{"query": {"match_all": {}}}],
+        q={"query": {"match_all": {}}},
         q_options={"preview_mode": True, "limit": 1, "name": "sdk_enrich_preview"},
     )
     docs = (preview.get("data") or {}).get("docs") or []
@@ -64,7 +64,7 @@ async def _preview_docs(client, operation_id: str, limit: int = 10) -> list[dict
     """Fetch preview documents for an operation."""
     preview = await client.queries.query_raw(
         operation_id=operation_id,
-        q=[{"query": {"match_all": {}}}],
+        q={"query": {"match_all": {}}},
         q_options={"preview_mode": True, "limit": limit, "name": "sdk_enrich_preview"},
     )
     return (preview.get("data") or {}).get("docs") or []

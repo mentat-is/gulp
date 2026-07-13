@@ -381,7 +381,7 @@ async def _worker(
                 t_query = time.monotonic()
                 qr = await client.queries.query_raw(
                     operation_id=op_id,
-                    q=[{"query": {"match_all": {}}}],
+                    q={"query": {"match_all": {}}},
                     q_options={
                         "preview_mode": True,
                         "name": f"stress_q_{worker_id}",
@@ -455,7 +455,7 @@ async def _worker_same_operation(
             while time.monotonic() < query_deadline:
                 qr = await client.queries.query_raw(
                     operation_id=operation_id,
-                    q=[{"query": {"match_all": {}}}],
+                    q={"query": {"match_all": {}}},
                     q_options={
                         "preview_mode": True,
                         "name": f"stress_shared_q_{worker_id}",

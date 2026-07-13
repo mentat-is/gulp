@@ -90,7 +90,7 @@ async def test_enrich_whois_raw_documents(
 
             preview = await client.queries.query_raw(
                 operation_id=op.id,
-                q=[{"query": {"match_all": {}}}],
+                q={"query": {"match_all": {}}},
                 q_options={
                     "preview_mode": True,
                     "limit": 10,

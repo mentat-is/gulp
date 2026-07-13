@@ -406,7 +406,7 @@ async def _wait_operation_searchable(
     while True:
         qr = await client.queries.query_raw(
             operation_id=operation_id,
-            q=[{"query": {"match_all": {}}}],
+            q={"query": {"match_all": {}}},
             q_options={
                 "preview_mode": True,
                 "preview_mode_max_records": 1,

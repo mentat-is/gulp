@@ -85,7 +85,7 @@ async def _preview_total_hits(client, operation_id: str) -> int:
     try:
         result = await client.queries.query_raw(
             operation_id=operation_id,
-            q=[{"query": {"match_all": {}}}],
+            q={"query": {"match_all": {}}},
             q_options={"preview_mode": True, "name": "sdk_ingest_preview"},
         )
     except NotFoundError:
