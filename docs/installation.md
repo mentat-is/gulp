@@ -8,12 +8,35 @@ Choose the installation mode that fits your use case:
    `gulp-webui` launcher.
 3. **Docker:** run the backend and UI in separate containers.
 
+## Required services
+
+Every installation method requires running OpenSearch, PostgreSQL, and Redis
+services. Start them before the gULP backend and keep them running. MinIO is
+also required when using features or plugins that need object storage.
+
+For a quick setup, the recommended option is to start these services with the
+[Docker Compose file](../docker-compose.yml) provided in the repository:
+
+```bash
+docker compose up -d
+```
+
+For a PyPI installation without a repository checkout, download the Compose
+file and its environment defaults from GitHub and start the services in one
+line:
+
+```bash
+mkdir gulp-services && cd gulp-services && curl -fsSLO 'https://raw.githubusercontent.com/mentat-is/gulp/master/{.env,docker-compose.yml}' && docker compose up -d
+```
+
+PyPI and manual development installations may use this Compose stack or
+provide the services separately.
+
 ## PyPI installation
 
-Requirements: Python 3.12+ and configured OpenSearch, PostgreSQL, Redis, and
-optional MinIO services. The wheel includes a prebuilt UI, so no repository
-checkout or frontend build is required. Running it separately with
-`gulp-webui` requires Node.js and pnpm.
+Requirements: Python 3.12+. The wheel includes a prebuilt UI, so no repository
+checkout or frontend build is required. Running it separately with `gulp-webui`
+requires Node.js and pnpm.
 
 For example, on Arch Linux:
 
