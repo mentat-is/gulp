@@ -15,6 +15,12 @@ optional MinIO services. The wheel includes a prebuilt UI, so no repository
 checkout or frontend build is required. Running it separately with
 `gulp-webui` requires Node.js and pnpm.
 
+For example, on Arch Linux:
+
+```bash
+sudo pacman -S nodejs pnpm
+```
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install mentat-gulp>=2.0.0

@@ -59,7 +59,8 @@ This depends on your OS, on EndeavourOS(arch):
 
 ~~~bash
 # tested with python 3.13, 3.14, should work with 3.12 but not tested extensively
-sudo pacman -S rust python=3.13 python-virtualenv docker docker-compose docker-buildx jq libpqxx git-lfs github-cli
+# nodejs and pnpm are needed only for web UI development
+sudo pacman -S rust python=3.13 python-virtualenv nodejs pnpm docker docker-compose docker-buildx jq libpqxx git-lfs github-cli
 
 # setup github cli client
 # NOTE: the following is only for the development team to access private repositories
