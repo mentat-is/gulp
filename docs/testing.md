@@ -14,8 +14,8 @@ Run the normal suite as needed:
 ~~~bash
 python3 -m pytest -v -s -x tests/
 python3 -m pytest -v -s -x tests/integration/
-# usually, test_stress.py is enough to dictate the overall health of the backend
-python3 -m pytest -v -s -x tests/integration/test_stress.py
+# usually, test_stress.py with BIG_SIGMAS=1 is enough to dictate the overall health of the backend
+BIG_SIGMAS=1 python3 -m pytest -v -s -x tests/integration/test_stress.py
 ~~~
 
 Use [run_tests.sh](../test_scripts/run_tests.sh) when a wrapper is more

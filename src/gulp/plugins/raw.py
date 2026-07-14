@@ -10,7 +10,6 @@ it would slow down a lot and generate really tons of data on postgres!
 
 from typing import override
 
-from gulp_cli.commands import mapping
 import orjson
 from muty.dict import flatten
 from muty.log import MutyLogger

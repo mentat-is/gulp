@@ -16,7 +16,7 @@ and a repository checkout are not required.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install mentat-gulp
+pip install mentat-gulp>=2.0.0
 gulp
 ```
 
