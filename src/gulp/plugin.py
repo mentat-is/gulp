@@ -2922,16 +2922,19 @@ class GulpPluginBase(ABC):
             # note we walk the chain of lower instances to allow multiple stacked plugins one on top of the other
             l: GulpPluginBase = self
             while l._lower_instance != None:
-                ll = l
                 l = l._lower_instance
                 # MutyLogger.get_instance().debug("*************************** self=%s, current=%s, current->lower=%s", self.name, ll.name, l.name)
             self._docs_buffer = l._docs_buffer
 
+        wait_for_refresh: bool = False
+        if self._raw_ingestion:
+            # on raw ingestion, we wait for refresh on the last chunk, to ensure all data is available for the next chunk
+            wait_for_refresh = self._last_raw_chunk
         try:
             # flush the last chunk
             skipped, ingested, failed = await self._flush_buffer_and_send_to_ws(
                 flt,
-                wait_for_refresh=True,
+                wait_for_refresh=wait_for_refresh,
             )
         except Exception as e:
             MutyLogger.get_instance().exception(e)
