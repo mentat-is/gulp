@@ -58,6 +58,9 @@ covers [development](docs/webui/install.md),
 [ingestion](docs/webui/ingestion.md), [workflow](docs/webui/flow.md),
 [features](docs/webui/features.md), and [views](docs/webui/view.md).
 
+PyPI packages include the compiled UI; run `gulp-webui` to serve it on port
+3000. Docker's standalone UI image serves the production build with nginx.
+
 Start by connecting to a backend and choosing an investigation operation.
 
 ![gULP login](docs/webui/images/login.png)

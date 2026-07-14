@@ -4,15 +4,16 @@ Choose the installation mode that fits your use case:
 
 1. **Development:** use a repository checkout and run backend and UI tools
    manually.
-2. **PyPI:** install `mentat-gulp`; `gulp` serves both the backend and bundled
-   UI.
+2. **PyPI:** install `mentat-gulp`; the wheel includes the compiled UI and a
+   `gulp-webui` launcher.
 3. **Docker:** run the backend and UI in separate containers.
 
 ## PyPI installation
 
 Requirements: Python 3.12+ and configured OpenSearch, PostgreSQL, Redis, and
-optional MinIO services. The wheel includes a prebuilt UI, so Node.js, pnpm,
-and a repository checkout are not required.
+optional MinIO services. The wheel includes a prebuilt UI, so no repository
+checkout or frontend build is required. Running it separately with
+`gulp-webui` requires Node.js and pnpm.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -20,7 +21,13 @@ pip install mentat-gulp>=2.0.0
 gulp
 ```
 
-Open [http://localhost:8080](http://localhost:8080) for the UI and
+In another terminal, serve the packaged UI:
+
+```bash
+gulp-webui
+```
+
+Open [http://localhost:3000](http://localhost:3000) for the standalone UI and
 [http://localhost:8080/docs](http://localhost:8080/docs) for the API. The
 first run creates `~/.config/gulp/gulp_cfg.json`; the default local credentials
 are `admin/admin`.
@@ -33,6 +40,5 @@ the UI with the [Web UI development guide](webui/install.md).
 
 ## Docker installation
 
-Docker runs the backend with its UI in one container by default. Follow the
-[Docker guide](install_docker.md) for the `gulp` profile or the separate
-`distributed` profile.
+Docker keeps the backend and nginx web UI in separate containers. Follow the
+[Docker guide](install_docker.md) for the independent `gulp` and `ui` profiles.

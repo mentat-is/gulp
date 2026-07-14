@@ -1,6 +1,6 @@
 - [Docker installation](#docker-installation)
-  - [Run the default stack](#run-the-default-stack)
-  - [Run a distributed stack](#run-a-distributed-stack)
+  - [Run the backend](#run-the-backend)
+  - [Run the web UI](#run-the-web-ui)
   - [Use a local backend image](#use-a-local-backend-image)
   - [Compose profiles](#compose-profiles)
     - [Exposed services](#exposed-services)
@@ -9,38 +9,46 @@
 
 # Docker installation
 
-Docker Compose runs the backend, its bundled web UI, and required services.
+Docker Compose defines separate backend and nginx web UI services alongside
+the backend's required services.
 This configuration is intended for local evaluation; secure it and adapt it
 before production use.
 
-## Run the default stack
+## Run the backend
 
-The `gulp` profile starts one backend container. Its image includes the built
-web UI, served at the backend address.
+The `gulp` profile starts the backend without a web UI.
 
 ```bash
 git clone https://github.com/mentat-is/gulp.git && cd gulp
 docker compose --profile gulp up -d
 ```
 
-Open [http://localhost:8080](http://localhost:8080) and sign in with
-`admin/admin`. The API reference is at [http://localhost:8080/docs](http://localhost:8080/docs).
+The API is at [http://localhost:8080](http://localhost:8080), and its reference
+is at [http://localhost:8080/docs](http://localhost:8080/docs).
 Set `GULP_WORKING_DIR` before the command to store the generated configuration,
 certificates, plugins, and mappings outside the default `~/.config/gulp`.
 
-## Run a distributed stack
+## Run the web UI
 
-Use the `distributed` profile when a reverse proxy, CDN, or deployment topology needs
-the UI and API to scale independently. It starts the backend on port 8080 and a
-separate `gulp-ui` container on port 3000.
+The independent `ui` profile starts only the nginx web UI when the service is
+named explicitly. nginx serves the compiled production build; pnpm development
+servers are not used in Docker.
 
 ```bash
-docker compose --profile distributed up -d --build
+docker compose --profile ui up -d gulp-ui
 ```
+
+To run the local backend and UI together:
+
+```bash
+docker compose --profile gulp --profile ui up -d
+```
+
+Add `--build` when UI source or build arguments have changed.
 
 ## Use a local backend image
 
-Build the backend image from this repository, including the bundled UI:
+Build the backend image from this repository:
 
 ```bash
 docker buildx build --progress=plain --build-arg _VERSION="$(git describe --tags --always)" --rm -t gulp-core:local .
@@ -49,10 +57,11 @@ GULP_IMAGE=gulp-core:local docker compose --profile gulp up -d
 
 ## Compose profiles
 
-OpenSearch, PostgreSQL, MinIO, and Redis always start. Add profiles as needed:
+Without an explicit service target, OpenSearch, PostgreSQL, MinIO, and Redis
+always start. Add profiles as needed:
 
-- `--profile gulp`: run one gULP backend container with its bundled web UI
-- `--profile distributed`: run gULP and a separate `gulp-ui` container
+- `--profile gulp`: run the gULP backend
+- `--profile ui`: run the independent nginx `gulp-ui` container
 - `--profile dev`: also run adminer, elasticvue, redis-insight
 - `--profile metrics`: also run Prometheus, Grafana, Redis Insight, and Elasticvue
 - `--profile extra`: also run `opensearch-dashboards` to manage opensearch and `sftpd` to manage files in the `GULP_WORKING_DIR`
@@ -67,9 +76,9 @@ With the default [docker-compose.yml](../docker-compose.yml), services are
 exposed as follows. Extra profiles expose extra tools; check the compose file
 when changing profiles.
 
-- gULP API and default web UI, with `--profile gulp`: [http://localhost:8080](http://localhost:8080)
+- gULP API, with `--profile gulp`: [http://localhost:8080](http://localhost:8080)
   - API reference: [http://localhost:8080/docs](http://localhost:8080/docs)
-- Separate gULP web UI, with `--profile distributed`: [http://localhost:3000](http://localhost:3000)
+- nginx-served gULP web UI, with `--profile ui`: [http://localhost:3000](http://localhost:3000)
   - default gULP admin user: `admin/admin`
 - PostgreSQL: `localhost:5432`
   - user/password: `postgres/Gulp1234!`

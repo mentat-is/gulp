@@ -1,4 +1,4 @@
-# Web UI development
+# Web UI installation and development
 
 gULP UI is a React and TypeScript frontend for the gULP platform. It connects
 to a running gULP backend from the login page.
@@ -11,11 +11,29 @@ to a running gULP backend from the login page.
 - pnpm `10.8.1`
 - A reachable gULP backend server
 
+The published Python package already contains the compiled UI. Node.js and
+pnpm are only needed to serve that bundle separately or to develop the UI.
+
+## Run the UI from the Python package
+
+Install and start the backend, then run the packaged UI launcher in another
+terminal:
+
+```bash
+gulp
+gulp-webui
+```
+
+Open [http://localhost:3000](http://localhost:3000). `gulp-webui` serves the
+compiled bundle included under `gulp/webui`; it does not rebuild the UI. It
+uses the pinned `serve` package through pnpm, which may download that package
+on first use. Use `--host` and `--port` to change the default
+`0.0.0.0:3000` listener.
+
 ## Install Dependencies
 
-From a gULP repository checkout, install UI dependencies. For a PyPI install,
-the UI is already bundled and served by `gulp`; these commands are only for UI
-development:
+From a gULP repository checkout, install UI dependencies. These commands are
+only for UI development:
 
 ```bash
 pnpm --dir gulp-ui install
@@ -46,14 +64,15 @@ Create a production build:
 pnpm --dir gulp-ui run build
 ```
 
-Serve the generated `build/` folder with the bundled static server:
+Preview the generated `build/` folder locally:
 
 ```bash
 pnpm --dir gulp-ui run server
 ```
 
-The `server` script serves `build/`. You can also deploy the
-contents of `build/` with any static web server.
+The `server` script serves `build/` through the `serve` package. For production,
+use a dedicated static server such as nginx; the supplied Docker UI image does
+this.
 
 ## Current Scripts
 

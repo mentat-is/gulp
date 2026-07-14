@@ -105,7 +105,7 @@ services:
 
 
   gulp:
-    profiles: [ "gulp", "distributed" ]
+    profiles: [ "gulp" ]
     image: ${GULP_IMAGE:-mentatis/gulp-core:latest}
     container_name: gulp
     # Entrypoint needs root to start rsyslogd; it then drops to GULP_RUNTIME_USER.
@@ -138,14 +138,12 @@ services:
     restart: unless-stopped
 
   gulp-ui:
-    profiles: [ "distributed" ]
+    profiles: [ "ui" ]
     build:
       context: ./gulp-ui
       args:
         _VERSION: ${GULP_UI_VERSION:-local}
     image: ${GULP_UI_IMAGE:-gulp-ui:local}
-    depends_on:
-      - gulp
     container_name: gulp-ui
     restart: on-failure
     ports:
