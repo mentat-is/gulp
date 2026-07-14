@@ -126,6 +126,8 @@ It covers:
 - PostgreSQL pool usage
 - main process, worker process, worker dispatch, and host resource usage
 
+![Grafana dashboard](./grafana/grafana.png)
+
 To import it through the Grafana UI:
 
 1. Open `http://localhost:3030/dashboards`.
