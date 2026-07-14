@@ -514,7 +514,7 @@ class GulpRequestStats(GulpCollabBase, type=COLLABTYPE_REQUEST_STATS):
             )
             source_pair = (context_id, context_name, source_id, source_name)
             if source_pair in d.sources:
-                await sess.rollback()
+                await sess.commit()
                 return self.to_dict(exclude_none=True)
 
             d.sources.append(source_pair)

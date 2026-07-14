@@ -281,6 +281,18 @@ def number_to_nanos_from_unix_epoch(numeric: str | int) -> int:
     return numeric * SECONDS_TO_NANOSECONDS
 
 
+def nanos_from_unix_epoch_to_iso8601(nanos: int) -> str:
+    """Convert an explicitly nanosecond Unix timestamp to ISO 8601."""
+    if nanos < 0:
+        raise ValueError(f"Nanoseconds must be non-negative: {nanos}")
+
+    seconds, nanoseconds = divmod(nanos, SECONDS_TO_NANOSECONDS)
+    dt = datetime.fromtimestamp(seconds, tz=timezone.utc) + timedelta(
+        microseconds=nanoseconds / MICROSECONDS_TO_NANOSECONDS
+    )
+    return dt.isoformat()
+
+
 def number_to_iso8601(numeric: int) -> str:
     """
     Converts a numeric value to an ISO 8601 formatted time string.
@@ -295,11 +307,7 @@ def number_to_iso8601(numeric: int) -> str:
     """
     if numeric > 1_000_000_000_000_000_000:
         # assume nanoseconds
-        seconds, nanoseconds = divmod(numeric, 1_000_000_000)
-        dt = datetime.fromtimestamp(seconds, tz=timezone.utc) + timedelta(
-            microseconds=nanoseconds / 1000
-        )
-        return dt.isoformat()
+        return nanos_from_unix_epoch_to_iso8601(numeric)
     elif numeric > 1_000_000_000_000_000:
         # assume microseconds
         seconds, microseconds = divmod(numeric, 1_000_000)

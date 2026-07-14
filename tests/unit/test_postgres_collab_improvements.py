@@ -140,3 +140,23 @@ async def test_advisory_lock_rolls_back_on_exception(monkeypatch):
 
     acquire.assert_awaited_once_with(sess, "obj-1")
     sess.rollback.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_advisory_lock_rolls_back_when_acquisition_fails(monkeypatch):
+    acquire = AsyncMock(side_effect=RuntimeError("lock timeout"))
+    sess = SimpleNamespace(rollback=AsyncMock())
+
+    monkeypatch.setattr(
+        GulpCollabBase,
+        "acquire_advisory_lock",
+        classmethod(lambda cls, sess, obj_id: acquire(sess, obj_id)),
+    )
+
+    with pytest.raises(RuntimeError, match="lock timeout"):
+        async with GulpCollabBase.advisory_lock(sess, "obj-1"):
+            pass
+
+    acquire.assert_awaited_once_with(sess, "obj-1")
+    sess.rollback.assert_awaited_once()

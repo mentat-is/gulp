@@ -30,7 +30,6 @@ import muty.crypto
 import muty.string
 import muty.time
 from muty.log import MutyLogger
-from psycopg import OperationalError
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     ARRAY,
@@ -1837,13 +1836,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             obj_id (str): The ID of the object to lock.
         """
         lock_id = muty.crypto.hash_xxh64_int(f"{cls.__name__}-{obj_id}")
-        try:
-            await sess.execute(
-                text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
-            )
-        except OperationalError as e:
-            MutyLogger.get_instance().error("failed to acquire advisory lock: %s", e)
-            raise e
+        await sess.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
+        )
 
     @classmethod
     @asynccontextmanager
@@ -1858,11 +1853,12 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         This preserves the existing `acquire_advisory_lock` API for callers that
         need the raw lock call.
         """
-        await cls.acquire_advisory_lock(sess, obj_id)
         try:
+            await cls.acquire_advisory_lock(sess, obj_id)
             yield
         except Exception:
-            # ensure transaction-scoped advisory lock is released on error
+            # Release an acquired lock, or reset a transaction aborted while
+            # waiting for one.
             await sess.rollback()
             raise
 

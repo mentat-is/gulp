@@ -40,6 +40,12 @@ as specified above, GULP supports real-time and batch ingestion of data from ext
 - **REST API** (`/ingest_raw`): For sending data chunks via HTTP POST requests.
 - **WebSocket** (`/ws_ingest_raw`): For streaming data in real-time.
 
+REST producers sending multiple chunks with one request id can set
+`wait=true` on each `/ingest_raw` call. The response then waits for
+that chunk to finish, providing backpressure and preserving chunk order. The
+response has `status=success` and `data.last` identifies the final chunk. The
+default remains asynchronous (`false`) and returns `status=pending`.
+
 below is a diagram illustrating the typical data flow for ingestion using a `bridge`:
 
 ```mermaid

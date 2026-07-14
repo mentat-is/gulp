@@ -1268,6 +1268,12 @@ it is possible, however, to implement another plugin which takes a chunk of raw 
 
 the flow is the same as `ingest_file`.
 
+set `wait=true` when a producer needs this call to return only after
+the chunk has been processed. this provides backpressure and preserves chunk
+ordering when multiple chunks share a request id. waited calls return
+`success` with `data.last` indicating whether this was the final chunk;
+asynchronous calls return `pending`.
+
 """,
     summary="ingest raw documents.",
 )
@@ -1299,6 +1305,12 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
             description="if set, indicates the last chunk in a raw ingestion.",
         ),
     ] = False,
+    wait: Annotated[
+        bool,
+        Query(
+            description="wait for this chunk to finish processing before returning.",
+        ),
+    ] = False,
     req_id: Annotated[
         str,
         Depends(APIDependencies.ensure_req_id_optional),
@@ -1322,34 +1334,37 @@ the plugin used to process the raw chunk. by default, the `raw` plugin is used: 
                 operation_id,
                 permission=GulpUserPermission.INGEST,
             )
+            user_id = s.user_id
+            index = op.index
 
-            # get body (contains chunk, and optionally flt and plugin_params)
-            payload, chunk = await ServerUtils.handle_multipart_body(r)
-            flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
-                payload.get("flt", GulpIngestionFilter())
-            )
-            plugin_params: GulpPluginParameters = GulpPluginParameters.model_validate(
-                payload.get("plugin_params", GulpPluginParameters())
-            )
-            # async def _ingest_raw_internal(user_id: str, operation_id: str, index: str, req_id: str, ws_id: str, plugin: str, chunk: bytes, flt: GulpIngestionFilter,
-            #    plugin_params: GulpPluginParameters, last: bool):
+        # Do not retain the authentication session while a waited worker runs.
+        payload, chunk = await ServerUtils.handle_multipart_body(r)
+        flt: GulpIngestionFilter = GulpIngestionFilter.model_validate(
+            payload.get("flt", GulpIngestionFilter())
+        )
+        plugin_params: GulpPluginParameters = GulpPluginParameters.model_validate(
+            payload.get("plugin_params", GulpPluginParameters())
+        )
+        await GulpServer.get_instance().spawn_worker_task(
+            _ingest_raw_internal,
+            user_id,
+            operation_id,
+            index,
+            req_id,
+            ws_id,
+            plugin,
+            chunk,
+            flt,
+            plugin_params,
+            last,
+            wait=wait,
+        )
 
-            await GulpServer.get_instance().spawn_worker_task(
-                _ingest_raw_internal,
-                s.user_id,
-                operation_id,
-                op.index,
-                req_id,
-                ws_id,
-                plugin,
-                chunk,
-                flt,
-                plugin_params,
-                last,
+        if wait:
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data={"last": last})
             )
-
-            # done
-            return JSONResponse(JSendResponse.pending(req_id=req_id))
+        return JSONResponse(JSendResponse.pending(req_id=req_id))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

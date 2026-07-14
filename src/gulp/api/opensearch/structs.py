@@ -247,8 +247,7 @@ class GulpDocument(GulpBasicDocument):
                 # > year 2262, skip
                 return epoch_start, 0, True
 
-            # enforce iso8601 timestamp
-            ts_string = muty.time.ensure_iso8601(str(ns))
+            ts_string = muty.time.nanos_from_unix_epoch_to_iso8601(ns)
             return ts_string, ns, False
 
         except Exception as e:
