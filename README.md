@@ -38,31 +38,64 @@ web UI provides the investigation workspace.
 - **OpenSearch and ECS** for storage and a consistent event schema.
 - **Multiprocessing** for ingestion and querying.
 - **Sigma queries**, collaboration, notes, links, enrichment, and plugins.
-- **AI assistant** for [automatic enrichment and analysis of events and documents](./plugins/extension/ai_assistant.py) (*).
+- **AI assistant chatbot** for [automatic analysis of events](./plugins/extension/ai_assistant.py) (needs `OpenRouter` API key)
 - **Scalable deployments**; see the [scaling guide](docs/scaling.md).
 
-(*) extra AI features, including an enhanced assistant and an automated `MCP server` to completely automatize incident response, are available in our paid tier.
+> extra features, including an enhanced AI assistant and an automated `MCP server` to completely automatize incident response and reporting, are available on our paid offer.
+>
+> contact `info@mentat.is` for further information.
 
 ## quick start
 
-Requirements: Docker Compose and Git. This starts the backend services and
-builds the included UI from this checkout:
+Requirements: Docker Compose, Git, Python 3.13+, Node.js 22.14.1, and pnpm
+10.8.1.
+
+### local source installation
+
+Compose starts only OpenSearch, PostgreSQL, Redis, and MinIO; the backend and UI run from the cloned source:
 
 ```bash
-git clone https://github.com/mentat-is/gulp.git && cd gulp && docker compose --profile gui up -d --build
+# Clone the repository and enter it.
+git clone https://github.com/mentat-is/gulp.git && cd gulp
+# Create a virtual environment and install gULP from the local source.
+python3 -m venv .venv && source .venv/bin/activate && pip install -e .
+# Create the local configuration directory.
+mkdir -p ~/.config/gulp
+# Copy the configuration template on the first run.
+[ -f ~/.config/gulp/gulp_cfg.json ] || cp src/gulp/gulp_cfg_template.json ~/.config/gulp/gulp_cfg.json
+# Start OpenSearch, PostgreSQL, Redis, and MinIO.
+docker compose up -d
+# Install the UI dependencies from the local source.
+pnpm --dir gulpui-web install
+# Start the local backend in the background and the UI in the foreground.
+gulp & pnpm --dir gulpui-web start
 ```
 
 Open [http://localhost:3000](http://localhost:3000), sign in with `admin/admin`, backend API reference is available at [http://localhost:8080/docs](http://localhost:8080/docs).
 
-The default compose setup is an example for local evaluation and to be used as a base for more complex setups; see the [Docker guide](docs/install_docker.md) before production use.
+> The default compose setup is an example for local evaluation and to be used as a base for more complex setups; see the [Docker guide](docs/install_docker.md) before production use.
 
-To run the UI directly while developing it, install Node.js `22.14.1` and pnpm `10.8.1`, then run:
+### install from pypi
+
+To run the released version instead of the cloned source, replace the local
+install with `mentat-gulp`. The first `gulp` run creates
+`~/.config/gulp/gulp_cfg.json` from its installed configuration template.
 
 ```bash
-pnpm --dir gulpui-web install && pnpm --dir gulpui-web start
+# Clone the repository for Docker Compose and the included UI.
+git clone https://github.com/mentat-is/gulp.git && cd gulp
+# Create a virtual environment and install the released backend from PyPI.
+python3 -m venv .venv && source .venv/bin/activate && pip install mentat-gulp
+# Start OpenSearch, PostgreSQL, Redis, and MinIO.
+docker compose up -d
+# Install the UI dependencies from the local source.
+pnpm --dir gulpui-web install
+# Start the PyPI backend in the background and the UI in the foreground.
+gulp & pnpm --dir gulpui-web start
 ```
 
-For a source backend install, use [development installation](docs/install_dev.md).
+See [development installation](docs/install_dev.md) for OS dependencies,
+configuration, and troubleshooting.
 
 ## web UI
 

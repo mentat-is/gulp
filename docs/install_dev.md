@@ -144,7 +144,8 @@ Node.js `22.14.1` and pnpm `10.8.1` installed, run it from the repository root:
 pnpm --dir gulpui-web install && pnpm --dir gulpui-web start
 ~~~
 
-For the containerized UI, use the one-command [quick start](../README.md#quick-start).
+For a local backend and UI with Compose only for dependencies, use the
+[quick start](../README.md#quick-start).
 
 ## troubleshoot
 
