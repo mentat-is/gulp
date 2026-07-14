@@ -7,7 +7,7 @@ Source settings also control offset, sampling, colors, and field hashing.
 
 ## Render Engines
 
-gulpui-web has three source render engines:
+gULP UI has three source render engines:
 
 - `Default`: draws event activity as one-pixel vertical bars colored from the
   configured hash field.

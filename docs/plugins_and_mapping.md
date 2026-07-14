@@ -35,7 +35,7 @@ gulp is made of plugins, each serving different purposes:
 - `ingestion` plugins for ingesting data from local sources (i.e. log files)
 - `external` plugins to query external sources (i.e. a SIEM), and possibly ingest data into gulp at the same time
 - `extension` plugins to extend the gulp [server API](../src/gulp/api/server/)
-- `ui` plugins to extend the [frontend](../gulpui-web/README.md) (*just served, not used by the backend*)
+- `ui` plugins to extend the frontend (*just served, not used by the backend*)
 
 ## loading plugins
 
@@ -108,7 +108,7 @@ Along side the specific ones we also provide some generic "base" plugins which c
 
 this is a `special` type of plugin which resides in `PLUGIN_DIR/ui` and allows the UI to have customized layouts for particular needs.
 
-> UI plugin use is documented in the [web UI plugin guide](../gulpui-web/docs/plugins.md). They are listed through the `ui_plugin_list` API but are not used by the backend itself.
+> UI plugin use is documented in the [web UI plugin guide](webui/plugins.md). They are listed through the `ui_plugin_list` API but are not used by the backend itself.
 
 # architecture
 

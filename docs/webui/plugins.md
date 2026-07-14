@@ -1,6 +1,6 @@
 # Plugins
 
-gulpui-web supports UI plugins loaded from `src/plugins` and registered by the
+gULP UI supports UI plugins loaded from `src/plugins` and registered by the
 backend through `/ui_plugin_list`.
 
 ## Runtime Model
@@ -22,8 +22,7 @@ Supported UI slots include:
 - `event-actions`: renders in the event action area.
 - `sigma-upload-mode`: adds an upload mode to the Sigma banner.
 - `dashboard-view`: mounts dashboard-related UI.
-- `ai-assistant-window`: reserved for assistant windows; paid/pro assistant
-  plugins are not documented here.
+- `ai-assistant-window`: reserved for assistant windows.
 
 ## UI Plugins
 
@@ -70,7 +69,7 @@ The metadata file must describe the plugin:
 	"plugin": "my_backend_plugin",
 	"extension": true,
 	"version": "1.0.0",
-	"desc": "Adds a custom gulpui-web action.",
+	"desc": "Adds a custom gULP UI action.",
 	"path": ".",
 	"filename": "MyPlugin.tsx",
 	"type": ["operation-menu"]

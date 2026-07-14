@@ -10,7 +10,7 @@ permissions:
 
 env:
   DOCKER_REPOSITORY: mentatis
-  DOCKER_IMAGE_NAME: gulp-web
+  DOCKER_IMAGE_NAME: gulp-ui
 
 jobs:
   build_and_push:
@@ -46,13 +46,13 @@ jobs:
         run: npm install -g pnpm@10.8.1
 
       - name: Install deps
-        working-directory: gulpui-web
+        working-directory: gulp-ui
         run: |
           export PATH="$HOME/.local/share/pnpm:$PATH"
           pnpm install --frozen-lockfile
 
       - name: Build
-        working-directory: gulpui-web
+        working-directory: gulp-ui
         env:
           APP_VERSION: ${{ steps.release.outputs.version }}
         run: |
@@ -78,7 +78,7 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
-          context: ./gulpui-web
+          context: ./gulp-ui
           push: true
           build-args: |
             _VERSION=${{ steps.release.outputs.version }}

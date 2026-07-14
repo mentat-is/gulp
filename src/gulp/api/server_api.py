@@ -15,6 +15,7 @@ from contextlib import suppress
 import os
 import ssl
 import time
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Sequence
 
 import muty.file
@@ -1318,6 +1319,10 @@ class GulpServer:
             logger_file_path=self._logger_file_path,
             log_to_syslog=self._log_to_syslog,
         )
+
+        from gulp.api.webui import add_webui_route
+
+        add_webui_route(self._app, Path(__file__).parents[1] / "webui")
 
         if __debug__:
             # to test some snippet with gulp freshly initialized

@@ -58,3 +58,5 @@ package-lock.json
 package.json
 node_modules
 dc1-logs
+.pnpm-store
+src/gulp/webui/

@@ -1,6 +1,6 @@
 # Definitions
 
-The main gulpui-web documentation starts at the root [README.md](../README.md).
+See the [gULP web UI guides](install.md) for setup and usage.
 
 ## Operation
 
@@ -118,7 +118,7 @@ address, domain, email, hash, URL, MAC address, or custom field value.
 
 ## IOC
 
-IOC means indicator of compromise. In gulpui-web, Send IOC actions pass selected
+IOC means indicator of compromise. In gULP UI, Send IOC actions pass selected
 event data to a destination plugin such as MISP.
 
 ## Send IOC
@@ -145,7 +145,7 @@ refreshing task lists. See [External Integrations](external.md#bridge-manager).
 
 ## Plugin
 
-A plugin extends gULP or gulpui-web behavior. Backend plugins can ingest,
+A plugin extends gULP or gULP UI behavior. Backend plugins can ingest,
 enrich, query, or export data. UI plugins are React components loaded into known
 frontend slots. See [Plugins](plugins.md).
 

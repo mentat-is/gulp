@@ -1,5 +1,5 @@
 
-- [install from sources](#install-from-sources)
+- [Development installation](#development-installation)
   - [use the devcontainer](#use-the-devcontainer)
   - [install manually](#install-manually)
     - [1. install OS dependencies and prerequisites](#1-install-os-dependencies-and-prerequisites)
@@ -14,7 +14,7 @@
   - [extras](#extras)
     - [coding style tips](#coding-style-tips)
 
-# install from sources
+# Development installation
 
 ## use the devcontainer
 
@@ -30,8 +30,6 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
   mkdir ./repos && cd ./repos
   git clone https://github.com/mentat-is/gulp.git
   git clone https://github.com/mentat-is/gulp-sdk.git
-  # clone other repositories only when you need them
-  git clone https://github.com/mentat-is/gulp-paid-plugins.git
   ~~~
 
 3. in vscode, open the [gulp workspace](../gulp.code-workspace) and it should prompt you to reopen it in the dev container: the devcontainer will be built *first time only*.
@@ -84,7 +82,6 @@ gh auth login
 mkdir ./repos && cd ./repos
 git clone https://github.com/mentat-is/gulp.git
 git clone https://github.com/mentat-is/gulp-sdk.git
-git clone https://github.com/mentat-is/gulp-paid-plugins.git
 ~~~
 
 ### 3. create and enter virtualenv
@@ -137,15 +134,8 @@ plugins are just files, so it is enough to copy/symlink extra plugins in `$GULP_
 
 ## run the web UI
 
-The React UI is included at `gulpui-web/`; it is not a separate checkout. With
-Node.js `22.14.1` and pnpm `10.8.1` installed, run it from the repository root:
-
-~~~bash
-pnpm --dir gulpui-web install && pnpm --dir gulpui-web start
-~~~
-
-For a local backend and UI with Compose only for dependencies, use the
-[quick start](../README.md#quick-start).
+The React UI is included at `gulp-ui/`; follow the [web UI installation
+guide](webui/install.md) to run it.
 
 ## troubleshoot
 

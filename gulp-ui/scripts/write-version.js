@@ -7,7 +7,7 @@ function sh(cmd) {
   try { return execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() } catch { return '' }
 }
 
-let version = process.env.APP_VERSION || process.env._VERSION || ''
+let version = process.env.BACKEND_VERSION || process.env.APP_VERSION || process.env._VERSION || ''
 if (!version) version = sh('git describe --tags --always') || 'unknown'
 
 const commit = sh('git rev-parse --short HEAD')

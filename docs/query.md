@@ -15,7 +15,7 @@ understanding their relationships and the underlying query mechanics is essentia
 
 - **`query_gulp`**: for simple queries using pre-defined filters: recommended for most use cases where you want to leverage Gulp's built-in filtering logic.
 
-- **`query_raw`**: the core endpoint for advanced users, also used internally by the [gULP web UI](../gulpui-web/README.md): accepts raw [OpenSearch Query DSL](https://opensearch.org/docs/latest/query-dsl/) queries, giving you full control over the search logic.
+- **`query_raw`**: the core endpoint for advanced users, also used internally by the gULP web UI: accepts raw [OpenSearch Query DSL](https://opensearch.org/docs/latest/query-dsl/) queries, giving you full control over the search logic.
 
     the following is an example of what you may use as the `q` parameter in `query_raw`:
 

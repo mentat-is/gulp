@@ -18,6 +18,14 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pnpm
+        run: npm install -g pnpm@10.8.1
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -28,6 +36,7 @@ jobs:
 
       - name: Build artifacts
         run: |
+          bash scripts/build_webui_package.sh
           python -m build
 
       - name: Check package
@@ -49,6 +58,14 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pnpm
+        run: npm install -g pnpm@10.8.1
+
       - name: Install packaging dependencies
         run: |
           python -m pip install --upgrade pip
@@ -56,6 +73,7 @@ jobs:
 
       - name: Build
         run: |
+          bash scripts/build_webui_package.sh
           python -m build
 
       - name: Publish to PyPI

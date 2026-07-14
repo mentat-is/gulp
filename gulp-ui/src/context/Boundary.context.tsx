@@ -158,7 +158,7 @@ export namespace Boundary {
           </Stack>
           <Stack jc='flex-end' flex={0} gap={12}>
             {isOnline ? (
-              <Button variant='tertiary' onClick={() => window.open('https://github.com/mentat-is/gulpui-web/issues/new', '_blank')}>{t('boundary.report')}</Button>
+              <Button variant='tertiary' onClick={() => window.open('https://github.com/mentat-is/gulp/issues/new', '_blank')}>{t('boundary.report')}</Button>
             ) : <Button variant='tertiary' onClick={handleSaveLog}>{t('boundary.saveLog')}</Button>}
             <Button variant='secondary' icon='X' onClick={onClose}>{t('boundary.ignore')}</Button>
             <Button variant='default' icon='Save' onClick={async () => { Info.session_create({ name: `error ${new Date().toISOString()}`, icon: 'Bug', color: 'red' }); onClose?.() }}>{t('session.saveTitle')}</Button>

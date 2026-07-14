@@ -22,7 +22,7 @@ operation. Open it from the operation menu with **Upload files**.
    - Disable it to select an existing context from the operation.
 5. Configure parser settings for each file, or use **Select settings for all
    files** to apply one configuration to every selected file.
-6. Confirm with the check button. When submission starts, gulpui-web opens the
+6. Confirm with the check button. When submission starts, gULP UI opens the
    source selection banner so the newly ingested sources can be selected into the
    timeline after they are available.
 

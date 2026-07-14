@@ -1,5 +1,15 @@
 # configurable python version
 ARG _PYTHON_VERSION=3.13
+
+FROM node:22-alpine AS webui-build
+ARG _VERSION
+WORKDIR /gulp-ui
+RUN corepack enable && corepack prepare pnpm@10.8.1 --activate
+COPY ./gulp-ui/package.json ./gulp-ui/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY ./gulp-ui ./
+RUN BACKEND_VERSION="$(date +'%Y%m%d')+${_VERSION}" pnpm run build
+
 FROM python:${_PYTHON_VERSION}-bullseye
 
 # Add build arguments
@@ -37,6 +47,7 @@ COPY ./pyproject.toml /gulp/pyproject.toml
 
 # now copy the rest of the source and assets
 COPY ./src /gulp/src
+COPY --from=webui-build /gulp-ui/build /gulp/src/gulp/webui
 COPY ./docs /gulp/docs
 COPY ./MANIFEST.in /gulp
 COPY ./GULP_DUAL_LICENSE.txt /gulp
@@ -55,7 +66,7 @@ RUN sed -i 's/^module(load="imklog")/#module(load="imklog")/' /etc/rsyslog.conf
 RUN chown -R $_USER_NAME:$_USER_NAME .
 
 RUN echo "[.] GULP version: ${_VERSION}" && \
-    export GULP_BUILD_VERSION="$(date +'%Y%m%d')+${_VERSION}" && \
+    export GULP_BUILD_VERSION="$(cat src/gulp/webui/version)" && \
     echo "[.] using setuptools_scm pretend version: ${GULP_BUILD_VERSION}" && \
     SETUPTOOLS_SCM_PRETEND_VERSION="${GULP_BUILD_VERSION}" \
     SETUPTOOLS_SCM_PRETEND_VERSION_FOR_MENTAT_GULP="${GULP_BUILD_VERSION}" \

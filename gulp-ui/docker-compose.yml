@@ -1,6 +1,6 @@
 services:
-  gulpui-web:
-    container_name: gulpui-web
+  gulp-ui:
+    container_name: gulp-ui
     build:
       context: .
     restart: on-failure

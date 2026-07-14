@@ -1,92 +1,75 @@
-- [docker Installation](#docker-installation)
-  - [pull latest image directly from docker hub](#pull-latest-image-directly-from-docker-hub)
-  - [(re)build image](#rebuild-image)
-  - [run with docker-compose](#run-with-docker-compose)
-    - [compose profiles](#compose-profiles)
-    - [exposed services](#exposed-services)
-    - [SSL certificates](#ssl-certificates)
-    - [cleanup](#cleanup)
+- [Docker installation](#docker-installation)
+  - [Run the default stack](#run-the-default-stack)
+  - [Run a distributed stack](#run-a-distributed-stack)
+  - [Use a local backend image](#use-a-local-backend-image)
+  - [Compose profiles](#compose-profiles)
+    - [Exposed services](#exposed-services)
+    - [TLS certificates](#tls-certificates)
+    - [Cleanup](#cleanup)
 
-# docker installation
+# Docker installation
 
-> **WARNING**: for any issue refer to [troubleshooting.md](./troubleshooting.md)
+Docker Compose runs the backend, its bundled web UI, and required services.
+This configuration is intended for local evaluation; secure it and adapt it
+before production use.
 
-## pull latest image directly from docker hub
+## Run the default stack
 
-> **WARNING**: this **may** be outdated, rebuild it following the docs below or use the [dev install](./install_dev.md) instead.
+The `gulp` profile starts one backend container. Its image includes the built
+web UI, served at the backend address.
 
 ```bash
-docker run mentatis/gulp-core:latest
+git clone https://github.com/mentat-is/gulp.git && cd gulp
+docker compose --profile gulp up -d
 ```
 
-## (re)build image
+Open [http://localhost:8080](http://localhost:8080) and sign in with
+`admin/admin`. The API reference is at [http://localhost:8080/docs](http://localhost:8080/docs).
+Set `GULP_WORKING_DIR` before the command to store the generated configuration,
+certificates, plugins, and mappings outside the default `~/.config/gulp`.
 
-> **NOTE TO DEVTEAM**: Docker image dependencies are resolved from
-> [pyproject.toml](../pyproject.toml). Keep that file current before cutting a
-> stable tag or release.
+## Run a distributed stack
 
-1. clone repository
+Use the `distributed` profile when a reverse proxy, CDN, or deployment topology needs
+the UI and API to scale independently. It starts the backend on port 8080 and a
+separate `gulp-ui` container on port 3000.
 
-  ~~~bash
-  mkdir ./build && cd ./build
-  git clone https://github.com/mentat-is/gulp.git
-  ~~~
+```bash
+docker compose --profile distributed up -d --build
+```
 
-2. build `gulp-core` image
+## Use a local backend image
 
-  ~~~bash
-  # WARNING: must run in bash compatible shell, i.e. fish doesnt work
-  # to rebuild, add --no-cache flag to the docker buildx line
-  cd ./gulp
-  bash -c "export $(grep -v '^#' .env | xargs) && docker buildx build --progress=plain --build-arg _VERSION=$(git describe --tags --always) --rm -t gulp-core ."
-  ~~~
+Build the backend image from this repository, including the bundled UI:
 
-## run with docker-compose
+```bash
+docker buildx build --progress=plain --build-arg _VERSION="$(git describe --tags --always)" --rm -t gulp-core:local .
+GULP_IMAGE=gulp-core:local docker compose --profile gulp up -d
+```
 
-you can run all the gulp stack on the `local machine` using the provided [docker-compose.yml](../docker-compose.yml), **even though this should be considered a **play-only** setup, not suitable for production**
+## Compose profiles
 
-you have to just provide your `GULP_WORKING_DIR` to the image, with a valid [gulp_cfg.json](../src/gulp/gulp_cfg_template.json) inside, and you're ready to go!
+OpenSearch, PostgreSQL, MinIO, and Redis always start. Add profiles as needed:
 
-> if a configuration is not provided, a default one will be created in the `GULP_WORKING_DIR` you specified (may need some tweaking afterwards, though).
-
-~~~bash
-# supplying GULP_IMAGE is optional; otherwise the latest backend image is pulled.
-# starts the backend and dev tools (--profile dev), UI runs separately
-GULP_IMAGE=gulp-core:latest GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gulp --profile dev up
-
-# build and run the included UI with the backend
-docker compose --profile gui up -d --build
-
-# add extra arguments to pass on the gulp commandline with EXTRA_ARGS, i.e. to tweak log-level
-EXTRA_ARGS="--log-level warning" GULP_IMAGE=gulp-core:latest GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose --profile gui --profile dev up --build
-
-# run gulp service only, oneshot (--rm)
-GULP_IMAGE=gulp-core:latest GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8080 GULP_WORKING_DIR=/home/valerino/.config/gulp docker compose run -p 8080:8080 --rm gulp gulp --log-level warning
-~~~
-
-multiple profiles (one or more) may be specified using on the `docker compose` command line:
-
-> opensearch, postgresql, minio, redis, are always run regardless of the profile.
-
-### compose profiles
-
-- `--profile gui`: build and run the included gULP web UI
-- `--profile gulp`: also run gulp
+- `--profile gulp`: run one gULP backend container with its bundled web UI
+- `--profile distributed`: run gULP and a separate `gulp-ui` container
 - `--profile dev`: also run adminer, elasticvue, redis-insight
+- `--profile metrics`: also run Prometheus, Grafana, Redis Insight, and Elasticvue
 - `--profile extra`: also run `opensearch-dashboards` to manage opensearch and `sftpd` to manage files in the `GULP_WORKING_DIR`
 
-of course, you may provide your own compose file to suit your particular configuration (multiple OpenSearch nodes, ...).
+You can provide your own Compose file for production topologies. The supplied
+Compose file disables the OpenSearch security plugin and is not a production
+security configuration.
 
-> please note that the provided [docker-compose.yml](../docker-compose.yml) is just an example (albeit working!), and also have the `OpenSearch security plugin DISABLED`: you may want to change this for your production environment!
-
-### exposed services
+### Exposed services
 
 With the default [docker-compose.yml](../docker-compose.yml), services are
 exposed as follows. Extra profiles expose extra tools; check the compose file
 when changing profiles.
 
-- gULP API: [http://localhost:8080/docs](http://localhost:8080/docs)
-- gULP web UI, with `--profile gui`: [http://localhost:3000](http://localhost:3000)
+- gULP API and default web UI, with `--profile gulp`: [http://localhost:8080](http://localhost:8080)
+  - API reference: [http://localhost:8080/docs](http://localhost:8080/docs)
+- Separate gULP web UI, with `--profile distributed`: [http://localhost:3000](http://localhost:3000)
   - default gULP admin user: `admin/admin`
 - PostgreSQL: `localhost:5432`
   - user/password: `postgres/Gulp1234!`
@@ -103,11 +86,11 @@ when changing profiles.
   - MinIO console: [http://localhost:9001](http://localhost:9001)
   - user/password: `admin/Gulp1234!`
   - used as S3-compatible storage for plugins that need it
-- Prometheus, with `--profile dev`: [http://localhost:9090](http://localhost:9090)
-- Grafana, with `--profile dev`: [http://localhost:3030](http://localhost:3030)
+- Prometheus, with `--profile metrics`: [http://localhost:9090](http://localhost:9090)
+- Grafana, with `--profile metrics`: [http://localhost:3030](http://localhost:3030)
 - FTP, with `--profile extra`: `localhost:21`, passive ports `21000-21010`
 
-### SSL certificates
+### TLS certificates
 
 Put certificates under `$GULP_WORKING_DIR/certs`, which is mounted into the
 containers by the compose file.
@@ -139,6 +122,6 @@ gULP HTTPS:
 For Redis and MinIO TLS, use their service-specific configuration and mount any
 needed files under `$GULP_WORKING_DIR/certs`.
 
-### cleanup
+### Cleanup
 
 to cleanup `gulp`, `postgresql` and `opensearch` data volumes, use the provided [reset script](../reset_docker.sh).

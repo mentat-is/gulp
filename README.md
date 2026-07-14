@@ -38,7 +38,7 @@ web UI provides the investigation workspace.
 - **OpenSearch and ECS** for storage and a consistent event schema.
 - **Multiprocessing** for ingestion and querying.
 - **Sigma queries**, collaboration, notes, links, enrichment, and plugins.
-- **AI assistant chatbot** for [automatic analysis of events](./plugins/extension/ai_assistant.py) (needs `OpenRouter` API key)
+- **AI assistant chatbot** for [automatic analysis of events](src/gulp/plugins/extension/ai_assistant.py) (needs `OpenRouter` API key)
 - **Scalable deployments**; see the [scaling guide](docs/scaling.md).
 
 > extra features, including an enhanced AI assistant and an automated `MCP server` to completely automatize incident response and reporting, are available on our paid offer.
@@ -47,87 +47,42 @@ web UI provides the investigation workspace.
 
 ## quick start
 
-Requirements: Docker Compose, Git, Python 3.13+, Node.js 22.14.1, and pnpm
-10.8.1.
-
-### local source installation
-
-Compose starts only OpenSearch, PostgreSQL, Redis, and MinIO; the backend and UI run from the cloned source:
-
-```bash
-# Clone the repository and enter it.
-git clone https://github.com/mentat-is/gulp.git && cd gulp
-# Create a virtual environment and install gULP from the local source.
-python3 -m venv .venv && source .venv/bin/activate && pip install -e .
-# Create the local configuration directory.
-mkdir -p ~/.config/gulp
-# Copy the configuration template on the first run.
-[ -f ~/.config/gulp/gulp_cfg.json ] || cp src/gulp/gulp_cfg_template.json ~/.config/gulp/gulp_cfg.json
-# Start OpenSearch, PostgreSQL, Redis, and MinIO.
-docker compose up -d
-# Install the UI dependencies from the local source.
-pnpm --dir gulpui-web install
-# Start the local backend in the background and the UI in the foreground.
-gulp & pnpm --dir gulpui-web start
-```
-
-Open [http://localhost:3000](http://localhost:3000), sign in with `admin/admin`, backend API reference is available at [http://localhost:8080/docs](http://localhost:8080/docs).
-
-> The default compose setup is an example for local evaluation and to be used as a base for more complex setups; see the [Docker guide](docs/install_docker.md) before production use.
-
-### install from pypi
-
-To run the released version instead of the cloned source, replace the local
-install with `mentat-gulp`. The first `gulp` run creates
-`~/.config/gulp/gulp_cfg.json` from its installed configuration template.
-
-```bash
-# Clone the repository for Docker Compose and the included UI.
-git clone https://github.com/mentat-is/gulp.git && cd gulp
-# Create a virtual environment and install the released backend from PyPI.
-python3 -m venv .venv && source .venv/bin/activate && pip install mentat-gulp
-# Start OpenSearch, PostgreSQL, Redis, and MinIO.
-docker compose up -d
-# Install the UI dependencies from the local source.
-pnpm --dir gulpui-web install
-# Start the PyPI backend in the background and the UI in the foreground.
-gulp & pnpm --dir gulpui-web start
-```
-
-See [development installation](docs/install_dev.md) for OS dependencies,
-configuration, and troubleshooting.
+Choose [PyPI installation](docs/installation.md#pypi-installation),
+[development installation](docs/installation.md#development-installation), or
+[Docker installation](docs/installation.md#docker-installation).
 
 ## web UI
 
-The browser UI lives in [`gulpui-web/`](gulpui-web/README.md). Its focused
-guides cover [installation](gulpui-web/docs/installation.md),
-[ingestion](gulpui-web/docs/ingestion.md), [workflow](gulpui-web/docs/flow.md),
-[features](gulpui-web/docs/features.md), and [views](gulpui-web/docs/view.md).
+The browser UI lives in `gulp-ui/`. Its [documentation](docs/webui.md)
+covers [development](docs/webui/install.md),
+[ingestion](docs/webui/ingestion.md), [workflow](docs/webui/flow.md),
+[features](docs/webui/features.md), and [views](docs/webui/view.md).
 
 Start by connecting to a backend and choosing an investigation operation.
 
-![gULP login](gulpui-web/docs/images/login.png)
+![gULP login](docs/webui/images/login.png)
 
 The timeline groups sources by context, lets analysts zoom into activity, and
 opens an event in place for investigation.
 
-![gULP timeline](gulpui-web/docs/images/timeline.png)
+![gULP timeline](docs/webui/images/timeline.png)
 
 Analysts can add collaboration notes directly to event details.
 
-![Event-detail notes](gulpui-web/docs/images/event-detail-notes.png)
+![Event-detail notes](docs/webui/images/event-detail-notes.png)
 
 Dashboards summarize event rate and source distribution while the timeline stays
 focused on the investigation.
 
-![gULP dashboard](gulpui-web/docs/images/dashboard-fixed.png)
+![gULP dashboard](docs/webui/images/dashboard-fixed.png)
 
 ## documentation
 
 - [Architecture](docs/architecture.md)
+- [Installation](docs/installation.md)
 - [Docker installation and services](docs/install_docker.md)
 - [Development installation](docs/install_dev.md)
-- [Web UI documentation](gulpui-web/README.md)
+- [Web UI documentation](docs/webui.md)
 - [Plugins and mappings](docs/plugins_and_mapping.md)
 - [Integration API and raw ingestion](docs/integration.md)
 - [Query behavior](docs/query.md)

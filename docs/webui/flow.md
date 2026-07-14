@@ -14,7 +14,7 @@ An operation is the investigation workspace. The operations page lets an analyst
 - inspect operation metadata, document count, permissions, contexts, and sources;
 - delete operations or sources when permitted.
 
-After an operation is selected, gulpui-web opens the operation route and checks
+After an operation is selected, gULP UI opens the operation route and checks
 whether sources are already selected or whether a saved session should be loaded.
 
 ## Operation Context

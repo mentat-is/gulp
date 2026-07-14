@@ -48,7 +48,7 @@ Core services used by the backend:
 - `gulp-cli/`: CLI built on top of the SDK
 - `gulp-paid-plugins/`: non-free plugins
 - `src/muty/`: built-in shared utility library
-- `gulpui-web/`: React + TypeScript web client
+- `gulp-ui/`: React + TypeScript web client
 
 ## Backend conventions
 
@@ -56,7 +56,7 @@ Core services used by the backend:
 
 ## Change Coordination Rules
 
-- If you change backend API behavior, also update `gulp-sdk/` and if necessary, `gulpui-web/`.
+- If you change backend API behavior, also update `gulp-sdk/` and if necessary, `gulp-ui/`.
 - If you update `gulp-sdk/`, also check whether `gulp-cli/` must change to stay aligned.
 - Reuse existing examples in the repo instead of inventing new file structure or test style.
 - For plugin work, prefer the documented reference plugins below.
@@ -79,7 +79,7 @@ To run the web client against the local backend:
 
 - backend: `http://localhost:8080`
 - UI: `http://localhost:3000`
-- start the UI from `gulpui-web/` with `pnpm start`
+- start the UI from `gulp-ui/` with `pnpm start`
 
 Start the backend first if it is not already running.
 
