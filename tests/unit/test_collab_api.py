@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from gulp.api.collab.structs import GulpCollabFilter
-from gulp.api.collab_api import GulpCollab
+from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.config import GulpConfig
 
 
@@ -152,6 +152,25 @@ async def test_collab_init_shuts_down_previous_engine_before_recreate(monkeypatc
     assert collab._engine is new_engine
     assert collab._collab_sessionmaker is session_factory
     assert collab._initialized is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_server_startup_aborts_on_collab_schema_mismatch(monkeypatch):
+    from gulp.api.server_api import GulpServer
+
+    collab = MagicMock()
+    collab.init = AsyncMock(side_effect=SchemaMismatch("missing table"))
+    server = GulpServer()
+
+    monkeypatch.setattr(GulpConfig, "get_instance", MagicMock())
+    monkeypatch.setattr(GulpCollab, "get_instance", lambda: collab)
+    monkeypatch.setattr(server, "_check_first_run", lambda: False)
+
+    with pytest.raises(SchemaMismatch, match="missing table"):
+        await anext(server._lifespan_handler(MagicMock()))
+
+    assert server._reset_collab is False
 
 
 @pytest.mark.unit

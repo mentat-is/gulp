@@ -34,7 +34,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.collab_api import GulpCollab, SchemaMismatch
+from gulp.api.collab_api import GulpCollab
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
 from gulp.api.s3_api import GulpS3
@@ -1251,15 +1251,8 @@ class GulpServer:
 
         first_run: bool = self._check_first_run()
 
-        # check for db integrity
-        try:
-            await GulpCollab.get_instance().init(main_process=True)
-        except SchemaMismatch as ex:
-            MutyLogger.get_instance().warning(
-                "collab database schema mismatch, forcing recreate!\n%s", ex
-            )
-            # force reset
-            self._reset_collab = True
+        # check for db integrity; schema mismatches must abort startup
+        await GulpCollab.get_instance().init(main_process=True)
 
         if first_run and not self._create_operation:
             # force creating a default operation on first run
