@@ -47,6 +47,7 @@ import { ingestWorkerManager } from "@/workers/IngestWorker.manager";
 import { translate } from "@/locales/core";
 import { WindowBridge } from "@/lib/WindowBridge";
 import { GulpIndexedDB } from "@/class/IndexedDB";
+import { sourceFieldResolver } from "@/class/SourceFieldCache";
 import { requestStore } from "@/store/request.store";
 import { TimelineScaleStore } from "@/store/TimelineScale.store";
 import { DataWorker } from "@/workers/DataWorker.class";
@@ -127,6 +128,7 @@ export namespace GulpDataset {
 			id: Source.Id;
 			glyph_id?: Glyph.Id;
 			doc_count: number;
+			time_updated?: number | string | null;
 			"max_event.code": number;
 			"min_event.code": number;
 			"min_gulp.timestamp": bigint | { source: string; parsedValue: number };
@@ -414,7 +416,6 @@ export class Info implements InfoProps {
 	private _ingestStatsDoneListenerId: string | null = null;
 	private _ingestSourceDoneFailureListenerId: string | null = null;
 	private _notifiedIngestFailures = new Set<Request.Id>();
-	private static _eventKeysCache = new Map<Source.Id, Filter.Options>();
 	private activeQueryStreams = new Map<Request.Id, QueryStreamState>();
 	private activeQuerySourceRequests = new Map<Source.Id, Request.Id>();
 	private refetchQueue: RefetchQueueItem[] = [];
@@ -3560,13 +3561,14 @@ export class Info implements InfoProps {
 		);
 	};
 
+	/**
+	 * Fetches source field metadata with persistent IndexedDB caching.
+	 * @param file Source whose indexed fields should be returned.
+	 * @returns Field metadata keyed by field name.
+	 */
 	event_keys = async (file: Source.Type): Promise<Filter.Options> => {
 		if (!file) {
 			return Internal.Transformator.toAsync({});
-		}
-
-		if (Info._eventKeysCache.has(file.id)) {
-			return Info._eventKeysCache.get(file.id)!;
 		}
 
 		if (Source.Entity.isVirtual(file)) {
@@ -3588,21 +3590,22 @@ export class Info implements InfoProps {
 					return acc;
 				}, {});
 
-			Info._eventKeysCache.set(file.id, result);
 			return result;
 		}
 
-		const result = await api<Filter.Options>("/query_fields_by_source", {
-			query: {
-				operation_id: file.operation_id,
-				context_id: file.context_id,
-				source_id: file.id,
-				ws_id: this.app.general.ws_id,
-			},
-		});
-
-		Info._eventKeysCache.set(file.id, result);
-		return result;
+		return sourceFieldResolver.getFields(
+			Internal.Settings.server,
+			file,
+			async (source) =>
+				(await api<Filter.Options>("/query_fields_by_source", {
+					query: {
+						operation_id: source.operation_id,
+						context_id: source.context_id,
+						source_id: source.id,
+						ws_id: this.app.general.ws_id,
+					},
+				})) ?? {},
+		);
 	};
 
 	/**
@@ -4876,7 +4879,8 @@ export class Info implements InfoProps {
 									type: "source",
 									owner_user_id: this.app.general.user?.id!,
 									time_created: Date.now(),
-									time_updated: Date.now(),
+									time_updated:
+										srcData.time_updated ?? existSrc?.time_updated ?? null,
 								} as Source.Type,
 								srcData,
 							);

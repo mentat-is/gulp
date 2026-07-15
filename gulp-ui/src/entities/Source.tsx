@@ -78,7 +78,7 @@ export namespace Source {
 		granted_user_ids: string[];
 		granted_user_group_ids: User.Id[];
 		time_created: number;
-		time_updated: number;
+		time_updated: number | string | null;
 		glyph_id: Glyph.Id;
 		name: string;
 		// Client-only params
