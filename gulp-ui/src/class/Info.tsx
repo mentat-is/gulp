@@ -48,11 +48,13 @@ import { translate } from "@/locales/core";
 import { WindowBridge } from "@/lib/WindowBridge";
 import { GulpIndexedDB } from "@/class/IndexedDB";
 import { requestStore } from "@/store/request.store";
+import { TimelineScaleStore } from "@/store/TimelineScale.store";
 import { DataWorker } from "@/workers/DataWorker.class";
 import type {
 	NormalizeQuerySourceSettings,
 	QueryRawDocument,
 } from "@/workers/DataWorker.types";
+import { ViewportQueryGate } from "@/class/ViewportQueryGate";
 
 export namespace GulpDataset {
 	export namespace GetAvailableLoginApi {
@@ -314,6 +316,8 @@ type QueryFileOptions = GulpDataset.QueryGulp.Options & {
 interface QueryStreamState {
 	requestId: Request.Id;
 	sourceIds: Source.Id[];
+	operationId: Operation.Id;
+	operationEpoch: number;
 	documentListenerId?: string;
 	collabListenerId?: string;
 	statsListenerId?: string;
@@ -321,6 +325,22 @@ interface QueryStreamState {
 	closed: boolean;
 	completedByStats: boolean;
 	flushChain: Promise<void>;
+}
+
+interface QueryGulpRequestBody {
+	flt: {
+		doc_ids: Doc.Id[];
+	};
+	q_options: {
+		limit: number;
+		fields?: string[];
+		preview_mode?: boolean;
+	};
+}
+
+interface QueryGulpResponse {
+	docs: Doc.Type[];
+	total_hits: number;
 }
 
 interface RefetchQueueItem {
@@ -376,7 +396,8 @@ const MAX_BACKGROUND_QUERY_CONCURRENCY = 1;
 const QUERY_DOC_WORKER_THRESHOLD = 1000;
 
 export class Info implements InfoProps {
-	app: App.Type;
+	private _app: App.Type;
+	private readonly timelineScaleStore: TimelineScaleStore;
 	setInfo: SetState<App.Type>;
 	timeline: React.RefObject<HTMLDivElement>;
 
@@ -400,67 +421,126 @@ export class Info implements InfoProps {
 	private refetchQueueSequence = 0;
 	private activeVisibleQueryCount = 0;
 	private activeBackgroundQueryCount = 0;
-	private visibleSourceIds = new Set<Source.Id>();
-	private visibleSourceOrder = new Map<Source.Id, number>();
-	private visibleSourceSignature = "";
-	private visibleSourceListeners = new Set<() => void>();
+	private viewportSourceIds = new Set<Source.Id>();
+	private viewportSourceOrder = new Map<Source.Id, number>();
+	private viewportSourceSignature = "";
+	private readonly viewportQueryGate = new ViewportQueryGate();
+	private viewportQueryPumpTimer: ReturnType<typeof setTimeout> | null = null;
+	private viewportSourceListeners = new Set<() => void>();
+	private timelineScaleCommandListeners = new Set<
+		(scale: number, origin?: object) => void
+	>();
 	private notesReloadSequence = 0;
+	private linksReloadSequence = 0;
+	private highlightsReloadSequence = 0;
+	private operationScopedSocketCleanups = new Set<() => void>();
 
 	constructor({ app, setInfo, timeline }: InfoProps) {
-		this.app = app;
+		this._app = app;
+		this.timelineScaleStore = new TimelineScaleStore(app.timeline.scale);
 		this.setInfo = setInfo;
 		this.timeline = timeline;
 		Info._latestInstance = this;
 	}
 
 	/**
-	 * Stores the source ids currently rendered by the Canvas source set.
+	 * Returns the application state currently owned by this Info instance.
+	 * @returns Current application state.
+	 */
+	get app(): App.Type {
+		return this._app;
+	}
+
+	/**
+	 * Replaces the application state reference and tracks its canonical scale.
+	 * Synchronization intentionally does not emit because providers assign during render.
+	 * @param app Latest React application state.
+	 */
+	set app(app: App.Type) {
+		const incomingScale = this.timelineScaleStore.reconcileReactSnapshot(
+			app.timeline.scale,
+		);
+		if (incomingScale !== app.timeline.scale) {
+			app.timeline = { ...app.timeline, scale: incomingScale };
+		}
+		this._app = app;
+	}
+
+	/**
+	 * Stores the source IDs intersecting the current Canvas viewport and overscan.
+	 * Query work waits briefly after a changed row set so sources crossed during a
+	 * continuous vertical scroll remain queued instead of starting network requests.
 	 * @param sourceIds Source ids ordered by their Canvas row position.
 	 * @returns Nothing.
 	 */
-	setVisibleSourceIds = (sourceIds: Source.Id[]): void => {
+	setViewportSourceIds = (sourceIds: Source.Id[]): void => {
 		const signature = sourceIds.join("|");
-		if (signature === this.visibleSourceSignature) return;
+		if (signature === this.viewportSourceSignature) return;
 
-		this.visibleSourceSignature = signature;
-		this.visibleSourceIds = new Set(sourceIds);
-		this.visibleSourceOrder = new Map(
+		this.viewportSourceSignature = signature;
+		this.viewportSourceIds = new Set(sourceIds);
+		this.viewportSourceOrder = new Map(
 			sourceIds.map((sourceId, index) => [sourceId, index]),
 		);
-		this.notifyVisibleSourceListeners();
+		this.viewportQueryGate.markViewportChanged();
+		this.reclassifyActiveQueryPriorities();
+		this.notifyViewportSourceListeners();
 		this.pumpRefetchQueue();
 	};
 
 	/**
-	 * Subscribes to Canvas-rendered source changes.
+	 * Subscribes to viewport source changes.
 	 * @param listener Callback invoked when the Canvas reports a new rendered source set.
 	 * @returns Function that removes the listener.
 	 */
-	subscribeVisibleSourceIds = (listener: () => void): (() => void) => {
-		this.visibleSourceListeners.add(listener);
+	subscribeViewportSourceIds = (listener: () => void): (() => void) => {
+		this.viewportSourceListeners.add(listener);
 		return () => {
-			this.visibleSourceListeners.delete(listener);
+			this.viewportSourceListeners.delete(listener);
 		};
 	};
 
 	/**
-	 * Returns the stable signature for the current Canvas-rendered source IDs.
+	 * Returns the stable signature for the current viewport source IDs.
 	 * @returns Pipe-delimited source ID signature for use with external-store subscriptions.
 	 */
-	getVisibleSourceSignature = (): string => this.visibleSourceSignature;
+	getViewportSourceSignature = (): string => this.viewportSourceSignature;
 
 	/**
-	 * Returns the current Canvas-rendered source IDs.
+	 * Returns the current viewport source IDs.
 	 * @returns New set containing the source IDs most recently reported by the Canvas.
 	 */
-	getVisibleSourceIds = (): Set<Source.Id> => new Set(this.visibleSourceIds);
+	getViewportSourceIds = (): Set<Source.Id> => new Set(this.viewportSourceIds);
 
 	/**
-	 * Notifies subscribers that the Canvas-rendered source set changed.
+	 * Notifies subscribers that the Canvas viewport source set changed.
 	 * @returns Nothing.
 	 */
-	private notifyVisibleSourceListeners = (): void => {
-		this.visibleSourceListeners.forEach((listener) => listener());
+	private notifyViewportSourceListeners = (): void => {
+		this.viewportSourceListeners.forEach((listener) => listener());
+	};
+
+	/**
+	 * Reclassifies active streams after a vertical viewport change without cancelling downloads.
+	 * @returns Nothing.
+	 */
+	private reclassifyActiveQueryPriorities = (): void => {
+		this.activeVisibleQueryCount = 0;
+		this.activeBackgroundQueryCount = 0;
+
+		this.activeQueryStreams.forEach((stream) => {
+			if (!stream.queuePriority || stream.closed) return;
+			stream.queuePriority = stream.sourceIds.some((sourceId) =>
+				this.isQueuedSourceVisible(sourceId),
+			)
+				? "visible"
+				: "background";
+			if (stream.queuePriority === "visible") {
+				this.activeVisibleQueryCount++;
+			} else {
+				this.activeBackgroundQueryCount++;
+			}
+		});
 	};
 
 	/**
@@ -529,10 +609,13 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Starts queued refetches, giving visible Canvas rows priority over hidden rows.
+	 * Starts queued refetches after the current viewport row set has stabilized,
+	 * giving settled visible rows priority over hidden rows.
 	 * @returns Nothing.
 	 */
 	private pumpRefetchQueue = (): void => {
+		if (this.deferQueryPumpForUnsettledViewport()) return;
+
 		while (this.activeVisibleQueryCount < MAX_VISIBLE_QUERY_CONCURRENCY) {
 			const visibleIndex = this.findNextQueuedSourceIndex(true);
 			if (visibleIndex === -1) break;
@@ -553,6 +636,42 @@ export class Info implements InfoProps {
 	};
 
 	/**
+	 * Defers queued retrieval while a visible source set is still changing.
+	 * Background work is also held during this short window so it cannot occupy the
+	 * slot before the user's final viewport selection becomes eligible.
+	 * @returns True when a trailing query-pump timer owns the next queue attempt.
+	 */
+	private deferQueryPumpForUnsettledViewport = (): boolean => {
+		if (!this.hasVisibleQueuedSource()) {
+			this.clearViewportQueryPumpTimer();
+			return false;
+		}
+
+		const remainingDelay = this.viewportQueryGate.getRemainingDelay();
+		if (remainingDelay <= 0) {
+			this.clearViewportQueryPumpTimer();
+			return false;
+		}
+
+		this.clearViewportQueryPumpTimer();
+		this.viewportQueryPumpTimer = setTimeout(() => {
+			this.viewportQueryPumpTimer = null;
+			this.pumpRefetchQueue();
+		}, Math.max(1, Math.ceil(remainingDelay)));
+		return true;
+	};
+
+	/**
+	 * Cancels the pending trailing viewport query-pump attempt, if one exists.
+	 * @returns Nothing.
+	 */
+	private clearViewportQueryPumpTimer = (): void => {
+		if (this.viewportQueryPumpTimer === null) return;
+		clearTimeout(this.viewportQueryPumpTimer);
+		this.viewportQueryPumpTimer = null;
+	};
+
+	/**
 	 * Finds the next queued source index for either visible or hidden work.
 	 * @param visible Whether to search visible rows or hidden/background rows.
 	 * @returns Queue index, or -1 when no matching item is waiting.
@@ -567,7 +686,7 @@ export class Info implements InfoProps {
 			const isVisible = this.isQueuedSourceVisible(item.sourceId);
 			if (isVisible !== visible) continue;
 
-			const order = this.visibleSourceOrder.get(item.sourceId) ?? item.sequence;
+			const order = this.viewportSourceOrder.get(item.sourceId) ?? item.sequence;
 			if (order < bestOrder || (order === bestOrder && item.sequence < bestSequence)) {
 				bestIndex = index;
 				bestOrder = order;
@@ -591,7 +710,7 @@ export class Info implements InfoProps {
 	 * @returns True when the Canvas has not reported visibility yet or the source is visible.
 	 */
 	private isQueuedSourceVisible = (sourceId: Source.Id): boolean =>
-		this.visibleSourceIds.size === 0 || this.visibleSourceIds.has(sourceId);
+		this.viewportSourceIds.size === 0 || this.viewportSourceIds.has(sourceId);
 
 	/**
 	 * Runs a queued source query and lets the stream lifecycle release concurrency.
@@ -643,17 +762,23 @@ export class Info implements InfoProps {
 	 * chunks can be accepted without depending on request loading state.
 	 * @param requestId Backend request id used by websocket chunks.
 	 * @param sourceIds Source ids affected by this stream.
+	 * @param operationId Operation that owns the backend request.
+	 * @param operationEpoch Datastore generation captured for the request.
 	 * @param queuePriority Optional queue priority used for concurrency release.
 	 * @returns Mutable stream state stored until final chunk or cancellation.
 	 */
 	private registerQueryStream = (
 		requestId: Request.Id,
 		sourceIds: Source.Id[],
+		operationId: Operation.Id,
+		operationEpoch: number,
 		queuePriority?: ViewportQueryPriority,
 	): QueryStreamState => {
 		const stream: QueryStreamState = {
 			requestId,
 			sourceIds,
+			operationId,
+			operationEpoch,
 			queuePriority,
 			closed: false,
 			completedByStats: false,
@@ -666,6 +791,69 @@ export class Info implements InfoProps {
 		});
 
 		return stream;
+	};
+
+	/**
+	 * Checks whether queued work still belongs to the currently selected operation.
+	 * @param operationEpoch Datastore generation captured before asynchronous work began.
+	 * @param operationId Operation identifier captured with the request.
+	 * @returns True only while both the generation and selected operation still match.
+	 */
+	private isOperationContextCurrent = (
+		operationEpoch: number,
+		operationId: Operation.Id,
+	): boolean =>
+		DataStore.getRenderOperationEpoch() === operationEpoch &&
+		(DataStore.getRenderOperationId() ??
+			Operation.Entity.selected(this.app)?.id) === operationId;
+
+	/**
+	 * Checks whether a query stream is still registered for the active operation.
+	 * @param stream Stream state captured by an asynchronous callback.
+	 * @returns True while the stream is open, registered, and operation-current.
+	 */
+	private isQueryStreamCurrent = (stream: QueryStreamState): boolean =>
+		!stream.closed &&
+		this.activeQueryStreams.get(stream.requestId) === stream &&
+		this.isOperationContextCurrent(stream.operationEpoch, stream.operationId);
+
+	/**
+	 * Tracks a websocket cleanup that must run synchronously on operation switches.
+	 * @param cleanup Function that unregisters every listener for one request.
+	 * @returns Idempotent cleanup wrapper that also releases its registry entry.
+	 */
+	private trackOperationSocketCleanup = (cleanup: () => void): (() => void) => {
+		let isReleased = false;
+		const release = (): void => {
+			if (isReleased) return;
+			isReleased = true;
+			this.operationScopedSocketCleanups.delete(release);
+			cleanup();
+		};
+		this.operationScopedSocketCleanups.add(release);
+		return release;
+	};
+
+	/**
+	 * Invalidates queued queries and websocket listeners before changing operations.
+	 * @returns Nothing.
+	 */
+	private invalidateOperationStreams = (): void => {
+		this._clear_ingest_source_done_listeners();
+		this.clearViewportQueryPumpTimer();
+		this.refetchQueue = [];
+		this.activeVisibleQueryCount = 0;
+		this.activeBackgroundQueryCount = 0;
+
+		Array.from(this.activeQueryStreams.values()).forEach((stream) => {
+			stream.queuePriority = undefined;
+			void this.closeQueryStream(stream.requestId, { cancelBackend: true });
+		});
+		this.activeQuerySourceRequests.clear();
+
+		const cleanups = Array.from(this.operationScopedSocketCleanups);
+		this.operationScopedSocketCleanups.clear();
+		cleanups.forEach((cleanup) => cleanup());
 	};
 
 	/**
@@ -853,6 +1041,13 @@ export class Info implements InfoProps {
 		while (!stream.closed && this.hasVisibleQueuedSource()) {
 			this.pumpRefetchQueue();
 			await new Promise((resolve) => setTimeout(resolve, 16));
+		}
+		if (
+			!stream.closed &&
+			stream.queuePriority === "background" &&
+			this.activeVisibleQueryCount > 0
+		) {
+			await new Promise((resolve) => setTimeout(resolve, 32));
 		}
 	};
 
@@ -1074,6 +1269,8 @@ export class Info implements InfoProps {
 		isShowOnlyEnriched: boolean,
 		fields: Record<string, string | null>,
 	): Promise<boolean> => {
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		const operationId = file.operation_id;
 		const response = await api<undefined>("/enrich_documents", {
 			method: "POST",
 			query: {
@@ -1108,7 +1305,10 @@ export class Info implements InfoProps {
 			},
 		});
 
-		if (!response?.req_id) {
+		if (
+			!response?.req_id ||
+			!this.isOperationContextCurrent(operationEpoch, operationId)
+		) {
 			return false;
 		}
 
@@ -1121,13 +1321,23 @@ export class Info implements InfoProps {
 		let lastFlushTime = 0;
 		let flushChain: Promise<void> = Promise.resolve();
 		const FLUSH_INTERVAL_MS = 300;
+		let documentsComplete = false;
+		let enrichmentComplete = false;
+		let releaseSocketListeners = (): void => undefined;
+		const releaseCompletedListeners = (): void => {
+			if (documentsComplete && enrichmentComplete) {
+				releaseSocketListeners();
+			}
+		};
 
 		const sid = SmartSocket.Class.instance.con(
 			SmartSocket.Message.Type.DOCUMENTS_CHUNK,
 			(m) =>
 				m.req_id === req_id &&
-				requestStore.hasLoadingForRequest(req_id),
+				requestStore.hasLoadingForRequest(req_id) &&
+				this.isOperationContextCurrent(operationEpoch, operationId),
 			(m) => {
+				if (!this.isOperationContextCurrent(operationEpoch, operationId)) return;
 				const events = Doc.Entity.normalize(
 					m.payload.docs ?? [],
 					file.settings.field,
@@ -1140,23 +1350,35 @@ export class Info implements InfoProps {
 				) {
 					const toFlush = bufferedEvents.splice(0);
 					lastFlushTime = Date.now();
-					flushChain = flushChain.then(() => this.events_add_async(toFlush));
+					flushChain = flushChain.then(async () => {
+						if (!this.isOperationContextCurrent(operationEpoch, operationId)) {
+							return;
+						}
+						await this.events_add_async(toFlush, operationEpoch);
+					});
 				}
 				if (m.payload.last) {
 					flushChain.then(() => {
-						this.delLoading(req_id);
+						if (this.isOperationContextCurrent(operationEpoch, operationId)) {
+							this.delLoading(req_id);
+						}
 						SmartSocket.Class.instance.coff(
 							SmartSocket.Message.Type.DOCUMENTS_CHUNK,
 							sid,
 						);
+						documentsComplete = true;
+						releaseCompletedListeners();
 					});
 				}
 			},
 		);
-		SmartSocket.Class.instance.conce(
+		const enrichmentDoneListenerId = SmartSocket.Class.instance.conce(
 			SmartSocket.Message.Type.ENRICH_DONE,
-			(m) => m.req_id === req_id,
+			(m) =>
+				m.req_id === req_id &&
+				this.isOperationContextCurrent(operationEpoch, operationId),
 			(m) => {
+				if (!this.isOperationContextCurrent(operationEpoch, operationId)) return;
 				if (m.payload.obj.status !== "done") {
 					const reason = m.payload.obj.data?.__error?.msg;
 					toast.error(translate("enrichment.failed"), {
@@ -1175,8 +1397,20 @@ export class Info implements InfoProps {
 						icon: <Icon name="Check" />,
 					});
 				}
+				enrichmentComplete = true;
+				releaseCompletedListeners();
 			},
 		);
+		releaseSocketListeners = this.trackOperationSocketCleanup(() => {
+			SmartSocket.Class.instance.coff(
+				SmartSocket.Message.Type.DOCUMENTS_CHUNK,
+				sid,
+			);
+			SmartSocket.Class.instance.coff(
+				SmartSocket.Message.Type.ENRICH_DONE,
+				enrichmentDoneListenerId,
+			);
+		});
 
 		return true;
 	};
@@ -1358,21 +1592,19 @@ export class Info implements InfoProps {
 	 */
 	private _clear_ingest_source_done_listeners = (): void => {
 		const socket = SmartSocket.Class.instance;
-		if (!socket) return;
-
-		if (this._ingestSourceDoneCleanupListenerId) {
+		if (socket && this._ingestSourceDoneCleanupListenerId) {
 			socket.coff(
 				SmartSocket.Message.Type.INGEST_SOURCE_DONE,
 				this._ingestSourceDoneCleanupListenerId,
 			);
 		}
-		if (this._ingestStatsDoneListenerId) {
+		if (socket && this._ingestStatsDoneListenerId) {
 			socket.coff(
 				SmartSocket.Message.Type.STATS_UPDATE,
 				this._ingestStatsDoneListenerId,
 			);
 		}
-		if (this._ingestSourceDoneFailureListenerId) {
+		if (socket && this._ingestSourceDoneFailureListenerId) {
 			socket.coff(
 				SmartSocket.Message.Type.INGEST_SOURCE_DONE,
 				this._ingestSourceDoneFailureListenerId,
@@ -1382,6 +1614,7 @@ export class Info implements InfoProps {
 		this._ingestSourceDoneCleanupListenerId = null;
 		this._ingestStatsDoneListenerId = null;
 		this._ingestSourceDoneFailureListenerId = null;
+		this._ingestSourceDoneOperationId = null;
 	};
 
 	/**
@@ -1641,13 +1874,28 @@ export class Info implements InfoProps {
 		return file.id;
 	};
 
-	query_gulp = async (docIds: Doc.Id[], fields: string[], preview: boolean) => {
+	/**
+	 * Queries canonical documents by identifier and streams non-preview results safely.
+	 * @param docIds Document identifiers requested from the selected operation.
+	 * @param fields Optional source fields to include in the response.
+	 * @param preview Whether the backend should return a preview response without ingestion.
+	 * @returns Query response data, or an empty result when the backend returns no payload.
+	 */
+	query_gulp = async (
+		docIds: Doc.Id[],
+		fields: string[],
+		preview: boolean,
+	): Promise<QueryGulpResponse> => {
 		const operation = Operation.Entity.selected(this.app);
 		if (!operation) {
-			return;
+			return {
+				docs: [],
+				total_hits: 0,
+			};
 		}
+		const operationEpoch = DataStore.getRenderOperationEpoch();
 
-		const body: Record<any, any> = {
+		const body: QueryGulpRequestBody = {
 			flt: {
 				doc_ids: docIds,
 			},
@@ -1670,7 +1918,7 @@ export class Info implements InfoProps {
 			req_id: generateUUID(Request.Prefix.QUERY),
 		};
 
-		const resp = await api<any>(
+		const resp = await api<QueryGulpResponse>(
 			"/query_gulp",
 			{
 				method: "POST",
@@ -1679,7 +1927,10 @@ export class Info implements InfoProps {
 				raw: true,
 			},
 			({ req_id, status }) => {
-				if (status !== "pending") {
+				if (
+					status !== "pending" ||
+					!this.isOperationContextCurrent(operationEpoch, operation.id)
+				) {
 					return;
 				}
 
@@ -1687,13 +1938,18 @@ export class Info implements InfoProps {
 				let lastFlushTime = 0;
 				let flushChain: Promise<void> = Promise.resolve();
 				const FLUSH_INTERVAL_MS = 300;
+				let releaseSocketListeners = (): void => undefined;
 
 				const sid = SmartSocket.Class.instance.con(
 					SmartSocket.Message.Type.DOCUMENTS_CHUNK,
 					(m) =>
 						m.req_id === req_id &&
-						requestStore.hasLoadingForRequest(req_id),
+						requestStore.hasLoadingForRequest(req_id) &&
+						this.isOperationContextCurrent(operationEpoch, operation.id),
 					(m) => {
+						if (!this.isOperationContextCurrent(operationEpoch, operation.id)) {
+							return;
+						}
 						const events = Doc.Entity.normalize(
 							m.payload.docs ?? [],
 							"gulp.event_code",
@@ -1707,25 +1963,33 @@ export class Info implements InfoProps {
 						) {
 							const toFlush = bufferedEvents.splice(0);
 							lastFlushTime = Date.now();
-							flushChain = flushChain.then(() =>
-								this.events_add_async(toFlush),
-							);
+							flushChain = flushChain.then(async () => {
+								if (
+									!this.isOperationContextCurrent(operationEpoch, operation.id)
+								) {
+									return;
+								}
+								await this.events_add_async(toFlush, operationEpoch);
+							});
 						}
 
 						if (m.payload.last) {
 							flushChain.then(() => {
-								this.delLoading(req_id);
-								SmartSocket.Class.instance.coff(
-									SmartSocket.Message.Type.DOCUMENTS_CHUNK,
-									sid,
-								);
+								if (
+									this.isOperationContextCurrent(operationEpoch, operation.id)
+								) {
+									this.delLoading(req_id);
+								}
+								releaseSocketListeners();
 							});
 						}
 					},
 				);
-				SmartSocket.Class.instance.conce(
+				const statsListenerId = SmartSocket.Class.instance.conce(
 					SmartSocket.Message.Type.STATS_UPDATE,
-					(m) => m.req_id === req_id,
+					(m) =>
+						m.req_id === req_id &&
+						this.isOperationContextCurrent(operationEpoch, operation.id),
 					(m) => {
 						// if (m.payload.obj.status !== 'done') {
 						//   toast.error(`Query ${req_id} failed`, {
@@ -1745,6 +2009,16 @@ export class Info implements InfoProps {
 						// }
 					},
 				);
+				releaseSocketListeners = this.trackOperationSocketCleanup(() => {
+					SmartSocket.Class.instance.coff(
+						SmartSocket.Message.Type.DOCUMENTS_CHUNK,
+						sid,
+					);
+					SmartSocket.Class.instance.coff(
+						SmartSocket.Message.Type.STATS_UPDATE,
+						statsListenerId,
+					);
+				});
 			},
 		);
 
@@ -1797,6 +2071,7 @@ export class Info implements InfoProps {
 				total_hits: 0,
 			};
 		}
+		const operationEpoch = DataStore.getRenderOperationEpoch();
 
 		const sourceIds = id ? (Parser.array(id) as Source.Id[]) : [];
 
@@ -1844,8 +2119,22 @@ export class Info implements InfoProps {
 				body.q_options.name = name;
 			}
 
+			if (!this.isOperationContextCurrent(operationEpoch, operation.id)) {
+				this.finishQueuedQuery(queuePriority);
+				return {
+					docs: [],
+					total_hits: 0,
+				};
+			}
+
 			if (!preview) {
-				stream = this.registerQueryStream(req_id, sourceIds, queuePriority);
+				stream = this.registerQueryStream(
+					req_id,
+					sourceIds,
+					operation.id,
+					operationEpoch,
+					queuePriority,
+				);
 			}
 
 			if (sourceIds.length > 0) {
@@ -1858,24 +2147,24 @@ export class Info implements InfoProps {
 				const FLUSH_INTERVAL_MS = 300;
 
 				const flushBufferedDocs = () => {
-					if (!stream || stream.closed || bufferedDocs.length === 0) return;
+					if (
+						!stream ||
+						!this.isQueryStreamCurrent(stream) ||
+						bufferedDocs.length === 0
+					) {
+						return;
+					}
 					const toFlush = bufferedDocs.splice(0);
 					lastFlushTime = Date.now();
 					const activeStream = stream;
 
 					activeStream.flushChain = activeStream.flushChain.then(async () => {
-						if (
-							activeStream.closed ||
-							this.activeQueryStreams.get(req_id) !== activeStream
-						) {
+						if (!this.isQueryStreamCurrent(activeStream)) {
 							return;
 						}
 
 						await this.waitForVisibleQueueBeforeBackgroundBatch(activeStream);
-						if (
-							activeStream.closed ||
-							this.activeQueryStreams.get(req_id) !== activeStream
-						) {
+						if (!this.isQueryStreamCurrent(activeStream)) {
 							return;
 						}
 
@@ -1883,14 +2172,14 @@ export class Info implements InfoProps {
 							toFlush,
 							activeStream.sourceIds,
 						);
-						if (
-							activeStream.closed ||
-							this.activeQueryStreams.get(req_id) !== activeStream
-						) {
+						if (!this.isQueryStreamCurrent(activeStream)) {
 							return;
 						}
 
-						await this.events_add_prepared_async(batches);
+						await this.events_add_prepared_async(
+							batches,
+							activeStream.operationEpoch,
+						);
 					});
 				};
 
@@ -1898,10 +2187,9 @@ export class Info implements InfoProps {
 					SmartSocket.Message.Type.DOCUMENTS_CHUNK,
 					(m) =>
 						m.req_id === req_id &&
-						this.activeQueryStreams.get(req_id) === stream &&
-						!stream.closed,
+						Boolean(stream && this.isQueryStreamCurrent(stream)),
 					(m) => {
-						if (!stream || stream.closed) return;
+						if (!stream || !this.isQueryStreamCurrent(stream)) return;
 
 						bufferedDocs.push(
 							...((m.payload.docs ?? []) as unknown as QueryRawDocument[]),
@@ -1917,10 +2205,7 @@ export class Info implements InfoProps {
 						if (m.payload.last) {
 							const finalStream = stream;
 							finalStream.flushChain.then(async () => {
-								if (
-									this.activeQueryStreams.get(req_id) !== finalStream ||
-									finalStream.closed
-								) {
+								if (!this.isQueryStreamCurrent(finalStream)) {
 									return;
 								}
 
@@ -1934,7 +2219,9 @@ export class Info implements InfoProps {
 
 				stream.statsListenerId = SmartSocket.Class.instance.conce(
 					SmartSocket.Message.Type.STATS_UPDATE,
-					(m) => m.req_id === req_id,
+					(m) =>
+						m.req_id === req_id &&
+						Boolean(stream && this.isQueryStreamCurrent(stream)),
 					(m) => {
 						if (stream) {
 							stream.completedByStats = true;
@@ -1946,8 +2233,11 @@ export class Info implements InfoProps {
 			if (stream && create_notes) {
 				stream.collabListenerId = SmartSocket.Class.instance.con(
 					SmartSocket.Message.Type.COLLAB_CREATE,
-					(m) => m.req_id === req_id,
+					(m) =>
+						m.req_id === req_id &&
+						Boolean(stream && this.isQueryStreamCurrent(stream)),
 					(m) => {
+						if (!stream || !this.isQueryStreamCurrent(stream)) return;
 						if (Array.isArray(m.payload.obj) && m.payload.obj.length > 0) {
 							const newItems = m.payload.obj.filter(
 								(item: any) => item.type === "note",
@@ -2424,7 +2714,12 @@ export class Info implements InfoProps {
 		this.render();
 	};
 
-	filters_undo = (files: Array<Source.Type | Source.Id>) => {
+	/**
+	 * Restores cached filters and source documents through observable datastore mutations.
+	 * @param files Sources whose cached filter result should be restored.
+	 * @returns Nothing.
+	 */
+	filters_undo = (files: Array<Source.Type | Source.Id>): void => {
 		files.forEach((file) => {
 			const id = Parser.useUUID(file) as Source.Id;
 
@@ -2433,11 +2728,8 @@ export class Info implements InfoProps {
 				[id]: this.app.timeline.cache.filters[id],
 			};
 
-			this.app.target.events.delete(id);
-			this.app.target.events.set(
-				id,
-				this.app.timeline.cache.data.get(id) || [],
-			);
+			Doc.Entity.add(this.app, this.app.timeline.cache.data.get(id) || []);
+			RenderEngine.resetSource(id);
 
 			this.filters_delete_cache(file);
 		});
@@ -2561,16 +2853,24 @@ export class Info implements InfoProps {
 	 *
 	 * PERFORMANCE: Uses batchUpdate to consolidate all state changes into a single
 	 * React setState call, preventing 8+ intermediate re-renders.
+	 * @param id Operation identifier to select.
+	 * @returns Nothing.
 	 */
-	operations_select = (id: Operation.Id) => {
+	operations_select = (id: Operation.Id): void => {
 		// External cache cleanup (not part of React state)
+		this.invalidateOperationStreams();
+		this.notesReloadSequence++;
+		this.linksReloadSequence++;
+		this.highlightsReloadSequence++;
 		RenderEngine.clearAllCaches();
 		Note.Entity.invalidateCache();
 		Doc.Entity.clearIndex();
+		DataStore.resetRenderOperation(id);
 
 		// Reset viewport to default position (like first render)
 		scrollStore.setScrollX(0);
 		scrollStore.setScrollY(-26);
+		this.synchronizeTimelineScaleFromState(1);
 
 		// Single batched state update instead of 8 separate setInfoByKey calls
 		this.batchUpdate((draft) => {
@@ -2584,9 +2884,10 @@ export class Info implements InfoProps {
 			draft.target.events.clear();
 			draft.target.events = new Map(draft.target.events);
 
-			// Clear notes and links
+			// Clear operation-scoped overlays.
 			draft.target.notes = [];
 			draft.target.links = [];
+			draft.target.highlights = [];
 
 			// Select operation, deselect contexts and files
 			draft.target.operations = Operation.Entity.select(draft, id);
@@ -2804,11 +3105,24 @@ export class Info implements InfoProps {
 	/**
 	 * Registers listeners for incoming source entities generated by the server.
 	 * Supports asynchronous source registration during ingest.
+	 * @param id Ingestion request identifier.
+	 * @param operationId Operation that owns the ingestion.
+	 * @param operationEpoch Datastore generation captured when ingestion started.
+	 * @param filename Optional uploaded filename used to match source messages.
+	 * @returns Listener identifier used by the streaming cleanup.
 	 */
-	private _register_source_listeners = (id: Request.Id, filename?: string) => {
+	private _register_source_listeners = (
+		id: Request.Id,
+		operationId: Operation.Id,
+		operationEpoch: number,
+		filename?: string,
+	): string => {
 		return SmartSocket.Class.instance.con(
 			SmartSocket.Message.Type.COLLAB_CREATE,
 			(m) => {
+				if (!this.isOperationContextCurrent(operationEpoch, operationId)) {
+					return false;
+				}
 				if (m.payload.obj.type !== "source") return false;
 				if (m.req_id === id) return true;
 				if (filename) {
@@ -2822,28 +3136,43 @@ export class Info implements InfoProps {
 				}
 				return false;
 			},
-			(m) => this.setLoading(m.req_id || id, m.payload.obj.id as Source.Id),
+			(m) => {
+				if (this.isOperationContextCurrent(operationEpoch, operationId)) {
+					this.setLoading(m.req_id || id, m.payload.obj.id as Source.Id);
+				}
+			},
 		);
 	};
 
 	/**
 	 * Registers streaming event listeners for real-time document ingestion.
 	 * [Tech-Note] Uses promise-chaining to ensure ordered event insertion.
+	 * @param id Ingestion request identifier.
+	 * @param sidSource Source-creation listener identifier.
+	 * @param operationId Operation that owns the ingestion.
+	 * @param operationEpoch Datastore generation captured when ingestion started.
+	 * @returns Nothing.
 	 */
 	private _register_streaming_listeners = (
 		id: Request.Id,
 		sidSource: string,
-	) => {
+		operationId: Operation.Id,
+		operationEpoch: number,
+	): void => {
 		const bufferedEvents: Doc.Type[] = [];
 		let accumulatedCount = 0;
 		let lastFlushTime = 0;
 		let flushChain: Promise<void> = Promise.resolve();
 		const FLUSH_INTERVAL_MS = 300;
+		let releaseSocketListeners = (): void => undefined;
 
 		const sid = SmartSocket.Class.instance.con(
 			SmartSocket.Message.Type.DOCUMENTS_CHUNK,
-			(m) => m.req_id === id,
+			(m) =>
+				m.req_id === id &&
+				this.isOperationContextCurrent(operationEpoch, operationId),
 			(m) => {
+				if (!this.isOperationContextCurrent(operationEpoch, operationId)) return;
 				const fileId = ((m.payload.docs as any)[0]?.["gulp.source_id"] ||
 					(m.payload as any).source_id ||
 					(m.payload as any).gulp_source_id) as Source.Id;
@@ -2868,11 +3197,19 @@ export class Info implements InfoProps {
 				) {
 					const toFlush = bufferedEvents.splice(0);
 					lastFlushTime = Date.now();
-					flushChain = flushChain.then(() => this.events_add_async(toFlush));
+					flushChain = flushChain.then(async () => {
+						if (!this.isOperationContextCurrent(operationEpoch, operationId)) {
+							return;
+						}
+						await this.events_add_async(toFlush, operationEpoch);
+					});
 				}
 
 				if (m.payload.last) {
 					flushChain.then(() => {
+						if (!this.isOperationContextCurrent(operationEpoch, operationId)) {
+							return;
+						}
 						const finalFileId = fileId;
 						const all = Source.Entity.events(this.app, finalFileId);
 
@@ -2929,24 +3266,34 @@ export class Info implements InfoProps {
 			},
 		);
 
-		SmartSocket.Class.instance.conce(
+		const statsListenerId = SmartSocket.Class.instance.conce(
 			SmartSocket.Message.Type.STATS_UPDATE,
 			(m) =>
 				m.req_id === id &&
 				m.payload?.obj?.req_type === "ingest" &&
-				m.payload?.obj?.status === "done",
+				m.payload?.obj?.status === "done" &&
+				this.isOperationContextCurrent(operationEpoch, operationId),
 			() => {
-				SmartSocket.Class.instance.coff(
-					SmartSocket.Message.Type.DOCUMENTS_CHUNK,
-					sid,
-				);
-				SmartSocket.Class.instance.coff(
-					SmartSocket.Message.Type.COLLAB_CREATE,
-					sidSource,
-				);
-				this.delLoading(id);
+				if (this.isOperationContextCurrent(operationEpoch, operationId)) {
+					this.delLoading(id);
+				}
+				releaseSocketListeners();
 			},
 		);
+		releaseSocketListeners = this.trackOperationSocketCleanup(() => {
+			SmartSocket.Class.instance.coff(
+				SmartSocket.Message.Type.DOCUMENTS_CHUNK,
+				sid,
+			);
+			SmartSocket.Class.instance.coff(
+				SmartSocket.Message.Type.COLLAB_CREATE,
+				sidSource,
+			);
+			SmartSocket.Class.instance.coff(
+				SmartSocket.Message.Type.STATS_UPDATE,
+				statsListenerId,
+			);
+		});
 	};
 
 	/**
@@ -2968,6 +3315,7 @@ export class Info implements InfoProps {
 	}) => {
 		const operation = Operation.Entity.selected(this.app);
 		if (!operation) return;
+		const operationEpoch = DataStore.getRenderOperationEpoch();
 
 		this._register_ingest_source_done_listeners(operation.id);
 
@@ -2992,8 +3340,18 @@ export class Info implements InfoProps {
 			...callbacks,
 		});
 
-		const sidSource = this._register_source_listeners(id, file.name);
-		this._register_streaming_listeners(id, sidSource);
+		const sidSource = this._register_source_listeners(
+			id,
+			operation.id,
+			operationEpoch,
+			file.name,
+		);
+		this._register_streaming_listeners(
+			id,
+			sidSource,
+			operation.id,
+			operationEpoch,
+		);
 	};
 
 	/**
@@ -3175,19 +3533,31 @@ export class Info implements InfoProps {
 	/**
 	 * Adds normalized events asynchronously to the document store.
 	 * @param newEvents Normalized documents to add.
+	 * @param expectedOperationEpoch Operation generation that owns the queued batch.
 	 * @returns Promise that resolves when insertion completes.
 	 */
-	events_add_async = async (newEvents: Doc.Type[]) => {
-		await Doc.Entity.addAsync(this.app, newEvents);
+	events_add_async = async (
+		newEvents: Doc.Type[],
+		expectedOperationEpoch = DataStore.getRenderOperationEpoch(),
+	): Promise<void> => {
+		await Doc.Entity.addAsync(this.app, newEvents, expectedOperationEpoch);
 	};
 
 	/**
 	 * Adds prepared source batches asynchronously to the document store.
 	 * @param batches Normalized documents grouped by source and sorted newest first.
+	 * @param expectedOperationEpoch Operation generation that owns the queued batches.
 	 * @returns Promise that resolves when insertion completes.
 	 */
-	events_add_prepared_async = async (batches: Doc.PreparedBatch[]) => {
-		await Doc.Entity.addPreparedAsync(this.app, batches);
+	events_add_prepared_async = async (
+		batches: Doc.PreparedBatch[],
+		expectedOperationEpoch = DataStore.getRenderOperationEpoch(),
+	): Promise<void> => {
+		await Doc.Entity.addPreparedAsync(
+			this.app,
+			batches,
+			expectedOperationEpoch,
+		);
 	};
 
 	event_keys = async (file: Source.Type): Promise<Filter.Options> => {
@@ -3269,7 +3639,11 @@ export class Info implements InfoProps {
 			)
 			.map((source) => source.id);
 		const reloadSequence = ++this.notesReloadSequence;
-		const isCurrentReload = () => reloadSequence === this.notesReloadSequence;
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		const isCurrentReload = (): boolean =>
+			reloadSequence === this.notesReloadSequence &&
+			operationEpoch === DataStore.getRenderOperationEpoch() &&
+			Operation.Entity.selected(this.app)?.id === operation.id;
 		if (files.length === 0) {
 			Logger.warn(
 				"Tried to fetch all notes from all operations. Ignoring",
@@ -3307,10 +3681,9 @@ export class Info implements InfoProps {
 					});
 				}
 
-				DataStore.notes = [...notes];
+				DataStore.replaceNotes(notes, "deferred");
 				Note.Entity.invalidateCache();
 				RenderEngine.reset("notes");
-				DataStore.markDirtySoon();
 
 				return new Promise((res) => {
 					setTimeout(() => {
@@ -3323,10 +3696,9 @@ export class Info implements InfoProps {
 					rounds: offset / 500,
 				});
 				Logger.log(message, Info);
-				DataStore.notes = [...notes];
+				DataStore.replaceNotes(notes, "deferred");
 				Note.Entity.invalidateCache();
 				RenderEngine.reset("notes");
-				DataStore.markDirtySoon();
 				if (notes.length >= 2500) {
 					toast.success(message, {
 						icon: <Icon name="Check" />,
@@ -3398,6 +3770,11 @@ export class Info implements InfoProps {
 		DataStore.markDirty();
 	}
 
+	/**
+	 * Deletes one note and synchronizes canonical and renderer-specific indexes.
+	 * @param note Note to delete.
+	 * @returns Request promise that resolves after local state is synchronized.
+	 */
 	note_delete = (note: Note.Type) =>
 		api("/note_delete", {
 			method: "DELETE",
@@ -3406,13 +3783,10 @@ export class Info implements InfoProps {
 				ws_id: this.app.general.ws_id,
 			},
 		}).then(() => {
-			const index = DataStore.notes.findIndex((n) => n.id === note.id);
-			if (index !== -1) {
-				const deletedNote = DataStore.notes[index];
-				DataStore.notes.splice(index, 1);
+			const deletedNote = DataStore.deleteNote(note.id, "deferred");
+			if (deletedNote) {
 				Note.Entity.removeIndexedNote(deletedNote);
 				RenderEngine.resetSourceNotes(deletedNote.source_id);
-				DataStore.markDirtySoon();
 			}
 		});
 
@@ -3420,7 +3794,8 @@ export class Info implements InfoProps {
 	 * Deletes multiple notes in a single API call.
 	 * Synchronizes the DataStore and invalidates caches upon success.
 	 *
-	 * @param ids - Array of Note identifiers to delete.
+	 * @param ids Array of note identifiers to delete.
+	 * @returns Request promise that resolves after local state is synchronized.
 	 */
 	notes_delete_bulk = (ids: Note.Id[]) =>
 		api("/object_delete_bulk", {
@@ -3432,18 +3807,13 @@ export class Info implements InfoProps {
 			},
 			body: { ids },
 		}).then(() => {
+			const deletedNotes = DataStore.deleteNotes(ids, "deferred");
 			const affectedSourceIds = new Set<Source.Id>();
-			ids.forEach((id) => {
-				const index = DataStore.notes.findIndex((n) => n.id === id);
-				if (index !== -1) {
-					const deletedNote = DataStore.notes[index];
-					affectedSourceIds.add(deletedNote.source_id);
-					DataStore.notes.splice(index, 1);
-					Note.Entity.removeIndexedNote(deletedNote);
-				}
+			deletedNotes.forEach((deletedNote) => {
+				affectedSourceIds.add(deletedNote.source_id);
+				Note.Entity.removeIndexedNote(deletedNote);
 			});
 			this.resetNoteRenderCaches(affectedSourceIds);
-			DataStore.markDirtySoon();
 		});
 
 	/* GRANTED PERMISSIONS */
@@ -3559,6 +3929,11 @@ export class Info implements InfoProps {
 		});
 	};
 
+	/**
+	 * Creates a note and stores the response only while its operation remains active.
+	 * @param options Note content, appearance, privacy, and source document.
+	 * @returns Backend note request promise.
+	 */
 	note_create = ({
 		name,
 		text,
@@ -3577,11 +3952,13 @@ export class Info implements InfoProps {
 		glyph_id: Glyph.Id;
 		isPrivate: boolean;
 		tags: string[];
-	}) =>
-		api<Note.Type>("/note_create", {
+	}) => {
+		const operationId = Doc.Entity.operationId(this.app, event);
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		return api<Note.Type>("/note_create", {
 			method: "POST",
 			query: {
-				operation_id: Doc.Entity.operationId(this.app, event),
+				operation_id: operationId,
 				context_id: Doc.Entity.contextId(this.app, event),
 				source_id: event["gulp.source_id"],
 				ws_id: this.app.general.ws_id,
@@ -3604,9 +3981,20 @@ export class Info implements InfoProps {
 				doc: Doc.Entity.toDoc(this.app, event),
 			},
 		}).then((note) => {
-			note = this.AddNoteToDataStore(note);
+			if (
+				operationId &&
+				this.isOperationContextCurrent(operationEpoch, operationId)
+			) {
+				this.AddNoteToDataStore(note);
+			}
 		});
+	};
 
+	/**
+	 * Updates a note and stores the response only while its operation remains active.
+	 * @param options Updated note fields and source document.
+	 * @returns Backend note update promise.
+	 */
 	note_edit = ({
 		id: obj_id,
 		name,
@@ -3625,8 +4013,10 @@ export class Info implements InfoProps {
 		event: Doc.Type;
 		glyph_id: Glyph.Id;
 		tags: string[];
-	}) =>
-		api<Note.Type>("/note_update", {
+	}) => {
+		const operationId = Doc.Entity.operationId(this.app, event);
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		return api<Note.Type>("/note_update", {
 			method: "PATCH",
 			query: {
 				obj_id,
@@ -3648,14 +4038,31 @@ export class Info implements InfoProps {
 				doc: Doc.Entity.toDoc(this.app, event),
 			},
 		}).then((note) => {
-			this.AddNoteToDataStore(note);
+			if (
+				operationId &&
+				this.isOperationContextCurrent(operationEpoch, operationId)
+			) {
+				this.AddNoteToDataStore(note);
+			}
 		});
+	};
 
+	/**
+	 * Reloads the selected operation links and replaces the canonical collection.
+	 * @returns Link request result, or undefined when no operation is selected.
+	 */
 	links_reload = async () => {
 		const operation = Operation.Entity.selected(this.app);
 		if (!operation) {
 			return;
 		}
+
+		const reloadSequence = ++this.linksReloadSequence;
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		const isCurrentReload = (): boolean =>
+			reloadSequence === this.linksReloadSequence &&
+			operationEpoch === DataStore.getRenderOperationEpoch() &&
+			Operation.Entity.selected(this.app)?.id === operation.id;
 
 		return api<Link.Type[]>(
 			"/link_list",
@@ -3669,9 +4076,9 @@ export class Info implements InfoProps {
 				},
 			},
 			(links) => {
-				DataStore.links = links;
+				if (!isCurrentReload()) return;
+				DataStore.replaceLinks(links, "immediate");
 				RenderEngine.clearAllCaches();
-				DataStore.markDirty();
 				this.render();
 			},
 		);
@@ -3822,11 +4229,22 @@ export class Info implements InfoProps {
 			},
 		}).then(this.links_reload);
 
+	/**
+	 * Reloads highlights for the selected operation after the debounce interval.
+	 * @returns Debounced request result when an operation is selected.
+	 */
 	highlights_reload = debounce(() => {
 		const operation = Operation.Entity.selected(this.app);
 		if (!operation) {
 			return;
 		}
+		const reloadSequence = ++this.highlightsReloadSequence;
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		const isCurrentReload = (): boolean =>
+			reloadSequence === this.highlightsReloadSequence &&
+			operationEpoch === DataStore.getRenderOperationEpoch() &&
+			Operation.Entity.selected(this.app)?.id === operation.id;
+
 		return api<Highlight.Type[]>(
 			"/highlight_list",
 			{
@@ -3836,9 +4254,9 @@ export class Info implements InfoProps {
 				},
 			},
 			(h) => {
-				DataStore.highlights = h;
+				if (!isCurrentReload()) return;
+				DataStore.replaceHighlights(h, "immediate");
 				RenderEngine.clearAllCaches();
-				DataStore.markDirty();
 				this.render();
 			},
 		);
@@ -4069,7 +4487,7 @@ export class Info implements InfoProps {
 				operations: operation.id,
 			},
 			timeline: {
-				scale: this.app.timeline.scale,
+				scale: scale ?? this.getTimelineScaleSnapshot(),
 				frame: {
 					min: this.app.timeline.frame.min,
 					max: this.app.timeline.frame.max,
@@ -4164,6 +4582,7 @@ export class Info implements InfoProps {
 	 * @returns A promise that resolves when the session load action has completed.
 	 */
 	session_load = async (session: Internal.Session.Data) => {
+		this.synchronizeTimelineScaleFromState(session.timeline.scale);
 		const replayFiles = this.applySessionSourceSettings(
 			Source.Entity.select(this.app, session.selected.files),
 			session,
@@ -4285,13 +4704,19 @@ export class Info implements InfoProps {
 	 */
 	private AddNotesToDataStore(notes: Note.Type[]): Note.Type[] {
 		if (notes.length === 0) return [];
+		const selectedOperationId = Operation.Entity.selected(this.app)?.id;
+		const currentOperationNotes = notes.filter(
+			(note) => note.operation_id === selectedOperationId,
+		);
+		if (currentOperationNotes.length === 0) return [];
 
-		const normalizedNotes = notes.map((note) =>
+		const normalizedNotes = currentOperationNotes.map((note) =>
 			Note.Entity.normalize_note(this.app, note),
 		);
+		const nextNotes = [...DataStore.notes];
 		const noteIndexById = new Map<Note.Id, number>();
 		const affectedSourceIds = new Set<Source.Id>();
-		DataStore.notes.forEach((storedNote, index) => {
+		nextNotes.forEach((storedNote, index) => {
 			noteIndexById.set(storedNote.id, index);
 		});
 
@@ -4299,23 +4724,23 @@ export class Info implements InfoProps {
 			affectedSourceIds.add(note.source_id);
 			const index = noteIndexById.get(note.id);
 			if (typeof index === "number") {
-				const previousNote = DataStore.notes[index];
+				const previousNote = nextNotes[index];
 				affectedSourceIds.add(previousNote.source_id);
-				DataStore.notes[index] = note;
+				nextNotes[index] = note;
 				Note.Entity.upsertIndexedNote(note, previousNote);
 				return;
 			}
 
-			noteIndexById.set(note.id, DataStore.notes.length);
-			DataStore.notes.push(note);
+			noteIndexById.set(note.id, nextNotes.length);
+			nextNotes.push(note);
 			Note.Entity.upsertIndexedNote(note);
 		});
 
-		DataStore.notes.sort(
+		nextNotes.sort(
 			(a, b) => Note.Entity.timestamp(b) - Note.Entity.timestamp(a),
 		);
+		DataStore.replaceNotes(nextNotes, "deferred");
 		this.resetNoteRenderCaches(affectedSourceIds);
-		DataStore.markDirtySoon();
 		return normalizedNotes;
 	}
 
@@ -4758,6 +5183,7 @@ export class Info implements InfoProps {
 
 		Internal.Settings.token = "";
 		localStorage.removeItem("__user_id");
+		this.synchronizeTimelineScaleFromState(App.Base.timeline.scale);
 		this.setInfo({
 			...App.Base,
 			general: {
@@ -4768,18 +5194,95 @@ export class Info implements InfoProps {
 		});
 	};
 
-	setTimelineScale = (scale: number) => {
+	/**
+	 * Clamps a timeline scale against the current frame and Canvas dimensions.
+	 * @param scale Requested timeline scale.
+	 * @returns Canonical scale within the supported viewport range.
+	 */
+	private clampTimelineScale = (scale: number): number => {
 		const timeRange = this.app.timeline.frame.max - this.app.timeline.frame.min;
 		const canvasWidth = document.getElementById("canvas")?.clientWidth || 1000;
 		const maxScale =
 			timeRange > 0
 				? timeRange / (this.MIN_MS_PER_PIXEL * canvasWidth)
 				: 9999999;
-		return this.setInfoByKey(
-			Math.max(0.01, Math.min(maxScale, scale)),
+		return Math.max(0.01, Math.min(maxScale, scale));
+	};
+
+	/**
+	 * Clamps and publishes an explicit scale command through normal React state.
+	 * @param scale Requested timeline scale.
+	 * @param origin Optional caller identity used to classify the command.
+	 * @returns Nothing.
+	 */
+	setTimelineScale = (scale: number, origin?: object): void => {
+		const clampedScale = this.clampTimelineScale(scale);
+		this.timelineScaleCommandListeners.forEach((listener) =>
+			listener(clampedScale, origin),
+		);
+		this.timelineScaleStore.prepareReactCommit(clampedScale);
+		this.setInfoByKey(
+			clampedScale,
 			"timeline",
 			"scale",
 		);
+	};
+
+	/**
+	 * Persists a settled Canvas scale without replacing Application context state.
+	 * The existing timeline object is updated so Info and session serializers retain
+	 * canonical reads while the instance-local store drives narrow subscribers.
+	 * @param scale Settled transient Canvas scale.
+	 * @returns Canonical committed scale after clamping.
+	 */
+	persistSettledTimelineScale = (scale: number): number => {
+		const clampedScale = this.clampTimelineScale(scale);
+		this._app.timeline.scale = clampedScale;
+		this.timelineScaleStore.commit(clampedScale);
+		return clampedScale;
+	};
+
+	/**
+	 * Marks an intentional React-state scale replacement as authoritative.
+	 * This prevents the pending renderless rebase from treating restores or resets
+	 * that reuse the previous React value as unrelated stale state.
+	 * @param scale Timeline scale carried by the imminent React state update.
+	 * @returns Nothing.
+	 */
+	synchronizeTimelineScaleFromState = (scale: number): void => {
+		this.timelineScaleStore.prepareReactCommit(scale, true);
+		this._app = {
+			...this._app,
+			timeline: { ...this._app.timeline, scale },
+		};
+		this.timelineScaleStore.synchronize(scale);
+	};
+
+	/**
+	 * Returns the instance-local canonical timeline scale snapshot.
+	 * @returns Current canonical timeline scale.
+	 */
+	getTimelineScaleSnapshot = (): number =>
+		this.timelineScaleStore.getSnapshot();
+
+	/**
+	 * Subscribes to renderless settled-scale commits for this Info instance.
+	 * @param listener Callback invoked after the canonical snapshot changes.
+	 * @returns Function that removes the listener.
+	 */
+	subscribeTimelineScale = (listener: () => void): (() => void) =>
+		this.timelineScaleStore.subscribe(listener);
+
+	/**
+	 * Subscribes to explicit timeline-scale commands, including no-op reset values.
+	 * @param listener Callback receiving the clamped scale and optional caller identity.
+	 * @returns Function that removes the listener.
+	 */
+	subscribeTimelineScaleCommands = (
+		listener: (scale: number, origin?: object) => void,
+	): (() => void) => {
+		this.timelineScaleCommandListeners.add(listener);
+		return () => this.timelineScaleCommandListeners.delete(listener);
 	};
 
 	setTimelineTarget = (event?: Doc.Type | null | 1 | -1): Doc.Type => {
@@ -4964,6 +5467,13 @@ export class Info implements InfoProps {
 		this.render();
 	};
 
+	/**
+	 * Executes Sigma rules and optionally stores generated notes for the active operation.
+	 * @param src_ids Source identifiers included in the Sigma query.
+	 * @param sigmas Sigma rule files to send to the backend.
+	 * @param notes Whether matching documents should create notes.
+	 * @returns Backend request result, or undefined after an operation change.
+	 */
 	query_sigma = async (
 		src_ids: Source.Id[],
 		sigmas: NodeFile[],
@@ -4973,6 +5483,9 @@ export class Info implements InfoProps {
 		if (!operation) {
 			return;
 		}
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		const sigmaContents = await Promise.all(sigmas.map((sigma) => sigma.text()));
+		if (!this.isOperationContextCurrent(operationEpoch, operation.id)) return;
 
 		return api(
 			"/query_sigma",
@@ -4984,7 +5497,7 @@ export class Info implements InfoProps {
 				},
 				raw: true,
 				body: {
-					sigmas: await Promise.all(sigmas.map((s) => s.text())),
+					sigmas: sigmaContents,
 					q_options: {
 						create_notes: notes,
 					},
@@ -5005,10 +5518,24 @@ export class Info implements InfoProps {
 				},
 			},
 			({ req_id }) => {
-				SmartSocket.Class.instance.conce(
+				if (!this.isOperationContextCurrent(operationEpoch, operation.id)) {
+					return;
+				}
+				let statsComplete = false;
+				let notesComplete = !notes;
+				let releaseSocketListeners = (): void => undefined;
+				const releaseCompletedListeners = (): void => {
+					if (statsComplete && notesComplete) releaseSocketListeners();
+				};
+				const statsListenerId = SmartSocket.Class.instance.conce(
 					SmartSocket.Message.Type.STATS_UPDATE,
-					(m) => m.req_id === req_id,
+					(m) =>
+						m.req_id === req_id &&
+						this.isOperationContextCurrent(operationEpoch, operation.id),
 					(m) => {
+						if (!this.isOperationContextCurrent(operationEpoch, operation.id)) {
+							return;
+						}
 						if (m.payload.obj.status !== "done") {
 							toast.error(translate("sigma.queryFailed"), {
 								icon: <Icon name="Stop" />,
@@ -5025,26 +5552,51 @@ export class Info implements InfoProps {
 								},
 							);
 						}
+						statsComplete = true;
+						releaseCompletedListeners();
 					},
 				);
-				SmartSocket.Class.instance.con(
-					SmartSocket.Message.Type.COLLAB_CREATE,
-					(m) => m.req_id === req_id,
-					(m) => {
-						if (Array.isArray(m.payload.obj) && m.payload.obj.length > 0) {
-							const newItems = m.payload.obj.filter(
-								(item) => item.type === "note",
-							) as Note.Type[];
-							this.AddNotesToDataStore(newItems);
-							toast.success(
-								translate("notes.fetchedCount", { count: newItems.length }),
-								{
-									richColors: true,
-								},
-							);
-						}
-					},
-				);
+				const notesListenerId = notes
+					? SmartSocket.Class.instance.con(
+							SmartSocket.Message.Type.COLLAB_CREATE,
+							(m) =>
+								m.req_id === req_id &&
+								this.isOperationContextCurrent(operationEpoch, operation.id),
+							(m) => {
+								if (
+									!this.isOperationContextCurrent(operationEpoch, operation.id)
+								) {
+									return;
+								}
+								if (Array.isArray(m.payload.obj) && m.payload.obj.length > 0) {
+									const newItems = m.payload.obj.filter(
+										(item) => item.type === "note",
+									) as Note.Type[];
+									const storedItems = this.AddNotesToDataStore(newItems);
+									toast.success(
+										translate("notes.fetchedCount", {
+											count: storedItems.length,
+										}),
+										{ richColors: true },
+									);
+								}
+								notesComplete = true;
+								releaseCompletedListeners();
+							},
+						)
+					: null;
+				releaseSocketListeners = this.trackOperationSocketCleanup(() => {
+					SmartSocket.Class.instance.coff(
+						SmartSocket.Message.Type.STATS_UPDATE,
+						statsListenerId,
+					);
+					if (notesListenerId) {
+						SmartSocket.Class.instance.coff(
+							SmartSocket.Message.Type.COLLAB_CREATE,
+							notesListenerId,
+						);
+					}
+				});
 			},
 		);
 	};

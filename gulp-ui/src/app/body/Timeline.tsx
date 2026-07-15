@@ -1,26 +1,60 @@
 import { Application } from "@/context/Application.context";
-import { useScroll, scrollStore } from "@/store/scroll.store";
-import { Algorhithm, getTimestamp } from "@/ui/utils";
+import { scrollStore } from "@/store/scroll.store";
+import { Algorhithm } from "@/ui/utils";
 import { Source } from "@/entities/Source";
 import { Doc } from "@/entities/Doc";
 import { Navigator } from "./Navigator";
 import { Stack } from "@/ui/Stack";
 import s from "../Gulp.module.css";
-import { useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { Canvas } from "./Canvas";
 import { MINUTE } from "@/dto";
 import { debounce, DebouncedFunc } from "lodash";
 import { Context } from "@/entities/Context";
+import {
+	cleanupTimelineAutosave,
+	scheduleTimelineAutosave,
+} from "./TimelineAutosave";
 
-export function Timeline() {
+export namespace Timeline {
+	export interface Props {
+		/** Prevents scheduling or flushing authenticated session autosave requests. */
+		disableSessionAutosave?: boolean;
+	}
+}
+
+/** Canvas boundary retained across scale-store-only Timeline updates. */
+const TimelineCanvas = memo(Canvas);
+/** Navigator boundary retained across scale-store-only Timeline updates. */
+const TimelineNavigator = memo(Navigator);
+
+/**
+ * Renders the timeline Canvas and controls without subscribing to live scroll updates.
+ * @param props Timeline behavior options.
+ * @returns Timeline view.
+ */
+export function Timeline({
+	disableSessionAutosave = false,
+}: Timeline.Props = {}) {
 	const { app, Info, timeline } = Application.use();
-	const { x: scrollX, y: scrollY } = useScroll();
+	const timelineScale = useSyncExternalStore(
+		Info.subscribeTimelineScale,
+		Info.getTimelineScaleSnapshot,
+		Info.getTimelineScaleSnapshot,
+	);
 
+	/**
+	 * Focuses the timeline on a timestamp and optionally reveals a source row.
+	 * @param timestamp Timeline timestamp to focus.
+	 * @param onLeft Whether to align the timestamp to the left viewport edge.
+	 * @param file_id Optional source identifier whose row must be revealed and centered.
+	 * @returns Nothing.
+	 */
 	const focusEvent = (
 		timestamp: number,
 		onLeft = false,
 		file_id?: Source.Id,
-	) => {
+	): void => {
 		const instance = getAlgothitmInstance();
 
 		scrollStore.setScrollX(
@@ -75,13 +109,12 @@ export function Timeline() {
 	 */
 	const appRef = useRef(app);
 	appRef.current = app;
+	const disableSessionAutosaveRef = useRef(disableSessionAutosave);
+	disableSessionAutosaveRef.current = disableSessionAutosave;
 
 	/**
-	 * Returns true when the current app state contains meaningful session
-	 * data (at least one selected source AND one selected context).
-	 * Used as a guard to prevent autosave during the initial loading phase
-	 * — e.g. while the SelectFiles banner is still open and the user has
-	 * not yet picked files/contexts or loaded a saved session.
+	 * Checks whether the current app state contains persistable session data.
+	 * @returns True when at least one source and one context are selected.
 	 */
 	const hasSessionData = (): boolean => {
 		const currentApp = appRef.current;
@@ -91,7 +124,7 @@ export function Timeline() {
 		);
 	};
 
-	const debouceSessionAutoSave: DebouncedFunc<() => void> = useMemo(() => {
+	const debouncedSessionAutosave: DebouncedFunc<() => void> = useMemo(() => {
 		return debounce(() => {
 			if (!hasSessionData()) {
 				console.warn("session auto-save skipped: no sources/contexts selected");
@@ -103,40 +136,48 @@ export function Timeline() {
 	}, [Info]);
 
 	useEffect(() => {
-		debouceSessionAutoSave();
+		scheduleTimelineAutosave(
+			debouncedSessionAutosave,
+			disableSessionAutosave,
+		);
 	}, [
-		app.timeline.scale,
+		timelineScale,
 		app.timeline.frame.max,
 		app.timeline.frame.min,
 		app.timeline.filter,
 		app.timeline.target,
 		app.target.files,
+		app.target.contexts,
+		app.target.operations,
 		app.target.filters,
 		app.hidden,
-		debouceSessionAutoSave,
-		Source.Entity.selected(app),
-		Context.Entity.selected(app),
+		debouncedSessionAutosave,
+		disableSessionAutosave,
 	]);
 
 	useEffect(() => {
 		return () => {
-			if (hasSessionData()) {
-				debouceSessionAutoSave.flush();
-			} else {
-				debouceSessionAutoSave.cancel();
-			}
+			cleanupTimelineAutosave(
+				debouncedSessionAutosave,
+				disableSessionAutosaveRef.current,
+				hasSessionData(),
+			);
 		};
-	}, [debouceSessionAutoSave]);
+	}, [debouncedSessionAutosave]);
 
+	/**
+	 * Creates a timestamp conversion helper from the current external scroll state.
+	 * @returns Algorithm configured with the latest timeline viewport.
+	 */
 	const getAlgothitmInstance = () => {
 		return new Algorhithm({
 			frame: app.timeline.frame,
 			scroll: {
-				x: scrollX,
-				y: scrollY,
+				x: scrollStore.getX(),
+				y: scrollStore.getY(),
 			},
 			width: Info.width,
-			scale: app.timeline.scale,
+			scale: timelineScale,
 		});
 	};
 
@@ -152,14 +193,8 @@ export function Timeline() {
 			dir="column"
 			ref={timeline}
 		>
-			<Canvas timeline={timeline} />
-			<Navigator
-				timeline={timeline}
-				timestamp={getTimestamp(
-					scrollX + (timeline.current?.clientWidth || 0),
-					Info,
-				)}
-			/>
+			<TimelineCanvas timeline={timeline} />
+			<TimelineNavigator timeline={timeline} />
 		</Stack>
 	);
 }

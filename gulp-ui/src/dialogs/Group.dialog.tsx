@@ -297,8 +297,8 @@ export function DisplayGroupDialog({
 	const { spawnDialog, Info, app, currentDocument } = Application.use();
 	const { t } = Locale.use();
 	const dataStoreVersion = useSyncExternalStore(
-		DataStore.subscribe,
-		DataStore.getSnapshot,
+		DataStore.subscribeOverlays,
+		DataStore.getOverlaysSnapshot,
 	);
 	const menuShellRef = useRef<HTMLDivElement>(null);
 	const floatingPreviewRef = useRef<HTMLElement>(null);

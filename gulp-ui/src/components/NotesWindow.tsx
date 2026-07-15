@@ -115,13 +115,13 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 	const { app, Info, spawnBanner, banner } = Application.use();
 	const { t } = Locale.use();
 	const dataStoreVersion = useSyncExternalStore(
-		DataStore.subscribe,
-		DataStore.getSnapshot,
+		DataStore.subscribeOverlays,
+		DataStore.getOverlaysSnapshot,
 	);
 	const visibleSourceSignature = useSyncExternalStore(
-		Info.subscribeVisibleSourceIds,
-		Info.getVisibleSourceSignature,
-		Info.getVisibleSourceSignature,
+		Info.subscribeViewportSourceIds,
+		Info.getViewportSourceSignature,
+		Info.getViewportSourceSignature,
 	);
 	const [search, setSearch] = useState("");
 	const [showOnlyVisibleSources, setShowOnlyVisibleSources] =
@@ -179,7 +179,7 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 	 * @returns Set containing Canvas-rendered source IDs used by the notes filter.
 	 */
 	const visibleSourceIds = useMemo(() => {
-		return Info.getVisibleSourceIds();
+		return Info.getViewportSourceIds();
 	}, [Info, visibleSourceSignature]);
 
 	const sourceById = useMemo(

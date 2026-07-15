@@ -23,7 +23,6 @@ import {
 import { Stack } from "@/ui/Stack";
 import { Button } from "@/ui/Button";
 import { Skeleton } from "@/ui/Skeleton";
-import { MinMaxBase } from "@/class/Info";
 import { Navigation } from "./components/navigation";
 import { Enrichment } from "@/banners/Enrichment.banner";
 import {
@@ -54,8 +53,6 @@ import { Table } from "@/components/Table";
 import { Markdown } from "@/ui/Markdown";
 import { Icon } from "@/ui/Icon";
 import { cn } from "@/ui/utils";
-import { CacheKey } from "@/class/Engine.dto";
-import { RenderEngine } from "@/class/RenderEngine";
 import { Doc } from "@/entities/Doc";
 import { Source } from "@/entities/Source";
 import { Filter } from "@/entities/Filter";
@@ -67,6 +64,7 @@ import { Locale } from "@/locales";
 import { DisplayGroupDialog } from "./Group.dialog";
 import { DataStore } from "@/store/DataStore";
 import { EventJsonTransforms } from "@/lib/EventJsonTransforms";
+import { resolveEventRenderColor } from "@/utils";
 
 // --- UTILITIES ---
 
@@ -1197,8 +1195,8 @@ export function DisplayEventDialog({
 	const treeContainerRef = useRef<HTMLDivElement | null>(null);
 	const { theme } = useTheme();
 	const dataStoreVersion = useSyncExternalStore(
-		DataStore.subscribe,
-		DataStore.getSnapshot,
+		DataStore.subscribeOverlays,
+		DataStore.getOverlaysSnapshot,
 	);
 
 	// --- DERIVED DATA ---
@@ -2261,10 +2259,15 @@ export function EventIndicator({
 	);
 
 	const background = useMemo(() => {
-		const range =
-			RenderEngine[CacheKey].range.get(event["gulp.source_id"]) ?? MinMaxBase;
-		return Source.Entity.resolveColor(file, event.number_hash, range);
-	}, [event, app.target.files, file]);
+		return resolveEventRenderColor(app, event) ?? "var(--accent)";
+	}, [
+		app,
+		app.timeline.renderVersion,
+		app.target.files,
+		event,
+		event.number_hash,
+		file,
+	]);
 
 	const indicatorLabel = useMemo(
 		() => String(event["gulp.event_code"]).slice(0, 4),

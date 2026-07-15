@@ -14,11 +14,12 @@ export class DragDealer implements DragDealerProps {
   info: Info
   dragging: boolean
   timeline: React.RefObject<HTMLCanvasElement>
-  moveScroll: (deltaX: number, deltaY: number) => void
-  private pendingDeltaX: number
-  private pendingDeltaY: number
-  private pendingScrollFrame: number | null
+  moveScroll: (deltaX: number, deltaY: number, inputTimestamp: number) => void
 
+  /**
+   * Creates drag state backed by the Canvas-owned scroll coordinator.
+   * @param props Application state, Canvas reference, and scroll callback.
+   */
   constructor({
     info,
     timeline,
@@ -31,9 +32,6 @@ export class DragDealer implements DragDealerProps {
     this.timeline = timeline
     this.moveScroll = moveScroll
     this.dragging = false
-    this.pendingDeltaX = 0
-    this.pendingDeltaY = 0
-    this.pendingScrollFrame = null
   }
 
   /**
@@ -47,20 +45,15 @@ export class DragDealer implements DragDealerProps {
   }
 
   /**
-   * Stops the current drag interaction and flushes any queued scroll delta.
+   * Stops the current drag interaction.
    * @returns Nothing.
    */
   dragStop = (): void => {
     this.clicked = false
-    if (this.pendingScrollFrame !== null) {
-      cancelAnimationFrame(this.pendingScrollFrame)
-      this.pendingScrollFrame = null
-    }
-    this.flushPendingScroll()
   }
 
   /**
-   * Accumulates drag movement and applies it once per animation frame.
+   * Routes drag movement to the Canvas-owned display-tick coordinator.
    * @param ev Mouse event emitted during a drag interaction.
    * @returns Nothing.
    */
@@ -75,39 +68,6 @@ export class DragDealer implements DragDealerProps {
     this.y = ev.clientY
     this.x = ev.clientX
 
-    this.pendingDeltaX += newX
-    this.pendingDeltaY += newY
-    this.schedulePendingScroll()
-  }
-
-  /**
-   * Schedules the accumulated drag delta for the next paint frame.
-   * @returns Nothing.
-   */
-  private schedulePendingScroll = (): void => {
-    if (this.pendingScrollFrame !== null) {
-      return
-    }
-
-    this.pendingScrollFrame = requestAnimationFrame(() => {
-      this.pendingScrollFrame = null
-      this.flushPendingScroll()
-    })
-  }
-
-  /**
-   * Applies accumulated drag movement to the shared scroll store.
-   * @returns Nothing.
-   */
-  private flushPendingScroll = (): void => {
-    if (this.pendingDeltaX === 0 && this.pendingDeltaY === 0) {
-      return
-    }
-
-    const deltaX = this.pendingDeltaX
-    const deltaY = this.pendingDeltaY
-    this.pendingDeltaX = 0
-    this.pendingDeltaY = 0
-    this.moveScroll(deltaX, deltaY)
+    this.moveScroll(newX, newY, performance.now())
   }
 }

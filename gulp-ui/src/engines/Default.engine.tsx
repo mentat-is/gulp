@@ -37,6 +37,25 @@ export class DefaultEngine implements Engine.Interface<any> {
 	}
 
 	/**
+	 * Clears every cached value derived from one source's mutable event collection.
+	 * @param sourceId Source identifier whose event caches must be discarded.
+	 * @returns Nothing.
+	 */
+	public clearSourceCache(sourceId: Source.Id): void {
+		this.map.delete(sourceId);
+		this.overrideIndexCache.delete(sourceId);
+	}
+
+	/**
+	 * Clears all event-derived caches before a backend or operation boundary.
+	 * @returns Nothing.
+	 */
+	public clearCache(): void {
+		this.map.clear();
+		this.overrideIndexCache.clear();
+	}
+
+	/**
 	 * Draws one vertical event line for each visible canvas pixel bucket.
 	 *
 	 * @param file Source whose events should be rendered.

@@ -52,6 +52,7 @@ import { Label } from "@/ui/Label";
 import { toast } from "sonner";
 import { Locale } from "@/locales";
 import { requestStore } from "@/store/request.store";
+import { DataStore } from "@/store/DataStore";
 
 export namespace Source {
 	export const name = "Source";
@@ -136,37 +137,57 @@ export namespace Source {
 			filterText: string;
 			sourcesWithNoEvents: boolean;
 			renderVersion: number;
+			renderDataSequence: number;
 			result: Source.Type[];
 		} = {
 			ref: null,
 			filterText: "",
 			sourcesWithNoEvents: true,
 			renderVersion: 0,
+			renderDataSequence: 0,
 			result: [],
 		};
 
 		/**
+		 * Checks whether a source should stay visible while empty-source rows are hidden.
+		 * @param source Source whose canonical render events and fallback total are inspected.
+		 * @returns True when the source has loaded render events or has not been queried yet but advertises a non-zero total.
+		 */
+		private static hasVisibleEvents = (source: Source.Type): boolean => {
+			return DataStore.hasRenderableSourceEvents(source.id, source.total);
+		};
+
+		/**
 		 * Returns the list of currently selected and visible sources, sorted by pin status.
-		 * Results are memoized by `app.target.files` reference — only the search text filter
-		 * is re-applied on cache hit, since it depends on dynamic `app.timeline.filter` state.
+		 * Results are memoized by source list, search text, visibility settings, render
+		 * settings, and render-data sequence because empty-source visibility depends on
+		 * the current canonical event store.
+		 * @param app Current application state.
+		 * @returns Selected source rows that should be visible on the timeline.
 		 */
 		public static selected = (app: App.Type): Source.Type[] => {
 			const currentFilter = (app.timeline.filter || "").toLowerCase();
 			const hiddenSourcesWithNoEvents = app.hidden.sourcesWithNoEvents;
 			const renderVersion = app.timeline.renderVersion;
+			const renderDataSequence = DataStore.getRenderSequence();
 
 			if (
 				app.target.files === Source.Entity._selectedCache.ref &&
 				currentFilter === Source.Entity._selectedCache.filterText &&
 				hiddenSourcesWithNoEvents ===
 					Source.Entity._selectedCache.sourcesWithNoEvents &&
-				renderVersion === Source.Entity._selectedCache.renderVersion
+				renderVersion === Source.Entity._selectedCache.renderVersion &&
+				renderDataSequence === Source.Entity._selectedCache.renderDataSequence
 			) {
 				return Source.Entity._selectedCache.result;
 			}
 			const pins = Source.Entity.pins(
 				app.target.files.filter(
-					(s) => s.selected && (hiddenSourcesWithNoEvents ? s.total > 0 : true),
+					(s) =>
+						s.selected &&
+						(hiddenSourcesWithNoEvents
+							? Source.Entity.hasVisibleEvents(s)
+							: true),
 				),
 			);
 
@@ -183,6 +204,7 @@ export namespace Source {
 				filterText: currentFilter,
 				sourcesWithNoEvents: hiddenSourcesWithNoEvents,
 				renderVersion,
+				renderDataSequence,
 				result,
 			};
 

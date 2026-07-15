@@ -8,9 +8,41 @@
   display: none !important;
 }
 
-.pointer {
+.pointerPosition {
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+
+.localPointer {
+  transition: none;
+}
+
+.remotePointer {
   transition: transform 0.125s var(--transition);
-  transform: translate(-2px, -3px) !important;
+}
+
+.remoteVerticalLayer,
+.remoteTimelineLayer,
+.remoteFixedLayer {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.remoteVerticalLayer {
+  transform: translate3d(0, var(--remote-pointer-scroll-y, 26px), 0);
+  will-change: transform;
+}
+
+.remoteTimelineLayer {
+  transform: translate3d(var(--remote-pointer-scroll-x, 0px), 0, 0);
+  will-change: transform;
+}
+
+.pointer {
+  transform: translate(-2px, -3px);
 }
 
 .pointer p {
@@ -22,7 +54,7 @@
   line-height: 20px;
   font-size: 11px;
   font-weight: 500;
-  transition: all 0.125s var(--transition);
+  transition: transform 0.125s var(--transition);
   font-family: var(--font-mono);
   white-space: nowrap;
   border: var(--geist-border);
@@ -34,17 +66,17 @@
   display: block;
   rotate: 0deg;
   transform-origin: center;
-  transition: all 0.125s var(--transition);
+  transition: transform 0.125s var(--transition);
 }
 
-.right {
-  transform: translate(-12px, -3px) !important;
+.right .pointer {
+  transform: translate(-12px, -3px);
 }
 
-.right p {
+.right .pointer p {
   transform: translate(calc(-100% - 24px), 100%);
 }
 
-.right svg {
+.right .pointer svg {
   transform: scaleX(-1);
 }

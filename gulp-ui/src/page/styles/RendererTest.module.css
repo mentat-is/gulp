@@ -1,5 +1,11 @@
 /* RendererTest overlay styles */
 
+.page {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+}
+
 .overlay {
     position: fixed;
     bottom: 16px;
@@ -16,6 +22,15 @@
     backdrop-filter: blur(6px);
     pointer-events: auto;
     user-select: none;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+}
+
+.gateOverlay {
+    width: min(420px, calc(100vw - 32px));
+    box-sizing: border-box;
+    background: #0a0a14;
+    backdrop-filter: none;
 }
 
 .controls {
@@ -101,6 +116,11 @@
     background: rgba(122, 184, 255, 0.25);
 }
 
+.restartButton:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 .badge {
     font-weight: 700;
     font-size: 11px;
@@ -132,4 +152,51 @@
     font-weight: 700;
     font-size: 11px;
     text-align: center;
+}
+
+.gateResults {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(100, 160, 255, 0.25);
+}
+
+.gatePassed,
+.gateFailed {
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 800;
+    text-align: center;
+    text-transform: uppercase;
+}
+
+.gatePassed,
+.criterionPass {
+    color: #5ed39a;
+}
+
+.gateFailed,
+.criterionFail {
+    color: #ff7d8a;
+}
+
+.criterionUnsupported {
+    color: #aab7c5;
+}
+
+.criterionRow {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    line-height: 1.6;
+}
+
+.criterionPass,
+.criterionFail,
+.criterionUnsupported {
+    flex-shrink: 0;
+    font-weight: 700;
+    text-align: right;
 }

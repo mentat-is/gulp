@@ -34,7 +34,16 @@ export function useKeyHandler(key: string) {
   return [isKeyPressed]
 }
 
-export const useDrugs = (timeline: RefObject<HTMLCanvasElement>) => {
+/**
+ * Provides Canvas drag and range-selection handlers.
+ * @param timeline Timeline canvas receiving pointer gestures.
+ * @param queueScrollDelta Canvas-owned callback that coalesces drag movement.
+ * @returns Drag state and React handlers used by the Canvas wrapper.
+ */
+export const useDrugs = (
+  timeline: RefObject<HTMLCanvasElement>,
+  queueScrollDelta: (deltaX: number, deltaY: number, inputTimestamp: number) => void,
+) => {
   const { Info, highlightsOverlay } = Application.use()
   const [resize, setResize] = useState<StartEnd>(StartEndBase)
   const [isResizing, setIsResizing] = useState(false)
@@ -43,14 +52,15 @@ export const useDrugs = (timeline: RefObject<HTMLCanvasElement>) => {
    * Applies a drag delta to both scroll axes with one external-store notification.
    * @param deltaX Horizontal movement produced by canvas dragging.
    * @param deltaY Vertical movement produced by canvas dragging.
+   * @param inputTimestamp Native input timestamp represented by the drag movement.
    * @returns Nothing.
    */
-  const moveScroll = useCallback((deltaX: number, deltaY: number): void => {
-    scrollStore.setScroll(
-      Math.round(scrollStore.getX() + deltaX),
-      Math.round(scrollStore.getY() + deltaY),
-    )
-  }, [])
+  const moveScroll = useCallback(
+    (deltaX: number, deltaY: number, inputTimestamp: number): void => {
+      queueScrollDelta(deltaX, deltaY, inputTimestamp)
+    },
+    [queueScrollDelta],
+  )
 
   const dragState = useRef(
     new DragDealer({ info: Info, timeline, moveScroll }),
@@ -64,7 +74,12 @@ export const useDrugs = (timeline: RefObject<HTMLCanvasElement>) => {
     })
   }, [timeline, moveScroll])
 
-  const handleMouseDown = useCallback((event: React.MouseEvent) => {
+  /**
+   * Starts a Canvas drag or alternate-key range selection.
+   * @param event React mouse event emitted by the Canvas wrapper.
+   * @returns Nothing.
+   */
+  const handleMouseDown = useCallback((event: React.MouseEvent): void => {
     if (highlightsOverlay) {
       return;
     }
@@ -83,7 +98,15 @@ export const useDrugs = (timeline: RefObject<HTMLCanvasElement>) => {
     }
   }, [highlightsOverlay, dragState])
 
-  const handleMouseMove = useCallback((event: React.MouseEvent) => {
+  /**
+   * Updates an active drag or range selection without measuring layout while idle.
+   * @param event React mouse movement emitted by the Canvas wrapper.
+   * @returns Nothing.
+   */
+  const handleMouseMove = useCallback((event: React.MouseEvent): void => {
+    if (!isResizing && !dragState.current.clicked) {
+      return
+    }
     const rect = timeline.current?.getBoundingClientRect()
     if (!rect) {
       return
@@ -97,6 +120,11 @@ export const useDrugs = (timeline: RefObject<HTMLCanvasElement>) => {
     dragState.current.dragMove(event)
   }, [isResizing, highlightsOverlay, dragState])
 
+  /**
+   * Finalizes Canvas dragging or range selection when the pointer is released.
+   * @param event Native mouse event ending the interaction.
+   * @returns Toast identifier for an invalid selection, otherwise nothing.
+   */
   const handleMouseUpOrLeave = useCallback((event: MouseEvent) => {
     const wasDragging = dragState.current.dragging;
     const wasClicked = dragState.current.clicked;

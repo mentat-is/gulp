@@ -22,12 +22,20 @@ import { Context } from "@/entities/Context";
 import { DataStore } from "@/store/DataStore";
 import { RenderEngine } from "@/class/RenderEngine";
 import { Operation } from "@/entities/Operation";
+import { Doc } from "@/entities/Doc";
 import { useLocation } from "react-router-dom";
 import { translate } from "@/locales/core";
 
 interface CollabPayloadObject {
 	type?: string;
 	id?: string;
+	operation_id?: Operation.Id;
+}
+
+interface CollabDeleteMessage {
+	payload: {
+		id: string;
+	};
 }
 
 /**
@@ -42,6 +50,23 @@ function getCollabPayloadObjects(payloadObject: unknown): CollabPayloadObject[] 
 			typeof obj === "object" &&
 			obj !== null &&
 			typeof (obj as CollabPayloadObject).type === "string",
+	);
+}
+
+/**
+ * Checks whether a collaboration entity belongs to the selected operation.
+ * @param app Current application state read at websocket delivery time.
+ * @param object Collaboration entity carrying an operation identifier.
+ * @returns True only when the entity belongs to the selected operation.
+ */
+function isSelectedOperationObject(
+	app: App.Type,
+	object: CollabPayloadObject,
+): boolean {
+	const selectedOperationId =
+		DataStore.getRenderOperationId() ?? Operation.Entity.selected(app)?.id;
+	return Boolean(
+		selectedOperationId && object.operation_id === selectedOperationId,
 	);
 }
 
@@ -137,15 +162,24 @@ function _({ children }: { children: ReactNode }) {
 		/**
 		 * Handles incoming collab create messages from WebSocket.
 		 * This ensures the UI is reactive to new items regardless of who created them.
+		 * @param message WebSocket message containing one or more collaboration entities.
+		 * @returns Nothing.
 		 */
-		const collabCreateCallback = (message: any) => {
+		const collabCreateCallback = (
+			message: SmartSocket.Message.Entity<unknown>,
+		): void => {
 			const objects = getCollabPayloadObjects(message.payload.obj);
-			const notes = objects.filter((obj) => obj.type === "note") as Note.Type[];
+			const notes = objects.filter(
+				(obj) =>
+					obj.type === "note" &&
+					isSelectedOperationObject(appRef.current, obj),
+			) as Note.Type[];
 			if (notes.length > 0) {
 				instanceRef.current.notes_upsert_from_collab(notes);
 			}
 
 			objects.forEach((obj) => {
+				if (!isSelectedOperationObject(appRef.current, obj)) return;
 				if (obj.type === "context") {
 					const context = obj as Context.Type;
 					setInfo((prev) => {
@@ -179,8 +213,15 @@ function _({ children }: { children: ReactNode }) {
 
 		/**
 		 * Handles incoming collab update messages (note/link/highlight) from WebSocket.
+		 * @param message WebSocket message containing a collaboration entity.
+		 * @returns Nothing.
 		 */
-		const collabUpdateCallback = (message: any) => {
+		const collabUpdateCallback = (
+			message: SmartSocket.Message.Entity<CollabPayloadObject>,
+		): void => {
+			if (!isSelectedOperationObject(appRef.current, message.payload.obj)) {
+				return;
+			}
 			switch (message.payload.obj.type) {
 				case "note": {
 					instanceRef.current.notes_upsert_from_collab([
@@ -189,15 +230,9 @@ function _({ children }: { children: ReactNode }) {
 					return;
 				}
 				case "link": {
-					const link: Link.Type = message.payload.obj;
-					const idx = DataStore.links.findIndex((l) => l.id === link.id);
-					if (idx >= 0) {
-						DataStore.links[idx] = link;
-					} else {
-						DataStore.links.push(link);
-					}
+					const link = message.payload.obj as Link.Type;
+					DataStore.upsertLink(link, "immediate");
 					RenderEngine.clearAllCaches();
-					DataStore.markDirty();
 					instanceRef.current.render();
 					return;
 				}
@@ -209,29 +244,34 @@ function _({ children }: { children: ReactNode }) {
 
 		/**
 		 * Handles collab delete messages from WebSocket.
+		 * @param message WebSocket message containing the deleted entity identifier.
+		 * @returns Nothing.
 		 */
-		const collabDeleteCallback = (message: any) => {
-			const id: any = message.payload.id;
+		const collabDeleteCallback = (message: CollabDeleteMessage): void => {
+			const { id } = message.payload;
 
 			// Check notes
-			const noteIdx = DataStore.notes.findIndex((n) => n.id === id);
-			if (noteIdx >= 0) {
-				const deletedNote = DataStore.notes[noteIdx];
-				DataStore.notes.splice(noteIdx, 1);
+			const deletedNote = DataStore.deleteNote(id as Note.Id, "deferred");
+			if (deletedNote) {
 				Note.Entity.removeIndexedNote(deletedNote);
 				RenderEngine.resetSourceNotes(deletedNote.source_id);
-				DataStore.markDirtySoon();
 				return;
 			}
 
 			// Check links
-			const linkIdx = DataStore.links.findIndex((l) => l.id === id);
-			if (linkIdx >= 0) {
-				DataStore.links.splice(linkIdx, 1);
+			const deletedLink = DataStore.deleteLink(id as Link.Id, "immediate");
+			if (deletedLink) {
 				RenderEngine.clearAllCaches();
-				DataStore.markDirty();
 				instanceRef.current.render();
 				return;
+			}
+
+			const deletedSource = appRef.current.target.files.find(
+				(source) => source.id === id,
+			);
+			if (deletedSource) {
+				Doc.Entity.delete(appRef.current, deletedSource);
+				RenderEngine.resetSource(deletedSource.id);
 			}
 
 			setInfo((prev) => {

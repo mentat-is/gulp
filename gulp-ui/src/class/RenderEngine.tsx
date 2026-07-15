@@ -1347,9 +1347,12 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		RenderEngine[CacheKey].notes.delete(sourceId);
 		RenderEngine[CacheKey].range.delete(sourceId);
 		RenderEngine[CacheKey].flags.clear();
+		RenderEngine[CacheKey].links.clear();
+		RenderEngine.interactiveNotes = [];
+		RenderEngine.interactiveLinks = [];
 
 		if (DefaultEngine.instance) {
-			DefaultEngine.instance.map.delete(sourceId);
+			DefaultEngine.instance.clearSourceCache(sourceId);
 		}
 		if (HeightEngine.instance) {
 			HeightEngine.instance.map.delete(sourceId);
@@ -1365,17 +1368,22 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 	 * Must be called when switching operations to prevent memory leaks.
 	 *
 	 * Clears:
-	 * - RenderEngine's notes, range, and flags caches
-	 * - DefaultEngine and HeightEngine per-source pixel maps (can hold 320k+ entries)
-	 * - CanvasIcon SVG-to-bitmap cache
+	 * - RenderEngine's note, range, flag, link, and interactive hit-region caches
+	 * - DefaultEngine event and color-override indexes
+	 * - HeightEngine and GraphEngine derived event caches
+	 *
+	 * @returns Nothing.
 	 */
-	public static clearAllCaches = () => {
+	public static clearAllCaches = (): void => {
 		RenderEngine[CacheKey].notes.clear();
 		RenderEngine[CacheKey].range.clear();
 		RenderEngine[CacheKey].flags.clear();
+		RenderEngine[CacheKey].links.clear();
+		RenderEngine.interactiveNotes = [];
+		RenderEngine.interactiveLinks = [];
 
 		if (DefaultEngine.instance) {
-			DefaultEngine.instance.map.clear();
+			DefaultEngine.instance.clearCache();
 		}
 		if (HeightEngine.instance) {
 			HeightEngine.instance.map.clear();

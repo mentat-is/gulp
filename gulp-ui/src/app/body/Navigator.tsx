@@ -1,7 +1,7 @@
-import { cn } from "@/ui/utils";
+import { cn, getTimestamp } from "@/ui/utils";
 import s from "./styles/Navigator.module.css";
 import { Application } from "@/context/Application.context";
-import { useScroll, scrollStore } from "@/store/scroll.store";
+import { scrollStore } from "@/store/scroll.store";
 import {
 	ChangeEvent,
 	KeyboardEvent as ReactKeyboardEvent,
@@ -32,7 +32,6 @@ import { DetachedWindow } from "@/context/DetachedWindow.context";
 export namespace Navigator {
 	export interface Props extends Stack.Props {
 		timeline: RefObject<HTMLDivElement>;
-		timestamp: number;
 	}
 }
 
@@ -44,10 +43,14 @@ interface AssistantWindowTarget {
 	pluginFilename?: string;
 }
 
+/**
+ * Renders timeline controls backed by an axis-specific horizontal scroll subscription.
+ * @param props Timeline element reference and Stack presentation properties.
+ * @returns Navigator control row.
+ */
 export function Navigator({
 	timeline,
 	className,
-	timestamp: _timestamp,
 	...props
 }: Navigator.Props) {
 	const {
@@ -62,9 +65,43 @@ export function Navigator({
 	} = Application.use();
 	const { t } = Locale.use();
 	const detachedWindows = DetachedWindow.use();
-	const { x: scrollX } = useScroll();
-	const [timestamp, setTimestamp] = useState<number>(_timestamp);
+	const [timestampPopoverOpen, setTimestampPopoverOpen] = useState(false);
+	const [viewportTimestamp, setViewportTimestamp] = useState(() =>
+		getTimestamp(
+			scrollStore.getX() + (timeline.current?.clientWidth || 0),
+			Info,
+		),
+	);
+	const [timestampDraft, setTimestampDraft] = useState<number | null>(null);
+	const timestamp = timestampDraft ?? viewportTimestamp;
 	const [timestampInputValid, setTimestampInputValid] = useState<boolean>(true);
+
+	useEffect(() => {
+		if (!timestampPopoverOpen) return;
+
+		/**
+		 * Updates the visible timestamp editor from the current imperative viewport.
+		 * @returns Nothing.
+		 */
+		const synchronizeViewportTimestamp = (): void => {
+			setViewportTimestamp(
+				getTimestamp(
+					scrollStore.getX() + (timeline.current?.clientWidth || 0),
+					Info,
+				),
+			);
+		};
+
+		synchronizeViewportTimestamp();
+		return scrollStore.subscribeX(synchronizeViewportTimestamp);
+	}, [
+		Info,
+		app.timeline.frame.max,
+		app.timeline.frame.min,
+		app.timeline.scale,
+		timeline,
+		timestampPopoverOpen,
+	]);
 
 	const isDialogPanelDetached = isDetachedWindow || !dialogsDocked;
 
@@ -78,16 +115,23 @@ export function Navigator({
 		setLocalFilterValue(app.timeline.filter);
 	}, [app.timeline.filter]);
 
-	useEffect(() => {
-		setTimestamp(_timestamp);
-	}, [_timestamp]);
-
-	const resetTimestamp = () => {
+	/**
+	 * Clears an invalid timestamp draft while retaining the invalid state.
+	 * @returns Nothing.
+	 */
+	const resetTimestamp = (): void => {
 		setTimestampInputValid(false);
-		setTimestamp(0);
+		setTimestampDraft(0);
 	};
 
-	const handleTimestampChangeHandler = (ev: ChangeEvent<HTMLInputElement>) => {
+	/**
+	 * Validates and stores an explicitly edited timestamp draft.
+	 * @param ev Timestamp input change event.
+	 * @returns Nothing.
+	 */
+	const handleTimestampChangeHandler = (
+		ev: ChangeEvent<HTMLInputElement>,
+	): void => {
 		const { value } = ev.target;
 		const limits = Context.Entity.frame(app);
 		if (!value) {
@@ -110,14 +154,22 @@ export function Navigator({
 		}
 
 		setTimestampInputValid(num < limits.max && num > limits.min);
-		setTimestamp(num);
+		setTimestampDraft(num);
 	};
 
-	const resetTimestampToInitialValue = () => {
-		setTimestamp(_timestamp);
+	/**
+	 * Restores the live timestamp derived from the current viewport.
+	 * @returns Nothing.
+	 */
+	const resetTimestampToInitialValue = (): void => {
+		setTimestampDraft(null);
 		setTimestampInputValid(true);
 	};
 
+	/**
+	 * Focuses the Canvas on the current draft or live viewport timestamp.
+	 * @returns Nothing.
+	 */
 	const goToTimestamp = () => {
 		// @ts-ignore
 		return window.focusCanvasOnEvent(timestamp, true);
@@ -126,6 +178,7 @@ export function Navigator({
 	/**
 	 * Opens or focuses the detached assistant window for the selected target.
 	 * @param target Assistant target selected from the registry-backed options.
+	 * @returns Nothing.
 	 */
 	const openChatWindow = useCallback(
 		(target: AssistantWindowTarget) => {
@@ -138,14 +191,23 @@ export function Navigator({
 	const size_reset = useRef<HTMLButtonElement>(null);
 	const size_minus = useRef<HTMLButtonElement>(null);
 
-	const resetScaleAndScroll = () => {
+	/**
+	 * Restores the default timeline scale and horizontal viewport origin.
+	 * @returns Nothing.
+	 */
+	const resetScaleAndScroll = (): void => {
 		Info.setTimelineScale(1);
 		scrollStore.setScrollX(0);
 	};
 
-	const zoom = (out = false) => {
+	/**
+	 * Adjusts timeline scale around the current viewport center.
+	 * @param out Whether to zoom out instead of zooming in.
+	 * @returns Nothing.
+	 */
+	const zoom = (out = false): void => {
 		const timelineWidth = timeline.current?.clientWidth || 1;
-		const currentScale = app.timeline.scale;
+		const currentScale = Info.app.timeline.scale;
 
 		const newScale = out
 			? currentScale - currentScale / 4
@@ -153,7 +215,7 @@ export function Navigator({
 
 		const clampedScale = Math.min(Math.max(newScale, 0.01), 9999999);
 
-		const centerOffset = scrollX + timelineWidth / 2;
+		const centerOffset = scrollStore.getX() + timelineWidth / 2;
 		const scaledOffset = (centerOffset * clampedScale) / currentScale;
 		const left = scaledOffset - centerOffset;
 
@@ -161,7 +223,12 @@ export function Navigator({
 		scrollStore.setScrollX((x) => Math.round(x + left));
 	};
 
-	const handleControllers = (event: KeyboardEvent) => {
+	/**
+	 * Routes timeline zoom keyboard shortcuts while preserving editable controls.
+	 * @param event Native keyboard event emitted by the window.
+	 * @returns Nothing.
+	 */
+	const handleControllers = (event: KeyboardEvent): void => {
 		const target = event.target as HTMLElement;
 		const tag = target.tagName.toLowerCase();
 		if (
@@ -196,7 +263,11 @@ export function Navigator({
 		};
 	}, []);
 
-	const createHighlightButtonClickHandler = () => {
+	/**
+	 * Toggles the interactive highlight-creation overlay.
+	 * @returns Nothing.
+	 */
+	const createHighlightButtonClickHandler = (): void => {
 		setHighlightsOverlay((prev) =>
 			prev ? null : <Highlights.Create.Overlay />,
 		);
@@ -208,6 +279,7 @@ export function Navigator({
 	 * For 'events' mode, it updates OpenSearch filters and triggers a refetch.
 	 * @param value The search term.
 	 * @param mode The current filter mode ('files' or 'events').
+	 * @returns Nothing.
 	 */
 	const triggerSearch = useCallback(
 		(value: string, mode: "files" | "events") => {
@@ -266,8 +338,9 @@ export function Navigator({
 	 * Handles filter input changes.
 	 * Triggers instant auto-search in 'files' mode, but waits for manual trigger in 'events' mode.
 	 * @param e Change event from the input.
+	 * @returns Nothing.
 	 */
-	const handleFilterChange = (e: ChangeEvent<HTMLInputElement>) => {
+	const handleFilterChange = (e: ChangeEvent<HTMLInputElement>): void => {
 		const value = e.target.value;
 		setLocalFilterValue(value);
 		if (filterMode === "files") {
@@ -280,8 +353,9 @@ export function Navigator({
 	 * Handles key down events on the search input.
 	 * Triggers search when 'Enter' is pressed.
 	 * @param e Keyboard event from the input.
+	 * @returns Nothing.
 	 */
-	const handleKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+	const handleKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
 		if (e.key === "Enter") {
 			triggerSearch(localFilterValue, filterMode);
 		}
@@ -290,6 +364,7 @@ export function Navigator({
 	/**
 	 * Toggles between 'files' and 'events' filter modes.
 	 * When switching back to 'files', it clears any active event filters.
+	 * @returns Nothing.
 	 */
 	const handleIconClick = useCallback(() => {
 		const nextMode = filterMode === "files" ? "events" : "files";
@@ -345,8 +420,9 @@ export function Navigator({
 
 	/**
 	 * Opens the assistant directly when only one target exists, otherwise opens the selector.
+	 * @returns Nothing.
 	 */
-	const handleChatButtonClick = () => {
+	const handleChatButtonClick = (): void => {
 		if (assistantTargets.length > 1) {
 			setSelectionOpen(true);
 		} else {
@@ -357,8 +433,9 @@ export function Navigator({
 	/**
 	 * Opens the selected assistant target and closes the selector.
 	 * @param target Assistant target selected by the user.
+	 * @returns Nothing.
 	 */
-	const selectChat = (target: AssistantWindowTarget) => {
+	const selectChat = (target: AssistantWindowTarget): void => {
 		openChatWindow(target);
 		setSelectionOpen(false);
 	};
@@ -428,7 +505,10 @@ export function Navigator({
 				onClick={() => triggerSearch(localFilterValue, filterMode)}
 				size="md"
 			/>
-			<Popover.Root>
+			<Popover.Root
+				open={timestampPopoverOpen}
+				onOpenChange={setTimestampPopoverOpen}
+			>
 				<Popover.Trigger asChild>
 					<Button
 						size="md"

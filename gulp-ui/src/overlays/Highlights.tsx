@@ -1,7 +1,7 @@
 import s from './Highlights.module.css';
-import { useScroll } from '@/store/scroll.store';
+import { scrollStore } from '@/store/scroll.store';
 import { Icon } from '@/ui/Icon';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { MinMax, Range } from '@/class/Info';
 import { Application } from '@/context/Application.context';
 import { Default } from '@/dto/Dataset';
@@ -17,8 +17,25 @@ import { Color } from '@/entities/Color';
 import { ColorPicker, ColorPickerPopover, ColorPickerTrigger } from '@/ui/Color';
 import { Label } from '@/ui/Label';
 import { Locale } from '@/locales';
+import { getHighlightLayout, shouldTranslateHighlightOverlay } from './HighlightLayout';
+import type { HighlightLayout } from './HighlightLayout';
+import { highlightRegistry } from './HighlightRegistry';
 
 const HIGHLIGHT_VARIANTS = new Set<string>(Badge.Variants);
+
+interface HighlightColors {
+  badgeVariant: NonNullable<Badge.Variant> | undefined;
+  isLiteral: boolean;
+  borderColor: string;
+  fillColor: string;
+  labelBackground: string;
+  labelTextColor: string;
+  fadeColor: string;
+}
+
+type HighlightCssProperties = React.CSSProperties & {
+  [key: `--highlight-${string}`]: string | number;
+};
 
 function isHighlightVariant(color: string): color is NonNullable<Badge.Variant> {
   return HIGHLIGHT_VARIANTS.has(color);
@@ -34,13 +51,13 @@ function isLiteralCssColor(color: string): boolean {
   );
 }
 
-function getHighlightColors(color: string) {
+function getHighlightColors(color: string): HighlightColors {
   const fallbackColor = 'var(--gray-700)';
 
   if (isHighlightVariant(color) && !isLiteralCssColor(color)) {
     return {
       badgeVariant: color,
-      badgeStyle: undefined,
+      isLiteral: false,
       borderColor: `var(--${color}-800)`,
       fillColor: `color-mix(in srgb, var(--${color}-800) 16%, transparent)`,
       labelBackground: `var(--${color}-700)`,
@@ -54,10 +71,7 @@ function getHighlightColors(color: string) {
 
   return {
     badgeVariant: undefined,
-    badgeStyle: {
-      backgroundColor: resolvedColor,
-      color: readableTextColor,
-    },
+    isLiteral: true,
     borderColor: resolvedColor,
     fillColor: `color-mix(in srgb, ${resolvedColor} 16%, transparent)`,
     labelBackground: resolvedColor,
@@ -74,10 +88,14 @@ export namespace Highlights {
       }
     }
 
+    /**
+     * Renders the interactive highlight range selection overlay.
+     * @param props Overlay Stack presentation properties.
+     * @returns Highlight creation overlay.
+     */
     export function Overlay({ className, ...props }: Highlights.Create.Overlay.Props) {
       const { Info, setHighlightsOverlay } = Application.use();
       const { t } = Locale.use();
-      const { x: scrollX, y: scrollY } = useScroll();
       const [icon, setIcon] = useState<Glyph.Id | null>(Glyph.List.keys().next().value!);
       const [name, setName] = useState<string>('');
       const [color, setColor] = useState<string>('#ffa647');
@@ -103,8 +121,8 @@ export namespace Highlights {
           frame: Info.app.timeline.frame,
           scale: Info.app.timeline.scale,
           scroll: {
-            x: scrollX,
-            y: scrollY
+            x: scrollStore.getX(),
+            y: scrollStore.getY()
           },
           width: Info.width
         })
@@ -221,22 +239,122 @@ export namespace Highlights {
       }
     }
 
-    export function Overlay({ frame, fixed, layoutWidth, ...props }: Highlights.List.Overlay.Props) {
-      const { app } = Application.use();
+    interface OverlayContentProps extends Highlights.List.Overlay.Props {
+      followsTimelineScroll: boolean;
+    }
+
+    /**
+     * Renders highlight geometry for either a scrolling timeline or a static preview.
+     * @param props Layout overrides, scroll behavior, and Stack presentation properties.
+     * @returns Highlight overlay content.
+     */
+    function OverlayContent({ frame, fixed, layoutWidth, followsTimelineScroll, ...props }: OverlayContentProps) {
+      const { app, Info } = Application.use();
+      const scrollContentRef = useRef<HTMLDivElement>(null);
+
+      // Recompute document-space geometry after a renderless settled zoom commit.
+      useSyncExternalStore(
+        Info.subscribeTimelineScale,
+        Info.getTimelineScaleSnapshot,
+        Info.getTimelineScaleSnapshot,
+      );
 
       const highlights = useMemo(() => Highlight.Entity.selected(app), [app.timeline.renderVersion, app.target.operations]);
 
       const computedDepths = useMemo(() => Highlight.Entity.computeDepths(highlights), [highlights]);
 
+      const frameMin = frame?.min ?? app.timeline.frame.min;
+      const frameMax = frame?.max ?? app.timeline.frame.max;
+      const resolvedLayoutWidth = layoutWidth ?? Info.width;
+      const layouts = useMemo(
+        () => highlights.map((highlight) => (
+          getHighlightLayout(highlight, frameMin, frameMax, resolvedLayoutWidth)
+        )),
+        [frameMax, frameMin, highlights, resolvedLayoutWidth],
+      );
+      const highlightElements = useMemo(
+        () => highlights.map((highlight, index) => (
+          <Highlights.Component
+            key={highlight.id ?? index}
+            fixed={fixed}
+            frame={frame}
+            layoutWidth={layoutWidth}
+            highlight={highlight}
+            index={computedDepths[index]}
+            layout={layouts[index]}
+          />
+        )),
+        [computedDepths, fixed, frame, highlights, layoutWidth, layouts],
+      );
+
+      useEffect(() => {
+        if (layoutWidth !== undefined) return;
+        highlightRegistry.replace(highlights.map((highlight, index) => ({
+          id: highlight.id,
+          left: layouts[index].left,
+          width: layouts[index].width,
+          index: computedDepths[index],
+          color: highlight.color,
+        })));
+
+        return () => highlightRegistry.clear();
+      }, [computedDepths, highlights, layoutWidth, layouts]);
+
+      useEffect(() => {
+        if (!followsTimelineScroll) {
+          if (layoutWidth === undefined) {
+            highlightRegistry.setViewportOffset(0);
+          }
+          return;
+        }
+
+        /**
+         * Applies the latest timeline scroll to both the visual layer and legacy registry.
+         * @returns Nothing.
+         */
+        const synchronizeHorizontalScroll = (): void => {
+          const viewportOffset = scrollStore.getX();
+          scrollContentRef.current?.style.setProperty(
+            '--highlight-scroll-offset',
+            `${-viewportOffset}px`,
+          );
+          highlightRegistry.setViewportOffset(viewportOffset);
+        };
+
+        synchronizeHorizontalScroll();
+        return scrollStore.subscribeX(synchronizeHorizontalScroll);
+      }, [followsTimelineScroll, layoutWidth]);
+
+      const initialViewportOffset = followsTimelineScroll ? scrollStore.getX() : 0;
+
       return (
         <Stack pos='absolute' className={cn(s.overlay, s.ignore)} {...props}>
-          {highlights.map((highlight, index) => {
-            return (
-              <Highlights.Component key={index} fixed={fixed} frame={frame} layoutWidth={layoutWidth} highlight={highlight} index={computedDepths[index]} />
-            )
-          })}
+          <Stack
+            ref={scrollContentRef}
+            pos='absolute'
+            className={s.scrollContent}
+            style={{
+              '--highlight-scroll-offset': `${-initialViewportOffset}px`,
+            } as HighlightCssProperties}
+          >
+            {highlightElements}
+          </Stack>
         </Stack>
       )
+    }
+
+    /**
+     * Selects a scrolling implementation for the main timeline and a static one for previews.
+     * @param props Optional frame/layout overrides and Stack presentation properties.
+     * @returns Highlight list overlay.
+     */
+    export function Overlay(props: Highlights.List.Overlay.Props) {
+      return (
+        <OverlayContent
+          {...props}
+          followsTimelineScroll={shouldTranslateHighlightOverlay(props.fixed, props.layoutWidth)}
+        />
+      );
     }
   }
 
@@ -248,37 +366,38 @@ export namespace Highlights {
       frame?: Partial<MinMax>;
       layoutWidth?: number;
       fixed?: boolean;
+      layout?: HighlightLayout;
     }
   }
 
-  export function Component({ highlight, fixed, layoutWidth, frame = {}, style, className, index = 0, native, ...props }: Highlights.Component.Props) {
+  /**
+   * Renders one highlight using precomputed document-space geometry when available.
+   * @param props Highlight entity, layout metadata, and Stack presentation properties.
+   * @returns Highlight label and interaction surface.
+   */
+  export function Component({ highlight, fixed: _fixed, layout, layoutWidth, frame = {}, style, className, index = 0, native, ...props }: Highlights.Component.Props) {
     const { Info, app } = Application.use();
     const { t } = Locale.use();
-    const { x: scrollX } = useScroll();
     const highlightColors = useMemo(() => getHighlightColors(highlight.color), [highlight.color]);
-
-    if (layoutWidth) {
-      native = true;
-    }
-
-    const range = useMemo((): Range => {
-      if ('range' in highlight && Array.isArray(highlight.range)) {
-        return highlight.range as Range;
-      }
-
-      return highlight.time_range.map(t => Math.round(((t - (frame.min ?? app.timeline.frame.min)) / ((frame.max ?? app.timeline.frame.max) - (frame.min ?? app.timeline.frame.min))) * (layoutWidth ?? Info.width)) - (fixed ? 0 : scrollX)) as Range;
-    }, [app.timeline.frame, app.timeline.scale, fixed ? undefined : scrollX, highlight, layoutWidth]);
-
-    const [left, width] = useMemo(() => {
-      const left = Math.min(...range);
-      const width = Math.max(...range) - left;
-
-      if (!native) {
-        Highlights.set(highlight.id, left, width, index, highlight.color);
-      }
-
-      return [left, width];
-    }, [range]);
+    const rendersNative = native || layoutWidth !== undefined;
+    const resolvedLayout = useMemo(
+      () => layout ?? getHighlightLayout(
+        highlight,
+        frame.min ?? app.timeline.frame.min,
+        frame.max ?? app.timeline.frame.max,
+        layoutWidth ?? Info.width,
+      ),
+      [
+        app.timeline.frame.max,
+        app.timeline.frame.min,
+        frame.max,
+        frame.min,
+        highlight,
+        Info.width,
+        layout,
+        layoutWidth,
+      ],
+    );
 
     return (
       <Stack
@@ -286,23 +405,24 @@ export namespace Highlights {
         className={cn(className, s.highlight)}
         style={{
           ...style,
-          left,
-          width,
+          '--highlight-left': `${resolvedLayout.left}px`,
+          '--highlight-width': `${resolvedLayout.width}px`,
           '--variant': highlightColors.borderColor,
           '--index': index,
           '--highlight-fade': highlightColors.fadeColor,
-          background: native ? highlightColors.fillColor : 'transparent',
-        } as React.CSSProperties}
+          '--highlight-background': rendersNative ? highlightColors.fillColor : 'transparent',
+          '--highlight-label-background': highlightColors.labelBackground,
+          '--highlight-label-text': highlightColors.labelTextColor,
+        } as HighlightCssProperties}
         jc='flex-end'
         ai='flex-start'
         {...props}
       >
-        <Stack style={{ background: highlightColors.labelBackground, color: highlightColors.labelTextColor }}>
+        <Stack className={s.highlightLabel}>
           <Badge
-            className={s.title}
+            className={cn(s.title, highlightColors.isLiteral && s.literalTitle)}
             data-type='badge'
             variant={highlightColors.badgeVariant}
-            style={highlightColors.badgeStyle}
             value={highlight.name || t('highlights.fallbackName')}
             icon={Glyph.List.get(highlight.glyph_id) || Default.Icon.HIGHLIGHT}
           />
@@ -312,25 +432,40 @@ export namespace Highlights {
     )
   }
 
-  export function init() {
-    // @ts-ignore
-    window.highlights = window.highlights ?? {};
+  /** Ensures the module-level legacy registry is initialized. */
+  export function init(): void {
+    // The typed registry is initialized when this module is evaluated.
   }
 
+  /**
+   * Returns legacy viewport-relative highlight tuples on demand.
+   * @returns Registered highlights adjusted by the current viewport offset.
+   */
   export function list(): [number, number, number, string][] {
     Highlights.init();
-    // @ts-ignore
-    return Object.values(window.highlights);
+    return highlightRegistry.list();
   }
 
-  export function set(id: Highlight.Id, left: number, width: number, index: number, color: string) {
+  /**
+   * Registers one document-space highlight for legacy consumers.
+   * @param id Highlight identifier.
+   * @param left Document-space horizontal position.
+   * @param width Highlight width.
+   * @param index Highlight overlap depth.
+   * @param color Highlight color.
+   * @returns Nothing.
+   */
+  export function set(id: Highlight.Id, left: number, width: number, index: number, color: string): void {
     init();
-    // @ts-ignore
-    window.highlights[id] = [left, width, index, color];
+    highlightRegistry.set({ id, left, width, index, color });
   }
 
-  export function remove(id: Highlight.Id) {
-    // @ts-ignore
-    delete window.highlights[id]
+  /**
+   * Removes one highlight from the legacy registry.
+   * @param id Highlight identifier.
+   * @returns Nothing.
+   */
+  export function remove(id: Highlight.Id): void {
+    highlightRegistry.remove(id);
   }
 }

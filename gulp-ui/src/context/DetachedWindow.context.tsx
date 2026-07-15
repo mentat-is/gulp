@@ -231,14 +231,14 @@ function _({ children }: { children: ReactNode }) {
 	const infoRef = useRef(Info);
 	infoRef.current = Info;
 	const visibleSourceSignature = useSyncExternalStore(
-		Info.subscribeVisibleSourceIds,
-		Info.getVisibleSourceSignature,
-		Info.getVisibleSourceSignature,
+		Info.subscribeViewportSourceIds,
+		Info.getViewportSourceSignature,
+		Info.getViewportSourceSignature,
 	);
 	const dataStoreVersion = useSyncExternalStore(
-		DataStore.subscribe,
-		DataStore.getSnapshot,
-		DataStore.getSnapshot,
+		DataStore.subscribeOverlays,
+		DataStore.getOverlaysSnapshot,
+		DataStore.getOverlaysSnapshot,
 	);
 	const spawnDialogRef = useRef(spawnDialog);
 	spawnDialogRef.current = spawnDialog;
@@ -334,7 +334,7 @@ function _({ children }: { children: ReactNode }) {
 			)
 			.map((source) => source.id);
 		const currentVisibleSourceIds = [
-			...infoRef.current.getVisibleSourceIds(),
+			...infoRef.current.getViewportSourceIds(),
 		];
 		const currentStatus = resolveMainContextStatus({
 			app: currentApp,
@@ -412,7 +412,7 @@ function _({ children }: { children: ReactNode }) {
 	 */
 	const replayVisibleSources = useCallback(() => {
 		bridgeRef.current?.send(WindowBridge.MessageType.VISIBLE_SOURCES_CHANGED, {
-			sourceIds: [...infoRef.current.getVisibleSourceIds()],
+			sourceIds: [...infoRef.current.getViewportSourceIds()],
 		});
 	}, []);
 	const replayVisibleSourcesRef = useRef(replayVisibleSources);
@@ -805,6 +805,10 @@ function _({ children }: { children: ReactNode }) {
 		selectedSourceIdsSignature,
 		status,
 	]);
+
+	useEffect(() => {
+		return Info.subscribeTimelineScale(scheduleReplayDetachedState);
+	}, [Info, scheduleReplayDetachedState]);
 
 	useEffect(() => {
 		scheduleReplayDetachedNotes();

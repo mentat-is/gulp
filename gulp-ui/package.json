@@ -8,6 +8,7 @@
     "check:locales": "node ./scripts/check-locale-fallback.mjs",
     "build": "react-app-rewired build",
     "start": "react-app-rewired start",
+    "test": "react-scripts test --watchAll=false",
     "server": "serve -s build"
   },
   "browserslist": {
@@ -75,5 +76,11 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "baseline-browser-mapping": "^2.9.14",
     "react-app-rewired": "^2.2.1"
+  },
+  "jest": {
+    "moduleNameMapper": {
+      "^.+\\.module\\.(css|sass|scss)$": "<rootDir>/src/test/styleMock.ts",
+      "^@/(.*)$": "<rootDir>/src/$1"
+    }
   }
 }

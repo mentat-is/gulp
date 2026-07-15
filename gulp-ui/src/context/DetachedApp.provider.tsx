@@ -35,6 +35,7 @@ import { Source } from '@/entities/Source'
 import { Request } from '@/entities/Request'
 import { Extension } from '@/context/Extension.context'
 import { Locale } from '@/locales'
+import { ownsIndependentDetachedDataStore } from '@/context/detachedDataStore'
 import s from './styles/DetachedApp.module.css'
 
 export namespace DetachedApp {
@@ -88,11 +89,20 @@ export function DetachedAppProvider({
     useState<WindowBridge.MainContextStatus>('initializing')
   const [detachedContextVersion, setDetachedContextVersion] = useState(0)
   const selectedSourceIdsRef = useRef<Source.Id[] | null | undefined>(null)
+  const initialNotesRef = useRef(initialNotes)
+  const ownsIndependentDataStore = ownsIndependentDetachedDataStore(
+    detachedDocument,
+    window,
+  )
 
-  // Initialize DataStore notes in the detached window context
+  /**
+   * Hydrates notes only for standalone detached routes with their own module realm.
+   * Opener-rendered popup roots already share the main canonical DataStore.
+   */
   useEffect(() => {
-    DataStore.notes = [...initialNotes]
-  }, []) // Only on mount
+    if (!ownsIndependentDataStore) return
+    DataStore.replaceNotes(initialNotesRef.current, 'deferred')
+  }, [ownsIndependentDataStore])
 
   /**
    * Authoritative loadings ref — prevents loading maps from being lost
@@ -197,7 +207,8 @@ export function DetachedAppProvider({
   ) => {
     const { selectedSourceIds, visibleSourceIds } = payload
     selectedSourceIdsRef.current = selectedSourceIds
-    instance.setVisibleSourceIds(visibleSourceIds ?? selectedSourceIds)
+    instance.setViewportSourceIds(visibleSourceIds ?? selectedSourceIds)
+    instance.synchronizeTimelineScaleFromState(payload.timeline.scale)
 
     setInfo(prev => {
       const files = payload.sources.map((source) => {
@@ -225,7 +236,7 @@ export function DetachedAppProvider({
         hidden: payload.hidden,
       }
     })
-  }, [setInfo])
+  }, [instance, setInfo])
 
   /**
    * Applies a selected timeline event replayed by the main tab.
@@ -255,11 +266,11 @@ export function DetachedAppProvider({
   const applyNotesChanged = useCallback((
     payload: WindowBridge.NotesChangedPayload,
   ) => {
-    DataStore.notes = [...payload.notes]
+    if (!ownsIndependentDataStore) return
+    DataStore.replaceNotes(payload.notes, 'deferred')
     Note.Entity.invalidateCache()
     RenderEngine.reset('notes')
-    DataStore.markDirtySoon()
-  }, [])
+  }, [ownsIndependentDataStore])
 
   /**
    * Applies the source ids currently rendered by the main Canvas source set.
@@ -270,7 +281,7 @@ export function DetachedAppProvider({
   const applyVisibleSourcesChanged = useCallback((
     payload: WindowBridge.VisibleSourcesChangedPayload,
   ) => {
-    instance.setVisibleSourceIds(payload.sourceIds)
+    instance.setViewportSourceIds(payload.sourceIds)
   }, [instance])
 
   // Listen for incoming BroadcastChannel messages from the main tab

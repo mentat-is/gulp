@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { Icon } from "@/ui/Icon";
 import { Logger } from "@/dto/Logger.class";
 import { DataStore } from "@/store/DataStore";
+import { documentIdentityRegistry } from "@/store/DocumentIdentityRegistry";
 import { Refractor } from "@/ui/utils";
 import { translate } from "@/locales";
 import type { Link } from "./Link";
@@ -61,7 +62,7 @@ export namespace Doc {
 
 	export class Entity {
 		/**
-		 * Global event lookup index: maps Doc.Id → Doc.Type for O(1) access.
+		 * Global event lookup uses the shared document identity registry for O(1) access.
 		 *
 		 * ARCHITECTURAL DECISION: Previously, `Doc.Entity.id()` used
 		 * `Array.from(app.target.events.values()).flat().find(...)` which created
@@ -72,7 +73,6 @@ export namespace Doc {
 		 * The index is maintained by `add()` and `delete()`, and must be cleared
 		 * via `clearIndex()` when switching operations to prevent memory leaks.
 		 */
-		private static _index = new Map<Doc.Id, Doc.Type>();
 		private static _hashRanges = new Map<Source.Id, Doc.HashRange>();
 		private static readonly PREPARED_INSERT_YIELD_CHUNK_SIZE = 25000;
 
@@ -81,7 +81,7 @@ export namespace Doc {
 		 * @returns Nothing.
 		 */
 		public static clearIndex = (): void => {
-			Doc.Entity._index.clear();
+			documentIdentityRegistry.clearDocumentReferences();
 			Doc.Entity._hashRanges.clear();
 		};
 
@@ -125,6 +125,7 @@ export namespace Doc {
 				);
 			});
 			Doc.Entity.updateHashRange(sourceId, events);
+			DataStore.touchSourceEvents(sourceId, events);
 		};
 
 		/**
@@ -167,20 +168,25 @@ export namespace Doc {
 			Source.Entity.id(app, doc["gulp.source_id"])?.context_id;
 
 		/**
-		 * Removes all events for the given source files.
-		 * Also removes corresponding entries from the `_index` to prevent stale references.
+		 * Removes all events for the supplied sources and clears their lookup entries.
+		 * @param app Current application state, retained for entity API consistency.
+		 * @param files Source or source collection whose events must be removed.
+		 * @returns Updated canonical source-event map.
 		 */
-		public static delete = (app: App.Type, files: Arrayed<Source.Type>) => {
+		public static delete = (
+			app: App.Type,
+			files: Arrayed<Source.Type>,
+		): Map<Source.Id, Doc.Type[]> => {
 			files = Parser.array(files);
 
 			files.forEach((file) => {
-				// Remove from index before deleting
 				const events = DataStore.events.get(file.id);
 				if (events) {
-					events.forEach((e) => Doc.Entity._index.delete(e._id));
+					events.forEach((event) =>
+						documentIdentityRegistry.removeDocument(file.id, event._id),
+					);
 				}
-				DataStore.events.delete(file.id);
-				DataStore.events.set(file.id, []);
+				DataStore.clearSourceEvents(file.id);
 				Doc.Entity.clearHashRange(file.id);
 			});
 
@@ -193,14 +199,25 @@ export namespace Doc {
 			min: events[events.length - 1].gulp_timestamp, //new Date(events[events.length - 1]["@timestamp"]).valueOf(),
 		});
 
-		/** Finds a single event by its ID using the O(1) `_index` Map. */
-		public static id = (_app: App.Type, event: Doc.Type["_id"]): Doc.Type =>
-			Doc.Entity._index.get(event) as Doc.Type;
+		/**
+		 * Finds one canonical document through the O(1) global identity registry.
+		 * @param _app Current application state, retained for entity API consistency.
+		 * @param event Document identifier to resolve.
+		 * @returns Active canonical document, or undefined when it is not indexed.
+		 */
+		public static id = (
+			_app: App.Type,
+			event: Doc.Type["_id"],
+		): Doc.Type => documentIdentityRegistry.getDocument(event) as Doc.Type;
 
-		/** Retrieves all events for a given source ID. Auto-initializes an empty array if none exist. */
+		/**
+		 * Retrieves all events for a source and lazily initializes an empty collection.
+		 * @param _app Current application state, retained for entity API consistency.
+		 * @param id Source identifier whose documents are requested.
+		 * @returns Mutable canonical event array for the source.
+		 */
 		public static get = (_app: App.Type, id: Source.Id): Doc.Type[] =>
-			DataStore.events.get(id) ||
-			(DataStore.events.set(id, []).get(id) as Doc.Type[]);
+			DataStore.getSourceEvents(id);
 
 		/** Sorts events in descending timestamp order (newest first). Mutates the array in place. */
 		public static sort = (events: Doc.Type[]) =>
@@ -213,60 +230,42 @@ export namespace Doc {
 				.flat();
 
 		/**
-		 * Adds or updates events into the global event store.
-		 * Groups incoming events by source for batched processing.
-		 * Updates existing events in place, appends new ones, and maintains
-		 * the `_index` Map for O(1) lookups. Re-sorts only if changes were made.
+		 * Adds or updates events grouped by source while maintaining the O(1) ID index.
+		 * @param app Current application state, retained for entity API consistency.
+		 * @param events Documents to insert or replace.
+		 * @returns Updated canonical source-event map.
 		 */
-		public static add = (app: App.Type, events: Doc.Type[]) => {
-			const sources = new Set<Source.Id>();
-
-			// Group events by source to optimize processing
+		public static add = (
+			app: App.Type,
+			events: Doc.Type[],
+		): Map<Source.Id, Doc.Type[]> => {
 			const eventsBySource = new Map<Source.Id, Map<Doc.Id, Doc.Type>>();
 			events.forEach((e) => {
 				const sourceId = e["gulp.source_id"];
-				sources.add(sourceId);
 				if (!eventsBySource.has(sourceId)) {
 					eventsBySource.set(sourceId, new Map());
 				}
 				eventsBySource.get(sourceId)!.set(e._id, e);
 			});
 
-			// Process each source: Update existing and Add new events
-			sources.forEach((id) => {
-				const existingEvents = Doc.Entity.get(app, id);
-				const newEventsMap = eventsBySource.get(id)!;
-				let hasChanges = false;
+			eventsBySource.forEach((eventsById, sourceId) => {
+				const changedEvents = Array.from(eventsById.values());
+				const containsExistingEvent = changedEvents.some((event) =>
+					documentIdentityRegistry.hasDocument(event._id),
+				);
+				documentIdentityRegistry.indexDocuments(sourceId, changedEvents);
 
-				// Updating existing events in place
-				for (let i = 0; i < existingEvents.length; i++) {
-					const evt = existingEvents[i];
-					if (newEventsMap.has(evt._id)) {
-						const updated = newEventsMap.get(evt._id)!;
-						existingEvents[i] = updated;
-						Doc.Entity._index.set(updated._id, updated);
-						newEventsMap.delete(evt._id);
-						hasChanges = true;
-					}
-				}
-
-				// Add remaining new events
-				if (newEventsMap.size > 0) {
-					for (const evt of newEventsMap.values()) {
-						Doc.Entity._index.set(evt._id, evt);
-					}
-					// Same fix as addAsync: avoid push(...spread) to prevent RangeError with 1M+ events
-					for (const evt of newEventsMap.values()) {
-						existingEvents.push(evt);
-					}
-					hasChanges = true;
-				}
-
-				// Sort if we modified the list, optimize performance
-				if (hasChanges) {
-					Doc.Entity.sort(existingEvents);
-					Doc.Entity.updateHashRange(id, existingEvents);
-					DataStore.markDirty();
+				const sourceEvents = containsExistingEvent
+					? DataStore.upsertSourceEvents(sourceId, changedEvents)
+					: DataStore.insertNewSourceEvents(sourceId, changedEvents);
+				if (containsExistingEvent) {
+					Doc.Entity.updateHashRange(sourceId, sourceEvents);
+				} else {
+					Doc.Entity.extendHashRange(
+						sourceId,
+						changedEvents,
+						sourceEvents.length,
+					);
 				}
 			});
 
@@ -274,10 +273,21 @@ export namespace Doc {
 		};
 
 		/**
-		 * Asynchronous version of `add` that prevents main thread freeze.
-		 * Use in-place pushing with Event Loop Yielding (chunking) and native Array.prototype.sort().
+		 * Adds or updates events in bounded chunks to keep the main thread responsive.
+		 * @param app Current application state.
+		 * @param events Documents to insert or replace.
+		 * @param expectedOperationEpoch Operation generation that owns the queued batch.
+		 * @returns Promise resolving to the updated canonical source-event map.
 		 */
-		public static addAsync = async (app: App.Type, events: Doc.Type[]) => {
+		public static addAsync = async (
+			app: App.Type,
+			events: Doc.Type[],
+			expectedOperationEpoch = DataStore.getRenderOperationEpoch(),
+		): Promise<Map<Source.Id, Doc.Type[]>> => {
+			const operationEpoch = expectedOperationEpoch;
+			if (!Doc.Entity.isOperationEpochCurrent(operationEpoch)) {
+				return DataStore.events;
+			}
 			const sources = new Set<Source.Id>();
 			const eventsBySource = new Map<Source.Id, Map<Doc.Id, Doc.Type>>();
 
@@ -291,27 +301,57 @@ export namespace Doc {
 				eventsBySource.get(sourceId)!.set(e._id, e);
 			});
 
-			for (const id of sources) {
+			const sourceIds = Array.from(sources);
+			for (let sourceIndex = 0; sourceIndex < sourceIds.length; sourceIndex++) {
+				const id = sourceIds[sourceIndex];
 				const existingEvents = Doc.Entity.get(app, id);
 				const incomingMap = eventsBySource.get(id)!;
+				const changedEvents = Array.from(incomingMap.values());
+				const containsExistingEvent = changedEvents.some((event) =>
+					documentIdentityRegistry.hasDocument(event._id),
+				);
+				if (!containsExistingEvent) {
+					if (!Doc.Entity.isOperationEpochCurrent(operationEpoch)) {
+						return DataStore.events;
+					}
+					documentIdentityRegistry.indexDocuments(id, changedEvents);
+					const sourceEvents = DataStore.insertNewSourceEvents(
+						id,
+						changedEvents,
+						"deferred",
+					);
+					Doc.Entity.extendHashRange(id, changedEvents, sourceEvents.length);
+					if (sourceIndex < sourceIds.length - 1) {
+						await Doc.Entity.yieldToMainThread();
+						if (!Doc.Entity.isOperationEpochCurrent(operationEpoch)) {
+							return DataStore.events;
+						}
+					}
+					continue;
+				}
 				let hasChanges = false;
 
 				// 1. Update existing events in chunks to keep main thread responsive
 				const updateChunkSize = 25000;
 				for (let i = 0; i < existingEvents.length; i += updateChunkSize) {
 					const limit = Math.min(i + updateChunkSize, existingEvents.length);
+					const updatedDocuments: Doc.Type[] = [];
 					for (let j = i; j < limit; j++) {
 						const evt = existingEvents[j];
 						if (incomingMap.has(evt._id)) {
 							const updated = incomingMap.get(evt._id)!;
 							existingEvents[j] = updated;
-							Doc.Entity._index.set(updated._id, updated);
+							updatedDocuments.push(updated);
 							incomingMap.delete(evt._id);
 							hasChanges = true;
 						}
 					}
-					if (incomingMap.size === 0 && !hasChanges) break; // Optimization
+					documentIdentityRegistry.indexDocuments(id, updatedDocuments);
+					if (incomingMap.size === 0) break;
 					await new Promise((resolve) => setTimeout(resolve, 0));
+					if (!Doc.Entity.isOperationEpochCurrent(operationEpoch)) {
+						return DataStore.events;
+					}
 				}
 
 				// 2. Add remaining (truly new) events in chunks
@@ -320,11 +360,14 @@ export namespace Doc {
 					const addChunkSize = 10000;
 					for (let i = 0; i < trulyNew.length; i += addChunkSize) {
 						const chunk = trulyNew.slice(i, i + addChunkSize);
+						documentIdentityRegistry.indexDocuments(id, chunk);
 						for (const evt of chunk) {
-							Doc.Entity._index.set(evt._id, evt);
 							existingEvents.push(evt);
 						}
 						await new Promise((resolve) => setTimeout(resolve, 0));
+						if (!Doc.Entity.isOperationEpochCurrent(operationEpoch)) {
+							return DataStore.events;
+						}
 					}
 					hasChanges = true;
 				}
@@ -333,7 +376,7 @@ export namespace Doc {
 				if (hasChanges) {
 					Doc.Entity.sort(existingEvents);
 					Doc.Entity.updateHashRange(id, existingEvents);
-					DataStore.markDirtySoon();
+					DataStore.touchSourceEvents(id, changedEvents);
 				}
 			}
 			return DataStore.events;
@@ -343,33 +386,81 @@ export namespace Doc {
 		 * Adds grouped and timestamp-sorted documents without re-sorting entire source arrays.
 		 * @param app Current application state.
 		 * @param batches Normalized documents grouped by source and sorted newest first.
+		 * @param expectedOperationEpoch Operation generation that owns the queued batches.
 		 * @returns Updated global events map.
 		 */
 		public static addPreparedAsync = async (
 			app: App.Type,
 			batches: Doc.PreparedBatch[],
-		) => {
+			expectedOperationEpoch = DataStore.getRenderOperationEpoch(),
+		): Promise<Map<Source.Id, Doc.Type[]>> => {
+			const operationEpoch = expectedOperationEpoch;
+			if (!Doc.Entity.isOperationEpochCurrent(operationEpoch)) {
+				return DataStore.events;
+			}
 			for (const batch of batches) {
 				if (batch.docs.length === 0) continue;
 
 				const incomingEvents = Doc.Entity.deduplicateSortedBatch(batch.docs);
-				const existingEvents = Doc.Entity.get(app, batch.sourceId);
-				const retainedEvents = await Doc.Entity.collectRetainedEventsAsync(
-					existingEvents,
-					incomingEvents,
+				const containsExistingEvent = incomingEvents.some((event) =>
+					documentIdentityRegistry.hasDocument(event._id),
 				);
+				if (!containsExistingEvent) {
+					if (!Doc.Entity.isOperationEpochCurrent(operationEpoch)) {
+						return DataStore.events;
+					}
+					documentIdentityRegistry.indexDocuments(
+						batch.sourceId,
+						incomingEvents,
+					);
+					const sourceEvents = DataStore.insertNewSourceEvents(
+						batch.sourceId,
+						incomingEvents,
+						"deferred",
+					);
+					Doc.Entity.extendHashRange(
+						batch.sourceId,
+						incomingEvents,
+						sourceEvents.length,
+					);
+					continue;
+				}
+				let isCommitted = false;
+				while (!isCommitted) {
+					if (!Doc.Entity.isOperationEpochCurrent(operationEpoch)) {
+						return DataStore.events;
+					}
+					const sourceRevision = DataStore.getSourceRevision(batch.sourceId);
+					const existingEvents = Doc.Entity.get(app, batch.sourceId);
+					const retainedEvents = await Doc.Entity.collectRetainedEventsAsync(
+						existingEvents,
+						incomingEvents,
+						operationEpoch,
+					);
+					if (!retainedEvents) return DataStore.events;
 
-				incomingEvents.forEach((event) => {
-					Doc.Entity._index.set(event._id, event);
-				});
+					const mergeResult = await Doc.Entity.mergeSortedEventsAsync(
+						retainedEvents,
+						incomingEvents,
+						operationEpoch,
+					);
+					if (!mergeResult) return DataStore.events;
+					if (DataStore.getSourceRevision(batch.sourceId) !== sourceRevision) {
+						continue;
+					}
 
-				const mergeResult = await Doc.Entity.mergeSortedEventsAsync(
-					retainedEvents,
-					incomingEvents,
-				);
-				DataStore.events.set(batch.sourceId, mergeResult.events);
-				Doc.Entity.setHashRange(batch.sourceId, mergeResult.hashRange);
-				DataStore.markDirtySoon();
+					documentIdentityRegistry.indexDocuments(
+						batch.sourceId,
+						incomingEvents,
+					);
+					DataStore.replaceSourceEvents(
+						batch.sourceId,
+						mergeResult.events,
+						"deferred",
+					);
+					Doc.Entity.setHashRange(batch.sourceId, mergeResult.hashRange);
+					isCommitted = true;
+				}
 			}
 
 			return DataStore.events;
@@ -395,12 +486,14 @@ export namespace Doc {
 		 * Collects existing source events that are not replaced by the incoming batch.
 		 * @param existingEvents Current sorted source event array.
 		 * @param incomingEvents Incoming unique events for the same source.
-		 * @returns Existing events that should be retained before merge.
+		 * @param operationEpoch Operation generation that owns the asynchronous work.
+		 * @returns Existing events that should be retained, or null after a reset.
 		 */
 		private static collectRetainedEventsAsync = async (
 			existingEvents: Doc.Type[],
 			incomingEvents: Doc.Type[],
-		): Promise<Doc.Type[]> => {
+			operationEpoch: number,
+		): Promise<Doc.Type[] | null> => {
 			const incomingIds = new Set(incomingEvents.map((event) => event._id));
 			const retainedEvents: Doc.Type[] = [];
 			const chunkSize = Doc.Entity.PREPARED_INSERT_YIELD_CHUNK_SIZE;
@@ -414,6 +507,7 @@ export namespace Doc {
 					}
 				}
 				await Doc.Entity.yieldToMainThread();
+				if (!Doc.Entity.isOperationEpochCurrent(operationEpoch)) return null;
 			}
 
 			return retainedEvents;
@@ -423,12 +517,14 @@ export namespace Doc {
 		 * Merges two descending timestamp arrays into one descending timestamp array.
 		 * @param existingEvents Retained existing source events.
 		 * @param incomingEvents Incoming source events sorted newest first.
-		 * @returns Merged source events sorted newest first and their number_hash range.
+		 * @param operationEpoch Operation generation that owns the asynchronous work.
+		 * @returns Merged events and hash range, or null after an operation reset.
 		 */
 		private static mergeSortedEventsAsync = async (
 			existingEvents: Doc.Type[],
 			incomingEvents: Doc.Type[],
-		): Promise<MergeResult> => {
+			operationEpoch: number,
+		): Promise<MergeResult | null> => {
 			const mergedEvents = new Array<Doc.Type>(
 				existingEvents.length + incomingEvents.length,
 			);
@@ -479,6 +575,7 @@ export namespace Doc {
 
 				if (mergedIndex < mergedEvents.length) {
 					await Doc.Entity.yieldToMainThread();
+					if (!Doc.Entity.isOperationEpochCurrent(operationEpoch)) return null;
 				}
 			}
 
@@ -494,6 +591,14 @@ export namespace Doc {
 						: undefined,
 			};
 		};
+
+		/**
+		 * Checks whether asynchronous ingestion still belongs to the active operation.
+		 * @param expectedEpoch Operation generation captured before yielding.
+		 * @returns True while no operation reset has superseded the work.
+		 */
+		private static isOperationEpochCurrent = (expectedEpoch: number): boolean =>
+			DataStore.getRenderOperationEpoch() === expectedEpoch;
 
 		/**
 		 * Stores or clears the cached number_hash range for a source.
@@ -549,9 +654,44 @@ export namespace Doc {
 				length: events.length,
 			});
 		};
-		/** Finds multiple events by their IDs using the O(1) `_index` Map. Filters out missing entries. */
-		public static ids = (_app: App.Type, ids: Doc.Type["_id"][]) =>
-			ids.map((id) => Doc.Entity._index.get(id)).filter(Boolean) as Doc.Type[];
+
+		/**
+		 * Extends a valid cached hash range using a proven-new document delta.
+		 * @param sourceId Source whose range receives the new values.
+		 * @param newEvents Newly inserted documents.
+		 * @param totalLength Canonical source length after insertion.
+		 * @returns Nothing.
+		 */
+		private static extendHashRange = (
+			sourceId: Source.Id,
+			newEvents: readonly Doc.Type[],
+			totalLength: number,
+		): void => {
+			const currentRange = Doc.Entity._hashRanges.get(sourceId);
+			let min = currentRange?.min ?? Infinity;
+			let max = currentRange?.max ?? -Infinity;
+			for (const event of newEvents) {
+				if (typeof event.number_hash !== "number") continue;
+				if (event.number_hash < min) min = event.number_hash;
+				if (event.number_hash > max) max = event.number_hash;
+			}
+			Doc.Entity.setHashRange(
+				sourceId,
+				Number.isFinite(min) && Number.isFinite(max)
+					? { min, max, length: totalLength }
+					: undefined,
+			);
+		};
+		/**
+		 * Finds multiple canonical documents through the O(1) global identity registry.
+		 * @param _app Current application state, retained for entity API consistency.
+		 * @param ids Document identifiers to resolve in caller order.
+		 * @returns Active documents for the supplied IDs, excluding missing entries.
+		 */
+		public static ids = (
+			_app: App.Type,
+			ids: Doc.Type["_id"][],
+		): Doc.Type[] => documentIdentityRegistry.getDocuments(ids);
 
 		public static notes = (app: App.Type, event: Doc.Type) =>
 			Note.Entity.findByFile(app, event["gulp.source_id"]).filter(
