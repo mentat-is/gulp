@@ -350,6 +350,8 @@ interface RefetchQueueItem {
 	query: Query.Type;
 	options: QueryFileOptions;
 	sequence: number;
+	/** Whether this source was visible when the refetch was scheduled. */
+	viewportPriority: boolean;
 }
 
 interface InfoProps {
@@ -469,8 +471,8 @@ export class Info implements InfoProps {
 
 	/**
 	 * Stores the source IDs intersecting the current Canvas viewport and overscan.
-	 * Query work waits briefly after a changed row set so sources crossed during a
-	 * continuous vertical scroll remain queued instead of starting network requests.
+	 * Viewport changes update render subscribers only; query dispatch is owned by
+	 * explicit refetch paths so moving the Canvas does not start raw queries.
 	 * @param sourceIds Source ids ordered by their Canvas row position.
 	 * @returns Nothing.
 	 */
@@ -484,9 +486,7 @@ export class Info implements InfoProps {
 			sourceIds.map((sourceId, index) => [sourceId, index]),
 		);
 		this.viewportQueryGate.markViewportChanged();
-		this.reclassifyActiveQueryPriorities();
 		this.notifyViewportSourceListeners();
-		this.pumpRefetchQueue();
 	};
 
 	/**
@@ -519,29 +519,6 @@ export class Info implements InfoProps {
 	 */
 	private notifyViewportSourceListeners = (): void => {
 		this.viewportSourceListeners.forEach((listener) => listener());
-	};
-
-	/**
-	 * Reclassifies active streams after a vertical viewport change without cancelling downloads.
-	 * @returns Nothing.
-	 */
-	private reclassifyActiveQueryPriorities = (): void => {
-		this.activeVisibleQueryCount = 0;
-		this.activeBackgroundQueryCount = 0;
-
-		this.activeQueryStreams.forEach((stream) => {
-			if (!stream.queuePriority || stream.closed) return;
-			stream.queuePriority = stream.sourceIds.some((sourceId) =>
-				this.isQueuedSourceVisible(sourceId),
-			)
-				? "visible"
-				: "background";
-			if (stream.queuePriority === "visible") {
-				this.activeVisibleQueryCount++;
-			} else {
-				this.activeBackgroundQueryCount++;
-			}
-		});
 	};
 
 	/**
@@ -611,7 +588,7 @@ export class Info implements InfoProps {
 
 	/**
 	 * Starts queued refetches after the current viewport row set has stabilized,
-	 * giving settled visible rows priority over hidden rows.
+	 * giving rows visible at scheduling time priority over hidden rows.
 	 * @returns Nothing.
 	 */
 	private pumpRefetchQueue = (): void => {
@@ -637,9 +614,9 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Defers queued retrieval while a visible source set is still changing.
-	 * Background work is also held during this short window so it cannot occupy the
-	 * slot before the user's final viewport selection becomes eligible.
+	 * Defers queued retrieval briefly after viewport changes.
+	 * Background work is also held during this short window so it cannot occupy a
+	 * slot before explicitly scheduled viewport-priority work can start.
 	 * @returns True when a trailing query-pump timer owns the next queue attempt.
 	 */
 	private deferQueryPumpForUnsettledViewport = (): boolean => {
@@ -673,8 +650,8 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Finds the next queued source index for either visible or hidden work.
-	 * @param visible Whether to search visible rows or hidden/background rows.
+	 * Finds the next queued source index for either viewport-priority or background work.
+	 * @param visible Whether to search viewport-priority rows or background rows.
 	 * @returns Queue index, or -1 when no matching item is waiting.
 	 */
 	private findNextQueuedSourceIndex = (visible: boolean): number => {
@@ -684,8 +661,7 @@ export class Info implements InfoProps {
 
 		for (let index = 0; index < this.refetchQueue.length; index++) {
 			const item = this.refetchQueue[index];
-			const isVisible = this.isQueuedSourceVisible(item.sourceId);
-			if (isVisible !== visible) continue;
+			if (item.viewportPriority !== visible) continue;
 
 			const order = this.viewportSourceOrder.get(item.sourceId) ?? item.sequence;
 			if (order < bestOrder || (order === bestOrder && item.sequence < bestSequence)) {
@@ -699,14 +675,14 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Checks whether any visible source is waiting in the refetch queue.
-	 * @returns True when visible work is queued.
+	 * Checks whether any viewport-priority source is waiting in the refetch queue.
+	 * @returns True when viewport-priority work is queued.
 	 */
 	private hasVisibleQueuedSource = (): boolean =>
-		this.refetchQueue.some((item) => this.isQueuedSourceVisible(item.sourceId));
+		this.refetchQueue.some((item) => item.viewportPriority);
 
 	/**
-	 * Checks whether a queued source should be treated as visible.
+	 * Checks whether a source should be treated as visible when work is scheduled.
 	 * @param sourceId Source id to inspect.
 	 * @returns True when the Canvas has not reported visibility yet or the source is visible.
 	 */
@@ -1158,6 +1134,7 @@ export class Info implements InfoProps {
 					name,
 				},
 				sequence: this.refetchQueueSequence++,
+				viewportPriority: this.isQueuedSourceVisible(file.id),
 			});
 		});
 
