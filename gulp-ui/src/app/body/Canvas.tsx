@@ -69,6 +69,7 @@ import {
 	resolveRenderAssetIconName,
 	type RenderSourceProjectionInput,
 } from "@/render-worker/RenderProjection.adapter";
+import { getWorkerGraphSampleSignature } from "@/render-worker/graphSampleSignature";
 import {
 	RenderProjectionScheduler,
 	type RenderProjectionJobContext,
@@ -203,32 +204,6 @@ function getWorkerDirtyMask(reason: string, force: boolean): DirtyCanvas {
 	if (reason.includes("data")) dirtyMask |= DirtyCanvas.Events;
 	if (force) dirtyMask |= DirtyCanvas.Force;
 	return dirtyMask;
-}
-
-/**
- * Computes a compact signature for server-provided graph aggregation samples.
- * @param source Source whose graph sample cache should be compared.
- * @returns Signature that changes for same-length sample value updates.
- */
-function getWorkerGraphSampleSignature(source: Source.Type): string {
-	const samples = source._sampleDataCached.sample_data ?? [];
-	let timestampChecksum = 0;
-	let countChecksum = 0;
-	for (let index = 0; index < samples.length; index++) {
-		const sample = samples[index];
-		timestampChecksum =
-			(timestampChecksum * 31 + sample.min_timestamp + index) % 2_147_483_647;
-		countChecksum =
-			(countChecksum * 31 + sample.sample + index) % 2_147_483_647;
-	}
-	return [
-		source._sampleDataCached.frequency_sample,
-		source._sampleDataCached.min_timestamp,
-		source._sampleDataCached.max_timestampe,
-		samples.length,
-		timestampChecksum,
-		countChecksum,
-	].join(":");
 }
 
 /**

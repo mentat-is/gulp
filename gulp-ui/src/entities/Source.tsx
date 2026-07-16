@@ -414,29 +414,44 @@ export namespace Source {
 			const max =
 				details?.["max_gulp.timestamp"] ??
 				Internal.Transformator.toNanos(Date.now());
+			const settings = {
+				...Internal.Settings.default,
+				...(exist.settings ?? {}),
+				...(file.settings ?? {}),
+			};
+			const nanotimestamp = {
+				...file.nanotimestamp,
+				min: file.nanotimestamp?.min ?? min,
+				max: file.nanotimestamp?.max ?? max,
+			};
+			const timestamp = {
+				min: Internal.Transformator.toTimestamp(
+					nanotimestamp.min,
+					"floor",
+				),
+				max: Internal.Transformator.toTimestamp(
+					nanotimestamp.max,
+					"ceil",
+				),
+			};
 
 			return Object.assign(file, {
 				color: file.color ?? exist.color,
 				selected: file.selected ?? exist.selected ?? false,
 				pinned: file.pinned ?? exist.pinned ?? false,
-				settings: {
-					...Internal.Settings.default,
-					...(exist.settings ?? {}),
-					...(file.settings ?? {}),
-				},
+				settings,
 				total: file.total ?? details?.doc_count ?? 0,
 				// @ts-ignore
-				nanotimestamp: { min, max, ...file.nanotimestamp },
-				timestamp: {
-					min: Internal.Transformator.toTimestamp(
-						file.nanotimestamp?.min ?? min,
-						"floor",
-					),
-					max: Internal.Transformator.toTimestamp(
-						file.nanotimestamp?.max ?? max,
-						"ceil",
-					),
-				},
+				nanotimestamp,
+				timestamp,
+				_sampleDataCached:
+					file._sampleDataCached ??
+					exist._sampleDataCached ?? {
+						frequency_sample: settings.frequency_sample,
+						min_timestamp: timestamp.min,
+						max_timestampe: timestamp.max,
+						sample_data: null,
+					},
 			});
 		};
 
