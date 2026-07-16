@@ -84,7 +84,11 @@ Task queue and pub/sub:
 - The main process dispatches queued work to worker processes and adapts
   concurrency to Redis, PostgreSQL, and OpenSearch pressure. Local query tasks
   have a separate admission limit so a query burst cannot starve other work.
-- Redis pub/sub is used for WebSocket fan-out and inter-instance coordination.
+- Redis pub/sub is used for WebSocket fan-out, internal event delivery, and
+  inter-instance coordination. Internal events use their own envelope and
+  listener registry; they are not websocket packets. See
+  [plugin events](plugins_and_mapping.md#advanced-registering-and-emitting-events-from-extension-plugins)
+  for delivery and listener semantics.
 
 File storage:
 
@@ -149,6 +153,11 @@ client->>server: {"token": "...", "ws_id": "...", "types": [...]}
 server-->>client: { GulpWsAcknowledgePacket }
 server-->>client: { GulpWsData }
 ```
+
+The optional `types` and `operation_ids` lists filter all broadcast packets,
+including packets originating on another gULP instance. An unset or empty list
+accepts all values. When both lists are non-empty, both must match; a packet
+without an operation ID does not match a non-empty `operation_ids` list.
 
 Response from the websocket is a [GulpWsData](../src/gulp/api/ws_api.py) object like the following:
 

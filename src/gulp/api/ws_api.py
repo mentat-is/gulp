@@ -64,6 +64,7 @@ class GulpMessageRoutingTarget(StrEnum):
         "worker_to_main"  # messages from worker processes to main process (local)
     )
     CLIENT_DATA = "client_data"  # messages from the ws_client_data websocket (ui-to-ui)
+    EVENT = "event"  # internal event bus traffic
 
     def redis_channel_name(self) -> str:
         """Return the actual Redis pubsub channel name for this routing type
@@ -97,19 +98,7 @@ class GulpWsData(BaseModel):
     private: Annotated[
         bool,
         Field(
-            description="Marks the message as socket-private. Private messages with `ws_id` are targeted to that socket even if their object type is broadcastable. Ignored if `internal` is set.",
-        ),
-    ] = False
-    internal: Annotated[
-        bool,
-        Field(
-            description="set to broadcast internal events to plugins registered through `GulpPluginBase.register_internal_events_callback()`.",
-        ),
-    ] = False
-    propagate_internal: Annotated[
-        bool,
-        Field(
-            description="if true and `internal` is set, the internal event will be propagated to all other instances instead of being handled in the main process of the current instance only.",
+            description="Marks the message as socket-private. Private messages with `ws_id` are targeted to that socket even if their object type is broadcastable.",
         ),
     ] = False
     # explicitly carry a routing/channel marker so pubsub handlers
@@ -117,53 +106,37 @@ class GulpWsData(BaseModel):
     route_target_type: Annotated[
         Optional[str],
         Field(
-            description="One of the GulpRedisChannel types, to determine the routing target (broadcast, internal, ...)"
+            description="Routing target used by the Redis transport."
         ),
     ] = None
     origin_server_id: Annotated[
         Optional[str],
         Field(description="The ID of the server that originated the message."),
     ] = None
-    origin_already_processed: Annotated[
-        bool,
-        Field(
-            description="Internal routing marker used when a propagated internal event has already been dispatched on the origin instance before the cluster-wide rebroadcast.",
-        ),
-    ] = False
     payload: Annotated[
         Optional[Any], Field(description="The data carried by the websocket.")
     ] = None
     ws_id: Annotated[
         Optional[str],
         Field(
-            description="The target WebSocket ID, ignored if `internal` is set. If None, the message is broadcast to all eligible connected websockets. Broadcast-type messages may still fan out cluster-wide even when `ws_id` is set.",
+            description="The target WebSocket ID. If None, the message is broadcast to all eligible connected websockets. Broadcast-type messages may still fan out cluster-wide even when `ws_id` is set.",
         ),
     ] = None
     user_id: Annotated[
         Optional[str],
         Field(
-            description="The user who issued the request, ignored if `internal` is set.",
+            description="The user who issued the request.",
         ),
     ] = None
     req_id: Annotated[
         Optional[str],
-        Field(description="The request ID, ignored if `internal` is set."),
+        Field(description="The request ID."),
     ] = None
     operation_id: Annotated[
         Optional[str],
         Field(
-            description="The operation this data belongs to, ignored if `internal` is set.",
+            description="The operation this data belongs to.",
             alias="gulp.operation_id",
-        ),
-    ] = None
-
-    # optional Redis key used for worker->main internal event request/response.
-    # when set, main process writes the internal event dispatch result to this key.
-    response_key: Annotated[
-        Optional[str],
-        Field(
-            description="Optional Redis key used to write back internal event responses.",
-            alias="__response_key__",
         ),
     ] = None
 
@@ -1793,6 +1766,14 @@ class GulpRedisBroker:
                     should_retrieve = True
                     use_getdel = False
                 elif (
+                    redis_channel == GulpMessageRoutingTarget.EVENT.redis_channel_name()
+                    and route_target_type == GulpMessageRoutingTarget.EVENT.value
+                    and message.get("broadcast")
+                ):
+                    # Cluster event fanout is read by every main process.
+                    should_retrieve = True
+                    use_getdel = False
+                elif (
                     redis_channel
                     == GulpMessageRoutingTarget.CLIENT_DATA.redis_channel_name()
                     and route_target_type == GulpMessageRoutingTarget.CLIENT_DATA.value
@@ -1928,111 +1909,59 @@ class GulpRedisBroker:
         except Exception:
             MutyLogger.get_instance().exception("error while resolving payload pointer")
 
+        if route_target_type == GulpMessageRoutingTarget.EVENT.value:
+            from gulp.events import events
+
+            await events._handle_redis_message(
+                message,
+                redis_channel=redis_channel,
+                origin_server_id=origin_server_id,
+            )
+            return
+
         # Route based on routing target
         try:
             # validate into model once and reuse for all cases that need it
             wsd = GulpWsData.model_validate(message)
 
             if route_target_type == GulpMessageRoutingTarget.WORKER_TO_MAIN.value:
-                local_worker_to_main_channel = redis_client.worker_to_main_channel()
-                is_local_worker_to_main_delivery = (
-                    redis_channel == local_worker_to_main_channel
-                )
-                is_cluster_delivery = (
-                    redis_channel
-                    == GulpMessageRoutingTarget.WORKER_TO_MAIN.redis_channel_name()
-                )
-
-                if (
-                    wsd.internal
-                    and wsd.propagate_internal
-                    and is_cluster_delivery
-                    and origin_server_id == redis_client.server_id
-                    and wsd.origin_already_processed
-                ):
-                    # propagated events are already handled locally before rebroadcasting;
-                    # skip the echoed global copy on the origin instance.
+                if wsd.check_type_in_broadcast_types():
+                    # Worker-originated broadcasts use the same local routing
+                    # and cluster fanout path as main-process broadcasts.
+                    await self._put_common(wsd)
                     return
 
-                if wsd.internal and (
-                    wsd.propagate_internal or origin_server_id == redis_client.server_id
+                # this also just sends message to single ws_id if ws_id is set
+                connected_sockets = GulpConnectedSockets.get_instance()
+                if wsd.ws_id and (
+                    wsd.private or not wsd.check_type_in_broadcast_types()
                 ):
-                    # internal messages:
-                    # we process internal messages only if they are marked as internal and either the message is
-                    # for this server instance or is to be propagated across instances
-                    # internal event from worker: dispatch to plugins
-                    from gulp.structs import GulpInternalEventsManager
+                    if connected_sockets.get(wsd.ws_id):
+                        await connected_sockets.route_message_to_local_websockets(
+                            wsd, message
+                        )
+                        return
 
-                    result = await GulpInternalEventsManager.get_instance().dispatch_internal_event(
-                        wsd.type,
-                        data=wsd.payload,
-                        user_id=wsd.user_id,
-                        operation_id=wsd.operation_id,
-                    )
-
-                    # if requested by caller, write back the result for synchronous usage via GulpRedisBroker.put_internal_wait()
-                    if wsd.response_key:
-                        try:
-                            # keep key short-lived; caller deletes after reading
-                            await redis_client._redis.set(
-                                wsd.response_key,
-                                orjson.dumps(result or []),
-                                ex=300,
-                            )
-                        except Exception:
-                            MutyLogger.get_instance().exception(
-                                "error writing internal event response for key=%s",
-                                wsd.response_key,
-                            )
-
+                    owner_server_id = await redis_client.ws_get_server(wsd.ws_id)
                     if (
-                        wsd.propagate_internal
-                        and is_local_worker_to_main_delivery
-                        and origin_server_id == redis_client.server_id
+                        owner_server_id
+                        and owner_server_id != redis_client.server_id
                     ):
-                        wsd.origin_already_processed = True
                         wsd.route_target_type = (
                             GulpMessageRoutingTarget.WORKER_TO_MAIN.value
                         )
                         wsd.origin_server_id = origin_server_id
                         await redis_client.publish(
                             wsd.model_dump(exclude_none=True),
-                            channel=GulpMessageRoutingTarget.WORKER_TO_MAIN.redis_channel_name(),
+                            channel=redis_client.worker_to_main_channel(
+                                owner_server_id
+                            ),
                         )
+                        return
 
-                    return
-                else:
-                    # this also just sends message to single ws_id if ws_id is set
-                    connected_sockets = GulpConnectedSockets.get_instance()
-                    if wsd.ws_id and (
-                        wsd.private or not wsd.check_type_in_broadcast_types()
-                    ):
-                        if connected_sockets.get(wsd.ws_id):
-                            await connected_sockets.route_message_to_local_websockets(
-                                wsd, message
-                            )
-                            return
-
-                        owner_server_id = await redis_client.ws_get_server(wsd.ws_id)
-                        if (
-                            owner_server_id
-                            and owner_server_id != redis_client.server_id
-                        ):
-                            wsd.route_target_type = (
-                                GulpMessageRoutingTarget.WORKER_TO_MAIN.value
-                            )
-                            wsd.origin_server_id = origin_server_id
-                            await redis_client.publish(
-                                wsd.model_dump(exclude_none=True),
-                                channel=redis_client.worker_to_main_channel(
-                                    owner_server_id
-                                ),
-                            )
-                            return
-
-                    await connected_sockets.route_message_to_local_websockets(
-                        wsd, message
-                    )
+                await connected_sockets.route_message_to_local_websockets(
+                    wsd, message
+                )
 
             elif route_target_type == GulpMessageRoutingTarget.BROADCAST.value:
                 # messages to be broadcast across instances
@@ -2143,8 +2072,8 @@ class GulpRedisBroker:
         # - main process decides final routing based on explicit `channel` metadata
         is_main: bool = GulpProcess.get_instance().is_main_process()
 
-        if not is_main or wsd.internal:
-            # we're running in a worker or it's an internal message: always forward to main process
+        if not is_main:
+            # workers always forward websocket traffic to their main process
             wsd.route_target_type = GulpMessageRoutingTarget.WORKER_TO_MAIN.value
             wsd.origin_server_id = redis_client.server_id
             await redis_client.publish(
@@ -2198,141 +2127,6 @@ class GulpRedisBroker:
                 channel=GulpMessageRoutingTarget.BROADCAST.redis_channel_name(),
             )
         return
-
-    async def _wait_internal_response(
-        self,
-        response_key: str,
-        timeout: float | None = None,
-        poll_interval: float = 0.05,
-    ) -> dict:
-        """Wait for an internal event response dict written by the main process.
-
-        Args:
-            response_key (str): Redis key where main process writes the response.
-            timeout (float | None): Max seconds to wait. None waits forever.
-            poll_interval (float): Sleep interval between Redis polls.
-
-        Returns:
-            dict: The response dictionary.
-
-        Raises:
-            TimeoutError: If timeout expires before a response is available.
-        """
-        redis_client = GulpRedis.get_instance()
-        start = time.monotonic()
-
-        while True:
-            raw = await redis_client._redis.get(response_key)
-            if raw is not None:
-                # best effort cleanup of rendezvous key once consumed
-                try:
-                    await redis_client._redis.delete(response_key)
-                except Exception:
-                    pass
-
-                try:
-                    parsed = orjson.loads(raw)
-                except Exception:
-                    MutyLogger.get_instance().warning(
-                        "invalid internal event response payload for key=%s",
-                        response_key,
-                    )
-                    return {}
-                return parsed if isinstance(parsed, dict) else {"result": parsed}
-
-            if timeout is not None and timeout >= 0:
-                if (time.monotonic() - start) >= timeout:
-                    raise TimeoutError(
-                        f"timeout waiting for internal event response on key={response_key}"
-                    )
-
-            await asyncio.sleep(poll_interval)
-
-    async def put_internal_event(
-        self,
-        t: str,
-        user_id: str = None,
-        operation_id: str = None,
-        req_id: str = None,
-        data: dict = None,
-        propagate: bool = False,
-    ) -> None:
-        """
-        called by internal components and plugins to publish internal events.
-
-        this is used to broadcast internal events via the GulpInternalEventsManager
-
-        Args:
-            t (str): The message type (i.e. GulpInternalEventsManager.EVENT_INGEST)
-            user_id (str, optional): the user id associated with this event. Defaults to None.
-            operation_id (str, optional): the operation id if applicable. Defaults to None.
-            req_id (str, optional): the request id originating the event, if applicable. Defaults to None.
-            data (dict, optional): event data. Defaults to None.
-            propagate (bool, optional): whether to propagate the event to other instances. Defaults to False.
-        """
-        wsd = GulpWsData(
-            timestamp=muty.time.now_msec(),
-            type=t,
-            user_id=user_id,
-            req_id=req_id,
-            operation_id=operation_id,
-            payload=data,
-            internal=True,
-            propagate_internal=propagate,
-        )
-        await self._put_common(wsd)
-
-    async def put_internal_event_wait(
-        self,
-        t: str,
-        user_id: str = None,
-        operation_id: str = None,
-        req_id: str = None,
-        data: dict = None,
-        timeout: float | None = None,
-    ) -> "GulpInternalEventResult":
-        """Publish an internal event and wait for the main-process response dict.
-
-        The message is processed in the main process like `put_internal_event`, but this
-        method additionally waits for a response dictionary produced after processing.
-
-        Args:
-            t (str): Internal event type.
-            user_id (str, optional): Event user id.
-            operation_id (str, optional): Event operation id.
-            req_id (str, optional): Event request id.
-            data (dict, optional): Event payload.
-            timeout (float | None): Wait timeout in seconds. None waits forever.
-
-        Returns:
-            GulpInternalEventResult: The result of the internal event processing, as returned by the plugins that handled the event (if any), or None
-        """
-        response_key = f"gulp:internal:wait:{muty.string.generate_unique()}"
-
-        wsd = GulpWsData(
-            timestamp=muty.time.now_msec(),
-            type=t,
-            user_id=user_id,
-            req_id=req_id,
-            operation_id=operation_id,
-            payload=data,
-            internal=True,
-            response_key=response_key,
-        )
-        await self._put_common(wsd)
-
-        # wait for the response
-        res = await self._wait_internal_response(
-            response_key=response_key, timeout=timeout
-        )
-        if res:
-            try:
-                from gulp.structs import GulpInternalEventResult
-
-                return GulpInternalEventResult.model_validate(res)
-            except Exception as e:
-                MutyLogger.get_instance().exception(e)
-        return None
 
     async def put(
         self,

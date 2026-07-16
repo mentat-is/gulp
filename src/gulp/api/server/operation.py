@@ -22,7 +22,7 @@ from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.s3_api import GulpS3
 from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
-from gulp.structs import GulpInternalEventsManager
+from gulp.events import GulpCoreEvent, events
 from gulp.structs import GulpPluginParameters, ObjectAlreadyExists
 
 router: APIRouter = APIRouter()
@@ -285,12 +285,6 @@ async def operation_delete_handler(
 
                 # delete the index
                 await GulpOpenSearch.get_instance().datastream_delete(index)
-                await GulpInternalEventsManager.get_instance().dispatch_internal_event(
-                    GulpInternalEventsManager.EVENT_DELETE_OPERATION,
-                    data=dict(index=index),
-                    user_id=user_id,
-                    req_id=req_id,
-                )
 
                 # delete data from storage (files with operation_id tag)                
                 await GulpS3.get_instance().delete_by_tags({"operation_id": operation_id})
@@ -300,6 +294,13 @@ async def operation_delete_handler(
                 "deleting operation_id=%s, ws_id=%s ..." % (operation_id, ws_id)
             )
             await op.delete(sess, ws_id=ws_id, req_id=req_id, user_id=user_id)
+            await events.emit(
+                GulpCoreEvent.OPERATION_DELETED,
+                data={"index": index},
+                user_id=user_id,
+                operation_id=operation_id,
+                req_id=req_id,
+            )
 
             return JSendResponse.success(req_id=req_id, data={"id": operation_id})
     except Exception as ex:

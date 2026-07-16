@@ -353,7 +353,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             GulpUserSession: The created session object.
         """
         from gulp.api.collab.user_session import GulpUserSession
-        from gulp.structs import GulpInternalEventsManager
+        from gulp.events import GulpCoreEvent, events
 
         # ensure atomicity of login
         async with GulpUser.advisory_lock(sess, user_id):
@@ -380,8 +380,8 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
                 await sess.commit()
 
                 # also broadcast to registered plugins
-                await GulpInternalEventsManager.get_instance().dispatch_internal_event(
-                    WSDATA_USER_LOGIN,
+                await events.emit(
+                    GulpCoreEvent.USER_LOGIN,
                     data=GulpUserAccessPacket(
                         user_id=u.id,
                         login=True,
@@ -417,8 +417,8 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
             await sess.commit()
 
             # also broadcast to registered plugins
-            await GulpInternalEventsManager.get_instance().dispatch_internal_event(
-                WSDATA_USER_LOGIN,
+            await events.emit(
+                GulpCoreEvent.USER_LOGIN,
                 data=GulpUserAccessPacket(
                     user_id=u.id,
                     login=True,
@@ -466,16 +466,11 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         )
 
         # also broadcast to registered plugins
-        from gulp.structs import GulpInternalEventsManager
+        from gulp.events import GulpCoreEvent, events
 
-        await GulpInternalEventsManager.get_instance().dispatch_internal_event(
-            WSDATA_USER_LOGIN,
-            data=GulpUserAccessPacket(
-                user_id=s.id,
-                login=False,
-                req_id=req_id,
-                ip=user_ip,
-            ).model_dump(),
+        await events.emit(
+            GulpCoreEvent.USER_LOGOUT,
+            data=p.model_dump(),
             user_id=s.user.id,
             req_id=req_id,
         )

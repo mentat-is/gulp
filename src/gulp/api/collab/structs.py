@@ -1368,7 +1368,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             None
         """
         obj_id: str = self.id
-        operation_id: str = self.operation_id
+        operation_id: str = (
+            obj_id if self.type == COLLABTYPE_OPERATION else self.operation_id
+        )
         try:
             async with self.__class__.advisory_lock(sess, obj_id):
                 MutyLogger.get_instance().debug(
@@ -1596,6 +1598,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user_group import GulpUserGroup
 
         async with self.__class__.advisory_lock(sess, self.id):
+            await sess.refresh(self, attribute_names=["granted_user_group_ids"])
             await GulpUserGroup.get_by_id(sess, group_id)
             if group_id in self.granted_user_group_ids:
                 MutyLogger.get_instance().warning(
@@ -1626,6 +1629,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user_group import GulpUserGroup
 
         async with self.__class__.advisory_lock(sess, self.id):
+            await sess.refresh(self, attribute_names=["granted_user_group_ids"])
             await GulpUserGroup.get_by_id(sess, group_id)
             if group_id not in self.granted_user_group_ids:
                 MutyLogger.get_instance().warning(
@@ -1657,6 +1661,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user import GulpUser
 
         async with self.__class__.advisory_lock(sess, self.id):
+            await sess.refresh(self, attribute_names=["granted_user_ids"])
             await GulpUser.get_by_id(sess, user_id)
             if user_id in self.granted_user_ids:
                 MutyLogger.get_instance().warning(
@@ -1689,6 +1694,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         from gulp.api.collab.user import GulpUser
 
         async with self.__class__.advisory_lock(sess, self.id):
+            await sess.refresh(self, attribute_names=["granted_user_ids"])
             await GulpUser.get_by_id(sess, user_id)
 
             if user_id not in self.granted_user_ids:
