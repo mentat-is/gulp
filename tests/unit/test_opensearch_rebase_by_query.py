@@ -363,6 +363,11 @@ async def test_rebase_by_query_rebases_extra_date_fields(monkeypatch):
     assert "Math.round((double)rebased / (double)unit)" in script_source
     assert update_call["body"]["script"]["params"]["offset_nsec"] == 1000000000
     assert update_call["body"]["script"]["params"]["rebase_req_id"] == "req-1"
+    assert update_call["params"] == {
+        "conflicts": "proceed",
+        "refresh": "true",
+        "wait_for_completion": "true",
+    }
     assert "gulp.rebase_req_ids" in script_source
     assert "ctx.op = 'noop';" in script_source
     assert ".contains(params.rebase_req_id)" in script_source

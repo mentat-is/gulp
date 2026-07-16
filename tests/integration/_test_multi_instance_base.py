@@ -85,13 +85,6 @@ def _large_pointer_soak_deadline() -> float | None:
     return asyncio.get_running_loop().time() + soak_seconds
 
 
-def _continue_large_pointer_stress(iteration: int, deadline: float | None) -> bool:
-    """Return whether another large-payload fanout iteration should run."""
-    if iteration < _large_pointer_stress_count():
-        return True
-    return deadline is not None and asyncio.get_running_loop().time() < deadline
-
-
 def _unique(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
@@ -140,6 +133,16 @@ def _find_collab_obj(
     return None
 
 
+def _count_collab_obj(messages: list[Any], obj_type: str, obj_id: str) -> int:
+    """Count websocket payloads for one collaboration object."""
+    return sum(
+        payload_obj.get("type") == obj_type
+        and str(payload_obj.get("id")) == str(obj_id)
+        for message in messages
+        for payload_obj in _iter_payload_objects(message)
+    )
+
+
 def _has_collab_delete(
     messages: list[Any], obj_type: str, obj_id: str | None = None
 ) -> bool:
@@ -152,6 +155,16 @@ def _has_collab_delete(
         if obj_id is None or str(data.get("id")) == str(obj_id):
             return True
     return False
+
+
+def _count_collab_delete(messages: list[Any], obj_type: str, obj_id: str) -> int:
+    """Count delete notifications for one collaboration object."""
+    return sum(
+        isinstance(getattr(message, "data", None), dict)
+        and message.data.get("type") == obj_type
+        and str(message.data.get("id")) == str(obj_id)
+        for message in messages
+    )
 
 
 async def _wait_for_condition(
@@ -295,6 +308,11 @@ async def _assert_broadcast_collab_create(
         ),
         timeout=timeout,
     )
+    await asyncio.sleep(0.2)
+    assert all(
+        _count_collab_obj(store[WSMessageType.COLLAB_CREATE], obj_type, obj_id) == 1
+        for store in stores
+    ), f"collab_create for {obj_type} {obj_id} was not delivered exactly once"
     matched = [
         _find_collab_obj(
             store[WSMessageType.COLLAB_CREATE], obj_type=obj_type, obj_id=obj_id
@@ -320,6 +338,15 @@ async def _assert_broadcast_collab_event(
         lambda: all(_store_has_event(store) for store in stores),
         timeout=timeout,
     )
+    await asyncio.sleep(0.2)
+    count = (
+        _count_collab_delete
+        if message_type == WSMessageType.COLLAB_DELETE
+        else _count_collab_obj
+    )
+    assert all(
+        count(store[message_type], obj_type, obj_id) == 1 for store in stores
+    ), f"{message_type.value} for {obj_type} {obj_id} was not delivered exactly once"
 
 
 async def _assert_requester_only_query_ws_events(
@@ -530,6 +557,73 @@ async def _recv_ws_json(ws: Any, timeout: float = 5.0) -> dict[str, Any]:
     return json.loads(await asyncio.wait_for(ws.recv(), timeout=timeout))
 
 
+async def _assert_default_ws_type_filters(
+    actors: list[tuple[str, GulpClient]], operation_id: str
+) -> None:
+    """Verify client-provided websocket type filters across instances."""
+    context_id: str | None = None
+    actor = actors[0][1]
+    peer = actors[-1][1]
+    async with (
+        GulpClient(
+            actor.base_url,
+            token=actor.token,
+            ws_operation_ids=[operation_id],
+            ws_message_types=[WSMessageType.COLLAB_CREATE],
+        ) as create_client,
+        GulpClient(
+            peer.base_url,
+            token=peer.token,
+            ws_operation_ids=[operation_id],
+            ws_message_types=[WSMessageType.COLLAB_DELETE],
+        ) as delete_client,
+    ):
+        await asyncio.gather(
+            create_client.ensure_websocket(), delete_client.ensure_websocket()
+        )
+        stores, handlers = await _register_collectors(
+            [create_client, delete_client],
+            [WSMessageType.COLLAB_CREATE, WSMessageType.COLLAB_DELETE],
+        )
+        try:
+            context = await actor.operations.context_create(
+                operation_id=operation_id,
+                context_name=_unique("ws_type_filter"),
+            )
+            context_id = _extract_id(context)
+            assert context_id
+            await _wait_for_condition(
+                lambda: _has_collab_obj(
+                    stores[0][WSMessageType.COLLAB_CREATE], "context", context_id
+                )
+            )
+            await asyncio.sleep(0.5)
+            assert not _has_collab_obj(
+                stores[1][WSMessageType.COLLAB_CREATE], "context", context_id
+            )
+
+            await actor.operations.context_delete(context_id, delete_data=False)
+            await _wait_for_condition(
+                lambda: _has_collab_delete(
+                    stores[1][WSMessageType.COLLAB_DELETE], "context", context_id
+                )
+            )
+            await asyncio.sleep(0.5)
+            assert not _has_collab_delete(
+                stores[0][WSMessageType.COLLAB_DELETE], "context", context_id
+            )
+            print(
+                "default websocket type filters:",
+                {"collab_create": actor.base_url, "collab_delete": peer.base_url},
+            )
+            context_id = None
+        finally:
+            _unregister_collectors([create_client, delete_client], handlers)
+            if context_id:
+                with contextlib.suppress(Exception):
+                    await actor.operations.context_delete(context_id, delete_data=False)
+
+
 async def _assert_no_client_data(ws: Any, timeout: float = 1.0) -> None:
     """Assert no client_data message is received before timeout."""
     try:
@@ -540,45 +634,51 @@ async def _assert_no_client_data(ws: Any, timeout: float = 1.0) -> None:
         return
 
 
-async def _assert_client_data_message(
+async def _receive_client_data_messages(
     ws: Any,
     *,
-    expected_kind: str,
+    expected_kinds: set[str],
     expected_operation_id: str,
-    timeout: float = 8.0,
-) -> dict[str, Any]:
-    """Wait until a matching client_data message is received."""
+    timeout: float = 30.0,
+) -> dict[str, dict[str, Any]]:
+    """Receive one exact, duplicate-free client-data batch."""
+    received: dict[str, dict[str, Any]] = {}
     deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
+    while set(received) != expected_kinds:
         remaining = max(0.1, deadline - asyncio.get_running_loop().time())
+        if remaining <= 0.1:
+            break
         message = await _recv_ws_json(ws, timeout=remaining)
         if message.get("type") != "client_data":
             continue
         payload = message.get("payload") or {}
         data = payload.get("data") or {}
-        if (
-            payload.get("operation_id") == expected_operation_id
-            and data.get("kind") == expected_kind
-        ):
-            return message
-    raise AssertionError(f"client_data kind={expected_kind!r} not received")
+        if payload.get("operation_id") != expected_operation_id:
+            continue
+        kind = data.get("kind")
+        assert kind in expected_kinds, message
+        assert kind not in received, f"duplicate client_data kind={kind!r}"
+        assert data.get("blob") == _LARGE_CLIENT_DATA_BLOB, message
+        received[kind] = message
+    assert set(received) == expected_kinds, {
+        "expected": sorted(expected_kinds),
+        "received": sorted(received),
+    }
+    return received
 
 
 async def _assert_client_data_ws_routing(
     actors: list[tuple[str, GulpClient]],
     operation_id: str,
-    base_urls: list[str],
 ) -> None:
     """Exercise /ws_client_data routing across users and instances."""
     if len(actors) < 2:
         return
 
+    await _assert_default_ws_type_filters(actors, operation_id)
+
     client_data_sockets: list[Any] = []
     default_probe = None
-    same_instance = len(set(base_urls)) == 1
-    recipient_idx = 1 if same_instance else next(
-        idx for idx, (_, actor_client) in enumerate(actors) if actor_client.base_url != base_urls[0]
-    )
 
     try:
         for idx, (_, actor_client) in enumerate(actors):
@@ -602,83 +702,83 @@ async def _assert_client_data_ws_routing(
         )
 
         soak_deadline = _large_pointer_soak_deadline()
-        msg_idx = 0
-        while _continue_large_pointer_stress(msg_idx, soak_deadline):
-            sender_idx = msg_idx % len(client_data_sockets)
-            current_recipient_idx = (
-                (sender_idx + 1) % len(client_data_sockets)
-                if len(client_data_sockets) > 1
-                else recipient_idx
+        minimum_messages = max(_large_pointer_stress_count(), len(client_data_sockets))
+        sent = 0
+        while sent < minimum_messages or (
+            soak_deadline is not None
+            and asyncio.get_running_loop().time() < soak_deadline
+        ):
+            remaining = minimum_messages - sent
+            batch_size = (
+                min(len(client_data_sockets), remaining)
+                if remaining > 0
+                else len(client_data_sockets)
             )
-            target_user_id = actors[current_recipient_idx][0]
-            targeted_kind = f"cursor_targeted_{msg_idx}"
-            targeted_payload = {
-                "operation_id": operation_id,
-                "target_user_ids": [target_user_id],
-                "data": {
-                    "kind": targeted_kind,
-                    "x": 123 + msg_idx,
-                    "y": 456 + msg_idx,
-                    "blob": _LARGE_CLIENT_DATA_BLOB,
-                },
-            }
-            await client_data_sockets[sender_idx].send(json.dumps(targeted_payload))
-            targeted_msg = await _assert_client_data_message(
-                client_data_sockets[current_recipient_idx],
-                expected_kind=targeted_kind,
-                expected_operation_id=operation_id,
+            expected_by_socket: list[set[str]] = [set() for _ in client_data_sockets]
+
+            async def _send_pair(batch_idx: int) -> None:
+                msg_idx = sent + batch_idx
+                sender_idx = msg_idx % len(client_data_sockets)
+                current_recipient_idx = (sender_idx + 1) % len(client_data_sockets)
+                targeted_kind = f"cursor_targeted_{msg_idx}"
+                broadcast_kind = f"cursor_broadcast_{msg_idx}"
+                expected_by_socket[current_recipient_idx].add(targeted_kind)
+                for expected in expected_by_socket:
+                    expected.add(broadcast_kind)
+
+                await client_data_sockets[sender_idx].send(
+                    json.dumps(
+                        {
+                            "operation_id": operation_id,
+                            "target_user_ids": [actors[current_recipient_idx][0]],
+                            "data": {
+                                "kind": targeted_kind,
+                                "x": 123 + msg_idx,
+                                "y": 456 + msg_idx,
+                                "blob": _LARGE_CLIENT_DATA_BLOB,
+                            },
+                        }
+                    )
+                )
+                await client_data_sockets[sender_idx].send(
+                    json.dumps(
+                        {
+                            "operation_id": operation_id,
+                            "data": {
+                                "kind": broadcast_kind,
+                                "x": 321 + msg_idx,
+                                "y": 654 + msg_idx,
+                                "blob": _LARGE_CLIENT_DATA_BLOB,
+                            },
+                        }
+                    )
+                )
+
+            await asyncio.gather(*(_send_pair(idx) for idx in range(batch_size)))
+            received = await asyncio.gather(
+                *(
+                    _receive_client_data_messages(
+                        ws,
+                        expected_kinds=expected_by_socket[idx],
+                        expected_operation_id=operation_id,
+                    )
+                    for idx, ws in enumerate(client_data_sockets)
+                )
             )
+            sent += batch_size
             print(
-                "client_data targeted message:",
+                "concurrent client_data batch:",
                 {
-                    "kind": targeted_kind,
-                    "blob_len": len(targeted_msg["payload"]["data"]["blob"]),
+                    "senders": batch_size,
+                    "targeted": batch_size,
+                    "broadcast": batch_size,
+                    "deliveries": sum(len(messages) for messages in received),
+                    "blob_len": len(_LARGE_CLIENT_DATA_BLOB),
                 },
             )
-            assert (
-                targeted_msg["payload"]["data"]["blob"]
-                == _LARGE_CLIENT_DATA_BLOB
-            )
-            for idx, ws in enumerate(client_data_sockets):
-                if idx == current_recipient_idx:
-                    continue
-                await _assert_no_client_data(ws, timeout=0.2)
-            msg_idx += 1
 
-        await _assert_no_client_data(default_probe)
-
-        msg_idx = 0
-        while _continue_large_pointer_stress(msg_idx, soak_deadline):
-            sender_idx = msg_idx % len(client_data_sockets)
-            broadcast_kind = f"cursor_broadcast_{msg_idx}"
-            broadcast_payload = {
-                "operation_id": operation_id,
-                "data": {
-                    "kind": broadcast_kind,
-                    "x": 321 + msg_idx,
-                    "y": 654 + msg_idx,
-                    "blob": _LARGE_CLIENT_DATA_BLOB,
-                },
-            }
-            await client_data_sockets[sender_idx].send(json.dumps(broadcast_payload))
-            for ws in client_data_sockets:
-                broadcast_msg = await _assert_client_data_message(
-                    ws,
-                    expected_kind=broadcast_kind,
-                    expected_operation_id=operation_id,
-                )
-                print(
-                    "client_data broadcast message:",
-                    {
-                        "kind": broadcast_kind,
-                        "blob_len": len(broadcast_msg["payload"]["data"]["blob"]),
-                    },
-                )
-                assert (
-                    broadcast_msg["payload"]["data"]["blob"]
-                    == _LARGE_CLIENT_DATA_BLOB
-                )
-            msg_idx += 1
+        for ws in client_data_sockets:
+            await _assert_no_client_data(ws, timeout=0.2)
         await _assert_no_client_data(default_probe)
     finally:
         for ws in client_data_sockets:
@@ -697,6 +797,7 @@ async def _run_multi_user_scenario(
     run_query_isolation: bool = True,
     run_collab_lifecycle: bool = True,
     run_ingest: bool = True,
+    run_enrich: bool = False,
 ) -> None:
     """
     Exercise multi-user websocket semantics.
@@ -729,14 +830,17 @@ async def _run_multi_user_scenario(
                 f"Cannot connect/login to bootstrap instance {admin_base_url}: {exc}"
             )
 
-        for idx in range(1, len(base_urls)):
-            user_id = _unique_user(f"mu{idx}")
-            await bootstrap.users.create(
-                user_id=user_id,
-                password=_TEST_USER_PASS,
-                permission=["read", "edit", "ingest", "delete"],
+        temp_users.extend(_unique_user(f"mu{idx}") for idx in range(1, len(base_urls)))
+        await asyncio.gather(
+            *(
+                bootstrap.users.create(
+                    user_id=user_id,
+                    password=_TEST_USER_PASS,
+                    permission=["read", "edit", "ingest", "delete"],
+                )
+                for user_id in temp_users
             )
-            temp_users.append(user_id)
+        )
 
     clients: list[GulpClient] = []
     actors: list[tuple[str, GulpClient]] = []
@@ -758,13 +862,22 @@ async def _run_multi_user_scenario(
 
     try:
         # ── Step 1: connect all actors ────────────────────────────────────────
-        for url, user_id, password in zip(base_urls, users, passwords, strict=True):
-            try:
-                client = await _login_and_connect(url, user_id, password)
-            except Exception as exc:
-                pytest.skip(f"Cannot connect/login to {url} as {user_id}: {exc}")
-            clients.append(client)
-            actors.append((user_id, client))
+        connection_results = await asyncio.gather(
+            *(
+                _login_and_connect(url, user_id, password)
+                for url, user_id, password in zip(
+                    base_urls, users, passwords, strict=True
+                )
+            ),
+            return_exceptions=True,
+        )
+        for url, user_id, result in zip(
+            base_urls, users, connection_results, strict=True
+        ):
+            if isinstance(result, BaseException):
+                pytest.fail(f"Cannot connect/login to {url} as {user_id}: {result}")
+            clients.append(result)
+            actors.append((user_id, result))
 
         watch_types = [
             WSMessageType.COLLAB_CREATE,
@@ -783,23 +896,73 @@ async def _run_multi_user_scenario(
         shared_operation_id = _extract_id(op)
         assert shared_operation_id, "failed to create shared operation id"
 
-        for granted_user in temp_users:
-            await admin_client.acl.add_granted_user(
-                shared_operation_id,
-                "operation",
-                granted_user,
+        await asyncio.gather(
+            *(
+                admin_client.acl.add_granted_user(
+                    shared_operation_id,
+                    "operation",
+                    granted_user,
+                )
+                for granted_user in temp_users
+            )
+        )
+        await asyncio.gather(
+            *(
+                actor_client.operations.get(shared_operation_id)
+                for _, actor_client in actors[1:]
+            )
+        )
+
+        if run_collab_lifecycle or run_ingest:
+            # Raw documents must reference real collaboration objects. Creating
+            # one context/source pair per actor also stresses collab fanout.
+            async def _create_actor_context_source(
+                actor_idx: int, actor_client: GulpClient
+            ) -> None:
+                ctx = await actor_client.operations.context_create(
+                    operation_id=shared_operation_id,
+                    context_name=_unique("ctx"),
+                )
+                ctx_id = _extract_id(ctx)
+                assert ctx_id, "failed to create context id"
+                if run_collab_lifecycle:
+                    await _assert_broadcast_collab_create(
+                        stores, obj_type="context", obj_id=ctx_id
+                    )
+
+                src = await actor_client.operations.source_create(
+                    operation_id=shared_operation_id,
+                    context_id=ctx_id,
+                    source_name=_unique("src"),
+                )
+                src_id = _extract_id(src)
+                assert src_id, "failed to create source id"
+                if run_collab_lifecycle:
+                    await _assert_broadcast_collab_create(
+                        stores, obj_type="source", obj_id=src_id
+                    )
+                actor_context_source[actor_idx] = (ctx_id, src_id)
+
+            await asyncio.gather(
+                *(
+                    _create_actor_context_source(actor_idx, actor_client)
+                    for actor_idx, (_, actor_client) in enumerate(actors)
+                )
             )
 
-        if is_multi_instance:
-            # Exercise ingestion through every live instance without adding the
-            # cost of another file ingest. This gives the routing launcher
-            # ingestion traffic on both :8080 and :8100.
+        raw_context_ids: list[str] = []
+        if run_ingest:
+            # Seed independent document sets through every actor so raw ingest,
+            # ACL checks, and optional enrichment all run concurrently.
             docs_per_actor = _multi_instance_raw_ingest_docs()
 
             async def _raw_ingest_from_actor(
                 actor_idx: int, actor_client: GulpClient
-            ) -> str:
+            ) -> tuple[str, str]:
                 marker = _unique(f"multi_instance_raw_{actor_idx}")
+                context_source = actor_context_source[actor_idx]
+                assert context_source is not None
+                context_id, source_id = context_source
                 result = await actor_client.ingest.raw(
                     operation_id=shared_operation_id,
                     plugin_name="raw",
@@ -812,8 +975,8 @@ async def _run_multi_user_scenario(
                                 f"via {actor_client.base_url}"
                             ),
                             "event.sequence": doc_idx,
-                            "gulp.context_id": f"multi_instance_raw_context_{actor_idx}",
-                            "gulp.source_id": f"multi_instance_raw_source_{actor_idx}",
+                            "gulp.context_id": context_id,
+                            "gulp.source_id": source_id,
                         }
                         for doc_idx in range(docs_per_actor)
                     ],
@@ -840,14 +1003,16 @@ async def _run_multi_user_scenario(
                         "status": str(result.status),
                     },
                 )
-                return marker
+                return marker, context_id
 
-            raw_markers = await asyncio.gather(
+            raw_results = await asyncio.gather(
                 *(
                     _raw_ingest_from_actor(actor_idx, actor_client)
                     for actor_idx, (_, actor_client) in enumerate(actors)
                 )
             )
+            raw_markers = [marker for marker, _ in raw_results]
+            raw_context_ids = [context_id for _, context_id in raw_results]
             await _wait_for_queryable_docs(
                 admin_client,
                 shared_operation_id,
@@ -862,78 +1027,115 @@ async def _run_multi_user_scenario(
             await _assert_client_data_ws_routing(
                 actors,
                 operation_id=shared_operation_id,
-                base_urls=base_urls,
             )
-
-        if run_collab_lifecycle:
-            # Each actor creates a context + source and we verify the broadcast.
-            async def _create_actor_context_source(
-                actor_idx: int, actor_client: GulpClient
-            ) -> None:
-                ctx = await actor_client.operations.context_create(
-                    operation_id=shared_operation_id,
-                    context_name=_unique("ctx"),
-                )
-                ctx_id = _extract_id(ctx)
-                assert ctx_id, "failed to create context id"
-                await _assert_broadcast_collab_create(
-                    stores, obj_type="context", obj_id=ctx_id
-                )
-
-                src = await actor_client.operations.source_create(
-                    operation_id=shared_operation_id,
-                    context_id=ctx_id,
-                    source_name=_unique("src"),
-                )
-                src_id = _extract_id(src)
-                assert src_id, "failed to create source id"
-                await _assert_broadcast_collab_create(
-                    stores, obj_type="source", obj_id=src_id
-                )
-                actor_context_source[actor_idx] = (ctx_id, src_id)
-
-            if is_multi_instance:
-                await asyncio.gather(
-                    *(
-                        _create_actor_context_source(actor_idx, actor_client)
-                        for actor_idx, (_, actor_client) in enumerate(actors)
-                    )
-                )
-            else:
-                for actor_idx, (_, actor_client) in enumerate(actors):
-                    await _create_actor_context_source(actor_idx, actor_client)
 
         if run_ingest:
-            # ── Step 3: single admin ingest ───────────────────────────────────
-            ingest_res = await admin_client.ingest.file(
-                operation_id=shared_operation_id,
-                plugin_name="win_evtx",
-                file_path=str(_SAMPLE_EVTX),
-                context_name=_unique("ing_ctx"),
-                wait=False,
+            # ── Step 3: concurrent file-plugin ingestion ─────────────────────
+            async def _file_ingest_from_actor(
+                actor_idx: int, actor_client: GulpClient
+            ) -> None:
+                ingest_res = await actor_client.ingest.file(
+                    operation_id=shared_operation_id,
+                    plugin_name="win_evtx",
+                    file_path=str(_SAMPLE_EVTX),
+                    context_name=_unique(f"ing_ctx_{actor_idx}"),
+                    wait=False,
+                )
+                status = str(getattr(ingest_res, "status", "")).lower()
+                assert status in {
+                    "done",
+                    "success",
+                    "pending",
+                    "ongoing",
+                }, f"ingest returned unexpected status: {ingest_res}"
+                req_id = getattr(ingest_res, "req_id", None)
+                assert req_id
+                ingest_stats = await _wait_for_request_terminal_status(
+                    actor_client,
+                    req_id,
+                    timeout=360.0,
+                )
+                assert (
+                    str(ingest_stats.get("status", "")).lower() == "done"
+                ), f"ingest request ended unexpectedly: {ingest_stats}"
+                print(
+                    "concurrent file ingest:",
+                    {
+                        "actor_idx": actor_idx,
+                        "base_url": actor_client.base_url,
+                        "req_id": req_id,
+                        "status": ingest_stats.get("status"),
+                    },
+                )
+
+            await asyncio.gather(
+                *(
+                    _file_ingest_from_actor(actor_idx, actor_client)
+                    for actor_idx, (_, actor_client) in enumerate(actors)
+                )
             )
-            assert str(getattr(ingest_res, "status", "")).lower() in {
-                "done",
-                "success",
-                "pending",
-                "ongoing",
-                "failed",
-                "canceled",
-            }, f"ingest returned unexpected status: {getattr(ingest_res, 'status', None)!r}"
             await _wait_for_queryable_docs(
                 admin_client, shared_operation_id, minimum_hits=1
             )
-            if getattr(ingest_res, "req_id", None):
-                ingest_stats = await _wait_for_request_terminal_status(
-                    admin_client,
-                    ingest_res.req_id,
-                    timeout=360.0,
+
+        if run_enrich:
+            assert raw_context_ids, "concurrent enrichment requires raw ingest"
+
+            async def _enrich_actor_documents(
+                actor_idx: int, actor_client: GulpClient
+            ) -> None:
+                tag = f"concurrent_user_{actor_idx}"
+                result = await actor_client.enrich.tag_documents(
+                    operation_id=shared_operation_id,
+                    tags=[tag],
+                    flt={"context_ids": [raw_context_ids[actor_idx]]},
+                    wait=True,
+                    timeout=180,
                 )
-                assert str(ingest_stats.get("status", "")).lower() in {
-                    "done",
-                    "failed",
-                    "canceled",
-                }, f"ingest request ended in unexpected state: {ingest_stats}"
+                print(
+                    "concurrent enrichment:",
+                    {
+                        "actor_idx": actor_idx,
+                        "base_url": actor_client.base_url,
+                        "response": result,
+                    },
+                )
+                assert str(result.get("status", "")).lower() == "done", result
+
+                verified = await actor_client.queries.query_raw(
+                    operation_id=shared_operation_id,
+                    q={
+                        "query": {
+                            "bool": {
+                                "filter": [
+                                    {
+                                        "term": {
+                                            "gulp.context_id": raw_context_ids[
+                                                actor_idx
+                                            ]
+                                        }
+                                    },
+                                    {"term": {"gulp.tags": tag}},
+                                ]
+                            }
+                        }
+                    },
+                    q_options={
+                        "preview_mode": True,
+                        "limit": 1,
+                        "name": _unique(f"enrich_verify_{actor_idx}"),
+                    },
+                )
+                assert (
+                    int((verified.get("data") or {}).get("total_hits", 0)) > 0
+                ), verified
+
+            await asyncio.gather(
+                *(
+                    _enrich_actor_documents(actor_idx, actor_client)
+                    for actor_idx, (_, actor_client) in enumerate(actors)
+                )
+            )
 
         if run_cross_instance_query:
             # ── Step 4: explicit cross-instance targeted websocket routing ────
@@ -1061,16 +1263,12 @@ async def _run_multi_user_scenario(
                     baselines=baselines,
                 )
 
-            if is_multi_instance:
-                await asyncio.gather(
-                    *(
-                        _run_requester_query(actor_idx, actor_client)
-                        for actor_idx, (_, actor_client) in enumerate(actors)
-                    )
+            await asyncio.gather(
+                *(
+                    _run_requester_query(actor_idx, actor_client)
+                    for actor_idx, (_, actor_client) in enumerate(actors)
                 )
-            else:
-                for actor_idx, (_, actor_client) in enumerate(actors):
-                    await _run_requester_query(actor_idx, actor_client)
+            )
 
         if run_collab_lifecycle:
             # ── Step 5: collab broadcast lifecycle per actor ──────────────────
@@ -1220,16 +1418,12 @@ async def _run_multi_user_scenario(
                     obj_id=highlight_id,
                 )
 
-            if is_multi_instance:
-                await asyncio.gather(
-                    *(
-                        _run_actor_collab_lifecycle(actor_idx, actor_client)
-                        for actor_idx, (_, actor_client) in enumerate(actors)
-                    )
+            await asyncio.gather(
+                *(
+                    _run_actor_collab_lifecycle(actor_idx, actor_client)
+                    for actor_idx, (_, actor_client) in enumerate(actors)
                 )
-            else:
-                for actor_idx, (_, actor_client) in enumerate(actors):
-                    await _run_actor_collab_lifecycle(actor_idx, actor_client)
+            )
 
     finally:
         if clients and handlers:
@@ -1251,7 +1445,9 @@ async def _run_multi_user_scenario(
         # Delete the shared operation (admin only).
         if shared_operation_id and actors:
             try:
-                await _delete_operation_with_conflict_wait(actors[0][1], shared_operation_id)
+                await _delete_operation_with_conflict_wait(
+                    actors[0][1], shared_operation_id
+                )
             except Exception:
                 pass
 

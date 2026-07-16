@@ -494,7 +494,7 @@ class GulpRedis:
     def _pubsub_route_metric_labels(message: dict, channel: str) -> tuple[str, str]:
         """Return low-cardinality route labels for Redis pub/sub metrics."""
         route_target = message.get("route_target_type")
-        if route_target not in {"worker_to_main", "broadcast", "client_data"}:
+        if route_target not in {"worker_to_main", "broadcast", "client_data", "event"}:
             route_target = "unknown"
 
         if channel == _CLIENT_DATA_REDIS_CHANNEL:
@@ -533,7 +533,7 @@ class GulpRedis:
             self._pubsub = self._redis.pubsub()
         return self._pubsub
 
-    async def publish(self, message: dict, channel: str | None = None) -> None:
+    async def publish(self, message: dict, channel: str | None = None) -> int:
         """
         Publish a message on redis pubsub.
 
@@ -585,8 +585,7 @@ class GulpRedis:
                     MutyLogger.get_instance().exception(
                         "failed to compress large payload, falling back to direct publish"
                     )
-                    await self._redis.publish(channel_to_use, payload)
-                    return
+                    return int(await self._redis.publish(channel_to_use, payload))
 
                 # split bytes into chunks
                 chunks = [
@@ -620,7 +619,7 @@ class GulpRedis:
                     for i, c in enumerate(chunks):
                         pipe.set(chunk_keys[i], c, ex=self.PUBLISH_LARGE_PAYLOAD_TTL)
                     pipe.publish(channel_to_use, pointer_bytes)
-                    await pipe.execute()
+                    results = await pipe.execute()
 
                     if GulpConfig.get_instance().prometheus_enabled():
                         # update Prometheus counter for chunked publishes
@@ -636,7 +635,7 @@ class GulpRedis:
                         len(payload),
                         len(stored_bytes),
                     )
-                    return
+                    return int(results[-1] or 0)
                 except Exception:
                     MutyLogger.get_instance().exception(
                         "pipeline store/publish failed for chunked payload, attempting non-transactional fallback"
@@ -649,14 +648,14 @@ class GulpRedis:
                                 chunk_keys[i], c, ex=self.PUBLISH_LARGE_PAYLOAD_TTL
                             )
                         pipe.publish(channel_to_use, pointer_bytes)
-                        await pipe.execute()
+                        results = await pipe.execute()
                         MutyLogger.get_instance().warning(
                             "published large %s message stored (fallback non-atomic) in %d chunks base=%s",
                             "compressed" if compressed_flag else "uncompressed",
                             num_chunks,
                             base_key,
                         )
-                        return
+                        return int(results[-1] or 0)
                     except Exception:
                         MutyLogger.get_instance().exception(
                             "failed to store chunked payload in Redis (pipeline fallback), falling back to direct publish"
@@ -666,7 +665,13 @@ class GulpRedis:
             MutyLogger.get_instance().exception("error handling large publish payload")
 
         # default: publish inline
-        await self._redis.publish(channel_to_use, payload)
+        return int(await self._redis.publish(channel_to_use, payload))
+
+    async def drain_pubsub_handlers(self) -> None:
+        """Wait for the currently in-flight pub/sub callbacks to finish."""
+        tasks = list(self._handler_tasks)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _apply_publish_backpressure(self) -> None:
         """Token-bucket rate limiter to avoid flooding Redis pubsub.

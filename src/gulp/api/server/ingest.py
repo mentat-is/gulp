@@ -429,8 +429,6 @@ async def _ingest_file_internal(
             # this source is done
             await mod.update_final_stats_and_flush(flt=payload.flt)
 
-            # broadcast internal event and update source field types
-            await mod.broadcast_ingest_internal_event()
             return status, []
         finally:
             upload_task = None

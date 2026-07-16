@@ -1498,7 +1498,7 @@ class GulpOpenSearch:
         else:
             base_query: dict = {"match_all": {}}
 
-        params = {
+        params: dict = {
             "conflicts": "proceed",
             "refresh": "true",
             "wait_for_completion": "true",
@@ -1514,7 +1514,6 @@ class GulpOpenSearch:
         chunk_num: int = 0
         timeout: int = GulpConfig.get_instance().opensearch_request_timeout()
         check_canceled_count: int = 0
-        params: dict = {}
         canceled: bool = False
         last: bool = False
         if timeout > 0:

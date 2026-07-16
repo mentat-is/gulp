@@ -53,6 +53,7 @@ Core services used by the backend:
 ## Backend conventions
 
 - Retrying requests is up to the client by design, but the backend will return appropriate status codes and headers to indicate when to retry a request ("retry_after_msec" in 503 responses for queue backpressure, for example).
+- Retry support in the backend is out of scope.
 
 ## Change Coordination Rules
 
@@ -156,6 +157,7 @@ If no close example exists for the kind of test you need to add, ask before proc
 - Keep tests consistent with the surrounding suite's style and fixtures.
 - Prefer integration coverage for API behavior and plugins and unit coverage for mere logic.
 - Tests for specific functionality and plugins must be each in their own separate files, not lumped together in a single file.
+- VERY IMPORTANT RULE YOU MUST NEVER FORGET: Tests must never adapt to results that are not expected. If a test fails, it must fail, and the failure must be investigated and fixed. If you suspect a bug in the backend or in a plugin, stop, report it and ask me for guidance before proceeding.
 
 ### Special Testing Cases
 

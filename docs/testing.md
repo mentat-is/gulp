@@ -25,6 +25,39 @@ convenient:
 ./test_scripts/run_tests.sh tests/integration/test_queries.py
 ~~~
 
+## Concurrent multi-user scenario
+
+`test_concurrent_multi_user_scenario.py` is the core high-concurrency scenario.
+Ten authenticated users run against one shared operation by default. They
+concurrently exercise raw and EVTX ingestion, enrichment, queries, websocket
+routing and message-type filters, large targeted and broadcast client data, and
+context/source plus note/link/highlight create-update-delete lifecycles. Every
+collaboration event is asserted on every subscribed websocket.
+
+Run it against an already running single instance:
+
+~~~bash
+GULP_CONCURRENT_USERS=10 .venv/bin/pytest -v -s \
+  tests/integration/test_concurrent_multi_user_scenario.py
+~~~
+
+For the complete two-instance scenario, use the launcher. It installs the
+integration-only internal-event probe, starts both backends, spreads users
+round-robin across them, runs internal-event stress at the same time, and
+removes the probe and stops both processes afterward:
+
+~~~bash
+tests/integration/run_multi_instance_tests.sh
+~~~
+
+Tune load with `GULP_CONCURRENT_USERS`,
+`GULP_MULTI_INSTANCE_RAW_INGEST_DOCS`,
+`GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT`, and
+`GULP_MULTI_INSTANCE_COLLAB_STRESS_COUNT`. The older query, client-data, and
+collaboration test files remain useful as narrow diagnostics; the launcher uses
+the consolidated scenario. Optional external services, paid plugins, and
+storage backends retain their dedicated integration suites.
+
 ## Sigma ZIP stress harness
 
 `test_scripts/sigma_zip_big_harness.py` is the end-to-end stress harness. It

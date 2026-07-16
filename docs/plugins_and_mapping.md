@@ -275,14 +275,14 @@ There are two flavours of chunk ingestion callbacks:
 
 1. **Global ingestion callbacks** – allows `extension` plugins to receive every ingested chunk from every running plugin/s, regardless of which request produced it.
 
-A global callback lives in an `extension` plugin that registers for one or both of the internal events:
+A global callback lives in an `extension` plugin that subscribes to one or both chunk events:
 
-- `GulpInternalEventsManager.EVENT_CHUNK_POST_INGEST` (`chunk_post_ingest`) – published after a chunk is pushed to OpenSearch and the matching websocket packet has been queued.
-- `GulpInternalEventsManager.EVENT_CHUNK_PRE_INGEST` (`chunk_pre_ingest`) – published before a chunk is ingested; this event is synchronous and the engine waits for the callback to return a `GulpInternalEventResult` if it wants to modify the chunk before ingestion.
+- `GulpCoreEvent.CHUNK_POST_INGEST` (`chunk_post_ingest`) is published after a chunk is pushed to OpenSearch and the matching websocket packet has been queued.
+- `GulpCoreEvent.CHUNK_PRE_INGEST` (`chunk_pre_ingest`) is published before a chunk is ingested. The worker waits up to 30 seconds for listeners and uses the returned `result["chunk"]` for ingestion.
 
-These callbacks are typically registered in the main process, while worker processes publish the event via Redis after chunk flush. Any plugin that registers for the event will have its `internal_event_callback` called in registration order; there is no limitation on the number of callbacks.
+Listeners subscribe in the main process and implement `on_event(event)`. Workers use Redis to deliver enabled events back to the main process, where listeners run in subscription order. Listener presence is snapshotted when a source initializes: if no matching listener exists, gULP does not construct or publish that source's pre/post event. Mandatory document websocket delivery is independent and remains enabled.
 
-The payload of the event is a `GulpChunkPrePostIngestInternalEvent` containing the chunk, index, request/ws/operation/user ids, and the plugin name. For `EVENT_CHUNK_PRE_INGEST`, the callback may return a modified chunk in `GulpInternalEventResult.result`.
+The event data contains the chunk, index, request/websocket/operation/user IDs, plugin name, and optional ingestion filter. A pre-ingest listener returns a dictionary to replace the data passed to the next listener. It must retain a valid `chunk` list; returning `None` preserves the current data.
 
 an example is provided in [example_chunk_callbacks](../src/gulp/plugins/example/example_chunk_callbacks.py) plugin.
 
@@ -442,15 +442,26 @@ sequenceDiagram
 
 #### ADVANCED: registering and emitting events from extension plugins
 
-some extension plugins may want to receive events from other plugins or the core itself (i.e. to perform some action after every chunk ingestion) or emit events to trigger actions in itself or other plugins.
+Some extension plugins may want to receive events from other plugins or the core itself, or emit custom events. The event API is available from `gulp.events`:
 
-to do so, gulp allows a plugin to register for events (emitted from core, as for the above described `chunk ingestion callbacks` or custom implemented events) using `GulpInternalEventsManager.get_instance().register`: if so, the plugin must implement an `internal_event_callback` method which will be called when the event is emitted by any plugin (including itself) or the core itself.
+```python
+from gulp.events import GulpCoreEvent, GulpEvent, GulpEventReply, events
 
-to emit events, an extension plugin must use `GulpInternalEventsManager.get_instance().put_internal_event` or `GulpInternalEventsManager.get_instance().put_internal_event_wait` (if it needs to wait for a response from the callback).
+events.subscribe(self, [GulpCoreEvent.USER_LOGIN, "my_plugin.changed"])
 
-> events may be emitted both from the main process (i.e. from an extension plugin task running in the main process) or from tasks in worker processes started from the extension, but the `internal_event_callback` will always run in the main process.
+async def on_event(self, event: GulpEvent) -> dict | GulpEventReply | None:
+    return None
 
-a complete example about this is in [example_custom_internal_event](../src/gulp/plugins/example/example_custom_internal_event.py) plugin, which registers for custom internal events and emits them both from the main process and worker processes.
+await events.emit("my_plugin.changed", data={"value": 1})
+result = await events.emit("my_plugin.changed", data={"value": 1}, wait=True)
+events.unsubscribe(self)
+```
+
+Custom event names must be lowercase, namespaced strings. Notification emission returns after Redis accepts the publication; listener failures are logged. A waited event has a 30-second default end-to-end timeout, runs listeners sequentially, and returns `GulpEventResult`. Returning a dictionary replaces the data for the next listener. `GulpEventReply(result=..., stop=True)` replaces it and stops the chain. Waited broadcast events are not supported.
+
+Subscriptions are main-process-only. Emission works in main and worker processes, but listeners always run in the main process. Events use non-durable, at-most-once Redis Pub/Sub delivery with no retry or redelivery. Plugin unload automatically unsubscribes its listener.
+
+A complete example is provided by [example_custom_internal_event](../src/gulp/plugins/example/example_custom_internal_event.py), which emits custom events from both main and worker processes.
   
 ## stacked plugins
 
