@@ -281,16 +281,14 @@ export namespace Note {
 			file: Source.Type | Source.Id,
 		): Note.Type[] => {
 			const id = Parser.useUUID(file) as Source.Id;
-			let notes = Note.Entity[CacheKey].get(id);
 
 			if (Note.Entity._cacheValid) {
-				return notes ?? [];
+				return Note.Entity[CacheKey].get(id) ?? [];
 			}
 
-			if (notes) {
-				return notes;
-			}
-
+			// When the global index is invalid, any per-source entry may have been
+			// built from a previous DataStore.notes snapshot. Rebuild this source so
+			// event-level views immediately reflect note creates, edits, and deletes.
 			const fileNotes = DataStore.notes.filter((n) => n.source_id === id);
 			Note.Entity[CacheKey].set(id, fileNotes);
 			return fileNotes;
