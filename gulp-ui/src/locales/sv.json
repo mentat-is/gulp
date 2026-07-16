@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "Inga feldetaljer returnerades",
     "requests.recordSummary": "Inlästa: {ingested}, hoppades över: {skipped}, misslyckades: {failed}",
     "requests.title": "Lista över önskemål",
-    "selectFiles.fileTooBig": "Den här filen är för stor",
+    "selectFiles.fileTooBig": "Enorm fil",
     "selectFiles.noData": "Det finns inga data att analysera. Klicka nedan för att ladda upp...",
     "selectFiles.processing": "Bearbetning",
     "selectFiles.searchPlaceholder": "Sök efter kontextnamn och filnamn",

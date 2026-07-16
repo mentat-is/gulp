@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "Nebyly vráceny žádné podrobnosti chyby",
     "requests.recordSummary": "Zpracováno: {ingested}, přeskočeno: {skipped}, selhalo: {failed}",
     "requests.title": "Seznam požadavků",
-    "selectFiles.fileTooBig": "Tento soubor je příliš velký",
+    "selectFiles.fileTooBig": "Obrovský soubor",
     "selectFiles.noData": "Nejsou k dispozici žádná data k analýze. Kliknutím níže nahrajete...",
     "selectFiles.processing": "Zpracování",
     "selectFiles.searchPlaceholder": "Vyhledávání podle názvu kontextu a názvu souboru",

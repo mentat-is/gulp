@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "未傳回錯誤詳細資訊",
     "requests.recordSummary": "已攝取：{ingested}，已略過：{skipped}，失敗：{failed}",
     "requests.title": "請求列表",
-    "selectFiles.fileTooBig": "這個文件太大了",
+    "selectFiles.fileTooBig": "超大檔案",
     "selectFiles.noData": "沒有數據可供分析。點擊下方上傳...",
     "selectFiles.processing": "加工",
     "selectFiles.searchPlaceholder": "按上下文名稱和檔案名稱搜尋",

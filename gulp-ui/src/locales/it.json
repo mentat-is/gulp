@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "Nessun dettaglio errore restituito",
     "requests.recordSummary": "Importati: {ingested}, ignorati: {skipped}, non riusciti: {failed}",
     "requests.title": "Elenco richieste",
-    "selectFiles.fileTooBig": "Questo file è troppo grande",
+    "selectFiles.fileTooBig": "File enorme",
     "selectFiles.noData": "Non ci sono dati da analizzare. Clicca qui sotto per caricare...",
     "selectFiles.processing": "Elaborazione",
     "selectFiles.searchPlaceholder": "Cerca per nome contesto e nome source",

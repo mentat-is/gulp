@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "कोई त्रुटि विवरण वापस नहीं आया",
     "requests.recordSummary": "ग्रहण किए गए: {ingested}, छोड़े गए: {skipped}, विफल: {failed}",
     "requests.title": "अनुरोध सूची",
-    "selectFiles.fileTooBig": "यह फ़ाइल बहुत बड़ी है",
+    "selectFiles.fileTooBig": "विशाल फ़ाइल",
     "selectFiles.noData": "विश्लेषण करने के लिए कोई डेटा नहीं है. अपलोड करने के लिए नीचे क्लिक करें...",
     "selectFiles.processing": "प्रसंस्करण",
     "selectFiles.searchPlaceholder": "संदर्भ नाम और फ़ाइल नाम से खोजें",

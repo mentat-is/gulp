@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "Nem érkeztek hibarészletek",
     "requests.recordSummary": "Feldolgozva: {ingested}, kihagyva: {skipped}, sikertelen: {failed}",
     "requests.title": "Kérelmek listája",
-    "selectFiles.fileTooBig": "Ez a fájl túl nagy",
+    "selectFiles.fileTooBig": "Hatalmas fájl",
     "selectFiles.noData": "Nincsenek elemzendő adatok. A feltöltéshez kattintson az alábbi gombra...",
     "selectFiles.processing": "Feldolgozás",
     "selectFiles.searchPlaceholder": "Keresés kontextusnév és fájlnév alapján",

@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "Nie zwrócono szczegółów błędu",
     "requests.recordSummary": "Zaimportowano: {ingested}, pominięto: {skipped}, nieudane: {failed}",
     "requests.title": "Lista żądań",
-    "selectFiles.fileTooBig": "Ten plik jest za duży",
+    "selectFiles.fileTooBig": "Ogromny plik",
     "selectFiles.noData": "Brak danych do analizy. Kliknij poniżej, aby przesłać...",
     "selectFiles.processing": "Przetwarzanie",
     "selectFiles.searchPlaceholder": "Szukaj według nazwy kontekstu i nazwy pliku",

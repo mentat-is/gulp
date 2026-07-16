@@ -659,7 +659,7 @@
     "requests.noErrorDetails": "No error details returned",
     "requests.recordSummary": "Ingested: {ingested}, skipped: {skipped}, failed: {failed}",
     "requests.title": "Requests list",
-    "selectFiles.fileTooBig": "This file is too big",
+    "selectFiles.fileTooBig": "Huge file",
     "selectFiles.noData": "There is no data to analyze. Click below to upload...",
     "selectFiles.processing": "Processing",
     "selectFiles.searchPlaceholder": "Search by context name and file name",
