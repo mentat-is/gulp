@@ -1364,6 +1364,7 @@ export class Info implements InfoProps {
 				operation_id: file.operation_id,
 				plugin,
 				ws_id: this.app.general.ws_id,
+				req_id: generateUUID(Request.Prefix.ENRICHMENT)
 			},
 			raw: true,
 			body: {
