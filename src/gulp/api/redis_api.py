@@ -1806,6 +1806,8 @@ class GulpRedis:
                     noack=False,
                 )
             except Exception as ex:
+                if isinstance(ex, ResponseError) and "NOGROUP" in str(ex):
+                    continue
                 MutyLogger.get_instance().exception(
                     "error reading from stream %s: %s", stream, ex
                 )
@@ -1898,6 +1900,8 @@ class GulpRedis:
         except asyncio.CancelledError:
             raise
         except Exception as ex:
+            if isinstance(ex, ResponseError) and "NOGROUP" in str(ex):
+                return None
             MutyLogger.get_instance().exception("error in task_pop_blocking: %s", ex)
             await asyncio.sleep(0.5)
             return None

@@ -1070,6 +1070,38 @@ async def test_task_pop_blocking_claims_from_only_one_stream_per_read():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+@pytest.mark.parametrize("blocking", [False, True])
+async def test_task_reads_ignore_stream_deleted_after_discovery(
+    monkeypatch: pytest.MonkeyPatch, blocking: bool
+) -> None:
+    from redis.exceptions import ResponseError
+
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeTaskRedisClient()
+    redis_client._redis = fake_redis
+    redis_client.server_id = "server-a"
+    redis_client._task_stream_cursor = 1
+    fake_redis.known_task_types.add("query")
+    fake_redis.known_batch_streams.add("gulp:stream:tasks:query:req")
+    fake_redis.xreadgroup = AsyncMock(
+        side_effect=ResponseError("NOGROUP No such key or consumer group")
+    )
+    logger = MagicMock()
+    monkeypatch.setattr(redis_api_module.MutyLogger, "get_instance", lambda: logger)
+    sleep = AsyncMock()
+    monkeypatch.setattr(redis_api_module.asyncio, "sleep", sleep)
+
+    if blocking:
+        assert await redis_client.task_pop_blocking(timeout=1) is None
+    else:
+        assert await redis_client.task_dequeue_batch(1) == []
+
+    logger.exception.assert_not_called()
+    sleep.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_task_reads_can_filter_task_types():
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
