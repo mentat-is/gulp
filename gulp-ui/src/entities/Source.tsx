@@ -211,6 +211,39 @@ export namespace Source {
 			return result;
 		};
 
+		/**
+		 * Returns one source's rendered timeline bounds after applying its source offset.
+		 * @param source Source whose stored bounds should be shifted into render time.
+		 * @returns Shifted minimum and maximum timestamps.
+		 */
+		public static renderedTimestamp = (source: Source.Type): MinMax => ({
+			min: source.timestamp.min + source.settings.offset,
+			max: source.timestamp.max + source.settings.offset,
+		});
+
+		/**
+		 * Returns the rendered timeline frame covering all provided sources.
+		 * @param sources Sources whose shifted bounds should be merged.
+		 * @returns Shifted source frame, or an empty frame when no sources are supplied.
+		 */
+		public static renderedFrame = (sources: Source.Type[]): MinMax => {
+			if (sources.length === 0) {
+				return { min: 0, max: 0 };
+			}
+			return {
+				min: Math.min(
+					...sources.map(
+						(source) => Source.Entity.renderedTimestamp(source).min,
+					),
+				),
+				max: Math.max(
+					...sources.map(
+						(source) => Source.Entity.renderedTimestamp(source).max,
+					),
+				),
+			};
+		};
+
 		public static select = (
 			app: App.Type,
 			selected: Source.Type[] | Source.Id[],

@@ -1032,8 +1032,8 @@ export function Canvas({ timeline }: Canvas.Props) {
 		if (!file) return;
 
 		if (
-			click.x < getPixelPosition(file.timestamp.min) ||
-			getPixelPosition(file.timestamp.max) < click.x
+			click.x < getPixelPosition(file.timestamp.min + file.settings.offset) ||
+			getPixelPosition(file.timestamp.max + file.settings.offset) < click.x
 		) {
 			return;
 		}

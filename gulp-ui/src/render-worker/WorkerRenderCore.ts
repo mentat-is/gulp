@@ -107,14 +107,10 @@ interface NoteLayoutCache {
 	bySource: Map<string, NoteSourceLayout>;
 }
 
-/** Endpoint order retained for one immutable link collection. */
+/** Link collection retained for one immutable overlay revision. */
 interface LinkLayoutCache {
 	revision: number;
 	records: readonly RenderLinkRecord[];
-	orderedEndpoints: ReadonlyMap<
-		RenderLinkRecord,
-		ReadonlyArray<RenderLinkRecord["endpoints"][number]>
-	>;
 }
 
 /** Reusable transparent pixel buffer uploaded as one event-row draw. */
@@ -823,8 +819,8 @@ export class WorkerRenderCore {
 			(state.width * state.scale);
 		const dynamicFrequency = Math.max(source.frequency, timePerTenPixels);
 		if (!Number.isFinite(dynamicFrequency) || dynamicFrequency <= 0) return;
-		const visibleStart = this.getTimestamp(0, state);
-		const visibleEnd = this.getTimestamp(state.width, state);
+		const visibleStart = this.getTimestamp(0, state) - source.offset;
+		const visibleEnd = this.getTimestamp(state.width, state) - source.offset;
 		const sourceStart = source.timestamp.min;
 		const startBucket = Math.max(
 			0,
@@ -865,7 +861,10 @@ export class WorkerRenderCore {
 
 		for (let bucketIndex = startBucket; bucketIndex <= endBucket; bucketIndex++) {
 			const boundaryTimestamp = sourceStart + bucketIndex * dynamicFrequency;
-			const boundaryX = this.getPixelPosition(boundaryTimestamp, state);
+			const boundaryX = this.getPixelPosition(
+				boundaryTimestamp + source.offset,
+				state,
+			);
 			this.context.beginPath();
 			this.context.moveTo(boundaryX, rowTop);
 			this.context.lineTo(boundaryX, rowTop + ROW_HEIGHT);
@@ -881,7 +880,7 @@ export class WorkerRenderCore {
 						dynamicFrequency / 2,
 				),
 			);
-			const x = this.getPixelPosition(centerRaw, state);
+			const x = this.getPixelPosition(centerRaw + source.offset, state);
 			if (x < -32 || x > state.width + 32) continue;
 			const count = bucketCache.buckets.get(bucketIndex) ?? 0;
 			const ratio =
@@ -1804,13 +1803,14 @@ export class WorkerRenderCore {
 		hitRegions: WorkerHitRegion[],
 		statistics: RenderFrameStatistics,
 	): void {
-		const minimum = this.getTimestamp(-128, state);
-		const maximum = this.getTimestamp(state.width + 128, state);
 		const noteLayout = this.getNoteLayout(state.revisions.overlays);
 		for (const source of visibleSources) {
 			const sourceLayout = noteLayout.bySource.get(source.id);
 			const rowIndex = sourceIndexes.get(source.id);
 			if (!sourceLayout || rowIndex === undefined) continue;
+			const minimum = this.getTimestamp(-128, state) - source.offset;
+			const maximum =
+				this.getTimestamp(state.width + 128, state) - source.offset;
 			const startVisibleIndex = this.findFirstDescendingAtMost(
 				sourceLayout.timestamps,
 				maximum,
@@ -1826,7 +1826,7 @@ export class WorkerRenderCore {
 				startIndex <= endVisibleIndex;
 			) {
 				const startX = this.getPixelPosition(
-					sourceLayout.records[startIndex].timestamp,
+					sourceLayout.records[startIndex].timestamp + source.offset,
 					state,
 				);
 				let endIndex = startIndex;
@@ -1835,7 +1835,7 @@ export class WorkerRenderCore {
 					endIndex + 1 <= endVisibleIndex
 				) {
 					const nextX = this.getPixelPosition(
-						sourceLayout.records[endIndex + 1].timestamp,
+						sourceLayout.records[endIndex + 1].timestamp + source.offset,
 						state,
 					);
 					if (Math.abs(startX - nextX) > NOTE_SIZE) break;
@@ -1999,7 +1999,7 @@ export class WorkerRenderCore {
 	): void {
 		const linkLayout = this.getLinkLayout(state.revisions.overlays);
 		for (const link of linkLayout.records) {
-			const endpoints = linkLayout.orderedEndpoints.get(link) ?? link.endpoints;
+			const endpoints = this.getRenderedLinkEndpoints(link);
 			if (endpoints.length === 0) continue;
 			const dots = this.linkDotScratch;
 			dots.length = 0;
@@ -2048,7 +2048,7 @@ export class WorkerRenderCore {
 	}
 
 	/**
-	 * Returns timestamp-ordered endpoints for an immutable link overlay revision.
+	 * Returns link records for an immutable link overlay revision.
 	 * @param revision Current aggregate overlay revision.
 	 * @returns Revision-scoped link layout.
 	 */
@@ -2060,27 +2060,32 @@ export class WorkerRenderCore {
 		) {
 			return this.linkLayoutCache;
 		}
-		const orderedEndpoints = new Map<
-			RenderLinkRecord,
-			ReadonlyArray<RenderLinkRecord["endpoints"][number]>
-		>();
-		for (const link of records) {
-			orderedEndpoints.set(
-				link,
-				link.endpoints.length <= 1
-					? link.endpoints
-					: [...link.endpoints].sort((left, right) => {
-							const timestampDifference = left.timestamp - right.timestamp;
-							return (
-								timestampDifference ||
-								left.sortKey.localeCompare(right.sortKey)
-							);
-						}),
-			);
-		}
-		const layout = { revision, records, orderedEndpoints };
+		const layout = { revision, records };
 		this.linkLayoutCache = layout;
 		return layout;
+	}
+
+	/**
+	 * Orders link endpoints by rendered timestamp using current source offsets.
+	 * @param link Link whose endpoints should be connected.
+	 * @returns Endpoints sorted in rendered timeline order.
+	 */
+	private getRenderedLinkEndpoints(
+		link: RenderLinkRecord,
+	): ReadonlyArray<RenderLinkRecord["endpoints"][number]> {
+		if (link.endpoints.length <= 1) return link.endpoints;
+		return [...link.endpoints].sort((left, right) => {
+			const leftSource = this.repository.getSource(left.sourceId);
+			const rightSource = this.repository.getSource(right.sourceId);
+			const timestampDifference =
+				left.timestamp +
+				(leftSource?.offset ?? 0) -
+				(right.timestamp + (rightSource?.offset ?? 0));
+			return (
+				timestampDifference ||
+				left.sortKey.localeCompare(right.sortKey)
+			);
+		});
 	}
 
 	/**

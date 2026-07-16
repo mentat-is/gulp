@@ -183,6 +183,7 @@ export namespace Internal {
 
 	export namespace Session {
 		export interface SourceSetting {
+			offset?: Source.Type["settings"]["offset"];
 			field?: Source.Type["settings"]["field"];
 			hash_function?: Source.Type["settings"]["hash_function"];
 			render_color_palette?: Source.Type["settings"]["render_color_palette"];

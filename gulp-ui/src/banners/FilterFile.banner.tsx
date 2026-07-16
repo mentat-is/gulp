@@ -114,12 +114,18 @@ export function FilterFileBanner({
 		(targetFiles: Source.Type[]): Query.Type => {
 			if (targetFiles.length === 0) return { string: "", filters: [] };
 			const first = targetFiles[0];
-			const min = Internal.Transformator.toNanos(
-				app.timeline.frame.min,
-			).toString();
-			const max = Internal.Transformator.toNanos(
-				app.timeline.frame.max,
-			).toString();
+			const rawMin = Math.min(
+				...targetFiles.map(
+					(file) => app.timeline.frame.min - file.settings.offset,
+				),
+			);
+			const rawMax = Math.max(
+				...targetFiles.map(
+					(file) => app.timeline.frame.max - file.settings.offset,
+				),
+			);
+			const min = Internal.Transformator.toNanos(rawMin).toString();
+			const max = Internal.Transformator.toNanos(rawMax).toString();
 
 			return {
 				string: "",

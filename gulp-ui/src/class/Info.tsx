@@ -552,6 +552,203 @@ export class Info implements InfoProps {
 	};
 
 	/**
+	 * Applies the completed rebase to local source bounds and clears the UI offset.
+	 * @param sourceId Source whose persisted documents were shifted by the backend.
+	 * @param offsetMsec Offset that was applied to raw document timestamps.
+	 * @returns Nothing.
+	 */
+	private applyCompletedSourceRebase = (
+		sourceId: Source.Id,
+		offsetMsec: number,
+	): void => {
+		const offsetNsec = this.offsetDurationToNanos(offsetMsec);
+		const files = this.app.target.files.map((file) => {
+			if (file.id !== sourceId) return file;
+
+			const minNsec = this.toExactNanos(file.nanotimestamp.min);
+			const maxNsec = this.toExactNanos(file.nanotimestamp.max);
+
+			return {
+				...file,
+				timestamp: {
+					min: file.timestamp.min + offsetMsec,
+					max: file.timestamp.max + offsetMsec,
+				},
+				nanotimestamp: {
+					min: minNsec + offsetNsec,
+					max: maxNsec + offsetNsec,
+				},
+				settings: {
+					...file.settings,
+					offset: 0,
+				},
+				_sampleDataCached: {
+					...file._sampleDataCached,
+					sample_data: null,
+				},
+			};
+		});
+		const filters = this.shiftSourceFilterRangeByOffset(
+			this.app.target.filters,
+			sourceId,
+			offsetNsec,
+		);
+		const cachedFilterData = new Map(this.app.timeline.cache.data);
+		cachedFilterData.delete(sourceId);
+		const cachedFilters = { ...this.app.timeline.cache.filters };
+		delete cachedFilters[sourceId];
+
+		RenderEngine.resetSource(sourceId);
+		const nextApp = {
+			...this.app,
+			target: {
+				...this.app.target,
+				files,
+				filters,
+			},
+			timeline: {
+				...this.app.timeline,
+				cache: {
+					...this.app.timeline.cache,
+					data: cachedFilterData,
+					filters: cachedFilters,
+				},
+			},
+		};
+		this.app = nextApp;
+		this.setInfo(() => nextApp);
+	};
+
+	/**
+	 * Clears a saved source offset from all persisted user sessions.
+	 * @param sourceId Source whose session offset should be cleared.
+	 * @param offsetNsec Offset that was applied to raw document timestamps.
+	 * @returns Promise resolving after user_data has been updated.
+	 */
+	private clearSourceOffsetInSessions = async (
+		sourceId: Source.Id,
+		offsetNsec: bigint,
+	): Promise<void> => {
+		if (!this.app.general.user) return;
+
+		const sessions = (await this.session_list()) ?? [];
+		const nextSessions = sessions.map((session) => {
+			const savedSettings = session.source_settings?.source_settings?.[sourceId];
+			const savedFilter = session.filters?.[sourceId];
+			let nextSession = session;
+
+			if (savedSettings && savedSettings.offset !== 0) {
+				nextSession = {
+					...nextSession,
+					source_settings: {
+						...(nextSession.source_settings ?? { source_settings: {} }),
+						source_settings: {
+							...(nextSession.source_settings?.source_settings ?? {}),
+							[sourceId]: {
+								...savedSettings,
+								offset: 0,
+							},
+						},
+					},
+				};
+			}
+
+			if (savedFilter?.source_config?.range) {
+				nextSession = {
+					...nextSession,
+					filters: {
+						...nextSession.filters,
+						[sourceId]: {
+							...savedFilter,
+							source_config: {
+								...savedFilter.source_config,
+								range: this.shiftNanosRange(
+									savedFilter.source_config.range,
+									offsetNsec,
+								),
+							},
+						},
+					},
+				};
+			}
+
+			return nextSession;
+		});
+
+		await this.user_set_data("sessions", nextSessions);
+	};
+
+	/**
+	 * Converts an offset duration in milliseconds to nanoseconds.
+	 * @param offsetMsec Offset duration, not an epoch timestamp.
+	 * @returns Offset duration in nanoseconds.
+	 */
+	private offsetDurationToNanos = (offsetMsec: number): bigint =>
+		BigInt(Math.trunc(offsetMsec)) * 1_000_000n;
+
+	/**
+	 * Converts nanosecond-like values without losing precision through Number.
+	 * @param value Timestamp value to normalize.
+	 * @returns Nanosecond bigint.
+	 */
+	private toExactNanos = (value: string | number | bigint | Date): bigint => {
+		if (typeof value === "bigint") return value;
+		if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
+			return BigInt(value.trim());
+		}
+		if (
+			typeof value === "number" &&
+			Number.isFinite(value) &&
+			Math.abs(value) >= 1_000_000_000_000_000
+		) {
+			return BigInt(Math.trunc(value));
+		}
+
+		return Internal.Transformator.toNanos(value);
+	};
+
+	/**
+	 * Shifts a raw nanosecond query range after backend rebase.
+	 * @param range Existing query range.
+	 * @param offsetNsec Rebase offset in nanoseconds.
+	 * @returns Shifted query range as nanosecond strings.
+	 */
+	private shiftNanosRange = (
+		range: { min: string | number; max: string | number },
+		offsetNsec: bigint,
+	): { min: string; max: string } => ({
+		min: (this.toExactNanos(range.min) + offsetNsec).toString(),
+		max: (this.toExactNanos(range.max) + offsetNsec).toString(),
+	});
+
+	/**
+	 * Shifts the active stored filter range for a rebased source.
+	 * @param filters Current source filters.
+	 * @param sourceId Source whose documents were rebased.
+	 * @param offsetNsec Rebase offset in nanoseconds.
+	 * @returns Updated filter map.
+	 */
+	private shiftSourceFilterRangeByOffset = (
+		filters: App.Type["target"]["filters"],
+		sourceId: Source.Id,
+		offsetNsec: bigint,
+	): App.Type["target"]["filters"] => {
+		const filter = filters[sourceId];
+		if (!filter?.source_config?.range) return filters;
+
+		return {
+			...filters,
+			[sourceId]: {
+				...filter,
+				source_config: {
+					...filter.source_config,
+					range: this.shiftNanosRange(filter.source_config.range, offsetNsec),
+				},
+			},
+		};
+	};
+
+	/**
 	 * Cancels active query streams for the supplied source ids and waits for any
 	 * already-started DataStore flush to finish before callers reset source events.
 	 * @param sourceIds Source ids whose active query work should be stopped.
@@ -1194,10 +1391,7 @@ export class Info implements InfoProps {
 			this.app.timeline.frame.min === 0 &&
 			this.app.timeline.frame.max === 0
 		) {
-			this.setTimelineFrame({
-				min: Math.min(...files.map((f) => f.timestamp.min)),
-				max: Math.max(...files.map((f) => f.timestamp.max)),
-			});
+			this.setTimelineFrame(Source.Entity.renderedFrame(files));
 		}
 
 		this.notes_reload();
@@ -2802,6 +2996,162 @@ export class Info implements InfoProps {
 			query: { req_id_to_cancel },
 		});
 
+	/**
+	 * Rebases one source by its current UI offset, then clears that offset when the
+	 * backend confirms completion.
+	 * @param source Source to rebase.
+	 * @returns Promise resolving to true when the backend accepted the request.
+	 */
+	rebase_by_offset = async (source: Source.Type): Promise<boolean> => {
+		const offsetMsec = source.settings.offset;
+		if (!Number.isFinite(offsetMsec) || offsetMsec === 0) {
+			toast.info(translate("source.rebaseNoOffset"), {
+				icon: <Icon name="Info" />,
+			});
+			return false;
+		}
+
+		if (!Operation.Entity.id(this.app, source.operation_id)) return false;
+
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		const req_id = generateUUID<Request.Id>(Request.Prefix.REBASE);
+		const toastId = `rebase-${req_id}`;
+		let completed = false;
+		let releaseSocketListeners = (): void => undefined;
+
+		this.setLoading(req_id, source.id);
+		toast.loading(translate("source.rebaseStarted", { name: source.name }), {
+			id: toastId,
+			icon: <Icon name="RefreshCw" />,
+		});
+
+		const finish = async (request: Request.Type | undefined): Promise<void> => {
+			if (completed) return;
+			completed = true;
+			releaseSocketListeners();
+			this.delLoading(req_id);
+
+			const status = request?.status;
+			const errorMessages = request ? Request.Entity.errorMessages(request) : [];
+
+			if (status === Request.Status.CANCELED) {
+				toast.warning(
+					translate("source.rebaseCanceled", { name: source.name }),
+					{
+						id: toastId,
+						icon: <Icon name="StopCircle" />,
+					},
+				);
+				return;
+			}
+
+			if (!request || status !== Request.Status.DONE) {
+				toast.error(translate("source.rebaseFailed", { name: source.name }), {
+					id: toastId,
+					description: errorMessages[0],
+					icon: <Icon name="Stop" />,
+					richColors: true,
+				});
+				return;
+			}
+
+			this.events_reset_in_file(source);
+			this.applyCompletedSourceRebase(source.id, offsetMsec);
+			await this.clearSourceOffsetInSessions(
+				source.id,
+				this.offsetDurationToNanos(offsetMsec),
+			).catch((error) => {
+				Logger.warn(
+					`Failed to persist cleared source offset for ${source.id}: ${
+						(error as Error).message
+					}`,
+					Info,
+				);
+			});
+
+			toast.success(translate("source.rebaseFinished", { name: source.name }), {
+				id: toastId,
+				icon: <Icon name="Check" />,
+			});
+
+			this.refetch({ ids: source.id });
+		};
+
+		const terminalStatsListenerId = SmartSocket.Class.instance.con(
+			SmartSocket.Message.Type.STATS_UPDATE,
+			(m) =>
+				m.req_id === req_id &&
+				m.payload?.obj?.type === "request_stats" &&
+				!ACTIVE_REQUEST_STATUSES.has(m.payload.obj.status) &&
+				this.isOperationContextCurrent(operationEpoch, source.operation_id),
+			(m) => {
+				void finish(m.payload.obj);
+			},
+		);
+		const rebaseDoneListenerId = SmartSocket.Class.instance.conce(
+			SmartSocket.Message.Type.REBASE_DONE,
+			(m) =>
+				m.req_id === req_id &&
+				this.isOperationContextCurrent(operationEpoch, source.operation_id),
+			(m) => {
+				void finish(m.payload.obj);
+			},
+		);
+		releaseSocketListeners = this.trackOperationSocketCleanup(() => {
+			SmartSocket.Class.instance.coff(
+				SmartSocket.Message.Type.STATS_UPDATE,
+				terminalStatsListenerId,
+			);
+			SmartSocket.Class.instance.coff(
+				SmartSocket.Message.Type.REBASE_DONE,
+				rebaseDoneListenerId,
+			);
+		});
+
+		const response = await api<unknown>("/opensearch_rebase_by_query", {
+			method: "POST",
+			query: {
+				operation_id: source.operation_id,
+				ws_id: this.app.general.ws_id,
+				offset_msec: offsetMsec,
+				req_id,
+			},
+			body: {
+				flt: {
+					source_ids: [source.id],
+				},
+				fields: [],
+			},
+			raw: true,
+			showErrorToast: false,
+			toast: {
+				onError: (errorResponse) =>
+					toast.error(
+						translate("source.rebaseFailed", { name: source.name }),
+						{
+							id: toastId,
+							description: errorResponse.data.__error.msg,
+							icon: <Icon name="Stop" />,
+							richColors: true,
+						},
+					),
+			},
+		});
+
+		if (!response || response.status !== "pending") {
+			releaseSocketListeners();
+			this.delLoading(req_id);
+			toast.error(translate("source.rebaseFailed", { name: source.name }), {
+				id: toastId,
+				icon: <Icon name="Stop" />,
+				richColors: true,
+			});
+			return false;
+		}
+
+		return true;
+	};
+
 	filters_cache = (files: Array<Source.Type | Source.Id>) => {
 		files.forEach((file) => {
 			const id = Parser.useUUID(file) as Source.Id;
@@ -3348,10 +3698,7 @@ export class Info implements InfoProps {
 								});
 								draft.target.files = files;
 
-								draft.timeline.frame = {
-									min: Math.min(...files.map((f) => f.timestamp.min)),
-									max: Math.max(...files.map((f) => f.timestamp.max)),
-								};
+								draft.timeline.frame = Source.Entity.renderedFrame(files);
 							}
 						});
 						this.delLoadingByFile(finalFileId);
@@ -4504,6 +4851,7 @@ export class Info implements InfoProps {
 				Internal.Session.SourceSettings["source_settings"]
 			>((settingsBySourceId, file) => {
 				settingsBySourceId[file.id] = {
+					offset: file.settings.offset,
 					field: file.settings.field,
 					hash_function: file.settings.hash_function,
 					render_color_palette: file.settings.render_color_palette,
@@ -4534,6 +4882,12 @@ export class Info implements InfoProps {
 			if (!savedSettings) return file;
 
 			const restoredSettings: Partial<Source.Type["settings"]> = {};
+			if (
+				typeof savedSettings.offset === "number" &&
+				Number.isFinite(savedSettings.offset)
+			) {
+				restoredSettings.offset = savedSettings.offset;
+			}
 			if (savedSettings.field) {
 				restoredSettings.field = savedSettings.field;
 			}

@@ -115,6 +115,38 @@ function getSelectedSourcesTimeFrame(
 }
 
 /**
+ * Converts the rendered timeline frame into the raw nanosecond range used by DB queries.
+ * @param sources Selected source entities whose offsets affect the rendered timeline.
+ * @param timelineFrame Current rendered timeline frame in milliseconds.
+ * @returns Nanosecond min/max strings for querying raw persisted timestamps.
+ */
+function getTimelineQueryTimeFrame(
+	sources: Source.Type[],
+	timelineFrame: { min: number; max: number },
+): { min: string; max: string } {
+	const fallback = {
+		min: Internal.Transformator.toNanos(timelineFrame.min).toString(),
+		max: Internal.Transformator.toNanos(timelineFrame.max).toString(),
+	};
+
+	if (sources.length === 0) {
+		return fallback;
+	}
+
+	const rawMin = Math.min(
+		...sources.map((source) => timelineFrame.min - source.settings.offset),
+	);
+	const rawMax = Math.max(
+		...sources.map((source) => timelineFrame.max - source.settings.offset),
+	);
+
+	return {
+		min: Internal.Transformator.toNanos(rawMin).toString(),
+		max: Internal.Transformator.toNanos(rawMax).toString(),
+	};
+}
+
+/**
  * Adds a flagged-document id restriction to an OpenSearch bool query.
  * @param query OpenSearch query generated from the structured Query.Type.
  * @param flaggedDocIds Flagged document identifiers for the active operation.
@@ -428,15 +460,12 @@ export function TableViewWindow({
 	const [isMinValid, setIsMinValid] = useState(true);
 	const [isMaxValid, setIsMaxValid] = useState(true);
 	const timelineTimeFrame = useMemo(
-		() => ({
-			min: (app.timeline.frame.min * 1000000).toString(),
-			max: (app.timeline.frame.max * 1000000).toString(),
-		}),
-		[app.timeline.frame.min, app.timeline.frame.max],
+		() => getTimelineQueryTimeFrame(selectedSources, app.timeline.frame),
+		[selectedSources, app.timeline.frame.min, app.timeline.frame.max],
 	);
 	const [timeFrame, setTimeFrame] = useState<{ min: string; max: string }>({
-		min: (app.timeline.frame.min * 1000000).toString(),
-		max: (app.timeline.frame.max * 1000000).toString(),
+		min: timelineTimeFrame.min,
+		max: timelineTimeFrame.max,
 	});
 
 	// --- Filter Editing State ---
@@ -459,8 +488,8 @@ export function TableViewWindow({
 		isSynced: isSyncActive,
 		filters: serializedFilters,
 		textFilter: syncedTextFilter,
-		timelineMin: app.timeline.frame.min,
-		timelineMax: app.timeline.frame.max,
+		timelineMin: timelineTimeFrame.min,
+		timelineMax: timelineTimeFrame.max,
 	});
 
 	const hasLogicalChange =
@@ -470,8 +499,8 @@ export function TableViewWindow({
 		(isSyncActive &&
 			(prevSync.filters !== serializedFilters ||
 				prevSync.textFilter !== syncedTextFilter)) ||
-		prevSync.timelineMin !== app.timeline.frame.min ||
-		prevSync.timelineMax !== app.timeline.frame.max;
+		prevSync.timelineMin !== timelineTimeFrame.min ||
+		prevSync.timelineMax !== timelineTimeFrame.max;
 
 	if (hasLogicalChange) {
 		const opChanged = prevSync.operationId !== selectedOperationId;
@@ -484,8 +513,8 @@ export function TableViewWindow({
 			isSynced: isSyncActive,
 			filters: serializedFilters,
 			textFilter: syncedTextFilter,
-			timelineMin: app.timeline.frame.min,
-			timelineMax: app.timeline.frame.max,
+			timelineMin: timelineTimeFrame.min,
+			timelineMax: timelineTimeFrame.max,
 		});
 
 		// Reset pagination, search and field map
@@ -536,8 +565,8 @@ export function TableViewWindow({
 	}
 
 	// --- Derived Query Parameters ---
-	const activeMin = timeFrame.min;
-	const activeMax = timeFrame.max;
+	const activeMin = isSyncActive ? timelineTimeFrame.min : timeFrame.min;
+	const activeMax = isSyncActive ? timelineTimeFrame.max : timeFrame.max;
 	const activeFilters =
 		isSyncActive && primarySelectedSource
 			? app.target.filters?.[primarySelectedSource.id]

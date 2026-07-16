@@ -283,6 +283,12 @@ export namespace Filter {
 		): Query.Type => {
 			const id = typeof file === "object" ? file.id : file;
 			const targetFile = Source.Entity.id(app, id);
+			const rawRange = range
+				? {
+						min: range.min - targetFile.settings.offset,
+						max: range.max - targetFile.settings.offset,
+					}
+				: undefined;
 
 			return {
 				string: "",
@@ -292,14 +298,16 @@ export namespace Filter {
 					source_ids: [targetFile.id],
 					range: {
 						min: (
-							range?.min ??
-							targetFile.nanotimestamp?.min ??
-							Internal.Transformator.toNanos(targetFile.timestamp.min)
+							rawRange
+								? Internal.Transformator.toNanos(rawRange.min)
+								: targetFile.nanotimestamp?.min ??
+									Internal.Transformator.toNanos(targetFile.timestamp.min)
 						).toString(),
 						max: (
-							range?.max ??
-							targetFile.nanotimestamp?.max ??
-							Internal.Transformator.toNanos(targetFile.timestamp.max)
+							rawRange
+								? Internal.Transformator.toNanos(rawRange.max)
+								: targetFile.nanotimestamp?.max ??
+									Internal.Transformator.toNanos(targetFile.timestamp.max)
 						).toString(),
 					},
 				},

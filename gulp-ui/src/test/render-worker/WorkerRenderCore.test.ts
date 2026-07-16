@@ -112,6 +112,7 @@ function createRecordingContext(
 		imageSmoothingQuality: "low",
 		arc: jest.fn(),
 		beginPath: jest.fn(),
+		closePath: jest.fn(),
 		clearRect: jest.fn(),
 		createLinearGradient: jest.fn(() => gradient),
 		drawImage: jest.fn(),
@@ -274,6 +275,222 @@ describe("WorkerRenderCore", () => {
 
 		expect(statistics?.visibleSources).toBe(0);
 		expect(statistics?.renderedRows).toBe(0);
+	});
+
+	it("renders default-engine events shifted into the visible frame by source offset", async () => {
+		const rawEventTimestamp = 1_743_025_550_367;
+		const offset = -124_900_000_000;
+		const shiftedTimestamp = rawEventTimestamp + offset;
+		const source = {
+			...createRenderSource("source-offset", 0),
+			timestamp: {
+				min: rawEventTimestamp - 1_000,
+				max: rawEventTimestamp + 1_000,
+			},
+			offset,
+			total: 1,
+		};
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: { revision: 1, records: [source], removedSourceIds: [] },
+			events: [
+				{
+					sourceId: source.id,
+					baseRevision: 0,
+					revision: 1,
+					mode: "replace",
+					handles: Uint32Array.of(1),
+					timestamps: Float64Array.of(rawEventTimestamp),
+					hashes: Float64Array.of(1),
+				},
+			],
+		});
+		repository.setFrameState(
+			createFrameState([source.id], {
+				frame: {
+					min: shiftedTimestamp - 10_000,
+					max: shiftedTimestamp + 10_000,
+				},
+				width: 400,
+			}),
+		);
+		const renderCore = new WorkerRenderCore(
+			createRecordingContext(400, 96),
+			repository,
+			{ requestAsset: jest.fn() },
+		);
+
+		const statistics = renderCore.render(100, DirtyCanvas.Events);
+
+		expect(statistics?.renderedRows).toBe(1);
+		expect(statistics?.renderedEventPixels).toBe(1);
+	});
+
+	it("renders graph-engine samples shifted into the visible frame by source offset", async () => {
+		const rawEventTimestamp = 1_743_025_550_367;
+		const offset = -124_900_000_000;
+		const shiftedTimestamp = rawEventTimestamp + offset;
+		const source = {
+			...createRenderSource("source-graph-offset", 0),
+			engine: "graph" as const,
+			frequency: 1_000,
+			timestamp: {
+				min: rawEventTimestamp - 1_000,
+				max: rawEventTimestamp + 1_000,
+			},
+			offset,
+			total: 1,
+		};
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: { revision: 1, records: [source], removedSourceIds: [] },
+			events: [
+				{
+					sourceId: source.id,
+					baseRevision: 0,
+					revision: 1,
+					mode: "replace",
+					handles: Uint32Array.of(1),
+					timestamps: Float64Array.of(rawEventTimestamp),
+					hashes: Float64Array.of(1),
+					sampleTimestamps: Float64Array.of(rawEventTimestamp),
+					sampleCounts: Float64Array.of(1),
+				},
+			],
+		});
+		repository.setFrameState(
+			createFrameState([source.id], {
+				frame: {
+					min: shiftedTimestamp - 10_000,
+					max: shiftedTimestamp + 10_000,
+				},
+				width: 400,
+			}),
+		);
+		const renderCore = new WorkerRenderCore(
+			createRecordingContext(400, 96),
+			repository,
+			{ requestAsset: jest.fn() },
+		);
+
+		const statistics = renderCore.render(100, DirtyCanvas.Events);
+
+		expect(statistics?.renderedRows).toBe(1);
+		expect(statistics?.graphBuckets).toBe(1);
+	});
+
+	it("renders and hit-tests notes shifted into the visible frame by source offset", async () => {
+		const rawEventTimestamp = 1_743_025_550_367;
+		const offset = -124_900_000_000;
+		const shiftedTimestamp = rawEventTimestamp + offset;
+		const source = {
+			...createRenderSource("source-note-offset", 0),
+			timestamp: {
+				min: rawEventTimestamp - 1_000,
+				max: rawEventTimestamp + 1_000,
+			},
+			offset,
+		};
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: { revision: 1, records: [source], removedSourceIds: [] },
+			overlays: {
+				notes: {
+					revision: 1,
+					records: [
+						{
+							id: "note-offset",
+							sourceId: source.id,
+							timestamp: rawEventTimestamp,
+							name: "N",
+							color: "#ffaa00",
+							iconKey: "note",
+						},
+					],
+				},
+			},
+		});
+		repository.setFrameState(
+			createFrameState([source.id], {
+				frame: {
+					min: shiftedTimestamp - 10_000,
+					max: shiftedTimestamp + 10_000,
+				},
+				width: 400,
+			}),
+		);
+		const renderCore = new WorkerRenderCore(
+			createRecordingContext(400, 96),
+			repository,
+			{ requestAsset: jest.fn() },
+		);
+
+		const statistics = renderCore.render(100, DirtyCanvas.Overlays);
+		const hit = repository.hitTest(200, 24);
+
+		expect(statistics?.visibleNotes).toBe(1);
+		expect(hit).toEqual({
+			kind: "note",
+			id: "note-offset",
+			noteIds: ["note-offset"],
+		});
+	});
+
+	it("renders and hit-tests links shifted into the visible frame by source offset", async () => {
+		const rawEventTimestamp = 1_743_025_550_367;
+		const offset = -124_900_000_000;
+		const shiftedTimestamp = rawEventTimestamp + offset;
+		const source = {
+			...createRenderSource("source-link-offset", 0),
+			timestamp: {
+				min: rawEventTimestamp - 1_000,
+				max: rawEventTimestamp + 1_000,
+			},
+			offset,
+		};
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: { revision: 1, records: [source], removedSourceIds: [] },
+			overlays: {
+				links: {
+					revision: 1,
+					records: [
+						{
+							id: "link-offset",
+							color: "#00aaff",
+							iconKey: "link",
+							endpoints: [
+								{
+									sourceId: source.id,
+									timestamp: rawEventTimestamp,
+									sortKey: "doc-offset",
+								},
+							],
+						},
+					],
+				},
+			},
+		});
+		repository.setFrameState(
+			createFrameState([source.id], {
+				frame: {
+					min: shiftedTimestamp - 10_000,
+					max: shiftedTimestamp + 10_000,
+				},
+				width: 400,
+			}),
+		);
+		const renderCore = new WorkerRenderCore(
+			createRecordingContext(400, 96),
+			repository,
+			{ requestAsset: jest.fn() },
+		);
+
+		const statistics = renderCore.render(100, DirtyCanvas.Overlays);
+		const hit = repository.hitTest(200, 20);
+
+		expect(statistics?.visibleLinks).toBe(1);
+		expect(hit).toEqual({ kind: "link", id: "link-offset" });
 	});
 
 	it("rebuilds graph buckets after a same-revision event-view replacement", async () => {

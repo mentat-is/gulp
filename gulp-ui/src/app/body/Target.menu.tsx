@@ -38,6 +38,8 @@ export function TargetMenu({ source }: TargetMenuProps) {
 	const { Info, spawnBanner, spawnDialog, app } = Application.use();
 	const { t } = Locale.use();
 	const loadings = useRequestLoadings();
+	const hasOffset =
+		Number.isFinite(source.settings.offset) && source.settings.offset !== 0;
 
 	const removeFilters = (source: Source.Type) => {
 		Info.filters_remove(source);
@@ -177,6 +179,16 @@ export function TargetMenu({ source }: TargetMenuProps) {
 					icon="Table"
 				>
 					{t("targetMenu.tableView")}
+				</ContextMenuItem>
+				<ContextMenuItem
+					disabled={!hasOffset}
+					onClick={() => {
+						if (!hasOffset) return;
+						void Info.rebase_by_offset(source);
+					}}
+					icon="RefreshCw"
+				>
+					{t("targetMenu.rebaseByOffset")}
 				</ContextMenuItem>
 				<ContextMenuItem
 					onClick={() =>

@@ -646,7 +646,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		const noteCenterX =
 			typeof centerX === "number"
 				? centerX
-				: this.getPixelPosition(Note.Entity.timestamp(note));
+				: this.getPixelPosition(this.getNoteRenderTimestamp(note));
 		const x = noteCenterX + NOTE_OFFSET;
 		const rowIndex = this.sourceRowIndexById.get(note.source_id) ?? -1;
 		const y =
@@ -716,15 +716,16 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 	};
 
 	private getVisibleNotes = (
-		file: Source.Id,
+		file: Source.Type,
 	): {
 		notes: Note.Type[];
 		min: number;
 		max: number;
 	} => {
-		const notes = Note.Entity.findByFile(this.info.app, file);
-		const min = this.getTimestamp(-128);
-		const max = this.getTimestamp(this.ctx.canvas.width + 128);
+		const notes = Note.Entity.findByFile(this.info.app, file.id);
+		const min = this.getTimestamp(-128) - file.settings.offset;
+		const max =
+			this.getTimestamp(this.ctx.canvas.width + 128) - file.settings.offset;
 
 		// Since notes are sorted in descending order, we need to find:
 		// - first note <= max (leftmost visible note)
@@ -744,7 +745,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 	 * @param file Source identifier whose visible notes should be grouped.
 	 * @returns Visible notes with group start, count, and rendered x center.
 	 */
-	private calculateNotesGroups(file: Source.Id): {
+	private calculateNotesGroups(file: Source.Type): {
 		notes: Note.Type[];
 		groups: Group[];
 	} {
@@ -755,11 +756,12 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 			Math.floor(visibleNotes.min),
 			Math.ceil(visibleNotes.max),
 			this.scrollX,
+			file.settings.offset,
 			DataStore.notes.length,
 		].join(":");
 
 		if (notes.length === 0) {
-			RenderEngine[CacheKey].notes.set(file, {
+			RenderEngine[CacheKey].notes.set(file.id, {
 				key: cacheKey,
 				groups: [],
 			});
@@ -769,7 +771,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 			};
 		}
 
-		const cachedGroups = RenderEngine[CacheKey].notes.get(file);
+		const cachedGroups = RenderEngine[CacheKey].notes.get(file.id);
 		if (cachedGroups?.key === cacheKey) {
 			return {
 				notes,
@@ -790,7 +792,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 			i = groupEndIdx + 1;
 		}
 
-		RenderEngine[CacheKey].notes.set(file, {
+		RenderEngine[CacheKey].notes.set(file.id, {
 			key: cacheKey,
 			groups,
 		});
@@ -807,11 +809,21 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 
 		for (let index = 0; index < notes.length; index++) {
 			positionedNotes[index] = {
-				x: this.getPixelPosition(Note.Entity.timestamp(notes[index])),
+				x: this.getPixelPosition(this.getNoteRenderTimestamp(notes[index])),
 			};
 		}
 
 		return positionedNotes;
+	}
+
+	/**
+	 * Resolves the rendered note timestamp with the owning source offset applied.
+	 * @param note Note whose document timestamp should be drawn.
+	 * @returns Timeline timestamp after source offset.
+	 */
+	private getNoteRenderTimestamp(note: Note.Type): number {
+		const source = this.visibleSourceById.get(note.source_id);
+		return Note.Entity.timestamp(note) + (source?.settings.offset ?? 0);
 	}
 
 	/**
@@ -900,7 +912,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		if (!files || !files.length) return;
 		RenderEngine.interactiveNotes = [];
 		files.forEach((file) => {
-			const { notes, groups } = this.calculateNotesGroups(file.id);
+			const { notes, groups } = this.calculateNotesGroups(file);
 			if (!notes.length) {
 				return;
 			}
@@ -1152,9 +1164,8 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 			return [];
 		}
 
-		const { notes, groups } = RenderEngine.instance.calculateNotesGroups(
-			file.id,
-		);
+		const { notes, groups } =
+			RenderEngine.instance.calculateNotesGroups(file);
 		if (groups.length === 0) {
 			return [];
 		}

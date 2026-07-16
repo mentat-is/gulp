@@ -47,11 +47,7 @@ export namespace Context {
 
     public static frame = (app: App.Type): MinMax => {
       const files = Source.Entity.selected(app);
-
-      return {
-        min: Math.min(...files.map(file => file.timestamp.min)),
-        max: Math.max(...files.map(file => file.timestamp.max)),
-      }
+      return Source.Entity.renderedFrame(files)
     };
 
     public static selected = (use: App.Type | Context.Type[]): Context.Type[] =>

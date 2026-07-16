@@ -81,6 +81,7 @@ export namespace Request {
 		INGESTION = "ingestion",
 		QUERY = "query",
 		ENRICHMENT = "enrichment",
+		REBASE = "rebase",
 		AI = "ai",
 	}
 
