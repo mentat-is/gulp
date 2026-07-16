@@ -1446,15 +1446,15 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max by (scope, entity_id) (gulp_request_stats_ongoing)",
+          "expr": "max by (scope) (gulp_request_stats_ongoing)",
           "format": "time_series",
           "instant": true,
-          "legendFormat": "{{scope}} {{entity_id}}",
+          "legendFormat": "{{scope}}",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Active Requests by Owner",
+      "title": "Active Requests by Scope",
       "type": "bargauge"
     },
     {

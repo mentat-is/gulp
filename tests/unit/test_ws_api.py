@@ -1,5 +1,6 @@
 import asyncio
 import zlib
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import orjson
@@ -534,6 +535,33 @@ async def test_connected_sockets_remove_ignores_stale_same_id_cleanup(monkeypatc
 
     assert sockets.get("ws-reconnected") is new_socket
     fake_redis.ws_unregister.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_connected_sockets_add_rolls_back_local_socket_on_redis_failure(
+    monkeypatch,
+):
+    from gulp.api import ws_api as ws_api_module
+
+    GulpConnectedSockets._instance = None
+    sockets = GulpConnectedSockets()
+    connected_socket = SimpleNamespace(ws_id="ws-failed")
+    fake_redis = SimpleNamespace(
+        ws_register=AsyncMock(side_effect=RuntimeError("redis unavailable"))
+    )
+    monkeypatch.setattr(
+        ws_api_module,
+        "GulpConnectedSocket",
+        lambda **_kwargs: connected_socket,
+    )
+    monkeypatch.setattr(ws_api_module.GulpRedis, "get_instance", lambda: fake_redis)
+
+    with pytest.raises(RuntimeError, match="redis unavailable"):
+        await sockets.add(MagicMock(), "ws-failed")
+
+    print("sockets after failed registration:", sockets.sockets())
+    assert sockets.get("ws-failed") is None
 
 
 @pytest.mark.unit

@@ -498,6 +498,17 @@ class Plugin(GulpPluginBase):
             "connecting to %s, is_elasticsearch=%r, user=%s"
             % (uri, is_elasticsearch, user)
         )
+
+        q_options.fields = "*"
+        if isinstance(q, dict):
+            q_dict = q
+        elif isinstance(q, str):
+            q_dict = json.loads(q.replace("'", '"'))
+        else:
+            raise TypeError(
+                f"unsupported query payload type for query_external: {type(q).__name__}"
+            )
+
         try:
             if is_elasticsearch:
                 # elastic
@@ -521,15 +532,6 @@ class Plugin(GulpPluginBase):
 
             return 0, 0
 
-        # query
-        q_options.fields = "*"
-
-        if isinstance(q, dict):
-            q_dict = q
-        elif isinstance(q, str):
-            q_dict = json.loads(q.replace("'", '"'))
-        else:
-            raise TypeError(f"unsupported query payload type for query_external: {type(q).__name__}")
         total_hits = 0
         processed = 0
         try:

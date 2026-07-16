@@ -817,6 +817,7 @@ class GulpServer:
         query_limit = 1
         query_tuning_active = False
         last_health_check = 0.0
+        last_upload_cleanup = time.monotonic()
         MutyLogger.get_instance().info("STARTING task scheduler loop ...")
 
         in_flight: set[asyncio.Task[None]] = set()
@@ -859,6 +860,11 @@ class GulpServer:
                     # check for new tasks to dispatch
                     redis_inst = GulpRedis.get_instance()
                     now = time.monotonic()
+                    if now - last_upload_cleanup >= 60 * 60:
+                        from gulp.api.server.server_utils import ServerUtils
+
+                        ServerUtils.cleanup_stale_multipart_uploads()
+                        last_upload_cleanup = now
                     known_types = await redis_inst.task_known_types()
                     if now - last_health_check >= 2.0:
                         # check for service pressure and adjust dispatch limits accordingly
@@ -1264,6 +1270,9 @@ class GulpServer:
         main_process = GulpProcess.get_instance()
         # Load configuration.
         GulpConfig.get_instance()
+        from gulp.api.server.server_utils import ServerUtils
+
+        ServerUtils.cleanup_stale_multipart_uploads()
         first_run: bool = self._check_first_run()
 
         # Check database integrity; schema mismatches abort unless reset was requested.

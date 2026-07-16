@@ -156,7 +156,7 @@ async def test_collab_init_shuts_down_previous_engine_before_recreate(monkeypatc
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_server_startup_aborts_on_collab_schema_mismatch(monkeypatch):
+async def test_server_startup_aborts_on_collab_schema_mismatch(monkeypatch, tmp_path):
     from gulp.api.server_api import GulpServer
 
     collab = MagicMock()
@@ -164,6 +164,7 @@ async def test_server_startup_aborts_on_collab_schema_mismatch(monkeypatch):
     server = GulpServer()
     server._cleanup = AsyncMock()
     config = MagicMock()
+    config.path_tmp_upload.return_value = str(tmp_path)
     config.prometheus_enabled.return_value = False
     config.stats_delete_pending_on_shutdown.return_value = False
 
@@ -180,7 +181,7 @@ async def test_server_startup_aborts_on_collab_schema_mismatch(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_server_reset_recreates_collab_on_schema_mismatch(monkeypatch):
+async def test_server_reset_recreates_collab_on_schema_mismatch(monkeypatch, tmp_path):
     from gulp.api.opensearch_api import GulpOpenSearch
     from gulp.api.server_api import GulpServer
 
@@ -190,6 +191,7 @@ async def test_server_reset_recreates_collab_on_schema_mismatch(monkeypatch):
     server._reset_collab = True
     server._cleanup = AsyncMock()
     config = MagicMock()
+    config.path_tmp_upload.return_value = str(tmp_path)
     config.prometheus_enabled.return_value = False
     config.stats_delete_pending_on_shutdown.return_value = False
 

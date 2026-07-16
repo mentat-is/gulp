@@ -6,10 +6,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi.responses import JSONResponse
 
 from gulp.api.collab.structs import GulpRequestStatus
+from gulp.api.redis_api import TaskQueueFullError
 from gulp.api.server import ingest
 from gulp.api.server.ingest import GulpIngestPayload
+from gulp.api.server.server_utils import ServerUtils
 from gulp.structs import GulpPluginParameters
 
 
@@ -66,3 +69,69 @@ async def test_ingest_waits_for_upload_before_unloading_plugin(monkeypatch):
     assert status == GulpRequestStatus.DONE
     assert preview == []
     plugin.unload.assert_awaited_once_with()
+
+
+def _upload_args(file_path: str) -> dict:
+    return {
+        "sess": object(),
+        "user_id": "user",
+        "req_id": "request",
+        "ws_id": "websocket",
+        "operation_id": "operation",
+        "context_name": "context",
+        "source_name": "source",
+        "index": "index",
+        "plugin": "plugin",
+        "file_path": file_path,
+        "payload": GulpIngestPayload(plugin_params=GulpPluginParameters()),
+        "temporary_upload": True,
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_duplicate_request_deletes_completed_temporary_upload(
+    monkeypatch, tmp_path
+):
+    upload = tmp_path / "duplicate.evtx"
+    upload.write_bytes(b"data")
+    response = JSONResponse({"already_exist": True}, status_code=409)
+    monkeypatch.setattr(
+        ServerUtils,
+        "existing_request_response",
+        AsyncMock(return_value=response),
+    )
+
+    result = await ingest._preview_or_enqueue_ingest_task(
+        **_upload_args(str(upload))
+    )
+
+    print("duplicate upload response:", result.status_code)
+    assert result is response
+    assert not upload.exists()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_queue_rejection_deletes_completed_temporary_upload(
+    monkeypatch, tmp_path
+):
+    upload = tmp_path / "queue-full.evtx"
+    upload.write_bytes(b"data")
+    redis = SimpleNamespace(
+        task_enqueue=AsyncMock(side_effect=TaskQueueFullError("ingest", 2, 1))
+    )
+    monkeypatch.setattr(
+        ServerUtils,
+        "existing_request_response",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(ingest.GulpRedis, "get_instance", lambda: redis)
+
+    result = await ingest._preview_or_enqueue_ingest_task(
+        **_upload_args(str(upload))
+    )
+
+    print("queue-full upload response:", result.status_code)
+    assert result.status_code == 503
+    assert not upload.exists()

@@ -64,6 +64,7 @@ class GulpS3:
 
         self._session: AioSession = None
         self._client: S3Client = None
+        self._client_lock = asyncio.Lock()
         self._initialized = True
     
     @classmethod
@@ -87,27 +88,35 @@ class GulpS3:
     
     async def _get_client(self):
         """Get or create S3 client (singleton per process)"""
-        if not self._client:
-            # create a new client using the session and configuration
-            session = await self._get_session()
-            self._client = session.create_client(
-                's3',
-                **self._init_params
-            )
-            # enter the async context manager
-            self._client = await self._client.__aenter__()
-            from gulp.process import GulpProcess
-            MutyLogger.get_instance().debug("CONNECTED to s3-compatible storage: %s, main_process=%r", self._client, GulpProcess.get_instance().is_main_process())
+        if self._client is None:
+            async with self._client_lock:
+                if self._client is None:
+                    session = await self._get_session()
+                    client_context = session.create_client("s3", **self._init_params)
+                    self._client = await client_context.__aenter__()
+                    from gulp.process import GulpProcess
+
+                    MutyLogger.get_instance().debug(
+                        "CONNECTED to s3-compatible storage: %s, main_process=%r",
+                        self._client,
+                        GulpProcess.get_instance().is_main_process(),
+                    )
 
         return self._client
     
     async def shutdown(self):
         """Close the client and cleanup resources"""
-        if self._client is not None:
-            await self._client.__aexit__(None, None, None)
-            from gulp.process import GulpProcess
-            MutyLogger.get_instance().debug("SHUTDOWN s3-compatible storage client=%sDONE!, main_process=%r", self._client, GulpProcess.get_instance().is_main_process())
-            self._client = None
+        async with self._client_lock:
+            if self._client is not None:
+                await self._client.__aexit__(None, None, None)
+                from gulp.process import GulpProcess
+
+                MutyLogger.get_instance().debug(
+                    "SHUTDOWN s3-compatible storage client=%s DONE!, main_process=%r",
+                    self._client,
+                    GulpProcess.get_instance().is_main_process(),
+                )
+                self._client = None
 
         self._session = None
         GulpS3._instance = None

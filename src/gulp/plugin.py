@@ -3224,9 +3224,45 @@ class GulpPluginBase(ABC):
                         f"dependency {dep} not found, plugin={internal_plugin_name} cannot load, path={path}"
                     )
 
-        # also call post-initialization routine if any
-        await p.post_init(**kwargs)
-        await events.drain()
+        route_count: int | None = None
+        broadcast_types: set[str] | None = None
+        app = None
+        if extension and GulpProcess.get_instance().is_main_process():
+            from gulp.api.server_api import GulpServer
+
+            app = GulpServer.get_instance()._app
+            if app is not None:
+                route_count = len(app.router.routes)
+            broadcast_types = set(GulpRedisBroker.get_instance().broadcast_types)
+
+        try:
+            await p.post_init(**kwargs)
+            await events.drain()
+        except BaseException:
+            if route_count is not None:
+                del app.router.routes[route_count:]
+            if broadcast_types is not None:
+                broker_types = GulpRedisBroker.get_instance().broadcast_types
+                broker_types.clear()
+                broker_types.update(broadcast_types)
+            try:
+                await p.unload()
+            except BaseException as unload_ex:
+                MutyLogger.get_instance().exception(
+                    "failed to unload plugin after post_init error: %s", unload_ex
+                )
+            finally:
+                sys.modules.pop(module_name, None)
+                if GulpProcess.get_instance().is_main_process():
+                    try:
+                        events.unsubscribe(p)
+                        await events.drain()
+                    except Exception as cleanup_ex:
+                        MutyLogger.get_instance().exception(
+                            "failed to remove plugin event subscriptions: %s",
+                            cleanup_ex,
+                        )
+            raise
 
         if (
             cache_mode != GulpPluginCacheMode.IGNORE
@@ -3254,7 +3290,7 @@ class GulpPluginBase(ABC):
         if GulpProcess.get_instance().is_main_process():
             events.unsubscribe(self)
             await events.drain()
-        del sys.modules[self.module_name]
+        sys.modules.pop(self.module_name, None)
 
     @staticmethod
     def path_from_plugin(

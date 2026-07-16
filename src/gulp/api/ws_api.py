@@ -1382,12 +1382,17 @@ class GulpConnectedSockets:
 
         # register in Redis
         redis_client = GulpRedis.get_instance()
-        await redis_client.ws_register(
-            ws_id=ws_id,
-            types=types,
-            operation_ids=operation_ids,
-            socket_type=socket_type.value,
-        )
+        try:
+            await redis_client.ws_register(
+                ws_id=ws_id,
+                types=types,
+                operation_ids=operation_ids,
+                socket_type=socket_type.value,
+            )
+        except BaseException:
+            if self._sockets.get(ws_id) is connected_socket:
+                del self._sockets[ws_id]
+            raise
 
         MutyLogger.get_instance().debug(
             "---> added connected ws: %s, ws_id=%s, len=%d",

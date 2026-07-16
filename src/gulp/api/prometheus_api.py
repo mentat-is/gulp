@@ -36,10 +36,85 @@ from prometheus_client import (
     CollectorRegistry,
     Counter,
     Gauge,
+    Histogram,
     Info,
+    Summary,
     generate_latest,
     multiprocess,
 )
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+
+class _PrometheusHttpMiddleware:
+    """Record HTTP metrics after FastAPI has populated the matched route."""
+
+    def __init__(self, app: ASGIApp, excluded_path: str):
+        self.app = app
+        self.excluded_path = excluded_path
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        if scope["type"] != "http" or scope.get("path") == self.excluded_path:
+            await self.app(scope, receive, send)
+            return
+
+        started = time.monotonic()
+        status_code = 500
+        response_size = 0
+
+        async def send_wrapper(message: Message) -> None:
+            nonlocal status_code, response_size
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                for name, value in message.get("headers", []):
+                    if name.lower() == b"content-length":
+                        try:
+                            response_size = int(value)
+                        except ValueError:
+                            response_size = 0
+                        break
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            route = scope.get("route")
+            handler = getattr(route, "path", None)
+            if handler:
+                try:
+                    request_size = 0
+                    for name, value in scope.get("headers", []):
+                        if name.lower() == b"content-length":
+                            request_size = int(value)
+                            break
+                    method = scope.get("method", "UNKNOWN")
+                    status = (
+                        f"{status_code // 100}xx"
+                        if 100 <= status_code <= 599
+                        else str(status_code)
+                    )
+                    duration = time.monotonic() - started
+                    GulpMetrics.http_requests_total.labels(
+                        method=method,
+                        status=status,
+                        handler=handler,
+                    ).inc()
+                    GulpMetrics.http_request_size_bytes.labels(
+                        handler=handler
+                    ).observe(request_size)
+                    GulpMetrics.http_response_size_bytes.labels(
+                        handler=handler
+                    ).observe(response_size)
+                    GulpMetrics.http_request_duration_highr_seconds.observe(duration)
+                    GulpMetrics.http_request_duration_seconds.labels(
+                        method=method,
+                        handler=handler,
+                    ).observe(duration)
+                except Exception:
+                    MutyLogger.get_instance().exception(
+                        "failed to record HTTP metrics for %s", handler
+                    )
 
 
 class GulpMetrics:
@@ -52,6 +127,56 @@ class GulpMetrics:
     # retained so cleanup_prometheus() can remove it on shutdown.
     _multiproc_dir: str = _prom_dir
     _multiproc_dir_owner_pid: int | None = _prom_dir_owner_pid
+
+    # ── HTTP ──
+    http_requests_total = Counter(
+        "http_requests_total",
+        "Total number of requests by method, status and handler.",
+        ["method", "status", "handler"],
+    )
+    http_request_size_bytes = Summary(
+        "http_request_size_bytes",
+        "Content length of incoming requests by handler.",
+        ["handler"],
+    )
+    http_response_size_bytes = Summary(
+        "http_response_size_bytes",
+        "Content length of outgoing responses by handler.",
+        ["handler"],
+    )
+    http_request_duration_highr_seconds = Histogram(
+        "http_request_duration_highr_seconds",
+        "HTTP latency with high-resolution buckets and no route labels.",
+        buckets=(
+            0.01,
+            0.025,
+            0.05,
+            0.075,
+            0.1,
+            0.25,
+            0.5,
+            0.75,
+            1,
+            1.5,
+            2,
+            2.5,
+            3,
+            3.5,
+            4,
+            4.5,
+            5,
+            7.5,
+            10,
+            30,
+            60,
+        ),
+    )
+    http_request_duration_seconds = Histogram(
+        "http_request_duration_seconds",
+        "HTTP latency by method and handler.",
+        ["method", "handler"],
+        buckets=(0.1, 0.5, 1),
+    )
 
     @classmethod
     def cleanup_multiproc_dir(cls) -> None:
@@ -172,8 +297,8 @@ class GulpMetrics:
     )
     request_stats_ongoing = Gauge(
         "gulp_request_stats_ongoing",
-        "Ongoing request stats grouped by user or operation",
-        ["scope", "entity_id"],
+        "Ongoing request stats grouped by user or operation scope",
+        ["scope"],
         multiprocess_mode="livesum",
     )
     request_stats_ongoing_by_type = Gauge(
@@ -340,7 +465,6 @@ class GulpMetrics:
         self._start_time: float = time.monotonic()
         self._known_worker_pids: set[str] = set()
         self._known_task_metric_types: set[str] = set()
-        self._known_request_stats_labels: set[tuple[str, str]] = set()
         self._known_request_stats_ongoing_types: set[str] = set()
         self._known_request_stats_stale_types: set[str] = set()
         self._known_request_stats_finished_labels: set[tuple[str, str]] = set()
@@ -530,7 +654,6 @@ class GulpMetrics:
                     GulpRequestStatus.CANCELED.value,
                 )
 
-                current_labels: set[tuple[str, str]] = set()
                 current_ongoing_types: set[str] = set()
                 current_stale_types: set[str] = set()
                 current_finished_labels: set[tuple[str, str]] = set()
@@ -539,22 +662,17 @@ class GulpMetrics:
                         ("user", GulpRequestStats.user_id),
                         ("operation", GulpRequestStats.operation_id),
                     ):
-                        rows = await sess.execute(
-                            select(column, func.count())
+                        count = await sess.scalar(
+                            select(func.count())
                             .where(
                                 GulpRequestStats.status
                                 == GulpRequestStatus.ONGOING.value,
                                 column.is_not(None),
                             )
-                            .group_by(column)
                         )
-                        for entity_id, count in rows:
-                            label = (scope, str(entity_id))
-                            current_labels.add(label)
-                            self.request_stats_ongoing.labels(
-                                scope=scope,
-                                entity_id=str(entity_id),
-                            ).set(int(count))
+                        self.request_stats_ongoing.labels(scope=scope).set(
+                            int(count or 0)
+                        )
 
                     rows = await sess.execute(
                         select(
@@ -620,14 +738,6 @@ class GulpMetrics:
                             status=label[1],
                         ).set(int(count))
 
-                for scope, entity_id in (
-                    self._known_request_stats_labels - current_labels
-                ):
-                    self.request_stats_ongoing.labels(
-                        scope=scope,
-                        entity_id=entity_id,
-                    ).set(0)
-                self._known_request_stats_labels = current_labels
                 for req_type in (
                     self._known_request_stats_ongoing_types - current_ongoing_types
                 ):
@@ -768,17 +878,8 @@ def setup_prometheus(app) -> None:
 
     MutyLogger.get_instance().info("Enabling Prometheus metrics endpoint...")
 
-    from prometheus_fastapi_instrumentator import Instrumentator
-
     endpoint: str = GulpConfig.get_instance().prometheus_endpoint()
-
-    # auto-instrument HTTP requests (latency histogram + request counter by method/path/status)
-    instrumentator = Instrumentator(
-        should_group_status_codes=True,
-        should_ignore_untemplated=True,
-        excluded_handlers=[endpoint],
-    )
-    instrumentator.instrument(app)
+    app.add_middleware(_PrometheusHttpMiddleware, excluded_path=endpoint)
 
     # register custom /metrics endpoint that aggregates multiprocess data
     app.add_api_route(

@@ -65,3 +65,36 @@ async def test_download_closes_body_when_stream_read_fails(monkeypatch, tmp_path
 
     print(body.close.call_args)
     body.close.assert_called_once_with()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_concurrent_first_use_returns_one_initialized_client(monkeypatch):
+    from gulp.process import GulpProcess
+
+    client = SimpleNamespace()
+
+    class _ClientContext:
+        async def __aenter__(self):
+            await asyncio.sleep(0)
+            return client
+
+    context = _ClientContext()
+    session = SimpleNamespace(create_client=Mock(return_value=context))
+    s3 = object.__new__(GulpS3)
+    s3._client = None
+    s3._client_lock = asyncio.Lock()
+    s3._init_params = {}
+    s3._get_session = AsyncMock(return_value=session)
+    monkeypatch.setattr(
+        GulpProcess,
+        "get_instance",
+        staticmethod(lambda: SimpleNamespace(is_main_process=lambda: False)),
+    )
+
+    first, second = await asyncio.gather(s3._get_client(), s3._get_client())
+
+    print("concurrent S3 clients:", first, second)
+    assert first is client
+    assert second is client
+    session.create_client.assert_called_once_with("s3")

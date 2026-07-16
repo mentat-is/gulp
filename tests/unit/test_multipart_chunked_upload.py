@@ -1,4 +1,5 @@
 import asyncio
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -72,6 +73,8 @@ async def test_multipart_chunked_upload_resumes_from_reported_offset(
     assert payload["file_sha1"] == "1f8ac10f23c5b5bc1167bda84b833e5c057a77d2"
     assert result.done is False
     assert result.continue_offset == 3
+    marker_path = file_path + ServerUtils.MULTIPART_UPLOAD_MARKER_SUFFIX
+    assert os.path.exists(marker_path)
 
     _, _, result = await ServerUtils.handle_multipart_chunked_upload(
         _request(total_size=6, continue_offset=3),
@@ -82,6 +85,8 @@ async def test_multipart_chunked_upload_resumes_from_reported_offset(
     assert result.done is True
     assert result.continue_offset == 0
     assert open(file_path, "rb").read() == b"abcdef"
+    assert not os.path.exists(marker_path)
+    assert not ServerUtils._multipart_upload_locks
 
 
 @pytest.mark.asyncio
@@ -173,3 +178,35 @@ async def test_multipart_chunked_upload_serializes_duplicate_concurrent_chunks(
     offsets = sorted(result.continue_offset for _, _, result in results)
     assert offsets == [3, 3]
     assert open(file_path, "rb").read() == b"abc"
+    assert not ServerUtils._multipart_upload_locks
+
+
+def test_multipart_upload_cleanup_removes_only_expired_incomplete_files(tmp_path):
+    stale_file = tmp_path / "stale.evtx"
+    stale_marker = tmp_path / (
+        stale_file.name + ServerUtils.MULTIPART_UPLOAD_MARKER_SUFFIX
+    )
+    recent_file = tmp_path / "recent.evtx"
+    recent_marker = tmp_path / (
+        recent_file.name + ServerUtils.MULTIPART_UPLOAD_MARKER_SUFFIX
+    )
+    completed_file = tmp_path / "completed.evtx"
+    for path in (stale_file, stale_marker, recent_file, recent_marker, completed_file):
+        path.write_bytes(b"data")
+
+    now = 2_000_000.0
+    os.utime(
+        stale_marker,
+        (now - ServerUtils.MULTIPART_UPLOAD_TTL_SECONDS - 1,) * 2,
+    )
+    os.utime(recent_marker, (now, now))
+
+    removed = ServerUtils.cleanup_stale_multipart_uploads(str(tmp_path), now=now)
+
+    print("stale multipart uploads removed:", removed)
+    assert removed == 1
+    assert not stale_file.exists()
+    assert not stale_marker.exists()
+    assert recent_file.exists()
+    assert recent_marker.exists()
+    assert completed_file.exists()

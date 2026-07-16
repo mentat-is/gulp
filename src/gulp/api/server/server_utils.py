@@ -14,6 +14,8 @@ import asyncio
 import inspect
 import os
 import ssl
+import time
+import weakref
 from email.message import EmailMessage
 
 import aiofiles
@@ -36,7 +38,56 @@ from gulp.config import GulpConfig
 
 
 class ServerUtils:
-    _multipart_upload_locks: dict[str, asyncio.Lock] = {}
+    MULTIPART_UPLOAD_TTL_SECONDS = 24 * 60 * 60
+    MULTIPART_UPLOAD_MARKER_SUFFIX = ".gulp-uploading"
+    _multipart_upload_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
+        weakref.WeakValueDictionary()
+    )
+
+    @staticmethod
+    def cleanup_stale_multipart_uploads(
+        cache_dir: str | None = None, now: float | None = None
+    ) -> int:
+        """Delete incomplete multipart uploads that exceeded the resume window."""
+        cache_dir = cache_dir or GulpConfig.get_instance().path_tmp_upload()
+        now = time.time() if now is None else now
+        removed = 0
+        try:
+            entries = os.scandir(cache_dir)
+        except FileNotFoundError:
+            return 0
+
+        with entries:
+            for marker in entries:
+                if not marker.name.endswith(ServerUtils.MULTIPART_UPLOAD_MARKER_SUFFIX):
+                    continue
+                file_path = marker.path[: -len(ServerUtils.MULTIPART_UPLOAD_MARKER_SUFFIX)]
+                lock = ServerUtils._multipart_upload_locks.get(file_path)
+                if lock is not None and lock.locked():
+                    continue
+                try:
+                    if (
+                        now - marker.stat(follow_symlinks=False).st_mtime
+                        < ServerUtils.MULTIPART_UPLOAD_TTL_SECONDS
+                    ):
+                        continue
+                    for path in (file_path, marker.path):
+                        try:
+                            os.unlink(path)
+                        except FileNotFoundError:
+                            pass
+                    removed += 1
+                except OSError as ex:
+                    MutyLogger.get_instance().warning(
+                        "failed to clean stale multipart upload %s: %s",
+                        file_path,
+                        ex,
+                    )
+        if removed:
+            MutyLogger.get_instance().info(
+                "cleaned %d stale multipart upload(s)", removed
+            )
+        return removed
 
     @staticmethod
     async def existing_request_response(sess, req_id: str) -> JSONResponse | None:
@@ -324,6 +375,7 @@ class ServerUtils:
             unique_filename = "%s-%s" % (prefix, unique_filename)
 
         cache_file_path = muty.file.safe_path_join(cache_dir, unique_filename)
+        marker_path = cache_file_path + ServerUtils.MULTIPART_UPLOAD_MARKER_SUFFIX
         lock = ServerUtils._multipart_upload_locks.setdefault(
             cache_file_path, asyncio.Lock()
         )
@@ -347,11 +399,14 @@ class ServerUtils:
 
             if current_size > total_file_size:
                 muty.file.delete_file_or_dir(cache_file_path)
+                muty.file.delete_file_or_dir(marker_path)
                 raise ValueError(
                     f"partial upload {cache_file_path} is larger than expected: current_file_size={current_size}, expected={total_file_size}"
                 )
 
             if current_size < total_file_size:
+                with open(marker_path, "a", encoding="utf-8"):
+                    os.utime(marker_path)
                 if continue_offset != current_size:
                     # continue_offset must be equal to the current file size
                     return (
@@ -383,12 +438,15 @@ class ServerUtils:
                 if current_hash != payload_dict["file_sha1"]:
                     # delete uploaded file
                     muty.file.delete_file_or_dir(cache_file_path)
+                    muty.file.delete_file_or_dir(marker_path)
                     raise ValueError(
                         f"file {cache_file_path} is complete but file hash/file size mismatch: current_file_size={current_written_size}, expected={total_file_size}, current_sha1={current_hash}, expected={payload_dict['file_sha1']}"
                     )
 
             # notify back upload status
             is_complete = current_written_size == total_file_size
+            if is_complete:
+                muty.file.delete_file_or_dir(marker_path)
             result = GulpUploadResponse(
                 done=is_complete,
                 continue_offset=0 if is_complete else current_written_size,

@@ -495,6 +495,7 @@ async def _preview_or_enqueue_ingest_task(
     payload: GulpIngestPayload,
     file_size: int | None = None,
     delete_after: bool = True,
+    temporary_upload: bool = False,
 ) -> JSONResponse:
     """
     runs preview and returns directly or enqueue a file ingestion task which will run in a worker process then (returning data through websocket at ws_id)
@@ -522,6 +523,8 @@ async def _preview_or_enqueue_ingest_task(
 
     existing_response = await ServerUtils.existing_request_response(sess, req_id)
     if existing_response:
+        if temporary_upload:
+            await muty.file.delete_file_or_dir_async(file_path)
         return existing_response
 
     # handle preview mode: run ingestion synchronously and return preview chunk
@@ -560,6 +563,8 @@ async def _preview_or_enqueue_ingest_task(
     try:
         await GulpRedis.get_instance().task_enqueue(task_msg)
     except TaskQueueFullError as ex:
+        if temporary_upload:
+            await muty.file.delete_file_or_dir_async(file_path)
         return ServerUtils.task_queue_full_response("ingest", req_id, ex)
 
     # return pending response
@@ -612,6 +617,8 @@ with `data` set to a `GulpUploadResponse`:
 * `continue_offset` (int): the offset of the next chunk to be uploaded, if `done` is `False`
 
 to resume file, the uploader must then forge a request (as in the example above) with the same `req_id`, the given `continue_offset`, and a file body containing bytes starting at that offset.
+
+incomplete uploads expire after 24 hours. After expiry, restart the upload with `continue_offset=0`.
 
 once the upload is complete, the API will return a `pending` response and processing will start in the background.
 
@@ -779,6 +786,7 @@ async def ingest_file_handler(
                 file_path=file_path,
                 payload=payload,
                 file_size=file_size,
+                temporary_upload=True,
             )
     except Exception as ex:
         # cleanup
@@ -914,6 +922,7 @@ async def ingest_file_to_source_handler(
                 plugin=plugin,
                 file_path=file_path,
                 payload=payload,
+                temporary_upload=True,
             )
     except Exception as ex:
         # cleanup

@@ -13,11 +13,13 @@ It can also be used as base for stacked plugins dealing with specific JSON forma
 """
 
 import asyncio
-import orjson
 import os
+import queue
+import threading
 from typing import Any, override
 
 import aiofiles
+import orjson
 
 import muty.dict
 import muty.os
@@ -44,6 +46,8 @@ import json_stream.base
 
 
 class Plugin(GulpPluginBase):
+    JSON_QUEUE_MAX_SIZE = 100
+
     @override
     def desc(self) -> str:
         return """generic json file processor"""
@@ -56,7 +60,7 @@ class Plugin(GulpPluginBase):
 
     def regex(self) -> str:
         """regex to identify this format"""
-        return '^\s*(\{[\s\n\r]*"[^"]+"\s*:|^\s*\[\s*(\{[\s\n\r]*"[^"]+"\s*:|\d|"|\[|null|true|false))'
+        return r'^\s*(\{[\s\n\r]*"[^"]+"\s*:|^\s*\[\s*(\{[\s\n\r]*"[^"]+"\s*:|\d|"|\[|null|true|false))'
 
     @override
     def custom_parameters(self) -> list[GulpPluginCustomParameter]:
@@ -128,17 +132,34 @@ class Plugin(GulpPluginBase):
             return stats.status
 
     def _read_file(
-        self, q: asyncio.Queue, file_path: str, encoding: str, keys: list[str] = None
-    ):
+        self,
+        q: queue.Queue[Any | None],
+        stop_event: threading.Event,
+        file_path: str,
+        encoding: str,
+        keys: list[str] | None = None,
+    ) -> None:
         """
-        runs in a thread to read the file and put each JSON object in an asyncio queue, to be spooled by the main thread.
+        Read JSON records into a bounded queue without dropping records.
+
+        A full queue blocks this producer until the consumer makes room or stops.
 
         Args:
-            q (asyncio.Queue): the queue to put the JSON objects in
+            q (queue.Queue): the bounded queue to put the JSON objects in
+            stop_event (threading.Event): set when the consumer stops early
             file_path (str): the path to the file to read
             encoding (str): the encoding to use to read the file
             keys (list[str]): if provided, only include the keys in the list
         """
+        def _put(record: Any | None) -> bool:
+            while not stop_event.is_set():
+                try:
+                    q.put(record, timeout=0.1)
+                    return True
+                except queue.Full:
+                    continue
+            return False
+
         f = None
         try:
             # read the file and put each JSON object in the queue
@@ -147,8 +168,8 @@ class Plugin(GulpPluginBase):
             if isinstance(data, json_stream.base.TransientStreamingJSONList):
                 # if the data is a list, put each item in the queue
                 for d in data:
-                    # put the JSON object in the queue
-                    q.put_nowait(json_stream.to_standard_types(d))
+                    if not _put(json_stream.to_standard_types(d)):
+                        return
             elif isinstance(data, json_stream.base.TransientStreamingJSONObject):
                 for k, v in data.items():
                     if keys and k not in keys:
@@ -158,10 +179,12 @@ class Plugin(GulpPluginBase):
                     # if the value is a list, put each item in the queue
                     if isinstance(v, json_stream.base.TransientStreamingJSONList):
                         for vv in v:
-                            q.put_nowait(json_stream.to_standard_types(vv))
+                            if not _put(json_stream.to_standard_types(vv)):
+                                return
                     elif isinstance(v, json_stream.base.TransientStreamingJSONObject):
                         # otherwise, put the value as a single item
-                        q.put_nowait(json_stream.to_standard_types(v))
+                        if not _put(json_stream.to_standard_types(v)):
+                            return
 
         except Exception as ex:
             # close file
@@ -169,7 +192,7 @@ class Plugin(GulpPluginBase):
         finally:
             if f:
                 f.close()
-            q.put_nowait(None)
+            _put(None)
 
             MutyLogger.get_instance().debug(
                 "file %s finished stream reading!" % (file_path)
@@ -191,13 +214,17 @@ class Plugin(GulpPluginBase):
         keys: list[str] = self._plugin_params.custom_parameters.get("keys")
 
         # offload processing to a thread which fills the queue
-        q: asyncio.Queue = asyncio.Queue()
+        q: queue.Queue[Any | None] = queue.Queue(
+            maxsize=self.JSON_QUEUE_MAX_SIZE
+        )
+        stop_event = threading.Event()
         loop = asyncio.get_running_loop()
         MutyLogger.get_instance().debug("starting thread to read file %s" % file_path)
         fut: asyncio.Future = loop.run_in_executor(
             GulpProcess.get_instance().thread_pool,
             self._read_file,
             q,
+            stop_event,
             file_path,
             encoding,
             keys,
@@ -206,34 +233,29 @@ class Plugin(GulpPluginBase):
 
         # and process it asynchronously until the queue is empty
 
-        while True:
-            record: dict = None
-            record = await q.get()
-            q.task_done()
-            if record is None:
-                # end of file reached
-                MutyLogger.get_instance().debug(
-                    "end of file %s reached, breaking loop!" % (file_path)
-                )
-                break
-            if not await self.process_record(
-                record,
-                doc_idx,
-                flt=flt,
-                __line__=str(record),
-            ):
-                # stop processing (preview mode)
-                return None
+        try:
+            while True:
+                try:
+                    record = await loop.run_in_executor(None, q.get, True, 0.1)
+                except queue.Empty:
+                    continue
+                if record is None:
+                    MutyLogger.get_instance().debug(
+                        "end of file %s reached, breaking loop!" % (file_path)
+                    )
+                    break
+                if not await self.process_record(
+                    record,
+                    doc_idx,
+                    flt=flt,
+                    __line__=str(record),
+                ):
+                    return None
 
-            doc_idx += 1
-
-        # after the loop, wait for the reader task (thread) to fully complete.
-        # this also allows any exception from _read_file to be propagated here.
-        MutyLogger.get_instance().debug(
-            "processing loop finished for %s, awaiting reader thread completion."
-            % (file_path)
-        )
-        await fut
+                doc_idx += 1
+        finally:
+            stop_event.set()
+            await fut
 
         return stats.status
 
