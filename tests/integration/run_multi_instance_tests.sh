@@ -5,12 +5,11 @@ usage() {
   cat <<'EOF'
 Usage: run_multi_instance_tests.sh [--role-split-sigma|--help|-h]
 
-Run the multi-instance integration tests by starting two local gULP instances
+Run the comprehensive multi-user stress scenario by starting two local gULP instances
 (primary on GULP_BASE_URL / default http://localhost:8080 and secondary on
 GULP_SECOND_BASE_URL / default http://localhost:8100), waiting for both
-instances to expose /docs, and then executing the three integration tests in
-/tests/integration. The multi-instance tests drive actors on both instances
-concurrently for query, websocket client-data, and collaboration routing.
+instances to expose /docs, and then driving concurrent users through ingest,
+query, enrichment, websocket client-data, collaboration, and internal events.
 
 Options:
   --role-split-sigma
@@ -39,8 +38,10 @@ Environment variables:
       Number of large-note collab broadcast iterations.
       Default: 1.
   GULP_MULTI_INSTANCE_RAW_INGEST_DOCS
-      Number of raw documents each instance ingests during multi-instance tests.
+      Number of raw documents each user ingests during the scenario.
       Default: 25, or 500 when SOAK=1.
+  GULP_CONCURRENT_USERS
+      Number of authenticated users spread across both instances. Default: 10.
   PROMETHEUS_URL
       Optional Prometheus URL used for observability preflight output.
       Default: http://localhost:9090
@@ -93,10 +94,13 @@ PY
 PRIMARY_PORT="$(url_port "$PRIMARY_URL")"
 SECONDARY_PORT="$(url_port "$SECONDARY_URL")"
 TEST_FILES=(
-  "$SCRIPT_DIR/test_multi_instance_query_routing.py"
-  "$SCRIPT_DIR/test_multi_instance_collab_broadcast.py"
-  "$SCRIPT_DIR/test_multi_instance_client_data.py"
+  "$SCRIPT_DIR/test_concurrent_multi_user_scenario.py"
 )
+PROBE_SOURCE="$ROOT_DIR/tests/fixtures/plugins/internal_events_probe.py"
+GULP_CONFIG_DIR="${GULP_WORKING_DIR:-${HOME}/.config/gulp}"
+PROBE_DIR="$GULP_CONFIG_DIR/plugins/extension"
+PROBE_LINK="$PROBE_DIR/internal_events_probe.py"
+PROBE_CREATED=0
 
 if [[ "$SOAK" == "1" ]]; then
   export GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT="${GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT:-20}"
@@ -324,6 +328,9 @@ cleanup() {
     kill "${SECONDARY_PID}" >/dev/null 2>&1 || true
     wait "${SECONDARY_PID}" >/dev/null 2>&1 || true
   fi
+  if [[ "$PROBE_CREATED" == "1" ]]; then
+    rm -f "$PROBE_LINK"
+  fi
   if [[ $status -ne 0 ]]; then
     echo "primary log: ${PRIMARY_LOG}" >&2
     echo "secondary log: ${SECONDARY_LOG}" >&2
@@ -333,6 +340,19 @@ cleanup() {
 }
 
 trap cleanup EXIT INT TERM
+
+if [[ "$ROLE_SPLIT_SIGMA" != "1" ]]; then
+  mkdir -p "$PROBE_DIR"
+  if [[ -e "$PROBE_LINK" || -L "$PROBE_LINK" ]]; then
+    if [[ "$(readlink -f "$PROBE_LINK")" != "$(readlink -f "$PROBE_SOURCE")" ]]; then
+      echo "refusing to replace existing extension: $PROBE_LINK" >&2
+      exit 1
+    fi
+  else
+    ln -s "$PROBE_SOURCE" "$PROBE_LINK"
+    PROBE_CREATED=1
+  fi
+fi
 
 PRIMARY_LOG="$(mktemp /tmp/gulp-primary-XXXX.log)"
 SECONDARY_LOG="$(mktemp /tmp/gulp-secondary-XXXX.log)"
@@ -373,12 +393,12 @@ check_prometheus_targets
 if [[ "$ROLE_SPLIT_SIGMA" == "1" ]]; then
   echo "running ingest/query role-split Sigma ZIP test"
 else
-  echo "running multi-instance tests"
+  echo "running comprehensive multi-user stress scenario"
 fi
 if [[ "$QUIET" == "1" ]]; then
   echo "QUIET=1 enabled: instance logs are captured to temp files only"
 fi
-echo "large-payload fanout count=${GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT:-3} soak_seconds=${GULP_MULTI_INSTANCE_POINTER_SOAK_SECONDS:-0} collab_count=${GULP_MULTI_INSTANCE_COLLAB_STRESS_COUNT:-1} raw_ingest_docs=${GULP_MULTI_INSTANCE_RAW_INGEST_DOCS:-25}"
+echo "users=${GULP_CONCURRENT_USERS:-10} large-payload fanout count=${GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT:-3} soak_seconds=${GULP_MULTI_INSTANCE_POINTER_SOAK_SECONDS:-0} collab_count=${GULP_MULTI_INSTANCE_COLLAB_STRESS_COUNT:-1} raw_ingest_docs=${GULP_MULTI_INSTANCE_RAW_INGEST_DOCS:-25}"
 PHASE="running role-split Sigma ZIP test"
 set +e
 if [[ "$ROLE_SPLIT_SIGMA" == "1" ]]; then
@@ -388,11 +408,17 @@ if [[ "$ROLE_SPLIT_SIGMA" == "1" ]]; then
 elif [[ -n "${GULP_MULTI_INSTANCE_PYTEST_TIMEOUT:-}" ]]; then
   PHASE="running pytest"
   GULP_BASE_URL="$PRIMARY_URL" GULP_SECOND_BASE_URL="$SECONDARY_URL" \
+    GULP_SCENARIO_INTERNAL_EVENTS=1 \
+    GULP_INTERNAL_EVENTS_BASE_URL="$PRIMARY_URL" \
+    GULP_INTERNAL_EVENTS_SECOND_BASE_URL="$SECONDARY_URL" \
     timeout "$GULP_MULTI_INSTANCE_PYTEST_TIMEOUT" "$PYTEST_BIN" -q "${TEST_FILES[@]}" \
     2>&1 | tee "$TEST_LOG"
 else
   PHASE="running pytest"
   GULP_BASE_URL="$PRIMARY_URL" GULP_SECOND_BASE_URL="$SECONDARY_URL" \
+    GULP_SCENARIO_INTERNAL_EVENTS=1 \
+    GULP_INTERNAL_EVENTS_BASE_URL="$PRIMARY_URL" \
+    GULP_INTERNAL_EVENTS_SECOND_BASE_URL="$SECONDARY_URL" \
     "$PYTEST_BIN" -q "${TEST_FILES[@]}" \
     2>&1 | tee "$TEST_LOG"
 fi

@@ -247,15 +247,8 @@ async def test_large_broadcast_reaches_origin_and_peer_once():
             assert len(matching) == 1
 
 
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_internal_event_stress():
+async def _run_internal_event_stress(first_url: str, second_url: str) -> None:
     """Stress waited responses plus inline and pointer-backed broadcasts."""
-    first_url = os.getenv("GULP_INTERNAL_EVENTS_BASE_URL", "http://localhost:8100")
-    second_url = os.getenv("GULP_INTERNAL_EVENTS_SECOND_BASE_URL")
-    if not second_url:
-        pytest.skip("GULP_INTERNAL_EVENTS_SECOND_BASE_URL is not set")
-
     waited_count = max(1, int(os.getenv("GULP_INTERNAL_EVENTS_STRESS_WAITED", "200")))
     broadcast_count = max(
         1, int(os.getenv("GULP_INTERNAL_EVENTS_STRESS_BROADCAST", "500"))
@@ -391,3 +384,14 @@ async def test_internal_event_stress():
                 },
             },
         )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_internal_event_stress() -> None:
+    """Run internal-event stress against two probe-enabled instances."""
+    first_url = os.getenv("GULP_INTERNAL_EVENTS_BASE_URL", "http://localhost:8100")
+    second_url = os.getenv("GULP_INTERNAL_EVENTS_SECOND_BASE_URL")
+    if not second_url:
+        pytest.skip("GULP_INTERNAL_EVENTS_SECOND_BASE_URL is not set")
+    await _run_internal_event_stress(first_url, second_url)

@@ -1044,7 +1044,7 @@ class GulpAPIWebsocket:
                     )
             except WebSocketDisconnect as ex:
                 MutyLogger.get_instance().warning(
-                    "---> ws_client_data websocket %s disconnected: ex", ws.ws_id, ex
+                    "---> ws_client_data websocket %s disconnected: %s", ws.ws_id, ex
                 )
                 raise
             except asyncio.CancelledError:

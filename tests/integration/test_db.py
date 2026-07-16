@@ -132,11 +132,10 @@ async def test_refresh_index(gulp_base_url, gulp_test_user, gulp_test_password):
 
 
 @pytest.mark.integration
-async def test_rebase_by_query_optional(
-    gulp_base_url, gulp_test_user, gulp_test_password
-):
-    """rebase_by_query should be callable after a small ingest (optional by server config)."""
+async def test_rebase_by_query(gulp_base_url, gulp_test_user, gulp_test_password):
+    """Rebase all events or only those inside a bounded time range."""
     from gulp_sdk import GulpClient, GulpSDKError
+    from gulp_sdk.websocket import WSMessage, WSMessageType
 
     one_day_msec = 24 * 60 * 60 * 1000
     one_day_nsec = one_day_msec * 1_000_000
@@ -147,6 +146,7 @@ async def test_rebase_by_query_optional(
 
     async with GulpClient(gulp_base_url) as client:
         await client.auth.login(gulp_test_user, gulp_test_password)
+        await client.ensure_websocket()
         op = await client.operations.create(_unique("db_rebase_test"))
         try:
             ingest = await client.ingest.file(
@@ -158,13 +158,18 @@ async def test_rebase_by_query_optional(
             assert ingest.req_id
             await _wait_request_done(client, ingest.req_id)
 
-            # get first document's original timestamps for later verification
+            # Get the first document's original timestamps for later verification.
             results = await client.queries.query_raw(
                 operation_id=op.id,
                 q={"query": {"match_all": {}}},
                 q_options={"preview_mode": True},
             )
-            original_doc = results["data"]["docs"][0]
+            original_docs = sorted(
+                results["data"]["docs"],
+                key=lambda doc: int(doc["gulp.timestamp"]),
+            )
+            assert len(original_docs) == 7
+            original_doc = original_docs[0]
             original_timestamp = original_doc["@timestamp"]
             target_doc_id = original_doc["_id"]
             # expected rebased @timestamp is original + 1 day
@@ -180,6 +185,7 @@ async def test_rebase_by_query_optional(
                     wait=True,
                     timeout=300,
                 )
+                print("db.rebase_by_query full response:", result)
                 assert isinstance(result, dict)
                 assert str(result.get("status", "")).lower() == "done"
                 assert int(result.get("data", {}).get("updated", 0)) == 7
@@ -199,10 +205,87 @@ async def test_rebase_by_query_optional(
                     _parse_utc_timestamp(original_timestamp) + timedelta(days=1)
                 )
                 assert rebase_req_id in rebased_doc.get("gulp.rebase_req_ids", [])
-            except GulpSDKError as exc:
-                pytest.skip(
-                    f"db.rebase_by_query unavailable in current server config: {exc}"
+
+                fully_rebased_docs = {
+                    doc["_id"]: await _query_doc_by_id(client, op.id, doc["_id"])
+                    for doc in original_docs
+                }
+                range_docs = original_docs[3:5]
+                ranged_doc_ids = {doc["_id"] for doc in range_docs}
+                time_range = [
+                    int(fully_rebased_docs[doc["_id"]]["gulp.timestamp"])
+                    for doc in range_docs
+                ]
+                assert ranged_doc_ids == {
+                    doc_id
+                    for doc_id, doc in fully_rebased_docs.items()
+                    if time_range[0] <= int(doc["gulp.timestamp"]) <= time_range[1]
+                }
+
+                ranged_req_id = str(uuid.uuid4())
+                rebase_done: asyncio.Future[WSMessage] = (
+                    asyncio.get_running_loop().create_future()
                 )
+
+                def _capture_rebase_done(message: WSMessage) -> None:
+                    """Capture the matching WSDATA_REBASE_DONE event."""
+                    if message.req_id == ranged_req_id and not rebase_done.done():
+                        rebase_done.set_result(message)
+
+                await client.register_ws_message_handler(
+                    WSMessageType.REBASE_DONE,
+                    _capture_rebase_done,
+                )
+                try:
+                    ranged_pending = await client.db.rebase_by_query(
+                        operation_id=op.id,
+                        ws_id=client.ws_id,
+                        offset_msec=one_day_msec,
+                        flt={"operation_ids": [op.id], "time_range": time_range},
+                        req_id=ranged_req_id,
+                        wait=False,
+                    )
+                    print(
+                        "db.rebase_by_query ranged pending response:",
+                        ranged_pending,
+                    )
+                    assert isinstance(ranged_pending, dict)
+                    assert str(ranged_pending.get("status", "")).lower() == "pending"
+                    assert ranged_pending.get("req_id") == ranged_req_id
+                    rebase_done_message = await asyncio.wait_for(
+                        rebase_done,
+                        timeout=300,
+                    )
+                finally:
+                    client.unregister_ws_message_handler(
+                        WSMessageType.REBASE_DONE,
+                        _capture_rebase_done,
+                    )
+
+                assert rebase_done_message.type == WSMessageType.REBASE_DONE.value
+                assert rebase_done_message.req_id == ranged_req_id
+                ranged_result = rebase_done_message.data
+                print("db.rebase_by_query ranged websocket response:", ranged_result)
+                assert isinstance(ranged_result, dict)
+                assert str(ranged_result.get("status", "")).lower() == "done"
+                assert int(ranged_result.get("data", {}).get("updated", 0)) == 2
+
+                for doc_id, before in fully_rebased_docs.items():
+                    doc = await _query_doc_by_id(client, op.id, doc_id)
+                    selected = doc_id in ranged_doc_ids
+                    offset_nsec = one_day_nsec if selected else 0
+                    offset = timedelta(days=1) if selected else timedelta()
+                    assert int(doc["gulp.timestamp"]) == (
+                        int(before["gulp.timestamp"]) + offset_nsec
+                    )
+                    assert _parse_utc_timestamp(doc["@timestamp"]) == (
+                        _parse_utc_timestamp(before["@timestamp"]) + offset
+                    )
+                    assert (
+                        ranged_req_id in doc.get("gulp.rebase_req_ids", [])
+                    ) is selected
+            except GulpSDKError as exc:
+                pytest.fail(f"db.rebase_by_query failed: {exc}")
         finally:
             await _delete_operation_with_conflict_wait(client, op.id)
 

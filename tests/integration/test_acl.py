@@ -1,5 +1,6 @@
 """Integration tests for object ACL APIs."""
 
+import asyncio
 import uuid
 
 import pytest
@@ -92,6 +93,50 @@ async def test_acl_add_remove_granted_user(
         finally:
             await client.users.delete(granted_user_id)
             await _teardown_operation(client, op_id)
+
+
+@pytest.mark.integration
+async def test_acl_concurrent_user_grants_are_preserved(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """Concurrent grants on one operation must not overwrite each other."""
+    from gulp_sdk import GulpClient
+
+    user_ids = [_unique("aclc") for _ in range(10)]
+    operation_id = None
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        await asyncio.gather(
+            *(
+                client.users.create(
+                    user_id=user_id,
+                    password="TestPass!123",
+                    permission=["read"],
+                )
+                for user_id in user_ids
+            )
+        )
+        try:
+            operation = await client.operations.create(_unique("acl_concurrent_op"))
+            operation_id = operation.id
+            responses = await asyncio.gather(
+                *(
+                    client.acl.add_granted_user(operation_id, "operation", user_id)
+                    for user_id in user_ids
+                )
+            )
+            print("concurrent ACL grant responses:", responses)
+
+            fetched = await client.operations.get(operation_id)
+            granted_user_ids = set(fetched.model_dump().get("granted_user_ids") or [])
+            print("concurrent ACL final grants:", sorted(granted_user_ids))
+            assert set(user_ids) <= granted_user_ids
+        finally:
+            if operation_id:
+                await _teardown_operation(client, operation_id)
+            await asyncio.gather(
+                *(_teardown_user(client, user_id) for user_id in user_ids)
+            )
 
 
 @pytest.mark.integration
