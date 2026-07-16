@@ -33,6 +33,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 from muty.log import MutyLogger
 from pydantic import BaseModel, Field
+from redis.exceptions import ResponseError
 
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpIngestionStats, GulpRequestStats, RequestStatsType
@@ -123,6 +124,7 @@ class WsIngestRawWorker:
 
     1 ws -> 1 task in a worker process
     """
+
     # Stream lifecycle (per websocket):
     # - Main process creates a `stream_key` for this websocket:
     #     `gulp:stream:ws_ingest:{server_id}:{ws_id}`
@@ -152,7 +154,9 @@ class WsIngestRawWorker:
         self._bytes_key = f"gulp:stream:ws_ingest:bytes:{self._server_id}:{ws.ws_id}"
         # ttl for orphaned streams (seconds).
         self._stream_ttl = STREAM_TTL
-        self._stream_max_entries = GulpConfig.get_instance().ws_ingest_stream_max_entries()
+        self._stream_max_entries = (
+            GulpConfig.get_instance().ws_ingest_stream_max_entries()
+        )
         self._stream_max_buffered_bytes = (
             GulpConfig.get_instance().ws_ingest_stream_max_buffered_bytes()
         )
@@ -195,6 +199,22 @@ class WsIngestRawWorker:
                                 noack=False,
                             )
                         except Exception as ex:
+                            if isinstance(ex, ResponseError) and "NOGROUP" in str(ex):
+                                MutyLogger.get_instance().warning(
+                                    "ws ingest consumer group disappeared for stream=%s; stopping worker",
+                                    stream_key,
+                                )
+                                return
+                            try:
+                                stream_exists = await redis.exists(stream_key)
+                            except Exception:
+                                stream_exists = True
+                            if not stream_exists:
+                                MutyLogger.get_instance().warning(
+                                    "ws ingest stream disappeared: %s; stopping worker",
+                                    stream_key,
+                                )
+                                return
                             MutyLogger.get_instance().exception(
                                 "error during xreadgroup: %s", ex
                             )
@@ -216,7 +236,9 @@ class WsIngestRawWorker:
                                 # expect 'data' (JSON) and optionally 'raw' (bytes)
                                 meta_raw = fields.get(b"data") or fields.get("data")
                                 raw_bytes = fields.get(b"raw") or fields.get("raw")
-                                queued_bytes_raw = fields.get(b"queued_bytes") or fields.get("queued_bytes")
+                                queued_bytes_raw = fields.get(
+                                    b"queued_bytes"
+                                ) or fields.get("queued_bytes")
 
                                 # normalize memoryview to bytes
                                 try:
@@ -312,19 +334,25 @@ class WsIngestRawWorker:
                                 try:
                                     # on first iteration, create stats and load plugin
                                     if not stats:
-                                        stats, _ = await GulpRequestStats.create_or_get_existing(
-                                            sess,
-                                            packet.data.req_id,
-                                            packet.user_id,
-                                            packet.data.operation_id,
-                                            ws_id=packet.data.ws_id,
-                                            req_type=RequestStatsType.REQUEST_TYPE_RAW_INGESTION,
-                                            never_expire=True,
-                                            data=GulpIngestionStats().model_dump(exclude_none=True),
+                                        stats, _ = (
+                                            await GulpRequestStats.create_or_get_existing(
+                                                sess,
+                                                packet.data.req_id,
+                                                packet.user_id,
+                                                packet.data.operation_id,
+                                                ws_id=packet.data.ws_id,
+                                                req_type=RequestStatsType.REQUEST_TYPE_RAW_INGESTION,
+                                                never_expire=True,
+                                                data=GulpIngestionStats().model_dump(
+                                                    exclude_none=True
+                                                ),
+                                            )
                                         )
 
                                     if not mod:
-                                        mod = await GulpPluginBase.load(packet.data.plugin)
+                                        mod = await GulpPluginBase.load(
+                                            packet.data.plugin
+                                        )
 
                                     await mod.ingest_raw(
                                         sess,
@@ -339,7 +367,9 @@ class WsIngestRawWorker:
                                         plugin_params=packet.data.plugin_params,
                                         last=packet.data.last,
                                     )
-                                    await mod.update_final_stats_and_flush(flt=packet.data.flt)
+                                    await mod.update_final_stats_and_flush(
+                                        flt=packet.data.flt
+                                    )
 
                                     # track last and cleanup if needed
                                     if packet.data.last:
@@ -348,8 +378,9 @@ class WsIngestRawWorker:
                                             mod._last_raw_chunk = True
                                         except Exception:
                                             pass
-                                        await mod.update_final_stats_and_flush(flt=packet.data.flt)
-                                        await mod.unload()
+                                        await mod.update_final_stats_and_flush(
+                                            flt=packet.data.flt
+                                        )
 
                                 except Exception as ex:
                                     MutyLogger.get_instance().exception(
@@ -358,7 +389,14 @@ class WsIngestRawWorker:
                                         msg_id,
                                         ex,
                                     )
-                                    # continue after logging
+                                    # Roll back the failed packet before continuing
+                                    # with another message on the same session.
+                                    try:
+                                        await sess.rollback()
+                                    except Exception:
+                                        MutyLogger.get_instance().exception(
+                                            "failed to roll back raw ingest packet session"
+                                        )
 
                                 # always ack+del the message to avoid reprocessing
                                 ids_to_ack.append((stream_name, msg_id))
@@ -382,6 +420,13 @@ class WsIngestRawWorker:
                                 )
 
                 finally:
+                    if mod:
+                        try:
+                            await mod.unload()
+                        except Exception:
+                            MutyLogger.get_instance().exception(
+                                "failed to unload raw ingest plugin"
+                            )
                     # ensure done_key is set so the main process can detect worker exit
                     try:
                         await redis.set(
@@ -397,7 +442,9 @@ class WsIngestRawWorker:
                 "outer exception in ws ingest _process_loop: %s", exxx
             )
 
-        MutyLogger.get_instance().debug("ws ingest _process_loop done for stream=%s", stream_key)
+        MutyLogger.get_instance().debug(
+            "ws ingest _process_loop done for stream=%s", stream_key
+        )
 
     async def start(self) -> None:
         """
@@ -410,14 +457,18 @@ class WsIngestRawWorker:
         redis = GulpRedis.get_instance().client()
         try:
             try:
-                await redis.xgroup_create(self._stream_key, self._consumer_group, id="0", mkstream=True)
+                await redis.xgroup_create(
+                    self._stream_key, self._consumer_group, id="0", mkstream=True
+                )
             except Exception:
                 # ignore if group exists or other create-time race
                 pass
             # keep orphaned empty streams bounded even before the first packet arrives
             await redis.expire(self._stream_key, self._stream_ttl)
         except Exception:
-            MutyLogger.get_instance().exception("error creating consumer group for %s", self._stream_key)
+            MutyLogger.get_instance().exception(
+                "error creating consumer group for %s", self._stream_key
+            )
 
         await GulpServer.get_instance().spawn_worker_task(
             WsIngestRawWorker._process_loop,
@@ -439,28 +490,47 @@ class WsIngestRawWorker:
             self._stream_key,
         )
         redis = GulpRedis.get_instance().client()
+        completed = False
         try:
             # push termination sentinel as meta field
-            await redis.xadd(self._stream_key, {"data": orjson.dumps({"terminate": True})})
+            await redis.xadd(
+                self._stream_key, {"data": orjson.dumps({"terminate": True})}
+            )
         except Exception:
-            MutyLogger.get_instance().exception("error pushing terminate sentinel to %s", self._stream_key)
+            MutyLogger.get_instance().exception(
+                "error pushing terminate sentinel to %s", self._stream_key
+            )
 
         # wait for worker to set done key, but do not hang shutdown forever if the
         # worker or main process already died.
         try:
             deadline = time.monotonic() + self.STOP_WAIT_TIMEOUT
-            while time.monotonic() < deadline:
+            while True:
                 if await redis.exists(self._done_key):
+                    completed = True
+                    break
+                if time.monotonic() >= deadline:
+                    MutyLogger.get_instance().warning(
+                        "timeout waiting for ws ingest worker completion for ws=%s stream=%s",
+                        self._cws.ws_id,
+                        self._stream_key,
+                    )
                     break
                 await asyncio.sleep(self.STOP_POLL_INTERVAL)
-            else:
-                MutyLogger.get_instance().warning(
-                    "timeout waiting for ws ingest worker completion for ws=%s stream=%s",
-                    self._cws.ws_id,
-                    self._stream_key,
-                )
         except Exception:
-            MutyLogger.get_instance().exception("error waiting for done key %s", self._done_key)
+            MutyLogger.get_instance().exception(
+                "error waiting for done key %s", self._done_key
+            )
+
+        if not completed:
+            try:
+                await redis.expire(self._stream_key, self._stream_ttl)
+                await redis.expire(self._bytes_key, self._stream_ttl)
+            except Exception:
+                MutyLogger.get_instance().exception(
+                    "error retaining timed-out ws ingest stream %s", self._stream_key
+                )
+            return
 
         # cleanup stream and done key
         try:
@@ -472,9 +542,13 @@ class WsIngestRawWorker:
                 pass
             await redis.delete(self._stream_key, self._done_key, self._bytes_key)
         except Exception:
-            MutyLogger.get_instance().exception("error cleaning up stream %s", self._stream_key)
+            MutyLogger.get_instance().exception(
+                "error cleaning up stream %s", self._stream_key
+            )
 
-        MutyLogger.get_instance().debug("stopped ws ingest worker for ws=%s !", self._cws.ws_id)
+        MutyLogger.get_instance().debug(
+            "stopped ws ingest worker for ws=%s !", self._cws.ws_id
+        )
 
     async def put(self, packet: InternalWsIngestPacket):
         """
@@ -487,7 +561,9 @@ class WsIngestRawWorker:
             payload = packet.model_dump(exclude_none=True)
             # separate raw bytes from JSON-serializable metadata
             raw_bytes = None
-            if "raw_data" in payload and isinstance(payload["raw_data"], (bytes, bytearray)):
+            if "raw_data" in payload and isinstance(
+                payload["raw_data"], (bytes, bytearray)
+            ):
                 raw_bytes = payload.pop("raw_data")
 
             data_json = orjson.dumps(payload)
@@ -536,11 +612,15 @@ class WsIngestRawWorker:
                 await redis.expire(self._stream_key, self._stream_ttl)
                 await redis.expire(self._bytes_key, self._stream_ttl)
             except Exception:
-                MutyLogger.get_instance().exception("error refreshing expire on stream %s", self._stream_key)
+                MutyLogger.get_instance().exception(
+                    "error refreshing expire on stream %s", self._stream_key
+                )
         except WsIngestBackpressureError:
             raise
         except Exception as ex:
-            MutyLogger.get_instance().exception("error xadd to %s: %s", self._stream_key, ex)
+            MutyLogger.get_instance().exception(
+                "error xadd to %s: %s", self._stream_key, ex
+            )
             raise
 
 
@@ -582,7 +662,7 @@ class GulpAPIWebsocket:
             params.req_id = muty.string.generate_unique()
             MutyLogger.get_instance().warning(
                 "empty req_id, auto-generated: %s", params.req_id
-            )            
+            )
         user_id: str = None
 
         # authenticate user
@@ -591,7 +671,7 @@ class GulpAPIWebsocket:
                 sess, params.token, required_permission or GulpUserPermission.READ
             )
             user_id = s.user.id
-        
+
         return params.ws_id, params.req_id, user_id
 
     @staticmethod
@@ -618,7 +698,11 @@ class GulpAPIWebsocket:
 
     @staticmethod
     async def _send_connection_ack(
-        websocket: WebSocket, ws_id: str, req_id: str, token: str, user_id: Optional[str]
+        websocket: WebSocket,
+        ws_id: str,
+        req_id: str,
+        token: str,
+        user_id: Optional[str],
     ) -> None:
         """
         sends connection acknowledgment to the client
@@ -636,9 +720,9 @@ class GulpAPIWebsocket:
             ws_id=ws_id,
             req_id=req_id,
             user_id=user_id,
-            payload=GulpWsAcknowledgedPacket(token=token, ws_id=ws_id, req_id=req_id).model_dump(
-                exclude_none=True
-            ),
+            payload=GulpWsAcknowledgedPacket(
+                token=token, ws_id=ws_id, req_id=req_id
+            ).model_dump(exclude_none=True),
         )
         await websocket.send_json(p.model_dump(exclude_none=True))
 
@@ -648,7 +732,7 @@ class GulpAPIWebsocket:
         run_loop_fn: Callable[[GulpConnectedSocket, str], Awaitable[None]],
         socket_type: GulpWsType = None,
         permission: GulpUserPermission = None,
-        notify_login: bool = False
+        notify_login: bool = False,
     ) -> None:
         """
         generic websocket handler that follows the common pattern for all ws endpoints
@@ -671,13 +755,18 @@ class GulpAPIWebsocket:
             js = await websocket.receive_json()
             params = GulpWsAuthPacket.model_validate(js)
 
-            # authenticate user            
+            # authenticate user
             ws_id, req_id, user_id = await GulpAPIWebsocket._authenticate_websocket(
                 websocket, params, permission
             )
 
             # connection accepted, log and create socket
-            MutyLogger.get_instance().debug("socket type=%s accepted for ws_id=%s, req_id=%s", socket_type, ws_id, req_id)
+            MutyLogger.get_instance().debug(
+                "socket type=%s accepted for ws_id=%s, req_id=%s",
+                socket_type,
+                ws_id,
+                req_id,
+            )
 
             gulp_ws = await GulpConnectedSockets.get_instance().add(
                 websocket,
@@ -695,7 +784,9 @@ class GulpAPIWebsocket:
             )
             if notify_login:
                 # notify login event
-                p = GulpUserAccessPacket(user_id=user_id, login=True, ip=websocket.client.host, req_id=req_id)
+                p = GulpUserAccessPacket(
+                    user_id=user_id, login=True, ip=websocket.client.host, req_id=req_id
+                )
                 redis = GulpRedisBroker.get_instance()
                 await redis.put(
                     WSDATA_USER_LOGIN,
@@ -741,9 +832,14 @@ class GulpAPIWebsocket:
                 try:
                     await websocket.close()
                 except:
-                    MutyLogger.get_instance().exception("error closing websocket, likely already closed (ws_id=%s)", ws_id)
+                    MutyLogger.get_instance().exception(
+                        "error closing websocket, likely already closed (ws_id=%s)",
+                        ws_id,
+                    )
                     pass
-            MutyLogger.get_instance().debug("socket %s, type=%s closed!", ws_id, socket_type)
+            MutyLogger.get_instance().debug(
+                "socket %s, type=%s closed!", ws_id, socket_type
+            )
 
     @router.websocket("/ws")
     @staticmethod
@@ -765,11 +861,7 @@ class GulpAPIWebsocket:
         async def run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
             await ws.run_loop()
 
-        await GulpAPIWebsocket._handle_websocket(
-            websocket,
-            run_loop,
-            notify_login=True
-        )
+        await GulpAPIWebsocket._handle_websocket(websocket, run_loop, notify_login=True)
 
     @router.websocket("/ws_ingest_raw")
     @staticmethod
@@ -900,7 +992,8 @@ class GulpAPIWebsocket:
                         # last packet, break the loop
                         last_packet_seen = True
                         MutyLogger.get_instance().debug(
-                            "ws_ingest received last packet for ws_id=%s, exiting loop", ws.ws_id
+                            "ws_ingest received last packet for ws_id=%s, exiting loop",
+                            ws.ws_id,
                         )
                         break
 
@@ -1023,9 +1116,8 @@ class GulpAPIWebsocket:
                 msg = data.model_dump(exclude_none=True)
 
                 # route to local connected client_data websockets
-                await (
-                    GulpRedisBroker.get_instance()
-                    ._route_message_to_local_client_data_websockets(data, dict(msg))
+                await GulpRedisBroker.get_instance()._route_message_to_local_client_data_websockets(
+                    data, dict(msg)
                 )
 
                 # publish to other instances via dedicated client_data Redis channel
@@ -1033,14 +1125,18 @@ class GulpAPIWebsocket:
                     # publish to dedicated channel
                     MutyLogger.get_instance().debug(
                         "publishing client_data to Redis: ws_id=%s, operation_id=%s",
-                        ws.ws_id, client_ui_data.operation_id
+                        ws.ws_id,
+                        client_ui_data.operation_id,
                     )
                     await GulpRedis.get_instance().publish(
-                        msg, channel=GulpMessageRoutingTarget.CLIENT_DATA.redis_channel_name()
+                        msg,
+                        channel=GulpMessageRoutingTarget.CLIENT_DATA.redis_channel_name(),
                     )
                 except Exception as ex:
                     MutyLogger.get_instance().warning(
-                        "failed to publish client_data to Redis for ws_id=%s: %s", ws.ws_id, ex
+                        "failed to publish client_data to Redis for ws_id=%s: %s",
+                        ws.ws_id,
+                        ex,
                     )
             except WebSocketDisconnect as ex:
                 MutyLogger.get_instance().warning(
@@ -1053,9 +1149,13 @@ class GulpAPIWebsocket:
                 )
                 raise
             except Exception as ex:
-                MutyLogger.get_instance().error("---> ws_client_data error for ws_id=%s, in receive loop: %s", ws.ws_id, ex)
+                MutyLogger.get_instance().error(
+                    "---> ws_client_data error for ws_id=%s, in receive loop: %s",
+                    ws.ws_id,
+                    ex,
+                )
                 raise
-            
+
     @staticmethod
     async def ws_client_data_run_loop(ws: GulpConnectedSocket, user_id: str) -> None:
         """Run client-data receive handling with the shared socket supervisor."""

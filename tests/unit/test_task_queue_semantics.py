@@ -612,6 +612,85 @@ async def test_task_drop_stale_pending_deletes_pending_messages(
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_cleanup_retains_pending_consumer_for_stale_recovery(
+    task_transition_counter,
+):
+    redis_client = GulpRedis.get_instance()
+    stream = "gulp:stream:tasks:query"
+    fake_redis = MagicMock()
+    fake_redis.xinfo_consumers = AsyncMock(
+        return_value=[{"name": "server-dead", "pending": 1}]
+    )
+    fake_redis.xinfo_groups = AsyncMock(
+        return_value=[
+            {
+                "name": GulpRedis.STREAM_CONSUMER_GROUP,
+                "consumers": 1,
+                "pending": 1,
+            }
+        ]
+    )
+    fake_redis.xgroup_delconsumer = AsyncMock()
+    fake_redis.xgroup_destroy = AsyncMock()
+    fake_redis.xgroup_create = AsyncMock()
+    fake_redis.xautoclaim = AsyncMock(
+        return_value=(
+            "0-0",
+            [
+                (
+                    "10-0",
+                    {
+                        b"data": orjson.dumps(
+                            {"task_type": "query", "req_id": "req-stale"}
+                        )
+                    },
+                )
+            ],
+            [],
+        )
+    )
+    redis_client._redis = fake_redis
+    redis_client.server_id = "server-recovery"
+    redis_client._task_stream_keys = AsyncMock(return_value=[stream])
+    redis_client.task_ack_delete = AsyncMock()
+
+    await redis_client.cleanup_consumers_for_server("server-dead")
+    dropped = await redis_client.task_drop_stale_pending()
+
+    fake_redis.xgroup_delconsumer.assert_not_awaited()
+    fake_redis.xautoclaim.assert_awaited_once()
+    assert dropped[0]["req_id"] == "req-stale"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_cleanup_removes_only_dead_zero_pending_consumers():
+    redis_client = GulpRedis.get_instance()
+    fake_redis = MagicMock()
+    fake_redis.xinfo_consumers = AsyncMock(
+        return_value=[
+            {"name": "dead-empty", "pending": 0},
+            {"name": "dead-pending", "pending": 1},
+            {"name": "live-empty", "pending": 0},
+        ]
+    )
+    fake_redis.xgroup_delconsumer = AsyncMock()
+    redis_client._redis = fake_redis
+    redis_client._task_stream_keys = AsyncMock(return_value=["stream"])
+    redis_client.is_server_alive = AsyncMock(
+        side_effect=lambda server_id: server_id == "live-empty"
+    )
+
+    removed = await redis_client.cleanup_dead_task_consumers()
+
+    assert removed == 1
+    fake_redis.xgroup_delconsumer.assert_awaited_once_with(
+        "stream", GulpRedis.STREAM_CONSUMER_GROUP, "dead-empty"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_task_transition_metrics_cover_failed_task(
     task_transition_counter,
 ):
@@ -895,14 +974,14 @@ async def test_dispatch_claimed_queued_failure_marks_failed():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_dispatch_claimed_task_timeout_marks_failed():
+async def test_dispatch_claimed_task_timeout_override_is_ignored():
     GulpServer._instance = None
     server = GulpServer.get_instance()
     task = {
         "task_type": "query",
         "operation_id": "op-timeout",
         "req_id": "req-timeout",
-        "__task_timeout_sec__": 1,
+        "__task_timeout_sec__": 0.001,
         "__redis_stream__": "gulp:stream:tasks:query",
         "__redis_message_id__": "9-0",
     }
@@ -911,15 +990,16 @@ async def test_dispatch_claimed_task_timeout_marks_failed():
     fake_redis.task_mark_failed = AsyncMock(return_value="failed")
     fake_redis.task_refresh_lease = AsyncMock()
 
-    async def _never_finishes():
-        await asyncio.sleep(60)
+    async def _finishes_after_old_timeout():
+        await asyncio.sleep(0.01)
+        return True
 
-    server._run_claimed_task = MagicMock(return_value=_never_finishes())
+    server._run_claimed_task = MagicMock(return_value=_finishes_after_old_timeout())
 
     await server._dispatch_claimed_tasks(fake_redis, [task], source="batch")
 
-    fake_redis.task_ack_delete.assert_not_awaited()
-    fake_redis.task_mark_failed.assert_awaited_once()
+    fake_redis.task_ack_delete.assert_awaited_once_with(task)
+    fake_redis.task_mark_failed.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -1131,9 +1211,7 @@ async def test_task_reads_can_filter_task_types():
     assert [item["task_type"] for item in batch] == ["query"]
     assert task["task_type"] == "ingest"
     assert all(
-        next(iter(call[1]["streams"])).endswith(
-            ":query" if index == 0 else ":ingest"
-        )
+        next(iter(call[1]["streams"])).endswith(":query" if index == 0 else ":ingest")
         for index, call in enumerate(fake_redis.xreadgroup_calls)
     )
 
@@ -1518,9 +1596,7 @@ async def test_task_service_ceiling_uses_configured_search_capacity(monkeypatch)
     postgres_session = AsyncMock()
     postgres_session.execute.return_value = postgres_result
     postgres = MagicMock()
-    postgres.session.return_value.__aenter__ = AsyncMock(
-        return_value=postgres_session
-    )
+    postgres.session.return_value.__aenter__ = AsyncMock(return_value=postgres_session)
     nodes = MagicMock()
     nodes.stats = AsyncMock(
         return_value={
@@ -1529,30 +1605,20 @@ async def test_task_service_ceiling_uses_configured_search_capacity(monkeypatch)
                     "thread_pool": {
                         "search": {"threads": 3, "queue": 0, "rejected": 0}
                     },
-                    "jvm": {
-                        "mem": {"heap_used_percent": 20}
-                    },
+                    "jvm": {"mem": {"heap_used_percent": 20}},
                     "process": {"cpu": {"percent": 0}},
                 }
             }
         }
     )
     nodes.info = AsyncMock(
-        return_value={
-            "nodes": {
-                "os01": {"thread_pool": {"search": {"size": 25}}}
-            }
-        }
+        return_value={"nodes": {"os01": {"thread_pool": {"search": {"size": 25}}}}}
     )
     opensearch = MagicMock()
     opensearch._opensearch.nodes = nodes
 
-    monkeypatch.setattr(
-        "gulp.api.server_api.GulpRedis.get_instance", lambda: redis
-    )
-    monkeypatch.setattr(
-        "gulp.api.server_api.GulpCollab.get_instance", lambda: postgres
-    )
+    monkeypatch.setattr("gulp.api.server_api.GulpRedis.get_instance", lambda: redis)
+    monkeypatch.setattr("gulp.api.server_api.GulpCollab.get_instance", lambda: postgres)
     monkeypatch.setattr(
         "gulp.api.server_api.GulpOpenSearch.get_instance", lambda: opensearch
     )

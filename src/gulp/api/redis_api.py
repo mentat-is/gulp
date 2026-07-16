@@ -1213,23 +1213,21 @@ class GulpRedis:
             keys.extend(
                 f"{GulpRedis.STREAM_TASK_PREFIX}:{known}" for known in known_types
             )
-            batch_streams = await self._redis.smembers(
-                GulpRedis.TASK_BATCH_STREAMS_SET
-            )
+            batch_streams = await self._redis.smembers(GulpRedis.TASK_BATCH_STREAMS_SET)
             keys.extend(
                 stream
                 for raw_stream in batch_streams
                 if (
-                    stream := raw_stream.decode()
-                    if isinstance(raw_stream, bytes)
-                    else raw_stream
+                    stream := (
+                        raw_stream.decode()
+                        if isinstance(raw_stream, bytes)
+                        else raw_stream
+                    )
                 )
                 and self._task_type_from_stream(stream) in known_types
             )
         except Exception:
-            MutyLogger.get_instance().exception(
-                "failed to read task streams"
-            )
+            MutyLogger.get_instance().exception("failed to read task streams")
 
         if task_type:
             stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
@@ -2108,24 +2106,44 @@ class GulpRedis:
 
     async def cleanup_consumers_for_server(self, server_id: str) -> None:
         """
-        Remove this server's consumer entries from all task streams' consumer groups.
+        Remove this server's empty consumers from task stream groups.
 
-        For each known task-type stream, attempt to remove the consumer named
-        `server_id` from the `STREAM_CONSUMER_GROUP`.
+        Consumers with pending entries stay intact so stale-task recovery can
+        claim their messages after the lease expires.
 
         Args:
             server_id (str): The server instance ID whose consumers should be removed.
         """
         for stream in await self._task_stream_keys():
             try:
-                # remove this consumer from the group; returns number of pending messages
+                # Inspect pending state before deleting; DELCONSUMER would strand
+                # messages still owned by this consumer.
                 try:
+                    consumers_info = await self._redis.xinfo_consumers(
+                        stream, GulpRedis.STREAM_CONSUMER_GROUP
+                    )
+                except Exception:
+                    # Keep the consumer when Redis cannot prove it is empty.
+                    consumers_info = []
+
+                for consumer in consumers_info:
+                    name = consumer.get("name", consumer.get(b"name"))
+                    name = name.decode() if isinstance(name, bytes) else name
+                    if name != server_id:
+                        continue
+                    pending = consumer.get("pending", consumer.get(b"pending", 0))
+                    if int(pending or 0) > 0:
+                        MutyLogger.get_instance().warning(
+                            "retaining task consumer %s on %s with %s pending entries",
+                            server_id,
+                            stream,
+                            pending,
+                        )
+                        break
                     await self._redis.xgroup_delconsumer(
                         stream, GulpRedis.STREAM_CONSUMER_GROUP, server_id
                     )
-                except Exception:
-                    # ignore failures (group may not exist yet)
-                    pass
+                    break
 
                 # inspect group info: if group exists and has zero consumers and zero pending,
                 # destroy the group and cleanup stream
@@ -2178,3 +2196,35 @@ class GulpRedis:
                 MutyLogger.get_instance().exception(
                     "error cleaning consumer for stream %s", stream
                 )
+
+    async def cleanup_dead_task_consumers(self) -> int:
+        """Remove zero-pending task consumers whose server heartbeat expired."""
+        removed = 0
+        for stream in await self._task_stream_keys():
+            try:
+                consumers = await self._redis.xinfo_consumers(
+                    stream, GulpRedis.STREAM_CONSUMER_GROUP
+                )
+            except Exception:
+                continue
+
+            for consumer in consumers:
+                name = consumer.get("name", consumer.get(b"name"))
+                name = name.decode() if isinstance(name, bytes) else name
+                pending = consumer.get("pending", consumer.get(b"pending", 0))
+                if (
+                    not name
+                    or int(pending or 0) > 0
+                    or await self.is_server_alive(name)
+                ):
+                    continue
+                try:
+                    await self._redis.xgroup_delconsumer(
+                        stream, GulpRedis.STREAM_CONSUMER_GROUP, name
+                    )
+                    removed += 1
+                except Exception:
+                    MutyLogger.get_instance().exception(
+                        "failed to remove dead task consumer %s from %s", name, stream
+                    )
+        return removed

@@ -2,7 +2,9 @@ import fnmatch
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import orjson
 import pytest
+from redis.exceptions import ResponseError
 
 from gulp.api.redis_api import GulpRedis
 from gulp.api.collab.structs import GulpRequestStatus
@@ -27,6 +29,10 @@ class _FakeRedisClient:
         self.stream_lengths: dict[str, int] = {}
         self.values: dict[str, int] = {}
         self.existing_keys: set[str] = set()
+        self.read_entries: list = []
+        self.xack_calls: list[tuple] = []
+        self.xdel_calls: list[tuple] = []
+        self.set_calls: list[tuple] = []
 
     async def xgroup_create(self, *args, **kwargs):
         self.xgroup_create_calls.append((args, kwargs))
@@ -40,6 +46,12 @@ class _FakeRedisClient:
         self.xadd_calls.append((stream_key, fields))
         self.stream_lengths[stream_key] = self.stream_lengths.get(stream_key, 0) + 1
         return "1-0"
+
+    async def xreadgroup(self, *args, **kwargs):
+        result = self.read_entries.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
 
     async def xlen(self, stream_key: str):
         return self.stream_lengths.get(stream_key, 0)
@@ -66,6 +78,36 @@ class _FakeRedisClient:
             self.values.pop(key, None)
             self.existing_keys.discard(key)
         return len(keys)
+
+    async def set(self, key: str, value: str, ex: int):
+        self.set_calls.append((key, value, ex))
+        self.existing_keys.add(key)
+        return True
+
+    def pipeline(self, transaction: bool = False):
+        client = self
+
+        class _Pipeline:
+            def xack(self, stream: str, group: str, msg_id: str):
+                client.xack_calls.append((stream, group, msg_id))
+                return self
+
+            def xdel(self, stream: str, msg_id: str):
+                client.xdel_calls.append((stream, msg_id))
+                return self
+
+            def decrby(self, key: str, amount: int):
+                client.values[key] = client.values.get(key, 0) - amount
+                return self
+
+            def expire(self, key: str, ttl: int):
+                client.expire_calls.append((key, ttl))
+                return self
+
+            async def execute(self):
+                return []
+
+        return _Pipeline()
 
     async def scan_iter(self, match: str, count: int = 200):
         keys = set(self.stream_lengths) | set(self.values) | self.existing_keys
@@ -103,7 +145,9 @@ async def test_ws_ingest_worker_stream_ttl_and_cleanup(monkeypatch):
     redis_client.server_id = "server-a"
 
     fake_server = SimpleNamespace(spawn_worker_task=AsyncMock(return_value=True))
-    monkeypatch.setattr("gulp.api.server.ws.GulpServer.get_instance", lambda: fake_server)
+    monkeypatch.setattr(
+        "gulp.api.server.ws.GulpServer.get_instance", lambda: fake_server
+    )
     monkeypatch.setattr(WsIngestRawWorker, "STOP_WAIT_TIMEOUT", 0.0)
 
     ws = SimpleNamespace(ws_id="ws-1")
@@ -136,12 +180,124 @@ async def test_ws_ingest_worker_stream_ttl_and_cleanup(monkeypatch):
         (worker._bytes_key, STREAM_TTL),
     ]
 
+    fake_redis.existing_keys.add(worker._done_key)
     await worker.stop()
     assert fake_redis.xadd_calls[-1][0] == worker._stream_key
-    assert fake_redis.xgroup_destroy_calls == [(worker._stream_key, worker._consumer_group)]
+    assert fake_redis.xgroup_destroy_calls == [
+        (worker._stream_key, worker._consumer_group)
+    ]
     assert fake_redis.delete_calls.count(worker._stream_key) == 1
     assert fake_redis.delete_calls.count(worker._done_key) == 1
     assert fake_redis.delete_calls.count(worker._bytes_key) == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_ws_ingest_stop_timeout_retains_sentinel_stream(monkeypatch):
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeRedisClient()
+    redis_client._redis = fake_redis
+    redis_client.server_id = "server-a"
+    monkeypatch.setattr(WsIngestRawWorker, "STOP_WAIT_TIMEOUT", 0.0)
+
+    worker = WsIngestRawWorker(SimpleNamespace(ws_id="ws-slow"))
+    await worker.stop()
+
+    assert fake_redis.stream_lengths[worker._stream_key] == 1
+    assert fake_redis.xgroup_destroy_calls == []
+    assert worker._stream_key not in fake_redis.delete_calls
+    assert fake_redis.expire_calls[-2:] == [
+        (worker._stream_key, STREAM_TTL),
+        (worker._bytes_key, STREAM_TTL),
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_ws_ingest_process_failure_rolls_back_unloads_and_finishes(monkeypatch):
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeRedisClient()
+    redis_client._redis = fake_redis
+    session = SimpleNamespace(rollback=AsyncMock())
+
+    class _SessionContext:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(
+        "gulp.api.server.ws.GulpCollab.get_instance",
+        lambda: SimpleNamespace(session=lambda: _SessionContext()),
+    )
+    monkeypatch.setattr(
+        "gulp.api.server.ws.GulpRequestStats.create_or_get_existing",
+        AsyncMock(return_value=(SimpleNamespace(), False)),
+    )
+    plugin = SimpleNamespace(
+        ingest_raw=AsyncMock(side_effect=RuntimeError("packet failed")),
+        update_final_stats_and_flush=AsyncMock(),
+        unload=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "gulp.api.server.ws.GulpPluginBase.load", AsyncMock(return_value=plugin)
+    )
+
+    packet = InternalWsIngestPacket(
+        user_id="user-1",
+        index="index-1",
+        data=GulpWsIngestPacket(
+            index="index-1",
+            operation_id="op-1",
+            ws_id="ws-1",
+            req_id="req-1",
+            last=True,
+        ),
+        raw_data=b"raw",
+    )
+    payload = packet.model_dump(exclude_none=True)
+    raw = payload.pop("raw_data")
+    stream = "gulp:stream:ws_ingest:server-a:ws-1"
+    fake_redis.read_entries = [
+        [(stream, [("1-0", {b"data": orjson.dumps(payload), b"raw": raw})])],
+        [(stream, [("2-0", {b"data": orjson.dumps({"terminate": True})})])],
+    ]
+
+    await WsIngestRawWorker._process_loop(
+        stream,
+        "group",
+        "consumer",
+        "done",
+        "bytes",
+    )
+
+    session.rollback.assert_awaited_once()
+    plugin.unload.assert_awaited_once()
+    assert fake_redis.set_calls[-1] == ("done", "1", STREAM_TTL)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_ws_ingest_missing_consumer_group_is_terminal(monkeypatch):
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeRedisClient()
+    redis_client._redis = fake_redis
+    fake_redis.read_entries = [ResponseError("NOGROUP consumer group missing")]
+    monkeypatch.setattr(
+        "gulp.api.server.ws.GulpCollab.get_instance", lambda: _FakeCollab()
+    )
+
+    await WsIngestRawWorker._process_loop(
+        "stream",
+        "group",
+        "consumer",
+        "done",
+        "bytes",
+    )
+
+    assert fake_redis.read_entries == []
+    assert fake_redis.set_calls == [("done", "1", STREAM_TTL)]
 
 
 @pytest.mark.unit
@@ -212,7 +368,9 @@ async def test_ws_ingest_worker_rejects_when_buffered_byte_limit_hit():
 @pytest.mark.asyncio
 async def test_ws_ingest_disconnect_before_last_marks_request_failed(monkeypatch):
     set_finished = AsyncMock()
-    stats = SimpleNamespace(status=GulpRequestStatus.ONGOING.value, set_finished=set_finished)
+    stats = SimpleNamespace(
+        status=GulpRequestStatus.ONGOING.value, set_finished=set_finished
+    )
     create_or_get = AsyncMock(return_value=(stats, False))
     monkeypatch.setattr(
         "gulp.api.server.ws.GulpCollab.get_instance",
@@ -241,16 +399,16 @@ async def test_ws_ingest_disconnect_before_last_marks_request_failed(monkeypatch
     assert kwargs["status"] == GulpRequestStatus.FAILED
     assert kwargs["user_id"] == "user-disconnect"
     assert kwargs["ws_id"] == "ws-disconnect"
-    assert kwargs["errors"] == [
-        "raw websocket ingest disconnected before final packet"
-    ]
+    assert kwargs["errors"] == ["raw websocket ingest disconnected before final packet"]
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ws_ingest_disconnect_does_not_rewrite_terminal_request(monkeypatch):
     set_finished = AsyncMock()
-    stats = SimpleNamespace(status=GulpRequestStatus.DONE.value, set_finished=set_finished)
+    stats = SimpleNamespace(
+        status=GulpRequestStatus.DONE.value, set_finished=set_finished
+    )
     monkeypatch.setattr(
         "gulp.api.server.ws.GulpCollab.get_instance",
         lambda: _FakeCollab(),

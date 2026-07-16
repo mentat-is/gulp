@@ -162,8 +162,12 @@ async def test_server_startup_aborts_on_collab_schema_mismatch(monkeypatch):
     collab = MagicMock()
     collab.init = AsyncMock(side_effect=SchemaMismatch("missing table"))
     server = GulpServer()
+    server._cleanup = AsyncMock()
+    config = MagicMock()
+    config.prometheus_enabled.return_value = False
+    config.stats_delete_pending_on_shutdown.return_value = False
 
-    monkeypatch.setattr(GulpConfig, "get_instance", MagicMock())
+    monkeypatch.setattr(GulpConfig, "get_instance", lambda: config)
     monkeypatch.setattr(GulpCollab, "get_instance", lambda: collab)
     monkeypatch.setattr(server, "_check_first_run", lambda: False)
 
@@ -171,6 +175,7 @@ async def test_server_startup_aborts_on_collab_schema_mismatch(monkeypatch):
         await anext(server._lifespan_handler(MagicMock()))
 
     assert server._reset_collab is False
+    server._cleanup.assert_awaited_once()
 
 
 @pytest.mark.unit
@@ -183,8 +188,12 @@ async def test_server_reset_recreates_collab_on_schema_mismatch(monkeypatch):
     collab.init = AsyncMock(side_effect=[SchemaMismatch("missing table"), None])
     server = GulpServer()
     server._reset_collab = True
+    server._cleanup = AsyncMock()
+    config = MagicMock()
+    config.prometheus_enabled.return_value = False
+    config.stats_delete_pending_on_shutdown.return_value = False
 
-    monkeypatch.setattr(GulpConfig, "get_instance", MagicMock())
+    monkeypatch.setattr(GulpConfig, "get_instance", lambda: config)
     monkeypatch.setattr(GulpCollab, "get_instance", lambda: collab)
     monkeypatch.setattr(server, "_check_first_run", lambda: False)
     monkeypatch.setattr(
@@ -200,6 +209,7 @@ async def test_server_reset_recreates_collab_on_schema_mismatch(monkeypatch):
         call(main_process=True),
         call(main_process=True, force_recreate=True),
     ]
+    server._cleanup.assert_awaited_once()
 
 
 @pytest.mark.unit

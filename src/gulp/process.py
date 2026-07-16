@@ -113,11 +113,20 @@ class GulpProcess:
         """
         MutyLogger.get_instance().warning("worker_cleanup CALLED (pid=%d)", os.getpid())
 
-        await self.close_thread_pool(wait=True)
-        await GulpOpenSearch.get_instance().shutdown()
-        await GulpCollab.get_instance().shutdown()
-        await GulpRedis.get_instance().shutdown()
-        await GulpS3.get_instance().shutdown()
+        cleanup_steps = (
+            ("thread pool", lambda: self.close_thread_pool(wait=True)),
+            ("OpenSearch", lambda: GulpOpenSearch.get_instance().shutdown()),
+            ("PostgreSQL", lambda: GulpCollab.get_instance().shutdown()),
+            ("Redis", lambda: GulpRedis.get_instance().shutdown()),
+            ("S3", lambda: GulpS3.get_instance().shutdown()),
+        )
+        for name, cleanup in cleanup_steps:
+            try:
+                await cleanup()
+            except Exception:
+                MutyLogger.get_instance().exception(
+                    "worker cleanup failed for %s", name
+                )
 
         MutyLogger.get_instance().warning(
             "worker_cleanup COMPLETED! (pid=%d)", os.getpid()
@@ -267,22 +276,25 @@ class GulpProcess:
         closes the worker process pool
         """
         if self.process_pool:
-            MutyLogger.get_instance().debug(
-                "closing mp pool %s ..." % (self.process_pool)
-            )
+            pool = self.process_pool
+            MutyLogger.get_instance().debug("closing mp pool %s ..." % (pool))
             try:
-                self.process_pool.close()
+                pool.close()
                 MutyLogger.get_instance().debug("joining mp pool...")
-                await asyncio.wait_for(self.process_pool.join(), timeout=5)
-                MutyLogger.get_instance().debug("mp pool JOINED!")
-            except asyncio.TimeoutError:
-                # if the graceful join times out, it means workers are stuck.
-                MutyLogger.get_instance().warning(
-                    "mp pool join timed out, terminating forcefully..."
-                )
-                # forcefully terminate the worker processes
-                self.process_pool.terminate()
-                MutyLogger.get_instance().warning("mp pool FORCED terminated!")
+                join_task = asyncio.create_task(pool.join())
+                try:
+                    await asyncio.wait_for(asyncio.shield(join_task), timeout=5)
+                    MutyLogger.get_instance().debug("mp pool JOINED!")
+                except asyncio.TimeoutError:
+                    # If the graceful join times out, workers are stuck. Shielding
+                    # keeps the join alive so it can reap them after termination.
+                    MutyLogger.get_instance().warning(
+                        "mp pool join timed out, terminating forcefully..."
+                    )
+                    # Forcefully terminate the workers, then finish joining.
+                    pool.terminate()
+                    MutyLogger.get_instance().warning("mp pool FORCED terminated!")
+                    await join_task
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
             finally:

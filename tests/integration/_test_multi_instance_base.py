@@ -85,6 +85,13 @@ def _large_pointer_soak_deadline() -> float | None:
     return asyncio.get_running_loop().time() + soak_seconds
 
 
+def _continue_large_pointer_stress(iteration: int, deadline: float | None) -> bool:
+    """Return whether another large-payload fanout iteration should run."""
+    if iteration < _large_pointer_stress_count():
+        return True
+    return deadline is not None and asyncio.get_running_loop().time() < deadline
+
+
 def _unique(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
@@ -704,9 +711,8 @@ async def _assert_client_data_ws_routing(
         soak_deadline = _large_pointer_soak_deadline()
         minimum_messages = max(_large_pointer_stress_count(), len(client_data_sockets))
         sent = 0
-        while sent < minimum_messages or (
-            soak_deadline is not None
-            and asyncio.get_running_loop().time() < soak_deadline
+        while sent < len(client_data_sockets) or _continue_large_pointer_stress(
+            sent, soak_deadline
         ):
             remaining = minimum_messages - sent
             batch_size = (

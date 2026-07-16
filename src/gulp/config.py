@@ -1041,14 +1041,6 @@ class GulpConfig:
         """
         return self._config.get("redis_task_autoclaim_idle_ms", 60000)
 
-    def redis_task_execution_timeout_sec(self) -> int:
-        """
-        Returns the optional timeout for one queued task execution attempt.
-
-        Default: 0 (disabled)
-        """
-        return self._config.get("redis_task_execution_timeout_sec", 0)
-
     def redis_stream_task_maxlen(self) -> int:
         """
         Returns the hard queued task backlog cap per task type.

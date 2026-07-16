@@ -478,28 +478,11 @@ class GulpServer:
         """Await a task while keeping its Redis stream pending entry fresh."""
         lease_task = asyncio.create_task(self._refresh_task_lease_until_done(task))
         try:
-            timeout_sec = self._task_execution_timeout_sec(task)
-            if timeout_sec > 0:
-                return await asyncio.wait_for(awaitable, timeout=timeout_sec)
             return await awaitable
         finally:
             lease_task.cancel()
             with suppress(asyncio.CancelledError):
                 await lease_task
-
-    @staticmethod
-    def _task_execution_timeout_sec(task: dict) -> int:
-        """Return optional per-attempt execution timeout for a queued task."""
-        value = task.get("__task_timeout_sec__")
-        if value is None:
-            params = task.get("params") if isinstance(task.get("params"), dict) else {}
-            value = params.get("__task_timeout_sec__")
-        if value is None:
-            value = GulpConfig.get_instance().redis_task_execution_timeout_sec()
-        try:
-            return max(0, int(value or 0))
-        except (TypeError, ValueError):
-            return 0
 
     async def _mark_failed_task_stats_failed(self, task: dict, reason: str) -> None:
         """Mark an existing request stats object failed after terminal task failure."""
@@ -945,6 +928,16 @@ class GulpServer:
                             MutyLogger.get_instance().exception(
                                 "error during stale pending task cleanup"
                             )
+                        try:
+                            removed = await redis_inst.cleanup_dead_task_consumers()
+                            if removed:
+                                MutyLogger.get_instance().info(
+                                    "removed %d dead empty task consumer(s)", removed
+                                )
+                        except Exception:
+                            MutyLogger.get_instance().exception(
+                                "error during dead task consumer cleanup"
+                            )
 
                     capacity = limit - len(in_flight)
                     if capacity > 0:
@@ -1172,84 +1165,84 @@ class GulpServer:
         """
         MutyLogger.get_instance().debug("MAIN process cleanup initiated!")
 
-        # close process pool and clients
-        try:
-            await GulpConnectedSockets.get_instance().cancel_all()
+        # Close resources in dependency order. Each step is isolated so one
+        # cleanup failure cannot prevent later resources from closing.
+        async def cleanup_step(
+            name: str, cleanup: Callable[[], Awaitable[Any]]
+        ) -> None:
+            try:
+                await cleanup()
+            except Exception:
+                MutyLogger.get_instance().exception(
+                    "MAIN process cleanup failed for %s", name
+                )
 
-            # cancel dequeue task
-            if self._poll_tasks_task:
+        await cleanup_step(
+            "connected sockets",
+            lambda: GulpConnectedSockets.get_instance().cancel_all(),
+        )
+
+        # Cancel the dequeue task before closing workers and backing services.
+        if self._poll_tasks_task:
+
+            async def stop_dispatcher() -> None:
+                MutyLogger.get_instance().debug("cancelling poll_tasks task ...")
+                self._poll_tasks_task.cancel()
                 try:
-                    MutyLogger.get_instance().debug("cancelling poll_tasks task ...")
-                    self._poll_tasks_task.cancel()
                     await asyncio.wait_for(self._poll_tasks_task, timeout=5.0)
-                    MutyLogger.get_instance().warning(
-                        "poll_tasks task cancelled successfully"
-                    )
+                except asyncio.CancelledError:
+                    return
                 except asyncio.TimeoutError:
                     MutyLogger.get_instance().warning(
                         "poll_tasks task cancellation timed out"
                     )
-                except Exception as e:
-                    pass
 
-            # Let workers finish producing events before listeners or storage close.
-            await GulpProcess.get_instance().close_process_pool()
+            await cleanup_step("task dispatcher", stop_dispatcher)
 
-            from gulp.events import events
+        # Let workers finish producing events before listeners or storage close.
+        await cleanup_step(
+            "process pool", lambda: GulpProcess.get_instance().close_process_pool()
+        )
 
-            await events.drain()
-            await self._unload_extension_plugins()
-            await events.drain()
+        from gulp.events import events
 
-            # close thread pool in the main process
-            await GulpProcess.get_instance().close_thread_pool()
+        await cleanup_step("event drain", events.drain)
+        await cleanup_step("extension plugins", self._unload_extension_plugins)
+        await cleanup_step("final event drain", events.drain)
+        # Close the thread pool in the main process.
+        await cleanup_step("thread pool", GulpProcess.get_instance().close_thread_pool)
+        # Close clients in dependency order.
+        await cleanup_step("PostgreSQL", lambda: GulpCollab.get_instance().shutdown())
+        await cleanup_step(
+            "OpenSearch", lambda: GulpOpenSearch.get_instance().shutdown()
+        )
+        await cleanup_step("S3", lambda: GulpS3.get_instance().shutdown())
+        # Remove this server's empty consumer entries before Redis closes.
+        await cleanup_step(
+            "Redis consumers",
+            lambda: GulpRedis.get_instance().cleanup_consumers_for_server(
+                self.server_id
+            ),
+        )
+        await cleanup_step(
+            "Redis broker", lambda: GulpRedisBroker.get_instance().shutdown()
+        )
+        await cleanup_step("Redis", lambda: GulpRedis.get_instance().shutdown())
 
-            # close clients in the main process
-            await GulpCollab.get_instance().shutdown()
-            await GulpOpenSearch.get_instance().shutdown()
-            await GulpS3.get_instance().shutdown()
-
-            # remove this server's consumer entries from Redis streams
-            from gulp.api.redis_api import GulpRedis
-
-            try:
-                await GulpRedis.get_instance().cleanup_consumers_for_server(
-                    self.server_id
-                )
-            except Exception:
-                MutyLogger.get_instance().exception(
-                    "failed to cleanup redis consumers for server %s", self.server_id
-                )
-            await GulpRedisBroker.get_instance().shutdown()
-            await GulpRedis.get_instance().shutdown()
-
-        except Exception as ex:
-            MutyLogger.get_instance().exception(ex)
-        finally:
-            MutyLogger.get_instance().info(
-                "MAIN process cleanup DONE (server_id=%s), just closing process pool is the only thing remaining ...",
-                self.server_id,
+        MutyLogger.get_instance().info(
+            "MAIN process cleanup DONE (server_id=%s)", self.server_id
+        )
+        # Remove pidfile if it exists.
+        try:
+            pidfile = muty.file.safe_path_join(
+                GulpConfig.get_instance().path_working_dir(),
+                "gulp%d.pid" % (os.getpid()),
             )
-
-            MutyLogger.get_instance().info(
-                "everything shut down, we can gracefully exit."
-            )
-            # remove pidfile if exists
-            try:
-                pidfile = muty.file.safe_path_join(
-                    GulpConfig.get_instance().path_working_dir(),
-                    "gulp%d.pid" % (os.getpid()),
-                )
-                if os.path.exists(pidfile):
-                    try:
-                        os.remove(pidfile)
-                        MutyLogger.get_instance().info("removed pidfile=%s", pidfile)
-                    except Exception:
-                        MutyLogger.get_instance().exception(
-                            "failed to remove pidfile=%s", pidfile
-                        )
-            except Exception:
-                pass
+            if os.path.exists(pidfile):
+                os.remove(pidfile)
+                MutyLogger.get_instance().info("removed pidfile=%s", pidfile)
+        except Exception:
+            MutyLogger.get_instance().exception("failed to remove pidfile")
 
     async def _test(self):
         # to quick test code snippets, called by lifespan_handler
@@ -1261,22 +1254,14 @@ class GulpServer:
         """
         return
 
-    async def _lifespan_handler(self, app: FastAPI):
-        """
-        fastapi lifespan handler
-        """
-        from gulp.api.opensearch_api import GulpOpenSearch
-
-        MutyLogger.get_instance().info("gULP main server process is starting!")
-
+    async def _startup(self) -> None:
+        """Initialize main-process services and background tasks."""
         main_process = GulpProcess.get_instance()
-
-        # load configuration
+        # Load configuration.
         GulpConfig.get_instance()
-
         first_run: bool = self._check_first_run()
 
-        # check for db integrity; schema mismatches abort unless reset was requested
+        # Check database integrity; schema mismatches abort unless reset was requested.
         collab_recreated = False
         try:
             await GulpCollab.get_instance().init(main_process=True)
@@ -1287,7 +1272,7 @@ class GulpServer:
             collab_recreated = True
 
         if first_run and not self._create_operation:
-            # force creating a default operation on first run
+            # Force creating a default operation on first run.
             self._create_operation = "test_operation"
 
         MutyLogger.get_instance().warning(
@@ -1297,31 +1282,28 @@ class GulpServer:
             self._create_operation,
         )
 
-        # initialize the opensearch client
+        # Initialize the OpenSearch client.
         GulpOpenSearch.get_instance()
 
-        # initialize the redis client
-        from gulp.api.redis_api import GulpRedis
-
+        # Initialize the Redis client.
         GulpRedis.get_instance().initialize(self.server_id)
-
-        # tune the worker concurrency based on the number of nodes in the cluster (if workers_concurrency_max is set to 0)
+        # Tune worker concurrency when workers_concurrency_max is automatic.
         await self._resolve_workers_concurrency()
 
-        # initialize Redis pub/sub for worker->main process and instance<->instance communication
+        # Initialize Redis pub/sub for worker-to-main and instance communication.
         redis_broker = GulpRedisBroker.get_instance()
         await redis_broker.initialize()
 
-        # initialize collab database and create operation if needed
+        # Initialize collaboration data and create the requested operation.
         try:
             if self._reset_collab:
                 if not collab_recreated:
                     from gulp.api.server.db import db_reset
 
-                    # reset the collab database and recreate tables from scratch (also deletes all data in operations)
+                    # Reset the collaboration database and all operation data.
                     await db_reset()
 
-                # cleanup redis as well
+                # Clean Redis only for the explicit reset path.
                 await GulpRedis.get_instance().cleanup_redis()
 
             if self._create_operation:
@@ -1331,13 +1313,13 @@ class GulpServer:
                     await GulpOperation.create_operation(
                         sess, self._create_operation, "admin", set_default_grants=True
                     )
-        except Exception as ex:
+        except Exception:
             if first_run:
-                # allow restart on first run
+                # Allow restart on first-run initialization failures.
                 self._reset_first_run()
             raise
 
-        # finish initializing main process, will spawn workers as well
+        # Finish initializing the main process and spawn workers.
         await main_process.finish_initialization(
             self.server_id,
             log_level=self._log_level,
@@ -1346,7 +1328,7 @@ class GulpServer:
         )
 
         if __debug__:
-            # to test some snippet with gulp freshly initialized
+            # Test a snippet with gULP freshly initialized.
             await self._test()
 
         cfg = GulpConfig.get_instance()
@@ -1366,10 +1348,10 @@ class GulpServer:
             ingest_concurrency,
             num_workers,
         )
-        # start the dequeue task for long running tasks
+        # Start the dequeue task for long-running work.
         self._poll_tasks_task = asyncio.create_task(self._dispatch_tasks())
 
-        # start Prometheus gauge collection loop (main process only)
+        # Start Prometheus gauge collection in the main process.
         if GulpConfig.get_instance().prometheus_enabled():
             metrics = GulpMetrics.get_instance()
             metrics.server_info.info(
@@ -1380,32 +1362,51 @@ class GulpServer:
             )
             await metrics.start_collect_loop()
 
-        # wait for termination
+    async def _lifespan_handler(self, app: FastAPI):
+        """Initialize FastAPI services and always release acquired resources."""
+        MutyLogger.get_instance().info("gULP main server process is starting!")
+
         try:
+            await self._startup()
+            # Wait for termination after startup completes.
             self._lifespan_task = asyncio.current_task()
-            yield
-        except asyncio.CancelledError:
-            MutyLogger.get_instance().warning(
-                "CancelledError caught in _lifespan handler!"
+            try:
+                yield
+            except asyncio.CancelledError:
+                MutyLogger.get_instance().warning(
+                    "CancelledError caught in _lifespan handler!"
+                )
+        finally:
+            # Startup failures and normal shutdown share the same cleanup path.
+            MutyLogger.get_instance().info("gulp shutting down!")
+            prometheus_enabled = False
+            # Stop Prometheus collection independently from other resources.
+            try:
+                prometheus_enabled = GulpConfig.get_instance().prometheus_enabled()
+                if prometheus_enabled:
+                    await GulpMetrics.get_instance().stop_collect_loop()
+            except Exception:
+                MutyLogger.get_instance().exception(
+                    "failed to stop Prometheus collection"
+                )
+            if prometheus_enabled:
+                try:
+                    cleanup_prometheus()
+                except Exception:
+                    MutyLogger.get_instance().exception("failed to clean up Prometheus")
+            # Delete pending stats created by this instance only.
+            try:
+                if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
+                    await GulpRequestStats.purge_ongoing_requests(self.server_id)
+            except Exception:
+                MutyLogger.get_instance().exception(
+                    "failed to purge pending request stats"
+                )
+            # Clean up main-process resources even when initialization failed.
+            await self._cleanup()
+            MutyLogger.get_instance().info(
+                "MAIN process cleanup complete, exiting lifespan handler ..."
             )
-
-        # cleaning up will be done through _cleanup called via atexit
-        MutyLogger.get_instance().info("gulp shutting down!")
-
-        # stop Prometheus gauge collection
-        if GulpConfig.get_instance().prometheus_enabled():
-            await GulpMetrics.get_instance().stop_collect_loop()
-            cleanup_prometheus()
-
-        if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
-            # delete pending stats created by THIS instance only
-            await GulpRequestStats.purge_ongoing_requests(self.server_id)
-
-        # cleanup main process
-        await self._cleanup()
-        MutyLogger.get_instance().info(
-            "MAIN process cleanup complete, exiting lifespan handler ..."
-        )
 
     def _reset_first_run(self) -> None:
         """

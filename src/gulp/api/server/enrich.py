@@ -107,13 +107,6 @@ async def _enqueue_enrich_task(
             "req_id": req_id,
             "params": params,
         }
-        custom_parameters = (
-            plugin_params.custom_parameters if plugin_params is not None else {}
-        )
-        if isinstance(custom_parameters, dict) and custom_parameters.get(
-            "task_timeout_sec"
-        ):
-            task_msg["__task_timeout_sec__"] = custom_parameters["task_timeout_sec"]
         try:
             await GulpRedis.get_instance().task_enqueue(task_msg)
         except TaskQueueFullError as ex:
@@ -812,7 +805,9 @@ def _build_enrich_remove_request(
         if flt.is_empty():
             base_query = exists_clause
         else:
-            base_query = {"bool": {"must": [flt.to_opensearch_dsl()["query"], exists_clause]}}
+            base_query = {
+                "bool": {"must": [flt.to_opensearch_dsl()["query"], exists_clause]}
+            }
         script: dict = {
             "source": (
                 "for (f in params.fields) {"
@@ -827,7 +822,9 @@ def _build_enrich_remove_request(
         if flt.is_empty():
             base_query = exists_clause
         else:
-            base_query = {"bool": {"must": [flt.to_opensearch_dsl()["query"], exists_clause]}}
+            base_query = {
+                "bool": {"must": [flt.to_opensearch_dsl()["query"], exists_clause]}
+            }
         script = {
             "source": (
                 "if (ctx._source.containsKey('gulp.enriched')) {"
