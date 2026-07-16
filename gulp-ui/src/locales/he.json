@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "לא הוחזרו פרטי שגיאה",
     "requests.recordSummary": "נקלטו: {ingested}, דולגו: {skipped}, נכשלו: {failed}",
     "requests.title": "רשימת בקשות",
-    "selectFiles.fileTooBig": "הקובץ הזה גדול מדי",
+    "selectFiles.fileTooBig": "קובץ ענק",
     "selectFiles.noData": "אין נתונים לנתח. לחץ למטה כדי להעלות...",
     "selectFiles.processing": "עיבוד",
     "selectFiles.searchPlaceholder": "חפש לפי שם הקשר ושם קובץ",

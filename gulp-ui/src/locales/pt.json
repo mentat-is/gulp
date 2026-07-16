@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "Nenhum detalhe de erro retornado",
     "requests.recordSummary": "Ingeridos: {ingested}, ignorados: {skipped}, falhos: {failed}",
     "requests.title": "Lista de solicitações",
-    "selectFiles.fileTooBig": "Este arquivo é muito grande",
+    "selectFiles.fileTooBig": "Arquivo enorme",
     "selectFiles.noData": "Não há dados para analisar. Clique abaixo para carregar...",
     "selectFiles.processing": "Processamento",
     "selectFiles.searchPlaceholder": "Pesquise por nome de contexto e nome de arquivo",

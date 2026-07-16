@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "Geen foutdetails geretourneerd",
     "requests.recordSummary": "Opgenomen: {ingested}, overgeslagen: {skipped}, mislukt: {failed}",
     "requests.title": "Lijst met verzoeken",
-    "selectFiles.fileTooBig": "Dit bestand is te groot",
+    "selectFiles.fileTooBig": "Enorm bestand",
     "selectFiles.noData": "Er zijn geen gegevens om te analyseren. Klik hieronder om te uploaden...",
     "selectFiles.processing": "Verwerking",
     "selectFiles.searchPlaceholder": "Zoek op contextnaam en bestandsnaam",

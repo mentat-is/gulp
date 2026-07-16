@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "Keine Fehlerdetails zurückgegeben",
     "requests.recordSummary": "Aufgenommen: {ingested}, übersprungen: {skipped}, fehlgeschlagen: {failed}",
     "requests.title": "Liste der Anfragen",
-    "selectFiles.fileTooBig": "Diese Datei ist zu groß",
+    "selectFiles.fileTooBig": "Riesige Datei",
     "selectFiles.noData": "Es liegen keine Daten zur Analyse vor. Klicken Sie unten, um es hochzuladen...",
     "selectFiles.processing": "Verarbeitung",
     "selectFiles.searchPlaceholder": "Suche nach Kontextname und Dateiname",

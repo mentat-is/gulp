@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "Nu au fost returnate detalii despre eroare",
     "requests.recordSummary": "Ingerate: {ingested}, omise: {skipped}, eșuate: {failed}",
     "requests.title": "Lista de cereri",
-    "selectFiles.fileTooBig": "Acest fișier este prea mare",
+    "selectFiles.fileTooBig": "Fișier uriaș",
     "selectFiles.noData": "Nu există date de analizat. Faceți clic mai jos pentru a încărca...",
     "selectFiles.processing": "Prelucrare",
     "selectFiles.searchPlaceholder": "Căutați după numele contextului și numele fișierului",

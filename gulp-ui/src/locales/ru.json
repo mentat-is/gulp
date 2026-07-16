@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "Сведения об ошибке не возвращены",
     "requests.recordSummary": "Принято: {ingested}, пропущено: {skipped}, ошибок: {failed}",
     "requests.title": "Список запросов",
-    "selectFiles.fileTooBig": "Этот файл слишком большой",
+    "selectFiles.fileTooBig": "Огромный файл",
     "selectFiles.noData": "Нет данных для анализа. Нажмите ниже, чтобы загрузить...",
     "selectFiles.processing": "Обработка",
     "selectFiles.searchPlaceholder": "Поиск по имени контекста и имени файла",

@@ -650,7 +650,7 @@
     "requests.noErrorDetails": "لم يتم إرجاع تفاصيل الخطأ",
     "requests.recordSummary": "تم استيعاب: {ingested}، تم تخطي: {skipped}، فشل: {failed}",
     "requests.title": "قائمة الطلبات",
-    "selectFiles.fileTooBig": "هذا الملف كبير جدًا",
+    "selectFiles.fileTooBig": "ملف ضخم",
     "selectFiles.noData": "لا توجد بيانات لتحليلها. انقر أدناه للتحميل...",
     "selectFiles.processing": "المعالجة",
     "selectFiles.searchPlaceholder": "البحث حسب اسم السياق واسم الملف",
