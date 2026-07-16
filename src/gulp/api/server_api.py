@@ -1173,11 +1173,17 @@ class GulpServer:
                 except Exception as e:
                     pass
 
+            # Let workers finish producing events before listeners or storage close.
+            await GulpProcess.get_instance().close_process_pool()
+
+            from gulp.events import events
+
+            await events.drain()
+            await self._unload_extension_plugins()
+            await events.drain()
+
             # close thread pool in the main process
             await GulpProcess.get_instance().close_thread_pool()
-
-            # close process pool
-            await GulpProcess.get_instance().close_process_pool()
 
             # close clients in the main process
             await GulpCollab.get_instance().shutdown()
@@ -1367,9 +1373,6 @@ class GulpServer:
         if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
             # delete pending stats created by THIS instance only
             await GulpRequestStats.purge_ongoing_requests(self.server_id)
-
-        # unload extension plugins
-        await self._unload_extension_plugins()
 
         # cleanup main process
         await self._cleanup()

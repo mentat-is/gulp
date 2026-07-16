@@ -1368,7 +1368,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             None
         """
         obj_id: str = self.id
-        operation_id: str = self.operation_id
+        operation_id: str = (
+            obj_id if self.type == COLLABTYPE_OPERATION else self.operation_id
+        )
         try:
             async with self.__class__.advisory_lock(sess, obj_id):
                 MutyLogger.get_instance().debug(

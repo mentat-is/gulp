@@ -44,7 +44,7 @@ from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import TASK_TYPE_REBASE, APIDependencies
 from gulp.api.server_api import GulpServer
 from gulp.api.ws_api import WSDATA_REBASE_DONE, GulpRedisBroker
-from gulp.structs import GulpInternalEventsManager
+from gulp.events import GulpCoreEvent, events
 
 router: APIRouter = APIRouter()
 
@@ -459,6 +459,13 @@ async def opensearch_delete_index_handler(
                 if op:
                     # delete the operation on collab
                     await op.delete(sess, ws_id=None, user_id=s.user.id, req_id=req_id)
+                    await events.emit(
+                        GulpCoreEvent.OPERATION_DELETED,
+                        data={"index": index},
+                        user_id=user_id,
+                        operation_id=op.id,
+                        req_id=req_id,
+                    )
                 else:
                     MutyLogger.get_instance().warning(
                         f"operation with index={index} not found, skipping deletion..."
@@ -468,13 +475,6 @@ async def opensearch_delete_index_handler(
             await GulpOpenSearch.get_instance().datastream_delete(
                 ds=index, throw_on_error=True
             )
-            await GulpInternalEventsManager.get_instance().dispatch_internal_event(
-                GulpInternalEventsManager.EVENT_DELETE_OPERATION,
-                data=dict(index=index),
-                user_id=user_id,
-                req_id=req_id,
-            )
-
             return JSONResponse(
                 JSendResponse.success(
                     req_id=req_id,
