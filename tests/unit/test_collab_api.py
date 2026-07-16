@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
@@ -171,6 +171,35 @@ async def test_server_startup_aborts_on_collab_schema_mismatch(monkeypatch):
         await anext(server._lifespan_handler(MagicMock()))
 
     assert server._reset_collab is False
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_server_reset_recreates_collab_on_schema_mismatch(monkeypatch):
+    from gulp.api.opensearch_api import GulpOpenSearch
+    from gulp.api.server_api import GulpServer
+
+    collab = MagicMock()
+    collab.init = AsyncMock(side_effect=[SchemaMismatch("missing table"), None])
+    server = GulpServer()
+    server._reset_collab = True
+
+    monkeypatch.setattr(GulpConfig, "get_instance", MagicMock())
+    monkeypatch.setattr(GulpCollab, "get_instance", lambda: collab)
+    monkeypatch.setattr(server, "_check_first_run", lambda: False)
+    monkeypatch.setattr(
+        GulpOpenSearch,
+        "get_instance",
+        MagicMock(side_effect=RuntimeError("stop after collab initialization")),
+    )
+
+    with pytest.raises(RuntimeError, match="stop after collab initialization"):
+        await anext(server._lifespan_handler(MagicMock()))
+
+    assert collab.init.await_args_list == [
+        call(main_process=True),
+        call(main_process=True, force_recreate=True),
+    ]
 
 
 @pytest.mark.unit

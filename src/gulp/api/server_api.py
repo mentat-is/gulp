@@ -34,7 +34,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from gulp.api.collab.stats import GulpRequestStats
 from gulp.api.collab.structs import GulpRequestStatus
-from gulp.api.collab_api import GulpCollab
+from gulp.api.collab_api import GulpCollab, SchemaMismatch
 from gulp.api.opensearch_api import GulpOpenSearch
 from gulp.api.redis_api import GulpRedis
 from gulp.api.s3_api import GulpS3
@@ -1257,8 +1257,17 @@ class GulpServer:
 
         first_run: bool = self._check_first_run()
 
-        # check for db integrity; schema mismatches must abort startup
-        await GulpCollab.get_instance().init(main_process=True)
+        # check for db integrity; schema mismatches abort unless reset was requested
+        collab_recreated = False
+        try:
+            await GulpCollab.get_instance().init(main_process=True)
+        except SchemaMismatch:
+            if not self._reset_collab:
+                raise
+            await GulpCollab.get_instance().init(
+                main_process=True, force_recreate=True
+            )
+            collab_recreated = True
 
         if first_run and not self._create_operation:
             # force creating a default operation on first run
@@ -1289,10 +1298,11 @@ class GulpServer:
         # initialize collab database and create operation if needed
         try:
             if self._reset_collab:
-                from gulp.api.server.db import db_reset
+                if not collab_recreated:
+                    from gulp.api.server.db import db_reset
 
-                # reset the collab database and recreate tables from scratch (also deletes all data in operations)
-                await db_reset()
+                    # reset the collab database and recreate tables from scratch (also deletes all data in operations)
+                    await db_reset()
 
                 # cleanup redis as well
                 await GulpRedis.get_instance().cleanup_redis()
