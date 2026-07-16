@@ -1,3 +1,4 @@
+import asyncio
 from typing import Dict
 
 import aiobotocore.session
@@ -546,13 +547,20 @@ class GulpS3:
                         UploadId=upload_id,
                         MultipartUpload={"Parts": parts},
                     )
-                except Exception:
-                    # abort on failure and re-raise
-                    await client.abort_multipart_upload(
-                        Bucket=bucket_name,
-                        Key=object_name,
-                        UploadId=upload_id,
-                    )
+                except (Exception, asyncio.CancelledError):
+                    # Abort failed and cancelled multipart uploads before re-raising.
+                    try:
+                        await asyncio.shield(
+                            client.abort_multipart_upload(
+                                Bucket=bucket_name,
+                                Key=object_name,
+                                UploadId=upload_id,
+                            )
+                        )
+                    except Exception as ex:
+                        MutyLogger.get_instance().exception(
+                            "failed to abort multipart upload %s: %s", upload_id, ex
+                        )
                     raise
 
             d = {
@@ -652,17 +660,19 @@ class GulpS3:
             if body is None:
                 raise Exception("received no body when downloading object")
 
-            # write the stream to the target file in chunks to avoid
-            # buffering the entire object in memory.
-            async with aiofiles.open(file_path, "wb") as f:
-                while True:
-                    chunk = await body.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    await f.write(chunk)
-                # ensure the body is closed when we're done
+            try:
+                # write the stream to the target file in chunks to avoid
+                # buffering the entire object in memory.
+                async with aiofiles.open(file_path, "wb") as f:
+                    while True:
+                        chunk = await body.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        await f.write(chunk)
+            finally:
+                # aiobotocore's streaming body close is synchronous.
                 try:
-                    await body.close()
+                    body.close()
                 except Exception:
                     pass
 

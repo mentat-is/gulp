@@ -115,7 +115,12 @@ class GulpServer:
                 "unloading %d extension plugins ...", len(self._extension_plugins)
             )
             for p in self._extension_plugins:
-                await p.unload()
+                try:
+                    await p.unload()
+                except Exception:
+                    MutyLogger.get_instance().exception(
+                        "failed to unload extension plugin %s", p.name
+                    )
             self._extension_plugins = []
 
     async def _load_extension_plugins(self) -> None:
@@ -1379,21 +1384,14 @@ class GulpServer:
         finally:
             # Startup failures and normal shutdown share the same cleanup path.
             MutyLogger.get_instance().info("gulp shutting down!")
-            prometheus_enabled = False
             # Stop Prometheus collection independently from other resources.
             try:
-                prometheus_enabled = GulpConfig.get_instance().prometheus_enabled()
-                if prometheus_enabled:
+                if GulpConfig.get_instance().prometheus_enabled():
                     await GulpMetrics.get_instance().stop_collect_loop()
             except Exception:
                 MutyLogger.get_instance().exception(
                     "failed to stop Prometheus collection"
                 )
-            if prometheus_enabled:
-                try:
-                    cleanup_prometheus()
-                except Exception:
-                    MutyLogger.get_instance().exception("failed to clean up Prometheus")
             # Delete pending stats created by this instance only.
             try:
                 if GulpConfig.get_instance().stats_delete_pending_on_shutdown():
@@ -1404,6 +1402,11 @@ class GulpServer:
                 )
             # Clean up main-process resources even when initialization failed.
             await self._cleanup()
+            # Workers are stopped before their shared multiprocess metrics directory is removed.
+            try:
+                cleanup_prometheus()
+            except Exception:
+                MutyLogger.get_instance().exception("failed to clean up Prometheus")
             MutyLogger.get_instance().info(
                 "MAIN process cleanup complete, exiting lifespan handler ..."
             )

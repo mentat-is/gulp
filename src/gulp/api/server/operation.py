@@ -276,6 +276,8 @@ async def operation_delete_handler(
 
             index = op.index
             user_id = s.user.id
+            # Release the ACL transaction before OpenSearch and S3 cleanup.
+            await sess.commit()
 
             if delete_data:
                 MutyLogger.get_instance().info(
@@ -619,6 +621,8 @@ async def context_delete_handler(
                 sess, token, context_id, permission=GulpUserPermission.INGEST
             )
             MutyLogger.get_instance().info("got context=%s, operation=%s", ctx, op)
+            # Release the ACL transaction before OpenSearch and S3 cleanup.
+            await sess.commit()
             if delete_data:
                 # delete all data
                 MutyLogger.get_instance().info(
@@ -1084,6 +1088,8 @@ async def source_delete_handler(
             s, src, op = await GulpSource.get_by_id_wrapper(
                 sess, token, source_id, permission=GulpUserPermission.INGEST
             )
+            # Release the ACL transaction before OpenSearch and S3 cleanup.
+            await sess.commit()
 
             if delete_data:
                 # delete all data

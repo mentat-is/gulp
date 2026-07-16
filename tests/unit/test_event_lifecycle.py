@@ -59,6 +59,7 @@ async def test_operation_deleted_event_follows_metadata_delete_without_data_dele
 
     order: list[str] = []
     session = MagicMock()
+    session.commit = AsyncMock()
 
     @asynccontextmanager
     async def session_context():

@@ -5,10 +5,13 @@ import pytest
 
 class _FakeSession:
     async def __aenter__(self):
-        return "session"
+        return self
 
     async def __aexit__(self, exc_type, exc, tb):
         return False
+
+    async def commit(self):
+        return None
 
 
 class _FakeCollab:

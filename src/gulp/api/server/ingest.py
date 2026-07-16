@@ -374,6 +374,9 @@ async def _ingest_file_internal(
                 ctx_id = ctx.id
                 src_id = src.id
 
+            # Release any setup transaction before plugin, OpenSearch, and S3 work.
+            await sess.commit()
+
             # run plugin and perform the ingestion
             try:
                 if payload.plugin_params.compressed:
@@ -434,17 +437,17 @@ async def _ingest_file_internal(
             upload_task = None
             if mod:
                 upload_task = mod.upload_task
-                await mod.unload()
 
-            # Ensure background upload is finished before deleting files that
-            # may still be transferring.
-            if delete_after or delete_ingestion_file:
-                if upload_task:
-                    try:
-                        await upload_task
-                    except Exception:
-                        # ignore errors from upload, deletion should happen regardless
-                        pass
+            # Ensure background upload is finished before unloading the plugin
+            # or deleting files that may still be transferring.
+            if upload_task:
+                try:
+                    await upload_task
+                except Exception:
+                    # ignore errors from upload, cleanup should happen regardless
+                    pass
+            if mod:
+                await mod.unload()
             if delete_ingestion_file:
                 await muty.file.delete_file_or_dir_async(ingestion_file_path)
             if delete_after:

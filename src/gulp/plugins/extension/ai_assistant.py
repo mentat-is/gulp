@@ -354,6 +354,8 @@ up to 10 dictionary created from GulpDocuments, dictionary must to be contains:
         async with GulpCollab.get_instance().session() as sess:
             if await GulpRequestStats.is_canceled(sess, req_id):
                 raise RequestCanceledError()
+            # Release the cancellation-check transaction before remote streaming.
+            await sess.commit()
 
             redis_broker = GulpRedisBroker.get_instance()
             async with aiohttp.ClientSession() as session:
@@ -408,6 +410,7 @@ up to 10 dictionary created from GulpDocuments, dictionary must to be contains:
                                                 sess, req_id
                                             ):
                                                 raise RequestCanceledError()
+                                            await sess.commit()
                                             await redis_broker.put(
                                                 t="ai_assistant_stream",
                                                 operation_id=operation_id,

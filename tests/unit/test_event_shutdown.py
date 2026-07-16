@@ -130,3 +130,20 @@ async def test_cleanup_failure_does_not_skip_later_resources(monkeypatch):
     s3.shutdown.assert_awaited_once()
     broker.shutdown.assert_awaited_once()
     redis.shutdown.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_extension_unload_failure_does_not_skip_later_plugins():
+    first = MagicMock(
+        name="first", unload=AsyncMock(side_effect=RuntimeError("failed"))
+    )
+    second = MagicMock(name="second", unload=AsyncMock())
+    server = object.__new__(GulpServer)
+    server._extension_plugins = [first, second]
+
+    await server._unload_extension_plugins()
+
+    first.unload.assert_awaited_once()
+    second.unload.assert_awaited_once()
+    assert server._extension_plugins == []

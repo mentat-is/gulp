@@ -822,6 +822,8 @@ class Plugin(GulpPluginBase):
                 sess, token, bridge_id, permission=GulpUserPermission.INGEST
             )
             user_id: str = s.user_id
+            # Release the ACL transaction before calling the bridge.
+            await sess.commit()
             bridge_status = "offline"
             try:
                 bridge_status = await self._call_health_check(bridge)

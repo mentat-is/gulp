@@ -60,6 +60,8 @@ async def db_reset() -> None:
     async with GulpCollab.get_instance().session() as sess:
         # enumerate all operations
         ops = await GulpOperation.get_by_filter(sess, throw_if_not_found=False)
+        # Release the enumeration transaction before OpenSearch and S3 cleanup.
+        await sess.commit()
         for op in ops:
             op: GulpOperation
             MutyLogger.get_instance().debug(

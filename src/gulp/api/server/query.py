@@ -428,6 +428,8 @@ async def run_query(
 
                     # get the stats we previously created
                     stats = await GulpRequestStats.get_by_id(sess, req_id)
+                    # Release the stats lookup transaction before the external query.
+                    await sess.commit()
                     total_processed, total_hits = await mod.query_external(
                         sess,
                         stats,
@@ -2200,9 +2202,10 @@ async def _export_json_internal(
     runs in a worker process, exports the query results as json file and returns the file path (or Exception on error).
     """
 
-    file_path = tempfile.mkstemp(suffix=".json", prefix="gulp_export_%s" % (req_id))[1]
-    async with aiofiles.open(file_path, "wb") as f:
-        try:
+    fd, file_path = tempfile.mkstemp(suffix=".json", prefix="gulp_export_%s" % (req_id))
+    os.close(fd)
+    try:
+        async with aiofiles.open(file_path, "wb") as f:
             await GulpOpenSearch.get_instance().search_dsl(
                 None,  # we don't need to check for request cancellation here
                 index,
@@ -2213,12 +2216,12 @@ async def _export_json_internal(
                 callback=_write_file_callback,
                 f=f,
             )
-        except Exception as ex:
-            MutyLogger.get_instance().error(
-                "export json failed, removing file %s" % file_path
-            )
-            await muty.file.delete_file_or_dir_async(file_path)
-            return ex
+    except Exception as ex:
+        MutyLogger.get_instance().error(
+            "export json failed, removing file %s" % file_path
+        )
+        await muty.file.delete_file_or_dir_async(file_path)
+        return ex
     return file_path
 
 
@@ -2306,6 +2309,8 @@ async def query_gulp_export_json_handler(
 
             # convert gulp query to opensearch dsl
             dsl: dict = flt.to_opensearch_dsl()
+            # Release the ACL transaction before the export worker runs.
+            await sess.commit()
 
             # execute export operation in worker process (non-blocking)
             file_path = await GulpServer.get_instance().spawn_worker_task(

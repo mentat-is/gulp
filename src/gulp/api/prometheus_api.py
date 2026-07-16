@@ -6,6 +6,7 @@ a setup function to attach the instrumentator to FastAPI, and a
 background gauge collection loop for the main process.
 """
 
+import atexit
 import asyncio
 import os
 import shutil
@@ -20,10 +21,12 @@ from gulp.config import GulpConfig
 # Workers write counters (OpenSearch ingestion, Redis publish, etc.) so
 # multiprocess mode is required for correct metric aggregation at /metrics.
 _prom_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+_prom_dir_owner_pid: int | None = None
 if _prom_dir:
     os.makedirs(_prom_dir, exist_ok=True)
 else:
     _prom_dir = tempfile.mkdtemp(prefix="gulp_prometheus_")
+    _prom_dir_owner_pid = os.getpid()
     MutyLogger.get_instance(name="gulp").debug(
         "created Prometheus multiprocess temp dir: %s", _prom_dir
     )
@@ -48,17 +51,19 @@ class GulpMetrics:
     # directory where prometheus_client writes per-process metric files;
     # retained so cleanup_prometheus() can remove it on shutdown.
     _multiproc_dir: str = _prom_dir
+    _multiproc_dir_owner_pid: int | None = _prom_dir_owner_pid
 
     @classmethod
     def cleanup_multiproc_dir(cls) -> None:
         """Delete the multiprocess metrics dir if it was auto-created by us."""
+        if cls._multiproc_dir_owner_pid != os.getpid():
+            return
         if cls._multiproc_dir and os.path.isdir(cls._multiproc_dir):
             MutyLogger.get_instance().debug(
                 "cleaning up Prometheus multiprocess temp dir: %s", cls._multiproc_dir
             )
-            if cls._multiproc_dir.startswith(tempfile.gettempdir()):
-                shutil.rmtree(cls._multiproc_dir, ignore_errors=True)
-            cls._multiproc_dir = None
+            shutil.rmtree(cls._multiproc_dir, ignore_errors=True)
+        cls._multiproc_dir = None
 
     # ── Redis pub/sub ──
     redis_publish_total = Counter(
@@ -791,3 +796,6 @@ def setup_prometheus(app) -> None:
 def cleanup_prometheus() -> None:
     """Clean up multiprocess temp directory on shutdown."""
     GulpMetrics.cleanup_multiproc_dir()
+
+
+atexit.register(cleanup_prometheus)

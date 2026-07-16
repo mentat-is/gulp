@@ -1,6 +1,7 @@
 """
 storage management API: manage files on S3-compatible instance
 """
+import os
 import tempfile
 from typing import Annotated, Optional
 
@@ -60,7 +61,9 @@ async def storage_delete_by_id_handler(
             s, _, _ = await GulpOperation.get_by_id_wrapper(
                 sess, token, operation_id, GulpUserPermission.EDIT
             )
-            
+            # Release the ACL transaction before deleting the file.
+            await sess.commit()
+
             # delete file
             d = await GulpS3.get_instance().delete_file(storage_id)
             return JSendResponse.success(req_id=req_id, data=d)
@@ -108,6 +111,8 @@ async def storage_delete_by_tags_handler(
                     token,
                     permission=GulpUserPermission.EDIT,
                 )
+            # Release the ACL transaction before deleting files.
+            await sess.commit()
             tags: dict = {}
             if operation_id:
                 tags["operation_id"] = operation_id
@@ -195,6 +200,8 @@ async def storage_list_files_handler(
                     token,
                     permission=GulpUserPermission.ADMIN,
                 )
+            # Release the ACL transaction before listing files.
+            await sess.commit()
             tags: dict = {}
             if operation_id:
                 tags["operation_id"] = operation_id
@@ -246,14 +253,18 @@ async def storage_file_get_by_id_handler(
     params=locals()
     params.pop("bt")  # remove background tasks from params
     ServerUtils.dump_params(params)
+    file_path: str | None = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             # check token on operation
             s: GulpUserSession
             s, _, _ = await GulpOperation.get_by_id_wrapper(
                 sess, token, operation_id, GulpUserPermission.EDIT)
-            file_path: str = tempfile.mkstemp(prefix=muty.crypto.hash_xxh64(storage_id+req_id))[1]
-            
+            # Release the ACL transaction before downloading the file.
+            await sess.commit()
+            fd, file_path = tempfile.mkstemp(prefix=muty.crypto.hash_xxh64(storage_id+req_id))
+            os.close(fd)
+
             # execute download in worker
             d: dict = await GulpServer.get_instance().spawn_worker_task(
                 _storage_file_get_by_id_internal,
@@ -280,10 +291,14 @@ async def storage_file_get_by_id_handler(
             bt.add_task(_cleanup, file_path)
 
             # return file response for streaming to client
-            return FileResponse(
+            response = FileResponse(
                 res_file_path,
                 media_type="binary/octet-stream",
                 filename=storage_id.split("/")[-1],
             )
+            file_path = None
+            return response
     except Exception as ex:
+        if file_path:
+            await muty.file.delete_file_or_dir_async(file_path)
         raise JSendException(req_id=req_id) from ex
