@@ -12,7 +12,7 @@ import { Stack } from '@/ui/Stack';
 import { Request } from '@/entities/Request';
 import { Button } from '@/ui/Button';
 import { Locale } from '@/locales';
-import { useRequests } from '@/store/request.store';
+import { requestStore, useRequests } from '@/store/request.store';
 
 export namespace Requests {
   export namespace Banner {
@@ -49,7 +49,16 @@ export namespace Requests {
      * @returns The request-cancel API promise.
      */
     const cancelRequestButtonClickHandler = useCallback(
-      (id: Request.Type['id']) => Info.request_cancel(id),
+      (id: Request.Type['id']) => {
+        if (
+          requestStore.isManagedQueryRequest(id) ||
+          String(id).startsWith(Request.Prefix.QUERY)
+        ) {
+          return Info.cancelManagedRequest(id);
+        }
+
+        return Info.request_cancel(id);
+      },
       [Info],
     );
 

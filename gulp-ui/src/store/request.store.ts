@@ -1,15 +1,27 @@
 import { useSyncExternalStore } from "react";
 import { Request } from "@/entities/Request";
 import { Source } from "@/entities/Source";
+import { Operation } from "@/entities/Operation";
 
 export interface RequestLoadingState {
 	byRequestId: Map<Request.Id, Source.Id>;
 	byFileId: Map<Source.Id, Request.Id>;
 }
 
+export type ManagedQueryStatus = "active" | "completed" | "canceled";
+
+export interface ManagedQueryRequest {
+	requestId: Request.Id;
+	operationId: Operation.Id;
+	sourceIds: Source.Id[];
+	status: ManagedQueryStatus;
+	abortController?: AbortController;
+}
+
 export interface RequestStoreSnapshot {
 	requests: Request.Type[];
 	loadings: RequestLoadingState;
+	managedQueries: Map<Request.Id, ManagedQueryRequest>;
 	version: number;
 }
 
@@ -27,6 +39,7 @@ class RequestStore {
 	private snapshot: RequestStoreSnapshot = {
 		requests: [],
 		loadings: EMPTY_LOADING_STATE,
+		managedQueries: new Map<Request.Id, ManagedQueryRequest>(),
 		version: 0,
 	};
 
@@ -57,6 +70,13 @@ class RequestStore {
 	 * @returns Loading maps keyed by request and source id.
 	 */
 	getLoadings = (): RequestLoadingState => this.snapshot.loadings;
+
+	/**
+	 * Returns the current managed query map.
+	 * @returns Managed query requests keyed by backend request id.
+	 */
+	getManagedQueries = (): Map<Request.Id, ManagedQueryRequest> =>
+		this.snapshot.managedQueries;
 
 	/**
 	 * Replaces the request list with a sorted copy.
@@ -174,6 +194,112 @@ class RequestStore {
 		this.snapshot.loadings.byRequestId.has(requestId);
 
 	/**
+	 * Registers a query request that the UI can cancel locally.
+	 * @param request Managed query request metadata.
+	 * @returns Nothing.
+	 */
+	registerManagedQuery = (
+		request: Omit<ManagedQueryRequest, "status"> & {
+			status?: ManagedQueryStatus;
+		},
+	): void => {
+		const managedQueries = this.cloneManagedQueries();
+		managedQueries.set(request.requestId, {
+			...request,
+			sourceIds: [...request.sourceIds],
+			status: request.status ?? "active",
+		});
+		this.commit({ managedQueries });
+	};
+
+	/**
+	 * Attaches or replaces the local abort controller for a managed query.
+	 * @param requestId Backend request identifier.
+	 * @param abortController Controller used for the HTTP request.
+	 * @returns Nothing.
+	 */
+	attachManagedQueryAbortController = (
+		requestId: Request.Id,
+		abortController: AbortController,
+	): void => {
+		const existing = this.snapshot.managedQueries.get(requestId);
+		if (!existing) return;
+
+		const managedQueries = this.cloneManagedQueries();
+		managedQueries.set(requestId, {
+			...existing,
+			abortController,
+		});
+		this.commit({ managedQueries });
+	};
+
+	/**
+	 * Marks a managed query as completed.
+	 * @param requestId Backend request identifier.
+	 * @returns Nothing.
+	 */
+	completeManagedQuery = (requestId: Request.Id): void => {
+		this.setManagedQueryStatus(requestId, "completed");
+	};
+
+	/**
+	 * Marks a managed query as canceled and aborts its local HTTP request.
+	 * @param requestId Backend request identifier.
+	 * @returns Nothing.
+	 */
+	cancelManagedQuery = (requestId: Request.Id): void => {
+		const existing = this.snapshot.managedQueries.get(requestId);
+		if (existing?.abortController && !existing.abortController.signal.aborted) {
+			existing.abortController.abort();
+		}
+		this.setManagedQueryStatus(requestId, "canceled");
+	};
+
+	/**
+	 * Returns one managed query, when known.
+	 * @param requestId Backend request identifier.
+	 * @returns Managed query metadata or undefined.
+	 */
+	getManagedQuery = (
+		requestId: Request.Id,
+	): ManagedQueryRequest | undefined => this.snapshot.managedQueries.get(requestId);
+
+	/**
+	 * Returns managed query metadata for one operation.
+	 * @param operationId Operation identifier.
+	 * @returns Managed query records for the operation.
+	 */
+	getManagedQueriesForOperation = (
+		operationId: Operation.Id,
+	): ManagedQueryRequest[] =>
+		Array.from(this.snapshot.managedQueries.values()).filter(
+			(request) => request.operationId === operationId,
+		);
+
+	/**
+	 * Checks whether a backend request is managed by the query lifecycle.
+	 * @param requestId Backend request identifier.
+	 * @returns True when the request is a managed query.
+	 */
+	isManagedQueryRequest = (requestId: Request.Id): boolean =>
+		this.snapshot.managedQueries.has(requestId);
+
+	/**
+	 * Clears all request store state.
+	 * @returns Nothing.
+	 */
+	reset = (): void => {
+		this.commit({
+			requests: [],
+			loadings: {
+				byRequestId: new Map<Request.Id, Source.Id>(),
+				byFileId: new Map<Source.Id, Request.Id>(),
+			},
+			managedQueries: new Map<Request.Id, ManagedQueryRequest>(),
+		});
+	};
+
+	/**
 	 * Commits a partial snapshot and notifies subscribers.
 	 * @param patch Snapshot fields to replace.
 	 * @returns Nothing.
@@ -195,6 +321,44 @@ class RequestStore {
 		byRequestId: new Map(this.snapshot.loadings.byRequestId),
 		byFileId: new Map(this.snapshot.loadings.byFileId),
 	});
+
+	/**
+	 * Clones managed query metadata before mutation.
+	 * @returns Mutable copy of managed query map.
+	 */
+	private cloneManagedQueries = (): Map<Request.Id, ManagedQueryRequest> =>
+		new Map(
+			Array.from(this.snapshot.managedQueries.entries()).map(
+				([requestId, request]) => [
+					requestId,
+					{
+						...request,
+						sourceIds: [...request.sourceIds],
+					},
+				],
+			),
+		);
+
+	/**
+	 * Updates the status for one managed query.
+	 * @param requestId Backend request identifier.
+	 * @param status New lifecycle status.
+	 * @returns Nothing.
+	 */
+	private setManagedQueryStatus = (
+		requestId: Request.Id,
+		status: ManagedQueryStatus,
+	): void => {
+		const existing = this.snapshot.managedQueries.get(requestId);
+		if (!existing || existing.status === status) return;
+
+		const managedQueries = this.cloneManagedQueries();
+		managedQueries.set(requestId, {
+			...existing,
+			status,
+		});
+		this.commit({ managedQueries });
+	};
 
 	/**
 	 * Sorts requests with newest first.

@@ -320,6 +320,7 @@ interface QueryStreamState {
 	sourceIds: Source.Id[];
 	operationId: Operation.Id;
 	operationEpoch: number;
+	abortController?: AbortController;
 	documentListenerId?: string;
 	collabListenerId?: string;
 	statsListenerId?: string;
@@ -347,6 +348,7 @@ interface QueryGulpResponse {
 
 interface RefetchQueueItem {
 	sourceId: Source.Id;
+	operationId: Operation.Id;
 	query: Query.Type;
 	options: QueryFileOptions;
 	sequence: number;
@@ -532,6 +534,20 @@ export class Info implements InfoProps {
 		const sourceIdSet = new Set(sourceIds);
 		this.refetchQueue = this.refetchQueue.filter(
 			(item) => !sourceIdSet.has(item.sourceId),
+		);
+	};
+
+	/**
+	 * Cancels queued refetch work that has not started yet for one operation.
+	 * @param operationId Operation whose queued timeline queries should be removed.
+	 * @returns Nothing.
+	 */
+	private removeQueuedRefetchesForOperation = (
+		operationId: Operation.Id,
+	): void => {
+		if (this.refetchQueue.length === 0) return;
+		this.refetchQueue = this.refetchQueue.filter(
+			(item) => item.operationId !== operationId,
 		);
 	};
 
@@ -749,6 +765,7 @@ export class Info implements InfoProps {
 		sourceIds: Source.Id[],
 		operationId: Operation.Id,
 		operationEpoch: number,
+		abortController?: AbortController,
 		queuePriority?: ViewportQueryPriority,
 	): QueryStreamState => {
 		const stream: QueryStreamState = {
@@ -756,6 +773,7 @@ export class Info implements InfoProps {
 			sourceIds,
 			operationId,
 			operationEpoch,
+			abortController,
 			queuePriority,
 			closed: false,
 			completedByStats: false,
@@ -763,6 +781,12 @@ export class Info implements InfoProps {
 		};
 
 		this.activeQueryStreams.set(requestId, stream);
+		requestStore.registerManagedQuery({
+			requestId,
+			operationId,
+			sourceIds,
+			abortController,
+		});
 		sourceIds.forEach((sourceId) => {
 			this.activeQuerySourceRequests.set(sourceId, requestId);
 		});
@@ -834,6 +858,80 @@ export class Info implements InfoProps {
 	};
 
 	/**
+	 * Cancels active and queued timeline query work for one operation.
+	 * @param operationId Operation whose render queries should be canceled.
+	 * @param options Cancellation options.
+	 * @returns Promise that resolves after local stream cleanup completes.
+	 */
+	cancelOperationQueries = async (
+		operationId: Operation.Id,
+		options: { cancelBackend?: boolean } = {},
+	): Promise<void> => {
+		const cancelBackend = options.cancelBackend ?? true;
+		this.removeQueuedRefetchesForOperation(operationId);
+		this.clearViewportQueryPumpTimer();
+
+		const streams = Array.from(this.activeQueryStreams.values()).filter(
+			(stream) => stream.operationId === operationId,
+		);
+
+		await Promise.all(
+			streams.map((stream) =>
+				this.closeQueryStream(stream.requestId, {
+					cancelBackend,
+					managedStatus: "canceled",
+				}),
+			),
+		);
+
+		const managedRequests = requestStore
+			.getManagedQueriesForOperation(operationId)
+			.filter((request) => request.status === "active");
+		await Promise.all(
+			managedRequests.map((request) =>
+				this.cancelManagedRequest(request.requestId, { cancelBackend }),
+			),
+		);
+	};
+
+	/**
+	 * Cancels one managed timeline query request locally and on the backend.
+	 * @param requestId Backend request identifier.
+	 * @param options Cancellation options.
+	 * @returns Promise that resolves after local cleanup completes.
+	 */
+	cancelManagedRequest = async (
+		requestId: Request.Id,
+		options: { cancelBackend?: boolean } = {},
+	): Promise<void> => {
+		const cancelBackend = options.cancelBackend ?? true;
+
+		if (this.activeQueryStreams.has(requestId)) {
+			await this.closeQueryStream(requestId, {
+				cancelBackend,
+				managedStatus: "canceled",
+			});
+			return;
+		}
+
+		const managedQuery = requestStore.getManagedQuery(requestId);
+		if (!managedQuery && !String(requestId).startsWith(Request.Prefix.QUERY)) {
+			if (cancelBackend) {
+				this.request_cancel(requestId);
+			}
+			return;
+		}
+
+		requestStore.cancelManagedQuery(requestId);
+		managedQuery?.sourceIds.forEach((sourceId) => this.delLoadingByFile(sourceId));
+		this.delLoading(requestId);
+
+		if (cancelBackend) {
+			this.request_cancel(requestId);
+		}
+	};
+
+	/**
 	 * Closes a query stream, removes websocket listeners, clears loading markers,
 	 * and waits for any already-started event flush before resolving.
 	 * @param requestId Backend request id whose stream should be closed.
@@ -842,7 +940,11 @@ export class Info implements InfoProps {
 	 */
 	private closeQueryStream = async (
 		requestId: Request.Id,
-		options: { cancelBackend?: boolean; clearLoading?: boolean } = {},
+		options: {
+			cancelBackend?: boolean;
+			clearLoading?: boolean;
+			managedStatus?: "completed" | "canceled";
+		} = {},
 	): Promise<void> => {
 		const stream = this.activeQueryStreams.get(requestId);
 		if (!stream) return;
@@ -852,6 +954,11 @@ export class Info implements InfoProps {
 		}
 
 		stream.closed = true;
+		if (options.managedStatus === "canceled" || options.cancelBackend) {
+			requestStore.cancelManagedQuery(requestId);
+		} else {
+			requestStore.completeManagedQuery(requestId);
+		}
 
 		if (stream.documentListenerId) {
 			SmartSocket.Class.instance.coff(
@@ -1121,9 +1228,11 @@ export class Info implements InfoProps {
 
 			this.enqueueRefetchQuery({
 				sourceId: file.id,
+				operationId: file.operation_id,
 				query: dedicatedQuery,
 				options: {
 					id: file.id,
+					operationId: file.operation_id,
 					preview: false,
 					refetchKeys: refetchKeys ? refetchKeys[file.id] : undefined,
 					addToHistory,
@@ -2060,6 +2169,7 @@ export class Info implements InfoProps {
 		};
 		const req_id = request_query.req_id as Request.Id;
 		let stream: QueryStreamState | null = null;
+		const abortController = preview ? undefined : new AbortController();
 
 		try {
 			if (sourceIds.length > 0) {
@@ -2111,6 +2221,7 @@ export class Info implements InfoProps {
 					sourceIds,
 					operation.id,
 					operationEpoch,
+					abortController,
 					queuePriority,
 				);
 			}
@@ -2203,6 +2314,14 @@ export class Info implements InfoProps {
 					(m) => {
 						if (stream) {
 							stream.completedByStats = true;
+							if (m.payload.obj?.status === Request.Status.DONE) {
+								requestStore.completeManagedQuery(req_id);
+							} else if (
+								m.payload.obj?.status === Request.Status.FAILED ||
+								m.payload.obj?.status === Request.Status.CANCELED
+							) {
+								requestStore.cancelManagedQuery(req_id);
+							}
 						}
 					},
 				);
@@ -2239,6 +2358,7 @@ export class Info implements InfoProps {
 				query: request_query,
 				body,
 				raw: true,
+				signal: abortController?.signal,
 			});
 
 			if (stream && (!resp || resp.status !== "pending")) {
@@ -2626,6 +2746,15 @@ export class Info implements InfoProps {
 		this.app.general.requests = requestStore.getRequests();
 		if (ACTIVE_REQUEST_STATUSES.has(req.status)) return;
 
+		if (req.status === Request.Status.DONE) {
+			requestStore.completeManagedQuery(req.id);
+		} else if (
+			req.status === Request.Status.FAILED ||
+			req.status === Request.Status.CANCELED
+		) {
+			requestStore.cancelManagedQuery(req.id);
+		}
+
 		const queryStream = this.activeQueryStreams.get(req.id);
 		if (!queryStream) {
 			this.delLoading(req.id);
@@ -2637,7 +2766,7 @@ export class Info implements InfoProps {
 			req.status === Request.Status.FAILED ||
 			req.status === Request.Status.CANCELED
 		) {
-			this.closeQueryStream(req.id);
+			this.closeQueryStream(req.id, { managedStatus: "canceled" });
 		}
 	};
 

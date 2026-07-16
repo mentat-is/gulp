@@ -80,6 +80,14 @@ export function OperationView() {
 	const selectedOpId = Operation.Entity.selected(app)?.id;
 
 	useEffect(() => {
+		if (!operation_id) return;
+		const currentOperationId = operation_id as Operation.Id;
+		return () => {
+			void Info.cancelOperationQueries(currentOperationId);
+		};
+	}, [Info, operation_id]);
+
+	useEffect(() => {
 		if (selectedOpId && selectedOpId !== operation_id) {
 			navigate(`/operations/${selectedOpId}`);
 		}

@@ -27,7 +27,8 @@ import { Icon } from "@/ui/Icon";
 import { Stack } from "@/ui/Stack";
 import { Source } from "@/entities/Source";
 import { Locale } from "@/locales";
-import { useRequestLoadings } from "@/store/request.store";
+import { Request } from "@/entities/Request";
+import { requestStore, useRequestLoadings } from "@/store/request.store";
 
 interface TargetMenuProps {
 	source: Source.Type;
@@ -56,6 +57,14 @@ export function TargetMenu({ source }: TargetMenuProps) {
 		const request = loadings.byFileId.get(source.id);
 
 		if (request) {
+			if (
+				requestStore.isManagedQueryRequest(request) ||
+				String(request).startsWith(Request.Prefix.QUERY)
+			) {
+				void Info.cancelManagedRequest(request);
+				return;
+			}
+
 			Info.request_cancel(request);
 		}
 	};
