@@ -12,6 +12,7 @@ from types import ModuleType
 from typing import Annotated, Any, Callable, Optional
 
 import json5
+from gulp.process import GulpProcess
 import muty.dynload
 import muty.file
 import muty.log
@@ -643,7 +644,7 @@ class GulpPluginBase(ABC):
         """
         Returns True if the plugin is running in the main process.
         """
-        return not self._pickled
+        return GulpProcess.get_instance().is_main_process()
 
     def version(self) -> str:
         """
@@ -2692,9 +2693,7 @@ class GulpPluginBase(ABC):
         self._source_finished_event_emitted = False
         self._chunk_pre_ingest_failed = False
         self._event_listener_mask = (
-            0
-            if self._plugin_params.preview_mode
-            else await events.listener_mask()
+            0 if self._plugin_params.preview_mode else await events.listener_mask()
         )
 
         MutyLogger.get_instance().debug(
@@ -2949,11 +2948,7 @@ class GulpPluginBase(ABC):
         if self._raw_ingestion:
             # on raw ingestion, source is never done unless last chunk or canceled
             if self._last_raw_chunk:
-                status = (
-                    GulpRequestStatus.FAILED
-                    if errors
-                    else GulpRequestStatus.DONE
-                )
+                status = GulpRequestStatus.FAILED if errors else GulpRequestStatus.DONE
             else:
                 # keep the raw ingestion ongoing if its not the last chunk
                 status = GulpRequestStatus.ONGOING

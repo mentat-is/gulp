@@ -303,20 +303,13 @@ class GulpServer:
         """
         add a new API route, just bridges to FastAPI.add_api_route
 
-        NOTE: if the route already exists, it will be replaced.
-
         Args:
             path (str): the path
             handler: the handler
             **kwargs: additional arguments to FastAPI.add_api_route
         """
-        # find and remove existing route
+        # add route
         if self._app:
-            for route in self._app.routes:
-                if route.path == path:
-                    self._app.router.routes.remove(route)
-
-            # add route
             self._app.add_api_route(path, handler, **kwargs)
 
     def start(
@@ -560,13 +553,16 @@ class GulpServer:
         from gulp.api.server.query import run_query_task
 
         ttype = task.get("task_type")
+        # all the below spawn worker tasks are blocking, so we wait for them to finish before returning
         if ttype == TASK_TYPE_INGEST:
             return self.spawn_worker_task(run_ingest_file_task, task, wait=True)
         if ttype == TASK_TYPE_ENRICH:
+            # internally calls spawn_worker_task
             return run_enrich_task(task)
         if ttype == TASK_TYPE_QUERY or ttype == TASK_TYPE_EXTERNAL_QUERY:
             return self.spawn_worker_task(run_query_task, task, wait=True)
         if ttype == TASK_TYPE_REBASE:
+            # internally calls spawn_worker_task
             return run_rebase_task(task)
 
         raise ValueError(f"unknown task_type: {ttype!r}")
@@ -656,6 +652,9 @@ class GulpServer:
         """Return service pressure and a safe concurrency ceiling."""
 
         async def _postgres_state() -> tuple[int, int]:
+            """
+            Return PostgreSQL max connections and current usage.
+            """
             async with GulpCollab.get_instance().session() as sess:
                 row = (
                     await sess.execute(
@@ -668,6 +667,9 @@ class GulpServer:
                 return int(row[0]), int(row[1])
 
         async def _opensearch_state() -> tuple[int, int, int, int, int]:
+            """
+            Return OpenSearch search thread usage, capacity, heap %, CPU %, and rejected count.
+            """
             nodes_client = GulpOpenSearch.get_instance()._opensearch.nodes
             stats = await nodes_client.stats(metric="jvm,process,thread_pool")
             nodes = stats.get("nodes", {}).values()
@@ -690,11 +692,7 @@ class GulpServer:
             if self._opensearch_search_capacity is None:
                 info = await nodes_client.info(metric="thread_pool")
                 search_capacity = sum(
-                    int(
-                        node.get("thread_pool", {})
-                        .get("search", {})
-                        .get("size", 0)
-                    )
+                    int(node.get("thread_pool", {}).get("search", {}).get("size", 0))
                     for node in info.get("nodes", {}).values()
                 )
                 if search_capacity:
@@ -709,6 +707,12 @@ class GulpServer:
             )
 
         try:
+            """
+            Check the health of Redis, PostgreSQL, and OpenSearch, returning a tuple of:
+            - under_pressure (bool): True if any service is under pressure
+            - service_ceiling (int): a safe concurrency ceiling based on the least capable service
+            - service_metrics (dict): a dictionary of service metrics for logging and monitoring
+            """
             async with asyncio.timeout(2):
                 redis_ok, postgres, opensearch = await asyncio.gather(
                     GulpRedis.get_instance().client().ping(),
@@ -745,6 +749,7 @@ class GulpServer:
             or cpu >= 90
             or rejected_increased
         )
+        # return a dict of service metrics for logging and monitoring
         return (
             under_pressure,
             service_ceiling,
@@ -787,6 +792,7 @@ class GulpServer:
         if not task_coros:
             return
 
+        # run all tasks concurrently and wait for them to finish, while keeping their leases refreshed
         task_results = await asyncio.gather(
             *[self._await_task_with_lease(obj, coro) for obj, coro in task_coros],
             return_exceptions=True,
@@ -813,22 +819,25 @@ class GulpServer:
 
     async def _dispatch_tasks(self):
         """
-        Blocking task loop for long running tasks that need workers.
+        self-balancing task dispatcher loop that claims and dispatches tasks from Redis streams.
 
-        Keeps up to the configured capacity in flight instead of waiting for a
-        whole drained batch to finish before dequeuing more work.
+        the scheduler loop runs continuously, checking for new tasks to dispatch and adjusting concurrency limits based on
+        postgres/opensearch/redis services health.
         """
         maximum: int = self._task_dispatch_capacity()
         limit: int = maximum
         query_limit = 1
         query_tuning_active = False
         last_health_check = 0.0
-        MutyLogger.get_instance().info("STARTING dispatch_tasks loop ...")
+        MutyLogger.get_instance().info("STARTING task scheduler loop ...")
 
         in_flight: set[asyncio.Task[None]] = set()
         query_in_flight: set[asyncio.Task[None]] = set()
 
         def _consume_dispatch_result(task: asyncio.Task[None]) -> None:
+            """
+            Callback to consume the result of a dispatched task and remove it from the in-flight sets.
+            """
             in_flight.discard(task)
             query_in_flight.discard(task)
             with suppress(asyncio.CancelledError):
@@ -845,6 +854,9 @@ class GulpServer:
             *,
             source: str,
         ) -> None:
+            """
+            Start dispatching a claimed task and track it in the in-flight sets.
+            """
             task = asyncio.create_task(
                 self._dispatch_claimed_tasks(redis_inst, [task_obj], source=source)
             )
@@ -856,10 +868,12 @@ class GulpServer:
         try:
             while True:
                 try:
+                    # check for new tasks to dispatch
                     redis_inst = GulpRedis.get_instance()
                     now = time.monotonic()
                     known_types = await redis_inst.task_known_types()
                     if now - last_health_check >= 2.0:
+                        # check for service pressure and adjust dispatch limits accordingly
                         query_demand = bool(query_in_flight) or (
                             await redis_inst.task_queue_depth(TASK_TYPE_QUERY) > 0
                         )
@@ -934,6 +948,7 @@ class GulpServer:
 
                     capacity = limit - len(in_flight)
                     if capacity > 0:
+                        # determine how many query slots are available and which task types can be dequeued
                         non_query_types = [
                             task_type
                             for task_type in known_types
@@ -957,6 +972,7 @@ class GulpServer:
                             task_types=allowed_types,
                         )
                         if first is not None:
+                            # build a batch of tasks to dispatch, prioritizing queries if slots are available
                             batch: list[dict] = [first]
                             remaining = capacity - 1
                             query_slots = max(
@@ -973,6 +989,7 @@ class GulpServer:
                                 ),
                             )
                             if query_slots:
+                                # fill query slots with additional query tasks
                                 batch.extend(
                                     await redis_inst.task_dequeue_batch(
                                         query_slots,
@@ -981,6 +998,7 @@ class GulpServer:
                                 )
                             remaining = capacity - len(batch)
                             if remaining and non_query_types:
+                                # fill remaining capacity with non-query tasks
                                 batch.extend(
                                     await redis_inst.task_dequeue_batch(
                                         remaining,
@@ -1004,13 +1022,14 @@ class GulpServer:
                             await asyncio.sleep(0.1)
 
                     if len(in_flight) >= limit:
+                        # wait for at least one in-flight task to complete before dequeuing more work
                         await asyncio.wait(
                             in_flight,
                             return_when=asyncio.FIRST_COMPLETED,
                         )
 
                 except asyncio.CancelledError:
-                    MutyLogger.get_instance().debug("blocking task loop cancelled!")
+                    MutyLogger.get_instance().debug("task scheduler loop cancelled!")
                     break
                 except Exception as ex:
                     MutyLogger.get_instance().exception(ex)
@@ -1021,7 +1040,7 @@ class GulpServer:
                 task.cancel()
             if pending_dispatches:
                 await asyncio.gather(*pending_dispatches, return_exceptions=True)
-            MutyLogger.get_instance().info("EXITING blocking task loop ...")
+            MutyLogger.get_instance().info("EXITING task scheduler loop ...")
 
     @staticmethod
     def spawn_bg_task(coro, name: str = None) -> bool:
@@ -1264,9 +1283,7 @@ class GulpServer:
         except SchemaMismatch:
             if not self._reset_collab:
                 raise
-            await GulpCollab.get_instance().init(
-                main_process=True, force_recreate=True
-            )
+            await GulpCollab.get_instance().init(main_process=True, force_recreate=True)
             collab_recreated = True
 
         if first_run and not self._create_operation:
