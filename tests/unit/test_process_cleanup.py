@@ -91,6 +91,36 @@ async def test_cancelled_process_pool_cleanup_terminates_and_joins():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_process_pool_shutdown_releases_pending_result_drains():
+    cleanup_finished = asyncio.Event()
+
+    class _Pool:
+        def close(self):
+            pass
+
+        async def join(self):
+            pass
+
+    async def _drain() -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleanup_finished.set()
+
+    process = GulpProcess()
+    process.process_pool = _Pool()
+    drain_task = asyncio.create_task(_drain())
+    process._worker_result_tasks.add(drain_task)
+
+    await process.close_process_pool()
+
+    assert cleanup_finished.is_set()
+    assert process._worker_result_tasks == set()
+    assert process.process_pool is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_worker_cleanup_continues_after_failure(monkeypatch):
     process = GulpProcess()
     cancel_bg_tasks = AsyncMock()

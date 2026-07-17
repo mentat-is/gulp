@@ -265,30 +265,28 @@ async def storage_file_get_by_id_handler(
             fd, file_path = tempfile.mkstemp(prefix=muty.crypto.hash_xxh64(storage_id+req_id))
             os.close(fd)
 
+            async def _cleanup() -> None:
+                """Remove the temporary download after its owner is done."""
+                MutyLogger.get_instance().debug(
+                    "cleanup file %s after response sent", file_path
+                )
+                await muty.file.delete_file_or_dir_async(file_path)
+
             # execute download in worker
             d: dict = await GulpServer.get_instance().spawn_worker_task(
                 _storage_file_get_by_id_internal,
                 storage_id,
                 file_path,
                 wait=True,
+                cancel_cleanup=_cleanup,
             )
             if isinstance(d, Exception):
                 # is an exception
                 raise d
 
-            async def _cleanup(file_path: str) -> None:
-                """
-                cleanup function to remove temporary export file after response is sent.
-                """
-                if file_path:
-                    MutyLogger.get_instance().debug(
-                        "cleanup file %s after response sent", file_path
-                    )
-                    await muty.file.delete_file_or_dir_async(file_path)
-
             # schedule cleanup of the temporary file after response is sent to the client
             res_file_path: str=d.get("file_path")
-            bt.add_task(_cleanup, file_path)
+            bt.add_task(_cleanup)
 
             # return file response for streaming to client
             response = FileResponse(
@@ -296,7 +294,6 @@ async def storage_file_get_by_id_handler(
                 media_type="binary/octet-stream",
                 filename=storage_id.split("/")[-1],
             )
-            file_path = None
             return response
     except Exception as ex:
         if file_path:

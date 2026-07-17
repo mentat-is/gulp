@@ -67,6 +67,7 @@ class GulpProcess:
         self._log_to_syslog: bool = False
         self._main_process: bool = True
         self._background_tasks: set[asyncio.Task] = set()
+        self._worker_result_tasks: set[asyncio.Task] = set()
 
     def __new__(cls) -> "GulpProcess":
         """
@@ -289,6 +290,7 @@ class GulpProcess:
         if self.process_pool:
             pool = self.process_pool
             join_task: asyncio.Task | None = None
+            pool_stopped = False
             MutyLogger.get_instance().debug("closing mp pool %s ..." % (pool))
             try:
                 pool.close()
@@ -296,6 +298,7 @@ class GulpProcess:
                 join_task = asyncio.create_task(pool.join())
                 try:
                     await asyncio.wait_for(asyncio.shield(join_task), timeout=5)
+                    pool_stopped = True
                     MutyLogger.get_instance().debug("mp pool JOINED!")
                 except asyncio.TimeoutError:
                     # If the graceful join times out, workers are stuck. Shielding
@@ -307,14 +310,24 @@ class GulpProcess:
                     pool.terminate()
                     MutyLogger.get_instance().warning("mp pool FORCED terminated!")
                     await join_task
+                    pool_stopped = True
             except asyncio.CancelledError:
-                if join_task and not join_task.done():
-                    pool.terminate()
-                    await asyncio.shield(join_task)
+                if join_task:
+                    if not join_task.done():
+                        pool.terminate()
+                        await asyncio.shield(join_task)
+                    pool_stopped = True
                 raise
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
             finally:
+                if pool_stopped:
+                    drain_tasks = tuple(self._worker_result_tasks)
+                    for task in drain_tasks:
+                        task.cancel()
+                    if drain_tasks:
+                        await asyncio.gather(*drain_tasks, return_exceptions=True)
+                    self._worker_result_tasks.difference_update(drain_tasks)
                 # clear the reference to the pool
                 self.process_pool = None
                 MutyLogger.get_instance().debug("close_process_pool DONE!")

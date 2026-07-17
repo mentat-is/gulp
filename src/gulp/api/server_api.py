@@ -1114,6 +1114,7 @@ class GulpServer:
         *args,
         wait: bool = False,
         task_name: str = None,
+        cancel_cleanup: Callable[[], Awaitable[None]] = None,
         **kwargs,
     ) -> Any | None:
         """
@@ -1126,6 +1127,7 @@ class GulpServer:
             *args: the arguments to pass to the function
             wait (bool, optional): if True, wait for the result and return it
             task_name (str, optional): the name of the task, ignored if wait=True: if a task with the same name already exists, it will not spawn another one.
+            cancel_cleanup (Callable, optional): cleanup to run after a cancelled waited task finishes.
             **kwargs: the keyword arguments to pass to the function
 
         Returns:
@@ -1134,7 +1136,8 @@ class GulpServer:
             RuntimeError: if called from a worker process
             Exception: any exception raised by the function
         """
-        if not GulpProcess.get_instance().is_main_process():
+        process = GulpProcess.get_instance()
+        if not process.is_main_process():
             raise RuntimeError("cannot spawn worker task from a worker process!")
 
         MutyLogger.get_instance().debug(
@@ -1145,9 +1148,7 @@ class GulpServer:
             )
         )
 
-        coro = GulpProcess.get_instance().process_pool.apply(
-            func, args=args, kwds=kwargs
-        )
+        coro = process.process_pool.apply(func, args=args, kwds=kwargs)
 
         if GulpConfig.get_instance().prometheus_enabled():
             # update Prometheus counter
@@ -1157,9 +1158,35 @@ class GulpServer:
                 pass
 
         if wait:
-            # wait for result
+            # Shield the pool result waiter so caller cancellation cannot leave
+            # the completed result retained in aiomultiprocess.Pool._results.
+            worker_task = asyncio.create_task(coro)
             try:
-                return await coro
+                return await asyncio.shield(worker_task)
+            except asyncio.CancelledError:
+
+                async def _drain_cancelled_worker() -> None:
+                    try:
+                        await worker_task
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as ex:
+                        MutyLogger.get_instance().exception(
+                            "***ERROR*** in cancelled worker task: %s", ex
+                        )
+                    finally:
+                        if cancel_cleanup:
+                            try:
+                                await cancel_cleanup()
+                            except Exception:
+                                MutyLogger.get_instance().exception(
+                                    "failed to clean up cancelled worker task"
+                                )
+
+                drain_task = asyncio.create_task(_drain_cancelled_worker())
+                process._worker_result_tasks.add(drain_task)
+                drain_task.add_done_callback(process._worker_result_tasks.discard)
+                raise
             except Exception as ex:
                 MutyLogger.get_instance().exception(
                     "***ERROR*** in (awaited) worker task: %s", ex

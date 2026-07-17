@@ -2204,6 +2204,7 @@ async def _export_json_internal(
     index: str,
     operation_id: str,
     q: dict,
+    file_path: str,
     req_id: str = None,
     q_options: "GulpQueryParameters" = None,
 ) -> str | Exception:
@@ -2211,8 +2212,6 @@ async def _export_json_internal(
     runs in a worker process, exports the query results as json file and returns the file path (or Exception on error).
     """
 
-    fd, file_path = tempfile.mkstemp(suffix=".json", prefix="gulp_export_%s" % (req_id))
-    os.close(fd)
     try:
         async with aiofiles.open(file_path, "wb") as f:
             await GulpOpenSearch.get_instance().search_dsl(
@@ -2309,6 +2308,7 @@ async def query_gulp_export_json_handler(
     # enforce operation_id in filter
     flt.operation_ids = [operation_id]
 
+    file_path: str | None = None
     try:
         async with GulpCollab.get_instance().session() as sess:
             # get operation and check acl
@@ -2320,33 +2320,35 @@ async def query_gulp_export_json_handler(
             dsl: dict = flt.to_opensearch_dsl()
             # Release the ACL transaction before the export worker runs.
             await sess.commit()
+            fd, file_path = tempfile.mkstemp(
+                suffix=".json", prefix="gulp_export_%s" % (req_id)
+            )
+            os.close(fd)
+
+            async def _cleanup() -> None:
+                MutyLogger.get_instance().debug(
+                    "cleanup file %s after response sent", file_path
+                )
+                await muty.file.delete_file_or_dir_async(file_path)
 
             # execute export operation in worker process (non-blocking)
-            file_path = await GulpServer.get_instance().spawn_worker_task(
+            result = await GulpServer.get_instance().spawn_worker_task(
                 _export_json_internal,
                 index,
                 operation_id,
                 dsl,
+                file_path,
                 wait=True,
+                cancel_cleanup=_cleanup,
                 req_id=req_id,
                 q_options=q_options,
             )
-            if isinstance(file_path, Exception):
+            if isinstance(result, Exception):
                 # is an exception
-                raise file_path
-
-            async def _cleanup(file_path: str) -> None:
-                """
-                cleanup function to remove temporary export file after response is sent.
-                """
-                if file_path:
-                    MutyLogger.get_instance().debug(
-                        "cleanup file %s after response sent", file_path
-                    )
-                    await muty.file.delete_file_or_dir_async(file_path)
+                raise result
 
             # schedule cleanup after response is sent to client
-            bt.add_task(_cleanup, file_path)
+            bt.add_task(_cleanup)
 
             # return file response for streaming to client
             return FileResponse(
@@ -2355,4 +2357,6 @@ async def query_gulp_export_json_handler(
                 filename=f"gulp_export_{req_id}.json",
             )
     except Exception as ex:
+        if file_path:
+            await muty.file.delete_file_or_dir_async(file_path)
         raise JSendException(req_id=req_id) from ex
