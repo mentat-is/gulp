@@ -8,6 +8,7 @@ the data using GulpPluginBase.load_plugin_direct method: this allow to stack one
 """
 
 import mailbox
+from contextlib import closing
 from typing import Any, override
 
 from muty.log import MutyLogger
@@ -98,7 +99,9 @@ class Plugin(GulpPluginBase):
             **kwargs,
         )
 
-        # load eml plugin
+        # load eml plugin; the parent owns storage for the shared source file
+        eml_plugin_params = self._plugin_params.model_copy(deep=True)
+        eml_plugin_params.store_file = False
         eml_parser = await self.load_plugin_direct(
             "eml",
             sess=sess,
@@ -112,14 +115,19 @@ class Plugin(GulpPluginBase):
             source_id=source_id,
             file_path=file_path,
             original_file_path=original_file_path,
-            plugin_params=plugin_params,
+            plugin_params=eml_plugin_params,
         )
 
-        doc_idx = 0
-        mbox = mailbox.mbox(file_path)
-        for message in mbox.itervalues():
-            if not await self.process_record(message, doc_idx, flt=flt, eml_parser=eml_parser):
-                # stop processing (preview mode)
-                break
-            doc_idx += 1
-        return stats.status
+        try:
+            doc_idx = 0
+            with closing(mailbox.mbox(file_path)) as mbox:
+                for message in mbox.itervalues():
+                    if not await self.process_record(
+                        message, doc_idx, flt=flt, eml_parser=eml_parser
+                    ):
+                        # stop processing (preview mode)
+                        break
+                    doc_idx += 1
+            return stats.status
+        finally:
+            await eml_parser.unload()

@@ -387,8 +387,7 @@ class Plugin(GulpPluginBase):
             finally:
                 if mod:
                     # Ensure plugin flush and unload to release resources
-                    await mod.update_final_stats_and_flush()
-                    await mod.unload()
+                    await mod.update_final_stats_and_unload()
 
     """ INGESTION METHODS"""
 

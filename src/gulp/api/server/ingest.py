@@ -450,21 +450,29 @@ async def _ingest_file_internal(
             if mod:
                 upload_task = mod.upload_task
 
-            # Ensure background upload is finished before unloading the plugin
-            # or deleting files that may still be transferring.
-            if upload_task:
+            try:
+                # Ensure background upload is finished before unloading the plugin
+                # or deleting files that may still be transferring.
+                if upload_task:
+                    try:
+                        await upload_task
+                    except Exception:
+                        # ignore errors from upload, cleanup should happen regardless
+                        pass
+            finally:
                 try:
-                    await upload_task
-                except Exception:
-                    # ignore errors from upload, cleanup should happen regardless
-                    pass
-            if mod:
-                await mod.unload()
-            if delete_ingestion_file:
-                await muty.file.delete_file_or_dir_async(ingestion_file_path)
-            if delete_after:
-                # delete original file
-                await muty.file.delete_file_or_dir_async(file_path)
+                    if mod:
+                        await mod.unload()
+                finally:
+                    try:
+                        if delete_ingestion_file:
+                            await muty.file.delete_file_or_dir_async(
+                                ingestion_file_path
+                            )
+                    finally:
+                        if delete_after:
+                            # delete original file
+                            await muty.file.delete_file_or_dir_async(file_path)
 
 
 async def run_ingest_file_task(t: dict) -> bool:
@@ -1251,8 +1259,7 @@ async def _ingest_raw_internal(
             MutyLogger.get_instance().exception(ex)
         finally:
             if mod:
-                await mod.update_final_stats_and_flush(flt=flt)
-                await mod.unload()
+                await mod.update_final_stats_and_unload(flt=flt)
 
 
 @router.post(

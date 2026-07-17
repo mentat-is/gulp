@@ -493,8 +493,7 @@ async def run_query(
             finally:
                 if mod:
                     # finalize external query stats
-                    await mod.update_final_stats_and_flush(ex=exx)
-                    await mod.unload()
+                    await mod.update_final_stats_and_unload(ex=exx)
     finally:
         if not isinstance(exx, RequestCanceledError):
             err = muty.log.exception_to_string(exx)

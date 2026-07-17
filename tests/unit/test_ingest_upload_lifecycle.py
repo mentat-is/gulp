@@ -71,6 +71,50 @@ async def test_ingest_waits_for_upload_before_unloading_plugin(monkeypatch):
     plugin.unload.assert_awaited_once_with()
 
 
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_ingest_deletes_temporary_file_when_plugin_unload_fails(monkeypatch):
+    plugin = SimpleNamespace(
+        upload_task=None,
+        ingest_file=AsyncMock(return_value=GulpRequestStatus.DONE),
+        update_final_stats_and_flush=AsyncMock(),
+        unload=AsyncMock(side_effect=RuntimeError("unload failed")),
+    )
+
+    @asynccontextmanager
+    async def _session():
+        yield SimpleNamespace(commit=AsyncMock())
+
+    deleted = AsyncMock()
+    monkeypatch.setattr(
+        ingest.GulpCollab,
+        "get_instance",
+        lambda: SimpleNamespace(session=_session),
+    )
+    monkeypatch.setattr(ingest.GulpPluginBase, "load", AsyncMock(return_value=plugin))
+    monkeypatch.setattr(ingest.muty.file, "delete_file_or_dir_async", deleted)
+
+    with pytest.raises(RuntimeError, match="unload failed"):
+        await ingest._ingest_file_internal(
+            user_id="user",
+            req_id="request",
+            ws_id="websocket",
+            operation_id="operation",
+            context_name="context",
+            source_name="source",
+            index="index",
+            plugin="plugin",
+            file_path="/tmp/upload",
+            payload=GulpIngestPayload(
+                plugin_params=GulpPluginParameters(preview_mode=True)
+            ),
+            delete_after=True,
+        )
+
+    print("temporary upload deleted after unload failure")
+    deleted.assert_awaited_once_with("/tmp/upload")
+
+
 def _upload_args(file_path: str) -> dict:
     return {
         "sess": object(),
@@ -102,9 +146,7 @@ async def test_duplicate_request_deletes_completed_temporary_upload(
         AsyncMock(return_value=response),
     )
 
-    result = await ingest._preview_or_enqueue_ingest_task(
-        **_upload_args(str(upload))
-    )
+    result = await ingest._preview_or_enqueue_ingest_task(**_upload_args(str(upload)))
 
     print("duplicate upload response:", result.status_code)
     assert result is response
@@ -128,9 +170,7 @@ async def test_queue_rejection_deletes_completed_temporary_upload(
     )
     monkeypatch.setattr(ingest.GulpRedis, "get_instance", lambda: redis)
 
-    result = await ingest._preview_or_enqueue_ingest_task(
-        **_upload_args(str(upload))
-    )
+    result = await ingest._preview_or_enqueue_ingest_task(**_upload_args(str(upload)))
 
     print("queue-full upload response:", result.status_code)
     assert result.status_code == 503

@@ -1681,22 +1681,26 @@ class GulpPluginBase(ABC):
 
         lower = await GulpPluginBase.load(plugin, cache_mode=cache_mode)
 
-        # initialize private fields
-        # pylint: disable=W0212
-        lower._sess = sess
-        lower._stats = stats
-        lower._ws_id = ws_id
-        lower._req_id = req_id
-        lower._user_id = user_id
-        lower._operation_id = operation_id
-        lower._context_id = context_id
-        lower._index = index
-        lower._file_path = file_path
-        lower._original_file_path = original_file_path
-        lower._source_id = source_id
-        await lower._initialize(plugin_params)
-        lower._preview_mode = self._preview_mode
-        return lower
+        try:
+            # initialize private fields
+            # pylint: disable=W0212
+            lower._sess = sess
+            lower._stats = stats
+            lower._ws_id = ws_id
+            lower._req_id = req_id
+            lower._user_id = user_id
+            lower._operation_id = operation_id
+            lower._context_id = context_id
+            lower._index = index
+            lower._file_path = file_path
+            lower._original_file_path = original_file_path
+            lower._source_id = source_id
+            await lower._initialize(plugin_params)
+            lower._preview_mode = self._preview_mode
+            return lower
+        except BaseException:
+            await lower.unload()
+            raise
 
     async def setup_stacked_plugin(
         self,
@@ -3073,6 +3077,15 @@ class GulpPluginBase(ABC):
 
         return final_status
 
+    async def update_final_stats_and_unload(
+        self, flt: GulpIngestionFilter = None, ex: Exception = None
+    ) -> GulpRequestStatus:
+        """Finalize plugin stats and always release the plugin instance."""
+        try:
+            return await self.update_final_stats_and_flush(flt=flt, ex=ex)
+        finally:
+            await self.unload()
+
     @staticmethod
     def load_sync(
         plugin: str,
@@ -3113,6 +3126,7 @@ class GulpPluginBase(ABC):
         plugin: str,
         extension: bool = False,
         cache_mode: GulpPluginCacheMode = GulpPluginCacheMode.DEFAULT,
+        run_post_init: bool = True,
         **kwargs,
     ) -> "GulpPluginBase":
         """
@@ -3122,6 +3136,7 @@ class GulpPluginBase(ABC):
             plugin (str): The name of the plugin (may also end with .py/.pyc) or the full path
             extension (bool, optional): Whether the plugin is an extension. Defaults to False.
             cache_mode (GulpPluginCacheMode, optional): The cache mode. Defaults to GulpPluginCacheMode.DEFAULT.
+            run_post_init (bool, optional): Whether to initialize runtime side effects. Defaults to True.
             **kwargs: Additional keyword arguments ("pickled", only when running in worker process).
         """
 
@@ -3227,7 +3242,7 @@ class GulpPluginBase(ABC):
         route_count: int | None = None
         broadcast_types: set[str] | None = None
         app = None
-        if extension and GulpProcess.get_instance().is_main_process():
+        if run_post_init and extension and GulpProcess.get_instance().is_main_process():
             from gulp.api.server_api import GulpServer
 
             app = GulpServer.get_instance()._app
@@ -3236,8 +3251,9 @@ class GulpPluginBase(ABC):
             broadcast_types = set(GulpRedisBroker.get_instance().broadcast_types)
 
         try:
-            await p.post_init(**kwargs)
-            await events.drain()
+            if run_post_init:
+                await p.post_init(**kwargs)
+                await events.drain()
         except BaseException:
             if route_count is not None:
                 del app.router.routes[route_count:]
@@ -3287,10 +3303,18 @@ class GulpPluginBase(ABC):
 
         from gulp.process import GulpProcess
 
-        if GulpProcess.get_instance().is_main_process():
-            events.unsubscribe(self)
-            await events.drain()
-        sys.modules.pop(self.module_name, None)
+        lower = self._lower_instance
+        self._lower_instance = None
+        try:
+            if lower and lower.module_name in sys.modules:
+                await lower.unload()
+        finally:
+            try:
+                if GulpProcess.get_instance().is_main_process():
+                    events.unsubscribe(self)
+                    await events.drain()
+            finally:
+                sys.modules.pop(self.module_name, None)
 
     @staticmethod
     def path_from_plugin(
@@ -3435,48 +3459,50 @@ class GulpPluginBase(ABC):
 
                 try:
                     p = await GulpPluginBase.load(
-                        f, extension=extension, cache_mode=GulpPluginCacheMode.IGNORE
+                        f,
+                        extension=extension,
+                        cache_mode=GulpPluginCacheMode.IGNORE,
+                        run_post_init=False,
                     )
                 except Exception as ex:
                     MutyLogger.get_instance().exception(ex)
                     MutyLogger.get_instance().error("could not load plugin %s" % (f))
                     continue
-                if name is not None:
-                    # filter by name
-                    if name.lower() not in p.name.lower():
+                try:
+                    if name is not None and name.lower() not in p.name.lower():
+                        # filter by name
                         continue
 
-                if _exists(l, p.filename):
-                    MutyLogger.get_instance().warning(
-                        "skipping plugin %s, already exists in list (in another path)"
-                        % (f)
-                    )
+                    if _exists(l, p.filename):
+                        MutyLogger.get_instance().warning(
+                            "skipping plugin %s, already exists in list (in another path)"
+                            % (f)
+                        )
+                        continue
+
+                    # got entry
+                    try:
+                        entry = GulpPluginEntry(
+                            path=f,
+                            display_name=p.display_name(),
+                            type=p.type(),
+                            desc=p.desc(),
+                            regex=p.regex(),
+                            filename=p.filename,
+                            custom_parameters=p.custom_parameters(),
+                            depends_on=p.depends_on(),
+                            tags=p.tags(),
+                            version=p.version(),
+                            data=p.data(),
+                            protected=hasattr(p, "_protected"),
+                        )
+
+                        l.append(entry)
+                    except Exception as ex:
+                        # something wrong in the value returned from plugin methods, cannot add ....
+                        MutyLogger.get_instance().exception(ex)
+                finally:
                     await p.unload()
-                    continue
-
-                # got entry
-                try:
-                    entry = GulpPluginEntry(
-                        path=f,
-                        display_name=p.display_name(),
-                        type=p.type(),
-                        desc=p.desc(),
-                        regex=p.regex(),
-                        filename=p.filename,
-                        custom_parameters=p.custom_parameters(),
-                        depends_on=p.depends_on(),
-                        tags=p.tags(),
-                        version=p.version(),
-                        data=p.data(),
-                        protected=hasattr(p, "_protected"),
-                    )
-
-                    l.append(entry)
-                except Exception as ex:
-                    # something wrong in the value returned from plugin methods, cannot add ....
-                    MutyLogger.get_instance().exception(ex)
-
-                await p.unload()
 
         l: list[GulpPluginEntry] = []
 
