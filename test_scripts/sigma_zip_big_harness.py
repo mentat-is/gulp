@@ -618,6 +618,8 @@ async def _run(args: argparse.Namespace) -> int:
     keep_operations = getattr(args, "keep_operations", False)
     shared_operation = getattr(args, "shared_operation", False)
     expected_records, expected_queries, expected_hits = _expected_values(big)
+    ci_result: str | None = None
+    exit_code = 1
     run_suffix = f"{int(started * 1000) & 0xFFFF:04x}"
     print(
         f"[sigma-zip-big] start users={args.users} instances={len(args.instance_urls)} "
@@ -928,7 +930,19 @@ async def _run(args: argparse.Namespace) -> int:
                     f"ws_collab_create={result.get('ws_collab_create_count', '?')} "
                     f"error={result.get('error', '')}"
                 )
-            return 1 if failed or not shared_notes_ok else 0
+            success = not failed and shared_notes_ok
+            ci_result = (
+                f"[sigma-zip-big] result={'SUCCESS' if success else 'FAILURE'} "
+                f"passed={len(passed)} failed={len(failed)} "
+                f"records_ingested={total_records_ingested} "
+                f"expected_records_ingested={expected_records * args.users} "
+                f"completed_queries={total_completed_queries} "
+                f"expected_completed_queries={expected_queries * args.users} "
+                f"total_hits={total_hits} expected_total_hits={expected_total_hits} "
+                f"notes={observed_total_notes if shared_operation else total_hits} "
+                f"expected_notes={expected_total_notes}"
+            )
+            exit_code = 0 if success else 1
         finally:
             if not query_only and not keep_operations:
                 for operation_id in dict.fromkeys(operation_ids):
@@ -943,6 +957,9 @@ async def _run(args: argparse.Namespace) -> int:
                         pass
             if args.cleanup and not query_only and not keep_operations:
                 await _cleanup_worker_users(admin_client, worker_users)
+            if ci_result is not None:
+                print(ci_result, flush=True)
+        return exit_code
 
 
 def main() -> int:

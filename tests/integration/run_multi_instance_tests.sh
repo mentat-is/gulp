@@ -76,6 +76,15 @@ SOAK="${GULP_MULTI_INSTANCE_SOAK:-0}"
 QUIET="${QUIET:-0}"
 ROLE_SPLIT_SIGMA="${ROLE_SPLIT_SIGMA:-0}"
 PROMETHEUS_URL="${PROMETHEUS_URL:-http://localhost:9090}"
+if [[ -t 1 ]]; then
+  RED=$'\033[1;31m'
+  GREEN=$'\033[1;32m'
+  RESET=$'\033[0m'
+else
+  RED=""
+  GREEN=""
+  RESET=""
+fi
 url_port() {
   python3 - "$1" <<'PY'
 import sys
@@ -88,6 +97,20 @@ elif parsed.scheme == "https":
     print(443)
 else:
     print(80)
+PY
+}
+
+port_available() {
+  python3 - "$1" <<'PY'
+import socket
+import sys
+
+with socket.socket() as sock:
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(("0.0.0.0", int(sys.argv[1])))
+    except OSError:
+        raise SystemExit(1)
 PY
 }
 
@@ -283,6 +306,11 @@ print_summary() {
   duration=$((end_ts - START_TS))
 
   echo
+  if [[ "$status" -eq 0 ]]; then
+    printf '%s========== SUCCESS ==========%s\n' "$GREEN" "$RESET"
+  else
+    printf '%s========== FAIL ==========%s\n' "$RED" "$RESET"
+  fi
   echo "multi-instance test summary"
   echo "  status: ${RESULT_STATUS}"
   if [[ -n "$RESULT_DETAIL" ]]; then
@@ -296,8 +324,12 @@ print_summary() {
   echo "  primary_url: ${PRIMARY_URL}"
   echo "  secondary_url: ${SECONDARY_URL}"
   echo "  prometheus_url: ${PROMETHEUS_URL}"
-  echo "  primary_log: ${PRIMARY_LOG}"
-  echo "  secondary_log: ${SECONDARY_LOG}"
+  if [[ -n "$PRIMARY_LOG" ]]; then
+    echo "  primary_log: ${PRIMARY_LOG}"
+  fi
+  if [[ -n "$SECONDARY_LOG" ]]; then
+    echo "  secondary_log: ${SECONDARY_LOG}"
+  fi
   if [[ -n "$TEST_LOG" ]]; then
     echo "  pytest_log: ${TEST_LOG}"
   fi
@@ -332,14 +364,34 @@ cleanup() {
     rm -f "$PROBE_LINK"
   fi
   if [[ $status -ne 0 ]]; then
-    echo "primary log: ${PRIMARY_LOG}" >&2
-    echo "secondary log: ${SECONDARY_LOG}" >&2
+    if [[ -n "$PRIMARY_LOG" ]]; then
+      echo "primary log: ${PRIMARY_LOG}" >&2
+    fi
+    if [[ -n "$SECONDARY_LOG" ]]; then
+      echo "secondary log: ${SECONDARY_LOG}" >&2
+    fi
   fi
   print_summary "$status"
   return "$status"
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+PHASE="checking local ports"
+if [[ "$PRIMARY_PORT" == "$SECONDARY_PORT" ]]; then
+  RESULT_STATUS="failed"
+  RESULT_DETAIL="primary and secondary resolve to the same local port: ${PRIMARY_PORT}"
+  exit 1
+fi
+for port in "$PRIMARY_PORT" "$SECONDARY_PORT"; do
+  if ! port_available "$port"; then
+    RESULT_STATUS="failed"
+    RESULT_DETAIL="local port ${port} is already in use"
+    exit 1
+  fi
+done
 
 if [[ "$ROLE_SPLIT_SIGMA" != "1" ]]; then
   mkdir -p "$PROBE_DIR"

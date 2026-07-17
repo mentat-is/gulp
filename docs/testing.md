@@ -50,6 +50,9 @@ removes the probe and stops both processes afterward:
 tests/integration/run_multi_instance_tests.sh
 ~~~
 
+Both local ports must be free; the launcher exits before resetting data if
+either port is already in use.
+
 Tune load with `GULP_CONCURRENT_USERS`,
 `GULP_MULTI_INSTANCE_RAW_INGEST_DOCS`,
 `GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT`, and

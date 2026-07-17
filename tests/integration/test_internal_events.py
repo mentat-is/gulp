@@ -255,7 +255,8 @@ async def _run_internal_event_stress(first_url: str, second_url: str) -> None:
     )
     large_count = max(1, int(os.getenv("GULP_INTERNAL_EVENTS_STRESS_LARGE", "20")))
     run_id = uuid.uuid4().hex[:8]
-    limits = httpx.Limits(max_connections=100, max_keepalive_connections=100)
+    # Submit every event once without reusing server-expired idle connections.
+    limits = httpx.Limits(max_connections=100, max_keepalive_connections=0)
     async with (
         httpx.AsyncClient(base_url=first_url, timeout=300.0, limits=limits) as first,
         httpx.AsyncClient(base_url=second_url, timeout=300.0, limits=limits) as second,

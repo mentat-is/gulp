@@ -719,6 +719,17 @@ def _should_print_received_count(count: int, expected: int) -> bool:
     return count <= 5 or count == expected or count % 1000 == 0
 
 
+def _print_sigma_zip_results(stage: str, totals: dict[str, Any]) -> None:
+    print(
+        f"[sigma-zip-big] results {stage} operation={totals['operation_id']} "
+        f"expected_completed_queries={totals['expected_completed_queries']} "
+        f"matched_completed_queries={totals['completed_queries']} "
+        f"expected_total_hits={totals['expected_total_hits']} "
+        f"matched_total_hits={totals['total_hits']}",
+        flush=True,
+    )
+
+
 class SigmaZipHarnessError(RuntimeError):
     """Harness failure carrying partial totals for terminal worker output."""
 
@@ -1103,6 +1114,7 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                             result_totals["completed_queries"] = got_completed
                             result_totals["total_hits"] = got_hits
                             result_totals["notes"] = got_hits
+                            _print_sigma_zip_results("received", result_totals)
                             _sigma_zip_debug(
                                 "query terminal stats received",
                                 req_id=message.req_id,
@@ -1233,6 +1245,15 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                         in {"done", "failed", "canceled"},
                         label="query_sigma_zip",
                     )
+                    query_data = query_stats.get("data") or {}
+                    result_totals["status"] = query_stats.get(
+                        "status", result_totals["status"]
+                    )
+                    result_totals["completed_queries"] = int(
+                        query_data.get("completed_queries", 0)
+                    )
+                    result_totals["total_hits"] = int(query_data.get("total_hits", 0))
+                    _print_sigma_zip_results("received", result_totals)
 
                 finally:
                     query_client.unregister_ws_message_handler(
@@ -1251,12 +1272,6 @@ async def _run_query_sigma_zip_big_matches_and_notes(
                     req_id=query_req_id,
                 )
             result_totals["ws_stats_update_count"] = ws_stats_update_count
-            query_data = query_stats.get("data") or {}
-            result_totals["status"] = query_stats.get("status", result_totals["status"])
-            result_totals["completed_queries"] = int(
-                query_data.get("completed_queries", 0)
-            )
-            result_totals["total_hits"] = int(query_data.get("total_hits", 0))
 
             if result_totals["completed_queries"] != expected_completed:
                 _fail(
@@ -1301,6 +1316,7 @@ async def _run_query_sigma_zip_big_matches_and_notes(
             return result_totals
 
         finally:
+            _print_sigma_zip_results("final", result_totals)
             if cleanup:
                 await _delete_op(client, op_id)
 

@@ -9,6 +9,7 @@ from tests.integration import test_stress
 from tests.integration.test_stress import (
     SigmaZipHarnessError,
     _count_operation_notes,
+    _print_sigma_zip_results,
     _round_robin_instance_url,
     _clear_query_artifacts,
     _should_print_received_count,
@@ -87,6 +88,26 @@ def test_received_count_debug_sampling() -> None:
     assert _should_print_received_count(1000, 1149)
     assert _should_print_received_count(1149, 1149)
     assert not _should_print_received_count(999, 1149)
+
+
+@pytest.mark.unit
+def test_sigma_zip_results_print_expected_vs_matched(capsys) -> None:
+    _print_sigma_zip_results(
+        "received",
+        {
+            "operation_id": "op-a",
+            "completed_queries": 14,
+            "expected_completed_queries": 14,
+            "total_hits": 15,
+            "expected_total_hits": 15,
+        },
+    )
+
+    assert capsys.readouterr().out == (
+        "[sigma-zip-big] results received operation=op-a "
+        "expected_completed_queries=14 matched_completed_queries=14 "
+        "expected_total_hits=15 matched_total_hits=15\n"
+    )
 
 
 @pytest.mark.unit
@@ -549,8 +570,12 @@ async def test_worker_partial_totals_can_succeed(monkeypatch) -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_run_deletes_operations_after_final_status_output(
-    monkeypatch, capsys
+@pytest.mark.parametrize(
+    ("worker_status", "expected_rc", "expected_result"),
+    [("done", 0, "SUCCESS"), ("failed", 1, "FAILURE")],
+)
+async def test_run_prints_final_ci_result_and_deletes_operations(
+    monkeypatch, capsys, worker_status, expected_rc, expected_result
 ) -> None:
     class _FakeGulpClient:
         def __init__(
@@ -571,7 +596,7 @@ async def test_run_deletes_operations_after_final_status_output(
     async def _fake_run_flow(*args, **kwargs):
         return {
             "operation_id": kwargs["operation_id"],
-            "status": "done",
+            "status": worker_status,
             "completed_queries": 1,
         }
 
@@ -620,9 +645,16 @@ async def test_run_deletes_operations_after_final_status_output(
     )
 
     out = capsys.readouterr().out
-    assert rc == 0
+    summary = out.splitlines()[-1]
+    assert rc == expected_rc
     assert "expected_total_hits=73464" in out
-    assert "status=done" in out
+    assert f"status={worker_status}" in out
+    assert out.count("[sigma-zip-big] result=") == 1
+    assert summary.startswith(f"[sigma-zip-big] result={expected_result} ")
+    assert "records_ingested=0 expected_records_ingested=98633" in summary
+    assert "completed_queries=1 expected_completed_queries=1149" in summary
+    assert "total_hits=0 expected_total_hits=73464" in summary
+    assert "notes=0 expected_notes=73464" in summary
     assert events == ["delete_op"]
 
 
