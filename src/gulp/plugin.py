@@ -770,7 +770,13 @@ class GulpPluginBase(ABC):
         Returns:
             tuple[int, int, int]: the number of skipped, ingested, and failed documents
         """
+        if self._raw_ingestion:
+            # disable refresh for raw ingestion, unless it is the last chunk
+            wait_for_refresh = self._last_raw_chunk
+
         if not self._docs_buffer:
+            if wait_for_refresh:
+                await GulpOpenSearch.get_instance().index_refresh(self._index)
             return 0, 0, 0
 
         if self._external_query:
@@ -786,13 +792,6 @@ class GulpPluginBase(ABC):
         el = GulpOpenSearch.get_instance()
         skipped: int = 0
         ingested_docs: list[dict] = []
-        if self._raw_ingestion:
-            # disable refresh for raw ingestion, unless it is the last chunk
-            if self._last_raw_chunk:
-                wait_for_refresh = True
-            else:
-                wait_for_refresh = False
-
         # MutyLogger.get_instance().debug(orjson.dumps(self._docs_buffer, option=orjson.OPT_INDENT_2).decode())
         # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d',len(self.buffer))
         redis_broker = GulpRedisBroker.get_instance()
