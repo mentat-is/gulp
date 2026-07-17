@@ -2438,7 +2438,9 @@ class Plugin(GulpPluginBase):
         **kwargs,
     ) -> GulpRequestStatus:
         # set store_file and call super
-        plugin_params = self._ensure_plugin_params(plugin_params)
+        plugin_params = self._ensure_plugin_params(
+            plugin_params, mapping_file="pcap.json"
+        )
         # set store_file and call super
         plugin_params.store_file = True
         await super().ingest_file(
