@@ -571,11 +571,20 @@ async def test_worker_partial_totals_can_succeed(monkeypatch) -> None:
 @pytest.mark.unit
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("worker_status", "expected_rc", "expected_result"),
-    [("done", 0, "SUCCESS"), ("failed", 1, "FAILURE")],
+    ("worker_status", "cleanup_fails", "expected_rc", "expected_result"),
+    [
+        ("done", False, 0, "SUCCESS"),
+        ("failed", False, 1, "FAILURE"),
+        ("done", True, 1, "FAILURE"),
+    ],
 )
 async def test_run_prints_final_ci_result_and_deletes_operations(
-    monkeypatch, capsys, worker_status, expected_rc, expected_result
+    monkeypatch,
+    capsys,
+    worker_status,
+    cleanup_fails,
+    expected_rc,
+    expected_result,
 ) -> None:
     class _FakeGulpClient:
         def __init__(
@@ -604,7 +613,12 @@ async def test_run_prints_final_ci_result_and_deletes_operations(
 
     async def _fake_delete_op(*args, **kwargs) -> None:
         events.append("delete_op")
+        if cleanup_fails:
+            raise RuntimeError("cleanup failed")
         return None
+
+    async def _fake_cleanup_users(*args, **kwargs) -> None:
+        events.append("cleanup_users")
 
     monkeypatch.setitem(
         sys.modules, "gulp_sdk", SimpleNamespace(GulpClient=_FakeGulpClient)
@@ -629,7 +643,7 @@ async def test_run_prints_final_ci_result_and_deletes_operations(
     )
     monkeypatch.setattr(sigma_zip_big_harness, "_delete_op", _fake_delete_op)
     monkeypatch.setattr(
-        sigma_zip_big_harness, "_cleanup_worker_users", lambda *args: _noop()
+        sigma_zip_big_harness, "_cleanup_worker_users", _fake_cleanup_users
     )
 
     rc = await sigma_zip_big_harness._run(
@@ -655,12 +669,13 @@ async def test_run_prints_final_ci_result_and_deletes_operations(
     assert "completed_queries=1 expected_completed_queries=1149" in summary
     assert "total_hits=0 expected_total_hits=73464" in summary
     assert "notes=0 expected_notes=73464" in summary
-    assert events == ["delete_op"]
+    assert events == ["delete_op", "cleanup_users"]
+    assert ("cleanup=failed" in summary) is cleanup_fails
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_run_always_deletes_operations_but_cleanup_controls_users(
+async def test_run_always_deletes_operations_and_users(
     monkeypatch,
 ) -> None:
     class _FakeGulpClient:
@@ -731,7 +746,8 @@ async def test_run_always_deletes_operations_but_cleanup_controls_users(
 
     assert rc == 0
     assert deleted_operations == ["op-a"]
-    assert cleaned_users == []
+    assert len(cleaned_users) == 1
+    assert cleaned_users[0].startswith("user1")
 
 
 @pytest.mark.unit

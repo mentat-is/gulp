@@ -134,11 +134,24 @@ async def _create_worker_users(
 
 
 async def _cleanup_worker_users(admin_client: Any, user_ids: list[str]) -> None:
-    for user_id in user_ids:
-        try:
-            await admin_client.users.delete(user_id)
-        except Exception:
-            pass
+    from gulp_sdk import NotFoundError
+
+    previous_timeout = admin_client.timeout
+    admin_client.timeout = None
+    failed: list[str] = []
+    try:
+        for user_id in user_ids:
+            try:
+                await admin_client.users.delete(user_id)
+            except NotFoundError:
+                pass
+            except Exception as exc:
+                failed.append(f"{user_id}: {_short_error(exc)}")
+    finally:
+        admin_client.timeout = previous_timeout
+
+    if failed:
+        raise RuntimeError(f"failed deleting users: {'; '.join(failed)}")
 
 
 async def _task_metrics_snapshot() -> dict[str, Any]:
@@ -303,29 +316,30 @@ async def _wait_ingest_done(client: Any, req_ids: set[str], timeout: float) -> N
             await asyncio.sleep(0.5)
 
 
-async def _delete_op(client: Any, op_id: str, timeout: float = 30.0) -> None:
-    """Cancel pending requests then delete the operation, waiting on conflicts."""
+async def _delete_op(client: Any, op_id: str) -> None:
+    """Cancel pending requests then wait for operation deletion to finish."""
+    previous_timeout = client.timeout
+    client.timeout = None
     try:
-        await client.plugins.request_delete(op_id)
-    except Exception:
-        pass
-
-    deadline = asyncio.get_running_loop().time() + timeout
-    while True:
         try:
-            await client.operations.delete(op_id)
-            return
-        except Exception as exc:
-            # Cleanup should be best-effort in stress scenarios.
-            # If the operation/session is already gone, deletion is effectively done.
-            msg = str(exc).lower()
-            if "not found" in msg:
+            await client.plugins.request_delete(op_id)
+        except Exception:
+            pass
+
+        while True:
+            try:
+                await client.operations.delete(op_id)
                 return
-            if asyncio.get_running_loop().time() >= deadline:
-                raise
-            if "running requests" not in msg:
-                raise
-            await asyncio.sleep(1.0)
+            except Exception as exc:
+                # If the operation/session is already gone, deletion is effectively done.
+                msg = str(exc).lower()
+                if "not found" in msg:
+                    return
+                if "running requests" not in msg:
+                    raise
+                await asyncio.sleep(1.0)
+    finally:
+        client.timeout = previous_timeout
 
 
 # ---------------------------------------------------------------------------

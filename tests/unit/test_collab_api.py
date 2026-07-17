@@ -343,7 +343,12 @@ def test_note_fk_columns_are_indexed_for_large_cascades():
     note_indexes = {idx.name for idx in GulpNote.__table__.indexes}
     note_text_indexes = {idx.name for idx in GulpNoteText.__table__.indexes}
 
-    assert {"idx_note_context", "idx_note_source", "idx_note_text_id"} <= note_indexes
+    assert {
+        "idx_note_context",
+        "idx_note_source",
+        "idx_note_text_id",
+        "idx_note_user",
+    } <= note_indexes
     assert "idx_note_text_operation" in note_text_indexes
 
 

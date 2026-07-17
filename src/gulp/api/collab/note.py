@@ -126,6 +126,7 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         Index("idx_note_source", "source_id"),
         Index("idx_note_doc", "doc_id"),
         Index("idx_note_text_id", "text_id"),
+        Index("idx_note_user", "user_id"),
     )
 
     @override

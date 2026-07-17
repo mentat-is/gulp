@@ -318,16 +318,10 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--cleanup",
-        action=argparse.BooleanOptionalAction,
-        default=_env_bool("GULP_SIGMA_ZIP_CLEANUP", True),
-        help="Delete created users at the end; operations are always deleted at the end (env: GULP_SIGMA_ZIP_CLEANUP, default: true)",
-    )
-    parser.add_argument(
         "--keep-operations",
         action="store_true",
         default=_env_bool("GULP_SIGMA_ZIP_KEEP_OPERATIONS", False),
-        help="Keep created operations for later --query-only runs (env: GULP_SIGMA_ZIP_KEEP_OPERATIONS)",
+        help="Keep created operations and worker users for later --query-only runs (env: GULP_SIGMA_ZIP_KEEP_OPERATIONS)",
     )
     args = parser.parse_args()
     if args.users < 1:
@@ -895,7 +889,7 @@ async def _run(args: argparse.Namespace) -> int:
             print(
                 f"[sigma-zip-big] done passed={len(passed)} failed={len(failed)} "
                 f"users={args.users} instances={len(args.instance_urls)} "
-                f"shared_operation={shared_operation} cleanup={args.cleanup} "
+                f"shared_operation={shared_operation} "
                 f"started={_format_dt(start_time)} ended={_format_dt(end_time)} "
                 f"workload_started={_format_dt(workload_start_time)} "
                 f"setup_elapsed={round(workload_started - started, 2)}s "
@@ -944,19 +938,32 @@ async def _run(args: argparse.Namespace) -> int:
             )
             exit_code = 0 if success else 1
         finally:
+            cleanup_failed = False
             if not query_only and not keep_operations:
                 for operation_id in dict.fromkeys(operation_ids):
                     try:
                         await _delete_op(admin_client, operation_id)
                     except Exception as exc:
+                        cleanup_failed = True
                         print(
                             f"[sigma-zip-big] cleanup operation failed "
                             f"operation={operation_id} error={_short_error(exc)}",
                             flush=True,
                         )
-                        pass
-            if args.cleanup and not query_only and not keep_operations:
-                await _cleanup_worker_users(admin_client, worker_users)
+            if not query_only and not keep_operations:
+                try:
+                    await _cleanup_worker_users(admin_client, worker_users)
+                except Exception as exc:
+                    cleanup_failed = True
+                    print(
+                        f"[sigma-zip-big] cleanup users failed error={_short_error(exc)}",
+                        flush=True,
+                    )
+            if cleanup_failed:
+                exit_code = 1
+                if ci_result is not None:
+                    ci_result = ci_result.replace("result=SUCCESS", "result=FAILURE", 1)
+                    ci_result += " cleanup=failed"
             if ci_result is not None:
                 print(ci_result, flush=True)
         return exit_code

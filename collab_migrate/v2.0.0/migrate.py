@@ -86,6 +86,9 @@ async def migrate_note_text(db_url: str) -> None:
                 await session.execute(
                     text("CREATE INDEX IF NOT EXISTS idx_note_text_id ON note (text_id);")
                 )
+                await session.execute(
+                    text("CREATE INDEX IF NOT EXISTS idx_note_user ON note (user_id);")
+                )
     finally:
         await engine.dispose()
 
