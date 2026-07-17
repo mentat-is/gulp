@@ -488,6 +488,16 @@ flowchart TD
 
 - stacked plugins must call `setup_stacked_plugin(lower_plugin)` in their `ingest_file`, `ingest_raw`, `query_external` entrypoints (depending on where it is needed) and then process the record using the corresponding lower plugin's `ingest_file`, `ingest_raw`, `query_external` entrypoints.
 
+  Set `GulpPluginParameters.stacked_plugin` to replace that default lower plugin for a request. For example, an existing plugin stacked on `csv` can use the installed `csv_pro` plugin without code changes:
+
+  ```json
+  {
+    "plugin_params": {
+      "stacked_plugin": "csv_pro"
+    }
+  }
+  ```
+
 - some plugins may want to bypass the engine and call lower's `_record_to_gulp_document` by itself: so, they must use `load_plugin` instead of `setup_stacked_pugin` in their initialization: for an example of this, look at the [mbox](../src/gulp/plugins/mbox.py) which sits on top of the [eml](../src/gulp/plugins/eml.py) plugin.
 
 # mapping 101

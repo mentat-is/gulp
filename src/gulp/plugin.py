@@ -1716,13 +1716,15 @@ class GulpPluginBase(ABC):
         - the caller calls setup_stacked_plugin with the plugin to load as lower plugin
         - it then calls lower "ingest_file" and let the lower plugin process the file.
 
+        the outer plugin may override its default lower plugin with `GulpPluginParameters.stacked_plugin`.
+
         the engine takes care of postprocessing data:
 
         - for any record, calls the upper plugin _record_to_gulp_document function after the lower
         - when flushing a chunk of documents to opensearch, calls the upper plugin _enrich_documents function after the lower
 
         Args:
-            plugin (str): the plugin to load as lower
+            plugin (str): the default plugin to load as lower
             *args: additional arguments to pass to the plugin constructor.
             cache_mode (GulpPluginCacheMode, optional): the cache mode for the plugin. Defaults to GulpPluginCacheMode.DEFAULT.
             **kwargs: additional keyword arguments to pass to the plugin constructor.
@@ -1731,6 +1733,8 @@ class GulpPluginBase(ABC):
         Returns:
             PluginBase: the loaded plugin
         """
+        if self._upper_instance is None:
+            plugin = self._plugin_params.stacked_plugin or plugin
         lower = await GulpPluginBase.load(
             plugin, extension=False, cache_mode=cache_mode, *args, **kwargs
         )
