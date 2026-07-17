@@ -427,6 +427,7 @@ async def operation_get_by_id_handler(
 
             if get_count:
                 # also get count
+                await sess.commit()
                 d["doc_count"] = (
                     await GulpOpenSearch.get_instance().datastream_get_count(d["index"])
                 )

@@ -421,6 +421,8 @@ up to 10 dictionary created from GulpDocuments, dictionary must to be contains:
                                             )
                                     except json.JSONDecodeError:
                                         pass
+                            except RequestCanceledError:
+                                raise
                             except Exception:
                                 break
         # Ensure we signal 'done' if the stream closes naturally without [DONE] token

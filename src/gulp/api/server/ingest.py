@@ -283,7 +283,19 @@ async def _decompress_file_for_ingestion(file_path: str) -> str:
     """
     Decompress a single compressed file into a temporary file for ingestion.
     """
-    return await asyncio.to_thread(_decompress_file_for_ingestion_sync, file_path)
+    decompress_task = asyncio.create_task(
+        asyncio.to_thread(_decompress_file_for_ingestion_sync, file_path)
+    )
+    try:
+        return await asyncio.shield(decompress_task)
+    except asyncio.CancelledError:
+        try:
+            decompressed_path = await decompress_task
+        except Exception:
+            pass
+        else:
+            await muty.file.delete_file_or_dir_async(decompressed_path)
+        raise
 
 
 async def _ingest_file_internal(

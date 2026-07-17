@@ -853,6 +853,8 @@ async def _query_raw_sync(
     Returns:
         tuple[int, list[dict]]: total hits, list of documents
     """
+    # Do not keep the caller's ACL transaction checked out during remote I/O.
+    await sess.commit()
     q_options.loop = False
     q_options.fields = "*"
     if q_options.preview_mode:
@@ -990,6 +992,7 @@ one aggregation query according to the [OpenSearch DSL specifications](https://o
             s = await GulpUserSession.check_token(sess, token, obj=op)
             q_options = GulpQueryParameters()
             q_options.limit = 0
+            await sess.commit()
             (
                 total_hits,
                 _,
@@ -1637,6 +1640,7 @@ async def query_sigma_handler(
             user_id = s.user.id
 
             # convert sigma rule/s using pysigma
+            await sess.commit()
             queries: list[
                 GulpQuery
             ] = await GulpServer.get_instance().spawn_worker_task(
@@ -1735,6 +1739,7 @@ async def query_single_id_handler(
             await GulpUserSession.check_token(sess, token, obj=op)
             index = op.index
 
+            await sess.commit()
             d = await GulpOpenSearch.get_instance().query_single_document(index, doc_id)
             return JSONResponse(JSendResponse.success(req_id, data=d))
     except Exception as ex:
@@ -1847,6 +1852,7 @@ async def query_max_min_per_field(
             await GulpUserSession.check_token(sess, token, obj=op)
             index = op.index
 
+            await sess.commit()
             d = await GulpOpenSearch.get_instance().query_max_min_per_field(
                 index, group_by=group_by, flt=flt
             )
@@ -1934,6 +1940,7 @@ async def query_operations(
         async with GulpCollab.get_instance().session() as sess:
             s: GulpUserSession = await GulpUserSession.check_token(sess, token)
             user_id = s.user.id
+            await sess.commit()
 
             # check token and get its accessible operations
             ops: list[dict] = await GulpOperation.get_by_filter_wrapper(
@@ -2039,6 +2046,7 @@ async def query_fields_by_source_handler(
             user_id = s.user.id
 
             # check if there is at least one document with operation_id, context_id and source_id
+            await sess.commit()
             await GulpOpenSearch.get_instance().search_dsl_sync(
                 index=index,
                 q={
@@ -2064,6 +2072,7 @@ async def query_fields_by_source_handler(
                 return JSONResponse(JSendResponse.success(req_id=req_id, data=m))
 
             # spawn a task to run fields mapping in a worker and return empty
+            await sess.commit()
             await GulpServer.get_instance().spawn_worker_task(
                 GulpOpenSearch.datastream_update_source_field_types_by_src_wrapper,
                 None,  # sess=None to create a temporary one (a worker can't use the current one)

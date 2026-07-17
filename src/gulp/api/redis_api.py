@@ -808,8 +808,13 @@ class GulpRedis:
 
         self._last_heartbeat_update = now
         try:
+            from gulp.events import events
+
             key = f"{self.HEARTBEAT_KEY_PREFIX}:{self.server_id}"
             await self._redis.set(key, b"1", ex=self.HEARTBEAT_TTL)
+            await self._redis.expire(
+                events._mask_key(self.server_id), self.HEARTBEAT_TTL
+            )
         except Exception:
             # best-effort
             pass

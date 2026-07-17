@@ -178,6 +178,7 @@ the plugins must implement:
 following are basic rules to use multiprocessing and concurrency effectively in gulp plugins:
 
 - both `main` and `worker` processes can spawn `background async tasks` which runs in the current process without blocking the process event loop.
+  gULP cancels and awaits these tasks when that process shuts down.
 
   ```python
   async def fun(param1, param2):

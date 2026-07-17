@@ -17,8 +17,9 @@ async def test_query_raw_sync_does_not_raise_on_empty_results(monkeypatch):
     )
 
     q_options = GulpQueryParameters(preview_mode=True)
+    session = MagicMock(commit=AsyncMock())
     total_hits, docs = await _query_raw_sync(
-        MagicMock(),
+        session,
         {"query": {"match_none": {}}},
         q_options,
         index="test_index",
@@ -26,5 +27,6 @@ async def test_query_raw_sync_does_not_raise_on_empty_results(monkeypatch):
 
     assert total_hits == 0
     assert docs == []
+    session.commit.assert_awaited_once()
     os_api.search_dsl_sync.assert_awaited_once()
     assert os_api.search_dsl_sync.await_args.kwargs["raise_on_error"] is False

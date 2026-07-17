@@ -115,7 +115,7 @@ async def test_standalone_datastream_delete_emits_no_operation_event(monkeypatch
     from gulp.api.opensearch_api import GulpOpenSearch
     from gulp.api.server.db import opensearch_delete_index_handler
 
-    session = MagicMock()
+    session = MagicMock(commit=AsyncMock())
 
     @asynccontextmanager
     async def session_context():
@@ -143,6 +143,7 @@ async def test_standalone_datastream_delete_emits_no_operation_event(monkeypatch
     )
 
     assert response.status_code == 200
+    session.commit.assert_awaited_once()
     opensearch.datastream_delete.assert_awaited_once()
     emit.assert_not_awaited()
 

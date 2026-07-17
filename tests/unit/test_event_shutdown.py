@@ -31,7 +31,7 @@ async def test_workers_and_events_drain_before_extensions_and_storage(monkeypatc
         return instance
 
     sockets = dependency(["sockets"])
-    process = dependency(["workers", "threads"])
+    process = dependency(["background", "workers", "threads"])
     collab = dependency(["postgres"])
     opensearch = dependency(["opensearch"])
     s3 = dependency(["s3"])
@@ -44,6 +44,7 @@ async def test_workers_and_events_drain_before_extensions_and_storage(monkeypatc
     monkeypatch.setattr(sockets, "cancel_all", sockets.sockets)
     monkeypatch.setattr(process, "close_process_pool", process.workers)
     monkeypatch.setattr(process, "close_thread_pool", process.threads)
+    monkeypatch.setattr(process, "cancel_bg_tasks", process.background)
     monkeypatch.setattr(collab, "shutdown", collab.postgres)
     monkeypatch.setattr(opensearch, "shutdown", opensearch.opensearch)
     monkeypatch.setattr(s3, "shutdown", s3.s3)
@@ -79,7 +80,14 @@ async def test_workers_and_events_drain_before_extensions_and_storage(monkeypatc
 
     await server._cleanup()
 
-    assert order[:5] == ["sockets", "workers", "drain-1", "unload", "drain-2"]
+    assert order[:6] == [
+        "sockets",
+        "background",
+        "workers",
+        "drain-1",
+        "unload",
+        "drain-2",
+    ]
     assert order.index("threads") < order.index("postgres")
     assert order.index("postgres") < order.index("broker")
     assert order[-1] == "redis"
@@ -99,6 +107,7 @@ async def test_cleanup_failure_does_not_skip_later_resources(monkeypatch):
         cancel_all=AsyncMock(side_effect=RuntimeError("socket failure"))
     )
     process = MagicMock(
+        cancel_bg_tasks=AsyncMock(),
         close_process_pool=AsyncMock(),
         close_thread_pool=AsyncMock(),
     )

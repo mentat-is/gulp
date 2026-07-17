@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from gulp.api.server import db, operation, storage
+from gulp.api.server import db, operation, query, storage
 
 
 class _TrackedCollab:
@@ -131,3 +131,63 @@ async def test_operation_delete_releases_session_before_external_cleanup(monkeyp
     print(response)
     assert collab.sessions == 1
     authorized_operation.delete.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_operation_count_releases_session_before_opensearch(monkeypatch):
+    collab = _TrackedCollab()
+    authorized_operation = SimpleNamespace(
+        to_dict=lambda **_kwargs: {"id": "operation", "index": "index"}
+    )
+
+    async def _count(_index: str):
+        assert collab.active is False
+        return 3
+
+    monkeypatch.setattr(operation.GulpCollab, "get_instance", lambda: collab)
+    monkeypatch.setattr(
+        operation.GulpOperation,
+        "get_by_id_wrapper",
+        AsyncMock(return_value=(None, authorized_operation, None)),
+    )
+    monkeypatch.setattr(
+        operation.GulpOpenSearch,
+        "get_instance",
+        lambda: SimpleNamespace(datastream_get_count=AsyncMock(side_effect=_count)),
+    )
+
+    response = await operation.operation_get_by_id_handler(
+        "token", "operation", True, "request"
+    )
+
+    print(response)
+    assert response["data"]["doc_count"] == 3
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_sync_query_releases_session_before_opensearch(monkeypatch):
+    collab = _TrackedCollab()
+    collab.active = True
+    session = _TrackedSession(collab)
+
+    async def _search(*_args, **_kwargs):
+        assert collab.active is False
+        return 1, [{"_id": "document"}], None, None
+
+    monkeypatch.setattr(
+        query.GulpOpenSearch,
+        "get_instance",
+        lambda: SimpleNamespace(search_dsl_sync=AsyncMock(side_effect=_search)),
+    )
+
+    result = await query._query_raw_sync(
+        session,
+        {"query": {"match_all": {}}},
+        query.GulpQueryParameters(),
+        index="index",
+    )
+
+    print(result)
+    assert result == (1, [{"_id": "document"}])

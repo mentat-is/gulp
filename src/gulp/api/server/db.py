@@ -474,6 +474,7 @@ async def opensearch_delete_index_handler(
                     )
 
             # delete the datastream (deletes the corresponding index and template)
+            await sess.commit()
             await GulpOpenSearch.get_instance().datastream_delete(
                 ds=index, throw_on_error=True
             )
@@ -548,6 +549,7 @@ async def opensearch_list_index_handler(
                 sess, token, permission=GulpUserPermission.ADMIN
             )
 
+            await sess.commit()
             l = await GulpOpenSearch.get_instance().datastream_list()
             return JSONResponse(JSendResponse.success(req_id=req_id, data=l))
     except Exception as ex:
@@ -603,6 +605,7 @@ async def opensearch_refresh_index_handler(
             )
 
             # refresh the index
+            await sess.commit()
             await GulpOpenSearch.get_instance().index_refresh(index)
 
             return JSONResponse(

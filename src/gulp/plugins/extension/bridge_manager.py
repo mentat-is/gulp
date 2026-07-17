@@ -568,6 +568,7 @@ class Plugin(GulpPluginBase):
                     ),
                 }
 
+                await sess.commit()
                 async with aiohttp.ClientSession() as http_sess:
                     timeout = aiohttp.ClientTimeout(total=self._bridge_timeout_sec)
                     async with http_sess.post(
@@ -609,6 +610,7 @@ class Plugin(GulpPluginBase):
         task: "GulpBridgeTaskEntry",
     ) -> str:
         """internal method to call bridge to stop ingestion for a task"""
+        await sess.commit()
         bridge_url = bridge.url.rstrip("/") + "/stop_ingestion"
         headers = {
             "Authorization": f"Bearer {bridge.bridge_token}",

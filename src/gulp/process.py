@@ -66,6 +66,7 @@ class GulpProcess:
         self._logger_file_path: str = None
         self._log_to_syslog: bool = False
         self._main_process: bool = True
+        self._background_tasks: set[asyncio.Task] = set()
 
     def __new__(cls) -> "GulpProcess":
         """
@@ -114,6 +115,7 @@ class GulpProcess:
         MutyLogger.get_instance().warning("worker_cleanup CALLED (pid=%d)", os.getpid())
 
         cleanup_steps = (
+            ("background tasks", self.cancel_bg_tasks),
             ("thread pool", lambda: self.close_thread_pool(wait=True)),
             ("OpenSearch", lambda: GulpOpenSearch.get_instance().shutdown()),
             ("PostgreSQL", lambda: GulpCollab.get_instance().shutdown()),
@@ -131,6 +133,15 @@ class GulpProcess:
         MutyLogger.get_instance().warning(
             "worker_cleanup COMPLETED! (pid=%d)", os.getpid()
         )
+
+    async def cancel_bg_tasks(self) -> None:
+        """Cancel and await fire-and-forget tasks owned by this process."""
+        tasks = tuple(self._background_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._background_tasks.difference_update(tasks)
 
     @staticmethod
     def _worker_finalizer() -> None:
@@ -277,6 +288,7 @@ class GulpProcess:
         """
         if self.process_pool:
             pool = self.process_pool
+            join_task: asyncio.Task | None = None
             MutyLogger.get_instance().debug("closing mp pool %s ..." % (pool))
             try:
                 pool.close()
@@ -295,6 +307,11 @@ class GulpProcess:
                     pool.terminate()
                     MutyLogger.get_instance().warning("mp pool FORCED terminated!")
                     await join_task
+            except asyncio.CancelledError:
+                if join_task and not join_task.done():
+                    pool.terminate()
+                    await asyncio.shield(join_task)
+                raise
             except Exception as ex:
                 MutyLogger.get_instance().exception(ex)
             finally:

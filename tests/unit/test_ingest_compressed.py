@@ -3,10 +3,12 @@ import bz2
 import gzip
 import lzma
 import os
+import threading
 import zipfile
 
 import pytest
 
+from gulp.api.server import ingest
 from gulp.api.server.ingest import _decompress_file_for_ingestion
 from gulp.structs import GulpPluginParameters
 
@@ -71,6 +73,34 @@ def test_decompress_file_for_ingestion_rejects_multi_file_zip(tmp_path):
 
     with pytest.raises(ValueError, match="exactly one file"):
         asyncio.run(_decompress_file_for_ingestion(str(compressed_path)))
+
+
+@pytest.mark.asyncio
+async def test_cancelled_decompression_removes_thread_output(monkeypatch, tmp_path):
+    started = threading.Event()
+    release = threading.Event()
+    output_path = tmp_path / "decompressed.log"
+
+    def decompress(_file_path: str) -> str:
+        started.set()
+        release.wait()
+        output_path.write_bytes(b"decompressed")
+        return str(output_path)
+
+    monkeypatch.setattr(ingest, "_decompress_file_for_ingestion_sync", decompress)
+    task = asyncio.create_task(
+        ingest._decompress_file_for_ingestion("compressed.log.gz")
+    )
+    while not started.is_set():
+        await asyncio.sleep(0)
+
+    task.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    print("cancelled decompression output exists:", output_path.exists())
+    assert not output_path.exists()
 
 
 def test_compressed_plugin_params_make_params_non_empty():

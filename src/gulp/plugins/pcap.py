@@ -2481,12 +2481,12 @@ class Plugin(GulpPluginBase):
             MutyLogger.get_instance().debug(
                 "using PcapNgReader reader on file: %s" % (file_path)
             )
-            parser = PcapNgReader(file_path)
+            reader = PcapNgReader
         else:
             MutyLogger.get_instance().debug(
                 "using PcapReader reader on file: %s" % (file_path)
             )
-            parser = PcapReader(file_path)
+            reader = PcapReader
 
         doc_idx = 0
         # Cache per-ingestion constants to avoid per-packet dict lookups and repeated hashes
@@ -2498,10 +2498,11 @@ class Plugin(GulpPluginBase):
         )
         self._event_code_cache: dict[str, str] = {}
 
-        for pkt in parser:
-            if not await self.process_record(pkt, doc_idx, flt=flt):
-                # stop processing (preview mode)
-                break
-            doc_idx += 1
+        with reader(file_path) as parser:
+            for pkt in parser:
+                if not await self.process_record(pkt, doc_idx, flt=flt):
+                    # stop processing (preview mode)
+                    break
+                doc_idx += 1
 
         return stats.status

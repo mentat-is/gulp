@@ -1102,7 +1102,10 @@ class GulpServer:
                     except Exception:
                         pass
                     return False
-        _ = asyncio.create_task(_run_and_await(), name=name)
+        task = asyncio.create_task(_run_and_await(), name=name)
+        process = GulpProcess.get_instance()
+        process._background_tasks.add(task)
+        task.add_done_callback(process._background_tasks.discard)
         return True
 
     async def spawn_worker_task(
@@ -1191,6 +1194,9 @@ class GulpServer:
         await cleanup_step(
             "connected sockets",
             lambda: GulpConnectedSockets.get_instance().cancel_all(),
+        )
+        await cleanup_step(
+            "background tasks", GulpProcess.get_instance().cancel_bg_tasks
         )
 
         # Cancel the dequeue task before closing workers and backing services.

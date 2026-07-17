@@ -432,6 +432,7 @@ async def enrich_single_id_handler(
                 user_id = s.user.id
 
                 # load plugin and enrich document
+                await sess.commit()
                 mod = await GulpPluginBase.load(plugin)
                 doc = await mod.enrich_single_document(
                     sess, doc_id, operation_id, index, fields, plugin_params
@@ -1052,6 +1053,7 @@ async def update_single_id_handler(
             user_id = s.user.id
 
             # get the document
+            await sess.commit()
             doc: dict = await GulpOpenSearch.get_instance().query_single_document(
                 index, doc_id
             )

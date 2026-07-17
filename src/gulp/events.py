@@ -194,7 +194,9 @@ class _Events:
             if not redis_client.server_id:
                 return
             await redis_client.client().set(
-                self._mask_key(redis_client.server_id), mask
+                self._mask_key(redis_client.server_id),
+                mask,
+                ex=redis_client.HEARTBEAT_TTL,
             )
         except Exception:
             MutyLogger.get_instance().exception("failed to update event listener mask")

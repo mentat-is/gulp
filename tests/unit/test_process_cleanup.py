@@ -52,8 +52,49 @@ async def test_forced_process_pool_is_terminated_and_joined(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_cancelled_process_pool_cleanup_terminates_and_joins():
+    join_started = asyncio.Event()
+    join_released = asyncio.Event()
+
+    class _Pool:
+        def __init__(self):
+            self.terminated = False
+            self.joined = False
+
+        def close(self):
+            pass
+
+        async def join(self):
+            join_started.set()
+            await join_released.wait()
+            self.joined = True
+
+        def terminate(self):
+            self.terminated = True
+            join_released.set()
+
+    process = GulpProcess()
+    pool = _Pool()
+    process.process_pool = pool
+    cleanup_task = asyncio.create_task(process.close_process_pool())
+    await join_started.wait()
+
+    cleanup_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cleanup_task
+
+    print("cancelled process pool cleanup:", pool.terminated, pool.joined)
+    assert pool.terminated is True
+    assert pool.joined is True
+    assert process.process_pool is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_worker_cleanup_continues_after_failure(monkeypatch):
     process = GulpProcess()
+    cancel_bg_tasks = AsyncMock()
+    monkeypatch.setattr(process, "cancel_bg_tasks", cancel_bg_tasks)
     process.close_thread_pool = AsyncMock(side_effect=RuntimeError("thread failure"))
 
     opensearch = MagicMock(shutdown=AsyncMock())
@@ -67,6 +108,7 @@ async def test_worker_cleanup_continues_after_failure(monkeypatch):
 
     await process.worker_cleanup()
 
+    cancel_bg_tasks.assert_awaited_once()
     opensearch.shutdown.assert_awaited_once()
     collab.shutdown.assert_awaited_once()
     redis.shutdown.assert_awaited_once()
