@@ -640,9 +640,28 @@ class GulpConfig:
 
         Set to 0 to preserve the previous write-on-every-check behavior.
         """
-        return self._get_int_config(
-            "postgres_user_session_touch_interval_ms", 60000, minimum=0
+        configured_interval = self._get_int_config(
+            "postgres_user_session_touch_interval_ms", 30000, minimum=0
         )
+        if configured_interval == 0:
+            return 0
+
+        admin_ttl = self._token_admin_ttl()
+        ttl = self._token_ttl()
+
+        # never allow touch interval to be greater than the minimum token TTL / 2
+        if admin_ttl > 0 and ttl > 0:
+            min_ttl = min(admin_ttl, ttl) // 2
+        else:
+            min_ttl = 30000
+
+        if configured_interval > min_ttl:
+            """MutyLogger.get_instance().warning(
+                "postgres_user_session_touch_interval_ms (%d) is greater than half of the minimum token TTL, adjusting to %d"
+                % (configured_interval, min_ttl)
+            )"""
+            return min_ttl
+        return configured_interval
 
     def postgres_url(self) -> str:
         """

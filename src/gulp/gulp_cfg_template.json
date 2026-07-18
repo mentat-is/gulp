@@ -79,8 +79,8 @@
   "postgres_statement_timeout_ms": 0,
   // postgresql address (may be overridden by GULP_POSTGRES_URL environment variable)
   "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@localhost:5432/gulp", //postgres:Gulp1234!@localhost:5432/gulp",
-  // minimum interval before refreshing a validated user_session expiration (0=write on every token check)
-  "postgres_user_session_touch_interval_ms": 60000,
+  // minimum interval before refreshing a validated user_session expiration (0=write on every token check).
+  "postgres_user_session_touch_interval_ms": 30000,
   // set to false to skip server certificate verification
   "postgres_verify_certs": false,
   // interval in seconds for collecting gauge metrics (e.g. stream depths, pool stats) (default=15)
