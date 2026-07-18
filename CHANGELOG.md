@@ -1,5 +1,6 @@
 # v2.0.0
 
+- made operation deletion remove all MinIO objects tagged with its operation ID when `delete_data` is enabled.
 - added note attachments with PostgreSQL metadata, MinIO-backed binaries, REST, websocket updates, SDK, and CLI support.
 - replaced the legacy plugin event manager and websocket-broker hooks with the unified `gulp.events` API. Core and namespaced custom events now share one main-process listener registry and a Redis worker bridge; pre/post-ingest events are skipped entirely for sources without matching listeners.
 - integrated the `ui` into the main gulp repo, no more separated repository: now the web UI is built and served by the gulp backend. this allows a very easy installation for basic usage: just install gulp from pypi and you're done!

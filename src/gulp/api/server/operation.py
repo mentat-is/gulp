@@ -9,8 +9,6 @@ from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import JSONResponse
 from muty.jsend import JSendException, JSendResponse
 from muty.log import MutyLogger
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from gulp.api.collab.context import GulpContext
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.stats import GulpRequestStats
@@ -235,7 +233,7 @@ async def operation_delete_handler(
     delete_data: Annotated[
         Optional[bool],
         Query(
-            description="also deletes the related data on the given opensearch `index`."
+            description="also deletes related data on the OpenSearch index and MinIO."
         ),
     ] = True,
     force_delete: Annotated[
@@ -288,14 +286,17 @@ async def operation_delete_handler(
                 # delete the index
                 await GulpOpenSearch.get_instance().datastream_delete(index)
 
-                # delete data from storage (files with operation_id tag)                
-                await GulpS3.get_instance().delete_by_tags({"operation_id": operation_id})
-
             # delete the operation itself
             MutyLogger.get_instance().info(
                 "deleting operation_id=%s, ws_id=%s ..." % (operation_id, ws_id)
             )
-            await op.delete(sess, ws_id=ws_id, req_id=req_id, user_id=user_id)
+            await op.delete(
+                sess,
+                ws_id=ws_id,
+                req_id=req_id,
+                user_id=user_id,
+                delete_data=delete_data,
+            )
             await events.emit(
                 GulpCoreEvent.OPERATION_DELETED,
                 data={"index": index},

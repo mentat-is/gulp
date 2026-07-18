@@ -131,6 +131,7 @@ async def test_operation_delete_releases_session_before_external_cleanup(monkeyp
     print(response)
     assert collab.sessions == 1
     authorized_operation.delete.assert_awaited_once()
+    assert authorized_operation.delete.await_args.kwargs["delete_data"] is True
 
 
 @pytest.mark.unit

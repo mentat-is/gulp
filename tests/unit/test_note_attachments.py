@@ -312,17 +312,14 @@ async def test_parent_cascades_cleanup_attachment_tags(monkeypatch):
         "granted_user_ids": [],
         "granted_user_group_ids": [],
     }
+    operation = GulpOperation(
+        id="op-a",
+        type="operation",
+        operation_id=None,
+        index="op-a",
+        **common,
+    )
     objects = [
-        (
-            GulpOperation(
-                id="op-a",
-                type="operation",
-                operation_id=None,
-                index="op-a",
-                **common,
-            ),
-            {"operation_id": "op-a"},
-        ),
         (
             GulpContext(id="ctx-a", type="context", operation_id="op-a", **common),
             {"operation_id": "op-a", "context_id": "ctx-a"},
@@ -357,6 +354,9 @@ async def test_parent_cascades_cleanup_attachment_tags(monkeypatch):
     monkeypatch.setattr(GulpNoteAttachment, "delete_objects_by_tags", cleanup)
     monkeypatch.setattr(GulpCollabBase, "delete", AsyncMock())
     monkeypatch.setattr(GulpMappingParametersEntry, "delete_orphaned", AsyncMock())
+
+    await operation.delete(SimpleNamespace(), delete_data=False)
+    assert cleanup.await_args.args == ({"operation_id": "op-a"},)
 
     for obj, expected_tags in objects:
         await obj.delete(SimpleNamespace())

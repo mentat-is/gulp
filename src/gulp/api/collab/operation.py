@@ -92,11 +92,22 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         return d
 
     @override
-    async def delete(self, sess: AsyncSession, *args, **kwargs) -> None:
-        """Delete note attachment objects before cascading the operation."""
-        from gulp.api.collab.note import GulpNoteAttachment
+    async def delete(
+        self,
+        sess: AsyncSession,
+        *args,
+        delete_data: bool = True,
+        **kwargs,
+    ) -> None:
+        """Delete stored objects when requested before cascading the operation."""
+        if delete_data:
+            from gulp.api.s3_api import GulpS3
 
-        await GulpNoteAttachment.delete_objects_by_tags({"operation_id": self.id})
+            await GulpS3.get_instance().delete_by_tags({"operation_id": self.id})
+        else:
+            from gulp.api.collab.note import GulpNoteAttachment
+
+            await GulpNoteAttachment.delete_objects_by_tags({"operation_id": self.id})
         await super().delete(sess, *args, **kwargs)
 
     @override

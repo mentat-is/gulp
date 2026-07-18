@@ -102,6 +102,7 @@ async def test_operation_deleted_event_follows_metadata_delete_without_data_dele
 
     assert response["data"]["id"] == "operation-id"
     assert order == ["metadata_deleted", "event_emitted"]
+    assert operation.delete.await_args.kwargs["delete_data"] is False
     assert events.emit.await_args.args[0] == GulpCoreEvent.OPERATION_DELETED
     assert events.emit.await_args.kwargs["operation_id"] == "operation-id"
     assert events.emit.await_args.kwargs["data"] == {"index": "index-name"}
