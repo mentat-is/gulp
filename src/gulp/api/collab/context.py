@@ -13,7 +13,7 @@ Classes:
     GulpContext: A class representing a context object within the collaboration system
 """
 
-from typing import Optional
+from typing import Optional, override
 
 import muty.crypto
 import muty.string
@@ -52,6 +52,16 @@ class GulpContext(GulpCollabBase, type=COLLABTYPE_CONTEXT):
     color: Mapped[Optional[str]] = mapped_column(
         String, doc="The color of the context."
     )
+
+    @override
+    async def delete(self, sess: AsyncSession, *args, **kwargs) -> None:
+        """Delete note attachment objects before cascading the context."""
+        from gulp.api.collab.note import GulpNoteAttachment
+
+        await GulpNoteAttachment.delete_objects_by_tags(
+            {"operation_id": self.operation_id, "context_id": self.id}
+        )
+        await super().delete(sess, *args, **kwargs)
 
     @staticmethod
     def make_context_id_key(operation_id: str, context_name: str) -> str:

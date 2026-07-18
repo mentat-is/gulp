@@ -407,7 +407,7 @@ def test_postgres_config_defaults_and_clamps():
     assert cfg.postgres_lock_timeout_ms() == 5000
     assert cfg.postgres_statement_timeout_ms() == 0
     assert cfg.postgres_idle_in_transaction_session_timeout_ms() == 30000
-    assert cfg.postgres_user_session_touch_interval_ms() == 60000
+    assert cfg.postgres_user_session_touch_interval_ms() == 300
 
     cfg = _config_with(
         {

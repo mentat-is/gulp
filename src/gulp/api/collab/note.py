@@ -15,9 +15,11 @@ Main functionalities:
 - Associating notes with contexts, sources, and documents
 """
 
+import asyncio
 from typing import Optional, override
 
 import muty.crypto
+import muty.string
 import orjson
 from muty.log import MutyLogger
 from muty.pydantic import autogenerate_model_example_by_class
@@ -74,6 +76,141 @@ class GulpNoteText(GulpCollabBase, type=COLLABTYPE_NOTE_TEXT):
     __table_args__ = (Index("idx_note_text_operation", "operation_id"),)
 
 
+@GulpCollabBase.registry.mapped
+class GulpNoteAttachment:
+    """Metadata for one binary object attached to a note."""
+
+    __tablename__ = "note_attachment"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    note_id: Mapped[str] = mapped_column(
+        ForeignKey("note.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+    )
+    operation_id: Mapped[str] = mapped_column(
+        ForeignKey("operation.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(String, nullable=False, default="")
+    mime_type: Mapped[str] = mapped_column(String, nullable=False)
+
+    __table_args__ = (
+        Index("idx_note_attachment_note", "note_id"),
+        Index("idx_note_attachment_user", "user_id"),
+        Index("idx_note_attachment_operation", "operation_id"),
+    )
+
+    def to_dict(self) -> dict:
+        """Serialize public attachment metadata."""
+        return {
+            "id": self.id,
+            "note_id": self.note_id,
+            "user_id": self.user_id,
+            "operation_id": self.operation_id,
+            "title": self.title,
+            "description": self.description,
+            "mime_type": self.mime_type,
+        }
+
+    @classmethod
+    def from_upload(
+        cls,
+        note: "GulpNote",
+        user_id: str,
+        filename: str | None,
+        upload_mime_type: str | None,
+        title: str | None = None,
+        mime_type: str | None = None,
+    ) -> "GulpNoteAttachment":
+        """Build attachment metadata using upload defaults where needed."""
+        attachment_id = muty.string.generate_unique()
+        return cls(
+            id=attachment_id,
+            note_id=note.id,
+            user_id=user_id,
+            operation_id=note.operation_id,
+            title=title if title is not None else (filename or attachment_id),
+            description="",
+            mime_type=mime_type or upload_mime_type or "application/octet-stream",
+        )
+
+    @staticmethod
+    async def delete_objects(attachment_ids: list[str]) -> None:
+        """Delete attachment objects by their exact MinIO keys."""
+        if not attachment_ids:
+            return
+        from gulp.api.s3_api import GulpS3
+
+        for attachment_id in attachment_ids:
+            await GulpS3.get_instance().delete_file(attachment_id)
+
+    @staticmethod
+    async def delete_objects_by_tags(tags: dict[str, str]) -> None:
+        """Delete attachment objects matching parent cascade tags."""
+        from gulp.api.s3_api import GulpS3
+
+        await GulpS3.get_instance().delete_by_tags({**tags, "kind": "note_attachment"})
+
+    @classmethod
+    async def create_from_upload(
+        cls,
+        sess: AsyncSession,
+        note: "GulpNote",
+        user_id: str,
+        data: bytes,
+        filename: str | None,
+        upload_mime_type: str | None,
+        title: str | None = None,
+        mime_type: str | None = None,
+    ) -> "GulpNoteAttachment":
+        """Upload bytes and persist metadata, compensating failed inserts."""
+        from gulp.api.s3_api import GulpS3
+
+        attachment = cls.from_upload(
+            note,
+            user_id,
+            filename,
+            upload_mime_type,
+            title=title,
+            mime_type=mime_type,
+        )
+        await GulpS3.get_instance().upload_data(
+            data,
+            attachment.id,
+            tags={
+                "note_id": note.id,
+                "user_id": user_id,
+                "operation_id": note.operation_id,
+                "context_id": note.context_id,
+                "source_id": note.source_id or "",
+                "kind": "note_attachment",
+            },
+        )
+        note.attachments.append(attachment)
+        try:
+            await sess.commit()
+        except (Exception, asyncio.CancelledError):
+            try:
+                await asyncio.shield(sess.rollback())
+            except (Exception, asyncio.CancelledError) as rollback_error:
+                MutyLogger.get_instance().exception(
+                    "failed to roll back note attachment insert: %s",
+                    rollback_error,
+                )
+            try:
+                await asyncio.shield(GulpS3.get_instance().delete_file(attachment.id))
+            except (Exception, asyncio.CancelledError) as cleanup_error:
+                MutyLogger.get_instance().exception(
+                    "failed to compensate note attachment upload %s: %s",
+                    attachment.id,
+                    cleanup_error,
+                )
+            raise
+        return attachment
+
+
 class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
     """
     a note in the gulp collaboration system
@@ -91,6 +228,14 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
     shared_text: Mapped[Optional[GulpNoteText]] = relationship(
         GulpNoteText,
         lazy="selectin",
+        init=False,
+    )
+    attachments: Mapped[list[GulpNoteAttachment]] = relationship(
+        GulpNoteAttachment,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+        order_by=GulpNoteAttachment.id,
         init=False,
     )
 
@@ -140,6 +285,8 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             )
         data.pop("text_id", None)
         data.pop("shared_text", None)
+        data.pop("attachments", None)
+        data["attachment_ids"] = [a.id for a in self.attachments]
         return data
 
     @override
@@ -213,7 +360,40 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         """Return a lightweight note object for automatic query-created websocket events."""
         payload = dict(note)
         payload["text"] = ""
+        payload["attachment_ids"] = []
         return payload
+
+    @override
+    async def delete(self, sess: AsyncSession, *args, **kwargs) -> None:
+        """Delete attachment objects before deleting their note metadata."""
+        await GulpNoteAttachment.delete_objects([a.id for a in self.attachments])
+        await super().delete(sess, *args, **kwargs)
+
+    @override
+    @classmethod
+    async def delete_by_filter(
+        cls,
+        sess: AsyncSession,
+        flt=None,
+        user_id: str = None,
+        throw_if_not_found: bool = True,
+    ) -> int:
+        """Delete attachment objects for every note matched by a bulk delete."""
+        notes = await cls.get_by_filter(
+            sess,
+            flt=flt,
+            user_id=user_id,
+            throw_if_not_found=throw_if_not_found,
+        )
+        await GulpNoteAttachment.delete_objects(
+            [attachment.id for note in notes for attachment in note.attachments]
+        )
+        return await super().delete_by_filter(
+            sess,
+            flt=flt,
+            user_id=user_id,
+            throw_if_not_found=throw_if_not_found,
+        )
 
     @staticmethod
     async def bulk_create_for_documents_and_send_to_ws(

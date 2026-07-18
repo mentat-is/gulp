@@ -635,6 +635,35 @@ class GulpS3:
             return d
         except Exception as e:
             raise Exception(f"failed to upload data to object {object_name} in bucket {bucket_name}: {str(e)}")
+
+    async def download_data(
+        self, object_name: str, bucket_name: str = None
+    ) -> bytes:
+        """Download an object into memory and close its streaming body."""
+        client = await self._get_client()
+        if not bucket_name:
+            bucket_name = "gulp"
+
+        try:
+            resp = await client.get_object(Bucket=bucket_name, Key=object_name)
+            body = resp.get("Body")
+            if body is None:
+                raise Exception("received no body when downloading object")
+            try:
+                chunks: list[bytes] = []
+                while chunk := await body.read(1024 * 1024):
+                    chunks.append(chunk)
+                return b"".join(chunks)
+            finally:
+                body.close()
+        except client.exceptions.NoSuchKey as ex:
+            raise FileNotFoundError(object_name) from ex
+        except FileNotFoundError:
+            raise
+        except Exception as ex:
+            raise Exception(
+                f"failed to download data from object {object_name} in bucket {bucket_name}: {str(ex)}"
+            ) from ex
             
     async def download_file(self, object_name: str, file_path: str, bucket_name: str = None) -> dict[str, Any]:
         """

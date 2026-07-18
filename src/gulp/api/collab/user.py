@@ -175,6 +175,14 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
         )
         return d
 
+    @override
+    async def delete(self, sess: AsyncSession, *args, **kwargs) -> None:
+        """Delete note attachment objects before cascading the user."""
+        from gulp.api.collab.note import GulpNoteAttachment
+
+        await GulpNoteAttachment.delete_objects_by_tags({"user_id": self.id})
+        await super().delete(sess, *args, **kwargs)
+
     async def add_query_history_entry_batch(
         self,
         sess: AsyncSession,

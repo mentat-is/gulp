@@ -18,12 +18,11 @@ time pinning, tags, and permissions.
 from typing import Annotated
 
 import muty.time
-from fastapi import APIRouter, Body, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
+from fastapi.responses import JSONResponse, Response
 from muty.jsend import JSendException, JSendResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from gulp.api.collab.note import GulpNote, GulpNoteEdit
+from gulp.api.collab.note import GulpNote, GulpNoteAttachment, GulpNoteEdit
 from gulp.api.collab.operation import GulpOperation
 from gulp.api.collab.structs import GulpCollabFilter, GulpUserPermission
 from gulp.api.collab.user_session import GulpUserSession
@@ -33,6 +32,17 @@ from gulp.api.server.server_utils import ServerUtils
 from gulp.api.server.structs import APIDependencies
 
 router: APIRouter = APIRouter()
+MAX_NOTE_ATTACHMENT_SIZE = 32 * 1024 * 1024
+
+
+async def _read_note_attachment(attachment: UploadFile) -> bytes:
+    """Read one upload while enforcing the 32 MiB attachment limit."""
+    data = await attachment.read(MAX_NOTE_ATTACHMENT_SIZE + 1)
+    if len(data) > MAX_NOTE_ATTACHMENT_SIZE:
+        raise JSendException(
+            "note attachment exceeds the 32 MiB limit", status_code=413
+        )
+    return data
 
 
 @router.post(
@@ -247,6 +257,207 @@ async def note_update_handler(
                 sess, ws_id=ws_id, req_id=req_id, user_id=s.user.id
             )
             return JSONResponse(JSendResponse.success(req_id=req_id, data=dd))
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.post(
+    "/note_add_attachment",
+    tags=["note"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    responses={413: {"description": "Attachment exceeds the 32 MiB limit."}},
+    summary="adds one binary attachment to a note.",
+    description="""
+Uploads one `multipart/form-data` attachment, limited to 32 MiB.
+
+- `token` needs `edit` access to the note.
+- `title` defaults to the uploaded filename.
+- `mime_type` defaults to the upload content type, then `application/octet-stream`.
+- emits the standard note `collab_update` websocket event.
+""",
+)
+async def note_add_attachment_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    attachment: Annotated[
+        UploadFile, File(description="the binary attachment, up to 32 MiB")
+    ],
+    title: Annotated[
+        str | None, Query(description="attachment title; defaults to the filename")
+    ] = None,
+    mime_type: Annotated[
+        str | None,
+        Query(description="MIME type override; defaults to the upload content type"),
+    ] = None,
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    params = locals()
+    params["attachment"] = attachment.filename
+    ServerUtils.dump_params(params)
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            s, note, _ = await GulpNote.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                permission=GulpUserPermission.EDIT,
+            )
+            data = await _read_note_attachment(attachment)
+            metadata = await GulpNoteAttachment.create_from_upload(
+                sess,
+                note,
+                s.user.id,
+                data,
+                attachment.filename,
+                attachment.content_type,
+                title=title,
+                mime_type=mime_type,
+            )
+            await note.update(
+                sess,
+                ws_id=ws_id,
+                req_id=req_id,
+                user_id=s.user.id,
+            )
+            return JSONResponse(
+                JSendResponse.success(req_id=req_id, data=metadata.to_dict())
+            )
+    except JSendException:
+        raise
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.delete(
+    "/note_delete_attachment",
+    tags=["note"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    summary="deletes one attachment from a note.",
+    description="""
+- `token` needs `edit` access to the note.
+- emits the standard note `collab_update` websocket event.
+""",
+)
+async def note_delete_attachment_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
+    attachment_id: Annotated[str, Query(description="the attachment ID")],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            s, note, _ = await GulpNote.get_by_id_wrapper(
+                sess,
+                token,
+                obj_id,
+                permission=GulpUserPermission.EDIT,
+            )
+            metadata = next(
+                (a for a in note.attachments if a.id == attachment_id), None
+            )
+            if metadata is None:
+                from gulp.structs import ObjectNotFound
+
+                raise ObjectNotFound(
+                    f'attachment "{attachment_id}" not found on note "{obj_id}"'
+                )
+            await GulpNoteAttachment.delete_objects([attachment_id])
+            note.attachments.remove(metadata)
+            await sess.commit()
+            await note.update(
+                sess,
+                ws_id=ws_id,
+                req_id=req_id,
+                user_id=s.user.id,
+            )
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data={"id": attachment_id, "note_id": obj_id},
+                )
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.get(
+    "/note_list_attachments",
+    tags=["note"],
+    response_model=JSendResponse,
+    response_model_exclude_none=True,
+    summary="lists attachment metadata for a note.",
+    description="`token` needs read access to the note.",
+)
+async def note_list_attachments_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> JSONResponse:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            _, note, _ = await GulpNote.get_by_id_wrapper(sess, token, obj_id)
+            return JSONResponse(
+                JSendResponse.success(
+                    req_id=req_id,
+                    data=[a.to_dict() for a in note.attachments],
+                )
+            )
+    except Exception as ex:
+        raise JSendException(req_id=req_id) from ex
+
+
+@router.get(
+    "/note_get_attachment",
+    tags=["note"],
+    summary="downloads one note attachment.",
+    description="`token` needs read access to the note. Returns the raw stored bytes.",
+    responses={
+        200: {
+            "content": {"application/octet-stream": {}},
+            "description": "Raw attachment bytes using the stored MIME type.",
+        }
+    },
+)
+async def note_get_attachment_handler(
+    token: Annotated[str, Depends(APIDependencies.param_token)],
+    obj_id: Annotated[str, Depends(APIDependencies.param_obj_id)],
+    attachment_id: Annotated[str, Query(description="the attachment ID")],
+    req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
+) -> Response:
+    ServerUtils.dump_params(locals())
+    try:
+        async with GulpCollab.get_instance().session() as sess:
+            _, note, _ = await GulpNote.get_by_id_wrapper(sess, token, obj_id)
+            metadata = next(
+                (a for a in note.attachments if a.id == attachment_id), None
+            )
+            if metadata is None:
+                from gulp.structs import ObjectNotFound
+
+                raise ObjectNotFound(
+                    f'attachment "{attachment_id}" not found on note "{obj_id}"'
+                )
+
+        from urllib.parse import quote
+
+        from gulp.api.s3_api import GulpS3
+
+        data = await GulpS3.get_instance().download_data(attachment_id)
+        return Response(
+            content=data,
+            media_type=metadata.mime_type,
+            headers={
+                "Content-Disposition": (
+                    "attachment; filename*=utf-8''" + quote(metadata.title, safe="")
+                )
+            },
+        )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 

@@ -107,7 +107,16 @@ class GulpSource(GulpCollabBase, type=COLLABTYPE_SOURCE):
 
     @override
     async def delete(self, sess: AsyncSession, *args, **kwargs) -> None:
-        """Delete the source and cleanup any orphaned mapping parameters."""
+        """Delete source attachments and cleanup orphaned mapping parameters."""
+        from gulp.api.collab.note import GulpNoteAttachment
+
+        await GulpNoteAttachment.delete_objects_by_tags(
+            {
+                "operation_id": self.operation_id,
+                "context_id": self.context_id,
+                "source_id": self.id,
+            }
+        )
         # call base delete (which commits)
         await super().delete(sess, *args, **kwargs)
         # remove orphaned mapping params

@@ -21,6 +21,7 @@ Core services used by the backend:
 - When adding or changing functionality, update tests and docs when relevant.
 - If you are following a plan file, keep it updated with the implementation that actually landed.
 - If requirements are unclear, stop and ask before implementing.
+- once you completed a goal, update CHANGELOG.md with a short summary of the change.
 
 ## Key Backend Paths
 

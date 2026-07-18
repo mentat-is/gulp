@@ -92,6 +92,14 @@ class GulpOperation(GulpCollabBase, type=COLLABTYPE_OPERATION):
         return d
 
     @override
+    async def delete(self, sess: AsyncSession, *args, **kwargs) -> None:
+        """Delete note attachment objects before cascading the operation."""
+        from gulp.api.collab.note import GulpNoteAttachment
+
+        await GulpNoteAttachment.delete_objects_by_tags({"operation_id": self.id})
+        await super().delete(sess, *args, **kwargs)
+
+    @override
     @classmethod
     async def create(cls, *args, **kwargs):
         raise TypeError("use create_operation instead")

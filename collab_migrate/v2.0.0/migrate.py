@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add shared note text storage for gULP 2.0.0.
+"""Add normalized note storage changes for gULP 2.0.0.
 
 Usage:
   python3 migrate.py --url postgresql+psycopg://user:password@host:port/dbname
@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 
 async def migrate_note_text(db_url: str) -> None:
-    """Create shared note text storage and link notes to it."""
+    """Create shared note text and attachment storage."""
     engine = create_async_engine(db_url, echo=False)
     async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
@@ -44,7 +44,24 @@ async def migrate_note_text(db_url: str) -> None:
                     )
                 )
                 await session.execute(
-                    text("ALTER TABLE note ADD COLUMN IF NOT EXISTS text_id character varying;")
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS note_attachment (
+                            id character varying PRIMARY KEY,
+                            note_id character varying NOT NULL REFERENCES note(id) ON DELETE CASCADE,
+                            user_id character varying NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+                            operation_id character varying NOT NULL REFERENCES operation(id) ON DELETE CASCADE,
+                            title character varying NOT NULL,
+                            description character varying NOT NULL DEFAULT '',
+                            mime_type character varying NOT NULL
+                        );
+                        """
+                    )
+                )
+                await session.execute(
+                    text(
+                        "ALTER TABLE note ADD COLUMN IF NOT EXISTS text_id character varying;"
+                    )
                 )
                 await session.execute(
                     text(
@@ -74,6 +91,30 @@ async def migrate_note_text(db_url: str) -> None:
                                 ALTER TABLE note ADD CONSTRAINT note_text_id_fkey
                                 FOREIGN KEY (text_id) REFERENCES note_text(id) ON DELETE SET NULL;
                             END IF;
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conrelid = 'note_attachment'::regclass
+                                  AND conname = 'note_attachment_note_id_fkey'
+                            ) THEN
+                                ALTER TABLE note_attachment ADD CONSTRAINT note_attachment_note_id_fkey
+                                FOREIGN KEY (note_id) REFERENCES note(id) ON DELETE CASCADE;
+                            END IF;
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conrelid = 'note_attachment'::regclass
+                                  AND conname = 'note_attachment_user_id_fkey'
+                            ) THEN
+                                ALTER TABLE note_attachment ADD CONSTRAINT note_attachment_user_id_fkey
+                                FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE;
+                            END IF;
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conrelid = 'note_attachment'::regclass
+                                  AND conname = 'note_attachment_operation_id_fkey'
+                            ) THEN
+                                ALTER TABLE note_attachment ADD CONSTRAINT note_attachment_operation_id_fkey
+                                FOREIGN KEY (operation_id) REFERENCES operation(id) ON DELETE CASCADE;
+                            END IF;
                         END $$;
                         """
                     )
@@ -84,10 +125,27 @@ async def migrate_note_text(db_url: str) -> None:
                     )
                 )
                 await session.execute(
-                    text("CREATE INDEX IF NOT EXISTS idx_note_text_id ON note (text_id);")
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_note_text_id ON note (text_id);"
+                    )
                 )
                 await session.execute(
                     text("CREATE INDEX IF NOT EXISTS idx_note_user ON note (user_id);")
+                )
+                await session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_note_attachment_note ON note_attachment (note_id);"
+                    )
+                )
+                await session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_note_attachment_user ON note_attachment (user_id);"
+                    )
+                )
+                await session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_note_attachment_operation ON note_attachment (operation_id);"
+                    )
                 )
     finally:
         await engine.dispose()
@@ -96,7 +154,7 @@ async def migrate_note_text(db_url: str) -> None:
 async def main() -> None:
     """Run the migration from command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="migrate shared note text storage (pre-v2.0.0 -> v2.0.0)",
+        description="migrate normalized note storage (pre-v2.0.0 -> v2.0.0)",
     )
     parser.add_argument("--url", required=True, help="PostgreSQL connection URL")
     args = parser.parse_args()
