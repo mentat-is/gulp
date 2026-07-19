@@ -60,7 +60,11 @@ async def migrate_note_text(db_url: str) -> None:
                 )
                 await session.execute(
                     text(
-                        "ALTER TABLE note ADD COLUMN IF NOT EXISTS text_id character varying;"
+                        """
+                        ALTER TABLE note
+                            ADD COLUMN IF NOT EXISTS text_id character varying,
+                            ADD COLUMN IF NOT EXISTS doc_id character varying;
+                        """
                     )
                 )
                 await session.execute(
@@ -128,6 +132,19 @@ async def migrate_note_text(db_url: str) -> None:
                     text(
                         "CREATE INDEX IF NOT EXISTS idx_note_text_id ON note (text_id);"
                     )
+                )
+                await session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_note_context ON note (context_id);"
+                    )
+                )
+                await session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS idx_note_source ON note (source_id);"
+                    )
+                )
+                await session.execute(
+                    text("CREATE INDEX IF NOT EXISTS idx_note_doc ON note (doc_id);")
                 )
                 await session.execute(
                     text("CREATE INDEX IF NOT EXISTS idx_note_user ON note (user_id);")
