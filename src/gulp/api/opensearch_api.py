@@ -19,11 +19,9 @@ operations (like bulk ingestion) and high-level functionality (like querying ope
 
 import asyncio
 import json
-import os
 import tempfile
 from importlib import resources as impresources
 from typing import TYPE_CHECKING, Optional
-from urllib.parse import urlparse
 
 import aiofiles
 import muty.dict
@@ -71,10 +69,6 @@ if TYPE_CHECKING:
 class GulpOpenSearch:
     """
     singleton class to handle OpenSearch client connection.
-
-    for ssl, it will use the CA certificate and client certificate/key if they exist in the certs directory (see config.path_certs()).
-
-    they should be named os-ca.pem, os.pem, os.key.
     """
 
     _instance: "GulpOpenSearch" = None
@@ -116,61 +110,11 @@ class GulpOpenSearch:
         """
         config = GulpConfig.get_instance()
         url = config.opensearch_url()
-        verify_certs = config.opensearch_verify_certs()
-
-        # split into user:pwd@host:port
-        parsed = urlparse(url)
-
-        # url = "%s://%s:***********@%s:%s" % (parsed.scheme, parsed.username, parsed.hostname, parsed.port)
-        # MutyLogger.get_instance().debug('%s, opensearch hostname=%s, port=%d, user_id=%s, password=***********', url, parsed.hostname, parsed.port, parsed.username)
-
-        host = parsed.scheme + "://" + parsed.hostname + ":" + str(parsed.port)
-        ca = None
-        client_kwargs = {
-            "http_auth": (parsed.username, parsed.password),
-            "http_compress": True,
-            "pool_maxsize": config.opensearch_pool_maxsize(),
-        }
-        certs_dir = config.path_certs()
-        if certs_dir and parsed.scheme.lower() == "https":
-            # https and certs_dir is set
-            ca: str = muty.file.abspath(
-                muty.file.safe_path_join(certs_dir, "os-ca.pem")
-            )
-
-            # check if client certificate exists. if so, it will be used
-            client_cert = muty.file.safe_path_join(certs_dir, "os.pem")
-            client_key = muty.file.safe_path_join(certs_dir, "os.key")
-            if os.path.exists(client_cert) and os.path.exists(client_key):
-                MutyLogger.get_instance().debug(
-                    "using client certificate: %s, key=%s, ca=%s",
-                    client_cert,
-                    client_key,
-                    ca,
-                )
-                return AsyncOpenSearch(
-                    host,
-                    use_ssl=True,
-                    ca_certs=ca,
-                    client_cert=client_cert,
-                    client_key=client_key,
-                    verify_certs=verify_certs,
-                    **client_kwargs,
-                )
-            else:
-                MutyLogger.get_instance().debug(
-                    "no client certificate found, using CA certificate only: %s", ca
-                )
-                return AsyncOpenSearch(
-                    host,
-                    use_ssl=True,
-                    ca_certs=ca,
-                    verify_certs=verify_certs,
-                    **client_kwargs,
-                )
-
-        # no https
-        el = AsyncOpenSearch(host, **client_kwargs)
+        el = AsyncOpenSearch(
+            url,
+            http_compress=True,
+            pool_maxsize=config.opensearch_pool_maxsize(),
+        )
         MutyLogger.get_instance().debug("created opensearch client: %s", el)
         return el
 

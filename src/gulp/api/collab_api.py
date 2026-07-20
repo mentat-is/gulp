@@ -3,7 +3,7 @@ collab_api module for managing PostgreSQL database connections and operations.
 
 this module provides the GulpCollab class, a singleton that handles database connections,
 table creation, and default data initialization for the gulp collaboration database.
-it supports ssl connections, connection pooling, and session management.
+it supports connection pooling and session management.
 
 the module handles:
 - database connection creation and management
@@ -13,13 +13,11 @@ the module handles:
 """
 
 import asyncio
-import os
 import pkgutil
 import re
 from importlib import import_module, resources
 
 import aiofiles
-import muty.file
 import muty.string
 import orjson
 from muty.log import MutyLogger
@@ -48,10 +46,6 @@ class GulpCollab:
     singleton class, represents the collab database connection.
 
     init() must be called first to initialize the connection.
-
-    for ssl connection, it will use the certificates in the GulpConfig.get_instance().path_certs() directory if they exist.
-
-    they should be named "postgres-ca.pem", "postgres.pem", "postgres.key" for the CA, client certificate, and client key respectively.
 
     """
 
@@ -162,59 +156,13 @@ class GulpCollab:
         config = GulpConfig.get_instance()
         url = config.postgres_url()
 
-        # check for ssl connection preferences
-        # https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
-        certs_dir = config.path_certs()
-        postgres_ssl = config.postgres_ssl()
-        verify_certs = config.postgres_verify_certs()
-        if verify_certs:
-            sslmode = "verify-full"
-        else:
-            sslmode = "prefer"
-        # MutyLogger.get_instance().debug("---> collab: creating AsyncEngine connection, sslmode=%s..." % (sslmode))
-
-        if certs_dir is not None and postgres_ssl:
-            # https and certs_dir is set
-            ca: str = muty.file.abspath(
-                muty.file.safe_path_join(certs_dir, "postgres-ca.pem")
-            )
-
-            # check if client certificate exists. if so, it will be used
-            client_cert = muty.file.safe_path_join(certs_dir, "postgres.pem")
-            client_key = muty.file.safe_path_join(certs_dir, "postgres.key")
-            client_key_password = config.postgres_client_cert_password()
-            if os.path.exists(client_cert) and os.path.exists(client_key):
-                MutyLogger.get_instance().debug(
-                    "using client certificate: %s, key=%s, ca=%s"
-                    % (client_cert, client_key, ca)
-                )
-                connect_args = {
-                    "sslrootcert": ca,
-                    "sslcert": client_cert,
-                    "sslkey": client_key,
-                    "sslmode": sslmode,
-                    "sslpassword": client_key_password,
-                }
-            else:
-                # no client certificate
-                MutyLogger.get_instance().debug(
-                    "using server CA certificate only: %s" % (ca)
-                )
-                connect_args = {"sslrootcert": ca, "sslmode": sslmode}
-        else:
-            # no SSL
-            connect_args = {}
-
         postgres_options = [
             "-c lock_timeout=%d" % config.postgres_lock_timeout_ms(),
             "-c statement_timeout=%d" % config.postgres_statement_timeout_ms(),
             "-c idle_in_transaction_session_timeout=%d"
             % config.postgres_idle_in_transaction_session_timeout_ms(),
         ]
-        existing_options = connect_args.get("options", "")
-        connect_args["options"] = " ".join(
-            [opt for opt in [existing_options, *postgres_options] if opt]
-        )
+        connect_args = {"options": " ".join(postgres_options)}
 
         # The task scheduler now adapts dispatch under PostgreSQL pressure, so
         # the SQLAlchemy pool should be the healthy ceiling, not a second throttle.

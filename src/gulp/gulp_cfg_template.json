@@ -13,10 +13,6 @@
   "debug_enrich_dry_run": false,
   // prevent token expiration for debugging purposes, ignored if debug_allow_any_token_as_admin is set to true (default=false)
   "debug_no_token_expiration": false,
-  // enforce https
-  "https_enforce": false,
-  // enforce client certificates signed by gulp-ca for https
-  "https_enforce_client_certs": false,
   // default for index template creation
   "index_template_default_refresh_interval": "5s",
   // default for index template creation
@@ -49,18 +45,14 @@
   "opensearch_pool_maxsize": 10,
   // how many seconds to wait until timeout (default=60, tune up if you have request timeouts during ingestion/query, 0=no timeout)
   "opensearch_request_timeout": 180,
-  // opensearch url (may be overridden by GULP_OPENSEARCH_URL environment variable)
+  // complete opensearch http/https url (may be overridden by GULP_OPENSEARCH_URL; use SSL_CERT_FILE or SSL_CERT_DIR for a private CA)
   "opensearch_url": "http://admin:Gulp1234!@localhost:9200", //admin:Gulp1234!@localhost:9200",
-  // set to false to skip server certificate verification
-  "opensearch_verify_certs": false,
   // respawn a process after this number of tasks: set to -1 to never respawn processes, every other value < 100 will be set to 100 (default=100)
   "parallel_processes_respawn_after_tasks": 100,
   // enable cache for plugins (faster loading)
   "plugin_cache_enabled": true,
   // if set, disable loading of plugins with their **bare filename** containing the listed strings (e.g. "example_" will disable all plugins with "example_" in their filename, such as "example_plugin.py", but not "my_example_plugin.py")
   "plugin_disabled": ["example"],
-  // client certificate password (if any)
-  "postgres_client_cert_password": null,
   // PostgreSQL idle-in-transaction session timeout in milliseconds (0 disables)
   "postgres_idle_in_transaction_session_timeout_ms": 30000,
   // PostgreSQL lock timeout in milliseconds (0 disables)
@@ -73,16 +65,12 @@
   "postgres_pool_size": 4,
   // seconds to wait for a PostgreSQL pool connection before failing the request
   "postgres_pool_timeout_sec": 10,
-  // set to use SSL to connect to postgresql
-  "postgres_ssl": false,
   // PostgreSQL statement timeout in milliseconds (0 disables)
   "postgres_statement_timeout_ms": 0,
-  // postgresql address (may be overridden by GULP_POSTGRES_URL environment variable)
+  // postgresql address (may be overridden by GULP_POSTGRES_URL; include native sslmode/sslrootcert/sslcert/sslkey query parameters when needed)
   "postgres_url": "postgresql+psycopg://postgres:Gulp1234!@localhost:5432/gulp", //postgres:Gulp1234!@localhost:5432/gulp",
   // minimum interval before refreshing a validated user_session expiration (0=write on every token check).
   "postgres_user_session_touch_interval_ms": 30000,
-  // set to false to skip server certificate verification
-  "postgres_verify_certs": false,
   // interval in seconds for collecting gauge metrics (e.g. stream depths, pool stats) (default=15)
   "prometheus_collect_interval": 15,
   // enable prometheus metrics endpoint (default=false). when enabled, a /metrics endpoint is exposed for Prometheus scraping.
@@ -103,12 +91,10 @@
   "redis_task_autoclaim_idle_ms": 600000,
   // interval in milliseconds used by dispatchers to refresh leases for live pending tasks (default=20000ms = 20s)
   "redis_task_lease_refresh_interval_ms": 20000,
-  // redis url (may be overridden by GULP_REDIS_URL environment variable)
+  // redis redis:// or rediss:// url, including native TLS query parameters when needed (may be overridden by GULP_REDIS_URL)
   "redis_url": "redis://:Gulp1234!@localhost:6379/0", //:Gulp1234!@localhost:6379/0",
-  // s3-compatible storage uri, in the format proto://username:password@host:port (may be overridden by GULP_S3_URL environment variable)
+  // S3-compatible http/https uri, in the format proto://username:password@host:port (may be overridden by GULP_S3_URL; use AWS_CA_BUNDLE for a private CA)
   "s3_url": "http://admin:Gulp1234!@localhost:9000", //admin:Gulp1234!@localhost:9000",
-  // set to use SSL to connect to s3-compatible storage
-  "s3_verify_certs": false,
   // delete pending request stats on the collab database on gulp shutdown (default=true)
   "stats_delete_pending_on_shutdown": true,
   // how many seconds before automatically delete non-live stats, default=1 day (86400 seconds))

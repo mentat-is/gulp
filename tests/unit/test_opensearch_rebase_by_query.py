@@ -13,16 +13,10 @@ def test_opensearch_client_uses_pool_and_compression_config(monkeypatch):
 
     class _FakeConfig:
         def opensearch_url(self):
-            return "http://admin:secret@localhost:9200"
-
-        def opensearch_verify_certs(self):
-            return False
+            return "https://admin:secret@opensearch.example.com:9200/prefix"
 
         def opensearch_pool_maxsize(self):
             return 4
-
-        def path_certs(self):
-            return None
 
     def _async_opensearch(*args, **kwargs):
         captured["args"] = args
@@ -37,9 +31,18 @@ def test_opensearch_client_uses_pool_and_compression_config(monkeypatch):
     client = object.__new__(GulpOpenSearch)._get_client()
 
     assert client is fake_client
-    assert captured["args"] == ("http://localhost:9200",)
-    assert captured["kwargs"]["http_auth"] == ("admin", "secret")
+    assert captured["args"] == (
+        "https://admin:secret@opensearch.example.com:9200/prefix",
+    )
+    assert captured["kwargs"]["http_compress"] is True
     assert captured["kwargs"]["pool_maxsize"] == 4
+    assert not {
+        "use_ssl",
+        "ca_certs",
+        "client_cert",
+        "client_key",
+        "verify_certs",
+    } & captured["kwargs"].keys()
 
 
 @pytest.mark.unit

@@ -342,6 +342,29 @@ def api_rejection_counter(monkeypatch):
 
 
 @pytest.mark.unit
+def test_redis_rediss_uri_is_passed_unchanged(monkeypatch):
+    uri = (
+        "rediss://:secret@redis.example.com:6380/0"
+        "?ssl_cert_reqs=required&ssl_ca_certs=%2Fetc%2Fssl%2Fredis-ca.pem"
+    )
+    config = MagicMock()
+    config.instance_roles.return_value = []
+    config.redis_task_lease_refresh_interval_ms.return_value = 20_000
+    config.redis_task_autoclaim_idle_ms.return_value = 600_000
+    config.redis_stream_task_maxlen.return_value = 10_000
+    config.redis_url.return_value = uri
+    config.redis_max_connections.return_value = 0
+    redis_client = MagicMock()
+    from_url = MagicMock(return_value=redis_client)
+    monkeypatch.setattr(redis_api_module.GulpConfig, "get_instance", lambda: config)
+    monkeypatch.setattr(redis_api_module.redis.Redis, "from_url", from_url)
+
+    GulpRedis.get_instance().initialize("server-a", main_process=False)
+
+    from_url.assert_called_once_with(uri, decode_responses=False)
+
+
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_task_enqueue_rejects_when_queue_depth_hits_limit(monkeypatch):
     redis_client = GulpRedis.get_instance()

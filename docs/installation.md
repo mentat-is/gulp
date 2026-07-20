@@ -7,6 +7,7 @@ Choose the installation mode that fits your use case:
 2. **PyPI:** install `mentat-gulp`; the wheel includes the compiled UI and a
    `gulp-webui` launcher.
 3. **Docker:** run the backend and UI in separate containers.
+4. **Enterprise:** put private backend instances behind a TLS-terminating proxy.
 
 ## Required services
 
@@ -72,3 +73,9 @@ the UI with the [Web UI development guide](webui/install.md).
 
 Docker keeps the backend and nginx web UI in separate containers. Follow the
 [Docker guide](install_docker.md) for the independent `gulp` and `ui` profiles.
+
+## Enterprise deployment
+
+For public HTTPS/WSS, multiple backend instances, or optional mutual TLS, follow
+the [enterprise nginx deployment guide](enterprise_deployment.md). gULP itself
+stays on private HTTP port 8080 behind the proxy.

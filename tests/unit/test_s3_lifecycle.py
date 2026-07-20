@@ -10,6 +10,26 @@ from gulp.api.s3_api import GulpS3
 
 
 @pytest.mark.unit
+def test_https_endpoint_and_credentials_use_botocore_tls_defaults(monkeypatch):
+    config = SimpleNamespace(
+        s3_url=lambda: "https://access:secret@s3.example.com:9443/prefix"
+    )
+    monkeypatch.setattr(
+        "gulp.api.s3_api.GulpConfig.get_instance", staticmethod(lambda: config)
+    )
+    monkeypatch.setattr(GulpS3, "_instance", None)
+
+    s3 = GulpS3()
+
+    assert s3._init_params == {
+        "region_name": "us-east-1",
+        "endpoint_url": "https://s3.example.com:9443/prefix",
+        "aws_access_key_id": "access",
+        "aws_secret_access_key": "secret",
+    }
+
+
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_cancelled_multipart_upload_is_aborted(monkeypatch, tmp_path):
     upload_started = asyncio.Event()

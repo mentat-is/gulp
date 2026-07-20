@@ -2,8 +2,8 @@
 This module manages the REST API server for the gULP application.
 
 It provides a singleton server instance that handles API routes, request validation,
-exception handling, and server lifecycle. The server supports both HTTP and HTTPS
-configurations and integrates with various gULP components like WebSockets,
+exception handling, and server lifecycle. The HTTP application server integrates
+with various gULP components like WebSockets,
 collaborative features, and plugins.
 
 The module also handles server initialization, shutdown procedures, and restart
@@ -13,7 +13,6 @@ capabilities for the application.
 import asyncio
 from contextlib import suppress
 import os
-import ssl
 import time
 from typing import Any, Awaitable, Callable, Sequence
 
@@ -401,66 +400,24 @@ class GulpServer:
             create_operation,
         )
 
-        if cfg.enforce_https():
-            MutyLogger.get_instance().info("enforcing HTTPS ...")
-
-            path_certs: str = cfg.path_certs()
-            cert_password: str = cfg.https_cert_password()
-            gulp_ca_certs = muty.file.safe_path_join(path_certs, "gulp-ca.pem")
-            if not os.path.exists(gulp_ca_certs):
-                # use server cert as CA cert
-                gulp_ca_certs = muty.file.safe_path_join(path_certs, "gulp.pem")
-
-            ssl_cert_verify_mode: int = ssl.VerifyMode.CERT_OPTIONAL
-            if cfg.enforce_https_client_certs():
-                ssl_cert_verify_mode = ssl.VerifyMode.CERT_REQUIRED
-                MutyLogger.get_instance().warning(
-                    "HTTPS client certificates ARE ENFORCED."
-                )
-
-            # gulp server certificate
-            ssl_keyfile = muty.file.safe_path_join(path_certs, "gulp.key")
-            ssl_certfile = muty.file.safe_path_join(path_certs, "gulp.pem")
-            MutyLogger.get_instance().info(
-                "ssl_keyfile=%s, ssl_certfile=%s, cert_password=%s, ssl_ca_certs=%s, ssl_cert_verify_mode=%d",
-                ssl_keyfile,
-                ssl_certfile,
-                cert_password,
-                gulp_ca_certs,
-                ssl_cert_verify_mode,
+        # write pidfile so other invocations can stop this instance
+        try:
+            pidfile = muty.file.safe_path_join(
+                cfg.path_working_dir(),
+                "gulp%s.pid" % (os.getpid()),
             )
-            uvicorn.run(
-                self._app,
-                host=address,
-                port=port,
-                ws_ping_interval=None,
-                ssl_keyfile=ssl_keyfile,  # gulp server cert key
-                ssl_keyfile_password=cert_password,  # key password
-                ssl_certfile=ssl_certfile,  # gulp server cert
-                ssl_ca_certs=gulp_ca_certs,  # gulp CA
-                ssl_cert_reqs=ssl_cert_verify_mode,
-            )
-        else:
-            # http
-            MutyLogger.get_instance().warning("HTTP!")
-            # write pidfile so other invocations can stop this instance
-            try:
-                pidfile = muty.file.safe_path_join(
-                    GulpConfig.get_instance().path_working_dir(),
-                    "gulp%s.pid" % (os.getpid()),
-                )
-                with open(pidfile, "w", encoding="utf-8") as f:
-                    f.write(str(os.getpid()))
-                MutyLogger.get_instance().info("wrote pidfile=%s", pidfile)
-            except Exception:
-                MutyLogger.get_instance().exception("failed to write pidfile")
+            with open(pidfile, "w", encoding="utf-8") as f:
+                f.write(str(os.getpid()))
+            MutyLogger.get_instance().info("wrote pidfile=%s", pidfile)
+        except Exception:
+            MutyLogger.get_instance().exception("failed to write pidfile")
 
-            uvicorn.run(
-                self._app,
-                host=address,
-                port=port,
-                ws_ping_interval=None,
-            )
+        uvicorn.run(
+            self._app,
+            host=address,
+            port=port,
+            ws_ping_interval=None,
+        )
 
     @staticmethod
     def _task_lease_refresh_interval() -> float:

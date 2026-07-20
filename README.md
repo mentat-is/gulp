@@ -39,7 +39,8 @@ web UI provides the investigation workspace.
 - **Multiprocessing** for ingestion and querying.
 - **Sigma queries**, collaboration, notes, links, enrichment, and plugins.
 - **AI assistant chatbot** for [automatic analysis of events](src/gulp/plugins/extension/ai_assistant.py) (needs `OpenRouter` API key)
-- **Scalable deployments**; see the [scaling guide](docs/scaling.md).
+- **Scalable deployments**; see the [scaling guide](docs/scaling.md) and
+  [enterprise nginx deployment](docs/enterprise_deployment.md).
 
 > extra features, including an enhanced AI assistant and an automated `MCP server` to completely automatize incident response and reporting, are available on our paid offer.
 >
@@ -50,6 +51,8 @@ web UI provides the investigation workspace.
 Choose [PyPI installation](docs/installation.md#pypi-installation),
 [development installation](docs/installation.md#development-installation), or
 [Docker installation](docs/installation.md#docker-installation).
+Public deployments should follow the
+[enterprise nginx guide](docs/enterprise_deployment.md).
 
 ## web UI
 
@@ -85,6 +88,7 @@ focused on the investigation.
 - [Architecture](docs/architecture.md)
 - [Installation](docs/installation.md)
 - [Docker installation and services](docs/install_docker.md)
+- [Enterprise nginx deployment](docs/enterprise_deployment.md)
 - [Development installation](docs/install_dev.md)
 - [Web UI documentation](docs/webui.md)
 - [Plugins and mappings](docs/plugins_and_mapping.md)
@@ -99,7 +103,7 @@ focused on the investigation.
 The following environment variables override common runtime configuration:
 
 - `GULP_BIND_TO_ADDR`, `GULP_BIND_TO_PORT`: set both to change the listen address (defaults: `0.0.0.0:8080`).
-- `GULP_WORKING_DIR`: defaults to `~/.config/gulp` and contains the generated `gulp_cfg.json`, optional `plugins/` and `mapping_files/`, certificates, local ingestion files, and temporary uploads.
+- `GULP_WORKING_DIR`: defaults to `~/.config/gulp` and contains the generated `gulp_cfg.json`, optional `plugins/` and `mapping_files/`, local ingestion files, and temporary uploads.
 - `GULP_OPENSEARCH_URL`, `GULP_POSTGRES_URL`, `GULP_REDIS_URL`, `GULP_S3_URL`: override their corresponding configuration values.
 
 ## backend run examples

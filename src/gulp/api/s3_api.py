@@ -38,7 +38,6 @@ class GulpS3:
 
         # get configuration options
         uri: str = GulpConfig.get_instance().s3_url()
-        verify_certs: bool = GulpConfig.get_instance().s3_verify_certs()
 
         # extract url/credentials from uri
         parsed = urlparse(uri)
@@ -53,7 +52,6 @@ class GulpS3:
             "endpoint_url": url,
             "aws_access_key_id": parsed.username,
             "aws_secret_access_key": parsed.password,
-            "verify": verify_certs,
         }
         self._session: AioSession = None
         self._client: S3Client = None

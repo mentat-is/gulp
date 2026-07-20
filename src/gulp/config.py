@@ -29,7 +29,6 @@ class GulpConfig:
         self._ingest_local_dir = None
         self._logs_dir: str = None
         self._working_dir: str = None
-        self._path_certs: str = None
         self._path_mapping_files_extra: str = None
         self._path_plugins_extra: str = None
         self._config: dict = None
@@ -434,27 +433,6 @@ class GulpConfig:
         )
         return n
 
-    def https_cert_password(self) -> str:
-        """
-        Returns the password for the HTTPS certificate of the gulp server.
-        """
-        n = self._config.get("https_cert_password", None)
-        return n
-
-    def enforce_https(self) -> bool:
-        """
-        Returns whether to enforce HTTPS.
-        """
-        n = self._config.get("https_enforce", False)
-        return n
-
-    def enforce_https_client_certs(self) -> bool:
-        """
-        Returns whether to enforce HTTPS client certificates.
-        """
-        n = self._config.get("https_enforce_client_certs", False)
-        return n
-
     def debug_allow_any_token_as_admin(self) -> bool:
         """
         Returns whether to allow any token as admin in debug mode.
@@ -496,19 +474,6 @@ class GulpConfig:
         Number of replica shards for newly created OpenSearch index templates.
         """
         return self._get_int_config("opensearch_index_replicas", 0, minimum=0)
-
-    def opensearch_pool_maxsize(self) -> int:
-        """
-        Per-process OpenSearch HTTP connection pool size.
-        """
-        return self._get_int_config("opensearch_pool_maxsize", 10, minimum=1)
-
-    def opensearch_client_cert_password(self) -> str:
-        """
-        Returns the password for the opensearch client certificate.
-        """
-        n = self._config.get("opensearch_client_cert_password", None)
-        return n
 
     def opensearch_pool_maxsize(self) -> int:
         """
@@ -680,33 +645,6 @@ class GulpConfig:
 
         return n
 
-    def postgres_ssl(self) -> bool:
-        """
-        Returns whether to use SSL for postgres.
-        if this is set, the certificates used to connect to postgres will be:
-
-        - $GULP_WORKING_DIR/certs/postgres-ca.pem
-        - $GULP_WORKING_DIR/certs/postgres.pem, $PATH_CERTS/postgres.key (client cert used if found)
-        """
-        n = self._config.get("postgres_ssl", False)
-        return n
-
-    def postgres_verify_certs(self) -> bool:
-        """
-        Returns whether to verify the certificates when connecting to postgres with SSL.
-
-        default: False
-        """
-        n = self._config.get("postgres_verify_certs", False)
-        return n
-
-    def postgres_client_cert_password(self) -> str:
-        """
-        Returns the password for the postgres client certificate.
-        """
-        n = self._config.get("postgres_client_cert_password", None)
-        return n
-
     def redis_url(self) -> str:
         """
         Returns the redis URL
@@ -756,24 +694,9 @@ class GulpConfig:
 
         return n
 
-    def s3_verify_certs(self) -> bool:
-        """
-        Returns whether to verify the certificates when connecting to S3-compatible storage with SSL.
-
-        default: False
-        """
-        n = self._config.get("s3_verify_certs", False)
-        return n
-
     def opensearch_url(self) -> str:
         """
         Returns the opensearch url
-
-        if this is an https url, the certificates used to connect to opensearch will be:
-
-        - $PATH_CERTS/opensearch-ca.pem
-        - $PATH_CERTS/opensearch.pem, $PATH_CERTS/opensearch.key (client cert used if found)
-
 
         raises:
             Exception: If the opensearch_url is not set in the configuration.
@@ -788,21 +711,11 @@ class GulpConfig:
 
         return n
 
-    def opensearch_verify_certs(self) -> bool:
-        """
-        Returns whether to verify the certificates when connecting to opensearch with SSL.
-
-        default: False
-
-        """
-        n = self._config.get("opensearch_verify_certs", False)
-        return n
-
     def path_working_dir(self) -> str:
         """
         Returns the path to the gulp working directory
 
-        this is used to hold the configuration, temporary directory, custom plugins, mapping files, certs, logs, etc.
+        this is used to hold the configuration, temporary directory, custom plugins, mapping files, logs, etc.
 
         can be overridden with GULP_WORKING_DIR environment variable.
 
@@ -826,7 +739,6 @@ class GulpConfig:
 
         # ensure all directories exists
         os.makedirs(p, exist_ok=True)
-        os.makedirs(self.path_certs(), exist_ok=True)
         os.makedirs(self.path_mapping_files_extra(), exist_ok=True)
         os.makedirs(self.path_plugins_extra(), exist_ok=True)
         os.makedirs(os.path.join(self.path_plugins_extra(), "extension"), exist_ok=True)
@@ -836,11 +748,10 @@ class GulpConfig:
         os.makedirs(self.path_ingest_local(), exist_ok=True)
         # print paths
         print(
-            "****** PID=%d, working_dir=%s, certs=%s, mapping_files_extra=%s, plugins_extra=%s, tmp_upload=%s, ingest_local=%s, logs=%s ******"
+            "****** PID=%d, working_dir=%s, mapping_files_extra=%s, plugins_extra=%s, tmp_upload=%s, ingest_local=%s, logs=%s ******"
             % (
                 os.getpid(),
                 self._working_dir,
-                self.path_certs(),
                 self.path_mapping_files_extra(),
                 self.path_plugins_extra(),
                 self.path_tmp_upload(),
@@ -949,19 +860,6 @@ class GulpConfig:
         p = self.path_working_dir()
         p = os.path.join(p, "mapping_files")
         self._path_mapping_files_extra = p
-        return p
-
-    def path_certs(self) -> str:
-        """
-        Returns path to the certificates directory, default: ~/.config/gulp/certs
-        """
-        if self._path_certs:
-            # shortcut ...
-            return self._path_certs
-
-        p = self.path_working_dir()
-        p = os.path.join(p, "certs")
-        self._path_certs = p
         return p
 
     def query_history_max_size(self) -> int:

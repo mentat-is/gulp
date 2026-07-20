@@ -443,19 +443,15 @@ async def test_create_engine_uses_configured_postgres_pool_and_timeouts(monkeypa
     collab = GulpCollab.get_instance()
     captured = {}
     fake_engine = MagicMock(name="engine")
+    postgres_url = (
+        "postgresql+psycopg://user:pass@localhost:5432/gulp"
+        "?sslmode=verify-full&sslrootcert=%2Fetc%2Fssl%2Fca.pem"
+        "&sslcert=%2Fetc%2Fssl%2Fclient.pem&sslkey=%2Fetc%2Fssl%2Fclient.key"
+    )
 
     class _FakeConfig:
         def postgres_url(self):
-            return "postgresql+psycopg://user:pass@localhost:5432/gulp"
-
-        def path_certs(self):
-            return None
-
-        def postgres_ssl(self):
-            return False
-
-        def postgres_verify_certs(self):
-            return False
+            return postgres_url
 
         def postgres_lock_timeout_ms(self):
             return 1234
@@ -500,13 +496,14 @@ async def test_create_engine_uses_configured_postgres_pool_and_timeouts(monkeypa
     engine = await collab._create_engine()
 
     assert engine is fake_engine
-    assert captured["url"] == "postgresql+psycopg://user:pass@localhost:5432/gulp"
+    assert captured["url"] == postgres_url
     kwargs = captured["kwargs"]
     assert kwargs["pool_size"] == 3
     assert kwargs["max_overflow"] == 2
     assert kwargs["pool_timeout"] == 7
     assert kwargs["pool_recycle"] == 89
     assert kwargs["pool_pre_ping"] is True
+    assert set(kwargs["connect_args"]) == {"options"}
     options = kwargs["connect_args"]["options"]
     assert "-c lock_timeout=1234" in options
     assert "-c statement_timeout=5678" in options

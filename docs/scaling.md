@@ -20,7 +20,8 @@ they do not make a saturated OpenSearch or PostgreSQL service faster.
 Run identical gULP instances against the same Redis, PostgreSQL, and OpenSearch
 endpoints. Put client traffic behind a load balancer. This increases API,
 websocket, raw-ingestion, and worker capacity, but all nodes still contend for
-the same storage services.
+the same storage services. The [enterprise deployment guide](enterprise_deployment.md)
+provides an nginx upstream for one or more private gULP instances.
 
 The 10-user Sigma ZIP stress run completed successfully with two gULP nodes:
 all expected records, queries, hits, and notes passed without a service restart.

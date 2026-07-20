@@ -4,7 +4,7 @@
   - [Use a local backend image](#use-a-local-backend-image)
   - [Compose profiles](#compose-profiles)
     - [Exposed services](#exposed-services)
-    - [TLS certificates](#tls-certificates)
+    - [Production TLS](#production-tls)
     - [Cleanup](#cleanup)
 
 # Docker installation
@@ -26,7 +26,7 @@ docker compose --profile gulp up -d
 The API is at [http://localhost:8080](http://localhost:8080), and its reference
 is at [http://localhost:8080/docs](http://localhost:8080/docs).
 Set `GULP_WORKING_DIR` before the command to store the generated configuration,
-certificates, plugins, and mappings outside the default `~/.config/gulp`.
+plugins, and mappings outside the default `~/.config/gulp`.
 
 ## Run the web UI
 
@@ -99,38 +99,14 @@ when changing profiles.
 - Grafana, with `--profile metrics`: [http://localhost:3030](http://localhost:3030)
 - FTP, with `--profile extra`: `localhost:21`, passive ports `21000-21010`
 
-### TLS certificates
+### Production TLS
 
-Put certificates under `$GULP_WORKING_DIR/certs`, which is mounted into the
-containers by the compose file.
-
-OpenSearch:
-
-- `opensearch_verify_certs`: set to `false` to skip server verification.
-- `$GULP_WORKING_DIR/certs/opensearch-ca.pem`: CA certificate.
-- `$GULP_WORKING_DIR/certs/opensearch.pem`: client certificate.
-- `$GULP_WORKING_DIR/certs/opensearch.key`: passwordless client key.
-
-PostgreSQL:
-
-- `postgres_ssl`: use SSL for PostgreSQL connections.
-- `postgres_verify_certs`: set to `false` to skip server verification.
-- `$GULP_WORKING_DIR/certs/postgres-ca.pem`: CA certificate.
-- `$GULP_WORKING_DIR/certs/postgres.pem`: client certificate.
-- `$GULP_WORKING_DIR/certs/postgres.key`: client key.
-
-gULP HTTPS:
-
-- `https_enforce`: require HTTPS.
-- `https_enforce_client_certs`: require client certificates signed by
-  `gulp-ca.pem`.
-- `$GULP_WORKING_DIR/certs/gulp-ca.pem`: gULP CA.
-- `$GULP_WORKING_DIR/certs/gulp.pem`: gULP server certificate.
-- `$GULP_WORKING_DIR/certs/gulp.key`: gULP server key.
-
-For Redis TLS, use its service-specific configuration and mount any needed files
-under `$GULP_WORKING_DIR/certs`. Put a TLS reverse proxy in front of the
-SeaweedFS S3 endpoint when encrypted transport is required.
+The local Compose topology intentionally keeps its HTTP defaults. For a public
+deployment, keep the backend private and terminate HTTPS/WSS at nginx, an
+ingress controller, or a managed load balancer. The
+[enterprise deployment guide](enterprise_deployment.md) includes a complete
+nginx example, optional mutual TLS, and native TLS configuration for
+PostgreSQL, OpenSearch, Redis, and S3.
 
 ### Cleanup
 
