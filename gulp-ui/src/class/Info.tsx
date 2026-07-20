@@ -56,6 +56,13 @@ import type {
 	QueryRawDocument,
 } from "@/workers/DataWorker.types";
 import { ViewportQueryGate } from "@/class/ViewportQueryGate";
+import {
+	hasRawQueryViewportWork,
+	isRawQuerySourceVisible,
+	selectNextRawQueryQueueItem,
+	type RawQueryQueuePriority,
+	type RawQueryViewportState,
+} from "@/class/RawQueryScheduler";
 
 export namespace GulpDataset {
 	export namespace GetAvailableLoginApi {
@@ -308,7 +315,7 @@ interface RefetchOptions {
 	frame?: MinMax;
 }
 
-type ViewportQueryPriority = "visible" | "background";
+type ViewportQueryPriority = RawQueryQueuePriority;
 
 type QueryFileOptions = GulpDataset.QueryGulp.Options & {
 	operationId?: Operation.Id;
@@ -352,8 +359,6 @@ interface RefetchQueueItem {
 	query: Query.Type;
 	options: QueryFileOptions;
 	sequence: number;
-	/** Whether this source was visible when the refetch was scheduled. */
-	viewportPriority: boolean;
 }
 
 interface InfoProps {
@@ -397,8 +402,7 @@ const ACTIVE_REQUEST_STATUSES = new Set<Request.Status>([
 	Request.Status.PENDING,
 	Request.Status.ONGOING,
 ]);
-const MAX_VISIBLE_QUERY_CONCURRENCY = 4;
-const MAX_BACKGROUND_QUERY_CONCURRENCY = 1;
+const MAX_QUERY_CONCURRENCY = 4;
 const QUERY_DOC_WORKER_THRESHOLD = 1000;
 
 export class Info implements InfoProps {
@@ -424,8 +428,7 @@ export class Info implements InfoProps {
 	private activeQuerySourceRequests = new Map<Source.Id, Request.Id>();
 	private refetchQueue: RefetchQueueItem[] = [];
 	private refetchQueueSequence = 0;
-	private activeVisibleQueryCount = 0;
-	private activeBackgroundQueryCount = 0;
+	private activeQueuedQueryCount = 0;
 	private viewportSourceIds = new Set<Source.Id>();
 	private viewportSourceOrder = new Map<Source.Id, number>();
 	private viewportSourceSignature = "";
@@ -473,8 +476,8 @@ export class Info implements InfoProps {
 
 	/**
 	 * Stores the source IDs intersecting the current Canvas viewport and overscan.
-	 * Viewport changes update render subscribers only; query dispatch is owned by
-	 * explicit refetch paths so moving the Canvas does not start raw queries.
+	 * Viewport changes update render subscribers and reprioritize only already
+	 * queued raw queries after the settle delay.
 	 * @param sourceIds Source ids ordered by their Canvas row position.
 	 * @returns Nothing.
 	 */
@@ -489,6 +492,9 @@ export class Info implements InfoProps {
 		);
 		this.viewportQueryGate.markViewportChanged();
 		this.notifyViewportSourceListeners();
+		if (this.refetchQueue.length > 0) {
+			this.scheduleRefetchQueuePumpAfterViewportChange();
+		}
 	};
 
 	/**
@@ -514,6 +520,15 @@ export class Info implements InfoProps {
 	 * @returns New set containing the source IDs most recently reported by the Canvas.
 	 */
 	getViewportSourceIds = (): Set<Source.Id> => new Set(this.viewportSourceIds);
+
+	/**
+	 * Returns the current viewport state used by the raw query scheduler.
+	 * @returns Latest viewport source ids and their Canvas row ordering.
+	 */
+	private getRawQueryViewportState = (): RawQueryViewportState => ({
+		sourceIds: this.viewportSourceIds,
+		sourceOrder: this.viewportSourceOrder,
+	});
 
 	/**
 	 * Notifies subscribers that the Canvas viewport source set changed.
@@ -801,28 +816,21 @@ export class Info implements InfoProps {
 
 	/**
 	 * Starts queued refetches after the current viewport row set has stabilized,
-	 * giving rows visible at scheduling time priority over hidden rows.
+	 * filling a shared four-request pool and selecting current viewport rows first.
 	 * @returns Nothing.
 	 */
 	private pumpRefetchQueue = (): void => {
 		if (this.deferQueryPumpForUnsettledViewport()) return;
 
-		while (this.activeVisibleQueryCount < MAX_VISIBLE_QUERY_CONCURRENCY) {
-			const visibleIndex = this.findNextQueuedSourceIndex(true);
-			if (visibleIndex === -1) break;
+		while (this.activeQueuedQueryCount < MAX_QUERY_CONCURRENCY) {
+			const selection = selectNextRawQueryQueueItem(
+				this.refetchQueue,
+				this.getRawQueryViewportState(),
+			);
+			if (!selection) break;
 
-			const [item] = this.refetchQueue.splice(visibleIndex, 1);
-			this.startRefetchQueueItem(item, "visible");
-		}
-
-		if (this.hasVisibleQueuedSource()) return;
-
-		while (this.activeBackgroundQueryCount < MAX_BACKGROUND_QUERY_CONCURRENCY) {
-			const backgroundIndex = this.findNextQueuedSourceIndex(false);
-			if (backgroundIndex === -1) break;
-
-			const [item] = this.refetchQueue.splice(backgroundIndex, 1);
-			this.startRefetchQueueItem(item, "background");
+			const [item] = this.refetchQueue.splice(selection.index, 1);
+			this.startRefetchQueueItem(item, selection.priority);
 		}
 	};
 
@@ -863,44 +871,35 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Finds the next queued source index for either viewport-priority or background work.
-	 * @param visible Whether to search viewport-priority rows or background rows.
-	 * @returns Queue index, or -1 when no matching item is waiting.
+	 * Schedules queued raw query dispatch after a viewport update without blocking render.
+	 * @returns Nothing.
 	 */
-	private findNextQueuedSourceIndex = (visible: boolean): number => {
-		let bestIndex = -1;
-		let bestOrder = Number.POSITIVE_INFINITY;
-		let bestSequence = Number.POSITIVE_INFINITY;
+	private scheduleRefetchQueuePumpAfterViewportChange = (): void => {
+		const remainingDelay = this.hasVisibleQueuedSource()
+			? this.viewportQueryGate.getRemainingDelay()
+			: 0;
 
-		for (let index = 0; index < this.refetchQueue.length; index++) {
-			const item = this.refetchQueue[index];
-			if (item.viewportPriority !== visible) continue;
-
-			const order = this.viewportSourceOrder.get(item.sourceId) ?? item.sequence;
-			if (order < bestOrder || (order === bestOrder && item.sequence < bestSequence)) {
-				bestIndex = index;
-				bestOrder = order;
-				bestSequence = item.sequence;
-			}
-		}
-
-		return bestIndex;
+		this.clearViewportQueryPumpTimer();
+		this.viewportQueryPumpTimer = setTimeout(() => {
+			this.viewportQueryPumpTimer = null;
+			this.pumpRefetchQueue();
+		}, Math.max(1, Math.ceil(remainingDelay)));
 	};
 
 	/**
-	 * Checks whether any viewport-priority source is waiting in the refetch queue.
-	 * @returns True when viewport-priority work is queued.
+	 * Checks whether any currently visible source is waiting in the refetch queue.
+	 * @returns True when current viewport-priority work is queued.
 	 */
 	private hasVisibleQueuedSource = (): boolean =>
-		this.refetchQueue.some((item) => item.viewportPriority);
+		hasRawQueryViewportWork(this.refetchQueue, this.getRawQueryViewportState());
 
 	/**
-	 * Checks whether a source should be treated as visible when work is scheduled.
+	 * Checks whether a source should be treated as visible right now.
 	 * @param sourceId Source id to inspect.
 	 * @returns True when the Canvas has not reported visibility yet or the source is visible.
 	 */
 	private isQueuedSourceVisible = (sourceId: Source.Id): boolean =>
-		this.viewportSourceIds.size === 0 || this.viewportSourceIds.has(sourceId);
+		isRawQuerySourceVisible(sourceId, this.getRawQueryViewportState());
 
 	/**
 	 * Runs a queued source query and lets the stream lifecycle release concurrency.
@@ -912,11 +911,7 @@ export class Info implements InfoProps {
 		item: RefetchQueueItem,
 		queuePriority: ViewportQueryPriority,
 	): void => {
-		if (queuePriority === "visible") {
-			this.activeVisibleQueryCount++;
-		} else {
-			this.activeBackgroundQueryCount++;
-		}
+		this.activeQueuedQueryCount++;
 
 		this.query_file(item.query, {
 			...item.options,
@@ -935,12 +930,10 @@ export class Info implements InfoProps {
 	 * @returns Nothing.
 	 */
 	private finishQueuedQuery = (queuePriority?: ViewportQueryPriority): void => {
-		if (queuePriority === "visible") {
-			this.activeVisibleQueryCount = Math.max(0, this.activeVisibleQueryCount - 1);
-		} else if (queuePriority === "background") {
-			this.activeBackgroundQueryCount = Math.max(
+		if (queuePriority) {
+			this.activeQueuedQueryCount = Math.max(
 				0,
-				this.activeBackgroundQueryCount - 1,
+				this.activeQueuedQueryCount - 1,
 			);
 		}
 
@@ -1040,8 +1033,7 @@ export class Info implements InfoProps {
 		this._clear_ingest_source_done_listeners();
 		this.clearViewportQueryPumpTimer();
 		this.refetchQueue = [];
-		this.activeVisibleQueryCount = 0;
-		this.activeBackgroundQueryCount = 0;
+		this.activeQueuedQueryCount = 0;
 
 		Array.from(this.activeQueryStreams.values()).forEach((stream) => {
 			stream.queuePriority = undefined;
@@ -1310,23 +1302,51 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Lets background stream insertion wait while visible rows are queued.
+	 * Checks whether a queued query stream belongs to the current Canvas viewport.
+	 * @param stream Active stream to classify.
+	 * @returns True when any stream source is currently visible.
+	 */
+	private isQueryStreamInViewport = (stream: QueryStreamState): boolean =>
+		stream.sourceIds.some((sourceId) => this.isQueuedSourceVisible(sourceId));
+
+	/**
+	 * Checks whether another active queued query stream is viewport-priority work.
+	 * @param excludedRequestId Request id that should not be considered.
+	 * @returns True when a different active queued stream is currently visible.
+	 */
+	private hasActiveViewportQueryStream = (
+		excludedRequestId: Request.Id,
+	): boolean =>
+		Array.from(this.activeQueryStreams.values()).some(
+			(stream) =>
+				stream.requestId !== excludedRequestId &&
+				Boolean(stream.queuePriority) &&
+				this.isQueryStreamInViewport(stream),
+		);
+
+	/**
+	 * Lets offscreen stream insertion yield briefly while viewport rows are queued.
 	 * @param stream Query stream that is about to process another batch.
-	 * @returns Promise that resolves when no visible source is waiting in the queue.
+	 * @returns Promise that resolves when viewport-priority insertion can proceed.
 	 */
 	private waitForVisibleQueueBeforeBackgroundBatch = async (
 		stream: QueryStreamState,
 	): Promise<void> => {
-		if (stream.queuePriority !== "background") return;
+		if (!stream.queuePriority || this.isQueryStreamInViewport(stream)) return;
 
-		while (!stream.closed && this.hasVisibleQueuedSource()) {
+		while (
+			!stream.closed &&
+			!this.isQueryStreamInViewport(stream) &&
+			this.hasVisibleQueuedSource() &&
+			this.activeQueuedQueryCount < MAX_QUERY_CONCURRENCY
+		) {
 			this.pumpRefetchQueue();
 			await new Promise((resolve) => setTimeout(resolve, 16));
 		}
 		if (
 			!stream.closed &&
-			stream.queuePriority === "background" &&
-			this.activeVisibleQueryCount > 0
+			!this.isQueryStreamInViewport(stream) &&
+			this.hasActiveViewportQueryStream(stream.requestId)
 		) {
 			await new Promise((resolve) => setTimeout(resolve, 32));
 		}
@@ -1437,7 +1457,6 @@ export class Info implements InfoProps {
 					name,
 				},
 				sequence: this.refetchQueueSequence++,
-				viewportPriority: this.isQueuedSourceVisible(file.id),
 			});
 		});
 
@@ -5279,8 +5298,7 @@ export class Info implements InfoProps {
 				{
 					query: {
 						include_empty_sources:
-							syncOptions.includeEmptySources ??
-							!this.app.hidden.sourcesWithNoEvents,
+							syncOptions.includeEmptySources ?? true,
 					},
 				},
 			);

@@ -105,6 +105,7 @@ import {
 	applyTimelineWheelViewport,
 	shouldInvalidateCanvasGeometry,
 } from "@/utils";
+import { shouldStreamWorkerSourceSnapshot } from "./WorkerSourceSnapshotPolicy";
 
 export namespace Canvas {
 	export interface Props extends Stack.Props {
@@ -133,6 +134,15 @@ const RENDER_WORKER_FONTS: RenderWorkerFontSource[] = [
 		url: new URL("../../font/GeistVF.ttf", import.meta.url).toString(),
 	},
 ];
+
+/**
+ * Builds the stable row-membership signature used to detect visible source changes.
+ * @param sources Ordered sources currently rendered as timeline rows.
+ * @returns Pipe-delimited source identity signature.
+ */
+function getVisibleSourceSignature(sources: readonly Source.Type[]): string {
+	return sources.map((source) => source.id).join("|");
+}
 
 /**
  * Converts a source request marker into the worker's compact loading decoration.
@@ -465,9 +475,12 @@ export function Canvas({ timeline }: Canvas.Props) {
 	const hoveredItemRef = useRef<string | null>(null);
 	const wrapperRectRef = useRef<DOMRect | null>(null);
 	const wrapperLineHeightRef = useRef<number>(16);
-	const visibleSourceSignatureRef = useRef<string>("");
+	const initialVisibleSources = Source.Entity.rendered(app);
+	const visibleSourceSignatureRef = useRef<string>(
+		getVisibleSourceSignature(initialVisibleSources),
+	);
 	const [visibleSourceRowCount, setVisibleSourceRowCount] = useState<number>(
-		() => Source.Entity.selected(app).length,
+		() => initialVisibleSources.length,
 	);
 
 	/**
@@ -478,8 +491,8 @@ export function Canvas({ timeline }: Canvas.Props) {
 	 */
 	const reconcileVisibleSourceMembership = useCallback(
 		(currentApp: App.Type): boolean => {
-			const visibleSources = Source.Entity.selected(currentApp);
-			const signature = visibleSources.map((source) => source.id).join("|");
+			const visibleSources = Source.Entity.rendered(currentApp);
+			const signature = getVisibleSourceSignature(visibleSources);
 			if (signature === visibleSourceSignatureRef.current) {
 				return false;
 			}
@@ -657,7 +670,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 		const currentScrollX = scrollXRef.current;
 		const currentScrollY = scrollYRef.current;
 		const limits = getLimits(app, Info, timeline, currentScrollX);
-		const selectedSources = Source.Entity.selected(app);
+		const selectedSources = Source.Entity.rendered(app);
 
 		// Create or reuse the singleton RenderEngine with current frame parameters.
 		// The constructor uses the singleton pattern: if an instance exists, it updates
@@ -1001,7 +1014,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 		};
 		const index = Math.floor(click.y / 48);
 
-		const files = Source.Entity.selected(Info.app);
+		const files = Source.Entity.rendered(Info.app);
 		const file = files[index];
 
 		if (!file) return;
@@ -1507,7 +1520,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 		const currentTarget = currentApp.timeline.target;
 		const currentTheme = Color.Themer.theme;
 		return {
-			sourceOrder: Source.Entity.selected(currentApp).map((source) => source.id),
+			sourceOrder: Source.Entity.rendered(currentApp).map((source) => source.id),
 			hidden: {
 				notes: currentApp.hidden.notes,
 				links: currentApp.hidden.links,
@@ -1779,7 +1792,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 						batch.sequence,
 						absoluteInputTimestamp,
 					);
-					const selectedSources = Source.Entity.selected(Info.app);
+					const selectedSources = Source.Entity.rendered(Info.app);
 					const viewportSourceIds = getCanvasViewportSourceIds(
 						selectedSources,
 						viewportState.scrollY,
@@ -2056,7 +2069,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 	const syncWorkerSources = useCallback(
 		(client: RenderWorkerClient, streamMissingEvents: boolean): void => {
 			const currentApp = Info.app;
-			const selectedSources = Source.Entity.selected(currentApp);
+			const selectedSources = Source.Entity.rendered(currentApp);
 			const sourceInputs: RenderSourceProjectionInput[] = [];
 			selectedSources.forEach((source, rowOrder) => {
 					const context = Context.Entity.id(currentApp, source.context_id);
@@ -2125,6 +2138,8 @@ export function Canvas({ timeline }: Canvas.Props) {
 			);
 			const previousSourceIds = workerKnownSourceIdsRef.current;
 			const nextSourceIds = new Set(selectedSources.map((source) => source.id));
+			const acknowledgedSourceRevisions =
+				client.getSynchronizationState().acknowledgedSourceRevisions;
 			const removedSourceIds = Array.from(
 				previousSourceIds,
 			).filter((sourceId) => !nextSourceIds.has(sourceId));
@@ -2158,10 +2173,15 @@ export function Canvas({ timeline }: Canvas.Props) {
 						: "non-graph";
 				const previousGraphSignature =
 					workerGraphSignaturesRef.current.get(source.id);
-				const needsEventSnapshot =
-					streamMissingEvents &&
-					(!previousSourceIds.has(source.id) ||
-						previousGraphSignature !== graphSignature);
+				const needsEventSnapshot = shouldStreamWorkerSourceSnapshot({
+					streamMissingEvents,
+					wasKnownSource: previousSourceIds.has(source.id),
+					graphSignature,
+					previousGraphSignature,
+					sourceRevision: DataStore.getSourceRevision(source.id),
+					acknowledgedSourceRevision:
+						acknowledgedSourceRevisions.get(source.id) ?? 0,
+				});
 				workerGraphSignaturesRef.current.set(source.id, graphSignature);
 				if (needsEventSnapshot) {
 					streamWorkerSourceSnapshot(client, source);
@@ -2790,7 +2810,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 					48,
 			);
 
-			const files = Source.Entity.selected(Info.app);
+			const files = Source.Entity.rendered(Info.app);
 			const file = files[index] ?? null;
 
 			setTarget(file);

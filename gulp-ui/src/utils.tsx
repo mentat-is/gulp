@@ -205,7 +205,7 @@ export function shouldInvalidateCanvasGeometry(
  * @returns Set containing source IDs rendered as timeline rows.
  */
 export function getCanvasRenderedSourceIdSet(app: App.Type): Set<Source.Id> {
-	return new Set(Source.Entity.selected(app).map((source) => source.id));
+	return new Set(Source.Entity.rendered(app).map((source) => source.id));
 }
 
 const DETACHED_WINDOWS_STORAGE_KEY = "gulp-detached-windows";

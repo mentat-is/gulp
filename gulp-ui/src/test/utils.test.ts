@@ -6,7 +6,9 @@ import { getCanvasRenderedSourceIdSet } from "@/utils";
 
 const OPERATION_ID = "operation" as Operation.Id;
 const CONTEXT_ID = "context" as Context.Id;
-let mockSourceSelectedImplementation = (_app: App.Type): Source.Type[] => [];
+let mockSourceSelectedImplementation = (app: App.Type): Source.Type[] =>
+	app.target.files.filter((source: Source.Type) => source.selected);
+let mockSourceRenderedImplementation = (_app: App.Type): Source.Type[] => [];
 
 jest.mock("@/entities/Doc", () => ({
 	Doc: { Entity: { get: jest.fn() } },
@@ -16,6 +18,7 @@ jest.mock("@/entities/Source", () => ({
 	Source: {
 		Entity: {
 			selected: (app: App.Type) => mockSourceSelectedImplementation(app),
+			rendered: (app: App.Type) => mockSourceRenderedImplementation(app),
 		},
 	},
 }));
@@ -107,7 +110,9 @@ function createApp(
 
 describe("getCanvasRenderedSourceIdSet", () => {
 	beforeEach(() => {
-		mockSourceSelectedImplementation = (app: App.Type) => {
+		mockSourceSelectedImplementation = (app: App.Type) =>
+			app.target.files.filter((source: Source.Type) => source.selected);
+		mockSourceRenderedImplementation = (app: App.Type) => {
 			const contextById = new Map<Context.Id, string>(
 				app.target.contexts.map((context) => [context.id, context.name]),
 			);

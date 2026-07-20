@@ -117,9 +117,7 @@ export namespace SelectFiles {
 		const [filter, setFilter] = useState("");
 		const [refreshToken, debug] = useReducer((i) => ++i, 0);
 		const [loading, setLoading] = useState(false);
-		const [showEmptySources, setShowEmptySources] = useState(
-			!app.hidden.sourcesWithNoEvents,
-		);
+		const [showEmptySources, setShowEmptySources] = useState(false);
 		const [selectedContexts, setSelectedContexts] = useState<Set<Context.Id>>(
 			new Set(Context.Entity.selected(app).map((c) => c.id)),
 		);

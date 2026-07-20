@@ -88,11 +88,9 @@ export function Timeline({
 			if (needsReveal) Info.setInfoByKey(files, "target", "files");
 
 			// Compute the row index against the same list the renderer uses so the
-			// Y centering matches the actual rendered position. Reuse Source.Entity.selected
-			// (which applies pin order and the timeline search filter) on a synthetic
-			// app carrying the just-updated files.
+			// Y centering matches the actual rendered position.
 			const synthApp = { ...app, target: { ...app.target, files } };
-			const visible = Source.Entity.selected(synthApp);
+			const visible = Source.Entity.rendered(synthApp);
 			const index = visible.findIndex((s) => s.id === file_id);
 			if (index === -1) return;
 

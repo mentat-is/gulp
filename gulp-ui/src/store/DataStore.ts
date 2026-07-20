@@ -232,6 +232,8 @@ export class DataStore {
 	/**
 	 * Gets a source event array, creating an empty canonical array when absent.
 	 * Lazy creation does not emit a mutation because it does not change rendered data.
+	 * Read-only render paths should use `peekSourceEvents` so an unqueried source
+	 * is not promoted to a loaded-empty source.
 	 * @param sourceId Source whose canonical events are requested.
 	 * @returns Mutable canonical event array for the source.
 	 */
@@ -244,6 +246,15 @@ export class DataStore {
 		const emptyEvents: Doc.Type[] = [];
 		DataStore.events.set(sourceId, emptyEvents);
 		return emptyEvents;
+	}
+
+	/**
+	 * Reads a source event array without creating an empty canonical collection.
+	 * @param sourceId Source whose canonical events are requested.
+	 * @returns Existing source events, or undefined when the source has not loaded.
+	 */
+	public static peekSourceEvents(sourceId: Source.Id): Doc.Type[] | undefined {
+		return DataStore.events.get(sourceId);
 	}
 
 	/**

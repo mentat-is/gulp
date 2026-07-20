@@ -46,7 +46,7 @@ export namespace Context {
       Context.Entity.select(newContexts, Context.Entity.selected(app))
 
     public static frame = (app: App.Type): MinMax => {
-      const files = Source.Entity.selected(app);
+      const files = Source.Entity.rendered(app);
       return Source.Entity.renderedFrame(files)
     };
 

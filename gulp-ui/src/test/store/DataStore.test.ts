@@ -47,6 +47,16 @@ describe("DataStore source insertion", () => {
 		expect(DataStore.hasRenderableSourceEvents(SOURCE_ID, 0)).toBe(true);
 	});
 
+	it("peeks source events without marking an unqueried source loaded empty", () => {
+		expect(DataStore.peekSourceEvents(SOURCE_ID)).toBeUndefined();
+		expect(DataStore.hasRenderableSourceEvents(SOURCE_ID, 5)).toBe(true);
+
+		expect(DataStore.peekSourceEvents(SOURCE_ID) ?? []).toEqual([]);
+
+		expect(DataStore.peekSourceEvents(SOURCE_ID)).toBeUndefined();
+		expect(DataStore.hasRenderableSourceEvents(SOURCE_ID, 5)).toBe(true);
+	});
+
 	it("appends proven-new older batches without replacing the canonical array", () => {
 		const existing = [createDocument("newest", 300)];
 		DataStore.replaceSourceEvents(SOURCE_ID, existing);

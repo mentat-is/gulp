@@ -123,16 +123,8 @@ export namespace Source {
 			Default.Icon.SOURCE,
 		);
 
-		/**
-		 * Memorization cache for `selected()`. Stores the result keyed by `app.target.files` reference.
-		 *
-		 * ARCHITECTURAL DECISION: `selected()` is called 5+ times per render frame (from Canvas rendering,
-		 * click handlers, context menus, link calculations, etc.). Each call performs a filter → sort → filter
-		 * chain on all sources. By caching the intermediate result (pinned + selected sources) and only
-		 * re-filtering by search text, we avoid redundant computation. The cache invalidates automatically
-		 * when `app.target.files` is reassigned (new reference = new selection state).
-		 */
-		private static _selectedCache: {
+		/** Memoization cache for the Canvas-rendered source row set. */
+		private static _renderedCache: {
 			ref: Source.Type[] | null;
 			filterText: string;
 			sourcesWithNoEvents: boolean;
@@ -158,37 +150,44 @@ export namespace Source {
 		};
 
 		/**
-		 * Returns the list of currently selected and visible sources, sorted by pin status.
-		 * Results are memoized by source list, search text, visibility settings, render
-		 * settings, and render-data sequence because empty-source visibility depends on
-		 * the current canonical event store.
+		 * Returns the list of sources selected by the user, sorted by pin status.
+		 * Canvas-only visibility controls are not applied here.
 		 * @param app Current application state.
-		 * @returns Selected source rows that should be visible on the timeline.
+		 * @returns User-selected source rows.
 		 */
 		public static selected = (app: App.Type): Source.Type[] => {
+			return Source.Entity.pins(
+				app.target.files.filter((source) => source.selected),
+			);
+		};
+
+		/**
+		 * Returns the source rows rendered on the Canvas timeline.
+		 * Applies user selection, pin ordering, timeline text filtering, and the
+		 * Canvas-only hidden-empty-source setting.
+		 * @param app Current application state.
+		 * @returns Source rows that should be rendered on the Canvas timeline.
+		 */
+		public static rendered = (app: App.Type): Source.Type[] => {
 			const currentFilter = (app.timeline.filter || "").toLowerCase();
 			const hiddenSourcesWithNoEvents = app.hidden.sourcesWithNoEvents;
 			const renderVersion = app.timeline.renderVersion;
 			const renderDataSequence = DataStore.getRenderSequence();
 
 			if (
-				app.target.files === Source.Entity._selectedCache.ref &&
-				currentFilter === Source.Entity._selectedCache.filterText &&
+				app.target.files === Source.Entity._renderedCache.ref &&
+				currentFilter === Source.Entity._renderedCache.filterText &&
 				hiddenSourcesWithNoEvents ===
-					Source.Entity._selectedCache.sourcesWithNoEvents &&
-				renderVersion === Source.Entity._selectedCache.renderVersion &&
-				renderDataSequence === Source.Entity._selectedCache.renderDataSequence
+					Source.Entity._renderedCache.sourcesWithNoEvents &&
+				renderVersion === Source.Entity._renderedCache.renderVersion &&
+				renderDataSequence === Source.Entity._renderedCache.renderDataSequence
 			) {
-				return Source.Entity._selectedCache.result;
+				return Source.Entity._renderedCache.result;
 			}
-			const pins = Source.Entity.pins(
-				app.target.files.filter(
-					(s) =>
-						s.selected &&
-						(hiddenSourcesWithNoEvents
-							? Source.Entity.hasVisibleEvents(s)
-							: true),
-				),
+			const pins = Source.Entity.selected(app).filter((source) =>
+				hiddenSourcesWithNoEvents
+					? Source.Entity.hasVisibleEvents(source)
+					: true,
 			);
 
 			const result = pins.filter(
@@ -199,7 +198,7 @@ export namespace Source {
 						.includes(currentFilter),
 			);
 
-			Source.Entity._selectedCache = {
+			Source.Entity._renderedCache = {
 				ref: app.target.files,
 				filterText: currentFilter,
 				sourcesWithNoEvents: hiddenSourcesWithNoEvents,
@@ -458,7 +457,8 @@ export namespace Source {
 		public static events = (
 			app: App.Type,
 			file: Source.Type | Source.Id,
-		): Doc.Type[] => Doc.Entity.get(app, Parser.useUUID(file) as Source.Id);
+		): Doc.Type[] =>
+			DataStore.peekSourceEvents(Parser.useUUID(file) as Source.Id) ?? [];
 
 		/**
 		 * Hashes a color override value with the exact same hash calculation used by Doc.Entity.normalize().
@@ -554,7 +554,7 @@ export namespace Source {
 				.flat();
 
 		public static index = (app: App.Type, file: Source.Type | Source.Id) =>
-			Source.Entity.selected(app).findIndex(
+			Source.Entity.rendered(app).findIndex(
 				(s) => s.id === Parser.useUUID(file),
 			);
 

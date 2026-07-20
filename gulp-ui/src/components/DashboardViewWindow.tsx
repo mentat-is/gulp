@@ -1776,12 +1776,10 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 		() =>
 			Source.Entity.pins(
 				app.target.files.filter(
-					(source) =>
-						source.selected &&
-						(app.hidden.sourcesWithNoEvents ? source.total > 0 : true),
+					(source) => source.selected,
 				),
 			),
-		[app.hidden.sourcesWithNoEvents, app.target.files],
+		[app.target.files],
 	);
 	const [filterState, setFilterState] = useState<AnalyticsFilterState>(() =>
 		createInitialFilterState(operationSources),
