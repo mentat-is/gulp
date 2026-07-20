@@ -50,6 +50,8 @@ export namespace DetachedApp {
     detachedDocument?: Document
     /** Main window's spawnBanner — banners should open in the main window, not the detached one */
     mainSpawnBanner?: (node: ReactNode, target?: string) => void
+    /** Whether timeline target changes in this detached window should update the main tab */
+    syncTimelineTargetToMain?: boolean
     /** Children to render inside the provider */
     children: ReactNode
   }
@@ -78,6 +80,7 @@ export function DetachedAppProvider({
   bridgeId,
   detachedDocument = document,
   mainSpawnBanner = () => { },
+  syncTimelineTargetToMain = true,
   children,
 }: DetachedApp.ProviderProps) {
   const [app, setRawInfo] = useState<App.Type>(initialApp)
@@ -435,10 +438,11 @@ export function DetachedAppProvider({
   // Sync timeline target selection back to the main window so the canvas crosshair updates.
   // Use _id as dep to avoid re-firing when the same event is echoed back as a new object ref.
   useEffect(() => {
+    if (!syncTimelineTargetToMain) return
     outboundBridgeRef.current?.send(WindowBridge.MessageType.EVENT_SELECTED, {
       event: app.timeline.target ?? null,
     })
-  }, [app.timeline.target?._id])
+  }, [app.timeline.target?._id, syncTimelineTargetToMain])
 
   const setDockedState = useCallback(() => {
     outboundBridgeRef.current?.send(WindowBridge.MessageType.DOCK_DIALOG, {})

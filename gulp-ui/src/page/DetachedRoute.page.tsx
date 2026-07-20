@@ -96,6 +96,7 @@ export function DetachedRouteShell() {
 		<DetachedAppProvider
 			bridgeId={bridgeIdRef.current}
 			detachedDocument={document}
+			syncTimelineTargetToMain={false}
 		>
 			<DetachedRouteContent
 				kind={routeKind}
