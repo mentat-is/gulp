@@ -181,14 +181,21 @@ async def test_server_startup_aborts_on_collab_schema_mismatch(monkeypatch, tmp_
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_server_reset_recreates_collab_on_schema_mismatch(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    ("first_run", "reset_collab"),
+    [(False, True), (True, False)],
+    ids=["explicit-reset", "first-run"],
+)
+async def test_server_reset_recreates_collab_on_schema_mismatch(
+    monkeypatch, tmp_path, first_run, reset_collab
+):
     from gulp.api.opensearch_api import GulpOpenSearch
     from gulp.api.server_api import GulpServer
 
     collab = MagicMock()
     collab.init = AsyncMock(side_effect=[SchemaMismatch("missing table"), None])
     server = GulpServer()
-    server._reset_collab = True
+    server._reset_collab = reset_collab
     server._cleanup = AsyncMock()
     config = MagicMock()
     config.path_tmp_upload.return_value = str(tmp_path)
@@ -197,7 +204,7 @@ async def test_server_reset_recreates_collab_on_schema_mismatch(monkeypatch, tmp
 
     monkeypatch.setattr(GulpConfig, "get_instance", lambda: config)
     monkeypatch.setattr(GulpCollab, "get_instance", lambda: collab)
-    monkeypatch.setattr(server, "_check_first_run", lambda: False)
+    monkeypatch.setattr(server, "_check_first_run", lambda: first_run)
     monkeypatch.setattr(
         GulpOpenSearch,
         "get_instance",
@@ -211,6 +218,7 @@ async def test_server_reset_recreates_collab_on_schema_mismatch(monkeypatch, tmp
         call(main_process=True),
         call(main_process=True, force_recreate=True),
     ]
+    assert server._reset_collab is True
     server._cleanup.assert_awaited_once()
 
 
