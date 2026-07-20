@@ -169,9 +169,10 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]
 
 # Ensure pytest loads the asyncio plugin when available
-addopts = "-p pytest_asyncio"
+addopts = "-p pytest_asyncio --import-mode=importlib"
 asyncio_mode = "auto"
 minversion = "7.0"
 

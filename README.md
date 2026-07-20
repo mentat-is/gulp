@@ -31,7 +31,7 @@ _made with :heart: by Mentat._
 ## description
 
 gULP is a log-ingestion and incident-response platform. The FastAPI backend uses
-OpenSearch, PostgreSQL, Redis, and optional MinIO storage; the included React
+OpenSearch, PostgreSQL, Redis, and optional SeaweedFS storage; the included React
 web UI provides the investigation workspace.
 
 - **Ingestion plugins** for many log and artifact formats.

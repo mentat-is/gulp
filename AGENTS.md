@@ -9,7 +9,7 @@ Core services used by the backend:
 - OpenSearch for document storage
 - PostgreSQL for collaboration metadata
 - Redis for task queuing and pub/sub
-- MinIO for object storage when needed
+- SeaweedFS for S3-compatible object storage when needed
 
 ## How To Work In This Repo
 

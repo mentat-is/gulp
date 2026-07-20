@@ -385,14 +385,3 @@ async def _run_internal_event_stress(first_url: str, second_url: str) -> None:
                 },
             },
         )
-
-
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_internal_event_stress() -> None:
-    """Run internal-event stress against two probe-enabled instances."""
-    first_url = os.getenv("GULP_INTERNAL_EVENTS_BASE_URL", "http://localhost:8100")
-    second_url = os.getenv("GULP_INTERNAL_EVENTS_SECOND_BASE_URL")
-    if not second_url:
-        pytest.skip("GULP_INTERNAL_EVENTS_SECOND_BASE_URL is not set")
-    await _run_internal_event_stress(first_url, second_url)

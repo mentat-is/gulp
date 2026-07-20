@@ -138,7 +138,7 @@ class GulpNoteAttachment:
 
     @staticmethod
     async def delete_objects(attachment_ids: list[str]) -> None:
-        """Delete attachment objects by their exact MinIO keys."""
+        """Delete attachment objects by their exact storage keys."""
         if not attachment_ids:
             return
         from gulp.api.s3_api import GulpS3

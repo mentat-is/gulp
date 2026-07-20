@@ -39,22 +39,21 @@ services:
       - opensearch_data:/usr/share/opensearch/data
       - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/usr/share/opensearch/config/certs
 
-  minio:
-    image: minio/minio:latest
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.29
     restart: always
     ports:
       - 9000:9000      # S3 API
-      - 9001:9001      # Web console
+      - 9001:8888      # Filer web UI
     environment:
-      MINIO_ROOT_USER: ${MINIO_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY}
     depends_on:
       - os01
     volumes:
-      - minio_data:/mnt/data
-      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/mnt/certs
+      - seaweedfs_data:/data
 
-    command: server /minio/data --console-address ":9001"
+    command: server -dir=/data -s3 -s3.port=9000 -s3.iam=false -s3.port.iceberg=0
   
   postgres:
     # using an image having pg_cron preinstalled
@@ -217,6 +216,6 @@ volumes:
   postgres_data:
   opensearch_data:
   redis_data:
-  minio_data:
+  seaweedfs_data:
   prometheus_data:
   grafana_data:

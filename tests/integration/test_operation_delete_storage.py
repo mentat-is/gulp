@@ -1,4 +1,4 @@
-"""Live proof that deleting an operation removes its MinIO objects."""
+"""Live proof that deleting an operation removes its stored objects."""
 
 import uuid
 from pathlib import Path
@@ -7,7 +7,7 @@ import pytest
 
 
 @pytest.mark.integration
-async def test_operation_delete_removes_minio_objects(
+async def test_operation_delete_removes_stored_objects(
     gulp_base_url, gulp_test_user, gulp_test_password
 ) -> None:
     from gulp_sdk import GulpClient
