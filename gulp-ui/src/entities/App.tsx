@@ -56,6 +56,7 @@ export namespace App {
 			dialogSize: number;
 			pointers: Pointers.Pointer[];
 			renderVersion: number;
+			renderedSourceIds?: Source.Id[];
 		};
 		settings: {
 			[key: string]: any;

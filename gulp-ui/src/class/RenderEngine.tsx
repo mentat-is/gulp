@@ -643,16 +643,18 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		groupNotes: Note.Type[] = [note],
 		centerX?: number,
 	) => {
+		const sourceId = Note.Entity.sourceId(note);
+		if (!sourceId) return;
 		const noteCenterX =
 			typeof centerX === "number"
 				? centerX
 				: this.getPixelPosition(this.getNoteRenderTimestamp(note));
 		const x = noteCenterX + NOTE_OFFSET;
-		const rowIndex = this.sourceRowIndexById.get(note.source_id) ?? -1;
+		const rowIndex = this.sourceRowIndexById.get(sourceId) ?? -1;
 		const y =
 			Source.Entity.getHeight(
 				this.info.app,
-				note.source_id,
+				sourceId,
 				this.scrollY,
 				rowIndex,
 			) + NOTE_OFFSET;
@@ -822,7 +824,8 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 	 * @returns Timeline timestamp after source offset.
 	 */
 	private getNoteRenderTimestamp(note: Note.Type): number {
-		const source = this.visibleSourceById.get(note.source_id);
+		const sourceId = Note.Entity.sourceId(note);
+		const source = sourceId ? this.visibleSourceById.get(sourceId) : undefined;
 		return Note.Entity.timestamp(note) + (source?.settings.offset ?? 0);
 	}
 

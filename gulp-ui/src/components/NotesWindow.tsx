@@ -181,6 +181,7 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 			app.target.contexts,
 			app.timeline.filter,
 			app.timeline.renderVersion,
+			app.timeline.renderedSourceIds,
 			app.hidden.sourcesWithNoEvents,
 		],
 	);

@@ -4261,8 +4261,9 @@ export class Info implements InfoProps {
 		}).then(() => {
 			const deletedNote = DataStore.deleteNote(note.id, "deferred");
 			if (deletedNote) {
+				const sourceId = Note.Entity.sourceId(deletedNote);
 				Note.Entity.removeIndexedNote(deletedNote);
-				RenderEngine.resetSourceNotes(deletedNote.source_id);
+				if (sourceId) RenderEngine.resetSourceNotes(sourceId);
 			}
 		});
 
@@ -4286,7 +4287,8 @@ export class Info implements InfoProps {
 			const deletedNotes = DataStore.deleteNotes(ids, "deferred");
 			const affectedSourceIds = new Set<Source.Id>();
 			deletedNotes.forEach((deletedNote) => {
-				affectedSourceIds.add(deletedNote.source_id);
+				const sourceId = Note.Entity.sourceId(deletedNote);
+				if (sourceId) affectedSourceIds.add(sourceId);
 				Note.Entity.removeIndexedNote(deletedNote);
 			});
 			this.resetNoteRenderCaches(affectedSourceIds);
@@ -5204,11 +5206,13 @@ export class Info implements InfoProps {
 		});
 
 		normalizedNotes.forEach((note) => {
-			affectedSourceIds.add(note.source_id);
+			const sourceId = Note.Entity.sourceId(note);
+			if (sourceId) affectedSourceIds.add(sourceId);
 			const index = noteIndexById.get(note.id);
 			if (typeof index === "number") {
 				const previousNote = nextNotes[index];
-				affectedSourceIds.add(previousNote.source_id);
+				const previousSourceId = Note.Entity.sourceId(previousNote);
+				if (previousSourceId) affectedSourceIds.add(previousSourceId);
 				nextNotes[index] = note;
 				Note.Entity.upsertIndexedNote(note, previousNote);
 				return;

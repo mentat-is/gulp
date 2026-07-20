@@ -27,6 +27,7 @@ import { NotePoint } from "@/ui/Note";
 import { DisplayEventDialog } from "@/dialogs/Event.dialog";
 import {
 	applyThemeToWindow,
+	getCanvasRenderedSourceIds,
 	getPersistedDetachedWindowRecord,
 	persistDetachedWindow,
 	readPersistedDetachedWindows,
@@ -180,6 +181,19 @@ function areNoteSnapshotsEqual(
 	if (!previous || previous.length !== next.length) return false;
 
 	return previous.every((note, index) => note === next[index]);
+}
+
+/**
+ * Builds the stable source-row signature sent to detached windows.
+ * @param app Current main-tab app snapshot.
+ * @param operationId Optional operation scope.
+ * @returns Pipe-delimited rendered source row IDs.
+ */
+function getRenderedSourceSignature(
+	app: App.Type,
+	operationId?: Operation.Id | null,
+): string {
+	return getCanvasRenderedSourceIds(app, operationId).join("|");
 }
 
 /**
@@ -354,6 +368,9 @@ function _({ children }: { children: ReactNode }) {
 	}, []);
 	const replayDetachedStateRef = useRef(replayDetachedState);
 	const previousDetachedNotesRef = useRef<Note.Type[] | null>(null);
+	const renderedSourceSignatureRef = useRef(
+		getRenderedSourceSignature(app, selectedOperationId ?? routeOperationId),
+	);
 	const replayFrameRef = useRef<number | null>(null);
 	const replayNotesFrameRef = useRef<number | null>(null);
 
@@ -748,6 +765,10 @@ function _({ children }: { children: ReactNode }) {
 
 	useEffect(() => {
 		scheduleReplayDetachedState();
+		renderedSourceSignatureRef.current = getRenderedSourceSignature(
+			app,
+			selectedOperationId ?? routeOperationId,
+		);
 	}, [
 		scheduleReplayDetachedState,
 		app.target.files,
@@ -761,6 +782,26 @@ function _({ children }: { children: ReactNode }) {
 		selectedSourceIdsSignature,
 		status,
 	]);
+
+	useEffect(() => {
+		const handleDocumentStoreChange = (): void => {
+			const currentApp = appRef.current;
+			if (!currentApp.hidden.sourcesWithNoEvents) return;
+
+			const currentOperationId =
+				Operation.Entity.selected(currentApp)?.id ?? routeOperationIdRef.current;
+			const signature = getRenderedSourceSignature(
+				currentApp,
+				currentOperationId,
+			);
+			if (signature === renderedSourceSignatureRef.current) return;
+
+			renderedSourceSignatureRef.current = signature;
+			scheduleReplayDetachedState();
+		};
+
+		return DataStore.subscribeDocuments(handleDocumentStoreChange);
+	}, [scheduleReplayDetachedState]);
 
 	useEffect(() => {
 		scheduleReplayDetachedNotes();

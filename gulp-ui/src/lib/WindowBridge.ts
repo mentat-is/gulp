@@ -93,6 +93,7 @@ export namespace WindowBridge {
   export interface AppSnapshotPayload {
     operationId?: Operation.Id | null
     selectedSourceIds: Source.Id[]
+    renderedSourceIds: Source.Id[]
     operations: Operation.Type[]
     contexts: Context.Type[]
     sources: DetachedSourceSummary[]
@@ -306,6 +307,49 @@ export namespace WindowBridge {
   }
 
   /**
+   * Computes Canvas-rendered source rows without importing UI-heavy source helpers.
+   *
+   * @param app - Current application state.
+   * @param operationId - Optional operation scope for detached windows.
+   * @returns Ordered source IDs rendered as timeline rows.
+   */
+  function createRenderedSourceIds(
+    app: App.Type,
+    operationId?: Operation.Id | null,
+  ): Source.Id[] {
+    const filter = (app.timeline.filter || '').toLowerCase()
+    const contextNameById = new Map<Context.Id, string>(
+      app.target.contexts.map((context) => [
+        context.id,
+        context.name?.toLowerCase() ?? '',
+      ]),
+    )
+
+    return app.target.files
+      .filter(
+        (source) =>
+          source.selected &&
+          (!operationId || source.operation_id === operationId),
+      )
+      .sort((left, right) =>
+        left.pinned === right.pinned ? 0 : left.pinned ? -1 : 1,
+      )
+      .filter((source) =>
+        app.hidden.sourcesWithNoEvents
+          ? DataStore.hasRenderableSourceEvents(source.id, source.total)
+          : true,
+      )
+      .filter((source) => {
+        if (!filter) return true
+        return (
+          source.name?.toLowerCase().includes(filter) ||
+          (contextNameById.get(source.context_id) ?? '').includes(filter)
+        )
+      })
+      .map((source) => source.id)
+  }
+
+  /**
    * Reads the latest stored main-tab context replay.
    *
    * @returns Stored replay payload, or null when none exists or parsing fails.
@@ -367,10 +411,12 @@ export namespace WindowBridge {
       )
       const selectedSources = operationSources.filter((source) => source.selected)
       const sourceIds = selectedSources.map((source) => source.id)
+      const renderedSourceIds = createRenderedSourceIds(app, operationId)
 
       replay.snapshot = {
         operationId: operationId ?? null,
         selectedSourceIds: sourceIds,
+        renderedSourceIds,
         operations: operationId
           ? app.target.operations.map((operation) => ({
             ...operation,

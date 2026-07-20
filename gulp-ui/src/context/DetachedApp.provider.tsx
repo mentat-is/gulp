@@ -205,7 +205,7 @@ export function DetachedAppProvider({
   const applyAppSnapshot = useCallback((
     payload: WindowBridge.AppSnapshotPayload,
   ) => {
-    const { selectedSourceIds } = payload
+    const { selectedSourceIds, renderedSourceIds } = payload
     const { frame, filter, renderVersion } = payload.timeline
     selectedSourceIdsRef.current = selectedSourceIds
 
@@ -233,6 +233,7 @@ export function DetachedAppProvider({
           frame,
           filter,
           renderVersion,
+          renderedSourceIds,
         },
         hidden: payload.hidden,
       }
