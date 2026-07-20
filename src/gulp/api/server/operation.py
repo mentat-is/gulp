@@ -233,7 +233,7 @@ async def operation_delete_handler(
     delete_data: Annotated[
         Optional[bool],
         Query(
-            description="also deletes related data on the OpenSearch index and MinIO."
+            description="also deletes related data on the OpenSearch index and S3-compatible storage."
         ),
     ] = True,
     force_delete: Annotated[

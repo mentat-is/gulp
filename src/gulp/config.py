@@ -739,24 +739,6 @@ class GulpConfig:
             return []
         return roles
 
-    def s3_minio(self) -> bool:
-        """
-        Returns whether the S3-compatible storage is MinIO, which requires some specific handling (e.g. path style access).
-
-        default: True
-        """
-        n = self._config.get("s3_minio", True)
-        return n
-
-    def s3_region(self) -> str:
-        """
-        Returns the region to use when connecting to S3-compatible storage.
-
-        default: us-east-1
-        """
-        n = self._config.get("s3_region", "us-east-1")
-        return n
-
     def s3_url(self) -> str:
         """
         Returns the s3-compatible storage URL

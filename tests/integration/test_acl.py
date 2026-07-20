@@ -397,7 +397,7 @@ async def test_multi_permission_user_does_not_bypass_operation_acl(
                 ):
                     await client.queries.query_raw(
                         operation_id=hidden_op_id,
-                        q=[{"query": {"match_all": {}}}],
+                        q={"query": {"match_all": {}}},
                         q_options={
                             "preview_mode": True,
                             "limit": 1,

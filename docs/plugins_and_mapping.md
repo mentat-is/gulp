@@ -229,9 +229,9 @@ sequenceDiagram
     participant Plugin as Plugin
     participant Parser as Format parser
     participant Mapper as Field Mapper
-    participant MinIO as File Storage
+    participant Storage as SeaweedFS File Storage
     
-    Engine->>MinIO: upload if plugin_params.store_file is set
+    Engine->>Storage: upload if plugin_params.store_file is set
     Engine->>Plugin: ingest_file(file_path)
     Plugin->>Base: super().ingest_file()
     Base-->>Plugin: Initialize state
@@ -289,7 +289,7 @@ an example is provided in [example_chunk_callbacks](../src/gulp/plugins/example/
 
 #### file storage
 
-a plugin may decide to store file on the provided `MinIO` instance via `GulpPluginParameters.store_file`: if this is set, file is uploaded by the engine to the filestore *prior* to call plugin's `ingest_file` method.
+a plugin may decide to store a file on the provided SeaweedFS instance via `GulpPluginParameters.store_file`: if this is set, the file is uploaded by the engine to the filestore *prior* to calling the plugin's `ingest_file` method.
 
 file storage is helpful when the original file itself is binary and is needed for the investigation: usually the plugin should set `GulpPluginParameters.store_file` to `True` in `ingest_file` prior to calling engine's `ingest_file`:
 

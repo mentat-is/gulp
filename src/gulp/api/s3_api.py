@@ -17,7 +17,7 @@ from gulp.config import GulpConfig
 
 class GulpS3:
     """
-    implements API to connect to S3-compatible storage (e.g. minio) and perform operations on it.
+    implements API to connect to S3-compatible storage and perform operations on it.
     """
 
     _instance: "GulpS3" = None
@@ -39,8 +39,6 @@ class GulpS3:
         # get configuration options
         uri: str = GulpConfig.get_instance().s3_url()
         verify_certs: bool = GulpConfig.get_instance().s3_verify_certs()
-        self._region: str = GulpConfig.get_instance().s3_region()
-        self._minio: bool = GulpConfig.get_instance().s3_minio()
 
         # extract url/credentials from uri
         parsed = urlparse(uri)
@@ -51,17 +49,12 @@ class GulpS3:
             url += parsed.path
 
         self._init_params: dict = {
-            "region_name": self._region,
+            "region_name": "us-east-1",
             "endpoint_url": url,
             "aws_access_key_id": parsed.username,
             "aws_secret_access_key": parsed.password,
             "verify": verify_certs,
         }
-        if self._minio:
-            # minio-specific configuration
-            pass
-            # self._init_params["config"] = aiobotocore.config.AioConfig(signature_version="s3v4")
-
         self._session: AioSession = None
         self._client: S3Client = None
         self._client_lock = asyncio.Lock()
@@ -178,15 +171,7 @@ class GulpS3:
                 if error_code != '404':
                     raise
             
-            # Create bucket with appropriate configuration
             params = {"Bucket": bucket_name}
-            
-            # Only us-east-1 doesn't require LocationConstraint
-            if self._region != "us-east-1":
-                params["CreateBucketConfiguration"] = {
-                    "LocationConstraint": self.region_name
-                }
-            
             response = await client.create_bucket(**params)
             d = {
                 "status": "created",

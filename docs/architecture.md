@@ -30,7 +30,7 @@ collab[(PostgreSQL
 redis[(Redis
   task queue & pub/sub)]
 
-minio[(MinIO
+seaweedfs[(SeaweedFS
   file storage
 )]
 extension_plugin[ExtensionPlugins
@@ -68,7 +68,7 @@ bridges<-->|ingest| gulp
 gulp <-->|extend api| extension_plugin
 gulp -->|ingest| plugin
 plugin-.ingest.->opensearch
-plugin -->|store files| minio
+plugin -->|store files| seaweedfs
 gulp<--query-->opensearch
 gulp<-->|query|external_plugin<-->|query|external_source
 external_plugin-->|ingest|opensearch
@@ -92,7 +92,7 @@ Task queue and pub/sub:
 
 File storage:
 
-a `minIO` instance is provided to allow `ingestion` plugins to store files (i.e. binary files) which could not be stored on OpenSearch directly: note that this affects `file ingestion` operations only (no `ingest_raw/ws_ingest_raw`).
+a SeaweedFS instance is provided to allow `ingestion` plugins to store files (i.e. binary files) which could not be stored on OpenSearch directly: note that this affects `file ingestion` operations only (no `ingest_raw/ws_ingest_raw`).
 
 > Most gULP core components use the built-in `muty` utility package to abstract common operations and primitives.
 

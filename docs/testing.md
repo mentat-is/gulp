@@ -56,10 +56,8 @@ either port is already in use.
 Tune load with `GULP_CONCURRENT_USERS`,
 `GULP_MULTI_INSTANCE_RAW_INGEST_DOCS`,
 `GULP_MULTI_INSTANCE_POINTER_STRESS_COUNT`, and
-`GULP_MULTI_INSTANCE_COLLAB_STRESS_COUNT`. The older query, client-data, and
-collaboration test files remain useful as narrow diagnostics; the launcher uses
-the consolidated scenario. Optional external services, paid plugins, and
-storage backends retain their dedicated integration suites.
+`GULP_MULTI_INSTANCE_COLLAB_STRESS_COUNT`. Optional external services, paid
+plugins, and storage backends retain their dedicated integration suites.
 
 ## Sigma ZIP stress harness
 

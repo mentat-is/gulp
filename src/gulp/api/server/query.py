@@ -339,6 +339,8 @@ async def run_query_task(t: dict) -> bool:
 
         # call process_queries to handle all queries together (needed for group matching logic)
         async with GulpCollab.get_instance().session() as sess:
+            if not plugin and index is None:
+                index = (await GulpOperation.get_by_id(sess, operation_id)).index
             # process
             await process_queries(
                 sess,
@@ -384,7 +386,7 @@ async def run_query(
         ws_id: str - websocket id
         gq: GulpQuery - query to run
         q_options: GulpQueryParameters - query options
-        index: str - index to query (for external queries)
+        index: str - local operation index or external index to query
         plugin: str - plugin name (for external queries)
         plugin_params: GulpPluginParameters - plugin parameters (for external queries)
 
@@ -647,7 +649,7 @@ async def process_queries(
     """
     runs in a background task and spawns workers to process (one or more) queries, batching them if needed.
 
-    index, plugin, plugin_params are used for external queries only
+    plugin and plugin_params are used for external queries; index identifies the target.
 
     Args:
         sess: AsyncSession - database session
@@ -658,7 +660,7 @@ async def process_queries(
         queries: list[GulpQuery] - list of queries to run
         num_total_queries: int - total number of queries (for stats)
         q_options: GulpQueryParameters - query parameters
-        index: str - index to query (for external queries)
+        index: str - local operation index or external index to query
         plugin: str - plugin name (for external queries)
         plugin_params: GulpPluginParameters - plugin parameters (for external queries)
         ignore_failures: bool - whether to ignore failures when finalizing stats (sets "failed" status only if all queries failed)

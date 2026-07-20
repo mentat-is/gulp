@@ -37,7 +37,7 @@ class _TrackedSession:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_storage_listing_releases_session_before_minio(monkeypatch):
+async def test_storage_listing_releases_session_before_s3(monkeypatch):
     collab = _TrackedCollab()
 
     async def _list_by_tags(**_kwargs):

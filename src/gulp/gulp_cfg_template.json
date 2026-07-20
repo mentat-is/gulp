@@ -105,10 +105,6 @@
   "redis_task_lease_refresh_interval_ms": 20000,
   // redis url (may be overridden by GULP_REDIS_URL environment variable)
   "redis_url": "redis://:Gulp1234!@localhost:6379/0", //:Gulp1234!@localhost:6379/0",
-  // set to true if connecting to minio (default=true)
-  "s3_minio": true,
-  // s3 region, ignored for minio
-  "s3_region": "us-east-1",
   // s3-compatible storage uri, in the format proto://username:password@host:port (may be overridden by GULP_S3_URL environment variable)
   "s3_url": "http://admin:Gulp1234!@localhost:9000", //admin:Gulp1234!@localhost:9000",
   // set to use SSL to connect to s3-compatible storage

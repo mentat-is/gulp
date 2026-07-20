@@ -5,7 +5,7 @@ docker compose --profile dev down --volumes
 docker volume rm --force gulp_opensearch_data
 docker volume rm --force gulp_postgres_data
 docker volume rm --force gulp_redis_data
-docker volume rm --force gulp_minio_data
+docker volume rm --force gulp_seaweedfs_data
 docker volume rm --force gulp_prometheus_data
 docker volume rm --force gulp_grafana_data
 docker volume rm --force gulp_certs

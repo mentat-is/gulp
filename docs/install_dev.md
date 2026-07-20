@@ -34,7 +34,7 @@ gulp have its own [devcontainer](https://github.com/devcontainers) setup ready t
 
 3. in vscode, open the [gulp workspace](../gulp.code-workspace) and it should prompt you to reopen it in the dev container: the devcontainer will be built *first time only*.
 
-4. **on the host**, start the main [docker-compose](../docker-compose.yml) to start PostgreSQL, OpenSearch, Redis, and MinIO.
+4. **on the host**, start the main [docker-compose](../docker-compose.yml) to start PostgreSQL, OpenSearch, Redis, and SeaweedFS.
 
   ~~~bash
   docker compose --profile dev up -d
@@ -121,7 +121,7 @@ pip3 install -e . && pip3 install -e ../gulp-sdk
 > you may need to ensure proper docker cleanup first (i.e. previous installation) with [reset_docker](../reset_docker.sh)
 
 ~~~bash
-# start required services (postgresql, opensearch, redis, minio) in detached mode
+# start required services (postgresql, opensearch, redis, SeaweedFS) in detached mode
 # if you find any problem, remove -d and check docker logs (and check our troubleshooting guide)
 docker compose --profile dev up -d
 

@@ -104,21 +104,20 @@ services:
     depends_on:
       - os01
 
-  minio:
-    image: minio/minio:latest
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.29
     restart: always
     ports:
       - 9000:9000
-      - 9001:9001
+      - 9001:8888
     environment:
-      MINIO_ROOT_USER: ${MINIO_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY}
     depends_on:
       - os01
     volumes:
-      - minio_data:/mnt/data
-      - ${GULP_WORKING_DIR:-~/.config/gulp}/certs:/mnt/certs
-    command: server /minio/data --console-address ":9001"
+      - seaweedfs_data:/data
+    command: server -dir=/data -s3 -s3.port=9000 -s3.iam=false -s3.port.iceberg=0
 
   postgres:
     image: cleisonfmelo/postgres-pg-cron
@@ -188,4 +187,4 @@ volumes:
   opensearch_cluster_data_os02:
   opensearch_cluster_data_os03:
   redis_data:
-  minio_data:
+  seaweedfs_data:

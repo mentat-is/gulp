@@ -57,7 +57,7 @@ GULP_IMAGE=gulp-core:local docker compose --profile gulp up -d
 
 ## Compose profiles
 
-Without an explicit service target, OpenSearch, PostgreSQL, MinIO, and Redis
+Without an explicit service target, OpenSearch, PostgreSQL, SeaweedFS, and Redis
 always start. Add profiles as needed:
 
 - `--profile gulp`: run the gULP backend
@@ -91,8 +91,8 @@ when changing profiles.
 - Redis: `localhost:6379`
   - user/password: `default/Gulp1234!`
 - Redis Insight, with `--profile dev`: [http://localhost:5540](http://localhost:5540)
-- MinIO: [http://localhost:9000](http://localhost:9000)
-  - MinIO console: [http://localhost:9001](http://localhost:9001)
+- SeaweedFS S3 API: [http://localhost:9000](http://localhost:9000)
+  - filer web UI: [http://localhost:9001](http://localhost:9001)
   - user/password: `admin/Gulp1234!`
   - used as S3-compatible storage for plugins that need it
 - Prometheus, with `--profile metrics`: [http://localhost:9090](http://localhost:9090)
@@ -128,8 +128,9 @@ gULP HTTPS:
 - `$GULP_WORKING_DIR/certs/gulp.pem`: gULP server certificate.
 - `$GULP_WORKING_DIR/certs/gulp.key`: gULP server key.
 
-For Redis and MinIO TLS, use their service-specific configuration and mount any
-needed files under `$GULP_WORKING_DIR/certs`.
+For Redis TLS, use its service-specific configuration and mount any needed files
+under `$GULP_WORKING_DIR/certs`. Put a TLS reverse proxy in front of the
+SeaweedFS S3 endpoint when encrypted transport is required.
 
 ### Cleanup
 

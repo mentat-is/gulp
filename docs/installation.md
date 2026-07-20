@@ -11,7 +11,7 @@ Choose the installation mode that fits your use case:
 ## Required services
 
 Every installation method requires running OpenSearch, PostgreSQL, and Redis
-services. Start them before the gULP backend and keep them running. MinIO is
+services. Start them before the gULP backend and keep them running. SeaweedFS is
 also required when using features or plugins that need object storage.
 
 For a quick setup, the recommended option is to start these services with the
