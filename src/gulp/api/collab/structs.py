@@ -1969,10 +1969,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             permission = [GulpUserPermission.READ]
 
         # get session
-        s: GulpUserSession = await GulpUserSession.get_by_id(
-            sess,
-            token,
-        )
+        try:
+            s: GulpUserSession = await GulpUserSession.get_by_id(
+                sess,
+                token,
+            )
+        except ObjectNotFound as ex:
+            raise SessionExpired('token "%s" not logged in' % (token)) from ex
         # get object
         from gulp.api.collab.operation import GulpOperation
 
