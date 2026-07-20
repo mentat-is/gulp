@@ -195,6 +195,19 @@ export function shouldInvalidateCanvasGeometry(
 	);
 }
 
+/**
+ * Returns the source IDs that participate in the current rendered Canvas source set.
+ * This follows the same selected-source, timeline text filter, pin ordering, and
+ * hidden-empty-source rules used by Canvas rendering without depending on viewport
+ * scroll or zoom state.
+ *
+ * @param app - Current application state.
+ * @returns Set containing source IDs rendered as timeline rows.
+ */
+export function getCanvasRenderedSourceIdSet(app: App.Type): Set<Source.Id> {
+	return new Set(Source.Entity.selected(app).map((source) => source.id));
+}
+
 const DETACHED_WINDOWS_STORAGE_KEY = "gulp-detached-windows";
 
 const DETACHED_WINDOW_RECORDS: Record<

@@ -23,6 +23,7 @@ import { WindowBridge } from "@/lib/WindowBridge";
 import { Table } from "./Table";
 import { Icon } from "@/ui/Icon";
 import { Locale } from "@/locales";
+import { getCanvasRenderedSourceIdSet } from "@/utils";
 
 import s from "./styles/NotesWindow.module.css";
 
@@ -112,16 +113,11 @@ function BulkDeleteNotesBanner({
 }
 
 export function NotesWindow({ onClose }: FloatingWindowProps) {
-	const { app, Info, spawnBanner, banner } = Application.use();
+	const { app, spawnBanner, banner } = Application.use();
 	const { t } = Locale.use();
 	const dataStoreVersion = useSyncExternalStore(
 		DataStore.subscribeOverlays,
 		DataStore.getOverlaysSnapshot,
-	);
-	const visibleSourceSignature = useSyncExternalStore(
-		Info.subscribeViewportSourceIds,
-		Info.getViewportSourceSignature,
-		Info.getViewportSourceSignature,
 	);
 	const [search, setSearch] = useState("");
 	const [showOnlyVisibleSources, setShowOnlyVisibleSources] =
@@ -175,12 +171,19 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 	const windowRef = useRef<HTMLDivElement>(null);
 
 	/**
-	 * Memoizes the source IDs most recently reported as rendered by the Canvas.
-	 * @returns Set containing Canvas-rendered source IDs used by the notes filter.
+	 * Memoizes the source IDs participating in the Canvas-rendered source set.
+	 * @returns Set containing rendered timeline source IDs used by the notes filter.
 	 */
-	const visibleSourceIds = useMemo(() => {
-		return Info.getViewportSourceIds();
-	}, [Info, visibleSourceSignature]);
+	const canvasRenderedSourceIds = useMemo(
+		() => getCanvasRenderedSourceIdSet(app),
+		[
+			app.target.files,
+			app.target.contexts,
+			app.timeline.filter,
+			app.timeline.renderVersion,
+			app.hidden.sourcesWithNoEvents,
+		],
+	);
 
 	const sourceById = useMemo(
 		() => new Map(app.target.files.map((source) => [source.id, source])),
@@ -223,7 +226,9 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 					),
 			)
 			.filter(
-				(n) => !showOnlyVisibleSources || visibleSourceIds.has(getNoteSourceId(n)),
+				(n) =>
+					!showOnlyVisibleSources ||
+					canvasRenderedSourceIds.has(getNoteSourceId(n)),
 			);
 
 		return filtered.sort((a, b) => {
@@ -238,7 +243,7 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 		sourceById,
 		selectedTagValues,
 		showOnlyVisibleSources,
-		visibleSourceIds,
+		canvasRenderedSourceIds,
 		dataStoreVersion,
 	]);
 

@@ -205,10 +205,9 @@ export function DetachedAppProvider({
   const applyAppSnapshot = useCallback((
     payload: WindowBridge.AppSnapshotPayload,
   ) => {
-    const { selectedSourceIds, visibleSourceIds } = payload
+    const { selectedSourceIds } = payload
+    const { frame, filter, renderVersion } = payload.timeline
     selectedSourceIdsRef.current = selectedSourceIds
-    instance.setViewportSourceIds(visibleSourceIds ?? selectedSourceIds)
-    instance.synchronizeTimelineScaleFromState(payload.timeline.scale)
 
     setInfo(prev => {
       const files = payload.sources.map((source) => {
@@ -231,12 +230,14 @@ export function DetachedAppProvider({
         },
         timeline: {
           ...prev.timeline,
-          ...payload.timeline,
+          frame,
+          filter,
+          renderVersion,
         },
         hidden: payload.hidden,
       }
     })
-  }, [instance, setInfo])
+  }, [setInfo])
 
   /**
    * Applies a selected timeline event replayed by the main tab.
@@ -272,18 +273,6 @@ export function DetachedAppProvider({
     RenderEngine.reset('notes')
   }, [ownsIndependentDataStore])
 
-  /**
-   * Applies the source ids currently rendered by the main Canvas source set.
-   *
-   * @param payload - Rendered source id snapshot from the main tab.
-   * @returns Nothing.
-   */
-  const applyVisibleSourcesChanged = useCallback((
-    payload: WindowBridge.VisibleSourcesChangedPayload,
-  ) => {
-    instance.setViewportSourceIds(payload.sourceIds)
-  }, [instance])
-
   // Listen for incoming BroadcastChannel messages from the main tab
   useEffect(() => {
     const bridge = WindowBridge.create(bridgeId, (message) => {
@@ -316,10 +305,6 @@ export function DetachedAppProvider({
           applyNotesChanged(message.payload as WindowBridge.NotesChangedPayload)
           break
         }
-        case WindowBridge.MessageType.VISIBLE_SOURCES_CHANGED: {
-          applyVisibleSourcesChanged(message.payload as WindowBridge.VisibleSourcesChangedPayload)
-          break
-        }
         case WindowBridge.MessageType.MAIN_CONTEXT_STATUS: {
           applyMainContextStatus(message.payload as WindowBridge.MainContextStatusPayload)
           break
@@ -339,7 +324,6 @@ export function DetachedAppProvider({
     applyEventSelected,
     applyMainContextStatus,
     applyNotesChanged,
-    applyVisibleSourcesChanged,
     bridgeId,
   ])
 

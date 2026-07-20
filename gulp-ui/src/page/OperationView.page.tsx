@@ -169,6 +169,8 @@ export function OperationTimeline() {
 	const { t } = Locale.use();
 	const { extensions } = Extension.use();
 	const detachedWindows = DetachedWindow.use();
+	const detachedDialogAppRef = useRef(app);
+	detachedDialogAppRef.current = app;
 
 	/**
 	 * Applies the main document stylesheets and theme variables to a detached dialog window.
@@ -237,6 +239,13 @@ export function OperationTimeline() {
 		}
 	}, []);
 
+	/**
+	 * Renders or updates the detached event-dialog root without subscribing it to
+	 * unrelated main application changes such as canvas zoom updates.
+	 *
+	 * @param targetWindow - Detached browser window that owns the dialog root.
+	 * @returns Nothing.
+	 */
 	const renderDetachedDialog = useCallback(
 		(targetWindow: Window) => {
 			const container =
@@ -258,7 +267,7 @@ export function OperationTimeline() {
 
 			dialogRootRef.current.render(
 				<DetachedAppProvider
-					initialApp={app}
+					initialApp={detachedDialogAppRef.current}
 					initialNotes={[...DataStore.notes]}
 					bridgeId={dialogBridgeIdRef.current}
 					detachedDocument={targetWindow.document}
@@ -268,7 +277,7 @@ export function OperationTimeline() {
 				</DetachedAppProvider>,
 			);
 		},
-		[app, dialog, spawnBanner],
+		[dialog, spawnBanner],
 	);
 
 	useEffect(() => {

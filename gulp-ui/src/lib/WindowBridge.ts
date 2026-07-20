@@ -35,8 +35,6 @@ export namespace WindowBridge {
     APP_SNAPSHOT = 'APP_SNAPSHOT',
     /** Main → Detached: Notes DataStore snapshot changed */
     NOTES_CHANGED = 'NOTES_CHANGED',
-    /** Main → Detached: Canvas-rendered source ids changed */
-    VISIBLE_SOURCES_CHANGED = 'VISIBLE_SOURCES_CHANGED',
     /** Detached → Main: Banner action (destroy) */
     BANNER_ACTION = 'BANNER_ACTION',
     /** Main → Detached: Select specific source in table view */
@@ -68,10 +66,6 @@ export namespace WindowBridge {
     notes: Note.Type[]
   }
 
-  export interface VisibleSourcesChangedPayload {
-    sourceIds: Source.Id[]
-  }
-
   export interface FlagsChangedPayload {
     docId: Doc.Id
     operationId: Operation.Id
@@ -99,12 +93,11 @@ export namespace WindowBridge {
   export interface AppSnapshotPayload {
     operationId?: Operation.Id | null
     selectedSourceIds: Source.Id[]
-    visibleSourceIds?: Source.Id[]
     operations: Operation.Type[]
     contexts: Context.Type[]
     sources: DetachedSourceSummary[]
     filters: Partial<Record<Source.Id, Query.Type>>
-    timeline: Pick<App.Type['timeline'], 'frame' | 'filter' | 'scale' | 'renderVersion'>
+    timeline: Pick<App.Type['timeline'], 'frame' | 'filter' | 'renderVersion'>
     hidden: App.Type['hidden']
   }
 
@@ -144,7 +137,6 @@ export namespace WindowBridge {
     [MessageType.RENDER_REQUEST]: RenderRequestPayload
     [MessageType.APP_SNAPSHOT]: AppSnapshotPayload
     [MessageType.NOTES_CHANGED]: NotesChangedPayload
-    [MessageType.VISIBLE_SOURCES_CHANGED]: VisibleSourcesChangedPayload
     [MessageType.BANNER_ACTION]: BannerActionPayload
     [MessageType.TABLE_SELECT_SOURCE]: TableSelectSourcePayload
     [MessageType.TARGET_NOTE]: TargetNotePayload
@@ -352,14 +344,12 @@ export namespace WindowBridge {
    * @param app - Current application state.
    * @param status - Lifecycle status to replay.
    * @param operationId - Operation associated with the replay.
-   * @param visibleSourceIds - Source IDs most recently rendered by the main Canvas.
    * @returns Serializable context replay payload.
    */
   function createMainContextReplay(
     app: App.Type,
     status: MainContextStatus,
     operationId?: Operation.Id | null,
-    visibleSourceIds?: Source.Id[],
   ): StoredMainContextReplay {
     const statusPayload: MainContextStatusPayload = {
       status,
@@ -381,7 +371,6 @@ export namespace WindowBridge {
       replay.snapshot = {
         operationId: operationId ?? null,
         selectedSourceIds: sourceIds,
-        visibleSourceIds,
         operations: operationId
           ? app.target.operations.map((operation) => ({
             ...operation,
@@ -398,7 +387,6 @@ export namespace WindowBridge {
         timeline: {
           frame: app.timeline.frame,
           filter: app.timeline.filter,
-          scale: app.timeline.scale,
           renderVersion: app.timeline.renderVersion,
         },
         hidden: app.hidden,
@@ -555,7 +543,6 @@ export namespace WindowBridge {
    * @param app - Current application snapshot to replay.
    * @param status - Lifecycle status to send before the snapshot.
    * @param operationId - Operation that should be selected in the detached snapshot.
-   * @param visibleSourceIds - Source IDs most recently rendered by the main Canvas.
    * @returns Nothing.
    */
   export function sendMainContext(
@@ -563,13 +550,11 @@ export namespace WindowBridge {
     app: App.Type,
     status: MainContextStatus,
     operationId?: Operation.Id | null,
-    visibleSourceIds?: Source.Id[],
   ): void {
     const replay = createMainContextReplay(
       app,
       status,
       operationId,
-      visibleSourceIds,
     )
     writeStoredMainContext(replay)
 
@@ -589,17 +574,15 @@ export namespace WindowBridge {
    * @param app - Current application snapshot to replay.
    * @param status - Lifecycle status to send before the snapshot.
    * @param operationId - Operation that should be selected in the detached snapshot.
-   * @param visibleSourceIds - Source IDs most recently rendered by the main Canvas.
    * @returns Nothing.
    */
   export function broadcastMainContext(
     app: App.Type,
     status: MainContextStatus,
     operationId?: Operation.Id | null,
-    visibleSourceIds?: Source.Id[],
   ): void {
     const bridge = create(generateId(), () => {})
-    sendMainContext(bridge, app, status, operationId, visibleSourceIds)
+    sendMainContext(bridge, app, status, operationId)
     destroyAfterMessageFlush(bridge)
   }
 }

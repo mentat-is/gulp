@@ -230,11 +230,6 @@ function _({ children }: { children: ReactNode }) {
 	authLostRef.current = authLost;
 	const infoRef = useRef(Info);
 	infoRef.current = Info;
-	const visibleSourceSignature = useSyncExternalStore(
-		Info.subscribeViewportSourceIds,
-		Info.getViewportSourceSignature,
-		Info.getViewportSourceSignature,
-	);
 	const dataStoreVersion = useSyncExternalStore(
 		DataStore.subscribeOverlays,
 		DataStore.getOverlaysSnapshot,
@@ -333,9 +328,6 @@ function _({ children }: { children: ReactNode }) {
 					source.operation_id === currentRouteOperationId),
 			)
 			.map((source) => source.id);
-		const currentVisibleSourceIds = [
-			...infoRef.current.getViewportSourceIds(),
-		];
 		const currentStatus = resolveMainContextStatus({
 			app: currentApp,
 			authLost: authLostRef.current,
@@ -350,7 +342,6 @@ function _({ children }: { children: ReactNode }) {
 				currentApp,
 				currentStatus,
 				currentSelectedOperationId,
-				currentVisibleSourceIds,
 			);
 			return;
 		}
@@ -359,14 +350,12 @@ function _({ children }: { children: ReactNode }) {
 			currentApp,
 			currentStatus,
 			currentSelectedOperationId,
-			currentVisibleSourceIds,
 		);
 	}, []);
 	const replayDetachedStateRef = useRef(replayDetachedState);
 	const previousDetachedNotesRef = useRef<Note.Type[] | null>(null);
 	const replayFrameRef = useRef<number | null>(null);
 	const replayNotesFrameRef = useRef<number | null>(null);
-	const replayVisibleSourcesFrameRef = useRef<number | null>(null);
 
 	useEffect(() => {
 		replayDetachedStateRef.current = replayDetachedState;
@@ -406,22 +395,6 @@ function _({ children }: { children: ReactNode }) {
 	}, [replayDetachedNotes]);
 
 	/**
-	 * Sends the source ids currently rendered by the Canvas source set.
-	 *
-	 * @returns Nothing.
-	 */
-	const replayVisibleSources = useCallback(() => {
-		bridgeRef.current?.send(WindowBridge.MessageType.VISIBLE_SOURCES_CHANGED, {
-			sourceIds: [...infoRef.current.getViewportSourceIds()],
-		});
-	}, []);
-	const replayVisibleSourcesRef = useRef(replayVisibleSources);
-
-	useEffect(() => {
-		replayVisibleSourcesRef.current = replayVisibleSources;
-	}, [replayVisibleSources]);
-
-	/**
 	 * Coalesces detached context replays to one message burst per animation frame.
 	 *
 	 * @returns Nothing.
@@ -449,20 +422,6 @@ function _({ children }: { children: ReactNode }) {
 		});
 	}, []);
 
-	/**
-	 * Coalesces rendered-source id replays to one BroadcastChannel update per animation frame.
-	 *
-	 * @returns Nothing.
-	 */
-	const scheduleReplayVisibleSources = useCallback(() => {
-		if (replayVisibleSourcesFrameRef.current !== null) return;
-
-		replayVisibleSourcesFrameRef.current = window.requestAnimationFrame(() => {
-			replayVisibleSourcesFrameRef.current = null;
-			replayVisibleSourcesRef.current();
-		});
-	}, []);
-
 	useEffect(() => {
 		return () => {
 			if (replayFrameRef.current !== null) {
@@ -470,9 +429,6 @@ function _({ children }: { children: ReactNode }) {
 			}
 			if (replayNotesFrameRef.current !== null) {
 				window.cancelAnimationFrame(replayNotesFrameRef.current);
-			}
-			if (replayVisibleSourcesFrameRef.current !== null) {
-				window.cancelAnimationFrame(replayVisibleSourcesFrameRef.current);
 			}
 		};
 	}, []);
@@ -531,7 +487,6 @@ function _({ children }: { children: ReactNode }) {
 			if (existing && !existing.window.closed) {
 				existing.window.focus();
 				replayDetachedState();
-				replayVisibleSourcesRef.current();
 				return existing.window;
 			}
 
@@ -780,7 +735,6 @@ function _({ children }: { children: ReactNode }) {
 					break;
 				case WindowBridge.MessageType.DETACHED_READY: {
 					replayDetachedStateRef.current();
-					replayVisibleSourcesRef.current();
 					break;
 				}
 			}
@@ -800,6 +754,8 @@ function _({ children }: { children: ReactNode }) {
 		app.target.operations,
 		app.target.contexts,
 		app.target.filters,
+		app.timeline.filter,
+		app.hidden,
 		routeOperationId,
 		selectedOperationId,
 		selectedSourceIdsSignature,
@@ -807,16 +763,8 @@ function _({ children }: { children: ReactNode }) {
 	]);
 
 	useEffect(() => {
-		return Info.subscribeTimelineScale(scheduleReplayDetachedState);
-	}, [Info, scheduleReplayDetachedState]);
-
-	useEffect(() => {
 		scheduleReplayDetachedNotes();
 	}, [dataStoreVersion, scheduleReplayDetachedNotes]);
-
-	useEffect(() => {
-		scheduleReplayVisibleSources();
-	}, [visibleSourceSignature, scheduleReplayVisibleSources]);
 
 	useEffect(() => {
 		replaySelectedEvent();
