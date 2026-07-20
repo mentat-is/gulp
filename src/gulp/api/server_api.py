@@ -1307,6 +1307,8 @@ class GulpServer:
 
         ServerUtils.cleanup_stale_multipart_uploads()
         first_run: bool = self._check_first_run()
+        if first_run:
+            self._reset_collab = True
 
         # Check database integrity; schema mismatches abort unless reset was requested.
         collab_recreated = False
