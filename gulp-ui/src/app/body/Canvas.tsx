@@ -1403,7 +1403,8 @@ export function Canvas({ timeline }: Canvas.Props) {
 			const client = workerClientRef.current;
 			if (rendererBackendRef.current === "worker" && client) {
 				syncWorkerSourcesRef.current(client, true);
-				inputCoordinator.invalidate(DirtyCanvas.Sources);
+				syncWorkerOverlaysRef.current(client, false);
+				inputCoordinator.invalidate(DirtyCanvas.Sources | DirtyCanvas.Overlays);
 			}
 		};
 

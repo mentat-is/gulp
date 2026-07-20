@@ -56,12 +56,22 @@ export namespace Note {
 		public static id = (_app: App.Type, id: Note.Id) =>
 			DataStore.notes.find((n) => n.id === id) as Note.Type;
 
+		/**
+		 * Resolves the source id attached to a note, tolerating older payload shapes.
+		 * @param note Note whose owning source should be resolved.
+		 * @returns Source id from the note entity or its embedded document.
+		 */
+		public static sourceId = (
+			note: Pick<Note.Type, "source_id" | "doc">,
+		): Source.Id | undefined => note.source_id ?? note.doc?.["gulp.source_id"];
+
 		public static selected = (app: App.Type): Note.Type[] => {
 			const files = Source.Entity.selected(app).map((file) => file.id);
 
-			return DataStore.notes.filter((note) =>
-				files.includes(note.doc["gulp.source_id"]),
-			);
+			return DataStore.notes.filter((note) => {
+				const sourceId = Note.Entity.sourceId(note);
+				return !!sourceId && files.includes(sourceId);
+			});
 		};
 
 		public static event = (app: App.Type, note: Note.Type): Doc.Type =>
@@ -127,11 +137,17 @@ export namespace Note {
 		): void => {
 			if (!Note.Entity._cacheValid) return;
 
-			if (previousNote && previousNote.source_id !== note.source_id) {
+			const sourceId = Note.Entity.sourceId(note);
+			const previousSourceId = previousNote
+				? Note.Entity.sourceId(previousNote)
+				: undefined;
+			if (!sourceId) return;
+
+			if (previousNote && previousSourceId && previousSourceId !== sourceId) {
 				Note.Entity.removeIndexedNote(previousNote);
 			}
 
-			const sourceNotes = Note.Entity[CacheKey].get(note.source_id) ?? [];
+			const sourceNotes = Note.Entity[CacheKey].get(sourceId) ?? [];
 			const existingIndex = sourceNotes.findIndex((item) => item.id === note.id);
 			if (existingIndex !== -1) {
 				sourceNotes[existingIndex] = note;
@@ -142,7 +158,7 @@ export namespace Note {
 				const insertIndex = Note.Entity.findNoteInsertIndex(sourceNotes, note);
 				sourceNotes.splice(insertIndex, 0, note);
 			}
-			Note.Entity[CacheKey].set(note.source_id, sourceNotes);
+			Note.Entity[CacheKey].set(sourceId, sourceNotes);
 		};
 
 		/**
@@ -153,7 +169,10 @@ export namespace Note {
 		public static removeIndexedNote = (note: Note.Type): void => {
 			if (!Note.Entity._cacheValid) return;
 
-			const sourceNotes = Note.Entity[CacheKey].get(note.source_id);
+			const sourceId = Note.Entity.sourceId(note);
+			if (!sourceId) return;
+
+			const sourceNotes = Note.Entity[CacheKey].get(sourceId);
 			if (!sourceNotes) return;
 
 			const index = sourceNotes.findIndex((item) => item.id === note.id);
@@ -209,9 +228,10 @@ export namespace Note {
 			app: App.Type,
 			note: Note.Type,
 		): Source.Type["settings"] => {
-			const source = Source.Entity.id(app, note.source_id) as
-				| Source.Type
-				| undefined;
+			const sourceId = Note.Entity.sourceId(note);
+			const source = sourceId
+				? (Source.Entity.id(app, sourceId) as Source.Type | undefined)
+				: undefined;
 
 			return source?.settings ?? Internal.Settings.default;
 		};
@@ -254,13 +274,19 @@ export namespace Note {
 			});
 
 			DataStore.notes.forEach((note) => {
-				if (!sourceIds.has(note.source_id)) return;
-				const sourceNotes = Note.Entity[CacheKey].get(note.source_id);
+				const sourceId = Note.Entity.sourceId(note);
+				if (!sourceId || !sourceIds.has(sourceId)) return;
+				const sourceNotes = Note.Entity[CacheKey].get(sourceId);
 				if (sourceNotes) {
 					sourceNotes.push(note);
 				} else {
-					Note.Entity[CacheKey].set(note.source_id, [note]);
+					Note.Entity[CacheKey].set(sourceId, [note]);
 				}
+			});
+			Note.Entity[CacheKey].forEach((notes) => {
+				notes.sort(
+					(a, b) => Note.Entity.timestamp(b) - Note.Entity.timestamp(a),
+				);
 			});
 
 			Note.Entity._cacheValid = true;
@@ -289,7 +315,9 @@ export namespace Note {
 			// When the global index is invalid, any per-source entry may have been
 			// built from a previous DataStore.notes snapshot. Rebuild this source so
 			// event-level views immediately reflect note creates, edits, and deletes.
-			const fileNotes = DataStore.notes.filter((n) => n.source_id === id);
+			const fileNotes = DataStore.notes
+				.filter((n) => Note.Entity.sourceId(n) === id)
+				.sort((a, b) => Note.Entity.timestamp(b) - Note.Entity.timestamp(a));
 			Note.Entity[CacheKey].set(id, fileNotes);
 			return fileNotes;
 		};

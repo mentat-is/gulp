@@ -55,9 +55,10 @@ export namespace NotePoint {
 					toast.error(t("notePoint.fetchFailed"));
 					return;
 				}
-				const source = Source.Entity.id(Info.app, note.source_id) as
-					| Source.Type
-					| undefined;
+				const noteSourceId = Note.Entity.sourceId(note);
+				const source = noteSourceId
+					? (Source.Entity.id(Info.app, noteSourceId) as Source.Type | undefined)
+					: undefined;
 				const sourceSettings = source?.settings ?? Internal.Settings.default;
 				const [event] = Doc.Entity.normalize(
 					[fetched],
@@ -120,9 +121,10 @@ export namespace NotePoint {
 		const { app } = Application.use();
 		const { t } = Locale.use();
 		const context = Context.Entity.id(app, note.context_id);
-		const source = Source.Entity.id(app, note.source_id) as
-			| Source.Type
-			| undefined;
+		const sourceId = Note.Entity.sourceId(note);
+		const source = sourceId
+			? (Source.Entity.id(app, sourceId) as Source.Type | undefined)
+			: undefined;
 		const contextName = context?.name ?? t("collab.deletedContext");
 		const sourceName = source?.name ?? t("collab.deletedSource");
 		const noteColor = Note.Entity.color(note);
@@ -202,7 +204,10 @@ export namespace NotePoint {
 		 */
 		const handleClick = useCallback(() => {
 			const ids = notes.map((n) => n.doc._id);
-			const events = Source.Entity.events(app, notes[0].source_id).filter((e) =>
+			const sourceId = Note.Entity.sourceId(notes[0]);
+			if (!sourceId) return;
+
+			const events = Source.Entity.events(app, sourceId).filter((e) =>
 				ids.includes(e._id),
 			);
 			if (!events.length) {

@@ -196,16 +196,34 @@ export function shouldInvalidateCanvasGeometry(
 }
 
 /**
- * Returns the source IDs that participate in the current rendered Canvas source set.
+ * Returns ordered source IDs that participate in the current rendered Canvas source set.
  * This follows the same selected-source, timeline text filter, pin ordering, and
  * hidden-empty-source rules used by Canvas rendering without depending on viewport
  * scroll or zoom state.
  *
  * @param app - Current application state.
+ * @param operationId - Optional operation scope for detached-window snapshots.
+ * @returns Ordered source IDs rendered as timeline rows.
+ */
+export function getCanvasRenderedSourceIds(
+	app: App.Type,
+	operationId?: string | null,
+): Source.Id[] {
+	return Source.Entity.rendered(app)
+		.filter((source) => !operationId || source.operation_id === operationId)
+		.map((source) => source.id);
+}
+
+/**
+ * Returns the source IDs that participate in the current rendered Canvas source set.
+ * Detached windows receive this set from the main tab because they intentionally do
+ * not mirror render event batches.
+ *
+ * @param app - Current application state.
  * @returns Set containing source IDs rendered as timeline rows.
  */
 export function getCanvasRenderedSourceIdSet(app: App.Type): Set<Source.Id> {
-	return new Set(Source.Entity.rendered(app).map((source) => source.id));
+	return new Set(app.timeline.renderedSourceIds ?? getCanvasRenderedSourceIds(app));
 }
 
 const DETACHED_WINDOWS_STORAGE_KEY = "gulp-detached-windows";

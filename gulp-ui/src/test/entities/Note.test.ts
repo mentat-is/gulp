@@ -103,4 +103,12 @@ describe("Note source index", () => {
 
 		expect(Note.Entity.findByFile(APP, SOURCE_ID)).toEqual([createdNote]);
 	});
+
+	it("indexes legacy notes whose source id only exists on the document", () => {
+		const createdNote = createNote("legacy-note", "event-a", 100);
+		delete (createdNote as Partial<Note.Type>).source_id;
+		DataStore.replaceNotes([createdNote], "immediate");
+
+		expect(Note.Entity.findByFile(APP, SOURCE_ID)).toEqual([createdNote]);
+	});
 });

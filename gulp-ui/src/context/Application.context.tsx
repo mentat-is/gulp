@@ -253,8 +253,9 @@ function _({ children }: { children: ReactNode }) {
 			// Check notes
 			const deletedNote = DataStore.deleteNote(id as Note.Id, "deferred");
 			if (deletedNote) {
+				const sourceId = Note.Entity.sourceId(deletedNote);
 				Note.Entity.removeIndexedNote(deletedNote);
-				RenderEngine.resetSourceNotes(deletedNote.source_id);
+				if (sourceId) RenderEngine.resetSourceNotes(sourceId);
 				return;
 			}
 

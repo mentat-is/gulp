@@ -2,7 +2,10 @@ import type { App } from "@/entities/App";
 import type { Context } from "@/entities/Context";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
-import { getCanvasRenderedSourceIdSet } from "@/utils";
+import {
+	getCanvasRenderedSourceIds,
+	getCanvasRenderedSourceIdSet,
+} from "@/utils";
 
 const OPERATION_ID = "operation" as Operation.Id;
 const CONTEXT_ID = "context" as Context.Id;
@@ -161,5 +164,25 @@ describe("getCanvasRenderedSourceIdSet", () => {
 		expect([...getCanvasRenderedSourceIdSet(app)]).toEqual([
 			populatedSource.id,
 		]);
+	});
+
+	it("returns ordered rendered source IDs for detached snapshots", () => {
+		const firstSource = createSource("first", "First Source");
+		const secondSource = createSource("second", "Second Source");
+		const app = createApp([firstSource, secondSource]);
+
+		expect(getCanvasRenderedSourceIds(app)).toEqual([
+			firstSource.id,
+			secondSource.id,
+		]);
+	});
+
+	it("prefers bridged rendered source IDs in detached snapshots", () => {
+		const firstSource = createSource("first", "First Source");
+		const secondSource = createSource("second", "Second Source");
+		const app = createApp([firstSource, secondSource]);
+		app.timeline.renderedSourceIds = [secondSource.id];
+
+		expect([...getCanvasRenderedSourceIdSet(app)]).toEqual([secondSource.id]);
 	});
 });
