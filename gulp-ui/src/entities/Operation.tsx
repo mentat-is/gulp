@@ -143,7 +143,6 @@ export namespace Operation {
       return (
         <UIBanner
           title={t('operationSelect.title')}
-          option={<InitializeNewOperaion />}
           done={<DoneButton />}
           loading={loading}
           {...props}

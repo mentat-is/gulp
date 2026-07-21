@@ -496,7 +496,7 @@
     "operationSelect.title": "Choose operation",
     "operationView.eventDetailsTitle": "Gulp Event Details",
     "operationView.menu.applyFilters": "Apply filters",
-    "operationView.menu.backToOperations": "Back to operations",
+    "operationView.menu.backToOperations": "Go to operations",
     "operationView.menu.bridgeManager": "Bridge Manager",
     "operationView.menu.configuration": "Configuration",
     "operationView.menu.dataEnrichment": "Data enrichment",

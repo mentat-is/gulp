@@ -153,7 +153,7 @@ export namespace Home {
 			const items: MenuItem[] = [
 				{
 					label: t("common.operations"),
-					icon: "BookPlus",
+					icon: "ActivitySquare",
 					category: t("common.operations"),
 					action: () => handleSectionChange("operations"),
 				},

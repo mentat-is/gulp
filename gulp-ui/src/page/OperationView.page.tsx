@@ -524,12 +524,7 @@ export function OperationTimeline() {
 	 */
 	const menuBottomItems = useMemo<MenuItem[]>(
 		() => [
-			{
-				label: t("operationView.menu.requests"),
-				icon: "Activity",
-				category: t("operationView.menu.configuration"),
-				action: () => spawnBanner(<Requests.Banner />),
-			},
+			
 			{
 				label: t("operationView.menu.managePermissions"),
 				icon: "LucideUserRoundPlus",
@@ -538,7 +533,7 @@ export function OperationTimeline() {
 			},
 			{
 				label: t("operationView.menu.backToOperations"),
-				icon: "Undo2",
+				icon: "ActivitySquare",
 				category: t("operationView.menu.configuration"),
 				action: () => spawnBanner(<Operation.Select.Banner />),
 			},
@@ -555,6 +550,12 @@ export function OperationTimeline() {
 				icon: "Info",
 				category: t("operationView.menu.configuration"),
 				action: toggleHintOpen,
+			},
+			{
+				label: t("operationView.menu.requests"),
+				icon: "Activity",
+				category: t("operationView.menu.configuration"),
+				action: () => spawnBanner(<Requests.Banner />),
 			},
 			{
 				label: t("common.logout"),
