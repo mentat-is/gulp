@@ -58,10 +58,10 @@ async def to_path(
                 await out_file.write(content)
     except Exception as e:
         # delete file on error
-        await muty.file.delete_file_or_dir_async(path)
+        await muty.file.delete_file_or_dir(path)
         if created:
             # delete directory on error, if created
-            await muty.file.delete_file_or_dir_async(dest_dir)
+            await muty.file.delete_file_or_dir(dest_dir)
         raise e
 
     return path
@@ -100,7 +100,7 @@ async def to_path_multi(
     except Exception as e:
         if created:
             # delete directory on error, if created
-            await muty.file.delete_file_or_dir_async(dest_dir)
+            await muty.file.delete_file_or_dir(dest_dir)
 
         raise e
 
@@ -135,10 +135,10 @@ async def unzip(
     except Exception as e:
         if dest_dir is None:
             # delete temp folder
-            await muty.file.delete_file_or_dir_async(dd)
+            await muty.file.delete_file_or_dir(dd)
         raise e
     finally:
         # delete downloaded file anyway
-        await muty.file.delete_file_or_dir_async(dwnl_path)
+        await muty.file.delete_file_or_dir(dwnl_path)
 
     return dd

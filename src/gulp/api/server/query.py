@@ -2229,7 +2229,7 @@ async def _export_json_internal(
         MutyLogger.get_instance().error(
             "export json failed, removing file %s" % file_path
         )
-        await muty.file.delete_file_or_dir_async(file_path)
+        await muty.file.delete_file_or_dir(file_path)
         return ex
     return file_path
 
@@ -2330,7 +2330,7 @@ async def query_gulp_export_json_handler(
                 MutyLogger.get_instance().debug(
                     "cleanup file %s after response sent", file_path
                 )
-                await muty.file.delete_file_or_dir_async(file_path)
+                await muty.file.delete_file_or_dir(file_path)
 
             # execute export operation in worker process (non-blocking)
             result = await GulpServer.get_instance().spawn_worker_task(
@@ -2359,5 +2359,5 @@ async def query_gulp_export_json_handler(
             )
     except Exception as ex:
         if file_path:
-            await muty.file.delete_file_or_dir_async(file_path)
+            await muty.file.delete_file_or_dir(file_path)
         raise JSendException(req_id=req_id) from ex

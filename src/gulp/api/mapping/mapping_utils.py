@@ -344,7 +344,7 @@ async def mapping_parameters_to_mapping(
                 mapping_file
             )
 
-        file_content = await muty.file.read_file_async(mapping_file_path)
+        file_content = await muty.file.read_file(mapping_file_path)
         mapping_data = orjson.loads(file_content)
 
         if not mapping_data:
@@ -399,7 +399,7 @@ async def mapping_parameters_to_mapping(
 
             additional_mapping_id = file_info[1]
 
-            file_content = await muty.file.read_file_async(additional_file_path)
+            file_content = await muty.file.read_file(additional_file_path)
             mapping_data = orjson.loads(file_content)
 
             if not mapping_data:

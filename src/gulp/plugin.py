@@ -3553,14 +3553,14 @@ class GulpPluginBase(ABC):
 
                 # we have the plugin path, now build the corresponding metadata file (json) path
                 metadata_file = os.path.join(path, f + ".json")
-                if not await muty.file.exists_async(metadata_file):
+                if not await muty.file.exists(metadata_file):
                     MutyLogger.get_instance().warning(
                         "plugin metadata file %s not found, skipping plugin %s"
                         % (metadata_file, f)
                     )
                     continue
 
-                metadata: bytes = await muty.file.read_file_async(metadata_file)
+                metadata: bytes = await muty.file.read_file(metadata_file)
                 js: dict = json5.loads(metadata)
                 try:
                     mtd: GulpUiPluginMetadata = GulpUiPluginMetadata.model_validate(js)

@@ -59,7 +59,7 @@ async def _read_sigma_mappings_from_file(
         mapping_file_path = GulpConfig.get_instance().build_mapping_file_path(
             mapping_file
         )
-    file_content = await muty.file.read_file_async(mapping_file_path)
+    file_content = await muty.file.read_file(mapping_file_path)
     mapping_data = orjson.loads(file_content)
     mapping_file_obj = GulpMappingFile.model_validate(mapping_data)
     sigma_mappings = mapping_file_obj.sigma_mappings
@@ -708,7 +708,7 @@ async def sigmas_to_queries(
                 sigma.lower().endswith(".yml") or sigma.lower().endswith(".yaml")
             ):
                 # read from file
-                b = await muty.file.read_file_async(sigma)
+                b = await muty.file.read_file(sigma)
                 yamls.append(b.decode())
     else:
         # take yamls as is

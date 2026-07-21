@@ -92,7 +92,7 @@ async def test_ingest_deletes_temporary_file_when_plugin_unload_fails(monkeypatc
         lambda: SimpleNamespace(session=_session),
     )
     monkeypatch.setattr(ingest.GulpPluginBase, "load", AsyncMock(return_value=plugin))
-    monkeypatch.setattr(ingest.muty.file, "delete_file_or_dir_async", deleted)
+    monkeypatch.setattr(ingest.muty.file, "delete_file_or_dir", deleted)
 
     with pytest.raises(RuntimeError, match="unload failed"):
         await ingest._ingest_file_internal(

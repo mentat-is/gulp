@@ -49,7 +49,7 @@ async def _ingest_ws_raw(args) -> None:
         host=host, ws_id=ws_id, req_id=req_id
     )
 
-    buf = await muty.file.read_file_async(path)
+    buf = await muty.file.read_file(path)
     raw_data = json.loads(buf)
     chunk_size = 200
 

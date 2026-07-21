@@ -270,7 +270,7 @@ async def storage_file_get_by_id_handler(
                 MutyLogger.get_instance().debug(
                     "cleanup file %s after response sent", file_path
                 )
-                await muty.file.delete_file_or_dir_async(file_path)
+                await muty.file.delete_file_or_dir(file_path)
 
             # execute download in worker
             d: dict = await GulpServer.get_instance().spawn_worker_task(
@@ -297,5 +297,5 @@ async def storage_file_get_by_id_handler(
             return response
     except Exception as ex:
         if file_path:
-            await muty.file.delete_file_or_dir_async(file_path)
+            await muty.file.delete_file_or_dir(file_path)
         raise JSendException(req_id=req_id) from ex

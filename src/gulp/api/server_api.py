@@ -1322,7 +1322,7 @@ class GulpServer:
         except Exception:
             if first_run:
                 # Allow restart on first-run initialization failures.
-                self._reset_first_run()
+                await self._reset_first_run()
             raise
 
         # Finish initializing the main process and spawn workers.
@@ -1412,14 +1412,14 @@ class GulpServer:
                 "MAIN process cleanup complete, exiting lifespan handler ..."
             )
 
-    def _reset_first_run(self) -> None:
+    async def _reset_first_run(self) -> None:
         """
         deletes the ".first_run_done" file in the config directory.
         """
         config_directory = GulpConfig.get_instance().path_working_dir()
         check_first_run_file = os.path.join(config_directory, ".first_run_done")
         if os.path.exists(check_first_run_file):
-            muty.file.delete_file_or_dir(check_first_run_file)
+            await muty.file.delete_file_or_dir(check_first_run_file)
             MutyLogger.get_instance().warning("deleted: %s", check_first_run_file)
 
     def _check_first_run(self) -> bool:

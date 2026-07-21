@@ -294,7 +294,7 @@ async def _decompress_file_for_ingestion(file_path: str) -> str:
         except Exception:
             pass
         else:
-            await muty.file.delete_file_or_dir_async(decompressed_path)
+            await muty.file.delete_file_or_dir(decompressed_path)
         raise
 
 
@@ -466,13 +466,13 @@ async def _ingest_file_internal(
                 finally:
                     try:
                         if delete_ingestion_file:
-                            await muty.file.delete_file_or_dir_async(
+                            await muty.file.delete_file_or_dir(
                                 ingestion_file_path
                             )
                     finally:
                         if delete_after:
                             # delete original file
-                            await muty.file.delete_file_or_dir_async(file_path)
+                            await muty.file.delete_file_or_dir(file_path)
 
 
 async def run_ingest_file_task(t: dict) -> bool:
@@ -544,7 +544,7 @@ async def _preview_or_enqueue_ingest_task(
     existing_response = await ServerUtils.existing_request_response(sess, req_id)
     if existing_response:
         if temporary_upload:
-            await muty.file.delete_file_or_dir_async(file_path)
+            await muty.file.delete_file_or_dir(file_path)
         return existing_response
 
     # handle preview mode: run ingestion synchronously and return preview chunk
@@ -584,7 +584,7 @@ async def _preview_or_enqueue_ingest_task(
         await GulpRedis.get_instance().task_enqueue(task_msg)
     except TaskQueueFullError as ex:
         if temporary_upload:
-            await muty.file.delete_file_or_dir_async(file_path)
+            await muty.file.delete_file_or_dir(file_path)
         return ServerUtils.task_queue_full_response("ingest", req_id, ex)
 
     # return pending response
@@ -811,7 +811,7 @@ async def ingest_file_handler(
     except Exception as ex:
         # cleanup
         if file_path:
-            await muty.file.delete_file_or_dir_async(file_path)
+            await muty.file.delete_file_or_dir(file_path)
         raise JSendException(req_id=req_id) from ex
 
 
@@ -947,7 +947,7 @@ async def ingest_file_to_source_handler(
     except Exception as ex:
         # cleanup
         if file_path:
-            await muty.file.delete_file_or_dir_async(file_path)
+            await muty.file.delete_file_or_dir(file_path)
         raise JSendException(req_id=req_id) from ex
 
 
@@ -1033,7 +1033,7 @@ async def ingest_file_local_handler(
     path = muty.file.safe_path_join(GulpConfig.get_instance().path_ingest_local(), path)
     MutyLogger.get_instance().info("ingesting local file: %s", path)
     try:
-        if not await muty.file.exists_async(path):
+        if not await muty.file.exists(path):
             raise FileNotFoundError(f"file not found: {path}")
 
         async with GulpCollab.get_instance().session() as sess:
@@ -1159,7 +1159,7 @@ async def ingest_file_local_to_source_handler(
         "ingesting local file=%s, to source=%s", path, source_id
     )
     try:
-        if not await muty.file.exists_async(path):
+        if not await muty.file.exists(path):
             raise FileNotFoundError(f"file not found: {path}")
 
         async with GulpCollab.get_instance().session() as sess:
@@ -1439,7 +1439,7 @@ async def ingest_local_list_handler(
             MutyLogger.get_instance().info(
                 "listing local ingestion directory: %s", local_dir
             )
-            if not await muty.file.exists_async(local_dir):
+            if not await muty.file.exists(local_dir):
                 raise FileNotFoundError(f"directory not found: {local_dir}")
 
             await GulpUserSession.check_token(

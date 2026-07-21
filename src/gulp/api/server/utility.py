@@ -1013,7 +1013,7 @@ async def mapping_file_list_handler(
                 continue
 
             # read file
-            content = await muty.file.read_file_async(f)
+            content = await muty.file.read_file(f)
             js = orjson.loads(content)
 
             # get metadata
@@ -1102,12 +1102,12 @@ async def mapping_file_upload_handler(
         mapping_extra_path = GulpConfig.get_instance().path_mapping_files_extra()
         save_path = os.path.join(mapping_extra_path, filename)
 
-        if fail_if_exists and await muty.file.exists_async(save_path):
+        if fail_if_exists and await muty.file.exists(save_path):
             raise ObjectAlreadyExists(
                 "file with name %s already exists in %s" % (filename, mapping_extra_path)
             )
 
-        await muty.file.write_file_async(save_path, content)
+        await muty.file.write_file(save_path, content)
         return JSONResponse(JSendResponse.success(req_id=req_id, data={"path": save_path}))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -1150,9 +1150,9 @@ async def mapping_file_download_handler(
         default_path = GulpConfig.get_instance().path_mapping_files_default()
 
         file_path = os.path.join(extra_path, filename)
-        if not await muty.file.exists_async(file_path):
+        if not await muty.file.exists(file_path):
             file_path = os.path.join(default_path, filename)
-            if not await muty.file.exists_async(file_path):
+            if not await muty.file.exists(file_path):
                 raise ObjectNotFound(
                     "file with name %s not found in both %s and %s" % (filename, extra_path, default_path)
                 )
@@ -1203,12 +1203,12 @@ async def mapping_file_delete_handler(
 
         extra_path = GulpConfig.get_instance().path_mapping_files_extra()
         file_path = os.path.join(extra_path, filename)
-        if not await muty.file.exists_async(file_path):
+        if not await muty.file.exists(file_path):
             raise ObjectNotFound(
                 "file with name %s not found in %s" % (filename, extra_path)
             )
 
-        await muty.file.delete_file_or_dir_async(file_path)
+        await muty.file.delete_file_or_dir(file_path)
         return JSONResponse(JSendResponse.success(req_id=req_id, data={"file_path": file_path}))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

@@ -114,7 +114,7 @@ async def test_mapping_file_upload_download_delete(gulp_base_url, gulp_test_user
             downloaded = json.loads(pathlib.Path(dl).read_text())
             assert "mappings" in downloaded
 
-            # Delete — tolerate known server bug (muty.file.delete_file_async)
+            # Delete — tolerate the known server-side mapping cleanup bug.
             try:
                 del_result = await client.plugins.mapping_delete(upload_filename)
                 assert del_result is not None
@@ -339,4 +339,3 @@ async def test_websocket_connect_and_subscribe(gulp_base_url, gulp_test_user, gu
 
         except (GulpSDKError, Exception) as exc:
             pytest.skip(f"WebSocket support unavailable or currently failing: {exc}")
-

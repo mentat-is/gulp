@@ -398,8 +398,8 @@ class ServerUtils:
             )
 
             if current_size > total_file_size:
-                muty.file.delete_file_or_dir(cache_file_path)
-                muty.file.delete_file_or_dir(marker_path)
+                await muty.file.delete_file_or_dir(cache_file_path)
+                await muty.file.delete_file_or_dir(marker_path)
                 raise ValueError(
                     f"partial upload {cache_file_path} is larger than expected: current_file_size={current_size}, expected={total_file_size}"
                 )
@@ -437,8 +437,8 @@ class ServerUtils:
                 current_hash = await muty.crypto.hash_sha1_file(cache_file_path)
                 if current_hash != payload_dict["file_sha1"]:
                     # delete uploaded file
-                    muty.file.delete_file_or_dir(cache_file_path)
-                    muty.file.delete_file_or_dir(marker_path)
+                    await muty.file.delete_file_or_dir(cache_file_path)
+                    await muty.file.delete_file_or_dir(marker_path)
                     raise ValueError(
                         f"file {cache_file_path} is complete but file hash/file size mismatch: current_file_size={current_written_size}, expected={total_file_size}, current_sha1={current_hash}, expected={payload_dict['file_sha1']}"
                     )
@@ -446,7 +446,7 @@ class ServerUtils:
             # notify back upload status
             is_complete = current_written_size == total_file_size
             if is_complete:
-                muty.file.delete_file_or_dir(marker_path)
+                await muty.file.delete_file_or_dir(marker_path)
             result = GulpUploadResponse(
                 done=is_complete,
                 continue_offset=0 if is_complete else current_written_size,
