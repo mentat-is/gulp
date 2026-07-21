@@ -3,7 +3,14 @@ import { Banner as UIBanner } from "@/ui/Banner";
 import { Checkbox } from "@/ui/Checkbox";
 import s from "./styles/SelectFilesBanner.module.css";
 import { Label } from "@/ui/Label";
-import { useEffect, useMemo, useReducer, useState, useRef } from "react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useReducer,
+	useState,
+	useRef,
+} from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Frame } from "./Frame.banner";
 import { UploadBanner } from "./Upload.banner";
@@ -140,6 +147,54 @@ export namespace SelectFiles {
 		const update = <T,>(values: Set<T>, vault: SetState<Set<T>>) =>
 			vault(new Set(values));
 
+		const selectedContextIdsForFiles = useCallback(
+			(files: Set<Source.Id>): Set<Context.Id> => {
+				const contextIds = new Set<Context.Id>();
+				const knownContextIds = new Set(
+					app.target.contexts.map((context) => context.id),
+				);
+
+				app.target.files.forEach((file) => {
+					if (files.has(file.id) && knownContextIds.has(file.context_id)) {
+						contextIds.add(file.context_id);
+					}
+				});
+
+				return contextIds;
+			},
+			[app.target.contexts, app.target.files],
+		);
+
+		const deselectEmptySources = useCallback(
+			(files: Set<Source.Id>): Set<Source.Id> => {
+				const nextFiles = new Set(files);
+				let changed = false;
+
+				app.target.files.forEach((file) => {
+					if (!file.total && nextFiles.delete(file.id)) {
+						changed = true;
+					}
+				});
+
+				return changed ? nextFiles : files;
+			},
+			[app.target.files],
+		);
+
+		const pruneEmptySourceSelection = useCallback(() => {
+			const nextSelectedFiles = deselectEmptySources(selectedFiles);
+			if (nextSelectedFiles === selectedFiles) return;
+
+			setSelectedFiles(nextSelectedFiles);
+			setSelectedContexts(selectedContextIdsForFiles(nextSelectedFiles));
+		}, [deselectEmptySources, selectedContextIdsForFiles, selectedFiles]);
+
+		useEffect(() => {
+			if (showEmptySources) return;
+
+			pruneEmptySourceSelection();
+		}, [pruneEmptySourceSelection, showEmptySources]);
+
 		function all(select: boolean) {
 			const operation = Operation.Entity.selected(app);
 			if (!operation) {
@@ -246,16 +301,22 @@ export namespace SelectFiles {
 		 * @returns Nothing.
 		 */
 		const save = () => {
+			const effectiveSelectedFiles = showEmptySources
+				? selectedFiles
+				: deselectEmptySources(selectedFiles);
+			const effectiveSelectedContexts = showEmptySources
+				? selectedContexts
+				: selectedContextIdsForFiles(effectiveSelectedFiles);
 			const contexts = Refractor.array(
 				...app.target.contexts.map((context) => ({
 					...context,
-					selected: selectedContexts.has(context.id),
+					selected: effectiveSelectedContexts.has(context.id),
 				})),
 			);
 			const files = Refractor.array(
 				...app.target.files.map((file) => ({
 					...file,
-					selected: selectedFiles.has(file.id),
+					selected: effectiveSelectedFiles.has(file.id),
 				})),
 			);
 
@@ -532,6 +593,7 @@ export namespace SelectFiles {
 							const next = !!checked;
 							setShowEmptySources(next);
 							if (next) void Info.sync({ includeEmptySources: true });
+							else pruneEmptySourceSelection();
 						}}
 					/>
 					<Label
