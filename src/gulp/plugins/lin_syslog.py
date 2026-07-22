@@ -72,7 +72,7 @@ class Plugin(GulpPluginBase):
         self, record: dict, record_idx: int, **kwargs
     ) -> dict:
         record["agent.type"] = self.display_name()  # override agent.type
-        record["event.code"] = muty.crypto.hash_xxh64(record["gulp.unmapped.process"])
+        record["event.code"] = muty.crypto.hash_xxh64(record["process.name"])
         # parse known message types (e.g. sshd)
         record = self._extra_parse(record)
 
