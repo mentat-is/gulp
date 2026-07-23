@@ -55,6 +55,18 @@ class Plugin(GulpPluginBase):
                 desc="overrides source id with the given value",
                 default_value=None,
             ),
+            GulpPluginCustomParameter(
+                name="allow_unmapped",
+                type="bool",
+                desc=(
+                    "if set, fields without an explicit mapping are routed under the "
+                    "`gulp.unmapped` node (a flat_object, stored as keyword) instead of "
+                    "being kept top-level. This prevents dynamic type conflicts "
+                    "(numeric_detection) when ingesting arbitrary/heterogeneous documents. "
+                    "Defaults to False (fields kept top-level, as-is)."
+                ),
+                default_value=False,
+            ),
         ]
 
     @override
@@ -71,7 +83,11 @@ class Plugin(GulpPluginBase):
         # Process each input field through the standard mapping engine so
         # raw ingest can apply plugin_params.mapping_parameters end-to-end.
         d: dict = {}
-        flattened = flatten(record)
+        # expand_lists=False keeps arrays intact under a single key (e.g.
+        # "EventData.argv") so a mapping can target them (-> process.args) and
+        # unmapped arrays land in gulp.unmapped as real arrays, rather than being
+        # exploded into per-index keys (or dropped, for nested lists).
+        flattened = flatten(record, expand_lists=False)
         mapping = self.selected_mapping()
         for source_key, source_value in flattened.items():
             m = await self._process_key(source_key, source_value, d, **kwargs)
@@ -139,8 +155,15 @@ class Plugin(GulpPluginBase):
                 ),
             },
         )
-        # no unmapped fields in raw ingestion
-        plugin_params.override_allow_unmapped_fields = False
+        # by default raw keeps unmapped fields top-level ("as-is"); when the caller
+        # opts in via the `allow_unmapped` custom parameter, route them under
+        # `gulp.unmapped` instead (avoids numeric_detection type conflicts for
+        # arbitrary/heterogeneous documents). See `_process_key` ->
+        # `build_or_update_unmapped_obj`.
+        allow_unmapped = bool(
+            plugin_params.custom_parameters.get("allow_unmapped", False)
+        )
+        plugin_params.override_allow_unmapped_fields = allow_unmapped
 
         await super().ingest_raw(
             sess,
