@@ -2793,7 +2793,10 @@ class GulpPluginBase(ABC):
                 # force_type has been enforced on this field, so we return as is
                 return k, v
 
-            # enforce to string
+            # enforce to string (element-wise for arrays, so keyword arrays like
+            # process.args stay arrays instead of being repr'd into a single string)
+            if isinstance(v, list):
+                return k, [str(x) for x in v]
             return k, str(v)
 
         # check different types, we may add more ...
@@ -2834,6 +2837,10 @@ class GulpPluginBase(ABC):
 
         if index_type == "keyword" or index_type == "text":
             # MutyLogger.get_instance().debug("converting %s:%s to keyword" % (k, v))
+            # keyword/text fields may legitimately hold arrays (e.g. process.args);
+            # stringify element-wise so the array is preserved.
+            if isinstance(v, list):
+                return k, [str(x) for x in v]
             return k, str(v)
 
         if index_type == "ip":
