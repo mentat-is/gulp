@@ -15,6 +15,7 @@ from pyparsing.common import Any
 
 from gulp.config import GulpConfig
 
+
 class GulpS3:
     """
     implements API to connect to S3-compatible storage and perform operations on it.
@@ -57,7 +58,7 @@ class GulpS3:
         self._client: S3Client = None
         self._client_lock = asyncio.Lock()
         self._initialized = True
-    
+
     @classmethod
     def get_instance(cls) -> "GulpS3":
         """
@@ -76,7 +77,7 @@ class GulpS3:
             # create a new session (singleton per process)
             self._session = aiobotocore.session.get_session()
         return self._session
-    
+
     async def _get_client(self):
         """Get or create S3 client (singleton per process)"""
         if self._client is None:
@@ -94,7 +95,7 @@ class GulpS3:
                     )
 
         return self._client
-    
+
     async def shutdown(self):
         """Close the client and cleanup resources"""
         async with self._client_lock:
@@ -116,12 +117,19 @@ class GulpS3:
     async def __aenter__(self):
         await self._get_client()
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.shutdown()
 
     @staticmethod
-    def build_object_name(file_path: str, operation_id: str, context_id: str, source_id: str,  user_id: str, req_id: str) -> str:
+    def build_object_name(
+        file_path: str,
+        operation_id: str,
+        context_id: str,
+        source_id: str,
+        user_id: str,
+        req_id: str,
+    ) -> str:
         """
         Build a unique object name for a file in the storage
 
@@ -136,9 +144,28 @@ class GulpS3:
                 str: A unique object name for the file in the storage, structured as:
                 {user_id}/{operation_id}/context_id{file_name}
         """
-        return "%s/%s/%s/%s" % (user_id, operation_id, context_id, file_path.split("/")[-1])
 
-    async def create_bucket(self, bucket_name: str=None) -> dict[str, Any]:
+        if GulpConfig.get_instance().path_tmp_upload() in file_path:
+            # from gulp temporary upload, get to the real filename
+            try:
+                file_path = file_path.split("/")[-1].split("-")[-1]
+            except Exception:
+                # fallback
+                if "/" in file_path:
+                    file_path = file_path.split("/")[-1]
+        else:
+            # default, just split on the last slash to get the filename
+            if "/" in file_path:
+                file_path = file_path.split("/")[-1]
+
+        return "%s/%s/%s/%s" % (
+            user_id,
+            operation_id,
+            context_id[:8],
+            file_path,
+        )
+
+    async def create_bucket(self, bucket_name: str = None) -> dict[str, Any]:
         """
         Create a bucket if it doesn't exist.
 
@@ -158,27 +185,30 @@ class GulpS3:
             # Check if bucket exists first
             try:
                 await client.head_bucket(Bucket=bucket_name)
-                d = {
-                    "status": "exists",
-                    "bucket": bucket_name
-                }
-                MutyLogger.get_instance().debug("bucket %s already exists in s3-compatible storage: %s", bucket_name, d)
+                d = {"status": "exists", "bucket": bucket_name}
+                MutyLogger.get_instance().debug(
+                    "bucket %s already exists in s3-compatible storage: %s",
+                    bucket_name,
+                    d,
+                )
                 return d
             except client.exceptions.ClientError as e:
-                error_code = e.response['Error']['Code']
-                if error_code != '404':
+                error_code = e.response["Error"]["Code"]
+                if error_code != "404":
                     raise
-            
+
             params = {"Bucket": bucket_name}
             response = await client.create_bucket(**params)
             d = {
                 "status": "created",
                 "bucket": bucket_name,
-                "location": response.get('Location')
+                "location": response.get("Location"),
             }
-            MutyLogger.get_instance().debug("created bucket %s in s3-compatible storage: %s", bucket_name, d)
+            MutyLogger.get_instance().debug(
+                "created bucket %s in s3-compatible storage: %s", bucket_name, d
+            )
             return d
-            
+
         except Exception as e:
             raise Exception(f"failed to create bucket {bucket_name}: {str(e)}")
 
@@ -198,22 +228,22 @@ class GulpS3:
             bucket_name = "gulp"
         try:
             await client.delete_bucket(Bucket=bucket_name)
-            d = {
-                "status": "deleted",
-                "bucket": bucket_name
-            }
-            MutyLogger.get_instance().debug("deleted bucket %s from s3-compatible storage: %s", bucket_name, d)
+            d = {"status": "deleted", "bucket": bucket_name}
+            MutyLogger.get_instance().debug(
+                "deleted bucket %s from s3-compatible storage: %s", bucket_name, d
+            )
             return d
         except client.exceptions.NoSuchBucket:
-            d = {
-                "status": "not_found",
-                "bucket": bucket_name
-            }
-            MutyLogger.get_instance().debug("bucket %s not found in s3-compatible storage for deletion: %s", bucket_name, d)
+            d = {"status": "not_found", "bucket": bucket_name}
+            MutyLogger.get_instance().debug(
+                "bucket %s not found in s3-compatible storage for deletion: %s",
+                bucket_name,
+                d,
+            )
             return d
         except Exception as e:
             raise Exception(f"failed to delete bucket {bucket_name}: {str(e)}")
-        
+
     async def list_buckets(self) -> dict[str, Any]:
         """
         List all buckets.
@@ -225,15 +255,15 @@ class GulpS3:
         client = await self._get_client()
         try:
             response = await client.list_buckets()
-            buckets = [bucket['Name'] for bucket in response.get('Buckets', [])]
-            d = {
-                "buckets": buckets
-            }
-            MutyLogger.get_instance().debug("listed buckets in s3-compatible storage: %s", d)
+            buckets = [bucket["Name"] for bucket in response.get("Buckets", [])]
+            d = {"buckets": buckets}
+            MutyLogger.get_instance().debug(
+                "listed buckets in s3-compatible storage: %s", d
+            )
             return d
         except Exception as e:
             raise Exception(f"failed to list buckets: {str(e)}")
-    
+
     async def list_by_tags(
         self,
         tags: dict[str, str] = None,
@@ -302,11 +332,13 @@ class GulpS3:
 
                 # only include if all requested tags are present
                 if all(objtags.get(k) == v for k, v in tags.items()):
-                    matched_objects.append({
-                        "storage_id": key,
-                        "size": size,
-                        "tags": objtags,
-                    })
+                    matched_objects.append(
+                        {
+                            "storage_id": key,
+                            "size": size,
+                            "tags": objtags,
+                        }
+                    )
 
             next_token = response.get("NextContinuationToken")
             d = {
@@ -326,8 +358,10 @@ class GulpS3:
             raise Exception(
                 f"failed to list objects with tags {tags} from bucket {bucket_name}: {str(e)}"
             )
-        
-    async def delete_by_tags(self, tags: dict[str, str] = None, bucket_name: str = None) -> dict[str, Any]:
+
+    async def delete_by_tags(
+        self, tags: dict[str, str] = None, bucket_name: str = None
+    ) -> dict[str, Any]:
         """
         Delete objects in a bucket that have at least the specified tags.
 
@@ -385,8 +419,12 @@ class GulpS3:
                         to_delete.append({"Key": key})
                     else:
                         # fetch tags for the object
-                        tagresp = await client.get_object_tagging(Bucket=bucket_name, Key=key)
-                        objtags = {t["Key"]: t["Value"] for t in tagresp.get("TagSet", [])}
+                        tagresp = await client.get_object_tagging(
+                            Bucket=bucket_name, Key=key
+                        )
+                        objtags = {
+                            t["Key"]: t["Value"] for t in tagresp.get("TagSet", [])
+                        }
 
                         # only delete if all requested tags are present
                         match = all(objtags.get(k) == v for k, v in tags.items())
@@ -396,7 +434,9 @@ class GulpS3:
 
                     # flush a batch when we hit 1000
                     if len(to_delete) >= 1000:
-                        await client.delete_objects(Bucket=bucket_name, Delete={"Objects": to_delete})
+                        await client.delete_objects(
+                            Bucket=bucket_name, Delete={"Objects": to_delete}
+                        )
                         num_deleted += len(to_delete)
 
                         to_delete.clear()
@@ -407,11 +447,18 @@ class GulpS3:
 
             if to_delete:
                 # delete any remaining objects in the final batch
-                await client.delete_objects(Bucket=bucket_name, Delete={"Objects": to_delete})
+                await client.delete_objects(
+                    Bucket=bucket_name, Delete={"Objects": to_delete}
+                )
                 num_deleted += len(to_delete)
 
             if not deleted_any:
-                d = {"status": "not_found", "bucket": bucket_name, "tags": tags, "num_deleted": 0}
+                d = {
+                    "status": "not_found",
+                    "bucket": bucket_name,
+                    "tags": tags,
+                    "num_deleted": 0,
+                }
                 MutyLogger.get_instance().debug(
                     "no objects found with tags %s in bucket %s for deletion in s3-compatible storage: %s",
                     tags,
@@ -420,7 +467,12 @@ class GulpS3:
                 )
                 return d
 
-            d = {"status": "deleted", "bucket": bucket_name, "tags": tags, "num_deleted": num_deleted}
+            d = {
+                "status": "deleted",
+                "bucket": bucket_name,
+                "tags": tags,
+                "num_deleted": num_deleted,
+            }
             MutyLogger.get_instance().debug(
                 "deleted %d objects with tags %s from bucket %s in s3-compatible storage: %s",
                 num_deleted,
@@ -440,7 +492,7 @@ class GulpS3:
             raise Exception(
                 f"failed to delete objects with tags {tags} from bucket {bucket_name}: {str(e)}"
             )
-        
+
     async def upload_file(
         self,
         file_path: str,
@@ -491,7 +543,12 @@ class GulpS3:
         uploaded_chunks: int = 0
         try:
             size: int = await muty.file.get_size(file_path)
-            MutyLogger.get_instance().debug("uploading file %s (%d bytes) to bucket %s in s3-compatible storage ...", file_path, size, bucket_name)
+            MutyLogger.get_instance().debug(
+                "uploading file %s (%d bytes) to bucket %s in s3-compatible storage ...",
+                file_path,
+                size,
+                bucket_name,
+            )
 
             if size <= chunk_size:
                 # small file, single put
@@ -525,13 +582,20 @@ class GulpS3:
                                 UploadId=upload_id,
                                 Body=chunk,
                             )
-                            parts.append({
-                                "ETag": part_resp["ETag"],
-                                "PartNumber": part_number,
-                            })
-                            MutyLogger.get_instance().debug("UPLOADED chunk %d for file %s to bucket %s in s3-compatible storage ...", part_number, file_path, bucket_name)
+                            parts.append(
+                                {
+                                    "ETag": part_resp["ETag"],
+                                    "PartNumber": part_number,
+                                }
+                            )
+                            MutyLogger.get_instance().debug(
+                                "UPLOADED chunk %d for file %s to bucket %s in s3-compatible storage ...",
+                                part_number,
+                                file_path,
+                                bucket_name,
+                            )
                             part_number += 1
-                            uploaded_chunks+=1
+                            uploaded_chunks += 1
 
                     await client.complete_multipart_upload(
                         Bucket=bucket_name,
@@ -560,11 +624,19 @@ class GulpS3:
                 "bucket": bucket_name,
                 "object": object_name,
             }
-            MutyLogger.get_instance().debug("DONE uploaded file %s (%d chunks) to bucket %s in s3-compatible storage: %s", file_path, uploaded_chunks, bucket_name, d)
+            MutyLogger.get_instance().debug(
+                "DONE uploaded file %s (%d chunks) to bucket %s in s3-compatible storage: %s",
+                file_path,
+                uploaded_chunks,
+                bucket_name,
+                d,
+            )
             return d
         except Exception as e:
-            raise Exception(f"failed to upload file {file_path} to bucket {bucket_name}: {str(e)}")
-        
+            raise Exception(
+                f"failed to upload file {file_path} to bucket {bucket_name}: {str(e)}"
+            )
+
     async def upload_data(
         self,
         data: bytes,
@@ -604,24 +676,30 @@ class GulpS3:
                 tagging = tags
 
         try:
-            MutyLogger.get_instance().debug("uploading data(len=%d) to object %s in bucket %s in s3-compatible storage ...", len(data), object_name, bucket_name)
+            MutyLogger.get_instance().debug(
+                "uploading data(len=%d) to object %s in bucket %s in s3-compatible storage ...",
+                len(data),
+                object_name,
+                bucket_name,
+            )
             params = {"Bucket": bucket_name, "Key": object_name, "Body": data}
             if tagging:
                 params["Tagging"] = tagging
             await client.put_object(**params)
-            d = {
-                "status": "uploaded",
-                "bucket": bucket_name,
-                "object": object_name
-            }
-            MutyLogger.get_instance().debug("uploaded data to object %s in bucket %s in s3-compatible storage: %s", object_name, bucket_name, d)
+            d = {"status": "uploaded", "bucket": bucket_name, "object": object_name}
+            MutyLogger.get_instance().debug(
+                "uploaded data to object %s in bucket %s in s3-compatible storage: %s",
+                object_name,
+                bucket_name,
+                d,
+            )
             return d
         except Exception as e:
-            raise Exception(f"failed to upload data to object {object_name} in bucket {bucket_name}: {str(e)}")
+            raise Exception(
+                f"failed to upload data to object {object_name} in bucket {bucket_name}: {str(e)}"
+            )
 
-    async def download_data(
-        self, object_name: str, bucket_name: str = None
-    ) -> bytes:
+    async def download_data(self, object_name: str, bucket_name: str = None) -> bytes:
         """Download an object into memory and close its streaming body."""
         client = await self._get_client()
         if not bucket_name:
@@ -647,8 +725,10 @@ class GulpS3:
             raise Exception(
                 f"failed to download data from object {object_name} in bucket {bucket_name}: {str(ex)}"
             ) from ex
-            
-    async def download_file(self, object_name: str, file_path: str, bucket_name: str = None) -> dict[str, Any]:
+
+    async def download_file(
+        self, object_name: str, file_path: str, bucket_name: str = None
+    ) -> dict[str, Any]:
         """
         Download a file from a bucket.
 
@@ -714,8 +794,10 @@ class GulpS3:
             raise Exception(
                 f"failed to download file {object_name} from bucket {bucket_name}: {str(e)}"
             )
-            
-    async def delete_file(self, object_name: str, bucket_name: str = None) -> dict[str, Any]:
+
+    async def delete_file(
+        self, object_name: str, bucket_name: str = None
+    ) -> dict[str, Any]:
         """
         Delete a file from a bucket.
 
@@ -734,22 +816,30 @@ class GulpS3:
             bucket_name = "gulp"
 
         try:
-            MutyLogger.get_instance().debug("deleting object %s from bucket %s in s3-compatible storage ...", object_name, bucket_name)
+            MutyLogger.get_instance().debug(
+                "deleting object %s from bucket %s in s3-compatible storage ...",
+                object_name,
+                bucket_name,
+            )
             await client.delete_object(Bucket=bucket_name, Key=object_name)
-            d = {
-                "status": "deleted",
-                "bucket": bucket_name,
-                "object": object_name
-            }
-            MutyLogger.get_instance().debug("deleted file %s from bucket %s in s3-compatible storage: %s", object_name, bucket_name, d)
+            d = {"status": "deleted", "bucket": bucket_name, "object": object_name}
+            MutyLogger.get_instance().debug(
+                "deleted file %s from bucket %s in s3-compatible storage: %s",
+                object_name,
+                bucket_name,
+                d,
+            )
             return d
         except client.exceptions.NoSuchKey:
-            d = {
-                "status": "not_found",
-                "bucket": bucket_name,
-                "object": object_name
-            }
-            MutyLogger.get_instance().debug("file %s not found in bucket %s for deletion in s3-compatible storage: %s", object_name, bucket_name, d)
+            d = {"status": "not_found", "bucket": bucket_name, "object": object_name}
+            MutyLogger.get_instance().debug(
+                "file %s not found in bucket %s for deletion in s3-compatible storage: %s",
+                object_name,
+                bucket_name,
+                d,
+            )
             return d
         except Exception as e:
-            raise Exception(f"failed to delete file {object_name} from bucket {bucket_name}: {str(e)}")
+            raise Exception(
+                f"failed to delete file {object_name} from bucket {bucket_name}: {str(e)}"
+            )

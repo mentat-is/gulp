@@ -378,15 +378,8 @@ class GulpDocument(GulpBasicDocument):
         )"""
 
         if plugin_instance._plugin_params and plugin_instance._plugin_params.store_file:
-            # if the file is stored in s3, we set the storage_id to the s3 object name, so it can be retrieved later if needed
-            data["storage_id"] = GulpS3.build_object_name(
-                plugin_instance._file_path,
-                operation_id,
-                ctx_id,
-                src_id,
-                plugin_instance._user_id,
-                plugin_instance._req_id,
-            )
+            # Use the same ingestion IDs as the upload; mappings may override a document's IDs.
+            data["storage_id"] = plugin_instance.stored_file_id()
 
         # add gulp_event_code (event code as a number), try to find it in cache first
         evc = data["event_code"]

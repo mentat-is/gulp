@@ -289,7 +289,7 @@ an example is provided in [example_chunk_callbacks](../src/gulp/plugins/example/
 
 #### file storage
 
-a plugin may decide to store a file on the provided SeaweedFS instance via `GulpPluginParameters.store_file`: if this is set, the file is uploaded by the engine to the filestore *prior* to calling the plugin's `ingest_file` method.
+a plugin may decide to store a file on the provided SeaweedFS instance via `GulpPluginParameters.store_file`: if this is set, the engine uploads the file while ingesting it. Every resulting document has `gulp.storage_id` set to that stored object's ID, even when mappings override its context or source.
 
 file storage is helpful when the original file itself is binary and is needed for the investigation: usually the plugin should set `GulpPluginParameters.store_file` to `True` in `ingest_file` prior to calling engine's `ingest_file`:
 

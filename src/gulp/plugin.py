@@ -557,6 +557,8 @@ class GulpPluginBase(ABC):
 
         # current file being ingested
         self._file_path: str = None
+        # S3 object ID for the current stored-file ingestion.
+        self._stored_file_id: str | None = None
         self._adaptive_chunk_size: int = 0
 
         # original file path, if any
@@ -1609,6 +1611,9 @@ class GulpPluginBase(ABC):
         self._file_path = file_path
         self._original_file_path = original_file_path
         self._source_id = source_id
+        self._stored_file_id = (
+            self._upper_instance._stored_file_id if self._upper_instance else None
+        )
 
         if GulpConfig.get_instance().ingestion_documents_adaptive_chunk_size():
             # calculate adaptive chunk size based on file size
@@ -1694,6 +1699,7 @@ class GulpPluginBase(ABC):
             lower._file_path = file_path
             lower._original_file_path = original_file_path
             lower._source_id = source_id
+            lower._stored_file_id = None
             await lower._initialize(plugin_params)
             lower._preview_mode = self._preview_mode
             return lower
@@ -2665,14 +2671,7 @@ class GulpPluginBase(ABC):
         """
         run during ingestion if "store_file" parameter is set: stores the ingested file in the s3-compatible storage
         """
-        obj_name: str = GulpS3.build_object_name(
-            file_path,
-            operation_id,
-            context_id,
-            source_id,
-            user_id,
-            req_id,
-        )
+        obj_name = self.stored_file_id()
         t: dict = {
             "operation_id": operation_id,
             "user_id": user_id,
@@ -2681,6 +2680,19 @@ class GulpPluginBase(ABC):
             "source_id": source_id,
         }
         await GulpS3.get_instance().upload_file(file_path, object_name=obj_name, tags=t)
+
+    def stored_file_id(self) -> str:
+        """Return the cached S3 object ID for the current file ingestion."""
+        if self._stored_file_id is None:
+            self._stored_file_id = GulpS3.build_object_name(
+                self._original_file_path or self._file_path,
+                self._operation_id,
+                self._context_id,
+                self._source_id,
+                self._user_id,
+                self._req_id,
+            )
+        return self._stored_file_id
 
     async def _initialize(self, plugin_params: GulpPluginParameters = None) -> None:
         """

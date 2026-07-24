@@ -130,6 +130,18 @@ async def test_get_file_by_id_after_ingest(
             if not storage_id:
                 pytest.skip("storage.list_files did not return storage_id entries")
 
+            documents = await client.queries.query_raw(
+                operation_id=op.id,
+                q={"query": {"match_all": {}}},
+                q_options={"preview_mode": True},
+            )
+            print(documents)
+            data = documents["data"]
+            assert data["total_hits"] > 0
+            assert {
+                document["gulp.storage_id"] for document in data["docs"]
+            } == {storage_id}
+
             output_path = tmp_path / "downloaded_sample.evtx"
             try:
                 saved = await client.storage.get_file_by_id(op.id, storage_id, str(output_path))
