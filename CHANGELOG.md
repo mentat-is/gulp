@@ -1,7 +1,6 @@
 # v2.0.0
 
-- refactored the repository agent guidance to clarify architecture, workflow,
-  documentation, compatibility, plugin, and integration-testing requirements.
+- refactored the repository agent guidance to clarify architecture, workflow, documentation, compatibility, plugin, and integration-testing requirements,optimized repository testing guidance for the standard integration-test workflow and documented virtual-environment test commands.
 - made the gULP application server HTTP-only for private deployment behind nginx or another TLS terminator; outbound PostgreSQL, OpenSearch, Redis, and S3 encryption now uses native secure URIs and trust settings.
 - replaced MinIO with SeaweedFS 4.29 while retaining the existing aiobotocore integration, object tags, multipart transfers, and S3 ports; removed the obsolete `s3_minio` and `s3_region` options.
 - made operation deletion remove all S3-compatible objects tagged with its operation ID when `delete_data` is enabled.

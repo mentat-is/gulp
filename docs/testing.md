@@ -4,18 +4,30 @@ Install the local SDK, then start a clean development backend when one is not
 already available:
 
 ~~~bash
-pip3 install -e ./gulp-sdk
+.venv/bin/pip install -e ./gulp-sdk
 curl -fsS http://localhost:8080/docs >/dev/null || \
   gulp --reset-collab --create test_operation
+~~~
+
+Use ports `>= 8100` for additional instances:
+
+~~~bash
+GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8100 gulp
+~~~
+
+Stop any backend instance you started when testing finishes:
+
+~~~bash
+gulp --stop
 ~~~
 
 Run the normal suite as needed:
 
 ~~~bash
-python3 -m pytest -v -s -x tests/
-python3 -m pytest -v -s -x tests/integration/
+.venv/bin/python -m pytest -v -s -x tests/
+.venv/bin/python -m pytest -v -s -x tests/integration/
 # usually, test_stress.py with BIG_SIGMAS=1 is enough to dictate the overall health of the backend
-BIG_SIGMAS=1 python3 -m pytest -v -s -x tests/integration/test_stress.py
+BIG_SIGMAS=1 .venv/bin/python -m pytest -v -s -x tests/integration/test_stress.py
 ~~~
 
 Use [run_tests.sh](../test_scripts/run_tests.sh) when a wrapper is more
@@ -79,7 +91,7 @@ Run the two reference profiles from another terminal.
 One operation per user exercises independent ingestion, queries, and notes:
 
 ~~~bash
-python test_scripts/sigma_zip_big_harness.py \
+.venv/bin/python test_scripts/sigma_zip_big_harness.py \
   --users 10 \
   --instances 1 \
   --concurrency 10 \
@@ -90,7 +102,7 @@ The shared-operation profile puts every user on one operation and deliberately
 amplifies collaboration-note contention:
 
 ~~~bash
-python test_scripts/sigma_zip_big_harness.py \
+.venv/bin/python test_scripts/sigma_zip_big_harness.py \
   --users 10 \
   --instances 1 \
   --concurrency 10 \

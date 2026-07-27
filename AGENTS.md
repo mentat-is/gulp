@@ -78,43 +78,23 @@ unit coverage when practical.
 
 ## Testing
 
-- Validate every code or functionality change with integration tests. Use unit
-  tests only for isolated logic; they do not replace integration coverage.
-- Integration tests live in `tests/integration/`; unit tests live in
-  `tests/unit/`. Use the existing ingestion, enrichment, query, and raw-plugin
-  tests as references.
-- Tests must assert expected results and print important API responses for
-  failure diagnosis. Keep each specific feature or plugin in its own test file.
-- Never adapt a test to unexpected results. Let it fail, investigate, and stop
-  for guidance if the failure suggests a product bug.
-- If no close test example exists, ask before creating a new test structure.
-- If you need to tweak runtime configuration, edit `~/.config/gulp/gulp_cfg.json`, restart gULP, and revert the config changes after testing.
-- If you need observability, enable Prometheus as described in [docs/observability.md](docs/observability.md)
-
-Before integration tests, check whether the backend is already available:
+- Validate every code or functionality change with integration tests; unit
+  tests are only for isolated logic. Tests belong in `tests/integration/` or
+  `tests/unit/`, must assert results, and must not be adapted to mask failures.
+- Before integration tests, check or start the backend, then run the relevant
+  integration test:
 
 ```bash
-curl -fsS http://localhost:8080/docs >/dev/null && echo up || echo down
+curl -fsS http://localhost:8080/docs >/dev/null || gulp --reset-collab --create test_operation
+.venv/bin/python -m pytest -v -s -x tests/integration/<test_file>
 ```
 
-If it is down, start it with a clean test operation:
-
-```bash
-gulp --reset-collab --create test_operation
-```
-
-Use ports `>= 8100` for additional instances:
-
-```bash
-GULP_BIND_TO_ADDR=0.0.0.0 GULP_BIND_TO_PORT=8100 gulp
-```
-
-Stop any backend instance you started when testing finishes:
+- Stop only a backend you started, and revert temporary runtime configuration
+  after testing:
 
 ```bash
 gulp --stop
 ```
 
-See `docs/testing.md` for test commands and `docs/observability.md` for optional
-diagnostics. Revert temporary runtime configuration changes and stop any extra
-tooling when finished.
+See [docs/testing.md](docs/testing.md) only for special, multi-instance,
+configuration, or observability scenarios.
