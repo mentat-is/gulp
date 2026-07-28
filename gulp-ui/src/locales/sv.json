@@ -449,6 +449,7 @@
     "notes.deleteSelected": "Ta bort markerade anteckningar ({count})",
     "notes.deleteTitle": "Ta bort anteckningar",
     "notes.eventTimestamp": "Händelsens tidsstämpel",
+    "notes.changesAvailable": "Anteckningarna har ändrats. Uppdatera för att läsa in de senaste uppgifterna.",
     "notes.deselectAll": "Avmarkera alla ({count} markerade)",
     "notes.fetchContinuing": "Fortsätter...",
     "notes.fetchedCount": "Hämtade {count} anteckningar",

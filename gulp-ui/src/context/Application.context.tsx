@@ -35,7 +35,9 @@ interface CollabPayloadObject {
 interface CollabDeleteMessage {
 	payload: {
 		id: string;
+		type: string;
 	};
+	"gulp.operation_id"?: Operation.Id;
 }
 
 /**
@@ -175,7 +177,15 @@ function _({ children }: { children: ReactNode }) {
 					isSelectedOperationObject(appRef.current, obj),
 			) as Note.Type[];
 			if (notes.length > 0) {
-				instanceRef.current.notes_upsert_from_collab(notes);
+				const storedNotes =
+					instanceRef.current.notes_upsert_from_collab(notes);
+				if (storedNotes.length > 0) {
+					DataStore.publishNotesUpsertDelta(
+						storedNotes[0].operation_id,
+						"create",
+						storedNotes,
+					);
+				}
 			}
 
 			objects.forEach((obj) => {
@@ -224,9 +234,17 @@ function _({ children }: { children: ReactNode }) {
 			}
 			switch (message.payload.obj.type) {
 				case "note": {
-					instanceRef.current.notes_upsert_from_collab([
+					const storedNotes =
+						instanceRef.current.notes_upsert_from_collab([
 						message.payload.obj as Note.Type,
 					]);
+					if (storedNotes.length > 0) {
+						DataStore.publishNotesUpsertDelta(
+							storedNotes[0].operation_id,
+							"update",
+							storedNotes,
+						);
+					}
 					return;
 				}
 				case "link": {
@@ -248,14 +266,23 @@ function _({ children }: { children: ReactNode }) {
 		 * @returns Nothing.
 		 */
 		const collabDeleteCallback = (message: CollabDeleteMessage): void => {
-			const { id } = message.payload;
+			const { id, type } = message.payload;
+			const operationId = message["gulp.operation_id"];
+			const selectedOperationId =
+				DataStore.getRenderOperationId() ??
+				Operation.Entity.selected(appRef.current)?.id;
 
-			// Check notes
-			const deletedNote = DataStore.deleteNote(id as Note.Id, "deferred");
-			if (deletedNote) {
-				const sourceId = Note.Entity.sourceId(deletedNote);
-				Note.Entity.removeIndexedNote(deletedNote);
-				if (sourceId) RenderEngine.resetSourceNotes(sourceId);
+			if (type === "note") {
+				if (!operationId || operationId !== selectedOperationId) return;
+
+				const noteId = id as Note.Id;
+				const deletedNote = DataStore.deleteNote(noteId, "deferred");
+				if (deletedNote) {
+					const sourceId = Note.Entity.sourceId(deletedNote);
+					Note.Entity.removeIndexedNote(deletedNote);
+					if (sourceId) RenderEngine.resetSourceNotes(sourceId);
+				}
+				DataStore.publishNotesDeleteDelta(operationId, [noteId]);
 				return;
 			}
 

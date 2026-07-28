@@ -458,6 +458,7 @@
     "notes.deleteSelected": "Delete selected notes ({count})",
     "notes.deleteTitle": "Delete notes",
     "notes.eventTimestamp": "Event Timestamp",
+    "notes.changesAvailable": "Notes changed. Refresh to load the latest data.",
     "notes.deselectAll": "Deselect All ({count} selected)",
     "notes.fetchContinuing": "Continuing...",
     "notes.fetchedCount": "Fetched {count} notes",

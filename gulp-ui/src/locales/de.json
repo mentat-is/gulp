@@ -449,6 +449,7 @@
     "notes.deleteSelected": "Ausgewählte Notizen löschen ({count})",
     "notes.deleteTitle": "Notizen löschen",
     "notes.eventTimestamp": "Ereigniszeitstempel",
+    "notes.changesAvailable": "Die Notizen wurden geändert. Aktualisieren Sie, um die neuesten Daten zu laden.",
     "notes.deselectAll": "Alle abwählen ({count} ausgewählt)",
     "notes.fetchContinuing": "Fortsetzung...",
     "notes.fetchedCount": "{count} Notizen abgerufen",

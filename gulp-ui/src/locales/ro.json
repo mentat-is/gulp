@@ -449,6 +449,7 @@
     "notes.deleteSelected": "Ștergeți notele selectate ({count})",
     "notes.deleteTitle": "Ștergeți notele",
     "notes.eventTimestamp": "Marca temporală a evenimentului",
+    "notes.changesAvailable": "Notele s-au modificat. Reîmprospătați pentru a încărca cele mai recente date.",
     "notes.deselectAll": "Deselectați toate ({count} selectat)",
     "notes.fetchContinuing": "Continuând...",
     "notes.fetchedCount": "S-au preluat note {count}",

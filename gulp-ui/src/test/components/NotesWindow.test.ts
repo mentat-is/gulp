@@ -6,8 +6,9 @@ import type { Source } from "@/entities/Source";
 import type { User } from "@/entities/User";
 import type { Note } from "@/entities/Note";
 import {
+	acknowledgeNotesChangeSequence,
+	advanceNotesChangeSequence,
 	buildNotesListFilters,
-	countNewNotes,
 	getSearchMatchingNoteIds,
 	noteMatchesNotesWindowFilter,
 } from "@/utils";
@@ -212,11 +213,48 @@ describe("NotesWindow pagination helpers", () => {
 		expect(matchingIds.at(-1)).toBe(notes[2998].id);
 	});
 
-	it("counts only note IDs added after the acknowledged snapshot", () => {
-		const notes = [createNote(1), createNote(2), createNote(3)];
-		const acknowledgedIds = new Set<Note.Id>([notes[0].id]);
+	it("acknowledges only changes covered by a successful refresh", () => {
+		expect(acknowledgeNotesChangeSequence(7, 7)).toBeNull();
+		expect(acknowledgeNotesChangeSequence(7, 8)).toBeNull();
+		expect(acknowledgeNotesChangeSequence(8, 7)).toBe(8);
+		expect(acknowledgeNotesChangeSequence(null, 7)).toBeNull();
+	});
 
-		expect(countNewNotes(notes, acknowledgedIds)).toBe(2);
-		expect(countNewNotes(notes.slice(0, 1), acknowledgedIds)).toBe(0);
+	it("marks only realtime creation and deletion as stale", () => {
+		const note = createNote(1);
+		expect(
+			advanceNotesChangeSequence(null, {
+				type: "notes-sync",
+				mutation: "snapshot-ready",
+				operationId: OPERATION_ID,
+			}),
+		).toBeNull();
+		expect(
+			advanceNotesChangeSequence(null, {
+				type: "notes-sync",
+				mutation: "update",
+				operationId: OPERATION_ID,
+				sequence: 5,
+				notes: [note],
+			}),
+		).toBeNull();
+		expect(
+			advanceNotesChangeSequence(null, {
+				type: "notes-sync",
+				mutation: "create",
+				operationId: OPERATION_ID,
+				sequence: 6,
+				notes: [note],
+			}),
+		).toBe(6);
+		expect(
+			advanceNotesChangeSequence(6, {
+				type: "notes-sync",
+				mutation: "delete",
+				operationId: OPERATION_ID,
+				sequence: 7,
+				noteIds: [note.id],
+			}),
+		).toBe(7);
 	});
 });

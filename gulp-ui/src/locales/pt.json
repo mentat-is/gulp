@@ -449,6 +449,7 @@
     "notes.deleteSelected": "Excluir notas selecionadas ({count})",
     "notes.deleteTitle": "Excluir notas",
     "notes.eventTimestamp": "Carimbo de data/hora do evento",
+    "notes.changesAvailable": "As notas foram alteradas. Atualize para carregar os dados mais recentes.",
     "notes.deselectAll": "Desmarcar tudo ({count} selecionado)",
     "notes.fetchContinuing": "Continuando...",
     "notes.fetchedCount": "{count} notas buscadas",

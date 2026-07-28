@@ -4275,6 +4275,7 @@ export class Info implements InfoProps {
 		if (!isCurrentReload()) return notes;
 
 		Note.Entity[CacheKey].clear();
+		DataStore.publishNotesSnapshotReady(operation.id);
 
 		return notes;
 	};

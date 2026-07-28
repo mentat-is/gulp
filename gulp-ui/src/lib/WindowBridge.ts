@@ -15,7 +15,10 @@ import type { Operation } from '@/entities/Operation'
 import type { Source } from '@/entities/Source'
 import type { Context } from '@/entities/Context'
 import type { Query } from '@/entities/Query'
-import { DataStore } from '@/store/DataStore'
+import {
+  DataStore,
+  type NotesRealtimeSyncChange,
+} from '@/store/DataStore'
 
 const CHANNEL_NAME = 'gulp-window-bridge'
 const MAIN_CONTEXT_STORAGE_KEY = 'gulp-window-bridge:main-context'
@@ -33,8 +36,10 @@ export namespace WindowBridge {
     RENDER_REQUEST = 'RENDER_REQUEST',
     /** Main → Detached: Partial app state snapshot */
     APP_SNAPSHOT = 'APP_SNAPSHOT',
-    /** Main → Detached: Notes DataStore snapshot changed */
+    /** Main → Detached: Authoritative selected-source notes snapshot */
     NOTES_CHANGED = 'NOTES_CHANGED',
+    /** Main → Detached: Realtime note collaboration delta */
+    NOTES_DELTA = 'NOTES_DELTA',
     /** Detached → Main: Banner action (destroy) */
     BANNER_ACTION = 'BANNER_ACTION',
     /** Main → Detached: Select specific source in table view */
@@ -63,8 +68,11 @@ export namespace WindowBridge {
   }
 
   export interface NotesChangedPayload {
+    operationId?: Operation.Id | null
     notes: Note.Type[]
   }
+
+  export type NotesDeltaPayload = NotesRealtimeSyncChange
 
   export interface FlagsChangedPayload {
     docId: Doc.Id
@@ -138,6 +146,7 @@ export namespace WindowBridge {
     [MessageType.RENDER_REQUEST]: RenderRequestPayload
     [MessageType.APP_SNAPSHOT]: AppSnapshotPayload
     [MessageType.NOTES_CHANGED]: NotesChangedPayload
+    [MessageType.NOTES_DELTA]: NotesDeltaPayload
     [MessageType.BANNER_ACTION]: BannerActionPayload
     [MessageType.TABLE_SELECT_SOURCE]: TableSelectSourcePayload
     [MessageType.TARGET_NOTE]: TargetNotePayload
@@ -473,6 +482,7 @@ export namespace WindowBridge {
     )
 
     return {
+      operationId,
       notes: DataStore.notes.filter((note) =>
         selectedSourceIds.has(getNoteSourceId(note)),
       ),
@@ -496,6 +506,20 @@ export namespace WindowBridge {
       MessageType.NOTES_CHANGED,
       createNotesChangedPayload(app, operationId),
     )
+  }
+
+  /**
+   * Sends one realtime note collaboration delta to detached windows.
+   *
+   * @param bridge - Existing bridge used to send the note delta.
+   * @param change - Sequenced create, update, or delete change.
+   * @returns Nothing.
+   */
+  export function sendNotesDelta(
+    bridge: Bridge,
+    change: NotesDeltaPayload,
+  ): void {
+    bridge.send(MessageType.NOTES_DELTA, change)
   }
 
   /**
@@ -608,7 +632,6 @@ export namespace WindowBridge {
 
     if (replay.snapshot) {
       bridge.send(MessageType.APP_SNAPSHOT, replay.snapshot)
-      sendNotesSnapshot(bridge, app, operationId)
     }
 
     sendSelectedEvent(bridge, app.timeline.target)

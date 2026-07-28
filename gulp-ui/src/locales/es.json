@@ -449,6 +449,7 @@
     "notes.deleteSelected": "Eliminar notas seleccionadas ({count})",
     "notes.deleteTitle": "Eliminar notas",
     "notes.eventTimestamp": "Marca de tiempo del evento",
+    "notes.changesAvailable": "Las notas han cambiado. Actualice para cargar los datos más recientes.",
     "notes.deselectAll": "Deseleccionar todo ({count} seleccionado)",
     "notes.fetchContinuing": "Continuo...",
     "notes.fetchedCount": "{count} notas recuperadas",

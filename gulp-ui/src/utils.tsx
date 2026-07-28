@@ -4,6 +4,7 @@ import type { Context } from "@/entities/Context";
 import { Doc } from "@/entities/Doc";
 import type { Note } from "@/entities/Note";
 import { Source } from "@/entities/Source";
+import type { NotesSyncChange } from "@/store/DataStore";
 
 export type PersistedDetachedWindowKind = "notes" | "table" | "dashboard";
 
@@ -353,19 +354,37 @@ export function buildNotesListFilters(
 }
 
 /**
- * Counts canonical note IDs that were not present in the acknowledged snapshot.
- * @param notes Current canonical DataStore notes.
- * @param acknowledgedNoteIds IDs included in the last intentional table refresh.
- * @returns Number of newly available notes.
+ * Clears a pending note-change sequence only when the completed refresh covered it.
+ * @param pendingSequence Latest create/delete sequence awaiting acknowledgement.
+ * @param refreshedSequence Sequence captured when the successful refresh started.
+ * @returns Null when fully acknowledged, otherwise the still-pending sequence.
  */
-export function countNewNotes(
-	notes: readonly Note.Type[],
-	acknowledgedNoteIds: ReadonlySet<Note.Id>,
-): number {
-	return notes.reduce(
-		(count, note) => count + (acknowledgedNoteIds.has(note.id) ? 0 : 1),
-		0,
-	);
+export function acknowledgeNotesChangeSequence(
+	pendingSequence: number | null,
+	refreshedSequence: number,
+): number | null {
+	return pendingSequence !== null && pendingSequence <= refreshedSequence
+		? null
+		: pendingSequence;
+}
+
+/**
+ * Advances the stale-page marker only for realtime note creation or deletion.
+ * @param pendingSequence Latest create/delete sequence awaiting acknowledgement.
+ * @param change Explicit note synchronization event for the active operation.
+ * @returns Latest pending sequence, unchanged for snapshots and updates.
+ */
+export function advanceNotesChangeSequence(
+	pendingSequence: number | null,
+	change: NotesSyncChange,
+): number | null {
+	if (
+		change.mutation === "snapshot-ready" ||
+		change.mutation === "update"
+	) {
+		return pendingSequence;
+	}
+	return Math.max(pendingSequence ?? 0, change.sequence);
 }
 
 const DETACHED_WINDOWS_STORAGE_KEY = "gulp-detached-windows";

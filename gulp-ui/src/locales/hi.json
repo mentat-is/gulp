@@ -449,6 +449,7 @@
     "notes.deleteSelected": "चयनित नोट्स हटाएं ({count})",
     "notes.deleteTitle": "नोट हटाएँ",
     "notes.eventTimestamp": "इवेंट टाइमस्टैम्प",
+    "notes.changesAvailable": "नोट बदल गए हैं। नवीनतम डेटा लोड करने के लिए रीफ़्रेश करें।",
     "notes.deselectAll": "सभी को अचयनित करें ({count} चयनित)",
     "notes.fetchContinuing": "जारी...",
     "notes.fetchedCount": "{count} नोट लाए",

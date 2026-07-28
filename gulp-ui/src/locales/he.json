@@ -449,6 +449,7 @@
     "notes.deleteSelected": "מחק הערות שנבחרו ({count})",
     "notes.deleteTitle": "מחק הערות",
     "notes.eventTimestamp": "חותמת הזמן של האירוע",
+    "notes.changesAvailable": "ההערות השתנו. יש לרענן כדי לטעון את הנתונים העדכניים.",
     "notes.deselectAll": "בטל את הבחירה בכל (נבחרו {count})",
     "notes.fetchContinuing": "ממשיך...",
     "notes.fetchedCount": "הביא {count} הערות",

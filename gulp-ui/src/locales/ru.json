@@ -449,6 +449,7 @@
     "notes.deleteSelected": "Удалить выбранные заметки ({count})",
     "notes.deleteTitle": "Удалить заметки",
     "notes.eventTimestamp": "Временная метка события",
+    "notes.changesAvailable": "Заметки изменились. Обновите, чтобы загрузить последние данные.",
     "notes.deselectAll": "Отменить выбор всех (выбрано: {count})",
     "notes.fetchContinuing": "Продолжаем...",
     "notes.fetchedCount": "Получены заметки {count}.",

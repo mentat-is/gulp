@@ -34,6 +34,39 @@ export interface NotesRenderChange extends RenderChangeBase {
 	removedNoteIds: readonly Note.Id[];
 }
 
+export interface NotesSnapshotReadyChange {
+	type: "notes-sync";
+	mutation: "snapshot-ready";
+	operationId: Operation.Id;
+}
+
+export interface NotesUpsertSyncChange {
+	type: "notes-sync";
+	mutation: "create" | "update";
+	operationId: Operation.Id;
+	sequence: number;
+	notes: readonly Note.Type[];
+}
+
+export interface NotesDeleteSyncChange {
+	type: "notes-sync";
+	mutation: "delete";
+	operationId: Operation.Id;
+	sequence: number;
+	noteIds: readonly Note.Id[];
+}
+
+export type NotesSyncChange =
+	| NotesSnapshotReadyChange
+	| NotesUpsertSyncChange
+	| NotesDeleteSyncChange;
+
+export type NotesRealtimeSyncChange =
+	| NotesUpsertSyncChange
+	| NotesDeleteSyncChange;
+
+export type NotesSyncChangeListener = (change: NotesSyncChange) => void;
+
 export interface LinksRenderChange extends RenderChangeBase {
 	type: "links";
 	mutation: RenderCollectionMutation;
@@ -96,6 +129,8 @@ export class DataStore {
 	private static readonly overlayListeners = new Set<() => void>();
 	private static readonly renderChangeListeners =
 		new Set<DataStoreRenderChangeListener>();
+	private static readonly notesSyncChangeListeners =
+		new Set<NotesSyncChangeListener>();
 	private static readonly sourceRevisions = new Map<Source.Id, number>();
 	private static readonly collectionRevisions: Record<RenderCollectionName, number> = {
 		notes: 0,
@@ -106,6 +141,7 @@ export class DataStore {
 	private static documentVersion = 0;
 	private static overlayVersion = 0;
 	private static renderSequence = 0;
+	private static notesSyncSequence = 0;
 	private static operationEpoch = 1;
 	private static renderOperationId: Operation.Id | null = null;
 	private static pendingDirtyFrame: number | null = null;
@@ -161,6 +197,96 @@ export class DataStore {
 		return () => {
 			DataStore.renderChangeListeners.delete(listener);
 		};
+	}
+
+	/**
+	 * Subscribes to explicit note snapshot-completion and realtime collaboration changes.
+	 * @param listener Callback invoked for semantic note synchronization events.
+	 * @returns Function that removes the listener.
+	 */
+	public static subscribeNotesSyncChanges(
+		listener: NotesSyncChangeListener,
+	): () => void {
+		DataStore.notesSyncChangeListeners.add(listener);
+		return () => {
+			DataStore.notesSyncChangeListeners.delete(listener);
+		};
+	}
+
+	/**
+	 * Publishes completion of an authoritative note snapshot without marking it realtime.
+	 * @param operationId Operation whose complete note snapshot is now available.
+	 * @returns Published snapshot-ready change.
+	 */
+	public static publishNotesSnapshotReady(
+		operationId: Operation.Id,
+	): NotesSnapshotReadyChange {
+		const change: NotesSnapshotReadyChange = {
+			type: "notes-sync",
+			mutation: "snapshot-ready",
+			operationId,
+		};
+		DataStore.publishNotesSyncChange(change);
+		return change;
+	}
+
+	/**
+	 * Publishes one sequenced realtime create or update batch.
+	 * @param operationId Operation affected by the collaboration notification.
+	 * @param mutation Whether notes were created or updated.
+	 * @param notes Complete note objects supplied by the websocket notification.
+	 * @returns Published realtime change.
+	 */
+	public static publishNotesUpsertDelta(
+		operationId: Operation.Id,
+		mutation: "create" | "update",
+		notes: readonly Note.Type[],
+	): NotesUpsertSyncChange {
+		const change: NotesUpsertSyncChange = {
+			type: "notes-sync",
+			mutation,
+			operationId,
+			sequence: ++DataStore.notesSyncSequence,
+			notes,
+		};
+		DataStore.publishNotesSyncChange(change);
+		return change;
+	}
+
+	/**
+	 * Publishes one sequenced realtime delete batch.
+	 * @param operationId Operation affected by the collaboration notification.
+	 * @param noteIds Deleted note identifiers supplied by the websocket notification.
+	 * @returns Published realtime change.
+	 */
+	public static publishNotesDeleteDelta(
+		operationId: Operation.Id,
+		noteIds: readonly Note.Id[],
+	): NotesDeleteSyncChange {
+		const change: NotesDeleteSyncChange = {
+			type: "notes-sync",
+			mutation: "delete",
+			operationId,
+			sequence: ++DataStore.notesSyncSequence,
+			noteIds,
+		};
+		DataStore.publishNotesSyncChange(change);
+		return change;
+	}
+
+	/**
+	 * Relays a realtime note delta from another browser realm without resequencing it.
+	 * @param change Realtime change received through WindowBridge.
+	 * @returns Nothing.
+	 */
+	public static relayNotesRealtimeDelta(
+		change: NotesRealtimeSyncChange,
+	): void {
+		DataStore.notesSyncSequence = Math.max(
+			DataStore.notesSyncSequence,
+			change.sequence,
+		);
+		DataStore.publishNotesSyncChange(change);
 	}
 
 	/**
@@ -847,6 +973,15 @@ export class DataStore {
 	 */
 	private static publishRenderChange(change: DataStoreRenderChange): void {
 		DataStore.renderChangeListeners.forEach((listener) => listener(change));
+	}
+
+	/**
+	 * Delivers one semantic note synchronization change without touching render state.
+	 * @param change Snapshot-completion or realtime note delta.
+	 * @returns Nothing.
+	 */
+	private static publishNotesSyncChange(change: NotesSyncChange): void {
+		DataStore.notesSyncChangeListeners.forEach((listener) => listener(change));
 	}
 
 	/**

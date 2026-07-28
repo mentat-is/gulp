@@ -449,6 +449,7 @@
     "notes.deleteSelected": "刪除選定的註釋 ({count})",
     "notes.deleteTitle": "刪除筆記",
     "notes.eventTimestamp": "事件時間戳",
+    "notes.changesAvailable": "筆記已變更。請重新整理以載入最新資料。",
     "notes.deselectAll": "取消全選（已選擇 {count} 個）",
     "notes.fetchContinuing": "繼續...",
     "notes.fetchedCount": "已取得 {count} 註釋",

@@ -7,7 +7,6 @@ import React, {
 	useMemo,
 	useRef,
 	useState,
-	useSyncExternalStore,
 } from "react";
 import ReactDOM from "react-dom/client";
 import { useLocation } from "react-router-dom";
@@ -15,7 +14,7 @@ import { useTheme } from "next-themes";
 import { Application } from "@/context/Application.context";
 import { DetachedAppProvider } from "@/context/DetachedApp.provider";
 import { WindowBridge } from "@/lib/WindowBridge";
-import { DataStore } from "@/store/DataStore";
+import { DataStore, type NotesSyncChange } from "@/store/DataStore";
 import { AIAssistantWindow } from "@/components/AIAssistantWindow";
 import { RenderEngine } from "@/class/RenderEngine";
 import { App } from "@/entities/App";
@@ -168,22 +167,6 @@ function resolveMainContextStatus(
 }
 
 /**
- * Compares two note snapshots by item identity and order.
- *
- * @param previous - Previously broadcast notes snapshot.
- * @param next - Next candidate notes snapshot.
- * @returns True when both snapshots contain the same note object references in the same order.
- */
-function areNoteSnapshotsEqual(
-	previous: Note.Type[] | null,
-	next: Note.Type[],
-): boolean {
-	if (!previous || previous.length !== next.length) return false;
-
-	return previous.every((note, index) => note === next[index]);
-}
-
-/**
  * Builds the stable source-row signature sent to detached windows.
  * @param app Current main-tab app snapshot.
  * @param operationId Optional operation scope.
@@ -194,6 +177,19 @@ function getRenderedSourceSignature(
 	operationId?: Operation.Id | null,
 ): string {
 	return getCanvasRenderedSourceIds(app, operationId).join("|");
+}
+
+/**
+ * Determines whether the coordinator currently owns a live Notes window.
+ * @param records Detached window records keyed by persisted window identity.
+ * @returns True when an open Notes window can receive note synchronization.
+ */
+function hasLiveNotesWindow(
+	records: Record<string, DetachedWindowRecord>,
+): boolean {
+	return Object.values(records).some(
+		(record) => record.kind === "notes" && !record.window.closed,
+	);
 }
 
 /**
@@ -244,11 +240,6 @@ function _({ children }: { children: ReactNode }) {
 	authLostRef.current = authLost;
 	const infoRef = useRef(Info);
 	infoRef.current = Info;
-	const dataStoreVersion = useSyncExternalStore(
-		DataStore.subscribeOverlays,
-		DataStore.getOverlaysSnapshot,
-		DataStore.getOverlaysSnapshot,
-	);
 	const spawnDialogRef = useRef(spawnDialog);
 	spawnDialogRef.current = spawnDialog;
 	const spawnBannerRef = useRef(spawnBanner);
@@ -367,23 +358,27 @@ function _({ children }: { children: ReactNode }) {
 		);
 	}, []);
 	const replayDetachedStateRef = useRef(replayDetachedState);
-	const previousDetachedNotesRef = useRef<Note.Type[] | null>(null);
 	const renderedSourceSignatureRef = useRef(
 		getRenderedSourceSignature(app, selectedOperationId ?? routeOperationId),
 	);
+	const notesContextSignatureRef = useRef(
+		`${status}|${selectedOperationId ?? routeOperationId ?? ""}|${selectedSourceIdsSignature}`,
+	);
 	const replayFrameRef = useRef<number | null>(null);
-	const replayNotesFrameRef = useRef<number | null>(null);
+	const replayNotesWithContextRef = useRef(false);
 
 	useEffect(() => {
 		replayDetachedStateRef.current = replayDetachedState;
 	}, [replayDetachedState]);
 
 	/**
-	 * Broadcasts the current selected-source notes when their DataStore snapshot changes.
+	 * Broadcasts an authoritative selected-source note snapshot when explicitly requested.
 	 *
 	 * @returns Nothing.
 	 */
 	const replayDetachedNotes = useCallback(() => {
+		if (!hasLiveNotesWindow(windowsRef.current)) return;
+
 		const currentApp = appRef.current;
 		const currentOperationId =
 			Operation.Entity.selected(currentApp)?.id ?? routeOperationIdRef.current;
@@ -391,12 +386,6 @@ function _({ children }: { children: ReactNode }) {
 			currentApp,
 			currentOperationId,
 		);
-
-		if (areNoteSnapshotsEqual(previousDetachedNotesRef.current, payload.notes)) {
-			return;
-		}
-
-		previousDetachedNotesRef.current = payload.notes;
 
 		if (bridgeRef.current) {
 			bridgeRef.current.send(WindowBridge.MessageType.NOTES_CHANGED, payload);
@@ -416,26 +405,17 @@ function _({ children }: { children: ReactNode }) {
 	 *
 	 * @returns Nothing.
 	 */
-	const scheduleReplayDetachedState = useCallback(() => {
+	const scheduleReplayDetachedState = useCallback((includeNotes = false) => {
+		replayNotesWithContextRef.current ||= includeNotes;
 		if (replayFrameRef.current !== null) return;
 
 		replayFrameRef.current = window.requestAnimationFrame(() => {
 			replayFrameRef.current = null;
 			replayDetachedStateRef.current();
-		});
-	}, []);
-
-	/**
-	 * Coalesces detached notes replays to one BroadcastChannel update per animation frame.
-	 *
-	 * @returns Nothing.
-	 */
-	const scheduleReplayDetachedNotes = useCallback(() => {
-		if (replayNotesFrameRef.current !== null) return;
-
-		replayNotesFrameRef.current = window.requestAnimationFrame(() => {
-			replayNotesFrameRef.current = null;
-			replayDetachedNotesRef.current();
+			if (replayNotesWithContextRef.current) {
+				replayNotesWithContextRef.current = false;
+				replayDetachedNotesRef.current();
+			}
 		});
 	}, []);
 
@@ -443,9 +423,6 @@ function _({ children }: { children: ReactNode }) {
 		return () => {
 			if (replayFrameRef.current !== null) {
 				window.cancelAnimationFrame(replayFrameRef.current);
-			}
-			if (replayNotesFrameRef.current !== null) {
-				window.cancelAnimationFrame(replayNotesFrameRef.current);
 			}
 		};
 	}, []);
@@ -752,6 +729,14 @@ function _({ children }: { children: ReactNode }) {
 					break;
 				case WindowBridge.MessageType.DETACHED_READY: {
 					replayDetachedStateRef.current();
+					const { windowId } =
+						message.payload as WindowBridge.DetachedReadyPayload;
+					const readyRecord = Object.values(windowsRef.current).find(
+						(record) => record.bridgeId === windowId,
+					);
+					if (readyRecord?.kind === "notes") {
+						replayDetachedNotesRef.current();
+					}
 					break;
 				}
 			}
@@ -764,7 +749,12 @@ function _({ children }: { children: ReactNode }) {
 	}, [setDialogsDocked]);
 
 	useEffect(() => {
-		scheduleReplayDetachedState();
+		const nextNotesContextSignature =
+			`${status}|${selectedOperationId ?? routeOperationId ?? ""}|${selectedSourceIdsSignature}`;
+		const notesContextChanged =
+			nextNotesContextSignature !== notesContextSignatureRef.current;
+		notesContextSignatureRef.current = nextNotesContextSignature;
+		scheduleReplayDetachedState(notesContextChanged);
 		renderedSourceSignatureRef.current = getRenderedSourceSignature(
 			app,
 			selectedOperationId ?? routeOperationId,
@@ -804,8 +794,32 @@ function _({ children }: { children: ReactNode }) {
 	}, [scheduleReplayDetachedState]);
 
 	useEffect(() => {
-		scheduleReplayDetachedNotes();
-	}, [dataStoreVersion, scheduleReplayDetachedNotes]);
+		/**
+		 * Sends only explicit note snapshots or realtime deltas to a live Notes window.
+		 * @param change Snapshot-ready marker or collaboration delta.
+		 * @returns Nothing.
+		 */
+		const handleNotesSyncChange = (
+			change: NotesSyncChange,
+		): void => {
+			if (!hasLiveNotesWindow(windowsRef.current)) return;
+
+			const currentOperationId =
+				Operation.Entity.selected(appRef.current)?.id ??
+				routeOperationIdRef.current;
+			if (change.operationId !== currentOperationId) return;
+
+			if (change.mutation === "snapshot-ready") {
+				replayDetachedNotesRef.current();
+				return;
+			}
+
+			const bridge = bridgeRef.current;
+			if (bridge) WindowBridge.sendNotesDelta(bridge, change);
+		};
+
+		return DataStore.subscribeNotesSyncChanges(handleNotesSyncChange);
+	}, []);
 
 	useEffect(() => {
 		replaySelectedEvent();

@@ -205,7 +205,7 @@ describe("WindowBridge detached app snapshots", () => {
 		);
 	});
 
-	it("sends canvas-rendered source IDs separately from selected-source notes", () => {
+	it("keeps generic context replay separate from the note snapshot", () => {
 		const renderedSource = createSource("rendered", "Needle rendered source");
 		const hiddenEmptySource = createSource("hidden", "Needle hidden source");
 		const app = createApp();
@@ -238,9 +238,43 @@ describe("WindowBridge detached app snapshots", () => {
 			hiddenEmptySource.id,
 		]);
 		expect(snapshot?.renderedSourceIds).toEqual([renderedSource.id]);
-		expect(notesPayload?.notes.map((note) => note.id)).toEqual([
+		expect(notesPayload).toBeUndefined();
+
+		WindowBridge.sendNotesSnapshot(
+			createRecordingBridge(sentMessages),
+			app,
+			OPERATION_ID,
+		);
+		const explicitNotesPayload = sentMessages.find(
+			(message) => message.type === WindowBridge.MessageType.NOTES_CHANGED,
+		)?.payload as WindowBridge.NotesChangedPayload | undefined;
+
+		expect(explicitNotesPayload?.operationId).toBe(OPERATION_ID);
+		expect(explicitNotesPayload?.notes.map((note) => note.id)).toEqual([
 			renderedNote.id,
 			hiddenNote.id,
+		]);
+	});
+
+	it("sends realtime note deltas without constructing a full snapshot", () => {
+		const note = createNote("delta-note", createSource("source", "Source").id);
+		const change = DataStore.publishNotesUpsertDelta(
+			OPERATION_ID,
+			"create",
+			[note],
+		);
+		const sentMessages: SentBridgeMessage[] = [];
+
+		WindowBridge.sendNotesDelta(
+			createRecordingBridge(sentMessages),
+			change,
+		);
+
+		expect(sentMessages).toEqual([
+			{
+				type: WindowBridge.MessageType.NOTES_DELTA,
+				payload: change,
+			},
 		]);
 	});
 });

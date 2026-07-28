@@ -449,6 +449,7 @@
     "notes.deleteSelected": "删除选定的注释 ({count})",
     "notes.deleteTitle": "删除笔记",
     "notes.eventTimestamp": "事件时间戳",
+    "notes.changesAvailable": "笔记已更改。请刷新以加载最新数据。",
     "notes.deselectAll": "取消全选（已选择 {count} 个）",
     "notes.fetchContinuing": "继续...",
     "notes.fetchedCount": "已获取 {count} 注释",

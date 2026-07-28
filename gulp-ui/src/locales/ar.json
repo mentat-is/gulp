@@ -449,6 +449,7 @@
     "notes.deleteSelected": "حذف الملاحظات المحددة ({count})",
     "notes.deleteTitle": "حذف الملاحظات",
     "notes.eventTimestamp": "الطابع الزمني للحدث",
+    "notes.changesAvailable": "تم تغيير الملاحظات. قم بالتحديث لتحميل أحدث البيانات.",
     "notes.deselectAll": "إلغاء تحديد الكل (تم تحديد {count})",
     "notes.fetchContinuing": "متابعة...",
     "notes.fetchedCount": "تم جلب {count} من الملاحظات",

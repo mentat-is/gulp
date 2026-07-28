@@ -449,6 +449,7 @@
     "notes.deleteSelected": "Geselecteerde notities verwijderen ({count})",
     "notes.deleteTitle": "Notities verwijderen",
     "notes.eventTimestamp": "Tijdstempel van gebeurtenis",
+    "notes.changesAvailable": "De notities zijn gewijzigd. Vernieuw om de nieuwste gegevens te laden.",
     "notes.deselectAll": "Deselecteer alles ({count} geselecteerd)",
     "notes.fetchContinuing": "Doorgaan...",
     "notes.fetchedCount": "{count} notities opgehaald",

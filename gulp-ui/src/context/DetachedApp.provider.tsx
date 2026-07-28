@@ -91,6 +91,7 @@ export function DetachedAppProvider({
   const [detachedStatus, setDetachedStatus] =
     useState<WindowBridge.MainContextStatus>('initializing')
   const [detachedContextVersion, setDetachedContextVersion] = useState(0)
+  const selectedOperationIdRef = useRef<Operation.Id | null | undefined>(null)
   const selectedSourceIdsRef = useRef<Source.Id[] | null | undefined>(null)
   const initialNotesRef = useRef(initialNotes)
   const ownsIndependentDataStore = ownsIndependentDetachedDataStore(
@@ -210,6 +211,7 @@ export function DetachedAppProvider({
   ) => {
     const { selectedSourceIds, renderedSourceIds } = payload
     const { frame, filter, renderVersion } = payload.timeline
+    selectedOperationIdRef.current = payload.operationId
     selectedSourceIdsRef.current = selectedSourceIds
 
     setInfo(prev => {
@@ -275,7 +277,40 @@ export function DetachedAppProvider({
     DataStore.replaceNotes(payload.notes, 'deferred')
     Note.Entity.invalidateCache()
     RenderEngine.reset('notes')
+    const operationId = payload.operationId ?? selectedOperationIdRef.current
+    if (operationId) DataStore.publishNotesSnapshotReady(operationId)
   }, [ownsIndependentDataStore])
+
+  /**
+   * Applies one realtime note delta and republishes its semantic change locally.
+   *
+   * @param payload - Sequenced create, update, or delete delta from the main tab.
+   * @returns Nothing.
+   */
+  const applyNotesDelta = useCallback((
+    payload: WindowBridge.NotesDeltaPayload,
+  ) => {
+    if (!ownsIndependentDataStore) return
+    if (payload.operationId !== selectedOperationIdRef.current) return
+
+    if (payload.mutation === 'delete') {
+      const deletedNotes = DataStore.deleteNotes(payload.noteIds, 'deferred')
+      deletedNotes.forEach((note) => {
+        const sourceId = Note.Entity.sourceId(note)
+        Note.Entity.removeIndexedNote(note)
+        if (sourceId) RenderEngine.resetSourceNotes(sourceId)
+      })
+    } else {
+      const selectedSourceIds = new Set(selectedSourceIdsRef.current ?? [])
+      const selectedSourceNotes = payload.notes.filter((note) => {
+        const sourceId = Note.Entity.sourceId(note)
+        return !!sourceId && selectedSourceIds.has(sourceId)
+      })
+      instance.notes_upsert_from_collab(selectedSourceNotes)
+    }
+
+    DataStore.relayNotesRealtimeDelta(payload)
+  }, [instance, ownsIndependentDataStore])
 
   // Listen for incoming BroadcastChannel messages from the main tab
   useEffect(() => {
@@ -309,6 +344,10 @@ export function DetachedAppProvider({
           applyNotesChanged(message.payload as WindowBridge.NotesChangedPayload)
           break
         }
+        case WindowBridge.MessageType.NOTES_DELTA: {
+          applyNotesDelta(message.payload as WindowBridge.NotesDeltaPayload)
+          break
+        }
         case WindowBridge.MessageType.MAIN_CONTEXT_STATUS: {
           applyMainContextStatus(message.payload as WindowBridge.MainContextStatusPayload)
           break
@@ -328,6 +367,7 @@ export function DetachedAppProvider({
     applyEventSelected,
     applyMainContextStatus,
     applyNotesChanged,
+    applyNotesDelta,
     bridgeId,
   ])
 

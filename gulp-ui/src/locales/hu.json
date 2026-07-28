@@ -449,6 +449,7 @@
     "notes.deleteSelected": "A kijelölt jegyzetek törlése ({count})",
     "notes.deleteTitle": "Jegyzetek törlése",
     "notes.eventTimestamp": "Esemény időbélyege",
+    "notes.changesAvailable": "A jegyzetek megváltoztak. Frissítsen a legújabb adatok betöltéséhez.",
     "notes.deselectAll": "Az összes kijelölésének megszüntetése ({count} kiválasztva)",
     "notes.fetchContinuing": "Folytatás...",
     "notes.fetchedCount": "{count} jegyzetek lekérve",

@@ -39,9 +39,24 @@ navigation. The event timestamp column identifies the timestamp of the event
 targeted by each note, rather than the note creation time. The selection control
 can select all filtered note IDs already held in the canonical data store.
 
-Notes created by users or plugins do not get inserted into the open table page
-automatically. The window shows a warning when newer notes are available and
-loads them after the analyst explicitly refreshes the table.
+The canonical note snapshot used for free-text matching, tag options, timeline
+badges, and cross-page selection is separate from the open result page. Timeline
+hydration can replace that snapshot without marking the table stale.
+
+Websocket create and delete notifications for the active operation show a
+localized “Notes changed” warning. They do not replace the visible page while
+the analyst is reading it. Refresh requests the first matching page and count,
+then clears only the changes covered by that successful request; a later change
+or failed request leaves the warning visible. Websocket updates synchronize the
+canonical note data without showing the create/delete warning.
+
+Detached Notes routes have a separate JavaScript realm and cannot read the main
+tab's in-memory `DataStore` directly. The main tab therefore sends a complete
+authoritative note snapshot only when the Notes window initializes or
+reconnects, when its operation or selected-source context changes, and when a
+timeline note hydration finishes. Individual websocket changes use compact
+create/update/delete deltas. Table, Dashboard, and Assistant windows do not
+cause full note snapshot broadcasts.
 
 If a note targets an event that is not currently loaded in the main timeline, the
 main tab can fetch that event before opening its detail dialog.
@@ -88,7 +103,10 @@ OpenSearch date histogram intervals.
 
 Notes, Table View, Dashboard, and event dialogs can run in separate browser
 windows. Detached windows receive operation snapshots, selected source IDs,
-selected events, theme changes, and lifecycle messages from the main tab.
+selected events, theme changes, and lifecycle messages from the main tab. The
+Notes route additionally receives the authoritative snapshots and realtime
+deltas described above because its module-level data store belongs to a
+different JavaScript realm.
 
 ![Detached window preparing context](images/detached-window-preparing-context.png)
 

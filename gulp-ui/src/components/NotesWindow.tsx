@@ -15,7 +15,7 @@ import { Select } from "@/ui/Select";
 import { Stack } from "@/ui/Stack";
 import { Input } from "@/ui/Input";
 import { Banner as UIBanner } from "@/ui/Banner";
-import { DataStore } from "@/store/DataStore";
+import { DataStore, type NotesSyncChange } from "@/store/DataStore";
 import { Checkbox } from "@/ui/Checkbox";
 import { Button } from "@/ui/Button";
 import { Toggle } from "@/ui/Toggle";
@@ -27,8 +27,9 @@ import { Table } from "./Table";
 import { Icon } from "@/ui/Icon";
 import { Locale } from "@/locales";
 import {
+	acknowledgeNotesChangeSequence,
+	advanceNotesChangeSequence,
 	buildNotesListFilters,
-	countNewNotes,
 	getCanvasRenderedSourceIdSet,
 	getNoteSourceId,
 	getSearchMatchingNoteIds,
@@ -129,7 +130,13 @@ function BulkDeleteNotesBanner({
  * @returns Notes window content.
  */
 export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
-	const { Info, app, spawnBanner, banner } = Application.use();
+	const {
+		Info,
+		app,
+		spawnBanner,
+		banner,
+		detachedStatus,
+	} = Application.use();
 	const { t } = Locale.use();
 	const dataStoreVersion = useSyncExternalStore(
 		DataStore.subscribeOverlays,
@@ -149,14 +156,16 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const [totalHits, setTotalHits] = useState(0);
 	const [pageSize, setPageSize] = useState(50);
 	const [currentPage, setCurrentPage] = useState(1);
-	const [newNotesCount, setNewNotesCount] = useState(0);
+	const [pendingNotesChangeSequence, setPendingNotesChangeSequence] =
+		useState<number | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [refreshRevision, setRefreshRevision] = useState(0);
-	const acknowledgedNoteIdsRef = useRef(
-		new Set(DataStore.notes.map((note) => note.id)),
-	);
+	const refreshAcknowledgementRef = useRef<number | null>(null);
 	const notesRequestControllerRef = useRef<AbortController | null>(null);
 	const windowRef = useRef<HTMLDivElement>(null);
+	const selectedOperationId = app.target.operations.find(
+		(operation) => operation.selected,
+	)?.id;
 
 	const selectedSourceIds = useMemo(
 		() =>
@@ -272,16 +281,34 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const totalPages = Math.max(1, Math.ceil(totalHits / pageSize));
 
 	/**
+	 * Acknowledges one explicit refresh without hiding changes that arrived later.
+	 * @param sequence Realtime sequence captured when the refresh started.
+	 * @returns Nothing.
+	 */
+	const acknowledgeSuccessfulRefresh = useCallback(
+		(sequence: number | null): void => {
+			if (sequence === null) return;
+			setPendingNotesChangeSequence((pendingSequence) =>
+				acknowledgeNotesChangeSequence(pendingSequence, sequence),
+			);
+		},
+		[],
+	);
+
+	/**
 	 * Fetches the active note page and matching total while rejecting stale results.
 	 * @returns Promise resolved after the latest request updates table state.
 	 */
 	const fetchNotesPage = useCallback(async (): Promise<void> => {
+		const refreshSequence = refreshAcknowledgementRef.current;
+		refreshAcknowledgementRef.current = null;
 		notesRequestControllerRef.current?.abort();
 		if (!queryCanReturnNotes) {
 			notesRequestControllerRef.current = null;
 			setPageNotes([]);
 			setTotalHits(0);
 			setLoading(false);
+			acknowledgeSuccessfulRefresh(refreshSequence);
 			return;
 		}
 
@@ -304,10 +331,12 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 			const nextTotalPages = Math.max(1, Math.ceil(count / pageSize));
 			setTotalHits(count);
 			if (currentPage > nextTotalPages) {
+				acknowledgeSuccessfulRefresh(refreshSequence);
 				setCurrentPage(nextTotalPages);
 				return;
 			}
 			setPageNotes(notes);
+			acknowledgeSuccessfulRefresh(refreshSequence);
 		} catch {
 			if (!requestController.signal.aborted) {
 				toast.error(t("tableView.fetchFailed"));
@@ -327,6 +356,7 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		currentPage,
 		t,
 		refreshRevision,
+		acknowledgeSuccessfulRefresh,
 	]);
 
 	useEffect(() => {
@@ -361,9 +391,6 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 
 	useEffect(() => {
 		const currentNoteIds = new Set(DataStore.notes.map((note) => note.id));
-		setNewNotesCount(
-			countNewNotes(DataStore.notes, acknowledgedNoteIdsRef.current),
-		);
 		setSelectedNoteIds((previousIds) => {
 			const nextIds = new Set(
 				[...previousIds].filter((noteId) => currentNoteIds.has(noteId)),
@@ -373,16 +400,35 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	}, [dataStoreVersion]);
 
 	useEffect(() => {
+		/**
+		 * Separates silent authoritative snapshots from realtime list changes.
+		 * @param change Note synchronization event delivered in this window realm.
+		 * @returns Nothing.
+		 */
+		const handleNotesSyncChange = (change: NotesSyncChange): void => {
+			if (change.operationId !== selectedOperationId) return;
+
+			if (change.mutation === "snapshot-ready") {
+				setQueryNotes([...DataStore.notes]);
+				return;
+			}
+			setPendingNotesChangeSequence((pendingSequence) =>
+				advanceNotesChangeSequence(pendingSequence, change),
+			);
+		};
+
+		return DataStore.subscribeNotesSyncChanges(handleNotesSyncChange);
+	}, [selectedOperationId]);
+
+	useEffect(() => {
 		const notesSnapshot = [...DataStore.notes];
 		setQueryNotes(notesSnapshot);
-		acknowledgedNoteIdsRef.current = new Set(
-			notesSnapshot.map((note) => note.id),
-		);
-		setNewNotesCount(0);
+		refreshAcknowledgementRef.current = null;
+		setPendingNotesChangeSequence(null);
 		setCurrentPage(1);
 		setSelectedNoteIds(new Set());
 		setRefreshRevision((revision) => revision + 1);
-	}, [selectedSourceIdsSignature]);
+	}, [selectedOperationId, selectedSourceIdsSignature, detachedStatus]);
 
 	/**
 	 * Acknowledges the latest canonical notes and reloads the first result page.
@@ -391,13 +437,11 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const refreshNotes = useCallback((): void => {
 		const notesSnapshot = [...DataStore.notes];
 		setQueryNotes(notesSnapshot);
-		acknowledgedNoteIdsRef.current = new Set(
-			notesSnapshot.map((note) => note.id),
-		);
-		setNewNotesCount(0);
+		refreshAcknowledgementRef.current =
+			pendingNotesChangeSequence;
 		setCurrentPage(1);
 		setRefreshRevision((revision) => revision + 1);
-	}, []);
+	}, [pendingNotesChangeSequence]);
 
 	/**
 	 * Applies a new tag selection and resets query-dependent selection state.
@@ -464,12 +508,11 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 				noteIds={[...selectedNoteIds]}
 				onDeleted={() => {
 					setSelectedNoteIds(new Set());
-					refreshNotes();
 				}}
 			/>,
 			"table",
 		);
-	}, [selectedNoteIds, spawnBanner, refreshNotes]);
+	}, [selectedNoteIds, spawnBanner]);
 
 	/**
 	 * Targets the event associated with a note in the main operation window.
@@ -486,7 +529,7 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	}, []);
 
 	/**
-	 * Opens the existing row-delete confirmation and refreshes after deletion.
+	 * Opens the existing row-delete confirmation.
 	 * @param note Note selected by the row action.
 	 * @returns Nothing.
 	 */
@@ -495,12 +538,11 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 			spawnBanner(
 				<Note.Delete.Banner
 					note={note}
-					onDeleted={refreshNotes}
 				/>,
 				"table",
 			);
 		},
-		[spawnBanner, refreshNotes],
+		[spawnBanner],
 	);
 
 	const tableValues = useMemo<NotesTableRow[]>(
@@ -649,7 +691,7 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 				<h3>{t("notes.title")}</h3>
 			</div>
 			<div className={s.content}>
-				{newNotesCount > 0 && (
+				{pendingNotesChangeSequence !== null && (
 					<Notification
 						variant="warning"
 						icon="Warning"
@@ -658,7 +700,7 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 						gap={8}
 					>
 						<span className={s.newNotesMessage}>
-							{newNotesCount} {t("tableView.newNotes")}
+							{t("notes.changesAvailable")}
 						</span>
 						<Button
 							variant="secondary"

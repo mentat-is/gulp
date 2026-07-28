@@ -449,6 +449,7 @@
     "notes.deleteSelected": "Usuń wybrane notatki ({count})",
     "notes.deleteTitle": "Usuń notatki",
     "notes.eventTimestamp": "Znacznik czasu zdarzenia",
+    "notes.changesAvailable": "Notatki uległy zmianie. Odśwież, aby wczytać najnowsze dane.",
     "notes.deselectAll": "Odznacz wszystko (wybrano {count})",
     "notes.fetchContinuing": "Kontynuacja...",
     "notes.fetchedCount": "Pobrano {count} notatki",

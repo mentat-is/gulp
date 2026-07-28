@@ -449,6 +449,7 @@
     "notes.deleteSelected": "Smazat vybrané poznámky ({count})",
     "notes.deleteTitle": "Smazat poznámky",
     "notes.eventTimestamp": "Časové razítko události",
+    "notes.changesAvailable": "Poznámky se změnily. Obnovte je pro načtení nejnovějších dat.",
     "notes.deselectAll": "Zrušit výběr všech (vybráno {count})",
     "notes.fetchContinuing": "Pokračování...",
     "notes.fetchedCount": "Načteno {count} poznámek",

@@ -1,11 +1,14 @@
 import type { Doc } from "@/entities/Doc";
+import type { Note } from "@/entities/Note";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
 import {
 	DataStore,
 	type DataStoreRenderChange,
+	type NotesSyncChange,
 } from "@/store/DataStore";
 
+const OPERATION_ID = "operation-a" as Operation.Id;
 const SOURCE_ID = "source-a" as Source.Id;
 const SECOND_SOURCE_ID = "source-b" as Source.Id;
 
@@ -28,6 +31,21 @@ function createDocument(
 		"gulp.event_code": 1,
 		number_hash: timestamp,
 	};
+}
+
+/**
+ * Creates one minimal note fixture for semantic synchronization tests.
+ * @param id Stable note identifier.
+ * @returns Note fixture owned by the active operation.
+ */
+function createNote(id: string): Note.Type {
+	return {
+		id: id as Note.Id,
+		type: "note",
+		operation_id: OPERATION_ID,
+		source_id: SOURCE_ID,
+		doc: createDocument(`${id}-doc`, 100),
+	} as Note.Type;
 }
 
 describe("DataStore source insertion", () => {
@@ -282,5 +300,107 @@ describe("DataStore render mutation contracts", () => {
 		expect(overlayNotifications).toBe(1);
 		unsubscribeDocuments();
 		unsubscribeOverlays();
+	});
+
+	it("keeps canonical note replacements outside the semantic sync channel", () => {
+		const changes: NotesSyncChange[] = [];
+		const unsubscribe = DataStore.subscribeNotesSyncChanges((change) => {
+			changes.push(change);
+		});
+
+		DataStore.replaceNotes([createNote("hydrated")], "immediate");
+		unsubscribe();
+
+		expect(changes).toEqual([]);
+	});
+
+	it("publishes snapshot completion and sequenced realtime note deltas", () => {
+		const note = createNote("created");
+		const secondNote = createNote("created-second");
+		const changes: NotesSyncChange[] = [];
+		const unsubscribe = DataStore.subscribeNotesSyncChanges((change) => {
+			changes.push(change);
+		});
+
+		DataStore.publishNotesSnapshotReady(OPERATION_ID);
+		const created = DataStore.publishNotesUpsertDelta(
+			OPERATION_ID,
+			"create",
+			[note, secondNote],
+		);
+		const updated = DataStore.publishNotesUpsertDelta(
+			OPERATION_ID,
+			"update",
+			[note],
+		);
+		const deleted = DataStore.publishNotesDeleteDelta(
+			OPERATION_ID,
+			[note.id],
+		);
+		unsubscribe();
+		DataStore.publishNotesDeleteDelta(OPERATION_ID, [note.id]);
+
+		expect(changes.map((change) => change.mutation)).toEqual([
+			"snapshot-ready",
+			"create",
+			"update",
+			"delete",
+		]);
+		expect(updated.sequence).toBe(created.sequence + 1);
+		expect(deleted.sequence).toBe(updated.sequence + 1);
+		expect(created.operationId).toBe(OPERATION_ID);
+		expect(created.notes).toEqual([note, secondNote]);
+		expect(deleted.noteIds).toEqual([note.id]);
+	});
+
+	it("publishes a deletion delta even when the canonical note is already absent", () => {
+		const missingNoteId = "already-removed" as Note.Id;
+		DataStore.replaceNotes([], "immediate");
+		expect(DataStore.deleteNote(missingNoteId, "immediate")).toBeUndefined();
+		const changes: NotesSyncChange[] = [];
+		const unsubscribe = DataStore.subscribeNotesSyncChanges((change) => {
+			changes.push(change);
+		});
+
+		DataStore.publishNotesDeleteDelta(OPERATION_ID, [missingNoteId]);
+		unsubscribe();
+
+		expect(changes).toHaveLength(1);
+		expect(changes[0].mutation).toBe("delete");
+		if (changes[0].mutation !== "delete") {
+			throw new Error("Expected a note deletion delta");
+		}
+		expect(changes[0].operationId).toBe(OPERATION_ID);
+		expect(changes[0].noteIds).toEqual([missingNoteId]);
+	});
+
+	it("preserves relayed sequences and advances later local deltas", () => {
+		const note = createNote("relayed");
+		const local = DataStore.publishNotesUpsertDelta(
+			OPERATION_ID,
+			"create",
+			[note],
+		);
+		const relayedSequence = local.sequence + 10;
+		const changes: NotesSyncChange[] = [];
+		const unsubscribe = DataStore.subscribeNotesSyncChanges((change) => {
+			changes.push(change);
+		});
+
+		DataStore.relayNotesRealtimeDelta({
+			type: "notes-sync",
+			mutation: "update",
+			operationId: OPERATION_ID,
+			sequence: relayedSequence,
+			notes: [note],
+		});
+		const next = DataStore.publishNotesDeleteDelta(OPERATION_ID, [note.id]);
+		unsubscribe();
+
+		expect(changes[0]).toMatchObject({
+			mutation: "update",
+			sequence: relayedSequence,
+		});
+		expect(next.sequence).toBe(relayedSequence + 1);
 	});
 });
