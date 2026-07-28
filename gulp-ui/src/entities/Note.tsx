@@ -46,6 +46,27 @@ export namespace Note {
 		[key: string]: any;
 	}
 
+	export type ListSortField =
+		| "time_pin"
+		| "time_created"
+		| "time_updated"
+		| "name";
+
+	export type ListSortOrder = "asc" | "desc";
+
+	/**
+	 * Existing GulpCollabFilter fields used by paginated note-list requests.
+	 */
+	export interface ListFilter {
+		ids?: Note.Id[];
+		source_ids?: Source.Id[];
+		tags?: string[];
+		tags_and?: boolean;
+		limit?: number;
+		offset?: number;
+		sort?: [Note.ListSortField | "id", Note.ListSortOrder][];
+	}
+
 	export class Entity {
 		private static readonly DEFAULT_UI_COLOR = "var(--accent)";
 
@@ -336,9 +357,15 @@ export namespace Note {
 		export namespace Banner {
 			export interface Props extends UIBanner.Props {
 				note: Note.Type;
+				/** Called after the note is removed from the canonical DataStore. */
+				onDeleted?: () => void;
 			}
 		}
-		export function Banner({ note, ...props }: Note.Delete.Banner.Props) {
+		export function Banner({
+			note,
+			onDeleted,
+			...props
+		}: Note.Delete.Banner.Props) {
 			const { Info, destroyBanner } = Application.use();
 			const { t } = Locale.use();
 			const [loading, setLoading] = useState<boolean>(false);
@@ -354,10 +381,15 @@ export namespace Note {
 				/>
 			);
 
-			const deleteFile = async () => {
+			/**
+			 * Deletes the note and notifies the owning surface after synchronization.
+			 * @returns Promise resolved after the delete flow closes or navigates back.
+			 */
+			const deleteFile = async (): Promise<void> => {
 				setLoading(true);
 				await Info.note_delete(note);
 				setLoading(false);
+				onDeleted?.();
 				if (props.back) {
 					props.back();
 				} else {

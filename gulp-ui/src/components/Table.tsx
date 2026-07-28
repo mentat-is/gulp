@@ -1443,7 +1443,7 @@ function Col({
 				{isSorted && onSort && (
 					<Icon
 						className={s.headerSortIcon}
-						name={sortDirection === "asc" ? "SortAscending" : "SortDescending"}
+						name={sortDirection === "asc" ? "SortAsc" : "SortDesc"}
 						size={14}
 					/>
 				)}

@@ -7,6 +7,7 @@ import {
 	useEffect,
 	useSyncExternalStore,
 } from "react";
+import { toast } from "sonner";
 import { Application } from "@/context/Application.context";
 import { Source } from "@/entities/Source";
 import { Note } from "@/entities/Note";
@@ -18,12 +19,21 @@ import { DataStore } from "@/store/DataStore";
 import { Checkbox } from "@/ui/Checkbox";
 import { Button } from "@/ui/Button";
 import { Toggle } from "@/ui/Toggle";
+import { Popover } from "@/ui/Popover";
+import { Notification } from "@/ui/Notification";
 import { formatTimestampToReadableString } from "../ui/utils";
 import { WindowBridge } from "@/lib/WindowBridge";
 import { Table } from "./Table";
 import { Icon } from "@/ui/Icon";
 import { Locale } from "@/locales";
-import { getCanvasRenderedSourceIdSet } from "@/utils";
+import {
+	buildNotesListFilters,
+	countNewNotes,
+	getCanvasRenderedSourceIdSet,
+	getNoteSourceId,
+	getSearchMatchingNoteIds,
+	noteMatchesNotesWindowFilter,
+} from "@/utils";
 
 import s from "./styles/NotesWindow.module.css";
 
@@ -58,19 +68,13 @@ const NOTES_TABLE_VIRTUALIZATION = {
 	estimatedRowHeight: 28,
 } as const;
 
-/**
- * Resolves the source id attached to a note, tolerating older payload shapes.
- * @param note Note whose owning source should be resolved.
- * @returns Source id from the note entity or its embedded document.
- */
-function getNoteSourceId(note: Note.Type): Source.Id {
-	return note.source_id ?? note.doc["gulp.source_id"];
-}
+const NOTES_PAGE_SIZES = [20, 50, 100] as const;
+const NOTES_SEARCH_DEBOUNCE_MSEC = 250;
 
 /**
- * Builds a stable signature for the sources selected by the user.
- * @param sources Source list from the current application state.
- * @returns Sorted source ID signature used to detect selection changes.
+ * Renders the confirmation banner for deleting notes selected across pages.
+ * @param props Selected note identifiers and success callback.
+ * @returns Bulk-delete confirmation banner.
  */
 function BulkDeleteNotesBanner({
 	noteIds,
@@ -81,12 +85,19 @@ function BulkDeleteNotesBanner({
 	const [loading, setLoading] = useState(false);
 	const [isSubmitted, setIsSubmitted] = useState(false);
 
-	const confirmDelete = async () => {
+	/**
+	 * Deletes all selected notes and refreshes the parent table.
+	 * @returns Promise resolved after local note state is synchronized.
+	 */
+	const confirmDelete = async (): Promise<void> => {
 		setLoading(true);
-		await Info.notes_delete_bulk(noteIds);
-		setLoading(false);
-		onDeleted();
-		destroyBanner();
+		try {
+			await Info.notes_delete_bulk(noteIds);
+			onDeleted();
+			destroyBanner();
+		} finally {
+			setLoading(false);
+		}
 	};
 
 	return (
@@ -112,68 +123,51 @@ function BulkDeleteNotesBanner({
 	);
 }
 
-export function NotesWindow({ onClose }: FloatingWindowProps) {
-	const { app, spawnBanner, banner } = Application.use();
+/**
+ * Displays a paginated, filterable Notes table for the selected operation.
+ * @param props Detached-window lifecycle properties.
+ * @returns Notes window content.
+ */
+export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
+	const { Info, app, spawnBanner, banner } = Application.use();
 	const { t } = Locale.use();
 	const dataStoreVersion = useSyncExternalStore(
 		DataStore.subscribeOverlays,
 		DataStore.getOverlaysSnapshot,
 	);
 	const [search, setSearch] = useState("");
-	const [showOnlyVisibleSources, setShowOnlyVisibleSources] =
-		useState<boolean>(false);
+	const [appliedSearch, setAppliedSearch] = useState("");
+	const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+	const [showOnlyVisibleSources, setShowOnlyVisibleSources] = useState(false);
 	const [selectedNoteIds, setSelectedNoteIds] = useState<Set<Note.Id>>(
 		new Set(),
 	);
-
-	/**
-	 * Collects note tags from the current DataStore snapshot.
-	 * @returns Lowercase tag values available for filtering.
-	 */
-	const getAvailableTags = useCallback(() => {
-		const tags = new Set<string>();
-		DataStore.notes.forEach((note) => {
-			note.tags.forEach((tag) => tags.add(tag.toLowerCase()));
-		});
-		return [...tags.values()];
-	}, [dataStoreVersion]);
-
-	const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
-
-	const availableTags = useMemo(
-		() => getAvailableTags(),
-		[getAvailableTags],
+	const [queryNotes, setQueryNotes] = useState<Note.Type[]>(() => [
+		...DataStore.notes,
+	]);
+	const [pageNotes, setPageNotes] = useState<Note.Type[]>([]);
+	const [totalHits, setTotalHits] = useState(0);
+	const [pageSize, setPageSize] = useState(50);
+	const [currentPage, setCurrentPage] = useState(1);
+	const [newNotesCount, setNewNotesCount] = useState(0);
+	const [loading, setLoading] = useState(false);
+	const [refreshRevision, setRefreshRevision] = useState(0);
+	const acknowledgedNoteIdsRef = useRef(
+		new Set(DataStore.notes.map((note) => note.id)),
 	);
-
-	const sortedAvailableTags = useMemo(
-		() => [...availableTags].sort(),
-		[availableTags],
-	);
-
-	useEffect(() => {
-		const currentAvailable = new Set(availableTags.map((t) => t.toLowerCase()));
-		setSelectedTags((prev) => {
-			const next = new Set(
-				[...prev].filter((tag) => currentAvailable.has(tag.toLowerCase())),
-			);
-			return next.size === prev.size ? prev : next;
-		});
-	}, [availableTags]);
-
-	useEffect(() => {
-		const currentNoteIds = new Set(DataStore.notes.map((note) => note.id));
-		setSelectedNoteIds((prev) => {
-			const next = new Set([...prev].filter((id) => currentNoteIds.has(id)));
-			return next.size === prev.size ? prev : next;
-		});
-	}, [dataStoreVersion]);
-
+	const notesRequestControllerRef = useRef<AbortController | null>(null);
 	const windowRef = useRef<HTMLDivElement>(null);
 
-	/**
-	 * Memoizes the source IDs participating in the Canvas-rendered source set.
-	 * @returns Set containing rendered timeline source IDs used by the notes filter.
-	 */
+	const selectedSourceIds = useMemo(
+		() =>
+			app.target.files
+				.filter((source) => source.selected)
+				.map((source) => source.id)
+				.sort((left, right) => left.localeCompare(right)),
+		[app.target.files],
+	);
+	const selectedSourceIdsSignature = selectedSourceIds.join(",");
+
 	const canvasRenderedSourceIds = useMemo(
 		() => getCanvasRenderedSourceIdSet(app),
 		[
@@ -186,6 +180,19 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 		],
 	);
 
+	const filteredSourceIds = useMemo(
+		() =>
+			showOnlyVisibleSources
+				? selectedSourceIds.filter((sourceId) =>
+						canvasRenderedSourceIds.has(sourceId),
+					)
+				: selectedSourceIds,
+		[selectedSourceIdsSignature, showOnlyVisibleSources, canvasRenderedSourceIds],
+	);
+	const filteredSourceIdSet = useMemo(
+		() => new Set(filteredSourceIds),
+		[filteredSourceIds],
+	);
 	const sourceById = useMemo(
 		() => new Map(app.target.files.map((source) => [source.id, source])),
 		[app.target.files],
@@ -195,95 +202,281 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 		[app.target.contexts],
 	);
 	const selectedTagValues = useMemo(
-		() => [...selectedTags],
+		() => [...selectedTags].sort((left, right) => left.localeCompare(right)),
 		[selectedTags],
 	);
 
-	const sortedNotes = useMemo(() => {
-		const lowerSearch = search.toLowerCase();
-
-		const filtered = DataStore.notes
-			.filter((n) => {
-				const sourceId = getNoteSourceId(n);
-				const source = sourceById.get(sourceId);
-				const context = contextById.get(n.context_id);
-				const sourceName = source?.name.toLowerCase() ?? "";
-				const contextName = context?.name.toLowerCase() ?? "";
-
-				return (
-					!search ||
-					n.name.toLowerCase().includes(lowerSearch) ||
-					n.text.toLowerCase().includes(lowerSearch) ||
-					sourceName.includes(lowerSearch) ||
-					contextName.includes(lowerSearch) ||
-					n.tags.some((t) => t.toLowerCase() === lowerSearch)
-				);
-			})
-			.filter(
-				(n) =>
-					!selectedTagValues.length ||
-					selectedTagValues.every((tag) =>
-						n.tags.map((t) => t.toLowerCase()).includes(tag),
-					),
-			)
-			.filter(
-				(n) =>
-					!showOnlyVisibleSources ||
-					canvasRenderedSourceIds.has(getNoteSourceId(n)),
-			);
-
-		return filtered.sort((a, b) => {
-			const byContext = a.context_id.localeCompare(b.context_id);
-			return byContext !== 0
-				? byContext
-				: getNoteSourceId(a).localeCompare(getNoteSourceId(b));
+	const availableTags = useMemo(() => {
+		const tags = new Set<string>();
+		queryNotes.forEach((note) => {
+			note.tags.forEach((tag) => tags.add(tag.toLowerCase()));
 		});
-	}, [
-		search,
-		contextById,
-		sourceById,
-		selectedTagValues,
-		showOnlyVisibleSources,
-		canvasRenderedSourceIds,
-		dataStoreVersion,
-	]);
+		return [...tags].sort((left, right) => left.localeCompare(right));
+	}, [queryNotes]);
 
-	const isAllSelected = useMemo(() => {
-		return (
-			sortedNotes.length > 0 &&
-			sortedNotes.every((n) => selectedNoteIds.has(n.id))
-		);
-	}, [sortedNotes, selectedNoteIds]);
-
-	const selectAllLabel = useMemo(() => {
-		if (isAllSelected) return t("notes.deselectAll", { count: selectedNoteIds.size });
-		return t("notes.selectAll", { count: sortedNotes.length });
-	}, [isAllSelected, selectedNoteIds.size, sortedNotes.length, t]);
-
-	const handleSelectAll = useCallback(
-		(checked: boolean) => {
-			if (checked) {
-				setSelectedNoteIds(new Set(sortedNotes.map((n) => n.id)));
-			} else {
-				setSelectedNoteIds(new Set());
-			}
-		},
-		[sortedNotes],
+	const searchMatchingIds = useMemo(
+		() =>
+			getSearchMatchingNoteIds(
+				queryNotes,
+				appliedSearch,
+				sourceById,
+				contextById,
+			),
+		[queryNotes, appliedSearch, sourceById, contextById],
 	);
 
-	const handleBulkDelete = async () => {
+	const allFilteredNoteIds = useMemo(
+		() =>
+			DataStore.notes
+				.filter((note) =>
+					noteMatchesNotesWindowFilter(note, {
+						search: appliedSearch,
+						selectedTags: selectedTagValues,
+						sourceIds: filteredSourceIdSet,
+						sourceById,
+						contextById,
+					}),
+				)
+				.map((note) => note.id),
+		[
+			dataStoreVersion,
+			appliedSearch,
+			selectedTagValues,
+			filteredSourceIdSet,
+			sourceById,
+			contextById,
+		],
+	);
+
+	const { pageFilter, countFilter } = useMemo(
+		() =>
+			buildNotesListFilters({
+				searchMatchingIds,
+				sourceIds: filteredSourceIds,
+				selectedTags: selectedTagValues,
+				pageSize,
+				currentPage,
+			}),
+		[
+			searchMatchingIds,
+			filteredSourceIds,
+			selectedTagValues,
+			pageSize,
+			currentPage,
+		],
+	);
+
+	const queryCanReturnNotes =
+		filteredSourceIds.length > 0 &&
+		(searchMatchingIds === undefined || searchMatchingIds.length > 0);
+	const totalPages = Math.max(1, Math.ceil(totalHits / pageSize));
+
+	/**
+	 * Fetches the active note page and matching total while rejecting stale results.
+	 * @returns Promise resolved after the latest request updates table state.
+	 */
+	const fetchNotesPage = useCallback(async (): Promise<void> => {
+		notesRequestControllerRef.current?.abort();
+		if (!queryCanReturnNotes) {
+			notesRequestControllerRef.current = null;
+			setPageNotes([]);
+			setTotalHits(0);
+			setLoading(false);
+			return;
+		}
+
+		const requestController = new AbortController();
+		notesRequestControllerRef.current = requestController;
+		setPageNotes([]);
+		setLoading(true);
+		try {
+			const [notes, count] = await Promise.all([
+				Info.notes_list(pageFilter, requestController.signal),
+				Info.notes_count(countFilter, requestController.signal),
+			]);
+			if (
+				requestController.signal.aborted ||
+				notesRequestControllerRef.current !== requestController
+			) {
+				return;
+			}
+
+			const nextTotalPages = Math.max(1, Math.ceil(count / pageSize));
+			setTotalHits(count);
+			if (currentPage > nextTotalPages) {
+				setCurrentPage(nextTotalPages);
+				return;
+			}
+			setPageNotes(notes);
+		} catch {
+			if (!requestController.signal.aborted) {
+				toast.error(t("tableView.fetchFailed"));
+			}
+		} finally {
+			if (notesRequestControllerRef.current === requestController) {
+				notesRequestControllerRef.current = null;
+				setLoading(false);
+			}
+		}
+	}, [
+		Info,
+		pageFilter,
+		countFilter,
+		queryCanReturnNotes,
+		pageSize,
+		currentPage,
+		t,
+		refreshRevision,
+	]);
+
+	useEffect(() => {
+		fetchNotesPage();
+	}, [fetchNotesPage]);
+
+	useEffect(
+		() => () => notesRequestControllerRef.current?.abort(),
+		[],
+	);
+
+	useEffect(() => {
+		const timeout = window.setTimeout(() => {
+			setAppliedSearch(search);
+			setCurrentPage(1);
+			setSelectedNoteIds(new Set());
+		}, NOTES_SEARCH_DEBOUNCE_MSEC);
+		return () => window.clearTimeout(timeout);
+	}, [search]);
+
+	useEffect(() => {
+		const availableTagSet = new Set(availableTags);
+		setSelectedTags((previousTags) => {
+			const nextTags = new Set(
+				[...previousTags].filter((tag) =>
+					availableTagSet.has(tag.toLowerCase()),
+				),
+			);
+			return nextTags.size === previousTags.size ? previousTags : nextTags;
+		});
+	}, [availableTags]);
+
+	useEffect(() => {
+		const currentNoteIds = new Set(DataStore.notes.map((note) => note.id));
+		setNewNotesCount(
+			countNewNotes(DataStore.notes, acknowledgedNoteIdsRef.current),
+		);
+		setSelectedNoteIds((previousIds) => {
+			const nextIds = new Set(
+				[...previousIds].filter((noteId) => currentNoteIds.has(noteId)),
+			);
+			return nextIds.size === previousIds.size ? previousIds : nextIds;
+		});
+	}, [dataStoreVersion]);
+
+	useEffect(() => {
+		const notesSnapshot = [...DataStore.notes];
+		setQueryNotes(notesSnapshot);
+		acknowledgedNoteIdsRef.current = new Set(
+			notesSnapshot.map((note) => note.id),
+		);
+		setNewNotesCount(0);
+		setCurrentPage(1);
+		setSelectedNoteIds(new Set());
+		setRefreshRevision((revision) => revision + 1);
+	}, [selectedSourceIdsSignature]);
+
+	/**
+	 * Acknowledges the latest canonical notes and reloads the first result page.
+	 * @returns Nothing.
+	 */
+	const refreshNotes = useCallback((): void => {
+		const notesSnapshot = [...DataStore.notes];
+		setQueryNotes(notesSnapshot);
+		acknowledgedNoteIdsRef.current = new Set(
+			notesSnapshot.map((note) => note.id),
+		);
+		setNewNotesCount(0);
+		setCurrentPage(1);
+		setRefreshRevision((revision) => revision + 1);
+	}, []);
+
+	/**
+	 * Applies a new tag selection and resets query-dependent selection state.
+	 * @param values Selected lowercase tag values.
+	 * @returns Nothing.
+	 */
+	const handleSelectedTagsChange = useCallback((values: string[]): void => {
+		setSelectedTags(new Set(values));
+		setCurrentPage(1);
+		setSelectedNoteIds(new Set());
+	}, []);
+
+	/**
+	 * Toggles the rendered-source restriction and resets pagination.
+	 * @returns Nothing.
+	 */
+	const toggleVisibleSources = useCallback((): void => {
+		setShowOnlyVisibleSources((visibleOnly) => !visibleOnly);
+		setCurrentPage(1);
+		setSelectedNoteIds(new Set());
+	}, []);
+
+	/**
+	 * Selects or deselects every note displayed on the current page.
+	 * @param checked Whether current-page note IDs should be selected.
+	 * @returns Nothing.
+	 */
+	const handleSelectPage = useCallback(
+		(checked: boolean): void => {
+			setSelectedNoteIds((previousIds) => {
+				const nextIds = new Set(previousIds);
+				pageNotes.forEach((note) => {
+					if (checked) nextIds.add(note.id);
+					else nextIds.delete(note.id);
+				});
+				return nextIds;
+			});
+		},
+		[pageNotes],
+	);
+
+	/**
+	 * Selects every filtered DataStore note or clears the complete selection.
+	 * @param checked Whether all filtered note IDs should be selected.
+	 * @returns Nothing.
+	 */
+	const handleSelectAllFiltered = useCallback(
+		(checked: boolean): void => {
+			setSelectedNoteIds(
+				checked ? new Set(allFilteredNoteIds) : new Set(),
+			);
+		},
+		[allFilteredNoteIds],
+	);
+
+	/**
+	 * Opens the confirmation banner for the current cross-page selection.
+	 * @returns Nothing.
+	 */
+	const handleBulkDelete = useCallback((): void => {
 		if (selectedNoteIds.size === 0) return;
-		const deletedIds = [...selectedNoteIds];
 		spawnBanner(
 			<BulkDeleteNotesBanner
-				noteIds={deletedIds}
-				onDeleted={() => setSelectedNoteIds(new Set())}
+				noteIds={[...selectedNoteIds]}
+				onDeleted={() => {
+					setSelectedNoteIds(new Set());
+					refreshNotes();
+				}}
 			/>,
 			"table",
 		);
-	};
+	}, [selectedNoteIds, spawnBanner, refreshNotes]);
 
-	const targetNoteButtonHandler = useCallback((note: Note.Type) => {
+	/**
+	 * Targets the event associated with a note in the main operation window.
+	 * @param note Note whose event should be targeted.
+	 * @returns Nothing.
+	 */
+	const targetNoteButtonHandler = useCallback((note: Note.Type): void => {
 		const bridge = WindowBridge.create(WindowBridge.generateId(), () => {});
 		bridge.send(WindowBridge.MessageType.TARGET_NOTE, {
 			docId: note.doc._id,
@@ -292,109 +485,105 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 		bridge.destroy();
 	}, []);
 
+	/**
+	 * Opens the existing row-delete confirmation and refreshes after deletion.
+	 * @param note Note selected by the row action.
+	 * @returns Nothing.
+	 */
 	const handleDelete = useCallback(
-		(note: Note.Type) => {
-			spawnBanner(<Note.Delete.Banner note={note} />, "table");
+		(note: Note.Type): void => {
+			spawnBanner(
+				<Note.Delete.Banner
+					note={note}
+					onDeleted={refreshNotes}
+				/>,
+				"table",
+			);
 		},
-		[spawnBanner],
+		[spawnBanner, refreshNotes],
 	);
 
-	/**
-	 * Transforms sortedNotes into a flat data format suited for the generic Table component.
-	 */
-	const tableValues = useMemo<NotesTableRow[]>(() => {
-		return sortedNotes.map((note) => {
-			const context = contextById.get(note.context_id);
-			const source = sourceById.get(getNoteSourceId(note));
-			const sourceColor = source?.color || "var(--accent)";
-			const noteColor = Note.Entity.color(note);
-			return {
-				id: note.id,
-				_id: note.id,
-				timestamp: formatTimestampToReadableString(note.doc.gulp_timestamp),
-				title: note.name,
-				text: note.text,
-				contextName: context?.name || "",
-				contextColor: context?.color || "var(--accent)",
-				sourceName: source?.name || "",
-				sourceColor,
-				tags: note.tags.join(", ") || "-",
-				color: noteColor,
-				rawNote: note,
-				icon: Note.Entity.icon(note),
-			};
-		});
-	}, [sortedNotes, contextById, sourceById]);
+	const tableValues = useMemo<NotesTableRow[]>(
+		() =>
+			pageNotes.map((note) => {
+				const context = contextById.get(note.context_id);
+				const source = sourceById.get(getNoteSourceId(note));
+				return {
+					id: note.id,
+					_id: note.id,
+					timestamp: formatTimestampToReadableString(
+						note.doc.gulp_timestamp,
+					),
+					title: note.name,
+					text: note.text,
+					contextName: context?.name || "",
+					contextColor: context?.color || "var(--accent)",
+					sourceName: source?.name || "",
+					sourceColor: source?.color || "var(--accent)",
+					tags: note.tags.join(", ") || "-",
+					color: Note.Entity.color(note),
+					rawNote: note,
+					icon: Note.Entity.icon(note),
+				};
+			}),
+		[pageNotes, contextById, sourceById],
+	);
 
-	/**
-	 * Maps selected note IDs to matching indices in the sorted tableValues list.
-	 */
-	const selectedrows = useMemo(() => {
+	const selectedRows = useMemo(() => {
 		const indices = new Set<number>();
 		tableValues.forEach((item, index) => {
-			if (selectedNoteIds.has(item.id)) {
-				indices.add(index);
-			}
+			if (selectedNoteIds.has(item.id)) indices.add(index);
 		});
 		return indices;
 	}, [tableValues, selectedNoteIds]);
 
+	const isAllFilteredSelected =
+		allFilteredNoteIds.length > 0 &&
+		allFilteredNoteIds.every((noteId) => selectedNoteIds.has(noteId));
+
 	/**
-	 * Handles individual row selection toggle, converting index to note ID.
-	 *
-	 * @param index - Index of the toggled row
-	 * @param selected - New selection state of the checkbox
+	 * Converts a table row checkbox index into its stable note ID.
+	 * @param index Current-page row index.
+	 * @param selected Whether the row should be selected.
+	 * @returns Nothing.
 	 */
 	const handleRowSelect = useCallback(
-		(index: number, selected: boolean) => {
+		(index: number, selected: boolean): void => {
 			const item = tableValues[index];
 			if (!item) return;
-			setSelectedNoteIds((prev) => {
-				const next = new Set(prev);
-				if (selected) {
-					next.add(item.id);
-				} else {
-					next.delete(item.id);
-				}
-				return next;
+			setSelectedNoteIds((previousIds) => {
+				const nextIds = new Set(previousIds);
+				if (selected) nextIds.add(item.id);
+				else nextIds.delete(item.id);
+				return nextIds;
 			});
 		},
 		[tableValues],
 	);
 
-	/**
-	 * Actions available per-row in the notes table.
-	 */
 	const tableActions = useMemo<Table.Action<NotesTableRow>[]>(
 		() => [
 			{
 				icon: "MagnifyingGlassSmall",
 				label: t("notes.targetNote"),
-				onClick: (row) => {
-					targetNoteButtonHandler(row.rawNote);
-				},
+				onClick: (row) => targetNoteButtonHandler(row.rawNote),
 			},
 			{
 				icon: "Trash2",
 				label: t("note.deleteTitle"),
-				onClick: (row) => {
-					handleDelete(row.rawNote);
-				},
+				onClick: (row) => handleDelete(row.rawNote),
 			},
 		],
 		[targetNoteButtonHandler, handleDelete, t],
 	);
 
-	/**
-	 * Column configuration for the unified Table component, using custom render functions for title and context.
-	 */
 	const columns = useMemo<Table.ColumnDefinition<NotesTableRow>[]>(
 		() => [
 			{
 				key: "title",
 				label: t("common.title"),
 				width: 180,
-				render: (value, row) => (
+				render: (_value, row) => (
 					<span
 						className={s.titleValue}
 						style={{ color: row.color }}
@@ -411,7 +600,7 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 			},
 			{
 				key: "timestamp",
-				label: t("common.timestamp"),
+				label: t("notes.eventTimestamp"),
 				width: 190,
 			},
 			{
@@ -423,7 +612,7 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 				key: "contextName",
 				label: t("common.context"),
 				width: 160,
-				render: (value, row) => (
+				render: (_value, row) => (
 					<span
 						className={s.colorValue}
 						style={{ color: row.contextColor }}
@@ -436,7 +625,7 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 				key: "sourceName",
 				label: t("common.source"),
 				width: 180,
-				render: (value, row) => (
+				render: (_value, row) => (
 					<span
 						className={s.colorValue}
 						style={{ color: row.sourceColor }}
@@ -460,33 +649,52 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 				<h3>{t("notes.title")}</h3>
 			</div>
 			<div className={s.content}>
-				<Stack
-					dir="column"
-					flex={false}
-					ai="stretch"
-				>
+				{newNotesCount > 0 && (
+					<Notification
+						variant="warning"
+						icon="Warning"
+						className={s.newNotesWarning}
+						jc="space-between"
+						gap={8}
+					>
+						<span className={s.newNotesMessage}>
+							{newNotesCount} {t("tableView.newNotes")}
+						</span>
+						<Button
+							variant="secondary"
+							icon="RotateCcw"
+							onClick={refreshNotes}
+						>
+							{t("common.refresh")}
+						</Button>
+					</Notification>
+				)}
+
+				<div className={s.filters}>
 					<Input
 						placeholder={t("notes.searchPlaceholder")}
 						icon="MagnifyingGlass"
 						variant="highlighted"
 						value={search}
-						onChange={(e) => setSearch(e.target.value)}
+						onChange={(event) => setSearch(event.target.value)}
 					/>
 					<Select.Multi.Root
 						value={[...selectedTags]}
-						onValueChange={(values) => setSelectedTags(new Set(values))}
+						onValueChange={handleSelectedTagsChange}
 					>
 						<Select.Trigger>
 							<Select.Multi.Value
 								icon={["DataPointMedium", "DataPoint"]}
 								placeholder={t("notes.selectTags")}
-								text={(len) =>
-									typeof len === "number" ? t("notes.selectedTags", { count: len }) : len
+								text={(length) =>
+									typeof length === "number"
+										? t("notes.selectedTags", { count: length })
+										: length
 								}
 							/>
 						</Select.Trigger>
 						<Select.Content container={windowRef.current ?? undefined}>
-							{sortedAvailableTags.map((tag) => (
+							{availableTags.map((tag) => (
 								<Select.Item
 									key={tag}
 									value={tag}
@@ -496,57 +704,177 @@ export function NotesWindow({ onClose }: FloatingWindowProps) {
 							))}
 						</Select.Content>
 					</Select.Multi.Root>
-				</Stack>
-				<Stack
-					gap={10}
-					ai="center"
-					flex={false}
-					style={{ padding: "0 12px" }}
-				>
-					<Checkbox
-						style={{ height: 20, width: 20 }}
-						checked={showOnlyVisibleSources}
-						onCheckedChange={(checked) =>
-							setShowOnlyVisibleSources(checked === true)
-						}
-					/>
-					<span
-						className={s.helperText}
-						onClick={() => setShowOnlyVisibleSources((value) => !value)}
+					<Stack
+						gap={10}
+						ai="center"
+						flex={false}
+						className={s.visibleSourceFilter}
 					>
-						{t("notes.visibleSourcesOnly")}
-					</span>
-				</Stack>
-				<div
-					className={s.result}
-				>
-					<Table
-						values={tableValues}
-						columns={columns}
-						includeIndex={false}
-						selectable={true}
-						selectedrows={selectedrows}
-						onrowselect={handleRowSelect}
-						onSelectAll={handleSelectAll}
-						actions={tableActions}
-						highlightedId={app.timeline.target?._id}
-						columnVisibility={true}
-						persistId="notes_table"
-						virtualization={NOTES_TABLE_VIRTUALIZATION}
-					/>
+						<Checkbox
+							checked={showOnlyVisibleSources}
+							onCheckedChange={toggleVisibleSources}
+						/>
+						<span
+							className={s.helperText}
+							onClick={toggleVisibleSources}
+						>
+							{t("notes.visibleSourcesOnly")}
+						</span>
+					</Stack>
 				</div>
-			</div>
-			<div className={s.footer}>
-				<Stack jc="flex-end">
-					<Button
-						variant="secondary"
-						disabled={selectedNoteIds.size === 0}
-						onClick={handleBulkDelete}
-						icon="Trash2"
-					>
-						{t("notes.deleteSelected", { count: selectedNoteIds.size })}
-					</Button>
-				</Stack>
+
+				<div className={s.actionBar}>
+					<div className={s.actionBarLeft}>
+						<Stack
+							gap={10}
+							ai="center"
+							flex={false}
+							className={s.selectionControl}
+						>
+							<Checkbox
+								checked={isAllFilteredSelected}
+								onCheckedChange={(checked) =>
+									handleSelectAllFiltered(checked === true)
+								}
+							/>
+							<span
+								className={s.helperText}
+								onClick={() =>
+									handleSelectAllFiltered(!isAllFilteredSelected)
+								}
+							>
+								{t("notes.selectAllFiltered", {
+									count: allFilteredNoteIds.length,
+								})}
+							</span>
+						</Stack>
+
+						<Popover.Root>
+							<Popover.Trigger asChild>
+								<Button
+									variant="secondary"
+									icon="ChevronDown"
+									disabled={selectedNoteIds.size === 0}
+								>
+									{t("common.action")}
+								</Button>
+							</Popover.Trigger>
+							<Popover.Content
+								align="start"
+								sideOffset={4}
+								className={s.popoverContent}
+								container={windowRef.current}
+							>
+								<div
+									className={s.menuItem}
+									onClick={handleBulkDelete}
+								>
+									<Icon
+										name="Trash2"
+										size={14}
+									/>
+									<span>
+										{t("notes.deleteSelected", {
+											count: selectedNoteIds.size,
+										})}
+									</span>
+								</div>
+							</Popover.Content>
+						</Popover.Root>
+
+					</div>
+
+					<div className={s.actionBarRight}>
+						<span className={s.helperText}>
+							{t("tableView.showingRange", {
+								from:
+									totalHits > 0 ? pageSize * (currentPage - 1) + 1 : 0,
+								to: Math.min(pageSize * currentPage, totalHits),
+								total: totalHits,
+							})}
+						</span>
+						<Stack
+							gap={8}
+							ai="center"
+						>
+							<Select.Root
+								value={pageSize.toString()}
+								onValueChange={(value) => {
+									setPageSize(Number(value));
+									setCurrentPage(1);
+								}}
+							>
+								<Select.Trigger className={s.pageSelect}>
+									<Select.Value />
+								</Select.Trigger>
+								<Select.Content container={windowRef.current ?? undefined}>
+									{NOTES_PAGE_SIZES.map((size) => (
+										<Select.Item
+											key={size}
+											value={size.toString()}
+										>
+											{size}
+										</Select.Item>
+									))}
+								</Select.Content>
+							</Select.Root>
+							<span className={s.helperText}>
+								{t("tableView.perPage")}
+							</span>
+						</Stack>
+						<span className={s.helperText}>
+							{t("tableView.pageOf", {
+								page: currentPage,
+								total: totalPages,
+							})}
+						</span>
+						<Stack gap={4}>
+							<Button
+								variant="secondary"
+								icon="ChevronLeft"
+								disabled={currentPage <= 1 || loading}
+								onClick={() =>
+									setCurrentPage((page) => Math.max(1, page - 1))
+								}
+								title={t("tableView.previousPage")}
+							/>
+							<Button
+								variant="secondary"
+								icon="ChevronRight"
+								disabled={currentPage >= totalPages || loading}
+								onClick={() =>
+									setCurrentPage((page) =>
+										Math.min(totalPages, page + 1),
+									)
+								}
+								title={t("tableView.nextPage")}
+							/>
+						</Stack>
+					</div>
+				</div>
+
+				<div className={s.result}>
+					{loading ? (
+						<p className={s.placeholder}>{t("tableView.loadingData")}</p>
+					) : tableValues.length > 0 ? (
+						<Table
+							values={tableValues}
+							columns={columns}
+							includeIndex={false}
+							selectable={true}
+							selectedrows={selectedRows}
+							onrowselect={handleRowSelect}
+							onSelectAll={handleSelectPage}
+							actions={tableActions}
+							highlightedId={app.timeline.target?._id}
+							columnVisibility={true}
+							persistId="notes_table_paginated_v2"
+							virtualization={NOTES_TABLE_VIRTUALIZATION}
+						/>
+					) : (
+						<p className={s.placeholder}>{t("tableView.noData")}</p>
+					)}
+				</div>
 			</div>
 			{banner?.target === "table" ? banner.node : null}
 			<div

@@ -1219,7 +1219,8 @@ export function TableViewWindow({
 						<Button
 							variant="secondary"
 							icon={
-								sortDirection === "asc" ? "SortAscending" : "SortDescending"
+								sortDirection === "asc" ? "SortAsc"
+										: "SortDesc"
 							}
 							onClick={toggleSortDirection}
 							title={t("tableView.toggleSortDirection")}

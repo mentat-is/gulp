@@ -1,6 +1,8 @@
 import type { MinMax } from "@/class/Info";
 import type { App } from "@/entities/App";
+import type { Context } from "@/entities/Context";
 import { Doc } from "@/entities/Doc";
+import type { Note } from "@/entities/Note";
 import { Source } from "@/entities/Source";
 
 export type PersistedDetachedWindowKind = "notes" | "table" | "dashboard";
@@ -224,6 +226,146 @@ export function getCanvasRenderedSourceIds(
  */
 export function getCanvasRenderedSourceIdSet(app: App.Type): Set<Source.Id> {
 	return new Set(app.timeline.renderedSourceIds ?? getCanvasRenderedSourceIds(app));
+}
+
+export interface NotesWindowFilter {
+	search: string;
+	selectedTags: readonly string[];
+	sourceIds: ReadonlySet<Source.Id>;
+	sourceById: ReadonlyMap<Source.Id, Source.Type>;
+	contextById: ReadonlyMap<Context.Id, Context.Type>;
+}
+
+/** Inputs used to build one paginated note-list request and its count request. */
+export interface NotesListFilterOptions {
+	searchMatchingIds: Note.Id[] | undefined;
+	sourceIds: Source.Id[];
+	selectedTags: string[];
+	pageSize: number;
+	currentPage: number;
+}
+
+/**
+ * Resolves the source id attached to a note, tolerating older payload shapes.
+ * @param note Note whose owning source should be resolved.
+ * @returns Source id from the note entity or its embedded document.
+ */
+export function getNoteSourceId(note: Note.Type): Source.Id {
+	return note.source_id ?? note.doc["gulp.source_id"];
+}
+
+/**
+ * Determines whether a note matches the complete Notes window filter.
+ * @param note Canonical DataStore note to evaluate.
+ * @param filter Active search, tag, and source restrictions.
+ * @returns True when the note should participate in the filtered result set.
+ */
+export function noteMatchesNotesWindowFilter(
+	note: Note.Type,
+	filter: NotesWindowFilter,
+): boolean {
+	const sourceId = getNoteSourceId(note);
+	if (!filter.sourceIds.has(sourceId)) return false;
+
+	const lowercaseTags = note.tags.map((tag) => tag.toLowerCase());
+	const matchesTags =
+		filter.selectedTags.length === 0 ||
+		filter.selectedTags.every((tag) =>
+			lowercaseTags.includes(tag.toLowerCase()),
+		);
+	if (!matchesTags) return false;
+
+	const search = filter.search.trim().toLowerCase();
+	if (!search) return true;
+
+	const sourceName = filter.sourceById.get(sourceId)?.name.toLowerCase() ?? "";
+	const contextName =
+		filter.contextById.get(note.context_id)?.name.toLowerCase() ?? "";
+	return (
+		note.name.toLowerCase().includes(search) ||
+		note.text.toLowerCase().includes(search) ||
+		sourceName.includes(search) ||
+		contextName.includes(search) ||
+		lowercaseTags.includes(search)
+	);
+}
+
+/**
+ * Collects DataStore note IDs matching only the free-text OR search.
+ * Other filters are passed to GulpCollabFilter through their native fields.
+ * @param notes Canonical notes snapshot acknowledged by the table.
+ * @param search Applied free-text search value.
+ * @param sourceById Sources used to resolve searchable display names.
+ * @param contextById Contexts used to resolve searchable display names.
+ * @returns Matching IDs, or undefined when no free-text filter is active.
+ */
+export function getSearchMatchingNoteIds(
+	notes: readonly Note.Type[],
+	search: string,
+	sourceById: ReadonlyMap<Source.Id, Source.Type>,
+	contextById: ReadonlyMap<Context.Id, Context.Type>,
+): Note.Id[] | undefined {
+	const normalizedSearch = search.trim();
+	if (!normalizedSearch) return undefined;
+
+	const allSourceIds = new Set(notes.map((note) => getNoteSourceId(note)));
+	return notes
+		.filter((note) =>
+			noteMatchesNotesWindowFilter(note, {
+				search: normalizedSearch,
+				selectedTags: [],
+				sourceIds: allSourceIds,
+				sourceById,
+				contextById,
+			}),
+		)
+		.map((note) => note.id);
+}
+
+/**
+ * Builds list and count filters using only existing GulpCollabFilter fields.
+ * @param options Current Notes window query and pagination state.
+ * @returns Page filter and matching count filter.
+ */
+export function buildNotesListFilters(
+	options: NotesListFilterOptions,
+): { pageFilter: Note.ListFilter; countFilter: Note.ListFilter } {
+	const countFilter: Note.ListFilter = {
+		source_ids: options.sourceIds,
+	};
+	if (options.searchMatchingIds) {
+		countFilter.ids = options.searchMatchingIds;
+	}
+	if (options.selectedTags.length > 0) {
+		countFilter.tags = options.selectedTags;
+		countFilter.tags_and = true;
+	}
+
+	return {
+		countFilter,
+		pageFilter: {
+			...countFilter,
+			limit: options.pageSize,
+			offset: options.pageSize * (options.currentPage - 1),
+			sort: [["time_pin", "desc"]],
+		},
+	};
+}
+
+/**
+ * Counts canonical note IDs that were not present in the acknowledged snapshot.
+ * @param notes Current canonical DataStore notes.
+ * @param acknowledgedNoteIds IDs included in the last intentional table refresh.
+ * @returns Number of newly available notes.
+ */
+export function countNewNotes(
+	notes: readonly Note.Type[],
+	acknowledgedNoteIds: ReadonlySet<Note.Id>,
+): number {
+	return notes.reduce(
+		(count, note) => count + (acknowledgedNoteIds.has(note.id) ? 0 : 1),
+		0,
+	);
 }
 
 const DETACHED_WINDOWS_STORAGE_KEY = "gulp-detached-windows";

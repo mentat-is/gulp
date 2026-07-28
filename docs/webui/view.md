@@ -33,7 +33,15 @@ The detached Notes window gives a table-level view of operation notes.
 ![Notes window](images/notes-window.png)
 
 It supports search, tag selection, visible-source filtering, row targeting, row
-deletion, multi-select, and bulk deletion.
+deletion, multi-select, and bulk deletion. Notes are fetched from the
+collaboration API in pages, with controls for page size, result range, and page
+navigation. The event timestamp column identifies the timestamp of the event
+targeted by each note, rather than the note creation time. The selection control
+can select all filtered note IDs already held in the canonical data store.
+
+Notes created by users or plugins do not get inserted into the open table page
+automatically. The window shows a warning when newer notes are available and
+loads them after the analyst explicitly refreshes the table.
 
 If a note targets an event that is not currently loaded in the main timeline, the
 main tab can fetch that event before opening its detail dialog.

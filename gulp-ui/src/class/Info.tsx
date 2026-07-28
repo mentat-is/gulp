@@ -4127,6 +4127,65 @@ export class Info implements InfoProps {
 	};
 
 	/**
+	 * Fetches one filtered note page without changing the canonical DataStore.
+	 * @param flt Existing GulpCollabFilter fields for filtering and pagination.
+	 * @param signal Optional cancellation signal for stale detached-window requests.
+	 * @returns Normalized notes for the requested page.
+	 */
+	notes_list = async (
+		flt: Note.ListFilter,
+		signal?: AbortSignal,
+	): Promise<Note.Type[]> => {
+		const operation = Operation.Entity.selected(this.app);
+		if (!operation) return [];
+
+		const notes = await api<Note.Type[]>("/note_list", {
+			method: "POST",
+			query: {
+				operation_id: operation.id,
+			},
+			body: flt,
+			signal,
+			showErrorToast: false,
+		});
+		if (signal?.aborted) return [];
+		if (!notes) {
+			throw new Error("Failed to fetch notes");
+		}
+		return Note.Entity.normalize(this.app, notes);
+	};
+
+	/**
+	 * Counts notes matching an existing GulpCollabFilter without loading them.
+	 * @param flt Filter fields shared with the corresponding note-list request.
+	 * @param signal Optional cancellation signal for stale detached-window requests.
+	 * @returns Number of notes matching the filter.
+	 */
+	notes_count = async (
+		flt: Note.ListFilter,
+		signal?: AbortSignal,
+	): Promise<number> => {
+		const operation = Operation.Entity.selected(this.app);
+		if (!operation) return 0;
+
+		const result = await api<{ count: number }>("/object_count", {
+			method: "POST",
+			query: {
+				obj_type: "note",
+				operation_id: operation.id,
+			},
+			body: flt,
+			signal,
+			showErrorToast: false,
+		});
+		if (signal?.aborted) return 0;
+		if (!result) {
+			throw new Error("Failed to count notes");
+		}
+		return result.count;
+	};
+
+	/**
 	 * Reloads notes for the currently selected sources and ignores stale responses.
 	 * @returns Notes fetched for the selected sources, or undefined when no safe fetch can run.
 	 */
