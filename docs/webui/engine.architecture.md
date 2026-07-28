@@ -756,6 +756,20 @@ mutations, overlays, fallback, and profiling live under [`src/test`](../src/test
 4. Avoid synchronous full-source projection in mutation callbacks.
 5. Use an atomic snapshot when a delta can no longer be applied cheaply or safely.
 
+### Ingestion recovery polling
+
+`SelectFiles.Banner` asks `Info` to reconstruct missing loading markers when an
+operation is reopened during ingestion. Recovery accepts only ongoing `ingest` and
+`raw_ingest` request statistics with linked sources. The five-second source-total
+refresh remains active only while a marker created by that recovery routine still
+owns its source; query, enrichment, and unrelated loading markers do not extend it.
+
+Unmounting the source-selection banner invalidates both the active timer and any
+pending recovery startup. Operation changes perform the same cleanup before
+operation-scoped websocket listeners are replaced. This prevents a delayed
+`request_list` response or a completed timeline query from leaving the full
+`mapping_file_list` plus `query_operations` synchronization running.
+
 ## Source Reference
 
 - Main canvas bridge: [`src/app/body/Canvas.tsx`](../src/app/body/Canvas.tsx)
@@ -763,6 +777,7 @@ mutations, overlays, fallback, and profiling live under [`src/test`](../src/test
 - Viewport calculation: [`src/app/body/CanvasViewport.ts`](../src/app/body/CanvasViewport.ts)
 - Canonical store: [`src/store/DataStore.ts`](../src/store/DataStore.ts)
 - Query priority: [`src/class/Info.tsx`](../src/class/Info.tsx)
+- Ingestion recovery scope: [`src/class/IngestionResync.ts`](../src/class/IngestionResync.ts)
 - Protocol: [`src/render-worker/RenderWorker.types.ts`](../src/render-worker/RenderWorker.types.ts)
 - Client: [`src/render-worker/RenderWorker.client.ts`](../src/render-worker/RenderWorker.client.ts)
 - Projection: [`src/render-worker/RenderProjection.adapter.ts`](../src/render-worker/RenderProjection.adapter.ts)

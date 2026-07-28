@@ -141,8 +141,10 @@ export namespace SelectFiles {
 		useEffect(() => {
 			const operation = Operation.Entity.selected(app);
 			if (!operation) return;
-			Info.resync_ingestion_state(operation.id);
-		}, []);
+			void Info.resync_ingestion_state(operation.id);
+
+			return () => Info.stop_ingestion_resync_poll();
+		}, [Info, operation?.id]);
 
 		const update = <T,>(values: Set<T>, vault: SetState<Set<T>>) =>
 			vault(new Set(values));

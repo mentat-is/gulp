@@ -82,7 +82,7 @@ export namespace Request {
 		QUERY = "query",
 		ENRICHMENT = "enrichment",
 		REBASE = "rebase",
-		AI = "ai",
+		AI = "ai_chat",
 	}
 
 	export class Entity {

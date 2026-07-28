@@ -4,16 +4,18 @@
   flex-direction: column;
   background: var(--soft-black);
   color: var(--geist-foreground);
+  border: none;
   overflow: hidden;
 }
 
 .header {
   padding: 16px 20px;
-  border-bottom: 1px solid var(--geist-border);
+  border-bottom: 1px solid var(--gray-400);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(0, 0, 0, 0.2);
+  background: transparent;
+  flex: none;
 }
 
 .header h2 {
@@ -25,10 +27,12 @@
 
 .content {
   flex: 1;
-  padding: 20px;
+  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  border: none;
+  background: transparent;
 }
 
 .footer {

@@ -4,6 +4,15 @@ interface JestMock<TResult, TArguments extends unknown[]> {
 	readonly mock: { calls: TArguments[] };
 }
 
+/** Minimal method-spy surface used by lifecycle tests. */
+interface JestSpy {
+	/** Resolves asynchronous calls with the supplied value. */
+	mockResolvedValue(value: unknown): JestSpy;
+	/** Returns the supplied value from subsequent calls. */
+	mockReturnValue(value: unknown): JestSpy;
+	readonly mock: { calls: unknown[][] };
+}
+
 /** Minimal synchronous matcher surface used by the repository's dependency-free tests. */
 interface JestMatchers<TActual> {
 	readonly not: JestMatchers<TActual>;
@@ -16,6 +25,7 @@ interface JestMatchers<TActual> {
 	toBeUndefined(): void;
 	toBeNull(): void;
 	toHaveLength(expected: number): void;
+	toHaveBeenCalled(): void;
 	toHaveBeenCalledTimes(expected: number): void;
 }
 
@@ -55,4 +65,15 @@ declare const jest: {
 	fn<TResult = void, TArguments extends unknown[] = []>(
 		implementation?: (...arguments_: TArguments) => TResult,
 	): JestMock<TResult, TArguments>;
+	/** Replaces one object method while retaining call history. */
+	spyOn<TObject extends object>(
+		target: TObject,
+		method: keyof TObject,
+	): JestSpy;
+	/** Replaces native timers with the deterministic Jest timer implementation. */
+	useFakeTimers(): void;
+	/** Restores the native timer implementation. */
+	useRealTimers(): void;
+	/** Advances deterministic timers by the supplied duration. */
+	advanceTimersByTime(milliseconds: number): void;
 };

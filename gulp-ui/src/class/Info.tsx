@@ -63,6 +63,11 @@ import {
 	type RawQueryQueuePriority,
 	type RawQueryViewportState,
 } from "@/class/RawQueryScheduler";
+import {
+	collectIngestionResyncLoadings,
+	hasActiveIngestionResyncLoading,
+	type IngestionResyncLoadings,
+} from "@/class/IngestionResync";
 
 export namespace GulpDataset {
 	export namespace GetAvailableLoginApi {
@@ -419,6 +424,8 @@ export class Info implements InfoProps {
 		{ filename: string; percent: number }
 	>();
 	private _resyncPollTimer: ReturnType<typeof setInterval> | null = null;
+	private _resyncPollSequence = 0;
+	private _resyncIngestionLoadings: IngestionResyncLoadings = new Map();
 	private _ingestSourceDoneOperationId: Operation.Id | null = null;
 	private _ingestSourceDoneCleanupListenerId: string | null = null;
 	private _ingestStatsDoneListenerId: string | null = null;
@@ -1030,6 +1037,7 @@ export class Info implements InfoProps {
 	 * @returns Nothing.
 	 */
 	private invalidateOperationStreams = (): void => {
+		this.stop_ingestion_resync_poll();
 		this._clear_ingest_source_done_listeners();
 		this.clearViewportQueryPumpTimer();
 		this.refetchQueue = [];
@@ -2019,38 +2027,44 @@ export class Info implements InfoProps {
 	resync_ingestion_state = async (
 		operationId: Operation.Id,
 	): Promise<void> => {
+		this.stop_ingestion_resync_poll();
+		const resyncSequence = this._resyncPollSequence;
 		this._register_ingest_source_done_listeners(operationId);
 
 		try {
 			const requests = await this.request_list();
-			const ongoing = (requests || []).filter(
-				(r) => r.status === Request.Status.ONGOING,
-			);
+			if (resyncSequence !== this._resyncPollSequence) return;
 
-			// Track whether we're a reconnecting watcher (not the original uploader)
-			let watcherSources = 0;
-
-			for (const req of ongoing) {
-				const sourceId = Request.Entity.sourceLink(req)?.sourceId as
-					| Source.Id
-					| undefined;
-				if (!sourceId) continue;
-
+			const recoveredLoadings = collectIngestionResyncLoadings(requests || []);
+			const newlyRecoveredLoadings: IngestionResyncLoadings = new Map();
+			recoveredLoadings.forEach((requestId, sourceId) => {
 				if (!requestStore.hasLoadingForFile(sourceId)) {
-					this.setLoading(req.id as Request.Id, sourceId);
-					watcherSources++;
+					this.setLoading(requestId, sourceId);
+					if (requestStore.getRequestIdByFile(sourceId) === requestId) {
+						newlyRecoveredLoadings.set(sourceId, requestId);
+					}
 				}
+			});
+
+			this._resyncIngestionLoadings = newlyRecoveredLoadings;
+			if (
+				!hasActiveIngestionResyncLoading(
+					this._resyncIngestionLoadings,
+					requestStore.getLoadings(),
+				)
+			) {
+				return;
 			}
 
-			// Only poll if we had to register loading state ourselves (reconnect scenario)
-			if (watcherSources === 0) return;
-
-			// sync() fetches live source totals from OpenSearch — the same thing Reload does
-			if (this._resyncPollTimer) clearInterval(this._resyncPollTimer);
+			// sync() fetches live source totals from OpenSearch — the same thing Reload does.
 			this._resyncPollTimer = setInterval(async () => {
-				if (requestStore.getLoadings().byFileId.size === 0) {
-					clearInterval(this._resyncPollTimer!);
-					this._resyncPollTimer = null;
+				if (
+					!hasActiveIngestionResyncLoading(
+						this._resyncIngestionLoadings,
+						requestStore.getLoadings(),
+					)
+				) {
+					this.stop_ingestion_resync_poll();
 					return;
 				}
 				try {
@@ -2062,6 +2076,19 @@ export class Info implements InfoProps {
 		} catch (_) {
 			// Best-effort — failure is non-fatal
 		}
+	};
+
+	/**
+	 * Stops source-total polling started by ingestion state recovery.
+	 * @returns Nothing.
+	 */
+	stop_ingestion_resync_poll = (): void => {
+		this._resyncPollSequence++;
+		if (this._resyncPollTimer) {
+			clearInterval(this._resyncPollTimer);
+			this._resyncPollTimer = null;
+		}
+		this._resyncIngestionLoadings.clear();
 	};
 
 	create_start_ingestion = (
