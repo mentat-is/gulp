@@ -55,7 +55,7 @@ export namespace AIAssistant {
    * receiving streaming responses via WebSocket, and rendering the chat UI.
    */
   export function Panel({ message: initialMessage }: Panel.Props) {
-    const { Info, app } = Application.use()
+    const { Info, app, detachedCoordinatorId } = Application.use()
     const { t } = Locale.use()
     const [loading, setLoading] = useState<boolean>(false);
     // History of requests
@@ -63,32 +63,35 @@ export namespace AIAssistant {
     const [message, setMessage] = useState(initialMessage ?? '');
     const chatRef = useRef<HTMLDivElement>(null)
     const mounted = useRef(true)
+    const suppressHistoryBroadcastRef = useRef(false)
     const operation = Operation.Entity.selected(app);
 
     const bridgeId = useRef(WindowBridge.generateId())
-    const bridgeRef = useRef<ReturnType<typeof WindowBridge.create> | null>(null)
+    const bridgeRef = useRef<WindowBridge.Bridge | null>(null)
 
     useEffect(() => {
-      const bridge = WindowBridge.create(bridgeId.current, (message) => {
+      if (!operation) return;
+      const bridge = WindowBridge.createAssistantHistory(
+        bridgeId.current,
+        operation.id,
+        (message) => {
         if (message.type === WindowBridge.MessageType.AI_HISTORY_UPDATED) {
-          const payload = message.payload as { senderId?: string }
-          if (payload.senderId === bridgeId.current) return;
-
-          if (operation) {
-            chatDB.GetConfiguration(operation.id).then((saved) => {
-              if (mounted.current && saved) {
-                setHistory(saved);
-              }
-            })
-          }
+          chatDB.GetConfiguration(operation.id).then((saved) => {
+            if (mounted.current) {
+              suppressHistoryBroadcastRef.current = true;
+              setHistory(saved ?? []);
+            }
+          })
         }
-      });
+        },
+        detachedCoordinatorId ?? undefined,
+      );
       bridgeRef.current = bridge;
       return () => {
         bridge.destroy();
         bridgeRef.current = null;
       }
-    }, [operation?.id]);
+    }, [detachedCoordinatorId, operation?.id]);
 
     useEffect(() => {
       mounted.current = true
@@ -101,8 +104,10 @@ export namespace AIAssistant {
 
       // Load chat history from IndexedDB for the current operation ID.
       if (operation) {
+        suppressHistoryBroadcastRef.current = true;
         chatDB.GetConfiguration(operation.id).then((saved) => {
           if (mounted.current) {
+            suppressHistoryBroadcastRef.current = true;
             if (saved) {
               setHistory(saved);
             }
@@ -119,16 +124,19 @@ export namespace AIAssistant {
     }, [operation?.id])
 
     useEffect(() => {
-      if (!operation || history.length === 0) return;
+      if (!operation) return;
+      if (suppressHistoryBroadcastRef.current) {
+        suppressHistoryBroadcastRef.current = false;
+        return;
+      }
+      if (history.length === 0) return;
 
       // Skip DB updates and broadcasts during streaming to prevent flickering and loops.
       // The final state will be synced when loading (streaming) finishes.
       if (loading) return;
 
       chatDB.UpdateConfiguration(history, operation.id).then(() => {
-        bridgeRef.current?.send(WindowBridge.MessageType.AI_HISTORY_UPDATED, {
-          senderId: bridgeId.current
-        });
+        bridgeRef.current?.send(WindowBridge.MessageType.AI_HISTORY_UPDATED, {});
       });
 
       // Scroll to bottom only on new requests
@@ -219,7 +227,10 @@ export namespace AIAssistant {
      * 4. If new, creates a new request, updates state, and initiates the API call.
      */
     const analyze = async () => {
-      const docIds = Doc.Entity.flag.getDocIds(Info.app, operation?.id);
+      // A routed assistant owns an independent DataStore and therefore does not
+      // have the Canvas event cache. Flag identities are already authoritative
+      // in localStorage and can be queried directly from the backend.
+      const docIds = [...Doc.Entity.flag.getList(operation?.id)];
 
       if (!docIds.length) {
         toast.info(t('aiAssistant.noFlaggedEvents'))
@@ -300,9 +311,7 @@ export namespace AIAssistant {
             setHistory([]);
             if (operation) {
               chatDB.DeleteConfiguration(operation.id).then(() => {
-                bridgeRef.current?.send(WindowBridge.MessageType.AI_HISTORY_UPDATED, {
-                  senderId: bridgeId.current
-                });
+                bridgeRef.current?.send(WindowBridge.MessageType.AI_HISTORY_UPDATED, {});
               });
             }
             toast.info(t('aiAssistant.historyDeleted'));

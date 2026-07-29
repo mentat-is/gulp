@@ -44,7 +44,6 @@ import { DisplayEventDialog } from "@/dialogs/Event.dialog";
 import { useParams } from "react-router-dom";
 import { Internal } from "@/entities/addon/Internal";
 import { Locale } from "@/locales";
-import { WindowBridge } from "@/lib/WindowBridge";
 import { requestStore } from "@/store/request.store";
 
 export namespace SelectFiles {
@@ -297,8 +296,8 @@ export namespace SelectFiles {
 		const hasRenderableData = hasData || Info.activeUploads.size > 0;
 
 		/**
-		 * Persists the selected contexts and sources, then replays that active
-		 * selection to any detached windows.
+		 * Persists the selected contexts and sources. The detached coordinator
+		 * observes the resulting application-state update.
 		 *
 		 * @returns Nothing.
 		 */
@@ -325,34 +324,8 @@ export namespace SelectFiles {
 			Info.setInfoByKey(contexts, "target", "contexts");
 			Info.setInfoByKey(files, "target", "files");
 
-			/**
-			 * Replays the just-saved source/context selection to detached tabs.
-			 *
-			 * @returns Nothing.
-			 */
-			const replayDetachedSelection = () => {
-				if (!operation_id) return;
-
-				WindowBridge.broadcastMainContext(
-					{
-						...app,
-						target: {
-							...app.target,
-							contexts,
-							files,
-						},
-					},
-					"active",
-					operation_id as Operation.Id,
-				);
-			};
-
-			replayDetachedSelection();
 			Info.session_autosave();
-			window.dispatchEvent(new CustomEvent(WindowBridge.DETACHED_REPLAY_EVENT));
 			setTimeout(() => {
-				replayDetachedSelection();
-				window.dispatchEvent(new CustomEvent(WindowBridge.DETACHED_REPLAY_EVENT));
 				spawnBanner(
 					<Frame.Banner
 						//was fixed //(disable close button)

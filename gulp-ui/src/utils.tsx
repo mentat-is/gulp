@@ -237,6 +237,21 @@ export interface NotesWindowFilter {
 	contextById: ReadonlyMap<Context.Id, Context.Type>;
 }
 
+/** Inputs required to apply realtime note updates without reloading a page. */
+export interface NotesWindowUpdateDeltaOptions {
+	queryNotes: Note.Type[];
+	pageNotes: Note.Type[];
+	updatedNotes: readonly Note.Type[];
+	filter: NotesWindowFilter;
+}
+
+/** Result of applying a realtime note update to Notes window state. */
+export interface NotesWindowUpdateDeltaResult {
+	queryNotes: Note.Type[];
+	pageNotes: Note.Type[];
+	requiresRefresh: boolean;
+}
+
 /** Inputs used to build one paginated note-list request and its count request. */
 export interface NotesListFilterOptions {
 	searchMatchingIds: Note.Id[] | undefined;
@@ -289,6 +304,80 @@ export function noteMatchesNotesWindowFilter(
 		contextName.includes(search) ||
 		lowercaseTags.includes(search)
 	);
+}
+
+/**
+ * Applies existing-note websocket updates to the acknowledged query snapshot and
+ * visible page. Updates that change filter membership or backend sort position
+ * require a fresh page because their cross-page position cannot be known locally.
+ * @param options Current Notes state, update batch, and active semantic filter.
+ * @returns Locally patched arrays and whether the backend page must be refreshed.
+ */
+export function applyNotesWindowUpdateDelta(
+	options: NotesWindowUpdateDeltaOptions,
+): NotesWindowUpdateDeltaResult {
+	if (options.updatedNotes.length === 0) {
+		return {
+			queryNotes: options.queryNotes,
+			pageNotes: options.pageNotes,
+			requiresRefresh: false,
+		};
+	}
+
+	const updatesById = new Map(
+		options.updatedNotes.map((note) => [note.id, note]),
+	);
+	const queryNotesById = new Map(
+		options.queryNotes.map((note) => [note.id, note]),
+	);
+	const locallyPatchableIds = new Set<Note.Id>();
+	let requiresRefresh = false;
+
+	updatesById.forEach((updatedNote, noteId) => {
+		const previousNote = queryNotesById.get(noteId);
+		if (!previousNote) {
+			requiresRefresh = true;
+			return;
+		}
+
+		const membershipChanged =
+			noteMatchesNotesWindowFilter(previousNote, options.filter) !==
+			noteMatchesNotesWindowFilter(updatedNote, options.filter);
+		const sortPositionChanged =
+			previousNote.time_pin !== updatedNote.time_pin;
+		if (membershipChanged || sortPositionChanged) {
+			requiresRefresh = true;
+			return;
+		}
+		locallyPatchableIds.add(noteId);
+	});
+
+	let queryNotesChanged = false;
+	const queryNotes = options.queryNotes.map((note) => {
+		const updatedNote = updatesById.get(note.id);
+		if (!updatedNote || updatedNote === note) return note;
+		queryNotesChanged = true;
+		return updatedNote;
+	});
+
+	let pageNotesChanged = false;
+	const pageNotes = options.pageNotes.map((note) => {
+		if (!locallyPatchableIds.has(note.id)) return note;
+		const updatedNote = updatesById.get(note.id);
+		if (!updatedNote || updatedNote === note) return note;
+		pageNotesChanged = true;
+		return updatedNote;
+	});
+
+	return {
+		queryNotes: queryNotesChanged
+			? queryNotes
+			: options.queryNotes,
+		pageNotes: pageNotesChanged
+			? pageNotes
+			: options.pageNotes,
+		requiresRefresh,
+	};
 }
 
 /**
@@ -387,7 +476,7 @@ export function advanceNotesChangeSequence(
 	return Math.max(pendingSequence ?? 0, change.sequence);
 }
 
-const DETACHED_WINDOWS_STORAGE_KEY = "gulp-detached-windows";
+const DETACHED_WINDOWS_STORAGE_PREFIX = "gulp-detached-windows:";
 
 const DETACHED_WINDOW_RECORDS: Record<
 	PersistedDetachedWindowKind,
@@ -414,39 +503,6 @@ const DETACHED_WINDOW_RECORDS: Record<
 };
 
 /**
- * Applies the active theme attributes and CSS custom properties from one document to another.
- *
- * @param sourceDoc - Document that provides the currently computed theme variables.
- * @param targetDoc - Document that receives the theme attributes and variables.
- * @param nextTheme - Theme name to write to the target document root.
- * @returns True when the target document was updated, or false when either document is not ready.
- */
-export function applyThemeToWindow(
-	sourceDoc: Document,
-	targetDoc: Document,
-	nextTheme: string | undefined,
-): boolean {
-	const sourceRoot = sourceDoc.documentElement;
-	const targetRoot = targetDoc.documentElement;
-
-	if (!sourceRoot || !targetRoot) {
-		return false;
-	}
-
-	targetRoot.setAttribute("data-theme", nextTheme ?? "dark");
-
-	const styles = getComputedStyle(sourceRoot);
-	for (let index = 0; index < styles.length; index++) {
-		const key = styles[index];
-		if (key.startsWith("--")) {
-			targetRoot.style.setProperty(key, styles.getPropertyValue(key));
-		}
-	}
-
-	return true;
-}
-
-/**
  * Gets the persisted metadata used to reopen or reconnect a detached routed window.
  *
  * @param kind - Detached route kind.
@@ -454,8 +510,16 @@ export function applyThemeToWindow(
  */
 export function getPersistedDetachedWindowRecord(
 	kind: PersistedDetachedWindowKind,
+	coordinatorId: string,
 ): PersistedDetachedWindowRecord {
-	return { ...DETACHED_WINDOW_RECORDS[kind] };
+	const record = DETACHED_WINDOW_RECORDS[kind];
+	return {
+		...record,
+		windowName: `${record.windowName}-${coordinatorId.replace(
+			/[^a-zA-Z0-9_-]/g,
+			"_",
+		)}`,
+	};
 }
 
 /**
@@ -463,9 +527,13 @@ export function getPersistedDetachedWindowRecord(
  *
  * @returns Persisted detached window records.
  */
-export function readPersistedDetachedWindows(): PersistedDetachedWindowRecord[] {
+export function readPersistedDetachedWindows(
+	coordinatorId: string,
+): PersistedDetachedWindowRecord[] {
 	try {
-		const raw = localStorage.getItem(DETACHED_WINDOWS_STORAGE_KEY);
+		const raw = localStorage.getItem(
+			`${DETACHED_WINDOWS_STORAGE_PREFIX}${coordinatorId}`,
+		);
 		if (!raw) return [];
 
 		const records = JSON.parse(raw) as PersistedDetachedWindowRecord[];
@@ -493,8 +561,12 @@ export function readPersistedDetachedWindows(): PersistedDetachedWindowRecord[] 
  */
 function writePersistedDetachedWindows(
 	records: PersistedDetachedWindowRecord[],
+	coordinatorId: string,
 ): void {
-	localStorage.setItem(DETACHED_WINDOWS_STORAGE_KEY, JSON.stringify(records));
+	localStorage.setItem(
+		`${DETACHED_WINDOWS_STORAGE_PREFIX}${coordinatorId}`,
+		JSON.stringify(records),
+	);
 }
 
 /**
@@ -505,12 +577,13 @@ function writePersistedDetachedWindows(
  */
 export function persistDetachedWindow(
 	record: PersistedDetachedWindowRecord,
+	coordinatorId: string,
 ): void {
-	const records = readPersistedDetachedWindows();
+	const records = readPersistedDetachedWindows(coordinatorId);
 	writePersistedDetachedWindows([
 		...records.filter((item) => item.key !== record.key),
 		record,
-	]);
+	], coordinatorId);
 }
 
 /**
@@ -519,7 +592,13 @@ export function persistDetachedWindow(
  * @param key - Detached window key to remove.
  * @returns Nothing.
  */
-export function removePersistedDetachedWindow(key: string): void {
-	const records = readPersistedDetachedWindows();
-	writePersistedDetachedWindows(records.filter((record) => record.key !== key));
+export function removePersistedDetachedWindow(
+	key: string,
+	coordinatorId: string,
+): void {
+	const records = readPersistedDetachedWindows(coordinatorId);
+	writePersistedDetachedWindows(
+		records.filter((record) => record.key !== key),
+		coordinatorId,
+	);
 }

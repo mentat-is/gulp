@@ -157,6 +157,25 @@ function MainApplicationRoutes() {
 	);
 }
 
+/**
+ * Mounts the full application providers only for the main browser document.
+ * Detached routes own a smaller provider stack and must not attach main socket
+ * listeners or load unrelated UI extensions.
+ */
+function MainApplicationShell() {
+	return (
+		<Application.Provider>
+			<Locale.Provider>
+				<Boundary.Provider>
+					<Extension.Provider>
+						<MainApplicationRoutes />
+					</Extension.Provider>
+				</Boundary.Provider>
+			</Locale.Provider>
+		</Application.Provider>
+	);
+}
+
 function Root() {
 	if (window.onerror) {
 		window.onerror = function (...props) {
@@ -189,24 +208,16 @@ function Root() {
 			<Theme.Provider>
 				<Toaster />
 				<BrowserRouter>
-					<Application.Provider>
-						<Locale.Provider>
-							<Boundary.Provider>
-								<Extension.Provider>
-									<Routes>
-										<Route
-											path="/detached/:kind"
-											element={<DetachedRouteShell />}
-										/>
-										<Route
-											path="/*"
-											element={<MainApplicationRoutes />}
-										/>
-									</Routes>
-								</Extension.Provider>
-							</Boundary.Provider>
-						</Locale.Provider>
-					</Application.Provider>
+					<Routes>
+						<Route
+							path="/detached/:kind"
+							element={<DetachedRouteShell />}
+						/>
+						<Route
+							path="/*"
+							element={<MainApplicationShell />}
+						/>
+					</Routes>
 				</BrowserRouter>
 			</Theme.Provider>
 		</>

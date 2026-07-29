@@ -8,6 +8,7 @@ import type { Note } from "@/entities/Note";
 import {
 	acknowledgeNotesChangeSequence,
 	advanceNotesChangeSequence,
+	applyNotesWindowUpdateDelta,
 	buildNotesListFilters,
 	getSearchMatchingNoteIds,
 	noteMatchesNotesWindowFilter,
@@ -256,5 +257,73 @@ describe("NotesWindow pagination helpers", () => {
 				noteIds: [note.id],
 			}),
 		).toBe(7);
+	});
+
+	it("patches an update locally when filter membership and sort position stay stable", () => {
+		const note = createNote(2);
+		const updatedNote = {
+			...note,
+			name: "Updated title",
+			text: "Updated body",
+		};
+		const result = applyNotesWindowUpdateDelta({
+			queryNotes: [note],
+			pageNotes: [note],
+			updatedNotes: [updatedNote],
+			filter: {
+				search: "",
+				selectedTags: [],
+				sourceIds: new Set([SOURCE_ALPHA_ID]),
+				sourceById,
+				contextById,
+			},
+		});
+
+		expect(result.requiresRefresh).toBe(false);
+		expect(result.queryNotes).toEqual([updatedNote]);
+		expect(result.pageNotes).toEqual([updatedNote]);
+	});
+
+	it("requests a refresh when an update changes membership or sort position", () => {
+		const note = createNote(2);
+		const pageNotes = [note];
+		const movedOutsideFilter = {
+			...note,
+			source_id: SOURCE_BETA_ID,
+			doc: {
+				...note.doc,
+				"gulp.source_id": SOURCE_BETA_ID,
+			},
+		};
+		const membershipResult = applyNotesWindowUpdateDelta({
+			queryNotes: [note],
+			pageNotes,
+			updatedNotes: [movedOutsideFilter],
+			filter: {
+				search: "",
+				selectedTags: [],
+				sourceIds: new Set([SOURCE_ALPHA_ID]),
+				sourceById,
+				contextById,
+			},
+		});
+		const sortResult = applyNotesWindowUpdateDelta({
+			queryNotes: [note],
+			pageNotes: [note],
+			updatedNotes: [{ ...note, time_pin: note.time_pin + 1 }],
+			filter: {
+				search: "",
+				selectedTags: [],
+				sourceIds: new Set([SOURCE_ALPHA_ID]),
+				sourceById,
+				contextById,
+			},
+		});
+
+		expect(membershipResult.requiresRefresh).toBe(true);
+		expect(membershipResult.pageNotes).toBe(pageNotes);
+		expect(membershipResult.pageNotes[0]).toBe(note);
+		expect(sortResult.requiresRefresh).toBe(true);
+		expect(sortResult.pageNotes[0]).toBe(note);
 	});
 });

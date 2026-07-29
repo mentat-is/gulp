@@ -35,7 +35,7 @@ The source selection banner supports:
 - refreshing operation data from the backend.
 
 When the selection is saved, the app updates the main timeline, autosaves the
-session, and replays the selection to detached windows.
+session, and publishes the context to detached applications that consume it.
 
 ## Timeline Frame
 
@@ -101,5 +101,7 @@ detached or auxiliary view actions.
 ## Event Selection
 
 Clicking a rendered event opens the event detail view. The event panel can be
-docked in the workspace or opened as a detached dialog window. The selected event
-is also broadcast to detached Notes, Table View, and Dashboard windows.
+docked in the workspace or opened as a detached dialog window. Its selected ID
+is synchronized with detached Notes and Table View for row highlighting.
+Detached row and Assistant event actions can select or fetch an event in the
+main tab.

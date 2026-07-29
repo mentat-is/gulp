@@ -44,6 +44,11 @@ import type {
 	DashboardAggregationValueRow,
 	NormalizeDashboardAggregationResult,
 } from "@/workers/DataWorker.types";
+import {
+	serializeSemanticValue,
+	serializeSourceFieldMetadata,
+	serializeSourceIdSet,
+} from "./DetachedViewQuery.utils";
 
 export namespace DashboardViewWindow {
 	export interface Props {
@@ -347,8 +352,10 @@ function createInitialFilterState(
  * @returns Serialized query-relevant filter values.
  */
 function serializeFilterState(filterState: AnalyticsFilterState): string {
-	return JSON.stringify({
-		sourceIds: filterState.sourceIds,
+	return serializeSemanticValue({
+		sourceIds: [...filterState.sourceIds].sort((left, right) =>
+			left.localeCompare(right),
+		),
 		range: filterState.range,
 		textFilter: filterState.textFilter,
 		filters: filterState.filters,
@@ -362,7 +369,7 @@ function serializeFilterState(filterState: AnalyticsFilterState): string {
  * @returns Serialized source identifier list.
  */
 function serializeSourceIds(sourceIds: Source.Id[]): string {
-	return JSON.stringify(sourceIds);
+	return serializeSourceIdSet(sourceIds);
 }
 
 /**
@@ -374,7 +381,7 @@ function serializeSourceIds(sourceIds: Source.Id[]): string {
 function serializeDashboardAggregations(
 	dashboard: DashboardDefinition,
 ): string {
-	return JSON.stringify(dashboard.opensearch_query?.aggs ?? {});
+	return serializeSemanticValue(dashboard.opensearch_query?.aggs ?? {});
 }
 
 /**
@@ -412,9 +419,23 @@ function serializeRelevantFieldTypes(
 		new Set(getEnabledFilterFieldNames(filterState.filters)),
 	).sort((a, b) => a.localeCompare(b));
 
-	return JSON.stringify(
+	return serializeSemanticValue(
 		fieldNames.map((field) => [field, fieldTypeMap[field] ?? ""]),
 	);
+}
+
+/**
+ * Keeps an equivalent semantic value referentially stable across context snapshots.
+ * @param value Latest value derived from application state.
+ * @param signature Semantic signature for the value.
+ * @returns Previous value while the signature remains unchanged.
+ */
+function useSemanticValue<T>(value: T, signature: string): T {
+	const stableRef = useRef({ signature, value });
+	if (stableRef.current.signature !== signature) {
+		stableRef.current = { signature, value };
+	}
+	return stableRef.current.value;
 }
 
 /**
@@ -1861,6 +1882,19 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 		() => serializeSourceIds(fieldMetadataSourceIds),
 		[fieldMetadataSourceIds],
 	);
+	const fieldMetadataSources = useMemo(
+		() =>
+			fieldMetadataSourceIds
+				.map((id) => app.target.files.find((source) => source.id === id))
+				.filter((source): source is Source.Type => !!source),
+		[app.target.files, fieldMetadataSourceIdsSignature],
+	);
+	const fieldMetadataSignature =
+		serializeSourceFieldMetadata(fieldMetadataSources);
+	const stableFieldMetadataSources = useSemanticValue(
+		fieldMetadataSources,
+		fieldMetadataSignature,
+	);
 	const dashboardExtensions = useMemo(
 		() => Extension.getBySlot(extensions, Extension.Slot.DashboardView),
 		[extensions],
@@ -1935,13 +1969,9 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 	}, [Info]);
 
 	useEffect(() => {
-		const sources = fieldMetadataSourceIds
-			.map((id) => Source.Entity.id(app, id))
-			.filter(Boolean);
-
 		let cancelled = false;
 		runWithConcurrency(
-			sources,
+			stableFieldMetadataSources,
 			DASHBOARD_FIELD_METADATA_CONCURRENCY,
 			(source) => Info.event_keys(source),
 		)
@@ -1973,7 +2003,7 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 		return () => {
 			cancelled = true;
 		};
-	}, [Info, fieldMetadataSourceIdsSignature]);
+	}, [Info, stableFieldMetadataSources]);
 
 	const fieldRows = useMemo<FieldInfoRow[]>(
 		() =>

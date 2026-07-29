@@ -1,0 +1,226 @@
+import React, { act, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import type { App } from "@/entities/App";
+import type { Doc } from "@/entities/Doc";
+import type { Source } from "@/entities/Source";
+import type { WindowBridge } from "@/lib/WindowBridge";
+import { Navigation } from "@/dialogs/components/navigation";
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
+	.IS_REACT_ACT_ENVIRONMENT = true;
+
+const SOURCE_ID = "navigation-source" as Source.Id;
+const mockSpawnDialog = jest.fn();
+const mockSelectDetachedDialogEvent = jest.fn();
+let mockSourceEvents: Doc.Type[] = [];
+const mockGetEvents = jest.fn<void, [App.Type, Source.Id]>();
+let mockDetached = true;
+let mockNavigation: WindowBridge.DetachedDialogNavigation | null = null;
+
+jest.mock("@/context/Application.context", () => ({
+	Application: {
+		use: () => ({
+			app: {
+				target: { files: [] },
+				timeline: { renderVersion: 0 },
+			},
+			spawnDialog: mockSpawnDialog,
+			isDetachedWindow: mockDetached,
+			detachedDialogNavigation: mockNavigation,
+			selectDetachedDialogEvent: mockSelectDetachedDialogEvent,
+		}),
+	},
+}));
+
+jest.mock("@/entities/Source", () => ({
+	Source: {
+		Entity: {
+			id: () => ({ id: SOURCE_ID }),
+		},
+	},
+}));
+
+jest.mock("@/entities/Doc", () => ({
+	Doc: {
+		Entity: {
+			get: (app: App.Type, sourceId: Source.Id) => {
+				mockGetEvents(app, sourceId);
+				return mockSourceEvents;
+			},
+		},
+	},
+}));
+
+jest.mock("@/dialogs/Event.dialog", () => ({
+	DisplayEventDialog: (): null => null,
+	EventIndicator: ({
+		event,
+		onClick,
+	}: {
+		event: Doc.Type;
+		onClick?: () => void;
+	}) => (
+		<button
+			data-event-id={event._id}
+			onClick={onClick}
+		>
+			{event["gulp.event_code"]}
+		</button>
+	),
+}));
+
+jest.mock("@/locales", () => ({
+	Locale: {
+		use: () => ({ t: (key: string) => key }),
+	},
+}));
+
+jest.mock("@/ui/utils", () => ({
+	cn: (...values: Array<string | false | null | undefined>) =>
+		values.filter(Boolean).join(" "),
+}));
+
+jest.mock("@/ui/Stack", () => {
+	const ReactModule = require("react") as typeof import("react");
+	return {
+	Stack: ReactModule.forwardRef(
+		(
+			{
+				children,
+				jc: _jc,
+				gap: _gap,
+				flex: _flex,
+				ai: _ai,
+				dir: _dir,
+				...props
+			}: {
+				children?: ReactNode;
+				jc?: unknown;
+				gap?: unknown;
+				flex?: unknown;
+				ai?: unknown;
+				dir?: unknown;
+				[key: string]: unknown;
+			},
+			ref: React.ForwardedRef<HTMLDivElement>,
+		) => (
+			<div
+				ref={ref}
+				{...props}
+			>
+				{children}
+			</div>
+		),
+	),
+	};
+});
+
+jest.mock("@/ui/Button", () => ({
+	Button: ({
+		children,
+		...props
+	}: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+		<button {...props}>{children}</button>
+	),
+}));
+
+function createEvent(id: string, timestamp: number): Doc.Type {
+	return {
+		_id: id as Doc.Id,
+		"gulp.source_id": SOURCE_ID,
+		"gulp.event_code": timestamp,
+		gulp_timestamp: timestamp,
+		number_hash: timestamp,
+	} as Doc.Type;
+}
+
+describe("Event Dialog navigation", () => {
+	let container: HTMLDivElement;
+	let root: Root;
+
+	beforeEach(() => {
+		mockSpawnDialog.mock.calls.splice(0);
+		mockSelectDetachedDialogEvent.mock.calls.splice(0);
+		mockGetEvents.mock.calls.splice(0);
+		mockSourceEvents = [];
+		mockDetached = true;
+		mockNavigation = null;
+		container = document.createElement("div");
+		document.body.appendChild(container);
+		root = createRoot(container);
+	});
+
+	afterEach(() => {
+		act(() => root.unmount());
+		container.remove();
+	});
+
+	it("renders the private detached window and selects events by ID", () => {
+		const events = Array.from({ length: 11 }, (_, index) =>
+			createEvent(`event-${index}`, index),
+		);
+		const currentEvent = events[5];
+		mockNavigation = {
+			currentEventId: currentEvent._id,
+			items: events.map((event) => ({
+				id: event._id,
+				sourceId: event["gulp.source_id"],
+				timestamp: event.gulp_timestamp,
+				eventCode: event["gulp.event_code"],
+				numberHash: event.number_hash,
+				hasNotes: false,
+				hasLinks: false,
+			})),
+			previousEventId: events[4]._id,
+			nextEventId: events[6]._id,
+		};
+
+		act(() => root.render(<Navigation event={currentEvent} />));
+		expect(container.querySelectorAll("[data-event-id]")).toHaveLength(11);
+		expect(mockGetEvents).not.toHaveBeenCalled();
+
+		act(() => {
+			container
+				.querySelector<HTMLButtonElement>('[data-event-id="event-7"]')
+				?.click();
+		});
+		expect(
+			(
+				mockSelectDetachedDialogEvent.mock.calls as unknown as Array<
+					[Doc.Id]
+				>
+			).at(-1)?.[0],
+		).toBe(events[7]._id);
+
+		const nextButton = [...container.querySelectorAll("button")].find(
+			(button) => button.title === "eventDialog.nextEvent",
+		);
+		act(() => nextButton?.click());
+		expect(
+			(
+				mockSelectDetachedDialogEvent.mock.calls as unknown as Array<
+					[Doc.Id]
+				>
+			).at(-1)?.[0],
+		).toBe(events[6]._id);
+		expect(mockSpawnDialog).not.toHaveBeenCalled();
+	});
+
+	it("retains the docked DataStore navigation path", () => {
+		const newest = createEvent("newest", 3);
+		const current = createEvent("current", 2);
+		const oldest = createEvent("oldest", 1);
+		mockDetached = false;
+		mockSourceEvents = [newest, current, oldest];
+
+		act(() => root.render(<Navigation event={current} />));
+		const nextButton = [...container.querySelectorAll("button")].find(
+			(button) => button.title === "eventDialog.nextEvent",
+		);
+		act(() => nextButton?.click());
+
+		expect(mockGetEvents).toHaveBeenCalled();
+		expect(mockSpawnDialog).toHaveBeenCalledTimes(1);
+		expect(mockSelectDetachedDialogEvent).not.toHaveBeenCalled();
+	});
+});

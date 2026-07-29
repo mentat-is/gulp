@@ -1,613 +1,1247 @@
 /**
- * DetachedApp.Provider — Lightweight Application context for detached browser windows.
+ * Lightweight Application context for independently rendered detached windows.
  *
- * ARCHITECTURE: Detached windows (TableViewWindow, NotesWindow) previously used
- * ReactDOM.createPortal which kept them in the main tab's React tree. Every state
- * change in the main tab caused cross-window DOM reconciliation, degrading performance.
- *
- * This provider creates an INDEPENDENT React context for each detached window:
- * - Own [app, setInfo] state (initialized from a snapshot of the main tab's state)
- * - Own Info instance (uses global `api()` for network requests)
- * - Own banner system (spawnBanner/destroyBanner work locally)
- * - BroadcastChannel listener for cross-window sync (theme, notes, flags)
- *
- * PERFORMANCE: The main tab no longer reconciles detached window DOM. State changes
- * in the main tab only reach detached windows via lightweight BroadcastChannel messages.
+ * Detached roots receive an atomic bootstrap and capability-scoped updates over
+ * a private channel. Once registered, user actions return on that same private
+ * channel; only registration/reconnect/close uses shared control.
  */
 import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-  ReactNode,
-} from 'react'
-import { Application } from '@/context/Application.context'
-import { Info } from '@/class/Info'
-import { App } from '@/entities/App'
-import { WindowBridge } from '@/lib/WindowBridge'
-import { DataStore } from '@/store/DataStore'
-import { Note } from '@/entities/Note'
-import { RenderEngine } from '@/class/RenderEngine'
-import { Color } from '@/entities/Color'
-import { Operation } from '@/entities/Operation'
-import { Source } from '@/entities/Source'
-import { Request } from '@/entities/Request'
-import { Extension } from '@/context/Extension.context'
-import { Locale } from '@/locales'
-import { ownsIndependentDetachedDataStore } from '@/context/detachedDataStore'
-import s from './styles/DetachedApp.module.css'
+	ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { Application } from "@/context/Application.context";
+import { Info } from "@/class/Info";
+import { App } from "@/entities/App";
+import { WindowBridge } from "@/lib/WindowBridge";
+import { DataStore } from "@/store/DataStore";
+import { Note } from "@/entities/Note";
+import { RenderEngine } from "@/class/RenderEngine";
+import { Color } from "@/entities/Color";
+import { Operation } from "@/entities/Operation";
+import { Source } from "@/entities/Source";
+import type { Context } from "@/entities/Context";
+import { Doc } from "@/entities/Doc";
+import { User } from "@/entities/User";
+import { Request } from "@/entities/Request";
+import { Extension } from "@/context/Extension.context";
+import { Locale } from "@/locales";
+import { ownsIndependentDetachedDataStore } from "@/context/detachedDataStore";
+import { applyDetachedThemeSnapshot } from "@/context/detachedTheme";
+import { SmartSocket } from "@/class/SmartSocket";
+import { Boundary } from "@/context/Boundary.context";
+import s from "./styles/DetachedApp.module.css";
+
+const ACTIVE_HEARTBEAT_MSEC = 30_000;
+const RECONNECT_HEARTBEAT_MSEC = 1_000;
+// Storage is recovery-only; let the normal coalesced private bootstrap arrive first.
+const STORAGE_BOOTSTRAP_FALLBACK_MSEC = 250;
+const EMPTY_EXTENSION_CONTEXT: Extension.Export = { extensions: {} };
+
+type DetachedPayloadDomain =
+	| "bootstrap"
+	| "context"
+	| "query"
+	| "rendered"
+	| "event"
+	| "assistant"
+	| "dialog"
+	| "theme";
 
 export namespace DetachedApp {
-  export interface ProviderProps {
-    /** Serialized snapshot of the main tab's app state */
-    initialApp?: App.Type
-    /** Initial notes data from DataStore */
-    initialNotes?: Note.Type[]
-    /** BroadcastChannel bridge ID (used to create a listener) */
-    bridgeId: string
-    /** The detached window's document, used for portal/selection APIs */
-    detachedDocument?: Document
-    /** Main window's spawnBanner — banners should open in the main window, not the detached one */
-    mainSpawnBanner?: (node: ReactNode, target?: string) => void
-    /** Whether timeline target changes in this detached window should update the main tab */
-    syncTimelineTargetToMain?: boolean
-    /** Children to render inside the provider */
-    children: ReactNode
-  }
+	export interface ProviderProps {
+		/** Optional initial state for opener-rendered popup roots. */
+		initialApp?: App.Type;
+		/** Stable detached-client identifier used for its private data channel. */
+		bridgeId: string;
+		/** Main-tab namespace that owns this detached client. */
+		coordinatorId: string;
+		/** Capability advertised to the main coordinator. */
+		kind: WindowBridge.DetachedClientKind;
+		/** Document that owns the detached React root. */
+		detachedDocument?: Document;
+		/** Main-window banner dispatcher used by opener-rendered roots. */
+		mainSpawnBanner?: (node: ReactNode, target?: string) => void;
+		/** Whether local timeline selections should update the main tab. */
+		syncTimelineTargetToMain?: boolean;
+		/** Whether an assistant plugin needs live main query/frame state. */
+		assistantQuerySyncEnabled?: boolean;
+		/** Whether this detached surface consumes dynamically loaded UI extensions. */
+		loadExtensions?: boolean;
+		/** Optional filename allow-list for a targeted plugin surface. */
+		extensionFilenames?: string[];
+		/** Optional extension mount slots consumed by this surface. */
+		extensionSlots?: Extension.Slot[];
+		children: ReactNode;
+	}
 }
 
 /**
- * Restores a detached source summary into the Source.Type shape expected by UI code.
- * @param source Serializable source summary received from WindowBridge.
- * @returns Source entity with bigint nanosecond timestamps restored.
+ * Restores a serializable source summary to the Source shape used by the UI.
  */
 function hydrateDetachedSource(
-  source: WindowBridge.DetachedSourceSummary,
+	source:
+		| WindowBridge.DetachedSourceSummary
+		| WindowBridge.DetachedNotesSourceSummary,
 ): Source.Type {
-  return {
-    ...source,
-    nanotimestamp: {
-      min: BigInt(source.nanotimestamp.min),
-      max: BigInt(source.nanotimestamp.max),
-    },
-  }
+	if (!("nanotimestamp" in source)) {
+		return {
+			...source,
+			plugin: "",
+			owner_user_id: "" as User.Id,
+			granted_user_ids: [],
+			granted_user_group_ids: [],
+			time_created: 0,
+			time_updated: null,
+			glyph_id: null as never,
+			pinned: false,
+			timestamp: { min: 0, max: 0 },
+			nanotimestamp: { min: 0n, max: 0n },
+			total: 0,
+			settings: {
+				offset: 0,
+				frequency_sample: 0,
+				...source.settings,
+			} as Source.Type["settings"],
+			_sampleDataCached: {
+				frequency_sample: 0,
+				min_timestamp: 0,
+				max_timestampe: 0,
+				sample_data: null,
+			},
+		};
+	}
+	return {
+		...source,
+		selected: true,
+		nanotimestamp: {
+			min: BigInt(source.nanotimestamp.min),
+			max: BigInt(source.nanotimestamp.max),
+		},
+	};
+}
+
+/**
+ * Restores a compact Notes context to the entity shape expected by app state.
+ */
+function hydrateDetachedContext(
+	context: Context.Type | WindowBridge.DetachedNotesContextSummary,
+): Context.Type {
+	if ("owner_user_id" in context) return context;
+	return {
+		...context,
+		owner_user_id: "" as User.Id,
+		granted_user_ids: [],
+		granted_user_group_ids: [],
+		time_created: 0,
+		time_updated: 0,
+		glyph_id: null as never,
+	};
+}
+
+/**
+ * Creates a deterministic signature for structured bridge data.
+ */
+function serializePayload(value: unknown): string {
+	return JSON.stringify(value, (_key, item) =>
+		typeof item === "bigint" ? item.toString() : item,
+	);
+}
+
+/**
+ * Applies operation, context, and selected-source state without discarding an
+ * opener-rendered dialog's event cache when the operation is unchanged.
+ */
+function applyContextSnapshot(
+	app: App.Type,
+	payload: WindowBridge.ContextSnapshotPayload,
+): App.Type {
+	const previousOperationId = Operation.Entity.selected(app)?.id;
+	const nextOperationId = payload.operation?.id;
+	const operationChanged = previousOperationId !== nextOperationId;
+	const user =
+		payload.user === undefined
+			? app.general.user
+			: payload.user === null
+				? null
+				: ({
+						...(app.general.user?.id === payload.user.id
+							? app.general.user
+							: {}),
+						id: payload.user.id,
+						user_data: {
+							...(app.general.user?.id === payload.user.id
+								? app.general.user.user_data
+								: {}),
+							...(payload.user.showPreview === undefined
+								? {}
+								: { show_preview: payload.user.showPreview }),
+						},
+					} as User.Type);
+
+	return {
+		...app,
+		general: {
+			...app.general,
+			user,
+		},
+		target: {
+			...app.target,
+			operations: payload.operation ? [payload.operation] : [],
+			contexts: payload.contexts.map(hydrateDetachedContext),
+			files: payload.sources.map(hydrateDetachedSource),
+			filters: operationChanged ? {} : app.target.filters,
+			events: operationChanged ? new Map() : app.target.events,
+		},
+		timeline: {
+			...app.timeline,
+			target: operationChanged ? null : app.timeline.target,
+		},
+	};
+}
+
+/**
+ * Applies synced query state to an app snapshot.
+ */
+function applyQueryContext(
+	app: App.Type,
+	payload: WindowBridge.QueryContextPayload,
+): App.Type {
+	return {
+		...app,
+		target: {
+			...app.target,
+			filters: payload.filters as App.Type["target"]["filters"],
+		},
+		timeline: {
+			...app.timeline,
+			frame: payload.frame,
+		},
+	};
 }
 
 export function DetachedAppProvider({
-  initialApp = App.Base,
-  initialNotes = [],
-  bridgeId,
-  detachedDocument = document,
-  mainSpawnBanner = () => { },
-  syncTimelineTargetToMain = true,
-  children,
+	initialApp = App.Base,
+	bridgeId,
+	coordinatorId,
+	kind,
+	detachedDocument = document,
+	mainSpawnBanner = () => {},
+	syncTimelineTargetToMain = false,
+	assistantQuerySyncEnabled = false,
+	loadExtensions = false,
+	extensionFilenames,
+	extensionSlots,
+	children,
 }: DetachedApp.ProviderProps) {
-  const [app, setRawInfo] = useState<App.Type>(initialApp)
-  const [banner, setBanner] = useState<{ node: ReactNode; target: string } | null>(null)
-  const [dialog, setDialog] = useState<ReactNode>(null)
-  const timeline = useRef<HTMLDivElement>(null as unknown as HTMLDivElement)
-  const [highlightsOverlay, setHighlightsOverlay] = useState<ReactNode>(null)
-  const [detachedStatus, setDetachedStatus] =
-    useState<WindowBridge.MainContextStatus>('initializing')
-  const [detachedContextVersion, setDetachedContextVersion] = useState(0)
-  const selectedOperationIdRef = useRef<Operation.Id | null | undefined>(null)
-  const selectedSourceIdsRef = useRef<Source.Id[] | null | undefined>(null)
-  const initialNotesRef = useRef(initialNotes)
-  const ownsIndependentDataStore = ownsIndependentDetachedDataStore(
-    detachedDocument,
-    window,
-  )
+	const [app, setRawInfo] = useState<App.Type>(initialApp);
+	const [banner, setBanner] = useState<{
+		node: ReactNode;
+		target: string;
+	} | null>(null);
+	const [dialog, setDialog] = useState<ReactNode>(null);
+	const timeline = useRef<HTMLDivElement>(null as unknown as HTMLDivElement);
+	const [highlightsOverlay, setHighlightsOverlay] = useState<ReactNode>(null);
+	const [detachedStatus, setDetachedStatus] =
+		useState<WindowBridge.MainContextStatus>("initializing");
+	const detachedStatusRef = useRef(detachedStatus);
+	detachedStatusRef.current = detachedStatus;
+	const [detachedTableSourceCommand, setDetachedTableSourceCommand] = useState<{
+		sourceId: Source.Id | null;
+		revision: number;
+	}>({ sourceId: null, revision: 0 });
+	const [detachedSelectedEventId, setDetachedSelectedEventId] =
+		useState<Doc.Id | null>(initialApp.timeline.target?._id ?? null);
+	const [detachedDialog, setDetachedDialog] =
+		useState<WindowBridge.DetachedDialogDescriptor | null>(null);
+	const [detachedDialogEventColors, setDetachedDialogEventColors] =
+		useState<Partial<Record<Doc.Id, string>>>({});
+	const [detachedDialogNavigation, setDetachedDialogNavigation] =
+		useState<WindowBridge.DetachedDialogNavigation | null>(null);
+	const [awaitingBootstrap, setAwaitingBootstrap] = useState(true);
+	const awaitingBootstrapRef = useRef(awaitingBootstrap);
+	awaitingBootstrapRef.current = awaitingBootstrap;
+	const selectedOperationIdRef = useRef<Operation.Id | null>(null);
+	const selectedSourceIdsRef = useRef<Source.Id[]>([]);
+	const controlBridgeRef = useRef<WindowBridge.Bridge | null>(null);
+	const privateBridgeRef = useRef<WindowBridge.Bridge | null>(null);
+	const tableSyncEnabledRef = useRef(false);
+	const notesRenderedSyncEnabledRef = useRef(false);
+	const assistantConnectionRef = useRef<{
+		mainWsId: string | null;
+		detachedWsId: string;
+	}>({
+		mainWsId: null,
+		detachedWsId: WindowBridge.generateId(),
+	});
+	const payloadSignaturesRef = useRef<
+		Partial<Record<DetachedPayloadDomain, string>>
+	>({});
+	const appliedThemeVariablesRef = useRef<Set<string>>(new Set());
+	const suppressOutboundEventIdRef = useRef<Doc.Id | null | undefined>(
+		undefined,
+	);
+	const ownsIndependentDataStore = ownsIndependentDetachedDataStore(
+		detachedDocument,
+		window,
+	);
 
-  /**
-   * Hydrates notes only for standalone detached routes with their own module realm.
-   * Opener-rendered popup roots already share the main canonical DataStore.
-   */
-  useEffect(() => {
-    if (!ownsIndependentDataStore) return
-    DataStore.replaceNotes(initialNotesRef.current, 'deferred')
-  }, [ownsIndependentDataStore])
+	/**
+	 * The loading maps are kept outside React so concurrent Info updates cannot
+	 * overwrite a request that is still running.
+	 */
+	const loadingsRef = useRef<{
+		byRequestId: Map<Request.Id, Source.Id>;
+		byFileId: Map<Source.Id, Request.Id>;
+	}>({
+		byRequestId: new Map(),
+		byFileId: new Map(),
+	});
 
-  /**
-   * Authoritative loadings ref — prevents loading maps from being lost
-   * to concurrent state interleaving between setLoading, events_reset_in_file,
-   * and other setInfoByKey calls during the refetch flow.
-   *
-   * This ref is the single source of truth for which sources are currently loading.
-   * It is updated BEFORE the React state and re-applied AFTER every state update.
-   */
-  const loadingsRef = useRef<{
-    byRequestId: Map<Request.Id, Source.Id>;
-    byFileId: Map<Source.Id, Request.Id>;
-  }>({
-    byRequestId: new Map(),
-    byFileId: new Map(),
-  })
+	const setInfo = useCallback((action: React.SetStateAction<App.Type>) => {
+		setRawInfo((previous) => {
+			const next =
+				typeof action === "function" ? action(previous) : action;
+			return {
+				...next,
+				general: {
+					...next.general,
+					loadings: {
+						byRequestId: new Map(loadingsRef.current.byRequestId),
+						byFileId: new Map(loadingsRef.current.byFileId),
+					},
+				},
+			};
+		});
+	}, []);
 
-  /**
-   * Wrapped setInfo that re-applies authoritative loadings after every state update.
-   * This ensures that concurrent setInfoByKey calls (e.g. from events_reset_in_file)
-   * cannot overwrite the loading maps set by setLoading.
-   */
-  const setInfo = useCallback(
-    (action: React.SetStateAction<App.Type>) => {
-      setRawInfo((prev) => {
-        const next = typeof action === 'function' ? action(prev) : action
-        // Re-apply authoritative loadings to prevent state interleaving
-        return {
-          ...next,
-          general: {
-            ...next.general,
-            loadings: {
-              byRequestId: new Map(loadingsRef.current.byRequestId),
-              byFileId: new Map(loadingsRef.current.byFileId),
-            },
-          },
-        }
-      })
-    },
-    []
-  )
+	const infoRef = useRef<Info | null>(null);
+	if (!infoRef.current) {
+		infoRef.current = new Info({ app, setInfo, timeline });
+	} else {
+		infoRef.current.app = app;
+		infoRef.current.setInfo = setInfo;
+	}
+	const instance = infoRef.current;
 
-  // Create a stable Info instance for the detached window
-  const infoRef = useRef<Info | null>(null)
-  if (!infoRef.current) {
-    infoRef.current = new Info({ app, setInfo, timeline })
-  } else {
-    infoRef.current.app = app
-    infoRef.current.setInfo = setInfo
-  }
-  const instance = infoRef.current
+	/**
+	 * Maps the main connection identity to a socket ID owned by this detached
+	 * browser realm. The backend permits only one socket per ID, so reusing the
+	 * main tab's ID here would evict its socket. A changed main ID is treated as
+	 * a new authenticated connection epoch and rotates the detached ID.
+	 */
+	const getAssistantSocketId = useCallback(
+		(mainWsId: string): string => {
+			if (kind !== "assistant") return mainWsId;
 
-  /**
-   * Patch setLoading/delLoading on the detached Info instance to keep
-   * the authoritative loadingsRef in sync. This ensures the loading
-   * state persists across concurrent React state updates.
-   */
-  if (!(infoRef.current as any)._detachedPatched) {
-    const origSetLoading = instance.setLoading.bind(instance)
-    instance.setLoading = (reqId: Request.Id, fileId: Source.Id) => {
-      loadingsRef.current.byRequestId.set(reqId, fileId)
-      loadingsRef.current.byFileId.set(fileId, reqId)
-      origSetLoading(reqId, fileId)
-    }
+			if (assistantConnectionRef.current.mainWsId !== mainWsId) {
+				assistantConnectionRef.current = {
+					mainWsId,
+					detachedWsId: WindowBridge.generateId(),
+				};
+			}
+			return assistantConnectionRef.current.detachedWsId;
+		},
+		[kind],
+	);
 
-    const origDelLoading = instance.delLoading.bind(instance)
-    instance.delLoading = (reqId: Request.Id) => {
-      loadingsRef.current.byRequestId.delete(reqId)
-      const fileId = [...loadingsRef.current.byFileId.entries()]
-        .find(([, v]) => v === reqId)?.[0]
-      if (fileId) loadingsRef.current.byFileId.delete(fileId)
-      origDelLoading(reqId)
-    }
+	if (!(instance as Info & { _detachedPatched?: boolean })._detachedPatched) {
+		const originalSetLoading = instance.setLoading.bind(instance);
+		instance.setLoading = (requestId: Request.Id, sourceId: Source.Id) => {
+			loadingsRef.current.byRequestId.set(requestId, sourceId);
+			loadingsRef.current.byFileId.set(sourceId, requestId);
+			originalSetLoading(requestId, sourceId);
+		};
 
-    ;(infoRef.current as any)._detachedPatched = true
-  }
+		const originalDelLoading = instance.delLoading.bind(instance);
+		instance.delLoading = (requestId: Request.Id) => {
+			loadingsRef.current.byRequestId.delete(requestId);
+			const sourceId = [...loadingsRef.current.byFileId.entries()].find(
+				([, loadingRequestId]) => loadingRequestId === requestId,
+			)?.[0];
+			if (sourceId) loadingsRef.current.byFileId.delete(sourceId);
+			originalDelLoading(requestId);
+		};
 
-  /**
-   * Applies a main-tab lifecycle status received from either BroadcastChannel
-   * or the localStorage replay fallback.
-   *
-   * @param payload - Lifecycle status payload from the main tab.
-   * @returns Nothing.
-   */
-  const applyMainContextStatus = useCallback((
-    payload: WindowBridge.MainContextStatusPayload,
-  ) => {
-    const { status, contextVersion } = payload
-    setDetachedStatus(status)
-    setDetachedContextVersion(contextVersion)
-  }, [])
+		(instance as Info & { _detachedPatched?: boolean })._detachedPatched =
+			true;
+	}
 
-  /**
-   * Applies a main-tab app snapshot received from either BroadcastChannel or
-   * the localStorage replay fallback.
-   *
-   * @param payload - App snapshot payload from the main tab.
-   * @returns Nothing.
-   */
-  const applyAppSnapshot = useCallback((
-    payload: WindowBridge.AppSnapshotPayload,
-  ) => {
-    const { selectedSourceIds, renderedSourceIds } = payload
-    const { frame, filter, renderVersion } = payload.timeline
-    selectedOperationIdRef.current = payload.operationId
-    selectedSourceIdsRef.current = selectedSourceIds
+	/**
+	 * Applies theme identity, mode, and computed custom properties to the
+	 * detached document. Returns false for an identical replay.
+	 */
+	const applyTheme = useCallback(
+		(payload: WindowBridge.ThemeChangePayload): boolean => {
+			const signature = serializePayload(payload);
+			if (payloadSignaturesRef.current.theme === signature) return false;
+			payloadSignaturesRef.current.theme = signature;
 
-    setInfo(prev => {
-      const files = payload.sources.map((source) => {
-        const file = hydrateDetachedSource(source)
-        return {
-          ...file,
-          selected: selectedSourceIds.includes(file.id),
-        }
-      })
+			appliedThemeVariablesRef.current = applyDetachedThemeSnapshot(
+				detachedDocument,
+				payload,
+				appliedThemeVariablesRef.current,
+			);
+			Color.Themer.setTheme(payload.mode);
+			return true;
+		},
+		[detachedDocument],
+	);
 
-      return {
-        ...prev,
-        target: {
-          ...prev.target,
-          operations: payload.operations,
-          contexts: payload.contexts,
-          files,
-          filters: payload.filters as App.Type['target']['filters'],
-          events: new Map(),
-        },
-        timeline: {
-          ...prev.timeline,
-          frame,
-          filter,
-          renderVersion,
-          renderedSourceIds,
-        },
-        hidden: payload.hidden,
-      }
-    })
-  }, [setInfo])
+	const applyNotesChanged = useCallback(
+		(payload: WindowBridge.NotesChangedPayload): void => {
+			if (kind !== "notes" || !ownsIndependentDataStore) return;
+			DataStore.replaceNotes(payload.notes, "deferred");
+			Note.Entity.invalidateCache();
+			RenderEngine.reset("notes");
+			const operationId =
+				payload.operationId ?? selectedOperationIdRef.current;
+			if (operationId) DataStore.publishNotesSnapshotReady(operationId);
+		},
+		[kind, ownsIndependentDataStore],
+	);
 
-  /**
-   * Applies a selected timeline event replayed by the main tab.
-   *
-   * @param payload - Selected event payload.
-   * @returns Nothing.
-   */
-  const applyEventSelected = useCallback((
-    payload: WindowBridge.EventSelectedPayload,
-  ) => {
-    const { event } = payload
-    setInfo(prev => ({
-      ...prev,
-      timeline: {
-        ...prev.timeline,
-        target: event
-      }
-    }))
-  }, [setInfo])
+	const applyNotesDelta = useCallback(
+		(payload: WindowBridge.NotesDeltaPayload): void => {
+			if (kind !== "notes" || !ownsIndependentDataStore) return;
+			if (payload.operationId !== selectedOperationIdRef.current) return;
 
-  /**
-   * Applies a notes snapshot from the main tab to this detached DataStore.
-   *
-   * @param payload - Current selected-source notes from the main tab.
-   * @returns Nothing.
-   */
-  const applyNotesChanged = useCallback((
-    payload: WindowBridge.NotesChangedPayload,
-  ) => {
-    if (!ownsIndependentDataStore) return
-    DataStore.replaceNotes(payload.notes, 'deferred')
-    Note.Entity.invalidateCache()
-    RenderEngine.reset('notes')
-    const operationId = payload.operationId ?? selectedOperationIdRef.current
-    if (operationId) DataStore.publishNotesSnapshotReady(operationId)
-  }, [ownsIndependentDataStore])
+			if (payload.mutation === "delete") {
+				const deletedNotes = DataStore.deleteNotes(
+					payload.noteIds,
+					"deferred",
+				);
+				const affectedSourceIds = new Set<Source.Id>();
+				deletedNotes.forEach((note) => {
+					const sourceId = Note.Entity.sourceId(note);
+					if (sourceId) affectedSourceIds.add(sourceId);
+				});
+				Note.Entity.removeIndexedNotes(deletedNotes);
+				affectedSourceIds.forEach((sourceId) =>
+					RenderEngine.resetSourceNotes(sourceId),
+				);
+			} else {
+				const selectedSourceIds = new Set(selectedSourceIdsRef.current);
+				const selectedSourceNotes = payload.notes.filter((note) => {
+					const sourceId = Note.Entity.sourceId(note);
+					return !!sourceId && selectedSourceIds.has(sourceId);
+				});
+				instance.notes_upsert_from_collab(selectedSourceNotes);
+			}
 
-  /**
-   * Applies one realtime note delta and republishes its semantic change locally.
-   *
-   * @param payload - Sequenced create, update, or delete delta from the main tab.
-   * @returns Nothing.
-   */
-  const applyNotesDelta = useCallback((
-    payload: WindowBridge.NotesDeltaPayload,
-  ) => {
-    if (!ownsIndependentDataStore) return
-    if (payload.operationId !== selectedOperationIdRef.current) return
+			DataStore.relayNotesRealtimeDelta(payload);
+		},
+		[instance, kind, ownsIndependentDataStore],
+	);
 
-    if (payload.mutation === 'delete') {
-      const deletedNotes = DataStore.deleteNotes(payload.noteIds, 'deferred')
-      const affectedSourceIds = new Set<Source.Id>()
-      deletedNotes.forEach((note) => {
-        const sourceId = Note.Entity.sourceId(note)
-        if (sourceId) affectedSourceIds.add(sourceId)
-      })
-      Note.Entity.removeIndexedNotes(deletedNotes)
-      affectedSourceIds.forEach((sourceId) => RenderEngine.resetSourceNotes(sourceId))
-    } else {
-      const selectedSourceIds = new Set(selectedSourceIdsRef.current ?? [])
-      const selectedSourceNotes = payload.notes.filter((note) => {
-        const sourceId = Note.Entity.sourceId(note)
-        return !!sourceId && selectedSourceIds.has(sourceId)
-      })
-      instance.notes_upsert_from_collab(selectedSourceNotes)
-    }
+	const applyDialogChanged = useCallback(
+		(payload: WindowBridge.DialogChangedPayload): void => {
+			if (kind !== "dialog") return;
+			const signature = serializePayload(payload);
+			if (payloadSignaturesRef.current.dialog === signature) return;
+			payloadSignaturesRef.current.dialog = signature;
 
-    DataStore.relayNotesRealtimeDelta(payload)
-  }, [instance, ownsIndependentDataStore])
+			if (ownsIndependentDataStore) {
+				Doc.Entity.clearIndex();
+				DataStore.events.clear();
+				if (payload.events.length > 0) {
+					Doc.Entity.add(instance.app, payload.events);
+				}
+				DataStore.replaceNotes(payload.notes, "deferred");
+				DataStore.replaceLinks(payload.links, "deferred");
+				Note.Entity.invalidateCache();
+				RenderEngine.reset("notes");
+				RenderEngine.reset("links");
+			}
 
-  // Listen for incoming BroadcastChannel messages from the main tab
-  useEffect(() => {
-    const bridge = WindowBridge.create(bridgeId, (message) => {
-      switch (message.type) {
-        case WindowBridge.MessageType.THEME_CHANGE: {
-          const { theme } = message.payload as WindowBridge.ThemeChangePayload
-          // Set data-theme attribute; full CSS variable sync is handled by
-          // direct DOM access via applyThemeToWindow in Navigator.tsx
-          const targetRoot = document.documentElement
-          if (!targetRoot) {
-            break
-          }
-          targetRoot.setAttribute('data-theme', theme)
-          Color.Themer.setTheme(theme as any)
-          // Trigger re-render to pick up new colors from getTargetGuideColor()
-          setInfo(prev => ({
-            ...prev,
-            timeline: {
-              ...prev.timeline,
-              renderVersion: prev.timeline.renderVersion + 1,
-            },
-          }))
-          break
-        }
-        case WindowBridge.MessageType.APP_SNAPSHOT: {
-          applyAppSnapshot(message.payload as WindowBridge.AppSnapshotPayload)
-          break
-        }
-        case WindowBridge.MessageType.NOTES_CHANGED: {
-          applyNotesChanged(message.payload as WindowBridge.NotesChangedPayload)
-          break
-        }
-        case WindowBridge.MessageType.NOTES_DELTA: {
-          applyNotesDelta(message.payload as WindowBridge.NotesDeltaPayload)
-          break
-        }
-        case WindowBridge.MessageType.MAIN_CONTEXT_STATUS: {
-          applyMainContextStatus(message.payload as WindowBridge.MainContextStatusPayload)
-          break
-        }
-        case WindowBridge.MessageType.EVENT_SELECTED: {
-          applyEventSelected(message.payload as WindowBridge.EventSelectedPayload)
-          break
-        }
-      }
-    })
+			const selectedEvent =
+				payload.dialog?.kind === "event"
+					? payload.dialog.event
+					: null;
+			const selectedEventId = selectedEvent?._id ?? null;
+			suppressOutboundEventIdRef.current = selectedEventId;
+			setDetachedSelectedEventId(selectedEventId);
+			setDetachedDialog(payload.dialog);
+			setDetachedDialogEventColors(payload.eventColors);
+			setDetachedDialogNavigation(payload.navigation);
+			setDialog(null);
+			setInfo((previous) => ({
+				...previous,
+				timeline: {
+					...previous.timeline,
+					target: selectedEvent,
+					renderVersion: previous.timeline.renderVersion + 1,
+				},
+			}));
+		},
+		[instance, kind, ownsIndependentDataStore, setInfo],
+	);
 
-    return () => {
-      bridge.destroy()
-    }
-  }, [
-    applyAppSnapshot,
-    applyEventSelected,
-    applyMainContextStatus,
-    applyNotesChanged,
-    applyNotesDelta,
-    bridgeId,
-  ])
+	/**
+	 * Applies an atomic first-state replay before exposing detached content.
+	 */
+	const applyBootstrap = useCallback(
+		(payload: WindowBridge.DetachedBootstrapPayload): void => {
+			const signature = serializePayload(payload);
+			if (payloadSignaturesRef.current.bootstrap === signature) {
+				awaitingBootstrapRef.current = false;
+				detachedStatusRef.current = payload.status;
+				setAwaitingBootstrap(false);
+				setDetachedStatus(payload.status);
+				return;
+			}
+			payloadSignaturesRef.current.bootstrap = signature;
+			const themeChanged = applyTheme(payload.theme);
 
-  useEffect(() => {
-    /**
-     * Applies the last stored main-context replay when BroadcastChannel delivery
-     * was missed during login redirects or page reloads.
-     *
-     * @returns Nothing.
-     */
-    const applyStoredReplay = () => {
-      const replay = WindowBridge.readStoredMainContext()
-      if (!replay) return
+			if (payload.context) {
+				selectedOperationIdRef.current = payload.context.operation?.id ?? null;
+				selectedSourceIdsRef.current = payload.context.sources.map(
+					(source) => source.id,
+				);
+				payloadSignaturesRef.current.context = serializePayload(
+					payload.context,
+				);
+			}
+			if (payload.queryContext) {
+				payloadSignaturesRef.current.query = serializePayload(
+					payload.queryContext,
+				);
+			}
+			if (payload.renderedSourceIds) {
+				payloadSignaturesRef.current.rendered = serializePayload(
+					payload.renderedSourceIds,
+				);
+			}
 
-      applyMainContextStatus(replay.status)
-      if (replay.snapshot) applyAppSnapshot(replay.snapshot)
-    }
+			const selectedEventId = payload.selectedEventId;
+			if (selectedEventId !== undefined) {
+				payloadSignaturesRef.current.event =
+					serializePayload(selectedEventId);
+				suppressOutboundEventIdRef.current = selectedEventId;
+				setDetachedSelectedEventId(selectedEventId);
+			}
+			if (payload.wsId !== undefined) {
+				payloadSignaturesRef.current.assistant =
+					serializePayload(payload.wsId);
+			}
+			setInfo((previous) => {
+				let next = previous;
+				if (payload.context) {
+					next = applyContextSnapshot(next, payload.context);
+				}
+				if (payload.queryContext) {
+					next = applyQueryContext(next, payload.queryContext);
+				}
+				if (payload.renderedSourceIds) {
+					next = {
+						...next,
+						timeline: {
+							...next.timeline,
+							renderedSourceIds: payload.renderedSourceIds,
+						},
+					};
+				}
+				if (payload.wsId !== undefined) {
+					next = {
+						...next,
+						general: {
+							...next.general,
+							ws_id: getAssistantSocketId(payload.wsId),
+						},
+					};
+				}
+				if (themeChanged) {
+					next = {
+						...next,
+						timeline: {
+							...next.timeline,
+							renderVersion: next.timeline.renderVersion + 1,
+						},
+					};
+				}
+				return next;
+			});
 
-    applyStoredReplay()
+			if (payload.tableSourceId) {
+				setDetachedTableSourceCommand((previous) => ({
+					sourceId: payload.tableSourceId!,
+					revision: previous.revision + 1,
+				}));
+			}
+			if (payload.notes) applyNotesChanged(payload.notes);
+			if (payload.dialog) applyDialogChanged(payload.dialog);
+			awaitingBootstrapRef.current = false;
+			detachedStatusRef.current = payload.status;
+			setAwaitingBootstrap(false);
+			setDetachedStatus(payload.status);
+		},
+		[
+			applyDialogChanged,
+			applyNotesChanged,
+			applyTheme,
+			getAssistantSocketId,
+			setInfo,
+		],
+	);
 
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== WindowBridge.getMainContextStorageKey()) return
-      applyStoredReplay()
-    }
+	const applyContext = useCallback(
+		(payload: WindowBridge.ContextSnapshotPayload): void => {
+			const signature = serializePayload(payload);
+			if (payloadSignaturesRef.current.context === signature) return;
+			payloadSignaturesRef.current.context = signature;
+			selectedOperationIdRef.current = payload.operation?.id ?? null;
+			selectedSourceIdsRef.current = payload.sources.map(
+				(source) => source.id,
+			);
+			setInfo((previous) => applyContextSnapshot(previous, payload));
+		},
+		[setInfo],
+	);
 
-    window.addEventListener('storage', handleStorage)
-    return () => window.removeEventListener('storage', handleStorage)
-  }, [applyAppSnapshot, applyEventSelected, applyMainContextStatus])
+	const applyQuery = useCallback(
+		(payload: WindowBridge.QueryContextPayload): void => {
+			const signature = serializePayload(payload);
+			if (payloadSignaturesRef.current.query === signature) return;
+			payloadSignaturesRef.current.query = signature;
+			setInfo((previous) => applyQueryContext(previous, payload));
+		},
+		[setInfo],
+	);
 
-  // Reactively fetch new sources/contexts when the selected operation changes.
-  // This avoids sending large source lists over BroadcastChannel (APP_SNAPSHOT).
-  const selectedOperationId = app.target.operations.find(o => o.selected)?.id
-  const prevOperationIdRef = useRef<string | null | undefined>(undefined)
+	const applyRenderedSources = useCallback(
+		(payload: WindowBridge.RenderedSourcesChangedPayload): void => {
+			const signature = serializePayload(payload.sourceIds);
+			if (payloadSignaturesRef.current.rendered === signature) return;
+			payloadSignaturesRef.current.rendered = signature;
+			setInfo((previous) => ({
+				...previous,
+				timeline: {
+					...previous.timeline,
+					renderedSourceIds: payload.sourceIds,
+				},
+			}));
+		},
+		[setInfo],
+	);
 
-  useEffect(() => {
-    if (selectedOperationId && prevOperationIdRef.current !== undefined && selectedOperationId !== prevOperationIdRef.current) {
-      // Operation changed and it's not the initial mount -> sync fresh data from server
-      instance.sync().then(() => {
-        // Apply selection status after sync finishes
-        if (selectedSourceIdsRef.current) {
-          setInfo(prev => ({
-            ...prev,
-            target: {
-              ...prev.target,
-              files: prev.target.files.map((f: Source.Type) => ({
-                ...f,
-                selected: selectedSourceIdsRef.current!.includes(f.id)
-              }))
-            }
-          }))
-        }
-      }).catch(err => console.error('Failed to sync detached app', err))
-    }
-    if (selectedOperationId) {
-      prevOperationIdRef.current = selectedOperationId
-    }
-  }, [selectedOperationId, instance])
+	// Open the private channel before registering on the control channel.
+	useEffect(() => {
+		const bridge = WindowBridge.createClient(bridgeId, bridgeId, (message) => {
+			switch (message.type) {
+				case WindowBridge.MessageType.DETACHED_BOOTSTRAP:
+					applyBootstrap(
+						message.payload as WindowBridge.DetachedBootstrapPayload,
+					);
+					break;
+				case WindowBridge.MessageType.CONTEXT_SNAPSHOT:
+					applyContext(
+						message.payload as WindowBridge.ContextSnapshotPayload,
+					);
+					break;
+				case WindowBridge.MessageType.QUERY_CONTEXT:
+					applyQuery(message.payload as WindowBridge.QueryContextPayload);
+					break;
+				case WindowBridge.MessageType.RENDERED_SOURCES_CHANGED:
+					applyRenderedSources(
+						message.payload as WindowBridge.RenderedSourcesChangedPayload,
+					);
+					break;
+				case WindowBridge.MessageType.EVENT_TARGET_CHANGED: {
+					const { docId } =
+						message.payload as WindowBridge.EventTargetChangedPayload;
+					payloadSignaturesRef.current.event = serializePayload(docId);
+					setDetachedSelectedEventId(docId);
+					break;
+				}
+				case WindowBridge.MessageType.ASSISTANT_CONNECTION_CHANGED: {
+					const { wsId } =
+						message.payload as WindowBridge.AssistantConnectionChangedPayload;
+					const signature = serializePayload(wsId);
+					if (payloadSignaturesRef.current.assistant === signature) break;
+					payloadSignaturesRef.current.assistant = signature;
+					const detachedWsId = getAssistantSocketId(wsId);
+					setInfo((previous) => ({
+						...previous,
+						general: {
+							...previous.general,
+							ws_id: detachedWsId,
+						},
+					}));
+					break;
+				}
+				case WindowBridge.MessageType.DIALOG_CHANGED:
+					applyDialogChanged(
+						message.payload as WindowBridge.DialogChangedPayload,
+					);
+					break;
+				case WindowBridge.MessageType.THEME_CHANGE: {
+					const themeChanged = applyTheme(
+						message.payload as WindowBridge.ThemeChangePayload,
+					);
+					if (themeChanged) {
+						setInfo((previous) => ({
+							...previous,
+							timeline: {
+								...previous.timeline,
+								renderVersion: previous.timeline.renderVersion + 1,
+							},
+						}));
+					}
+					break;
+				}
+				case WindowBridge.MessageType.NOTES_CHANGED:
+					applyNotesChanged(
+						message.payload as WindowBridge.NotesChangedPayload,
+					);
+					break;
+				case WindowBridge.MessageType.NOTES_DELTA:
+					applyNotesDelta(
+						message.payload as WindowBridge.NotesDeltaPayload,
+					);
+					break;
+				case WindowBridge.MessageType.MAIN_CONTEXT_STATUS: {
+					const payload =
+						message.payload as WindowBridge.MainContextStatusPayload;
+					const reconnectRequired = payload.reconnectRequired === true;
+					awaitingBootstrapRef.current = reconnectRequired;
+					detachedStatusRef.current = payload.status;
+					setAwaitingBootstrap(reconnectRequired);
+					setDetachedStatus(payload.status);
+					break;
+				}
+				case WindowBridge.MessageType.TABLE_SELECT_SOURCE:
+					setDetachedTableSourceCommand((previous) => ({
+						sourceId: (
+							message.payload as WindowBridge.TableSelectSourcePayload
+						).sourceId,
+						revision: previous.revision + 1,
+					}));
+					break;
+			}
+		}, coordinatorId);
+		privateBridgeRef.current = bridge;
+		const unregisterPrivateActionSender =
+			WindowBridge.registerPrivateActionSender(coordinatorId, bridge);
 
-  const destroyBanner = useCallback(() => {
-    setBanner(null)
-    detachedDocument.body.classList.remove('no-scroll')
-  }, [detachedDocument])
+		return () => {
+			unregisterPrivateActionSender();
+			bridge.destroy();
+			if (privateBridgeRef.current === bridge) {
+				privateBridgeRef.current = null;
+			}
+		};
+	}, [
+		applyBootstrap,
+		applyContext,
+		applyDialogChanged,
+		applyNotesChanged,
+		applyNotesDelta,
+		applyQuery,
+		applyRenderedSources,
+		applyTheme,
+		bridgeId,
+		coordinatorId,
+		getAssistantSocketId,
+		setInfo,
+	]);
 
-  const spawnBanner = useCallback((node: ReactNode, target: string = 'main') => {
-    if (!node) {
-      setBanner(null)
-      detachedDocument.body.classList.remove('no-scroll')
-      return
-    }
+	const createReadyPayload = useCallback(
+		(needsBootstrap: boolean): WindowBridge.DetachedReadyPayload => ({
+			kind,
+			needsBootstrap,
+			...(kind === "table"
+				? { tableSyncEnabled: tableSyncEnabledRef.current }
+				: {}),
+			...(kind === "notes"
+				? {
+						notesRenderedSyncEnabled:
+							notesRenderedSyncEnabledRef.current,
+					}
+				: {}),
+			...(kind === "assistant"
+				? {
+						assistantQuerySyncEnabled,
+					}
+				: {}),
+		}),
+		[
+			assistantQuerySyncEnabled,
+			kind,
+		],
+	);
 
-    if (target === 'table' || target === 'main') {
-      setBanner({ node, target })
-      detachedDocument.body.classList.add('no-scroll')
-      return
-    }
+	const sendReady = useCallback((needsBootstrap?: boolean): void => {
+		const requestBootstrap =
+			needsBootstrap ?? awaitingBootstrapRef.current;
+		const bridge = requestBootstrap
+			? controlBridgeRef.current
+			: privateBridgeRef.current ?? controlBridgeRef.current;
+		bridge?.send(
+			WindowBridge.MessageType.DETACHED_READY,
+			createReadyPayload(requestBootstrap),
+		);
+	}, [
+		createReadyPayload,
+	]);
 
-    mainSpawnBanner(node, target)
-  }, [detachedDocument, mainSpawnBanner])
+	const sendHeartbeat = useCallback((): void => {
+		privateBridgeRef.current?.send(
+			WindowBridge.MessageType.DETACHED_HEARTBEAT,
+			{},
+		);
+	}, []);
 
-  const spawnDialog = useCallback((dialog: ReactNode) => {
-    setDialog(dialog)
-  }, [])
+	useEffect(() => {
+		const bridge = WindowBridge.create(bridgeId, () => {}, coordinatorId);
+		controlBridgeRef.current = bridge;
+		bridge.send(
+			WindowBridge.MessageType.DETACHED_READY,
+			createReadyPayload(true),
+		);
 
-  const outboundBridgeRef = useRef<ReturnType<typeof WindowBridge.create> | null>(null)
-  useEffect(() => {
-    const sendId = WindowBridge.generateId()
-    const bridge = WindowBridge.create(sendId, () => { })
-    outboundBridgeRef.current = bridge
-    bridge.send(WindowBridge.MessageType.DETACHED_READY, { windowId: bridgeId })
-    return () => {
-      outboundBridgeRef.current?.destroy()
-      outboundBridgeRef.current = null
-    }
-  }, [bridgeId])
+		return () => {
+			bridge.send(WindowBridge.MessageType.DETACHED_CLOSED, {});
+			bridge.destroy();
+			controlBridgeRef.current = null;
+		};
+	}, [
+		assistantQuerySyncEnabled,
+		bridgeId,
+		coordinatorId,
+		createReadyPayload,
+		kind,
+		setInfo,
+	]);
 
-  useEffect(() => {
-    if (detachedStatus === 'active') return
+	useEffect(() => {
+		if (
+			detachedStatus === "idle" ||
+			detachedStatus === "auth_lost"
+		) {
+			return;
+		}
+		if (!awaitingBootstrap && detachedStatus !== "active") return;
+		const interval = window.setInterval(
+			awaitingBootstrap
+				? () => sendReady(true)
+				: sendHeartbeat,
+			awaitingBootstrap
+				? RECONNECT_HEARTBEAT_MSEC
+				: ACTIVE_HEARTBEAT_MSEC,
+		);
+		return () => window.clearInterval(interval);
+	}, [awaitingBootstrap, detachedStatus, sendHeartbeat, sendReady]);
 
-    const interval = window.setInterval(() => {
-      outboundBridgeRef.current?.send(WindowBridge.MessageType.DETACHED_READY, {
-        windowId: bridgeId,
-      })
-    }, 1000)
+	/**
+	 * Owns a websocket only for routed assistant clients. Other detached kinds
+	 * stay bridge-driven and therefore add no backend connections. Rotating the
+	 * detached-local ID tears down the previous singleton before creating the
+	 * replacement used by assistant API requests and stream listeners.
+	 */
+	useEffect(() => {
+		if (
+			kind !== "assistant" ||
+			detachedStatus !== "active" ||
+			assistantConnectionRef.current.mainWsId === null
+		) {
+			return;
+		}
 
-    return () => window.clearInterval(interval)
-  }, [bridgeId, detachedStatus])
+		const socket = new SmartSocket.Class(app.general.ws_id);
+		return () => socket.destroy();
+	}, [app.general.ws_id, detachedStatus, kind]);
 
-  // Sync timeline target selection back to the main window so the canvas crosshair updates.
-  // Use _id as dep to avoid re-firing when the same event is echoed back as a new object ref.
-  useEffect(() => {
-    if (!syncTimelineTargetToMain) return
-    outboundBridgeRef.current?.send(WindowBridge.MessageType.EVENT_SELECTED, {
-      event: app.timeline.target ?? null,
-    })
-  }, [app.timeline.target?._id, syncTimelineTargetToMain])
+	useEffect(() => {
+		let bootstrapFallbackTimeoutId: number | null = null;
 
-  const setDockedState = useCallback(() => {
-    outboundBridgeRef.current?.send(WindowBridge.MessageType.DOCK_DIALOG, {})
-  }, [])
+		const cancelBootstrapFallback = (): void => {
+			if (bootstrapFallbackTimeoutId === null) return;
+			window.clearTimeout(bootstrapFallbackTimeoutId);
+			bootstrapFallbackTimeoutId = null;
+		};
 
-  useEffect(() => {
-    if (detachedStatus === 'active') return
+		const applyStoredStatus = (requestActiveBootstrap: boolean): void => {
+			const replay = WindowBridge.readStoredMainContext(coordinatorId);
+			if (!replay) return;
+			if (replay.status.status === "active") {
+				if (requestActiveBootstrap) {
+					if (
+						detachedStatusRef.current === "active" &&
+						!awaitingBootstrapRef.current
+					) {
+						return;
+					}
+					cancelBootstrapFallback();
+					bootstrapFallbackTimeoutId = window.setTimeout(() => {
+						bootstrapFallbackTimeoutId = null;
+						if (
+							detachedStatusRef.current === "active" &&
+							!awaitingBootstrapRef.current
+						) {
+							return;
+						}
+						awaitingBootstrapRef.current = true;
+						setAwaitingBootstrap(true);
+						sendReady(true);
+					}, STORAGE_BOOTSTRAP_FALLBACK_MSEC);
+				}
+				return;
+			}
+			cancelBootstrapFallback();
+			const reconnectRequired =
+				replay.status.reconnectRequired === true;
+			awaitingBootstrapRef.current = reconnectRequired;
+			detachedStatusRef.current = replay.status.status;
+			setAwaitingBootstrap(reconnectRequired);
+			setDetachedStatus(replay.status.status);
+		};
+		const handleStorage = (event: StorageEvent): void => {
+			if (event.key === Doc.Entity.flag.KEY) {
+				if (
+					kind !== "table" &&
+					kind !== "assistant" &&
+					kind !== "dialog"
+				) {
+					return;
+				}
+				Doc.Entity.flag.invalidateCache();
+				RenderEngine.reset("flags");
+				setInfo((previous) => ({
+					...previous,
+					timeline: {
+						...previous.timeline,
+						renderVersion: previous.timeline.renderVersion + 1,
+					},
+				}));
+				return;
+			}
+			if (
+				event.key !==
+				WindowBridge.getMainContextStorageKey(coordinatorId)
+			) {
+				return;
+			}
+			applyStoredStatus(true);
+		};
 
-    loadingsRef.current.byRequestId.clear()
-    loadingsRef.current.byFileId.clear()
-    setBanner(null)
-    setDialog(null)
-    detachedDocument.body.classList.remove('no-scroll')
-    setInfo(prev => ({
-      ...prev,
-      target: {
-        ...App.Base.target,
-        operations: prev.target.operations.map((operation: Operation.Type) => ({
-          ...operation,
-          selected: false,
-        })),
-      },
-      timeline: {
-        ...prev.timeline,
-        target: null,
-        cache: {
-          data: new Map(),
-          filters: {},
-        },
-        renderVersion: prev.timeline.renderVersion + 1,
-      },
-      general: {
-        ...prev.general,
-        loadings: {
-          byRequestId: new Map(),
-          byFileId: new Map(),
-        },
-      },
-    }))
-  }, [detachedDocument, detachedStatus, setInfo])
+		// The control-channel mount effect already sent the initial READY.
+		applyStoredStatus(false);
+		window.addEventListener("storage", handleStorage);
+		return () => {
+			cancelBootstrapFallback();
+			window.removeEventListener("storage", handleStorage);
+		};
+	}, [coordinatorId, kind, sendReady, setInfo]);
 
-  const props = useMemo(
-    () => ({
-      spawnBanner,
-      destroyBanner,
-      banner,
-      spawnDialog,
-      dialog,
-      app,
-      setInfo,
-      Info: instance,
-      timeline,
-      highlightsOverlay,
-      setHighlightsOverlay,
-      canvasDocked: true,
-      setCanvasDocked: setDockedState,
-      dialogsDocked: true,
-      setDialogsDocked: setDockedState,
-      hintOpen: false,
-      setHintOpen: () => { },
-      toggleHintOpen: () => { },
-      isDetachedWindow: true,
-      currentDocument: detachedDocument,
-      detachedStatus,
-      detachedContextVersion,
-    }),
-    [
-      spawnBanner,
-      destroyBanner,
-      banner,
-      spawnDialog,
-      dialog,
-      app,
-      setInfo,
-      instance,
-      timeline,
-      highlightsOverlay,
-      setHighlightsOverlay,
-      setDockedState,
-      detachedStatus,
-      detachedContextVersion,
-    ],
-  )
+	const destroyBanner = useCallback(() => {
+		setBanner(null);
+		detachedDocument.body.classList.remove("no-scroll");
+	}, [detachedDocument]);
 
-  return (
-    <Application.Context.Provider value={props}>
-      <Locale.Provider>
-        <Extension.Provider>
-          {detachedStatus === 'active'
-            ? children
-            : <DetachedIdleState status={detachedStatus} />}
-        </Extension.Provider>
-      </Locale.Provider>
-    </Application.Context.Provider>
-  )
+	const spawnBanner = useCallback(
+		(node: ReactNode, target = "main") => {
+			if (!node) {
+				setBanner(null);
+				detachedDocument.body.classList.remove("no-scroll");
+				return;
+			}
+			if (target === "table" || target === "main") {
+				setBanner({ node, target });
+				detachedDocument.body.classList.add("no-scroll");
+				return;
+			}
+			mainSpawnBanner(node, target);
+		},
+		[detachedDocument, mainSpawnBanner],
+	);
+
+	const spawnDialog = useCallback((nextDialog: ReactNode) => {
+		setDialog(nextDialog);
+	}, []);
+
+	const setDockedState = useCallback(() => {
+		(privateBridgeRef.current ?? controlBridgeRef.current)?.send(
+			WindowBridge.MessageType.DOCK_DIALOG,
+			{},
+		);
+	}, []);
+
+	useEffect(() => {
+		const detachedWindow = detachedDocument.defaultView as
+			| (Window & {
+					focusCanvasOnEvent?: (
+						timestamp: number,
+						onLeft?: boolean,
+						sourceId?: Source.Id,
+					) => void;
+				})
+			| null;
+		if (!detachedWindow) return;
+		const previousFocusCanvasOnEvent = detachedWindow.focusCanvasOnEvent;
+		const forwardFocusCanvasOnEvent = (
+			timestamp: number,
+			onLeft = false,
+			sourceId?: Source.Id,
+		): void => {
+			(privateBridgeRef.current ?? controlBridgeRef.current)?.send(
+				WindowBridge.MessageType.FOCUS_TIMELINE_REQUEST,
+				{ timestamp, onLeft, sourceId },
+			);
+		};
+		detachedWindow.focusCanvasOnEvent = forwardFocusCanvasOnEvent;
+		return () => {
+			if (
+				detachedWindow.focusCanvasOnEvent ===
+				forwardFocusCanvasOnEvent
+			) {
+				detachedWindow.focusCanvasOnEvent =
+					previousFocusCanvasOnEvent;
+			}
+		};
+	}, [detachedDocument]);
+
+	const setDetachedTableSync = useCallback(
+		(enabled: boolean): void => {
+			if (kind !== "table" || tableSyncEnabledRef.current === enabled) return;
+			tableSyncEnabledRef.current = enabled;
+			(privateBridgeRef.current ?? controlBridgeRef.current)?.send(
+				WindowBridge.MessageType.TABLE_SYNC_CHANGED,
+				{ enabled },
+			);
+		},
+		[kind],
+	);
+
+	const setDetachedNotesRenderedSync = useCallback(
+		(enabled: boolean): void => {
+			if (
+				kind !== "notes" ||
+				notesRenderedSyncEnabledRef.current === enabled
+			) {
+				return;
+			}
+			notesRenderedSyncEnabledRef.current = enabled;
+			if (enabled) {
+				setInfo((previous) => ({
+					...previous,
+					timeline: {
+						...previous.timeline,
+						renderedSourceIds: [],
+					},
+				}));
+			}
+			(privateBridgeRef.current ?? controlBridgeRef.current)?.send(
+				WindowBridge.MessageType.NOTES_RENDERED_SYNC_CHANGED,
+				{ enabled },
+			);
+		},
+		[kind, setInfo],
+	);
+
+	const selectDetachedDialogEvent = useCallback(
+		(docId: Doc.Id): void => {
+			if (kind !== "dialog") return;
+			(privateBridgeRef.current ?? controlBridgeRef.current)?.send(
+				WindowBridge.MessageType.EVENT_TARGET_REQUEST,
+				{ docId },
+			);
+		},
+		[kind],
+	);
+
+	// Suppress re-sending an event that was just replayed by the coordinator.
+	useEffect(() => {
+		if (!syncTimelineTargetToMain || detachedStatus !== "active") return;
+		const eventId = app.timeline.target?._id ?? null;
+		if (suppressOutboundEventIdRef.current === eventId) {
+			suppressOutboundEventIdRef.current = undefined;
+			return;
+		}
+		(privateBridgeRef.current ?? controlBridgeRef.current)?.send(
+			WindowBridge.MessageType.EVENT_TARGET_REQUEST,
+			{
+				docId: app.timeline.target?._id ?? null,
+			},
+		);
+	}, [
+		app.timeline.target?._id,
+		detachedStatus,
+		syncTimelineTargetToMain,
+	]);
+
+	const previousStatusRef = useRef(detachedStatus);
+	useEffect(() => {
+		const previousStatus = previousStatusRef.current;
+		previousStatusRef.current = detachedStatus;
+		if (previousStatus !== "active" || detachedStatus === "active") return;
+
+		// The next active bootstrap must rehydrate context even when the main
+		// snapshot is byte-for-byte identical to the pre-auth-loss snapshot.
+		delete payloadSignaturesRef.current.bootstrap;
+		delete payloadSignaturesRef.current.dialog;
+		loadingsRef.current.byRequestId.clear();
+		loadingsRef.current.byFileId.clear();
+		setBanner(null);
+		setDialog(null);
+		setDetachedDialog(null);
+		setDetachedDialogEventColors({});
+		setDetachedDialogNavigation(null);
+		if (kind === "dialog" && ownsIndependentDataStore) {
+			Doc.Entity.clearIndex();
+			DataStore.events.clear();
+			DataStore.replaceNotes([], "deferred");
+			DataStore.replaceLinks([], "deferred");
+		}
+		detachedDocument.body.classList.remove("no-scroll");
+		setInfo((previous) => ({
+			...previous,
+			target: {
+				...App.Base.target,
+				operations: previous.target.operations.map((operation) => ({
+					...operation,
+					selected: false,
+				})),
+			},
+			timeline: {
+				...previous.timeline,
+				target: null,
+				cache: {
+					data: new Map(),
+					filters: {},
+				},
+				renderVersion: previous.timeline.renderVersion + 1,
+			},
+			general: {
+				...previous.general,
+				loadings: {
+					byRequestId: new Map(),
+					byFileId: new Map(),
+				},
+			},
+		}));
+	}, [
+		detachedDocument,
+		detachedStatus,
+		kind,
+		ownsIndependentDataStore,
+		setInfo,
+	]);
+
+	const props = useMemo<Application.Context.Props>(
+		() => ({
+			spawnBanner,
+			destroyBanner,
+			banner,
+			spawnDialog,
+			dialog,
+			app,
+			setInfo,
+			Info: instance,
+			timeline,
+			highlightsOverlay,
+			setHighlightsOverlay,
+			canvasDocked: true,
+			setCanvasDocked: setDockedState,
+			dialogsDocked: true,
+			setDialogsDocked: setDockedState,
+			hintOpen: false,
+			setHintOpen: () => {},
+			toggleHintOpen: () => {},
+			isDetachedWindow: true,
+			currentDocument: detachedDocument,
+			detachedWindowId: bridgeId,
+			detachedCoordinatorId: coordinatorId,
+			detachedClientKind: kind,
+			detachedTableSourceId: detachedTableSourceCommand.sourceId,
+			detachedTableSourceRevision: detachedTableSourceCommand.revision,
+			detachedSelectedEventId,
+			detachedDialog,
+			detachedDialogEventColors,
+			detachedDialogNavigation,
+			selectDetachedDialogEvent,
+			setDetachedTableSync,
+			setDetachedNotesRenderedSync,
+		}),
+		[
+			app,
+			banner,
+			bridgeId,
+			coordinatorId,
+			destroyBanner,
+			detachedDocument,
+			detachedSelectedEventId,
+			detachedDialog,
+			detachedDialogEventColors,
+			detachedDialogNavigation,
+			detachedTableSourceCommand,
+			dialog,
+			highlightsOverlay,
+			instance,
+			kind,
+			setDetachedTableSync,
+			setDetachedNotesRenderedSync,
+			setDockedState,
+			setInfo,
+			selectDetachedDialogEvent,
+			spawnBanner,
+			spawnDialog,
+		],
+	);
+	const content =
+		detachedStatus === "active"
+			? children
+			: <DetachedIdleState status={detachedStatus} />;
+
+	return (
+		<Application.Context.Provider value={props}>
+			<Locale.Provider>
+				<Boundary.Provider>
+					{loadExtensions && detachedStatus === "active" ? (
+						<Extension.Provider
+							filenames={extensionFilenames}
+							slots={extensionSlots}
+						>
+							{content}
+						</Extension.Provider>
+					) : (
+						<Extension.Context.Provider value={EMPTY_EXTENSION_CONTEXT}>
+							{content}
+						</Extension.Context.Provider>
+					)}
+				</Boundary.Provider>
+			</Locale.Provider>
+		</Application.Context.Provider>
+	);
 }
 
-/**
- * DetachedIdleState renders a guarded state while the main tab cannot provide
- * a valid operation context to the detached root.
- *
- * @param props.status - Current detached lifecycle status.
- * @returns Idle state content for the detached window.
- */
-function DetachedIdleState({ status }: { status: WindowBridge.MainContextStatus }) {
-  const { t } = Locale.use()
-  const titleKey = status === 'auth_lost'
-    ? 'detachedApp.authLost'
-    : status === 'initializing'
-      ? 'detachedApp.initializing'
-      : 'detachedApp.idle'
-  const descriptionKey = status === 'auth_lost'
-    ? 'detachedApp.authLostDescription'
-    : status === 'initializing'
-      ? 'detachedApp.initializingDescription'
-      : 'detachedApp.idleDescription'
+function DetachedIdleState({
+	status,
+}: {
+	status: WindowBridge.MainContextStatus;
+}) {
+	const { t } = Locale.use();
+	const titleKey =
+		status === "auth_lost"
+			? "detachedApp.authLost"
+			: status === "initializing"
+				? "detachedApp.initializing"
+				: "detachedApp.idle";
+	const descriptionKey =
+		status === "auth_lost"
+			? "detachedApp.authLostDescription"
+			: status === "initializing"
+				? "detachedApp.initializingDescription"
+				: "detachedApp.idleDescription";
 
-  return (
-    <div className={s.idle}>
-      <div className={s.panel}>
-        <h2>{t(titleKey)}</h2>
-        <p>{t(descriptionKey)}</p>
-      </div>
-    </div>
-  )
+	return (
+		<div className={s.idle}>
+			<div className={s.panel}>
+				<h2>{t(titleKey)}</h2>
+				<p>{t(descriptionKey)}</p>
+			</div>
+		</div>
+	);
 }

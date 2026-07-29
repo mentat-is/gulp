@@ -12,11 +12,6 @@ import { DataStore } from "@/store/DataStore";
 const OPERATION_ID = "operation" as Operation.Id;
 const CONTEXT_ID = "context" as Context.Id;
 
-interface SentBridgeMessage {
-	type: WindowBridge.MessageType;
-	payload: unknown;
-}
-
 /**
  * Creates one selected operation fixture for detached snapshot tests.
  * @returns Selected operation entity.
@@ -46,7 +41,11 @@ function createSource(id: string, name: string, total = 10): Source.Type {
 		pinned: false,
 		total,
 		timestamp: { min: 0, max: 100 },
-		settings: { frequency_sample: 0 },
+		settings: {
+			frequency_sample: 0,
+			field: "_id",
+			hash_function: "fnv1a",
+		},
 	} as Source.Type;
 }
 
@@ -102,6 +101,7 @@ function createApp(): App.Type {
 					id: CONTEXT_ID,
 					operation_id: OPERATION_ID,
 					name: "Context",
+					color: "#123456",
 				} as Context.Type,
 			],
 			files: [],
@@ -147,65 +147,222 @@ function createApp(): App.Type {
 	} as App.Type;
 }
 
-/**
- * Creates an in-memory bridge that records sent messages.
- * @param sentMessages Mutable message sink.
- * @returns Bridge implementation for unit tests.
- */
-function createRecordingBridge(sentMessages: SentBridgeMessage[]): WindowBridge.Bridge {
-	return {
-		send<TType extends WindowBridge.MessageType>(
-			type: TType,
-			payload: WindowBridge.MessagePayload[TType],
-		): void {
-			sentMessages.push({ type, payload });
-		},
-		destroy(): void {},
-	};
-}
-
-describe("WindowBridge detached app snapshots", () => {
+describe("WindowBridge capability-scoped projections", () => {
 	beforeEach(() => {
 		DataStore.resetRenderOperation(OPERATION_ID);
 	});
 
-	it("does not include movement-coupled scale or viewport source IDs", () => {
+	it("detects subscribers before scheduling capability-scoped state work", () => {
+		const notesClient = {
+			kind: "notes",
+			tableSyncEnabled: false,
+			notesRenderedSyncEnabled: false,
+			assistantQuerySyncEnabled: false,
+		} satisfies WindowBridge.DetachedClientCapabilities;
+		const syncedTableClient = {
+			...notesClient,
+			kind: "table",
+			tableSyncEnabled: true,
+		} satisfies WindowBridge.DetachedClientCapabilities;
+		const queryAssistantClient = {
+			...notesClient,
+			kind: "assistant",
+			assistantQuerySyncEnabled: true,
+		} satisfies WindowBridge.DetachedClientCapabilities;
+
+		expect(
+			WindowBridge.hasStateDomainSubscriber([notesClient], "status"),
+		).toBe(true);
+		expect(
+			WindowBridge.hasStateDomainSubscriber([notesClient], "context"),
+		).toBe(true);
+		expect(
+			WindowBridge.hasStateDomainSubscriber([notesClient], "event"),
+		).toBe(true);
+		expect(
+			WindowBridge.hasStateDomainSubscriber([notesClient], "query"),
+		).toBe(false);
+		expect(
+			WindowBridge.hasStateDomainSubscriber([notesClient], "rendered"),
+		).toBe(false);
+		expect(
+			WindowBridge.hasStateDomainSubscriber(
+				[{ ...notesClient, notesRenderedSyncEnabled: true }],
+				"rendered",
+			),
+		).toBe(true);
+		expect(
+			WindowBridge.hasStateDomainSubscriber([syncedTableClient], "query"),
+		).toBe(true);
+		expect(
+			WindowBridge.hasStateDomainSubscriber(
+				[queryAssistantClient],
+				"query",
+			),
+		).toBe(true);
+		expect(
+			WindowBridge.hasStateDomainSubscriber(
+				[queryAssistantClient],
+				"assistant",
+			),
+		).toBe(true);
+		expect(
+			WindowBridge.hasStateDomainSubscriber([notesClient], "dialog"),
+		).toBe(false);
+	});
+
+	it("projects only selected operation context and serializable source metadata", () => {
 		const app = createApp();
-		const sentMessages: SentBridgeMessage[] = [];
+		const selectedSource = createSource("selected", "Selected");
+		selectedSource.settings.color_override = {
+			field: "process.name",
+			values: { shell: "#fff" },
+			lookup: { 123: "#fff" },
+		};
+		const unselectedSource = {
+			...createSource("unselected", "Unselected"),
+			selected: false,
+		};
+		app.target.files = [selectedSource, unselectedSource];
 
-		WindowBridge.sendMainContext(
-			createRecordingBridge(sentMessages),
-			app,
-			"active",
-			OPERATION_ID,
-		);
+		const context = WindowBridge.createContextSnapshot(app, OPERATION_ID);
 
-		const snapshotMessage = sentMessages.find(
-			(message) => message.type === WindowBridge.MessageType.APP_SNAPSHOT,
-		);
-		const snapshot =
-			snapshotMessage?.payload as WindowBridge.AppSnapshotPayload | undefined;
-
-		expect(snapshot === undefined).toBe(false);
-		if (!snapshot) {
-			throw new Error("APP_SNAPSHOT was not sent");
+		expect(context.operation?.id).toBe(OPERATION_ID);
+		expect(context.contexts.map((item) => item.id)).toEqual([CONTEXT_ID]);
+		expect(context.sources.map((source) => source.id)).toEqual([
+			selectedSource.id,
+		]);
+		const projectedSource = context.sources[0];
+		if (!projectedSource || !("nanotimestamp" in projectedSource)) {
+			throw new Error("Expected full detached source projection");
 		}
-
-		expect(Object.prototype.hasOwnProperty.call(snapshot, "visibleSourceIds")).toBe(
-			false,
-		);
-		expect(snapshot.timeline).toEqual({
-			frame: app.timeline.frame,
-			filter: app.timeline.filter,
-			renderVersion: app.timeline.renderVersion,
+		expect(projectedSource.nanotimestamp).toEqual({
+			min: "0",
+			max: "100000000",
 		});
-		expect(snapshot.renderedSourceIds).toEqual([]);
-		expect(Object.prototype.hasOwnProperty.call(snapshot.timeline, "scale")).toBe(
+		expect(projectedSource._sampleDataCached.sample_data).toBeNull();
+		expect(
+			Object.prototype.hasOwnProperty.call(
+				projectedSource.settings,
+				"color_override",
+			),
+		).toBe(false);
+		expect(Object.prototype.hasOwnProperty.call(context, "filters")).toBe(false);
+	});
+
+	it("projects only Notes source and context fields for Notes clients", () => {
+		const app = createApp();
+		const source = createSource("selected", "Selected");
+		app.target.files = [source];
+
+		const context = WindowBridge.createContextSnapshot(
+			app,
+			OPERATION_ID,
+			{ compactNotes: true },
+		);
+
+		expect(context.sources).toEqual([
+			{
+				id: source.id,
+				operation_id: source.operation_id,
+				context_id: source.context_id,
+				type: "source",
+				name: source.name,
+				color: source.color,
+				selected: true,
+				settings: {
+					field: source.settings.field,
+					hash_function: source.settings.hash_function,
+				},
+			},
+		]);
+		expect(context.contexts).toEqual([
+			{
+				id: CONTEXT_ID,
+				operation_id: OPERATION_ID,
+				type: "context",
+				name: "Context",
+				color: "#123456",
+				selected: true,
+			},
+		]);
+		expect(
+			Object.prototype.hasOwnProperty.call(
+				context.sources[0],
+				"granted_user_ids",
+			),
+		).toBe(false);
+		expect(
+			Object.prototype.hasOwnProperty.call(
+				context.sources[0],
+				"_sampleDataCached",
+			),
+		).toBe(false);
+		expect(
+			Object.prototype.hasOwnProperty.call(context.sources[0], "total"),
+		).toBe(false);
+	});
+
+	it("supports operation-only assistants and compact dialog user preferences", () => {
+		const app = createApp();
+		app.target.files = [createSource("selected", "Selected")];
+		app.target.contexts.push({
+			id: "unused-context" as Context.Id,
+			operation_id: OPERATION_ID,
+			name: "Unused",
+		} as Context.Type);
+		app.general.user = {
+			id: "dialog-user" as User.Id,
+			user_data: { show_preview: false, largePreference: "not-sent" },
+		} as unknown as User.Type;
+
+		const assistantContext = WindowBridge.createContextSnapshot(
+			app,
+			OPERATION_ID,
+			{ operationOnly: true },
+		);
+		const dialogContext = WindowBridge.createContextSnapshot(
+			app,
+			OPERATION_ID,
+			{ includeDialogUser: true },
+		);
+
+		expect(assistantContext.sources).toEqual([]);
+		expect(assistantContext.contexts).toEqual([]);
+		expect(assistantContext.user).toBeUndefined();
+		expect(dialogContext.contexts.map((context) => context.id)).toEqual([
+			CONTEXT_ID,
+		]);
+		expect(dialogContext.user).toEqual({
+			id: app.general.user.id,
+			showPreview: false,
+		});
+	});
+
+	it("projects frame and selected-source filters without canvas scale", () => {
+		const app = createApp();
+		const selectedSource = createSource("selected", "Selected");
+		const unselectedSource = {
+			...createSource("unselected", "Unselected"),
+			selected: false,
+		};
+		app.target.files = [selectedSource, unselectedSource];
+		app.target.filters = {
+			[selectedSource.id]: { text_filter: "needle" },
+			[unselectedSource.id]: { text_filter: "ignored" },
+		} as App.Type["target"]["filters"];
+
+		const query = WindowBridge.createQueryContext(app, OPERATION_ID);
+
+		expect(query.frame).toEqual(app.timeline.frame);
+		expect(Object.keys(query.filters)).toEqual([selectedSource.id]);
+		expect(Object.prototype.hasOwnProperty.call(query, "scale")).toBe(false);
+		expect(Object.prototype.hasOwnProperty.call(query, "renderVersion")).toBe(
 			false,
 		);
 	});
 
-	it("keeps generic context replay separate from the note snapshot", () => {
+	it("keeps canvas-rendered membership separate from the notes snapshot", () => {
 		const renderedSource = createSource("rendered", "Needle rendered source");
 		const hiddenEmptySource = createSource("hidden", "Needle hidden source");
 		const app = createApp();
@@ -217,64 +374,215 @@ describe("WindowBridge detached app snapshots", () => {
 		const renderedNote = createNote("rendered-note", renderedSource.id);
 		const hiddenNote = createNote("hidden-note", hiddenEmptySource.id);
 		DataStore.replaceNotes([renderedNote, hiddenNote], "immediate");
-		const sentMessages: SentBridgeMessage[] = [];
 
-		WindowBridge.sendMainContext(
-			createRecordingBridge(sentMessages),
-			app,
-			"active",
-			OPERATION_ID,
-		);
-
-		const snapshot = sentMessages.find(
-			(message) => message.type === WindowBridge.MessageType.APP_SNAPSHOT,
-		)?.payload as WindowBridge.AppSnapshotPayload | undefined;
-		const notesPayload = sentMessages.find(
-			(message) => message.type === WindowBridge.MessageType.NOTES_CHANGED,
-		)?.payload as WindowBridge.NotesChangedPayload | undefined;
-
-		expect(snapshot?.selectedSourceIds).toEqual([
-			renderedSource.id,
-			hiddenEmptySource.id,
-		]);
-		expect(snapshot?.renderedSourceIds).toEqual([renderedSource.id]);
-		expect(notesPayload).toBeUndefined();
-
-		WindowBridge.sendNotesSnapshot(
-			createRecordingBridge(sentMessages),
+		const renderedSourceIds = WindowBridge.createRenderedSourceIds(
 			app,
 			OPERATION_ID,
 		);
-		const explicitNotesPayload = sentMessages.find(
-			(message) => message.type === WindowBridge.MessageType.NOTES_CHANGED,
-		)?.payload as WindowBridge.NotesChangedPayload | undefined;
+		const notesPayload = WindowBridge.createNotesChangedPayload(
+			app,
+			OPERATION_ID,
+		);
 
-		expect(explicitNotesPayload?.operationId).toBe(OPERATION_ID);
-		expect(explicitNotesPayload?.notes.map((note) => note.id)).toEqual([
+		expect(renderedSourceIds).toEqual([renderedSource.id]);
+		expect(notesPayload.operationId).toBe(OPERATION_ID);
+		expect(notesPayload.notes.map((note) => note.id)).toEqual([
 			renderedNote.id,
 			hiddenNote.id,
 		]);
 	});
 
-	it("sends realtime note deltas without constructing a full snapshot", () => {
-		const note = createNote("delta-note", createSource("source", "Source").id);
-		const change = DataStore.publishNotesUpsertDelta(
-			OPERATION_ID,
-			"create",
-			[note],
-		);
-		const sentMessages: SentBridgeMessage[] = [];
+	it("filters realtime note upserts before private delivery", () => {
+		const selectedSource = createSource("selected", "Selected");
+		const unselectedSource = createSource("unselected", "Unselected");
+		const selectedNote = createNote("selected-note", selectedSource.id);
+		const unselectedNote = createNote("unselected-note", unselectedSource.id);
+		const selectedSourceIds = new Set([selectedSource.id]);
 
-		WindowBridge.sendNotesDelta(
-			createRecordingBridge(sentMessages),
-			change,
+		for (const mutation of ["create", "update"] as const) {
+			const change: WindowBridge.NotesDeltaPayload = {
+				type: "notes-sync",
+				mutation,
+				operationId: OPERATION_ID,
+				sequence: 1,
+				notes: [selectedNote, unselectedNote],
+			};
+
+			const filtered = WindowBridge.filterNotesDeltaForSelectedSources(
+				change,
+				selectedSourceIds,
+			);
+
+			expect(filtered).not.toBe(change);
+			expect(filtered?.mutation).toBe(mutation);
+			if (filtered?.mutation !== "delete") {
+				expect(filtered?.notes).toEqual([selectedNote]);
+			}
+			expect(change.notes).toEqual([selectedNote, unselectedNote]);
+			expect(
+				WindowBridge.filterNotesDeltaForSelectedSources(
+					change,
+					new Set<Source.Id>(),
+				),
+			).toBeNull();
+		}
+
+		const selectedOnlyChange: WindowBridge.NotesDeltaPayload = {
+			type: "notes-sync",
+			mutation: "update",
+			operationId: OPERATION_ID,
+			sequence: 2,
+			notes: [selectedNote],
+		};
+		expect(
+			WindowBridge.filterNotesDeltaForSelectedSources(
+				selectedOnlyChange,
+				selectedSourceIds,
+			),
+		).toBe(selectedOnlyChange);
+
+		const deleteChange: WindowBridge.NotesDeltaPayload = {
+			type: "notes-sync",
+			mutation: "delete",
+			operationId: OPERATION_ID,
+			sequence: 3,
+			noteIds: [selectedNote.id],
+		};
+		expect(
+			WindowBridge.filterNotesDeltaForSelectedSources(
+				deleteChange,
+				selectedSourceIds,
+			),
+		).toBe(deleteChange);
+	});
+
+	it("stores only lightweight lifecycle fallback state", () => {
+		WindowBridge.persistMainStatus("auth_lost", "test-main");
+
+		const replay = WindowBridge.readStoredMainContext("test-main");
+
+		expect(replay?.status).toEqual({ status: "auth_lost" });
+		expect(Object.prototype.hasOwnProperty.call(replay ?? {}, "snapshot")).toBe(
+			false,
+		);
+	});
+});
+
+describe("WindowBridge channel routing", () => {
+	it("keeps client state off the shared control channel", () => {
+		const originalBroadcastChannel = globalThis.BroadcastChannel;
+		const channels = new Map<string, Set<FakeBroadcastChannel>>();
+
+		class FakeBroadcastChannel {
+			public onmessage: ((event: MessageEvent) => void) | null = null;
+
+			public constructor(public readonly name: string) {
+				const peers = channels.get(name) ?? new Set<FakeBroadcastChannel>();
+				peers.add(this);
+				channels.set(name, peers);
+			}
+
+			public postMessage(message: unknown): void {
+				channels.get(this.name)?.forEach((peer) => {
+					if (peer !== this) {
+						peer.onmessage?.({ data: message } as MessageEvent);
+					}
+				});
+			}
+
+			public close(): void {
+				channels.get(this.name)?.delete(this);
+			}
+
+			public addEventListener(): void {}
+			public removeEventListener(): void {}
+			public dispatchEvent(): boolean {
+				return true;
+			}
+			public onmessageerror: ((event: MessageEvent) => void) | null = null;
+		}
+
+		Object.defineProperty(globalThis, "BroadcastChannel", {
+			configurable: true,
+			value: FakeBroadcastChannel,
+		});
+
+		const controlMessages: WindowBridge.Message[] = [];
+		const otherCoordinatorMessages: WindowBridge.Message[] = [];
+		const firstClientMessages: WindowBridge.Message[] = [];
+		const unrelatedClientMessages: WindowBridge.Message[] = [];
+		const controlReceiver = WindowBridge.create(
+			"control-receiver",
+			(message) => controlMessages.push(message),
+			"main-one",
+		);
+		const otherCoordinatorReceiver = WindowBridge.create(
+			"other-main",
+			(message) => otherCoordinatorMessages.push(message),
+			"main-two",
+		);
+		const firstClientReceiver = WindowBridge.createClient(
+			"first-client",
+			"first-client",
+			(message) => firstClientMessages.push(message),
+			"main-one",
+		);
+		const unrelatedClientReceiver = WindowBridge.createClient(
+			"other-client",
+			"other-client",
+			(message) => unrelatedClientMessages.push(message),
+			"main-one",
+		);
+		const controlSender = WindowBridge.create(
+			"control-sender",
+			() => {},
+			"main-one",
+		);
+		const firstClientSender = WindowBridge.createClient(
+			"first-client",
+			"main",
+			() => {},
+			"main-one",
 		);
 
-		expect(sentMessages).toEqual([
-			{
-				type: WindowBridge.MessageType.NOTES_DELTA,
-				payload: change,
-			},
+		controlSender.send(WindowBridge.MessageType.NAVIGATE_TO_EVENT, {
+			docId: "event" as Doc.Id,
+			operationId: OPERATION_ID,
+		});
+		controlSender.send(WindowBridge.MessageType.TIMELINE_ZOOM_REQUEST, {
+			min: 1_000,
+			max: 2_000,
+		});
+		controlSender.send(WindowBridge.MessageType.OPEN_FILTER_REQUEST, {
+			sourceIds: [],
+			query: { string: "", filters: [] },
+		});
+		firstClientSender.send(WindowBridge.MessageType.THEME_CHANGE, {
+			theme: "classic-light",
+			mode: "light",
+			cssVariables: { "--accent": "#111" },
+		});
+
+		expect(controlMessages.map((message) => message.type)).toEqual([
+			WindowBridge.MessageType.NAVIGATE_TO_EVENT,
+			WindowBridge.MessageType.TIMELINE_ZOOM_REQUEST,
+			WindowBridge.MessageType.OPEN_FILTER_REQUEST,
 		]);
+		expect(firstClientMessages.map((message) => message.type)).toEqual([
+			WindowBridge.MessageType.THEME_CHANGE,
+		]);
+		expect(unrelatedClientMessages).toEqual([]);
+		expect(otherCoordinatorMessages).toEqual([]);
+
+		controlReceiver.destroy();
+		otherCoordinatorReceiver.destroy();
+		firstClientReceiver.destroy();
+		unrelatedClientReceiver.destroy();
+		controlSender.destroy();
+		firstClientSender.destroy();
+		Object.defineProperty(globalThis, "BroadcastChannel", {
+			configurable: true,
+			value: originalBroadcastChannel,
+		});
 	});
 });

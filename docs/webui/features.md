@@ -38,6 +38,9 @@ The Notes window supports:
 - bulk deletion;
 - targeting a note to open or fetch its event in the main tab.
 
+See [Detached Applications](detached-windows.md) for lifecycle, synchronization,
+and request behavior shared by detached views.
+
 ## Links
 
 Links connect related events. They let an analyst represent relationships such as

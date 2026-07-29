@@ -24,7 +24,16 @@ The event detail view provides:
 - Notes and Links tabs.
 
 The event panel can be docked inside the operation workspace or opened as a
-detached dialog window.
+detached dialog window. The detached form retains nearby-event navigation,
+event details, Notes/Links markers, and collaboration content. Event details
+are loaded on demand and cached by operation and event ID, while navigation
+uses a compact projection instead of copying the source event collection from
+the main Canvas.
+
+The selected event representation—Tree, Raw, or Table—is stored in
+same-origin localStorage. It therefore remains selected while navigating
+between events, reopening the dialog, or moving between docked and detached
+windows. A missing or unsupported stored value falls back to Tree.
 
 ## Notes Window
 
@@ -50,13 +59,11 @@ then clears only the changes covered by that successful request; a later change
 or failed request leaves the warning visible. Websocket updates synchronize the
 canonical note data without showing the create/delete warning.
 
-Detached Notes routes have a separate JavaScript realm and cannot read the main
-tab's in-memory `DataStore` directly. The main tab therefore sends a complete
-authoritative note snapshot only when the Notes window initializes or
-reconnects, when its operation or selected-source context changes, and when a
-timeline note hydration finishes. Individual websocket changes use compact
-create/update/delete deltas. Table, Dashboard, and Assistant windows do not
-cause full note snapshot broadcasts.
+The detached Notes route has its own JavaScript realm and data store. Its
+client-private bridge receives an authoritative note snapshot when it
+initializes or reconnects, when the operation or selected-source context
+changes, and when timeline note hydration finishes. Individual websocket
+changes use compact create/update/delete deltas addressed only to Notes.
 
 If a note targets an event that is not currently loaded in the main timeline, the
 main tab can fetch that event before opening its detail dialog.
@@ -101,23 +108,33 @@ OpenSearch date histogram intervals.
 
 ## Detached Windows
 
-Notes, Table View, Dashboard, and event dialogs can run in separate browser
-windows. Detached windows receive operation snapshots, selected source IDs,
-selected events, theme changes, and lifecycle messages from the main tab. The
-Notes route additionally receives the authoritative snapshots and realtime
-deltas described above because its module-level data store belongs to a
-different JavaScript realm.
+Notes, Table View, Dashboard, Assistant, and supported event dialogs can run in
+separate browser windows. Each route receives lifecycle and theme state plus
+only the operation data it consumes. Notes receives note snapshots and deltas;
+Table can subscribe to global query/frame state; Dashboard receives dashboard
+context; Assistant owns its connection state; and Dialog receives a compact
+event and collaboration projection.
 
 ![Detached window preparing context](images/detached-window-preparing-context.png)
 
 Common detached-window waiting states:
 
-- `Preparing operation context`: the main tab is on an operation route but the
-  detached window has not received selected sources yet.
+- `Preparing operation context`: the main tab is opening an operation or no
+  source/context selection is active yet.
 - `Waiting for an operation`: the main tab is outside an operation.
 - `Login required`: the session is missing or rejected.
 
-## Troubleshot
+Notes, Table View, and Dashboard resume automatically across detached-page and
+main-tab refreshes. Assistant and Dialog windows last for the lifetime of their
+open browser window.
 
-If the main tab is hard-reloaded and a detached window remains stuck preparing
-context, close and reopen that detached window from the operation menu.
+For bridge behavior, recovery, per-application state, and network-request
+expectations, see [Detached Applications](detached-windows.md).
+
+## Troubleshooting
+
+If a window remains in `Preparing operation context`, confirm that the main tab
+is logged in, has an operation open, and has at least one source selected. After
+a main-tab reload, wait for that operation context to finish restoring. If the
+browser blocked the popup, allow popups for the gULP origin and open the
+application again from the operation menu.

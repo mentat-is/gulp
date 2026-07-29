@@ -38,6 +38,11 @@ import { Separator } from "@/ui/Separator";
 import { Filter } from "@/entities/Filter";
 import { Locale } from "@/locales";
 import { resolveTableNotePortalContainer } from "./TableViewWindow.portal";
+import {
+	getSemanticSyncedQuery,
+	serializeSemanticValue,
+	serializeSourceFieldMetadata,
+} from "./DetachedViewQuery.utils";
 
 export namespace TableViewWindow {
 	export interface Props {
@@ -70,6 +75,7 @@ const DEFAULT_HIDDEN_FIELDS: string[] = [
 ];
 
 const DEFAULT_HIDDEN_FIELD_SET = new Set(DEFAULT_HIDDEN_FIELDS);
+const SYNCED_QUERY_DEBOUNCE_MSEC = 150;
 
 /**
  * Creates a stable signature for source-id selections.
@@ -77,7 +83,21 @@ const DEFAULT_HIDDEN_FIELD_SET = new Set(DEFAULT_HIDDEN_FIELDS);
  * @returns Sorted comma-separated source-id signature.
  */
 function getSourceIdsSignature(sourceIds: Source.Id[]): string {
-	return [...sourceIds].sort((a, b) => a.localeCompare(b)).join(",");
+	return [...sourceIds].sort((left, right) => left.localeCompare(right)).join(",");
+}
+
+/**
+ * Keeps an equivalent semantic value referentially stable across context snapshots.
+ * @param value Latest value derived from application state.
+ * @param signature Semantic signature for the value.
+ * @returns Previous value while the signature remains unchanged.
+ */
+function useSemanticValue<T>(value: T, signature: string): T {
+	const stableRef = useRef({ signature, value });
+	if (stableRef.current.signature !== signature) {
+		stableRef.current = { signature, value };
+	}
+	return stableRef.current.value;
 }
 
 /**
@@ -289,10 +309,23 @@ export function TableViewWindow({
 	onClose,
 }: TableViewWindow.Props) {
 	// --- Context & Infrastructure ---
-	const { Info, app, spawnBanner, banner, currentDocument } = Application.use();
+	const {
+		Info,
+		app,
+		spawnBanner,
+		banner,
+		currentDocument,
+		detachedClientKind,
+		detachedCoordinatorId,
+		detachedTableSourceId,
+		detachedTableSourceRevision,
+		detachedSelectedEventId,
+		setDetachedTableSync,
+	} = Application.use();
 	const { t } = Locale.use();
 	const [container, setContainer] = useState<HTMLDivElement | null>(null);
 	const tableRequestControllerRef = useRef<AbortController | null>(null);
+	const [, setFlagsRevision] = useState(0);
 
 	// --- Selection & Sync State ---
 	const [isSynced, setIsSynced] = useState<boolean>(false);
@@ -308,9 +341,11 @@ export function TableViewWindow({
 	const selectedSources = useMemo(
 		() =>
 			selectedSourceIds
-				.map((sourceId) => Source.Entity.id(app, sourceId))
+				.map((sourceId) =>
+					app.target.files.find((source) => source.id === sourceId),
+				)
 				.filter((source): source is Source.Type => !!source),
-		[app, app.target.files, selectedSourceIdsSignature],
+		[app.target.files, selectedSourceIdsSignature],
 	);
 
 	const selectedSourcesSignature = useMemo(
@@ -331,6 +366,20 @@ export function TableViewWindow({
 		}
 	}, [isMultiSourceSelection, isSynced]);
 
+	useEffect(() => {
+		if (detachedClientKind !== "table") return;
+		setDetachedTableSync(isSyncActive);
+	}, [detachedClientKind, isSyncActive, setDetachedTableSync]);
+
+	useEffect(() => {
+		if (detachedClientKind !== "table" || !detachedTableSourceId) return;
+		setSelectedSourceIds([detachedTableSourceId]);
+	}, [
+		detachedClientKind,
+		detachedTableSourceId,
+		detachedTableSourceRevision,
+	]);
+
 	// --- Filter Derived State ---
 	const syncedSourceFilter =
 		isSyncActive && primarySelectedSource
@@ -338,7 +387,7 @@ export function TableViewWindow({
 			: null;
 
 	const serializedFilters = useMemo(() => {
-		return JSON.stringify(syncedSourceFilter?.filters || []);
+		return serializeSemanticValue(syncedSourceFilter?.filters || []);
 	}, [syncedSourceFilter]);
 
 	const syncedTextFilter = syncedSourceFilter?.text_filter || "";
@@ -347,9 +396,14 @@ export function TableViewWindow({
 		string,
 		string
 	> | null>(null);
+	const fieldMetadataSignature = serializeSourceFieldMetadata(selectedSources);
+	const fieldMetadataSources = useSemanticValue(
+		selectedSources,
+		fieldMetadataSignature,
+	);
 
 	useEffect(() => {
-		if (selectedSources.length === 0) {
+		if (fieldMetadataSources.length === 0) {
 			setLocalFieldTypeMap(null);
 			return;
 		}
@@ -358,7 +412,7 @@ export function TableViewWindow({
 		(async () => {
 			const map: Record<string, string> = {};
 			await Promise.all(
-				selectedSources.map(async (source) => {
+				fieldMetadataSources.map(async (source) => {
 					const fileKeys = await Info.event_keys(source);
 					Object.entries(fileKeys).forEach(([key, type]) => {
 						map[key] = type as string;
@@ -373,7 +427,7 @@ export function TableViewWindow({
 		return () => {
 			cancelled = true;
 		};
-	}, [selectedSources, Info]);
+	}, [fieldMetadataSources, Info]);
 
 	const columns = useMemo(() => {
 		if (!localFieldTypeMap) return undefined;
@@ -499,9 +553,9 @@ export function TableViewWindow({
 		prevSync.isSynced !== isSyncActive ||
 		(isSyncActive &&
 			(prevSync.filters !== serializedFilters ||
-				prevSync.textFilter !== syncedTextFilter)) ||
-		prevSync.timelineMin !== timelineTimeFrame.min ||
-		prevSync.timelineMax !== timelineTimeFrame.max;
+				prevSync.textFilter !== syncedTextFilter ||
+				prevSync.timelineMin !== timelineTimeFrame.min ||
+				prevSync.timelineMax !== timelineTimeFrame.max));
 
 	if (hasLogicalChange) {
 		const opChanged = prevSync.operationId !== selectedOperationId;
@@ -532,7 +586,9 @@ export function TableViewWindow({
 		if (opChanged) {
 			setSelectedSourceIds((previousSourceIds) =>
 				previousSourceIds.filter((sourceId) => {
-					const source = Source.Entity.id(app, sourceId);
+					const source = app.target.files.find(
+						(candidate) => candidate.id === sourceId,
+					);
 					if (source) {
 						return source.operation_id === selectedOperationId;
 					}
@@ -572,14 +628,36 @@ export function TableViewWindow({
 		isSyncActive && primarySelectedSource
 			? app.target.filters?.[primarySelectedSource.id]
 			: null;
-	const activeSerializedFilters = isSyncActive
-		? serializedFilters
-		: JSON.stringify(appliedFilters);
-	const activeTextFilter = isSyncActive ? syncedTextFilter : searchQuery;
-	const activeFlaggedDocIdsSignature =
+	const querySourceIds = selectedSources.map((source) => source.id);
+	const flaggedDocIds =
 		appliedFlaggedOnly && activeOperationId
-			? Array.from(Doc.Entity.flag.getList(activeOperationId)).join(",")
-			: "";
+			? Array.from(Doc.Entity.flag.getList(activeOperationId)).sort(
+					(left, right) => left.localeCompare(right),
+				)
+			: [];
+	const tableQueryDraft = {
+		operationId: activeOperationId,
+		sourceIds: querySourceIds,
+		isSyncActive,
+		syncedQuery: isSyncActive ? getSemanticSyncedQuery(activeFilters) : null,
+		localFilters: isSyncActive ? [] : appliedFilters,
+		textFilter: isSyncActive ? syncedTextFilter : searchQuery,
+		min: activeMin,
+		max: activeMax,
+		flaggedOnly: appliedFlaggedOnly,
+		flaggedDocIds,
+		pageSize,
+		currentPage,
+		sortField,
+		sortDirection,
+	};
+	const tableQuerySignature = serializeSemanticValue({
+		...tableQueryDraft,
+		sourceIds: [...querySourceIds].sort((left, right) =>
+			left.localeCompare(right),
+		),
+	});
+	const tableQuery = useSemanticValue(tableQueryDraft, tableQuerySignature);
 	const renderableColumns = useMemo(
 		() =>
 			columns?.filter(
@@ -587,6 +665,11 @@ export function TableViewWindow({
 			),
 		[columns],
 	);
+	const fetchFailedTextRef = useRef(t("tableView.fetchFailed"));
+
+	useEffect(() => {
+		fetchFailedTextRef.current = t("tableView.fetchFailed");
+	}, [t]);
 
 	// --- Data Fetching ---
 
@@ -595,28 +678,28 @@ export function TableViewWindow({
 	 * Uses query_paginate to retrieve a specific slice of data based on current state.
 	 */
 	const fetchTableData = useCallback(async () => {
-		if (!primarySelectedSource || !activeOperationId) return;
+		if (tableQuery.sourceIds.length === 0 || !tableQuery.operationId) return;
 		tableRequestControllerRef.current?.abort();
 		const requestController = new AbortController();
 		tableRequestControllerRef.current = requestController;
 		setLoading(true);
 		try {
 			let queryObj: Query.Type;
-			const sourceIds = selectedSources.map((source) => source.id);
+			const sourceIds = [...tableQuery.sourceIds].sort((left, right) =>
+				left.localeCompare(right),
+			);
 
 			// Branch logic: Determine if we use synced global filters or local search query
-			if (isSyncActive) {
-				if (activeFilters) {
+			if (tableQuery.isSyncActive) {
+				if (tableQuery.syncedQuery) {
 					queryObj = {
-						...activeFilters,
-						filters: [...(activeFilters.filters ?? [])],
-						text_filter: syncedTextFilter,
+						string: "",
+						...tableQuery.syncedQuery,
+						filters: [...tableQuery.syncedQuery.filters],
 						source_config: {
-							...(activeFilters.source_config ?? {}),
-							operation_id:
-								activeFilters.source_config?.operation_id ?? activeOperationId,
+							operation_id: tableQuery.operationId,
 							source_ids: sourceIds,
-							range: { min: activeMin, max: activeMax },
+							range: { min: tableQuery.min, max: tableQuery.max },
 						},
 					};
 				} else {
@@ -625,31 +708,27 @@ export function TableViewWindow({
 						filters: [],
 						text_filter: "",
 						source_config: {
-							operation_id: activeOperationId,
+							operation_id: tableQuery.operationId,
 							source_ids: sourceIds,
-							range: { min: activeMin, max: activeMax },
+							range: { min: tableQuery.min, max: tableQuery.max },
 						},
 					};
 				}
 			} else {
 				queryObj = {
 					string: "",
-					filters: appliedFilters,
-					text_filter: searchQuery,
+					filters: tableQuery.localFilters,
+					text_filter: tableQuery.textFilter,
 					source_config: {
-						operation_id: activeOperationId,
+						operation_id: tableQuery.operationId,
 						source_ids: sourceIds,
-						range: { min: activeMin, max: activeMax },
+						range: { min: tableQuery.min, max: tableQuery.max },
 					},
 				};
 			}
 
-			if (appliedFlaggedOnly) {
-				const flaggedDocIds = Array.from(
-					Doc.Entity.flag.getList(activeOperationId),
-				);
-
-				if (flaggedDocIds.length === 0) {
+			if (tableQuery.flaggedOnly) {
+				if (tableQuery.flaggedDocIds.length === 0) {
 					setData([]);
 					setTotalHits(0);
 					setSelectedRows(new Set());
@@ -661,15 +740,17 @@ export function TableViewWindow({
 					isManual: true,
 					raw: withFlaggedDocumentFilter(
 						Filter.Entity.query(queryObj) as OpenSearchBoolQuery,
-						flaggedDocIds,
+						tableQuery.flaggedDocIds,
 					),
 				};
 			}
 
-			const limit = pageSize;
-			const offset = pageSize * (currentPage - 1);
+			const limit = tableQuery.pageSize;
+			const offset = tableQuery.pageSize * (tableQuery.currentPage - 1);
 			const sortOpt = {
-				[sortField === "timestamp" ? "@timestamp" : sortField]: sortDirection,
+				[tableQuery.sortField === "timestamp"
+					? "@timestamp"
+					: tableQuery.sortField]: tableQuery.sortDirection,
 			};
 
 			const res = await Info.query_paginate(queryObj, {
@@ -693,31 +774,14 @@ export function TableViewWindow({
 			if (requestController.signal.aborted) {
 				return;
 			}
-			toast.error(t("tableView.fetchFailed"));
+			toast.error(fetchFailedTextRef.current);
 		} finally {
 			if (tableRequestControllerRef.current === requestController) {
 				tableRequestControllerRef.current = null;
 				setLoading(false);
 			}
 		}
-		// We use stable primitives (IDs and serialized strings) for dependencies to avoid
-		// redundant fetches when global object references change.
-	}, [
-		selectedSourcesSignature,
-		activeOperationId,
-		isSyncActive,
-		activeMin,
-		activeMax,
-		activeSerializedFilters,
-		activeTextFilter,
-		appliedFlaggedOnly,
-		activeFlaggedDocIdsSignature,
-		pageSize,
-		currentPage,
-		sortField,
-		sortDirection,
-		Info,
-	]);
+	}, [Info, tableQuery]);
 
 	useEffect(() => {
 		return () => tableRequestControllerRef.current?.abort();
@@ -727,8 +791,19 @@ export function TableViewWindow({
 	 * Effect to trigger fetch whenever logical query parameters change.
 	 */
 	useEffect(() => {
-		fetchTableData();
-	}, [fetchTableData]);
+		tableRequestControllerRef.current?.abort();
+		if (!tableQuery.isSyncActive) {
+			void fetchTableData();
+			return;
+		}
+
+		const timerWindow = currentDocument.defaultView ?? window;
+		const timeoutId = timerWindow.setTimeout(() => {
+			void fetchTableData();
+		}, SYNCED_QUERY_DEBOUNCE_MSEC);
+
+		return () => timerWindow.clearTimeout(timeoutId);
+	}, [currentDocument, fetchTableData, tableQuery.isSyncActive]);
 
 	// --- Event Handlers ---
 
@@ -858,12 +933,7 @@ export function TableViewWindow({
 			for (const doc of selectedDocs) {
 				Doc.Entity.flag.toggle(doc._id, activeOperationId);
 			}
-			const bridge = WindowBridge.create(WindowBridge.generateId(), () => {});
-			bridge.send(WindowBridge.MessageType.FLAGS_CHANGED, {
-				docId: selectedDocs[0]._id,
-				operationId: activeOperationId,
-			});
-			bridge.destroy();
+			setFlagsRevision((revision) => revision + 1);
 		} else if (action === "notes") {
 			spawnBanner(
 				<NoteFunctionality.Create.Banner
@@ -884,14 +954,16 @@ export function TableViewWindow({
 	const handleRowAction = useCallback(
 		(doc: TableEventRow) => {
 			if (!activeOperationId) return;
-			const bridge = WindowBridge.create(WindowBridge.generateId(), () => {});
-			bridge.send(WindowBridge.MessageType.TARGET_NOTE, {
-				docId: doc._id,
-				operationId: activeOperationId,
-			});
-			bridge.destroy();
+			WindowBridge.sendControlMessage(
+				WindowBridge.MessageType.NAVIGATE_TO_EVENT,
+				{
+					docId: doc._id,
+					operationId: activeOperationId,
+				},
+				detachedCoordinatorId ?? undefined,
+			);
 		},
-		[activeOperationId],
+		[activeOperationId, detachedCoordinatorId],
 	);
 
 	/**
@@ -939,19 +1011,6 @@ export function TableViewWindow({
 		},
 		[],
 	);
-
-	// --- Window Bridge Listener ---
-	useEffect(() => {
-		const bridgeId = WindowBridge.generateId();
-		const bridge = WindowBridge.create(bridgeId, (message) => {
-			if (message.type === WindowBridge.MessageType.TABLE_SELECT_SOURCE) {
-				const payload =
-					message.payload as WindowBridge.TableSelectSourcePayload;
-				setSelectedSourceIds([payload.sourceId as Source.Id]);
-			}
-		});
-		return () => bridge.destroy();
-	}, []);
 
 	// --- Constants ---
 
@@ -1305,7 +1364,11 @@ export function TableViewWindow({
 						sortField={sortField}
 						sortDirection={sortDirection}
 						onSort={handleTableSort}
-						highlightedId={app.timeline.target?._id}
+						highlightedId={
+							detachedClientKind === "table"
+								? detachedSelectedEventId ?? undefined
+								: app.timeline.target?._id
+						}
 					/>
 				) : (
 					<p className={s.label}>{t("tableView.noData")}</p>

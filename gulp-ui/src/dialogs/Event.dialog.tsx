@@ -59,12 +59,15 @@ import { Filter } from "@/entities/Filter";
 import { Note } from "@/entities/Note";
 import { Link } from "@/entities/Link";
 import type { App } from "@/entities/App";
+import type { Operation } from "@/entities/Operation";
 import { Extension } from "@/context/Extension.context";
 import { Locale } from "@/locales";
 import { DisplayGroupDialog } from "./Group.dialog";
 import { DataStore } from "@/store/DataStore";
 import { EventJsonTransforms } from "@/lib/EventJsonTransforms";
 import { resolveEventRenderColor } from "@/utils";
+import { useEventDetail } from "./useEventDetail";
+import { useEventDetailViewPreference } from "./useEventDetailView";
 
 // --- UTILITIES ---
 
@@ -1173,7 +1176,6 @@ export function DisplayEventDialog({
 	const { t } = Locale.use();
 
 	// --- STATE ---
-	const [json, setJSON] = useState<Record<string, unknown> | null>(null);
 	const [transformsVersion, setTransformsVersion] = useState<number>(0);
 	const [hiddenTransformFields, setHiddenTransformFields] = useState<
 		Set<string>
@@ -1194,6 +1196,8 @@ export function DisplayEventDialog({
 	const treeContextPathRef = useRef<string | null>(null);
 	const treeContainerRef = useRef<HTMLDivElement | null>(null);
 	const { theme } = useTheme();
+	const [eventDetailView, selectEventDetailView] =
+		useEventDetailViewPreference(currentDocument);
 	const dataStoreVersion = useSyncExternalStore(
 		DataStore.subscribeOverlays,
 		DataStore.getOverlaysSnapshot,
@@ -1212,6 +1216,26 @@ export function DisplayEventDialog({
 		() => Source.Entity.id(app, event["gulp.source_id"]),
 		[app.target.files, event],
 	);
+	const eventOperationId =
+		file?.operation_id ??
+		(
+			event as Doc.Type & {
+				"gulp.operation_id"?: Operation.Id;
+			}
+		)["gulp.operation_id"];
+	const {
+		json,
+		loading: detailLoading,
+		error: detailRequestError,
+		setJson: setJSON,
+		retry: retryDetail,
+	} = useEventDetail({
+		eventId: event._id,
+		operationId: eventOperationId,
+		query: Info.query_single_id,
+		prepare: prepareEventJson,
+	});
+	const detailError = detailRequestError !== null;
 
 	// --- EFFECTS ---
 
@@ -1221,18 +1245,6 @@ export function DisplayEventDialog({
 		prevTargetRef.current = event._id;
 		Info.setTimelineTarget(file ? event : null);
 	}, [event._id, file, Info]);
-
-	// Load detailed event data
-	const loadEvent = useCallback(async () => {
-		const opId = Doc.Entity.operationId(app, event);
-		if (!opId) return;
-		const detailed = await Info.query_single_id(event._id, opId);
-		setJSON(prepareEventJson(detailed));
-	}, [event, app, Info]);
-
-	useEffect(() => {
-		if (!json || json._id !== event._id) loadEvent();
-	}, [event._id, loadEvent, json]);
 
 	useEffect(() => {
 		setIsFlagged(getEventFlagState(app, event));
@@ -1413,7 +1425,9 @@ export function DisplayEventDialog({
 				<Enrichment.Banner
 					event={event}
 					enrichmentField={enrichmentField}
-					onEnrichment={(e) => setJSON(e as unknown as typeof json)}
+					onEnrichment={(e) =>
+						setJSON(e as unknown as Record<string, unknown>)
+					}
 				/>,
 			);
 		},
@@ -1578,7 +1592,8 @@ export function DisplayEventDialog({
 		return (
 			<ContextMenu>
 				<Tabs
-					defaultValue="tree"
+					value={eventDetailView}
+					onValueChange={selectEventDetailView}
 					className={s.tabs_wrapper}
 				>
 					<TabsList className={s.triggers}>
@@ -1748,6 +1763,8 @@ export function DisplayEventDialog({
 		handleEnrich,
 		handleCreateLink,
 		currentDocument,
+		eventDetailView,
+		selectEventDetailView,
 		t,
 	]);
 
@@ -2122,9 +2139,32 @@ export function DisplayEventDialog({
 						/>
 					)}
 				</Fragment>
-			) : (
+			) : detailError ? (
+				<Stack
+					style={{ width: "100%", height: "100%" }}
+					flex
+					ai="center"
+					jc="center"
+					dir="column"
+					gap={12}
+				>
+					<Icon
+						name="CircleAlert"
+						size={40}
+						style={{ color: "var(--red-500)" }}
+					/>
+					<p>{t("eventDialog.eventUnavailable")}</p>
+					<Button
+						variant="secondary"
+						icon="RotateCw"
+						onClick={retryDetail}
+					>
+						{t("common.refresh")}
+					</Button>
+				</Stack>
+			) : detailLoading ? (
 				<LoadingSkeleton />
-			)}
+			) : null}
 		</Dialog>
 	);
 }
@@ -2231,6 +2271,9 @@ function LinkEventActionBanner({
 export namespace EventIndicator {
 	export interface Props extends Button.Props {
 		event: Doc.Type;
+		resolvedColor?: string;
+		hasNotesOverride?: boolean;
+		hasLinksOverride?: boolean;
 	}
 }
 
@@ -2241,13 +2284,16 @@ export function EventIndicator({
 	event,
 	className,
 	style,
+	resolvedColor,
+	hasNotesOverride,
+	hasLinksOverride,
 	...props
 }: EventIndicator.Props) {
-	const { app } = Application.use();
+	const { app, detachedDialogEventColors } = Application.use();
 	if (!event) return null;
 
 	const file = Source.Entity.id(app, event["gulp.source_id"]);
-	if (!file) return null;
+	const detachedColor = detachedDialogEventColors[event._id];
 
 	const notes = useMemo(
 		() => Doc.Entity.notes(app, event),
@@ -2259,14 +2305,21 @@ export function EventIndicator({
 	);
 
 	const background = useMemo(() => {
-		return resolveEventRenderColor(app, event) ?? "var(--accent)";
+		return (
+			resolvedColor ??
+			detachedColor ??
+			resolveEventRenderColor(app, event) ??
+			"var(--accent)"
+		);
 	}, [
 		app,
 		app.timeline.renderVersion,
 		app.target.files,
+		detachedColor,
 		event,
 		event.number_hash,
 		file,
+		resolvedColor,
 	]);
 
 	const indicatorLabel = useMemo(
@@ -2321,7 +2374,7 @@ export function EventIndicator({
 					/>
 				</Stack>
 			)}
-			{notes.length > 0 && (
+			{(hasNotesOverride ?? notes.length > 0) && (
 				<Stack
 					ai="center"
 					jc="center"
@@ -2334,7 +2387,7 @@ export function EventIndicator({
 					/>
 				</Stack>
 			)}
-			{links.length > 0 && (
+			{(hasLinksOverride ?? links.length > 0) && (
 				<Stack
 					ai="center"
 					jc="center"

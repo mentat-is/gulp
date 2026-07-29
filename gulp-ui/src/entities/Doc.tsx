@@ -58,6 +58,7 @@ export namespace Doc {
 		toggle: (id: Doc.Id, operationId?: Operation.Id) => boolean;
 		reset: (operationId?: Operation.Id) => void;
 		isFlagged: (id: Doc.Id, operationId?: Operation.Id) => boolean;
+		invalidateCache: () => void;
 	}
 
 	export class Entity {
@@ -153,19 +154,29 @@ export namespace Doc {
 			};
 		};
 
-		/** Returns the Operation.Id for a doc by looking it up through its source. */
+		/** Returns the Operation.Id from its source or serialized document fallback. */
 		public static operationId = (
 			app: App.Type,
 			doc: Doc.Type,
 		): Operation.Id | undefined =>
-			Source.Entity.id(app, doc["gulp.source_id"])?.operation_id;
+			Source.Entity.id(app, doc["gulp.source_id"])?.operation_id ??
+			(
+				doc as Doc.Type & {
+					"gulp.operation_id"?: Operation.Id;
+				}
+			)["gulp.operation_id"];
 
-		/** Returns the Context.Id for a doc by looking it up through its source. */
+		/** Returns the Context.Id from its source or serialized document fallback. */
 		public static contextId = (
 			app: App.Type,
 			doc: Doc.Type,
 		): Context.Id | undefined =>
-			Source.Entity.id(app, doc["gulp.source_id"])?.context_id;
+			Source.Entity.id(app, doc["gulp.source_id"])?.context_id ??
+			(
+				doc as Doc.Type & {
+					"gulp.context_id"?: Context.Id;
+				}
+			)["gulp.context_id"];
 
 		/**
 		 * Removes all events for the supplied sources and clears their lookup entries.
@@ -778,6 +789,14 @@ export namespace Doc {
 
 		public static flag: Flag = {
 			KEY: "flagged-events",
+
+			/**
+			 * Drops this window realm's localStorage projection after another
+			 * detached window changes flags.
+			 */
+			invalidateCache: () => {
+				Doc.Entity._flaggedCache = null;
+			},
 
 			/**
 			 * Method to get all flagged events from local storage

@@ -4519,12 +4519,13 @@ export class Info implements InfoProps {
 		tags: string[];
 	}) => {
 		const operationId = Doc.Entity.operationId(this.app, event);
+		const contextId = Doc.Entity.contextId(this.app, event);
 		const operationEpoch = DataStore.getRenderOperationEpoch();
 		return api<Note.Type>("/note_create", {
 			method: "POST",
 			query: {
 				operation_id: operationId,
-				context_id: Doc.Entity.contextId(this.app, event),
+				context_id: contextId,
 				source_id: event["gulp.source_id"],
 				ws_id: this.app.general.ws_id,
 				name,
@@ -5155,34 +5156,6 @@ export class Info implements InfoProps {
 	 */
 	session_load = async (session: Internal.Session.Data) => {
 		this.synchronizeTimelineScaleFromState(session.timeline.scale);
-		const replayFiles = this.applySessionSourceSettings(
-			Source.Entity.select(this.app, session.selected.files),
-			session,
-		);
-		const replayApp: App.Type = {
-			...this.app,
-			timeline: {
-				...this.app.timeline,
-				target: session.timeline.target,
-				frame: session.timeline.frame,
-				filter: session.timeline.filter,
-				scale: session.timeline.scale,
-			},
-			target: {
-				...this.app.target,
-				operations: Operation.Entity.select(
-					this.app.target.operations,
-					session.selected.operations,
-				),
-				contexts: Context.Entity.select(
-					this.app.target.contexts,
-					session.selected.contexts,
-				),
-				files: replayFiles,
-				filters: session.filters,
-			},
-		};
-
 		this.batchUpdate((draft) => {
 			draft.timeline.target = session.timeline.target;
 			draft.timeline.frame = session.timeline.frame;
@@ -5219,24 +5192,12 @@ export class Info implements InfoProps {
 
 		scrollStore.setScrollX(session.timeline.scroll.x);
 		scrollStore.setScrollY(session.timeline.scroll.y);
-		WindowBridge.broadcastMainContext(
-			replayApp,
-			"active",
-			session.selected.operations,
-		);
-		window.dispatchEvent(new CustomEvent(WindowBridge.DETACHED_REPLAY_EVENT));
 
 		setTimeout(() => {
 			this.refetch({
 				ids: session.selected.files,
 				frame: session.timeline.frame,
 			});
-			WindowBridge.broadcastMainContext(
-				replayApp,
-				"active",
-				session.selected.operations,
-			);
-			window.dispatchEvent(new CustomEvent(WindowBridge.DETACHED_REPLAY_EVENT));
 		}, 0);
 	};
 
@@ -5530,9 +5491,14 @@ export class Info implements InfoProps {
 				return [];
 			});
 
-	query_single_id = (doc_id: Doc.Type["_id"], operation_id: Operation.Id) => {
+	query_single_id = (
+		doc_id: Doc.Type["_id"],
+		operation_id: Operation.Id,
+		signal?: AbortSignal,
+	) => {
 		return api<Doc.Type>("/query_single_id", {
 			method: "POST",
+			signal,
 			query: {
 				doc_id,
 				operation_id,
@@ -5739,7 +5705,13 @@ export class Info implements InfoProps {
 	 * @returns Promise that resolves when logout cleanup is completed
 	 */
 	logout = async (): Promise<void> => {
-		WindowBridge.broadcastMainStatus("auth_lost");
+		WindowBridge.persistMainStatus("auth_lost");
+		if (window.location.pathname.startsWith("/detached/")) {
+			WindowBridge.sendControlMessage(
+				WindowBridge.MessageType.AUTH_LOST,
+				{},
+			);
+		}
 		window.dispatchEvent(new CustomEvent("gulp-auth-lost"));
 
 		try {

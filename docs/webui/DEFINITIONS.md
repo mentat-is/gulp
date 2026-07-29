@@ -234,9 +234,10 @@ aggregations such as top values, top values by time, and rare values. See
 
 ## Detached Window
 
-A detached window is a separate browser window that runs a small React app while
-receiving operation context from the main tab. Notes, Table View, Dashboard, and
-event dialogs can be detached.
+A detached window is a separate browser window that runs a dedicated React route
+while receiving capability-scoped operation state from the main tab. Notes,
+Table View, Dashboard, Assistant, and supported event or event-group dialogs can
+be detached. See [Detached Applications](detached-windows.md).
 
 ## Sigma Rule
 

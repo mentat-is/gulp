@@ -31,6 +31,7 @@ import {
 	type CollabDeletePayload,
 	type CollabDeleteOperationEnvelope,
 } from "@/context/collabDelete";
+import type { WindowBridge } from "@/lib/WindowBridge";
 
 interface CollabPayloadObject {
 	type?: string;
@@ -469,8 +470,18 @@ function _({ children }: { children: ReactNode }) {
 			toggleHintOpen,
 			isDetachedWindow: false,
 			currentDocument: globalThis.document,
-			detachedStatus: "active" as const,
-			detachedContextVersion: 0,
+			detachedWindowId: null,
+			detachedCoordinatorId: null,
+			detachedClientKind: null,
+			detachedTableSourceId: null,
+			detachedTableSourceRevision: 0,
+			detachedSelectedEventId: app.timeline.target?._id ?? null,
+			detachedDialog: null,
+			detachedDialogEventColors: {},
+			detachedDialogNavigation: null,
+			selectDetachedDialogEvent: () => {},
+			setDetachedTableSync: () => {},
+			setDetachedNotesRenderedSync: () => {},
 		}),
 		[
 			spawnBanner,
@@ -488,6 +499,7 @@ function _({ children }: { children: ReactNode }) {
 			dialogsDocked,
 			hintOpen,
 			toggleHintOpen,
+			app.timeline.target?._id,
 		],
 	);
 
@@ -569,8 +581,18 @@ export namespace Application {
 			toggleHintOpen: () => void;
 			isDetachedWindow: boolean;
 			currentDocument: Document;
-			detachedStatus: "active" | "initializing" | "idle" | "auth_lost";
-			detachedContextVersion: number;
+			detachedWindowId: string | null;
+			detachedCoordinatorId: string | null;
+			detachedClientKind: WindowBridge.DetachedClientKind | null;
+			detachedTableSourceId: Source.Id | null;
+			detachedTableSourceRevision: number;
+			detachedSelectedEventId: Doc.Id | null;
+			detachedDialog: WindowBridge.DetachedDialogDescriptor | null;
+			detachedDialogEventColors: Partial<Record<Doc.Id, string>>;
+			detachedDialogNavigation: WindowBridge.DetachedDialogNavigation | null;
+			selectDetachedDialogEvent: (docId: Doc.Id) => void;
+			setDetachedTableSync: (enabled: boolean) => void;
+			setDetachedNotesRenderedSync: (enabled: boolean) => void;
 		}
 	}
 

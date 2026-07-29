@@ -288,7 +288,13 @@ function showApiErrorToast<T>(
  * Clears local authentication state and redirects the main window to login.
  */
 function redirectToLogin() {
-	WindowBridge.broadcastMainStatus("auth_lost");
+	WindowBridge.persistMainStatus("auth_lost");
+	if (window.location.pathname.startsWith("/detached/")) {
+		WindowBridge.sendControlMessage(
+			WindowBridge.MessageType.AUTH_LOST,
+			{},
+		);
+	}
 	window.dispatchEvent(new CustomEvent("gulp-auth-lost"));
 	localStorage.removeItem(Internal.LocalStorageItemsList.GENERAL_TOKEN_VALUE);
 	localStorage.removeItem("__user_id");

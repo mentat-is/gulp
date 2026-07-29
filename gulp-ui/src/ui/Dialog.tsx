@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 import s from './styles/Dialog.module.css'
 import { cn } from '@/ui/utils'
 import { Application } from '@/context/Application.context'
@@ -19,33 +19,33 @@ export function Dialog({
   children,
   ...props
 }: Dialog.Props) {
-  const { Info, banner, spawnDialog } = Application.use()
+  const { Info, banner, spawnDialog, currentDocument } = Application.use()
 
-  const close = () => {
+  const close = useCallback(() => {
     if (callback) {
       callback()
     }
 
     spawnDialog(null)
     Info.setTimelineTarget(null)
-  }
+  }, [Info, callback, spawnDialog])
 
-  const handleDialogClose = (event: KeyboardEvent) => {
+  const handleDialogClose = useCallback((event: KeyboardEvent) => {
     if (event.key === 'Escape') {
       if (banner) {
         return;
       }
       close()
     }
-  }
+  }, [banner, close])
 
   useEffect(() => {
-    document.addEventListener('keydown', handleDialogClose)
+    currentDocument.addEventListener('keydown', handleDialogClose)
 
     return () => {
-      document.removeEventListener('keydown', handleDialogClose)
+      currentDocument.removeEventListener('keydown', handleDialogClose)
     }
-  }, [])
+  }, [currentDocument, handleDialogClose])
 
   return (
     <Stack className={cn(s.dialog, className)} dir="column" ai='stretch' pos='relative' {...props}>

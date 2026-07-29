@@ -9,7 +9,6 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { Application } from "@/context/Application.context";
-import { Source } from "@/entities/Source";
 import { Note } from "@/entities/Note";
 import { Select } from "@/ui/Select";
 import { Stack } from "@/ui/Stack";
@@ -29,6 +28,7 @@ import { Locale } from "@/locales";
 import {
 	acknowledgeNotesChangeSequence,
 	advanceNotesChangeSequence,
+	applyNotesWindowUpdateDelta,
 	buildNotesListFilters,
 	getCanvasRenderedSourceIdSet,
 	getNoteSourceId,
@@ -63,6 +63,19 @@ interface NotesTableRow extends Record<string, unknown> {
 	icon: Icon.Name;
 }
 
+interface NotesQuerySnapshot {
+	operationId: Note.Type["operation_id"] | undefined;
+	notes: Note.Type[];
+}
+
+interface NotesPageRequest {
+	pageFilter: Note.ListFilter;
+	countFilter: Note.ListFilter;
+	queryCanReturnNotes: boolean;
+	pageSize: number;
+	currentPage: number;
+}
+
 const NOTES_TABLE_VIRTUALIZATION = {
 	threshold: 20,
 	overscan: 8,
@@ -71,6 +84,24 @@ const NOTES_TABLE_VIRTUALIZATION = {
 
 const NOTES_PAGE_SIZES = [20, 50, 100] as const;
 const NOTES_SEARCH_DEBOUNCE_MSEC = 250;
+const EMPTY_NOTE_IDS: Note.Id[] = [];
+
+/**
+ * Keeps an array reference stable while its ordered primitive values are equal.
+ * @param values Current semantic array values.
+ * @returns Previous array reference for an equivalent value sequence.
+ */
+function useStableSemanticArray<T>(values: T[]): T[] {
+	const stableValuesRef = useRef(values);
+	const previousValues = stableValuesRef.current;
+	const valuesChanged =
+		previousValues.length !== values.length ||
+		values.some((value, index) => !Object.is(value, previousValues[index]));
+	if (valuesChanged) {
+		stableValuesRef.current = values;
+	}
+	return stableValuesRef.current;
+}
 
 /**
  * Renders the confirmation banner for deleting notes selected across pages.
@@ -135,13 +166,23 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		app,
 		spawnBanner,
 		banner,
-		detachedStatus,
+		detachedClientKind,
+		detachedCoordinatorId,
+		detachedSelectedEventId,
+		setDetachedNotesRenderedSync,
 	} = Application.use();
 	const { t } = Locale.use();
+	const infoRef = useRef(Info);
+	infoRef.current = Info;
+	const translateRef = useRef(t);
+	translateRef.current = t;
 	const dataStoreVersion = useSyncExternalStore(
 		DataStore.subscribeOverlays,
 		DataStore.getOverlaysSnapshot,
 	);
+	const selectedOperationId = app.target.operations.find(
+		(operation) => operation.selected,
+	)?.id;
 	const [search, setSearch] = useState("");
 	const [appliedSearch, setAppliedSearch] = useState("");
 	const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
@@ -149,10 +190,19 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const [selectedNoteIds, setSelectedNoteIds] = useState<Set<Note.Id>>(
 		new Set(),
 	);
-	const [queryNotes, setQueryNotes] = useState<Note.Type[]>(() => [
-		...DataStore.notes,
-	]);
+	const [querySnapshot, setQuerySnapshot] = useState<NotesQuerySnapshot>(() => ({
+		operationId: selectedOperationId,
+		notes: [...DataStore.notes],
+	}));
+	const queryNotes =
+		querySnapshot.operationId === selectedOperationId
+			? querySnapshot.notes
+			: DataStore.notes;
+	const queryNotesRef = useRef<Note.Type[]>(queryNotes);
+	queryNotesRef.current = queryNotes;
 	const [pageNotes, setPageNotes] = useState<Note.Type[]>([]);
+	const pageNotesRef = useRef<Note.Type[]>(pageNotes);
+	pageNotesRef.current = pageNotes;
 	const [totalHits, setTotalHits] = useState(0);
 	const [pageSize, setPageSize] = useState(50);
 	const [currentPage, setCurrentPage] = useState(1);
@@ -163,11 +213,8 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	const refreshAcknowledgementRef = useRef<number | null>(null);
 	const notesRequestControllerRef = useRef<AbortController | null>(null);
 	const windowRef = useRef<HTMLDivElement>(null);
-	const selectedOperationId = app.target.operations.find(
-		(operation) => operation.selected,
-	)?.id;
 
-	const selectedSourceIds = useMemo(
+	const selectedSourceIdValues = useMemo(
 		() =>
 			app.target.files
 				.filter((source) => source.selected)
@@ -175,11 +222,22 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 				.sort((left, right) => left.localeCompare(right)),
 		[app.target.files],
 	);
-	const selectedSourceIdsSignature = selectedSourceIds.join(",");
+	const selectedSourceIds = useStableSemanticArray(selectedSourceIdValues);
+	const queryScopeKey = JSON.stringify([
+		selectedOperationId ?? null,
+		selectedSourceIds,
+	]);
+	const currentPageScopeRef = useRef(queryScopeKey);
+	const queryCurrentPage =
+		currentPageScopeRef.current === queryScopeKey ? currentPage : 1;
 
 	const canvasRenderedSourceIds = useMemo(
-		() => getCanvasRenderedSourceIdSet(app),
+		() =>
+			showOnlyVisibleSources
+				? getCanvasRenderedSourceIdSet(app)
+				: null,
 		[
+			showOnlyVisibleSources,
 			app.target.files,
 			app.target.contexts,
 			app.timeline.filter,
@@ -189,15 +247,13 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		],
 	);
 
-	const filteredSourceIds = useMemo(
-		() =>
-			showOnlyVisibleSources
-				? selectedSourceIds.filter((sourceId) =>
-						canvasRenderedSourceIds.has(sourceId),
-					)
-				: selectedSourceIds,
-		[selectedSourceIdsSignature, showOnlyVisibleSources, canvasRenderedSourceIds],
-	);
+	const filteredSourceIdValues =
+		showOnlyVisibleSources && canvasRenderedSourceIds
+			? selectedSourceIds.filter((sourceId) =>
+					canvasRenderedSourceIds.has(sourceId),
+				)
+			: selectedSourceIds;
+	const filteredSourceIds = useStableSemanticArray(filteredSourceIdValues);
 	const filteredSourceIdSet = useMemo(
 		() => new Set(filteredSourceIds),
 		[filteredSourceIds],
@@ -210,10 +266,6 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		() => new Map(app.target.contexts.map((context) => [context.id, context])),
 		[app.target.contexts],
 	);
-	const selectedTagValues = useMemo(
-		() => [...selectedTags].sort((left, right) => left.localeCompare(right)),
-		[selectedTags],
-	);
 
 	const availableTags = useMemo(() => {
 		const tags = new Set<string>();
@@ -222,17 +274,39 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		});
 		return [...tags].sort((left, right) => left.localeCompare(right));
 	}, [queryNotes]);
-
-	const searchMatchingIds = useMemo(
+	const availableTagSet = useMemo(
+		() => new Set(availableTags),
+		[availableTags],
+	);
+	const selectedTagValues = useMemo(
 		() =>
-			getSearchMatchingNoteIds(
+			[...selectedTags]
+				.filter((tag) => availableTagSet.has(tag.toLowerCase()))
+				.sort((left, right) => left.localeCompare(right)),
+		[selectedTags, availableTagSet],
+	);
+
+	const searchMatchingIdValues = useMemo(
+		() => {
+			const matchingIds = getSearchMatchingNoteIds(
 				queryNotes,
 				appliedSearch,
 				sourceById,
 				contextById,
-			),
+			);
+			return matchingIds?.sort((left, right) =>
+				left.localeCompare(right),
+			);
+		},
 		[queryNotes, appliedSearch, sourceById, contextById],
 	);
+	const stableSearchMatchingIds = useStableSemanticArray(
+		searchMatchingIdValues ?? EMPTY_NOTE_IDS,
+	);
+	const searchMatchingIds =
+		searchMatchingIdValues === undefined
+			? undefined
+			: stableSearchMatchingIds;
 
 	const allFilteredNoteIds = useMemo(
 		() =>
@@ -264,21 +338,45 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 				sourceIds: filteredSourceIds,
 				selectedTags: selectedTagValues,
 				pageSize,
-				currentPage,
+				currentPage: queryCurrentPage,
 			}),
 		[
 			searchMatchingIds,
 			filteredSourceIds,
 			selectedTagValues,
 			pageSize,
-			currentPage,
+			queryCurrentPage,
 		],
 	);
 
 	const queryCanReturnNotes =
+		Boolean(selectedOperationId) &&
 		filteredSourceIds.length > 0 &&
 		(searchMatchingIds === undefined || searchMatchingIds.length > 0);
 	const totalPages = Math.max(1, Math.ceil(totalHits / pageSize));
+	const notesRequestKey = JSON.stringify([
+		selectedOperationId ?? null,
+		filteredSourceIds,
+		searchMatchingIds ?? null,
+		selectedTagValues,
+		pageSize,
+		queryCurrentPage,
+		refreshRevision,
+	]);
+	const notesPageRequestRef = useRef<NotesPageRequest>({
+		pageFilter,
+		countFilter,
+		queryCanReturnNotes,
+		pageSize,
+		currentPage: queryCurrentPage,
+	});
+	notesPageRequestRef.current = {
+		pageFilter,
+		countFilter,
+		queryCanReturnNotes,
+		pageSize,
+		currentPage: queryCurrentPage,
+	};
 
 	/**
 	 * Acknowledges one explicit refresh without hiding changes that arrived later.
@@ -300,10 +398,17 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	 * @returns Promise resolved after the latest request updates table state.
 	 */
 	const fetchNotesPage = useCallback(async (): Promise<void> => {
+		const {
+			pageFilter: requestPageFilter,
+			countFilter: requestCountFilter,
+			queryCanReturnNotes: requestCanReturnNotes,
+			pageSize: requestPageSize,
+			currentPage: requestPage,
+		} = notesPageRequestRef.current;
 		const refreshSequence = refreshAcknowledgementRef.current;
 		refreshAcknowledgementRef.current = null;
 		notesRequestControllerRef.current?.abort();
-		if (!queryCanReturnNotes) {
+		if (!requestCanReturnNotes) {
 			notesRequestControllerRef.current = null;
 			setPageNotes([]);
 			setTotalHits(0);
@@ -318,8 +423,14 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		setLoading(true);
 		try {
 			const [notes, count] = await Promise.all([
-				Info.notes_list(pageFilter, requestController.signal),
-				Info.notes_count(countFilter, requestController.signal),
+				infoRef.current.notes_list(
+					requestPageFilter,
+					requestController.signal,
+				),
+				infoRef.current.notes_count(
+					requestCountFilter,
+					requestController.signal,
+				),
 			]);
 			if (
 				requestController.signal.aborted ||
@@ -328,18 +439,22 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 				return;
 			}
 
-			const nextTotalPages = Math.max(1, Math.ceil(count / pageSize));
+			const nextTotalPages = Math.max(
+				1,
+				Math.ceil(count / requestPageSize),
+			);
 			setTotalHits(count);
-			if (currentPage > nextTotalPages) {
+			if (requestPage > nextTotalPages) {
 				acknowledgeSuccessfulRefresh(refreshSequence);
 				setCurrentPage(nextTotalPages);
 				return;
 			}
 			setPageNotes(notes);
+			pageNotesRef.current = notes;
 			acknowledgeSuccessfulRefresh(refreshSequence);
 		} catch {
 			if (!requestController.signal.aborted) {
-				toast.error(t("tableView.fetchFailed"));
+				toast.error(translateRef.current("tableView.fetchFailed"));
 			}
 		} finally {
 			if (notesRequestControllerRef.current === requestController) {
@@ -347,21 +462,11 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 				setLoading(false);
 			}
 		}
-	}, [
-		Info,
-		pageFilter,
-		countFilter,
-		queryCanReturnNotes,
-		pageSize,
-		currentPage,
-		t,
-		refreshRevision,
-		acknowledgeSuccessfulRefresh,
-	]);
+	}, [acknowledgeSuccessfulRefresh]);
 
 	useEffect(() => {
 		fetchNotesPage();
-	}, [fetchNotesPage]);
+	}, [fetchNotesPage, notesRequestKey]);
 
 	useEffect(
 		() => () => notesRequestControllerRef.current?.abort(),
@@ -378,7 +483,6 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	}, [search]);
 
 	useEffect(() => {
-		const availableTagSet = new Set(availableTags);
 		setSelectedTags((previousTags) => {
 			const nextTags = new Set(
 				[...previousTags].filter((tag) =>
@@ -387,7 +491,7 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 			);
 			return nextTags.size === previousTags.size ? previousTags : nextTags;
 		});
-	}, [availableTags]);
+	}, [availableTagSet]);
 
 	useEffect(() => {
 		const currentNoteIds = new Set(DataStore.notes.map((note) => note.id));
@@ -409,7 +513,41 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 			if (change.operationId !== selectedOperationId) return;
 
 			if (change.mutation === "snapshot-ready") {
-				setQueryNotes([...DataStore.notes]);
+				const notesSnapshot = [...DataStore.notes];
+				queryNotesRef.current = notesSnapshot;
+				setQuerySnapshot({
+					operationId: selectedOperationId,
+					notes: notesSnapshot,
+				});
+				return;
+			}
+			if (change.mutation === "update") {
+				const updateResult = applyNotesWindowUpdateDelta({
+					queryNotes: queryNotesRef.current,
+					pageNotes: pageNotesRef.current,
+					updatedNotes: change.notes,
+					filter: {
+						search: appliedSearch,
+						selectedTags: selectedTagValues,
+						sourceIds: filteredSourceIdSet,
+						sourceById,
+						contextById,
+					},
+				});
+				if (updateResult.queryNotes !== queryNotesRef.current) {
+					queryNotesRef.current = updateResult.queryNotes;
+					setQuerySnapshot({
+						operationId: selectedOperationId,
+						notes: updateResult.queryNotes,
+					});
+				}
+				if (updateResult.pageNotes !== pageNotesRef.current) {
+					pageNotesRef.current = updateResult.pageNotes;
+					setPageNotes(updateResult.pageNotes);
+				}
+				if (updateResult.requiresRefresh) {
+					setRefreshRevision((revision) => revision + 1);
+				}
 				return;
 			}
 			setPendingNotesChangeSequence((pendingSequence) =>
@@ -418,17 +556,29 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		};
 
 		return DataStore.subscribeNotesSyncChanges(handleNotesSyncChange);
-	}, [selectedOperationId]);
+	}, [
+		selectedOperationId,
+		appliedSearch,
+		selectedTagValues,
+		filteredSourceIdSet,
+		sourceById,
+		contextById,
+	]);
 
 	useEffect(() => {
+		if (currentPageScopeRef.current === queryScopeKey) return;
+		currentPageScopeRef.current = queryScopeKey;
 		const notesSnapshot = [...DataStore.notes];
-		setQueryNotes(notesSnapshot);
+		queryNotesRef.current = notesSnapshot;
+		setQuerySnapshot({
+			operationId: selectedOperationId,
+			notes: notesSnapshot,
+		});
 		refreshAcknowledgementRef.current = null;
 		setPendingNotesChangeSequence(null);
 		setCurrentPage(1);
 		setSelectedNoteIds(new Set());
-		setRefreshRevision((revision) => revision + 1);
-	}, [selectedOperationId, selectedSourceIdsSignature, detachedStatus]);
+	}, [queryScopeKey, selectedOperationId]);
 
 	/**
 	 * Clears selection, acknowledges canonical notes, and reloads the first page.
@@ -436,13 +586,17 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	 */
 	const refreshNotes = useCallback((): void => {
 		const notesSnapshot = [...DataStore.notes];
-		setQueryNotes(notesSnapshot);
+		queryNotesRef.current = notesSnapshot;
+		setQuerySnapshot({
+			operationId: selectedOperationId,
+			notes: notesSnapshot,
+		});
 		refreshAcknowledgementRef.current =
 			pendingNotesChangeSequence;
 		setSelectedNoteIds(new Set());
 		setCurrentPage(1);
 		setRefreshRevision((revision) => revision + 1);
-	}, [pendingNotesChangeSequence]);
+	}, [pendingNotesChangeSequence, selectedOperationId]);
 
 	/**
 	 * Applies a new tag selection and resets query-dependent selection state.
@@ -460,10 +614,14 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	 * @returns Nothing.
 	 */
 	const toggleVisibleSources = useCallback((): void => {
-		setShowOnlyVisibleSources((visibleOnly) => !visibleOnly);
+		setShowOnlyVisibleSources((visibleOnly) => {
+			const nextVisibleOnly = !visibleOnly;
+			setDetachedNotesRenderedSync(nextVisibleOnly);
+			return nextVisibleOnly;
+		});
 		setCurrentPage(1);
 		setSelectedNoteIds(new Set());
-	}, []);
+	}, [setDetachedNotesRenderedSync]);
 
 	/**
 	 * Selects or deselects every note displayed on the current page.
@@ -519,13 +677,15 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	 * @returns Nothing.
 	 */
 	const targetNoteButtonHandler = useCallback((note: Note.Type): void => {
-		const bridge = WindowBridge.create(WindowBridge.generateId(), () => {});
-		bridge.send(WindowBridge.MessageType.TARGET_NOTE, {
-			docId: note.doc._id,
-			operationId: note.operation_id,
-		});
-		bridge.destroy();
-	}, []);
+		WindowBridge.sendControlMessage(
+			WindowBridge.MessageType.NAVIGATE_TO_EVENT,
+			{
+				docId: note.doc._id,
+				operationId: note.operation_id,
+			},
+			detachedCoordinatorId ?? undefined,
+		);
+	}, [detachedCoordinatorId]);
 
 	/**
 	 * Opens the existing row-delete confirmation.
@@ -907,7 +1067,11 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 							onrowselect={handleRowSelect}
 							onSelectAll={handleSelectPage}
 							actions={tableActions}
-							highlightedId={app.timeline.target?._id}
+							highlightedId={
+								detachedClientKind === "notes"
+									? detachedSelectedEventId ?? undefined
+									: app.timeline.target?._id
+							}
 							columnVisibility={true}
 							persistId="notes_table_paginated_v2"
 							virtualization={NOTES_TABLE_VIRTUALIZATION}

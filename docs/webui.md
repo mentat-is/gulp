@@ -18,6 +18,7 @@ backend setup is in the [gULP installation guide](installation.md).
 - [Plugins](webui/plugins.md)
 - [Rendering engines](webui/engine.md)
 - [Views](webui/view.md)
+- [Detached applications](webui/detached-windows.md)
 
 ## Main workflow
 

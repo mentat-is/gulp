@@ -2,13 +2,10 @@ import React, {
 	useCallback,
 	useEffect,
 	useMemo,
-	useRef,
 	useState,
 } from "react";
-import ReactDOM from "react-dom/client";
 import { useParams, useNavigate } from "react-router-dom";
 import { cn } from "@/ui/utils";
-import { useTheme } from "next-themes";
 import { Application } from "../context/Application.context";
 import { Preloader } from "../components/Preloader";
 import s from "../App.module.css";
@@ -17,11 +14,8 @@ import { Menu, MenuItem, PluginNode } from "../components/menu";
 import { Timeline } from "../app/body/Timeline";
 import { Resizer } from "../ui/Resizer";
 import { Hint } from "../dialogs/Hint.dialog";
-import { DetachedAppProvider } from "../context/DetachedApp.provider";
 import { DataStore } from "../store/DataStore";
-import { WindowBridge } from "../lib/WindowBridge";
-import { RenderEngine } from "../class/RenderEngine";
-import { Color } from "../entities/Color";
+import type { WindowBridge } from "../lib/WindowBridge";
 import { Logger } from "../dto/Logger.class";
 import { Source } from "../entities/Source";
 import { SelectFiles } from "../banners/SelectFiles.banner";
@@ -37,37 +31,40 @@ import { Operation } from "../entities/Operation";
 import { Settings } from "../banners/Settings.banner";
 import { Session } from "../banners/Session.banner";
 import { Extension } from "../context/Extension.context";
-import { Note } from "../entities/Note";
 import { Doc } from "../entities/Doc";
-import { NotePoint } from "../ui/Note";
 import { DisplayEventDialog } from "../dialogs/Event.dialog";
+import {
+	DisplayGroupDialog,
+	type DisplayGroupKind,
+} from "../dialogs/Group.dialog";
 import { Locale } from "@/locales";
 import { DetachedWindow } from "@/context/DetachedWindow.context";
-import { applyThemeToWindow } from "@/utils";
 
-/**
- * FetchEventBannerMain — fetches a note-linked event from the server and opens its dialog
- * in the main tab. Triggered when the detached NotesWindow sends TARGET_NOTE for an event
- * that is not currently loaded in the main tab's timeline.
- *
- * @param docId - The document ID of the event to fetch.
- * @param operationId - The operation ID under which the event was ingested.
- */
-function FetchEventBannerMain({
-	docId,
-	operationId,
-}: {
-	docId: Doc.Id;
-	operationId: Operation.Id;
-}) {
-	// Construct a minimal Note.Type shell so we can reuse the existing FetchEventBanner component.
-	const shell = {
-		doc: { _id: docId },
-		operation_id: operationId,
-		name: docId,
-	} as unknown as Note.Type;
-
-	return <NotePoint.FetchEventBanner note={shell} />;
+function createDetachedDialogDescriptor(
+	dialog: React.ReactNode,
+): WindowBridge.DetachedDialogDescriptor | null {
+	if (!React.isValidElement(dialog)) return null;
+	if (dialog.type === DisplayEventDialog) {
+		const { event } = dialog.props as { event?: Doc.Type };
+		return event ? { kind: "event", event } : null;
+	}
+	if (dialog.type === DisplayGroupDialog) {
+		const {
+			events,
+			groupKind = "events",
+		} = dialog.props as {
+			events?: Doc.Type[];
+			groupKind?: DisplayGroupKind;
+		};
+		return events
+			? {
+					kind: "group",
+					events,
+					groupKind,
+				}
+			: null;
+	}
+	return null;
 }
 
 export function OperationView() {
@@ -153,7 +150,6 @@ export function OperationView() {
 }
 
 export function OperationTimeline() {
-	const { theme } = useTheme();
 	const {
 		Info,
 		app,
@@ -163,121 +159,16 @@ export function OperationTimeline() {
 		setHintOpen,
 		setDialogsDocked,
 		spawnBanner,
-		spawnDialog,
 		toggleHintOpen,
 	} = Application.use();
 	const { t } = Locale.use();
 	const { extensions } = Extension.use();
 	const detachedWindows = DetachedWindow.use();
-	const detachedDialogAppRef = useRef(app);
-	detachedDialogAppRef.current = app;
-
-	/**
-	 * Applies the main document stylesheets and theme variables to a detached dialog window.
-	 *
-	 * @param targetWindow - Detached browser window that should mirror the main application theme.
-	 * @returns Nothing.
-	 */
-	const copyStylesToWindow = useCallback(
-		(targetWindow: Window) => {
-			const targetDoc = targetWindow.document;
-			if (!applyThemeToWindow(document, targetDoc, theme) || !targetDoc.head) {
-				return;
-			}
-
-			Array.from(document.styleSheets).forEach((styleSheet: CSSStyleSheet) => {
-				try {
-					if (styleSheet.href) {
-						const link = document.createElement("link");
-						link.rel = "stylesheet";
-						link.href = styleSheet.href;
-						targetDoc.head.appendChild(link);
-					} else if (styleSheet.cssRules) {
-						const style = document.createElement("style");
-						Array.from(styleSheet.cssRules).forEach((rule) => {
-							style.appendChild(document.createTextNode(rule.cssText));
-						});
-						targetDoc.head.appendChild(style);
-					}
-				} catch (error) {
-					console.warn("error copying style", error);
-				}
-			});
-		},
-		[theme],
-	);
-
-	// Auto-open or focus the Table view window when app.general.tableViewSource is set
-	useEffect(() => {
-		if (app.general.tableViewSource) {
-			detachedWindows.openTableWindow(app.general.tableViewSource.id);
-			Info.setInfoByKey(null, "general", "tableViewSource");
-		}
-	}, [app.general.tableViewSource, detachedWindows, Info]);
 
 	const [isPreloaded, setIsPreloaded] = useState(false);
-	const dialogWindowRef = useRef<Window | null>(null);
-	const dialogRootRef = useRef<ReactDOM.Root | null>(null);
-	const dialogBridgeIdRef = useRef<string | null>(null);
-
-	const unmountDialogWindow = useCallback(() => {
-		const root = dialogRootRef.current;
-		const win = dialogWindowRef.current;
-
-		dialogRootRef.current = null;
-		dialogBridgeIdRef.current = null;
-		dialogWindowRef.current = null;
-
-		if (root) {
-			setTimeout(() => {
-				root.unmount();
-			}, 0);
-		}
-
-		if (win && !win.closed) {
-			win.close();
-		}
-	}, []);
-
-	/**
-	 * Renders or updates the detached event-dialog root without subscribing it to
-	 * unrelated main application changes such as canvas zoom updates.
-	 *
-	 * @param targetWindow - Detached browser window that owns the dialog root.
-	 * @returns Nothing.
-	 */
-	const renderDetachedDialog = useCallback(
-		(targetWindow: Window) => {
-			const container =
-				targetWindow.document.getElementById("detached-root") ??
-				targetWindow.document.createElement("div");
-			if (!container.id) {
-				container.id = "detached-root";
-				targetWindow.document.body.innerHTML = "";
-				targetWindow.document.body.appendChild(container);
-			}
-
-			if (!dialogRootRef.current) {
-				dialogRootRef.current = ReactDOM.createRoot(container);
-			}
-
-			if (!dialogBridgeIdRef.current) {
-				dialogBridgeIdRef.current = WindowBridge.generateId();
-			}
-
-			dialogRootRef.current.render(
-				<DetachedAppProvider
-					initialApp={detachedDialogAppRef.current}
-					initialNotes={[...DataStore.notes]}
-					bridgeId={dialogBridgeIdRef.current}
-					detachedDocument={targetWindow.document}
-					mainSpawnBanner={spawnBanner}
-				>
-					<DetachedDialogWindowContent dialog={dialog} />
-				</DetachedAppProvider>,
-			);
-		},
-		[dialog, spawnBanner],
+	const detachedDialogDescriptor = useMemo(
+		() => createDetachedDialogDescriptor(dialog),
+		[dialog],
 	);
 
 	useEffect(() => {
@@ -289,18 +180,6 @@ export function OperationTimeline() {
 	}, [isPreloaded]);
 
 	useEffect(() => {
-		if (theme) {
-			Color.Themer.setTheme();
-		}
-	}, [theme]);
-
-	useEffect(() => {
-		if (dialogWindowRef.current && !dialogWindowRef.current.closed) {
-			applyThemeToWindow(document, dialogWindowRef.current.document, theme);
-		}
-	}, [applyThemeToWindow, theme]);
-
-	useEffect(() => {
 		const root = document.getElementById("root");
 		if (!root) {
 			return Logger.error("ROOT_NOT_FOUND");
@@ -310,71 +189,35 @@ export function OperationTimeline() {
 	}, [app.hidden.toasts]);
 
 	useEffect(() => {
-		return () => {
-			unmountDialogWindow();
-		};
-	}, [unmountDialogWindow]);
-
-	useEffect(() => {
 		if (dialogsDocked || !dialog) {
-			if (dialogWindowRef.current) {
-				unmountDialogWindow();
-			}
+			detachedWindows.closeDialogWindow();
 			return;
 		}
 
-		let nextWindow = dialogWindowRef.current;
-		if (!nextWindow || nextWindow.closed) {
-			nextWindow = window.open(
-				"",
-				"GulpDialogWindow",
-				`width=${Math.max(app.timeline.dialogSize, 480)},height=${Math.max(window.innerHeight - 160, 640)},left=${Math.max(window.innerWidth - Math.max(app.timeline.dialogSize, 480) - 48, 48)},top=60`,
-			);
-			if (!nextWindow) {
-				setDialogsDocked(true);
-				return;
-			}
-
-			nextWindow.document.title = t("operationView.eventDetailsTitle");
-			copyStylesToWindow(nextWindow);
-			dialogWindowRef.current = nextWindow;
-			nextWindow.addEventListener(
-				"beforeunload",
-				() => {
-					const root = dialogRootRef.current;
-					dialogRootRef.current = null;
-					dialogBridgeIdRef.current = null;
-					dialogWindowRef.current = null;
-					if (root) {
-						setTimeout(() => {
-							root.unmount();
-						}, 0);
-					}
-				},
-				{ once: true },
-			);
+		if (!detachedDialogDescriptor) {
+			// Custom React dialogs cannot be serialized into an independent
+			// browser context, so keep them safely docked.
+			setDialogsDocked(true);
+			return;
 		}
 
-		renderDetachedDialog(nextWindow);
+		const width = Math.max(app.timeline.dialogSize, 480);
+		if (
+			!detachedWindows.openDialogWindow(
+				detachedDialogDescriptor,
+				`width=${width},height=${Math.max(window.innerHeight - 160, 640)},left=${Math.max(window.innerWidth - width - 48, 48)},top=60`,
+			)
+		) {
+			setDialogsDocked(true);
+		}
 	}, [
 		app.timeline.dialogSize,
-		copyStylesToWindow,
+		detachedDialogDescriptor,
+		detachedWindows,
+		dialog,
 		dialogsDocked,
-		renderDetachedDialog,
 		setDialogsDocked,
-		unmountDialogWindow,
 	]);
-
-	// Listen for redock requests sent from the detached dialog window
-	useEffect(() => {
-		const listenId = WindowBridge.generateId();
-		const bridge = WindowBridge.create(listenId, (message) => {
-			if (message.type === WindowBridge.MessageType.DOCK_DIALOG) {
-				setDialogsDocked(true);
-			}
-		});
-		return () => bridge.destroy();
-	}, [setDialogsDocked]);
 
 	// When dock state changes the canvas layout shifts; trigger a canvas redraw after layout settles
 	useEffect(() => {
@@ -599,16 +442,6 @@ export function OperationTimeline() {
 			) : null}
 		</Stack>
 	);
-}
-
-function DetachedDialogWindowContent({ dialog }: { dialog: React.ReactNode }) {
-	const { dialog: detachedDialog, spawnDialog } = Application.use();
-
-	useEffect(() => {
-		spawnDialog(dialog);
-	}, [dialog, spawnDialog]);
-
-	return detachedDialog ?? null;
 }
 
 // Simple toast mock/fallback if needed, though toast should be imported from sonner or global

@@ -1,6 +1,8 @@
 import type { App } from "@/entities/App";
 import { Doc } from "@/entities/Doc";
-import type { Source } from "@/entities/Source";
+import { Source } from "@/entities/Source";
+import type { Operation } from "@/entities/Operation";
+import type { Context } from "@/entities/Context";
 import { DataStore, type DataStoreRenderChange } from "@/store/DataStore";
 
 jest.mock("@/locales", () => ({
@@ -9,7 +11,9 @@ jest.mock("@/locales", () => ({
 jest.mock("@/locales/core", () => ({
 	translate: (key: string): string => key,
 }));
-jest.mock("@/entities/Source", () => ({ Source: { Entity: {} } }));
+jest.mock("@/entities/Source", () => ({
+	Source: { Entity: { id: jest.fn() } },
+}));
 jest.mock("@/entities/Note", () => ({ Note: { Entity: {} } }));
 jest.mock("@/entities/Operation", () => ({ Operation: { Entity: {} } }));
 jest.mock("@/entities/Context", () => ({ Context: { Entity: {} } }));
@@ -18,6 +22,10 @@ jest.mock("@/ui/Icon", () => ({ Icon: (): null => null }));
 jest.mock("@/dto/Logger.class", () => ({ Logger: {} }));
 jest.mock("@/ui/utils", () => ({ Refractor: {} }));
 
+const mockSourceEntityId = Source.Entity.id as unknown as {
+	(app: App.Type, sourceId: Source.Id): Source.Type | undefined;
+	mockReset(): void;
+};
 const SOURCE_ID = "doc-test-source" as Source.Id;
 const SECOND_SOURCE_ID = "doc-test-source-second" as Source.Id;
 const APP = {} as App.Type;
@@ -47,6 +55,20 @@ describe("Doc asynchronous ingestion", () => {
 	beforeEach(() => {
 		DataStore.resetRenderOperation();
 		Doc.Entity.clearIndex();
+		mockSourceEntityId.mockReset();
+	});
+
+	it("uses serialized operation and context IDs when a source is not hydrated", () => {
+		const operationId = "operation-from-event" as Operation.Id;
+		const contextId = "context-from-event" as Context.Id;
+		const document = {
+			...createDocument("unselected-source-event", 100),
+			"gulp.operation_id": operationId,
+			"gulp.context_id": contextId,
+		};
+
+		expect(Doc.Entity.operationId(APP, document)).toBe(operationId);
+		expect(Doc.Entity.contextId(APP, document)).toBe(contextId);
 	});
 
 	it("publishes proven-new prepared batches as compact upserts", async () => {

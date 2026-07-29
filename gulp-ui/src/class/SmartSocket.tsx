@@ -319,6 +319,24 @@ export namespace SmartSocket {
       }
     }
 
+    /**
+     * Permanently releases this realm's socket singleton and all of its listeners.
+     *
+     * Detached assistant routes use this when their authenticated main context
+     * becomes inactive or their private connection identity changes. Clearing
+     * the singleton is important because a later authenticated bootstrap must
+     * create a live socket instead of reusing the previously closed instance.
+     */
+    destroy(): void {
+      this.close()
+      this.conditional.clear()
+      this.removeAllListeners()
+
+      if (SmartSocket.Class.instance === this) {
+        Reflect.deleteProperty(SmartSocket.Class, 'instance')
+      }
+    }
+
     reconnect(): void {
       this.manuallyClosed = false
 

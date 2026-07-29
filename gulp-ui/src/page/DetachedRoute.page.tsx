@@ -5,19 +5,26 @@ import { WindowBridge } from "@/lib/WindowBridge";
 import { NotesWindow } from "@/components/NotesWindow";
 import { TableViewWindow } from "@/components/TableViewWindow";
 import { DashboardViewWindow } from "@/components/DashboardViewWindow";
-import { Source } from "@/entities/Source";
-import {
-	getPersistedDetachedWindowRecord,
-	persistDetachedWindow,
-	removePersistedDetachedWindow,
-} from "@/utils";
+import { AIAssistantWindow } from "@/components/AIAssistantWindow";
+import { DisplayEventDialog } from "@/dialogs/Event.dialog";
+import { DisplayGroupDialog } from "@/dialogs/Group.dialog";
+import { Application } from "@/context/Application.context";
+import { Extension } from "@/context/Extension.context";
+import type { Source } from "@/entities/Source";
 
-type DetachedRouteKind = "notes" | "table" | "dashboard";
+type DetachedRouteKind =
+	| "notes"
+	| "table"
+	| "dashboard"
+	| "assistant"
+	| "dialog";
 
 const DETACHED_ROUTE_TITLES: Record<DetachedRouteKind, string> = {
 	notes: "Gulp Notes",
 	table: "Gulp Table View",
 	dashboard: "Gulp Dashboard",
+	assistant: "Gulp AI Assistant",
+	dialog: "Gulp Event Details",
 };
 
 /**
@@ -26,7 +33,13 @@ const DETACHED_ROUTE_TITLES: Record<DetachedRouteKind, string> = {
  * @returns Supported detached route kind, or null for unknown routes.
  */
 function parseDetachedRouteKind(value: string | undefined): DetachedRouteKind | null {
-	if (value === "notes" || value === "table" || value === "dashboard") {
+	if (
+		value === "notes" ||
+		value === "table" ||
+		value === "dashboard" ||
+		value === "assistant" ||
+		value === "dialog"
+	) {
 		return value;
 	}
 
@@ -53,40 +66,26 @@ export function DetachedRouteShell() {
 	const bridgeIdRef = useRef(
 		searchParams.get("bridgeId") ?? WindowBridge.generateId(),
 	);
+	const coordinatorIdRef = useRef(
+		searchParams.get("coordinatorId") ??
+			WindowBridge.getOrCreateCoordinatorId(),
+	);
 	const sourceId = useMemo(
 		() => parseSourceId(searchParams.get("sourceId")),
 		[searchParams],
 	);
+	const assistantTitle =
+		searchParams.get("assistantTitle") ?? DETACHED_ROUTE_TITLES.assistant;
+	const assistantPluginFilename =
+		searchParams.get("assistantPlugin") ?? undefined;
 
 	useEffect(() => {
 		if (!routeKind) return;
-		document.title = DETACHED_ROUTE_TITLES[routeKind];
-	}, [routeKind]);
-
-	useEffect(() => {
-		if (!routeKind) return;
-
-		const record = getPersistedDetachedWindowRecord(routeKind);
-
-		/**
-		 * Removes this detached window from recovery storage when the actual
-		 * detached browser window is closed or navigated away.
-		 *
-		 * @returns Nothing.
-		 */
-		const removeDetachedRecoveryRecord = () => {
-			removePersistedDetachedWindow(record.key);
-		};
-
-		persistDetachedWindow(record);
-		window.addEventListener("pagehide", removeDetachedRecoveryRecord);
-		window.addEventListener("beforeunload", removeDetachedRecoveryRecord);
-
-		return () => {
-			window.removeEventListener("pagehide", removeDetachedRecoveryRecord);
-			window.removeEventListener("beforeunload", removeDetachedRecoveryRecord);
-		};
-	}, [routeKind]);
+		document.title =
+			routeKind === "assistant"
+				? assistantTitle
+				: DETACHED_ROUTE_TITLES[routeKind];
+	}, [assistantTitle, routeKind]);
 
 	if (!routeKind) {
 		return null;
@@ -95,12 +94,40 @@ export function DetachedRouteShell() {
 	return (
 		<DetachedAppProvider
 			bridgeId={bridgeIdRef.current}
+			coordinatorId={coordinatorIdRef.current}
+			kind={routeKind}
 			detachedDocument={document}
-			syncTimelineTargetToMain={false}
+			syncTimelineTargetToMain={routeKind === "dialog"}
+			assistantQuerySyncEnabled={
+				routeKind === "assistant" && Boolean(assistantPluginFilename)
+			}
+			loadExtensions={
+				routeKind === "dashboard" ||
+				routeKind === "dialog" ||
+				(routeKind === "assistant" && Boolean(assistantPluginFilename))
+			}
+			extensionFilenames={
+				assistantPluginFilename
+					? [assistantPluginFilename]
+					: undefined
+			}
+			extensionSlots={
+				routeKind === "dashboard"
+					? [Extension.Slot.DashboardView]
+					: routeKind === "dialog"
+						? [
+								Extension.Slot.SendData,
+								Extension.Slot.EventActions,
+								Extension.Slot.EventContextMenu,
+							]
+						: undefined
+			}
 		>
 			<DetachedRouteContent
 				kind={routeKind}
 				initialSourceId={sourceId}
+				assistantTitle={assistantTitle}
+				assistantPluginFilename={assistantPluginFilename}
 			/>
 		</DetachedAppProvider>
 	);
@@ -115,9 +142,13 @@ export function DetachedRouteShell() {
 function DetachedRouteContent({
 	kind,
 	initialSourceId,
+	assistantTitle,
+	assistantPluginFilename,
 }: {
 	kind: DetachedRouteKind;
 	initialSourceId?: Source.Id;
+	assistantTitle: string;
+	assistantPluginFilename?: string;
 }) {
 	if (kind === "notes") {
 		return <NotesWindow onClose={() => window.close()} />;
@@ -132,5 +163,51 @@ function DetachedRouteContent({
 		);
 	}
 
-	return <DashboardViewWindow onClose={() => window.close()} />;
+	if (kind === "dashboard") {
+		return <DashboardViewWindow onClose={() => window.close()} />;
+	}
+
+	if (kind === "dialog") {
+		return <DetachedDialogRouteContent />;
+	}
+
+	return (
+		<AIAssistantWindow
+			title={assistantTitle}
+			pluginFilename={assistantPluginFilename}
+			onClose={() => window.close()}
+		/>
+	);
+}
+
+function DetachedDialogRouteContent() {
+	const { dialog, detachedDialog } = Application.use();
+	const content =
+		dialog ??
+		(detachedDialog?.kind === "group"
+			? (
+					<DisplayGroupDialog
+						events={detachedDialog.events}
+						groupKind={detachedDialog.groupKind}
+					/>
+				)
+			: detachedDialog
+				? <DisplayEventDialog event={detachedDialog.event} />
+				: null);
+	if (!content) return null;
+
+	return (
+		<div
+			data-detached-dialog-root
+			style={{
+				display: "flex",
+				width: "100%",
+				height: "100vh",
+				minHeight: 0,
+				overflow: "hidden",
+			}}
+		>
+			{content}
+		</div>
+	);
 }

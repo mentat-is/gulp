@@ -1268,7 +1268,9 @@ export function Canvas({ timeline }: Canvas.Props) {
 		 * @returns Nothing.
 		 */
 		const handleStorage = (event: StorageEvent): void => {
-			if (event.key === Doc.Entity.flag.KEY) synchronizeFlagState();
+			if (event.key !== Doc.Entity.flag.KEY) return;
+			Doc.Entity.flag.invalidateCache();
+			synchronizeFlagState();
 		};
 
 		document.addEventListener("click", handleDocumentClick);

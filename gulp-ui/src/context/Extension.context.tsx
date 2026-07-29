@@ -12,20 +12,37 @@ import { Icon } from "@/ui/Icon";
 
 const __component = Symbol("__extension_component");
 
-let extensionsPromise: Promise<Record<string, Extension.Interface>> | null =
-	null;
+const extensionPromises = new Map<
+	string,
+	Promise<Record<string, Extension.Interface>>
+>();
 
-function _({ children }: Extension.Provider.Props) {
+function _({ children, filenames, slots }: Extension.Provider.Props) {
 	const { banner } = Application.use();
 	const [extensions, setExtensions] = useState<
 		Record<string, Extension.Interface>
 	>({});
 
+	const filenameSignature = filenames
+		? [...filenames].sort().join("\u0000")
+		: null;
+	const slotSignature = slots
+		? [...slots].sort().join("\u0000")
+		: null;
+
 	useEffect(() => {
 		let isMounted = true;
+		const requestedFilenames = filenameSignature === null
+			? null
+			: new Set(filenameSignature ? filenameSignature.split("\u0000") : []);
+		const requestedSlots = slotSignature === null
+			? null
+			: new Set(slotSignature ? slotSignature.split("\u0000") : []);
+		const cacheKey =
+			`files:${filenameSignature ?? "*"}:slots:${slotSignature ?? "*"}`;
 
 		const load = async () => {
-			extensionsPromise = (async () => {
+			const promise = (async () => {
 				const new_extensions: Record<string, Extension.Interface> = {};
 
 				const plugins = await api<Extension.Payload[]>("/ui_plugin_list");
@@ -41,8 +58,22 @@ function _({ children }: Extension.Provider.Props) {
 					return {};
 				}
 
+				const selectedPlugins = plugins.filter((plugin) => {
+					if (
+						requestedFilenames &&
+						!requestedFilenames.has(plugin.filename)
+					) {
+						return false;
+					}
+					if (!requestedSlots) return true;
+					const types = Extension.normalizeTypeList(plugin.type);
+					return Extension.normalizeMountTargets(
+						types,
+						plugin.targets,
+					).some((target) => requestedSlots.has(target.slot));
+				});
 				await Promise.all(
-					plugins.map(async (plugin) => {
+					selectedPlugins.map(async (plugin) => {
 						try {
 							const Component = Extension.safe(
 								() => import(`@/plugins/${plugin.filename}`),
@@ -88,9 +119,10 @@ function _({ children }: Extension.Provider.Props) {
 
 				return new_extensions;
 			})();
+			extensionPromises.set(cacheKey, promise);
 
 			try {
-				const data = await extensionsPromise;
+				const data = await promise;
 				if (isMounted) {
 					setExtensions(data);
 				}
@@ -99,10 +131,11 @@ function _({ children }: Extension.Provider.Props) {
 			}
 		};
 
-		if (!extensionsPromise) {
+		const cachedPromise = extensionPromises.get(cacheKey);
+		if (!cachedPromise) {
 			load();
 		} else {
-			extensionsPromise.then((data) => {
+			cachedPromise.then((data) => {
 				if (isMounted) {
 					setExtensions(data);
 				}
@@ -110,7 +143,7 @@ function _({ children }: Extension.Provider.Props) {
 		}
 
 		const handleServerChanged = () => {
-			extensionsPromise = null;
+			extensionPromises.delete(cacheKey);
 			load();
 		};
 
@@ -120,7 +153,7 @@ function _({ children }: Extension.Provider.Props) {
 			isMounted = false;
 			window.removeEventListener("gulp-server-changed", handleServerChanged);
 		};
-	}, []);
+	}, [filenameSignature, slotSignature]);
 
 	const extensionProps: Extension.Export = {
 		extensions,
@@ -193,6 +226,10 @@ export namespace Extension {
 	export namespace Provider {
 		export interface Props {
 			children: ReactNode;
+			/** Optional plugin filename allow-list for capability-scoped clients. */
+			filenames?: readonly string[];
+			/** Optional mount-slot allow-list for capability-scoped clients. */
+			slots?: readonly Slot[];
 		}
 	}
 
