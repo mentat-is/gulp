@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "無法檢索事件",
     "notePoint.fetchTitle": "獲取事件",
     "notes.deleteConfirm": "您確定要刪除 {count} 選定的筆記嗎？",
+    "notes.deletedCount": "已成功刪除 {count} 則筆記",
     "notes.deleteSelected": "刪除選定的註釋 ({count})",
     "notes.deleteTitle": "刪除筆記",
     "notes.eventTimestamp": "事件時間戳",

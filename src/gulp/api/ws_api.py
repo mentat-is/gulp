@@ -35,7 +35,7 @@ WSDATA_ERROR = "ws_error"  # GulpWsErrorPacket, for reporting errors on the webs
 WSDATA_CONNECTED = "ws_connected"  # GulpWsAcknoledgedPacket, whenever a websocket connection is established
 WSDATA_COLLAB_CREATE = "collab_create"  # GulpCollabCreatePacket, whenever a collab object without a specified `ws_data_type` is created (note,highlight,link,...)
 WSDATA_COLLAB_UPDATE = "collab_update"  # GulpCollabUpdatePacket, whenever a collab object without a specified `ws_data_type` is updated (note,highlight,link,...)
-WSDATA_COLLAB_DELETE = "collab_delete"  # GulpCollabDeletePacket, whenever a collab object without a specified `ws_data_type` is deleted (note,highlight,link,...)
+WSDATA_COLLAB_DELETE = "collab_delete"  # GulpCollabDeletePacket or GulpCollabBulkDeletePacket, whenever collab objects without a specified `ws_data_type` are deleted (note,highlight,link,...)
 WSDATA_STATS_CREATE = (
     "stats_create"  # GulpRequestStats, whenever a stats object is created
 )
@@ -286,6 +286,16 @@ class GulpCollabDeletePacket(BaseModel):
     model_config = ConfigDict(json_schema_extra={"examples": [{"id": "the id"}]})
     type: Annotated[str, Field(description="The deleted collab object type.")]
     id: Annotated[str, Field(description="The deleted collab object ID.")]
+
+
+class GulpCollabBulkDeletePacket(BaseModel):
+    """Represents one bulk collaboration delete websocket event."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"type": "note", "ids": ["note-a", "note-b"]}]}
+    )
+    type: Annotated[str, Field(description="The deleted collab object type.")]
+    ids: Annotated[list[str], Field(description="The deleted collab object IDs.")]
 
 
 class GulpUserAccessPacket(BaseModel):

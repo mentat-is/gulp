@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "Gebeurtenis kan niet worden opgehaald",
     "notePoint.fetchTitle": "Gebeurtenis ophalen",
     "notes.deleteConfirm": "Weet je zeker dat je {count} geselecteerde notities wilt verwijderen?",
+    "notes.deletedCount": "{count} notities zijn succesvol verwijderd",
     "notes.deleteSelected": "Geselecteerde notities verwijderen ({count})",
     "notes.deleteTitle": "Notities verwijderen",
     "notes.eventTimestamp": "Tijdstempel van gebeurtenis",

@@ -55,7 +55,8 @@ export namespace SmartSocket {
       ws_id: string
       user_id: User.Id
       req_id: Request.Id
-      'gulp.operation_id': Operation.Id
+      operation_id?: Operation.Id
+      'gulp.operation_id'?: Operation.Id
     }
   }
 

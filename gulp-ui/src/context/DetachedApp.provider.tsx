@@ -295,11 +295,13 @@ export function DetachedAppProvider({
 
     if (payload.mutation === 'delete') {
       const deletedNotes = DataStore.deleteNotes(payload.noteIds, 'deferred')
+      const affectedSourceIds = new Set<Source.Id>()
       deletedNotes.forEach((note) => {
         const sourceId = Note.Entity.sourceId(note)
-        Note.Entity.removeIndexedNote(note)
-        if (sourceId) RenderEngine.resetSourceNotes(sourceId)
+        if (sourceId) affectedSourceIds.add(sourceId)
       })
+      Note.Entity.removeIndexedNotes(deletedNotes)
+      affectedSourceIds.forEach((sourceId) => RenderEngine.resetSourceNotes(sourceId))
     } else {
       const selectedSourceIds = new Set(selectedSourceIdsRef.current ?? [])
       const selectedSourceNotes = payload.notes.filter((note) => {

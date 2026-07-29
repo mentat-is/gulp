@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "לא ניתן היה לאחזר את האירוע",
     "notePoint.fetchTitle": "אירוע אחזור",
     "notes.deleteConfirm": "האם אתה בטוח שברצונך למחוק {count} הערות שנבחרו?",
+    "notes.deletedCount": "{count} הערות נמחקו בהצלחה",
     "notes.deleteSelected": "מחק הערות שנבחרו ({count})",
     "notes.deleteTitle": "מחק הערות",
     "notes.eventTimestamp": "חותמת הזמן של האירוע",

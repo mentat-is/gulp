@@ -25,6 +25,12 @@ import { Operation } from "@/entities/Operation";
 import { Doc } from "@/entities/Doc";
 import { useLocation } from "react-router-dom";
 import { translate } from "@/locales/core";
+import {
+	normalizeCollabDeleteIds,
+	normalizeCollabDeleteOperationId,
+	type CollabDeletePayload,
+	type CollabDeleteOperationEnvelope,
+} from "@/context/collabDelete";
 
 interface CollabPayloadObject {
 	type?: string;
@@ -32,12 +38,8 @@ interface CollabPayloadObject {
 	operation_id?: Operation.Id;
 }
 
-interface CollabDeleteMessage {
-	payload: {
-		id: string;
-		type: string;
-	};
-	"gulp.operation_id"?: Operation.Id;
+interface CollabDeleteMessage extends CollabDeleteOperationEnvelope {
+	payload: CollabDeletePayload;
 }
 
 /**
@@ -262,12 +264,18 @@ function _({ children }: { children: ReactNode }) {
 
 		/**
 		 * Handles collab delete messages from WebSocket.
-		 * @param message WebSocket message containing the deleted entity identifier.
+		 * @param message WebSocket message containing one or more deleted entity identifiers.
 		 * @returns Nothing.
 		 */
 		const collabDeleteCallback = (message: CollabDeleteMessage): void => {
-			const { id, type } = message.payload;
-			const operationId = message["gulp.operation_id"];
+			const { type } = message.payload;
+			const deletedIds = normalizeCollabDeleteIds(message.payload);
+			const isBulkDelete = Array.isArray(message.payload.ids);
+			if (deletedIds.length === 0) return;
+
+			const operationId = normalizeCollabDeleteOperationId(message) as
+				| Operation.Id
+				| undefined;
 			const selectedOperationId =
 				DataStore.getRenderOperationId() ??
 				Operation.Entity.selected(appRef.current)?.id;
@@ -275,50 +283,76 @@ function _({ children }: { children: ReactNode }) {
 			if (type === "note") {
 				if (!operationId || operationId !== selectedOperationId) return;
 
-				const noteId = id as Note.Id;
-				const deletedNote = DataStore.deleteNote(noteId, "deferred");
-				if (deletedNote) {
+				const noteIds = deletedIds as Note.Id[];
+				const deletedNotes = DataStore.deleteNotes(noteIds, "deferred");
+				const affectedSourceIds = new Set<Source.Id>();
+				deletedNotes.forEach((deletedNote) => {
 					const sourceId = Note.Entity.sourceId(deletedNote);
-					Note.Entity.removeIndexedNote(deletedNote);
-					if (sourceId) RenderEngine.resetSourceNotes(sourceId);
-				}
-				DataStore.publishNotesDeleteDelta(operationId, [noteId]);
-				return;
-			}
-
-			// Check links
-			const deletedLink = DataStore.deleteLink(id as Link.Id, "immediate");
-			if (deletedLink) {
-				RenderEngine.clearAllCaches();
+					if (sourceId) affectedSourceIds.add(sourceId);
+				});
+				Note.Entity.removeIndexedNotes(deletedNotes);
+				affectedSourceIds.forEach((sourceId) =>
+					RenderEngine.resetSourceNotes(sourceId),
+				);
+				DataStore.publishNotesDeleteDelta(operationId, noteIds);
+				// Keep timeline work and user feedback coalesced to the websocket packet.
 				instanceRef.current.render();
+				if (isBulkDelete) {
+					toast.success(
+						translate("notes.deletedCount", { count: noteIds.length }),
+						{ richColors: true },
+					);
+				}
 				return;
 			}
 
-			const deletedSource = appRef.current.target.files.find(
-				(source) => source.id === id,
+			if (type === "highlight") {
+				instanceRef.current.highlights_reload();
+				return;
+			}
+
+			if (type === "link") {
+				const deletedLinks = DataStore.deleteLinks(
+					deletedIds as Link.Id[],
+					"immediate",
+				);
+				if (deletedLinks.length > 0) {
+					RenderEngine.clearAllCaches();
+					instanceRef.current.render();
+				}
+				return;
+			}
+
+			const deletedIdSet = new Set(deletedIds);
+			const deletedSources = appRef.current.target.files.filter(
+				(source) => deletedIdSet.has(source.id),
 			);
-			if (deletedSource) {
+			deletedSources.forEach((deletedSource) => {
 				Doc.Entity.delete(appRef.current, deletedSource);
 				RenderEngine.resetSource(deletedSource.id);
-			}
+			});
 
 			setInfo((prev) => {
 				// Context/Source deletion (Low frequency)
-				if (prev.target.contexts.some((c) => c.id === id)) {
+				if (prev.target.contexts.some((c) => deletedIdSet.has(c.id))) {
 					return {
 						...prev,
 						target: {
 							...prev.target,
-							contexts: prev.target.contexts.filter((c) => c.id !== id),
+							contexts: prev.target.contexts.filter(
+								(c) => !deletedIdSet.has(c.id),
+							),
 						},
 					};
 				}
-				if (prev.target.files.some((f) => f.id === id)) {
+				if (prev.target.files.some((f) => deletedIdSet.has(f.id))) {
 					return {
 						...prev,
 						target: {
 							...prev.target,
-							files: prev.target.files.filter((f) => f.id !== id),
+							files: prev.target.files.filter(
+								(f) => !deletedIdSet.has(f.id),
+							),
 						},
 					};
 				}

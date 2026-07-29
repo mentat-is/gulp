@@ -431,7 +431,7 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 	}, [selectedOperationId, selectedSourceIdsSignature, detachedStatus]);
 
 	/**
-	 * Acknowledges the latest canonical notes and reloads the first result page.
+	 * Clears selection, acknowledges canonical notes, and reloads the first page.
 	 * @returns Nothing.
 	 */
 	const refreshNotes = useCallback((): void => {
@@ -439,6 +439,7 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		setQueryNotes(notesSnapshot);
 		refreshAcknowledgementRef.current =
 			pendingNotesChangeSequence;
+		setSelectedNoteIds(new Set());
 		setCurrentPage(1);
 		setRefreshRevision((revision) => revision + 1);
 	}, [pendingNotesChangeSequence]);
@@ -506,13 +507,11 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 		spawnBanner(
 			<BulkDeleteNotesBanner
 				noteIds={[...selectedNoteIds]}
-				onDeleted={() => {
-					setSelectedNoteIds(new Set());
-				}}
+				onDeleted={refreshNotes}
 			/>,
 			"table",
 		);
-	}, [selectedNoteIds, spawnBanner]);
+	}, [selectedNoteIds, spawnBanner, refreshNotes]);
 
 	/**
 	 * Targets the event associated with a note in the main operation window.

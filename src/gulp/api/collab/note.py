@@ -34,6 +34,7 @@ from gulp.api.collab.structs import (
     COLLABTYPE_NOTE,
     COLLABTYPE_NOTE_TEXT,
     GulpCollabBase,
+    GulpCollabFilter,
 )
 from gulp.api.opensearch.structs import GulpBasicDocument, GulpQueryParameters
 from gulp.api.ws_api import (
@@ -377,8 +378,15 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
         flt=None,
         user_id: str = None,
         throw_if_not_found: bool = True,
+        ws_id: str = None,
+        req_id: str = None,
+        operation_id: str = None,
     ) -> int:
-        """Delete attachment objects for every note matched by a bulk delete."""
+        """Delete attachments and notes, optionally publishing one bulk event."""
+        if operation_id:
+            flt = flt or GulpCollabFilter()
+            flt.operation_ids = [operation_id]
+
         notes = await cls.get_by_filter(
             sess,
             flt=flt,
@@ -393,6 +401,9 @@ class GulpNote(GulpCollabBase, type=COLLABTYPE_NOTE):
             flt=flt,
             user_id=user_id,
             throw_if_not_found=throw_if_not_found,
+            ws_id=ws_id,
+            req_id=req_id,
+            operation_id=operation_id,
         )
 
     @staticmethod

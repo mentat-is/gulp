@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "इवेंट पुनर्प्राप्त नहीं किया जा सका",
     "notePoint.fetchTitle": "घटना प्राप्त करें",
     "notes.deleteConfirm": "क्या आप वाकई चयनित {count} नोट्स को हटाना चाहते हैं?",
+    "notes.deletedCount": "{count} नोट्स सफलतापूर्वक हटा दिए गए हैं",
     "notes.deleteSelected": "चयनित नोट्स हटाएं ({count})",
     "notes.deleteTitle": "नोट हटाएँ",
     "notes.eventTimestamp": "इवेंट टाइमस्टैम्प",

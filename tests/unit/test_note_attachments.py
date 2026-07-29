@@ -285,8 +285,24 @@ async def test_note_explicit_and_bulk_delete_cleanup_objects(monkeypatch):
             ]
         ),
     )
-    assert await GulpNote.delete_by_filter(SimpleNamespace()) == 2
+    assert (
+        await GulpNote.delete_by_filter(
+            SimpleNamespace(),
+            ws_id="ws-a",
+            req_id="request-a",
+            operation_id="operation-a",
+        )
+        == 2
+    )
     delete_objects.assert_awaited_once_with(["attachment-a", "attachment-b"])
+    base_bulk_delete.assert_awaited_once()
+    bulk_delete_call = base_bulk_delete.await_args
+    assert bulk_delete_call.kwargs["flt"].operation_ids == ["operation-a"]
+    assert bulk_delete_call.kwargs["user_id"] is None
+    assert bulk_delete_call.kwargs["throw_if_not_found"] is True
+    assert bulk_delete_call.kwargs["ws_id"] == "ws-a"
+    assert bulk_delete_call.kwargs["req_id"] == "request-a"
+    assert bulk_delete_call.kwargs["operation_id"] == "operation-a"
 
 
 @pytest.mark.unit

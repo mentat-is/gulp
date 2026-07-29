@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "Az eseményt nem sikerült lekérni",
     "notePoint.fetchTitle": "Esemény lekérése",
     "notes.deleteConfirm": "Biztosan törölni akar {count} kiválasztott jegyzetet?",
+    "notes.deletedCount": "{count} jegyzet sikeresen törölve",
     "notes.deleteSelected": "A kijelölt jegyzetek törlése ({count})",
     "notes.deleteTitle": "Jegyzetek törlése",
     "notes.eventTimestamp": "Esemény időbélyege",

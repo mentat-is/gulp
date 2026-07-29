@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "Не удалось получить событие",
     "notePoint.fetchTitle": "Получить событие",
     "notes.deleteConfirm": "Вы уверены, что хотите удалить выбранные заметки {count}?",
+    "notes.deletedCount": "Успешно удалено заметок: {count}",
     "notes.deleteSelected": "Удалить выбранные заметки ({count})",
     "notes.deleteTitle": "Удалить заметки",
     "notes.eventTimestamp": "Временная метка события",

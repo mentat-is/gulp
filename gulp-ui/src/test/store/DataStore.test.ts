@@ -374,6 +374,31 @@ describe("DataStore render mutation contracts", () => {
 		expect(changes[0].noteIds).toEqual([missingNoteId]);
 	});
 
+	it("deletes a massive note batch with one collection notification", () => {
+		const notes = Array.from({ length: 10_000 }, (_, index) =>
+			createNote(`bulk-note-${index}`),
+		);
+		DataStore.replaceNotes(notes, "immediate");
+		const changes: DataStoreRenderChange[] = [];
+		const unsubscribe = DataStore.subscribeRenderChanges((change) => {
+			changes.push(change);
+		});
+
+		const deleted = DataStore.deleteNotes(
+			notes.map((note) => note.id),
+			"immediate",
+		);
+		unsubscribe();
+
+		expect(deleted).toHaveLength(notes.length);
+		expect(DataStore.notes).toHaveLength(0);
+		expect(changes).toHaveLength(1);
+		expect(changes[0]).toMatchObject({
+			type: "notes",
+			mutation: "delete",
+		});
+	});
+
 	it("preserves relayed sequences and advances later local deltas", () => {
 		const note = createNote("relayed");
 		const local = DataStore.publishNotesUpsertDelta(

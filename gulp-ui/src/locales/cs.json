@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "Událost se nepodařilo načíst",
     "notePoint.fetchTitle": "Načíst událost",
     "notes.deleteConfirm": "Opravdu chcete smazat {count} vybraných poznámek?",
+    "notes.deletedCount": "Počet úspěšně odstraněných poznámek: {count}",
     "notes.deleteSelected": "Smazat vybrané poznámky ({count})",
     "notes.deleteTitle": "Smazat poznámky",
     "notes.eventTimestamp": "Časové razítko události",

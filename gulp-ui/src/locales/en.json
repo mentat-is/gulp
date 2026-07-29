@@ -455,6 +455,7 @@
     "notePoint.fetchFailed": "Event could not be retrieved",
     "notePoint.fetchTitle": "Fetch event",
     "notes.deleteConfirm": "Are you sure you want to delete {count} selected notes?",
+    "notes.deletedCount": "{count} notes have been deleted successfully",
     "notes.deleteSelected": "Delete selected notes ({count})",
     "notes.deleteTitle": "Delete notes",
     "notes.eventTimestamp": "Event Timestamp",

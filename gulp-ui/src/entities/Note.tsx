@@ -188,18 +188,36 @@ export namespace Note {
 		 * @returns Nothing.
 		 */
 		public static removeIndexedNote = (note: Note.Type): void => {
+			Note.Entity.removeIndexedNotes([note]);
+		};
+
+		/**
+		 * Removes notes from source indexes with one filter pass per source.
+		 * @param notes Notes to remove from their source groups.
+		 * @returns Nothing.
+		 */
+		public static removeIndexedNotes = (notes: readonly Note.Type[]): void => {
 			if (!Note.Entity._cacheValid) return;
 
-			const sourceId = Note.Entity.sourceId(note);
-			if (!sourceId) return;
+			const noteIdsBySource = new Map<Source.Id, Set<Note.Id>>();
+			notes.forEach((note) => {
+				const sourceId = Note.Entity.sourceId(note);
+				if (!sourceId) return;
 
-			const sourceNotes = Note.Entity[CacheKey].get(sourceId);
-			if (!sourceNotes) return;
+				const noteIds = noteIdsBySource.get(sourceId) ?? new Set<Note.Id>();
+				noteIds.add(note.id);
+				noteIdsBySource.set(sourceId, noteIds);
+			});
 
-			const index = sourceNotes.findIndex((item) => item.id === note.id);
-			if (index !== -1) {
-				sourceNotes.splice(index, 1);
-			}
+			noteIdsBySource.forEach((noteIds, sourceId) => {
+				const sourceNotes = Note.Entity[CacheKey].get(sourceId);
+				if (!sourceNotes) return;
+
+				Note.Entity[CacheKey].set(
+					sourceId,
+					sourceNotes.filter((note) => !noteIds.has(note.id)),
+				);
+			});
 		};
 
 		/**

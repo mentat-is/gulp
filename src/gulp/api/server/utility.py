@@ -122,7 +122,11 @@ cancel a running request by setting its `status` to `canceled` (or `failed` or `
 async def request_cancel_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     req_id_to_cancel: Annotated[
-        str, Query(description="request id to cancel.", examples={"default": {"value": "test_req"}})
+        str,
+        Query(
+            description="request id to cancel.",
+            examples={"default": {"value": "test_req"}},
+        ),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     expire_now: Annotated[
@@ -195,11 +199,19 @@ sets the request either as `done` or `failed`.
 async def request_set_completed_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     req_id_to_complete: Annotated[
-        str, Query(description="request id to set completed.", examples={"default": {"value": "test_req"}})
+        str,
+        Query(
+            description="request id to set completed.",
+            examples={"default": {"value": "test_req"}},
+        ),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
     failed: Annotated[
-        bool, Query(description="if set, the request is marked as failed.", examples={"default": {"value": False}})
+        bool,
+        Query(
+            description="if set, the request is marked as failed.",
+            examples={"default": {"value": False}},
+        ),
     ] = False,
 ) -> JSONResponse:
     params = locals()
@@ -352,6 +364,7 @@ async def request_list_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.delete(
     "/object_delete_bulk",
     tags=["utility"],
@@ -365,7 +378,7 @@ async def request_list_handler(
                         "status": "success",
                         "timestamp_msec": 1701278479259,
                         "req_id": "903546ff-c01e-4875-a585-d7fa34a0d237",
-                        "data": {"deleted": 123}, # number of deleted objects
+                        "data": {"deleted": 123},  # number of deleted objects
                     }
                 }
             }
@@ -374,6 +387,7 @@ async def request_list_handler(
     summary="deletes one or more (bulk delete) objects of the given type on the collab database.",
     description="""
 - `token` needs at least `edit` permission.
+- emits one `collab_delete` websocket message containing the IDs actually deleted and their collaboration type.
 """,
 )
 async def object_delete_bulk_handler(
@@ -386,9 +400,8 @@ async def object_delete_bulk_handler(
             examples={"default": {"value": COLLABTYPE_NOTE}},
         ),
     ],
-    flt: Annotated[
-        GulpCollabFilter, Depends(APIDependencies.param_collab_flt) 
-    ],
+    flt: Annotated[GulpCollabFilter, Depends(APIDependencies.param_collab_flt)],
+    ws_id: Annotated[str, Depends(APIDependencies.param_ws_id_optional)],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     params = locals()
@@ -398,13 +411,21 @@ async def object_delete_bulk_handler(
         async with GulpCollab.get_instance().session() as sess:
             s: GulpUserSession
             op: GulpOperation
-            s, op, _ = await GulpOperation.get_by_id_wrapper(sess, token, operation_id, permission=GulpUserPermission.EDIT)
-            if not flt.operation_ids:
-                # set operation id in filter
-                flt.operation_ids = [op.id]
-            
+            s, op, _ = await GulpOperation.get_by_id_wrapper(
+                sess, token, operation_id, permission=GulpUserPermission.EDIT
+            )
+            # The operation whose permissions were checked is always the delete scope.
+            flt.operation_ids = [op.id]
+
             obj_class: GulpCollabBase = GulpCollabBase.object_type_to_class(obj_type)
-            deleted = await obj_class.delete_by_filter(sess, flt, s.user_id)
+            deleted = await obj_class.delete_by_filter(
+                sess,
+                flt,
+                s.user_id,
+                ws_id=ws_id,
+                req_id=req_id,
+                operation_id=op.id,
+            )
             return JSendResponse.success(req_id=req_id, data={"deleted": deleted})
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
@@ -439,7 +460,10 @@ async def object_count_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     obj_type: Annotated[
         str,
-        Query(description="one of the collab object types.", examples={"default": {"value": COLLABTYPE_NOTE}}),
+        Query(
+            description="one of the collab object types.",
+            examples={"default": {"value": COLLABTYPE_NOTE}},
+        ),
     ],
     operation_id: Annotated[
         str | None,
@@ -506,7 +530,15 @@ async def enhance_document_map_create_handler(
         dict,
         Body(
             description="dict mapping GulpDocument field names to criteria. Values can be simple (exact match) or operator dicts with 'eq'/'gte'/'lte' keys for numeric comparisons. All criteria must match (AND).",
-            examples={"default": {"value": {"gulp.event_code": {"eq": 4624}, "severity_level": {"gte": 7, "lte": 10}, "status": "active"}}},
+            examples={
+                "default": {
+                    "value": {
+                        "gulp.event_code": {"eq": 4624},
+                        "severity_level": {"gte": 7, "lte": 10},
+                        "status": "active",
+                    }
+                }
+            },
         ),
     ],
     glyph_id: Annotated[str, Depends(APIDependencies.param_glyph_id_optional)] = None,
@@ -530,7 +562,7 @@ async def enhance_document_map_create_handler(
             plugin=plugin,
             glyph_id=glyph_id,
             color=color,
-            obj_id=obj_id
+            obj_id=obj_id,
         )
         return JSONResponse(JSendResponse.success(req_id=req_id, data=d))
     except Exception as ex:
@@ -576,9 +608,7 @@ async def enhance_document_map_update_handler(
                 color is not None,
             ]
         ):
-            raise ValueError(
-                "At least one of glyph_id or color must be provided."
-            )
+            raise ValueError("At least one of glyph_id or color must be provided.")
 
         async with GulpCollab.get_instance().session() as sess:
             obj: GulpEnhanceDocumentMap
@@ -732,6 +762,7 @@ async def enhance_document_map_list_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.get(
     "/plugin_list",
     tags=["plugin"],
@@ -844,6 +875,7 @@ async def plugin_list_handler(
             return JSONResponse(JSendResponse.success(req_id=req_id, data=ll))
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.get(
     "/ui_plugin_list",
@@ -1050,6 +1082,7 @@ async def mapping_file_list_handler(
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
 
+
 @router.post(
     "/mapping_file_upload",
     tags=["mapping"],
@@ -1065,7 +1098,7 @@ async def mapping_file_list_handler(
                         "req_id": "test_req",
                         "data": {
                             "path": "GULP_WORKING_DIR/mapping_files/custom_mapping.json",
-                        }
+                        },
                     }
                 }
             }
@@ -1104,13 +1137,17 @@ async def mapping_file_upload_handler(
 
         if fail_if_exists and await muty.file.exists(save_path):
             raise ObjectAlreadyExists(
-                "file with name %s already exists in %s" % (filename, mapping_extra_path)
+                "file with name %s already exists in %s"
+                % (filename, mapping_extra_path)
             )
 
         await muty.file.write_file(save_path, content)
-        return JSONResponse(JSendResponse.success(req_id=req_id, data={"path": save_path}))
+        return JSONResponse(
+            JSendResponse.success(req_id=req_id, data={"path": save_path})
+        )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
+
 
 @router.get(
     "/mapping_file_download",
@@ -1137,7 +1174,9 @@ async def mapping_file_download_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     filename: Annotated[
         str,
-        Query(description='filename of the mapping file to download, i.e. "custom_mapping.json"'),
+        Query(
+            description='filename of the mapping file to download, i.e. "custom_mapping.json"'
+        ),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> FileResponse:
@@ -1154,13 +1193,17 @@ async def mapping_file_download_handler(
             file_path = os.path.join(default_path, filename)
             if not await muty.file.exists(file_path):
                 raise ObjectNotFound(
-                    "file with name %s not found in both %s and %s" % (filename, extra_path, default_path)
+                    "file with name %s not found in both %s and %s"
+                    % (filename, extra_path, default_path)
                 )
 
-        return FileResponse(path=file_path, media_type="application/json", filename=filename)
+        return FileResponse(
+            path=file_path, media_type="application/json", filename=filename
+        )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex
-    
+
+
 @router.delete(
     "/mapping_file_delete",
     tags=["mapping"],
@@ -1176,7 +1219,7 @@ async def mapping_file_download_handler(
                         "req_id": "test_req",
                         "data": {
                             "file_path": "GULP_WORKING_DIR/mapping_files/custom_mapping.json",
-                        }
+                        },
                     }
                 }
             }
@@ -1192,7 +1235,9 @@ async def mapping_file_delete_handler(
     token: Annotated[str, Depends(APIDependencies.param_token)],
     filename: Annotated[
         str,
-        Query(description='filename of the mapping file to delete, i.e. "custom_mapping.json"'),
+        Query(
+            description='filename of the mapping file to delete, i.e. "custom_mapping.json"'
+        ),
     ],
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSendResponse:
@@ -1209,6 +1254,8 @@ async def mapping_file_delete_handler(
             )
 
         await muty.file.delete_file_or_dir(file_path)
-        return JSONResponse(JSendResponse.success(req_id=req_id, data={"file_path": file_path}))
+        return JSONResponse(
+            JSendResponse.success(req_id=req_id, data={"file_path": file_path})
+        )
     except Exception as ex:
         raise JSendException(req_id=req_id) from ex

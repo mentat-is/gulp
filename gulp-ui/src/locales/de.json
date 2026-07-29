@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "Das Ereignis konnte nicht abgerufen werden",
     "notePoint.fetchTitle": "Ereignis abrufen",
     "notes.deleteConfirm": "Sind Sie sicher, dass Sie {count} ausgewählte Notizen löschen möchten?",
+    "notes.deletedCount": "{count} Notizen wurden erfolgreich gelöscht",
     "notes.deleteSelected": "Ausgewählte Notizen löschen ({count})",
     "notes.deleteTitle": "Notizen löschen",
     "notes.eventTimestamp": "Ereigniszeitstempel",

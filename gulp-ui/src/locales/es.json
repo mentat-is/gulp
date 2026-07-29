@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "No se pudo recuperar el evento",
     "notePoint.fetchTitle": "Obtener evento",
     "notes.deleteConfirm": "¿Estás seguro de que deseas eliminar {count} notas seleccionadas?",
+    "notes.deletedCount": "Se han eliminado correctamente {count} notas",
     "notes.deleteSelected": "Eliminar notas seleccionadas ({count})",
     "notes.deleteTitle": "Eliminar notas",
     "notes.eventTimestamp": "Marca de tiempo del evento",

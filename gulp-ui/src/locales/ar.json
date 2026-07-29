@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "لا يمكن استرداد الحدث",
     "notePoint.fetchTitle": "جلب الحدث",
     "notes.deleteConfirm": "هل أنت متأكد أنك تريد حذف {count} من الملاحظات المحددة؟",
+    "notes.deletedCount": "تم حذف {count} من الملاحظات بنجاح",
     "notes.deleteSelected": "حذف الملاحظات المحددة ({count})",
     "notes.deleteTitle": "حذف الملاحظات",
     "notes.eventTimestamp": "الطابع الزمني للحدث",

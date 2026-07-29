@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "Nie udało się pobrać wydarzenia",
     "notePoint.fetchTitle": "Pobierz wydarzenie",
     "notes.deleteConfirm": "Czy na pewno chcesz usunąć {count} wybrane notatki?",
+    "notes.deletedCount": "Pomyślnie usunięto {count} notatek",
     "notes.deleteSelected": "Usuń wybrane notatki ({count})",
     "notes.deleteTitle": "Usuń notatki",
     "notes.eventTimestamp": "Znacznik czasu zdarzenia",

@@ -1430,6 +1430,9 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         flt: GulpCollabFilter = None,
         user_id: str = None,
         throw_if_not_found: bool = True,
+        ws_id: str = None,
+        req_id: str = None,
+        operation_id: str = None,
     ) -> int:
         """
         Asynchronously deletes objects based on the provided filter.
@@ -1438,11 +1441,19 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             sess (AsyncSession): The database session to use.
             flt (GulpCollabFilter, optional): The filter to apply to the query. Defaults to None (all objects).
             user_id (str, optional): the caller user_id: if set, only return objects that the user has access to.
+            throw_if_not_found (bool): Raise if the filter matches no objects.
+            ws_id (str, optional): Websocket receiving one bulk delete notification. If omitted, no notification is sent.
+            req_id (str, optional): Request ID included in the websocket notification.
+            operation_id (str, optional): Expected operation scope and websocket routing operation.
         Returns:
             int: The number of objects deleted.
         Raises:
             Exception: If there is an error during the query execution or result processing.
         """
+        if operation_id:
+            flt = flt or GulpCollabFilter()
+            flt.operation_ids = [operation_id]
+
         # build filter for the user
         flt: GulpCollabFilter = await GulpCollabBase._restrict_flt_to_user(
             sess, user_id, flt
@@ -1451,20 +1462,73 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         MutyLogger.get_instance().debug(
             "delete_by_filter, flt=%s, user_id=%s, query:\n%s", flt, user_id, q
         )
-        res = await sess.execute(q)
-        if not res or res.rowcount == 0:
+
+        deleted_rows: list[tuple[str, str, str | None]] = []
+        if ws_id:
+            q = q.returning(cls.id, cls.type, cls.operation_id)
+            res = await sess.execute(q)
+            deleted_rows = [(str(row[0]), str(row[1]), row[2]) for row in res.all()]
+            deleted_count = len(deleted_rows)
+        else:
+            res = await sess.execute(q)
+            deleted_count = int(res.rowcount) if res else 0
+
+        if deleted_count == 0:
             if throw_if_not_found:
                 raise ObjectNotFound(
                     f"No {cls.__name__} found with filter {flt}", cls.__name__, str(flt)
                 )
             return 0
 
-        # commit the transaction
-        deleted_count: int = res.rowcount
+        deleted_type = cls.__gulp_collab_type__
+        notification_operation_id: str | None = operation_id
+        if ws_id:
+            deleted_types = {row[1] for row in deleted_rows}
+            if deleted_types != {cls.__gulp_collab_type__}:
+                await sess.rollback()
+                raise ValueError(
+                    f"bulk delete returned unexpected collab types: {deleted_types}"
+                )
+
+            deleted_operation_ids = {row[2] for row in deleted_rows}
+            if operation_id and deleted_operation_ids != {operation_id}:
+                await sess.rollback()
+                raise ValueError(
+                    "bulk delete returned objects outside operation "
+                    f"{operation_id}: {deleted_operation_ids}"
+                )
+            if not operation_id:
+                if len(deleted_operation_ids) != 1:
+                    await sess.rollback()
+                    raise ValueError(
+                        "bulk delete websocket notification requires one operation"
+                    )
+                notification_operation_id = next(iter(deleted_operation_ids))
+        # commit the transaction before notifying websocket consumers
         await sess.commit()
         MutyLogger.get_instance().debug(
             "user_id=%s, deleted %d objects", user_id, deleted_count
         )
+
+        if ws_id:
+            from gulp.api.ws_api import (
+                GulpCollabBulkDeletePacket,
+                GulpRedisBroker,
+                WSDATA_COLLAB_DELETE,
+            )
+
+            packet = GulpCollabBulkDeletePacket(
+                type=deleted_type,
+                ids=[row[0] for row in deleted_rows],
+            )
+            await GulpRedisBroker.get_instance().put(
+                t=WSDATA_COLLAB_DELETE,
+                ws_id=ws_id,
+                user_id=user_id,
+                operation_id=notification_operation_id,
+                req_id=req_id,
+                d=packet.model_dump(),
+            )
         return deleted_count
 
     @classmethod

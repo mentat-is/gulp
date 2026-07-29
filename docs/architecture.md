@@ -197,6 +197,32 @@ Response from the websocket is a [GulpWsData](../src/gulp/api/ws_api.py) object 
 }
 ```
 
+Collaboration deletion uses `type: "collab_delete"`. Single-object endpoints
+send `{ "type": "<collab-type>", "id": "<object-id>" }`. The
+`/object_delete_bulk` endpoint sends one coalesced packet for the complete
+request instead:
+
+```json
+{
+  "type": "collab_delete",
+  "operation_id": "test_operation",
+  "payload": {
+    "type": "note",
+    "ids": ["note-a", "note-b"]
+  }
+}
+```
+
+The bulk packet contains only IDs actually returned by the database deletion.
+Consumers should apply the ID array as one state mutation rather than rendering
+once per ID. For notes, the UI invalidates each affected source cache once,
+publishes one detached-window delta, requests one timeline render, and shows one
+count-based toast for the complete batch. A Notes window that initiated the
+deletion clears its selection and reloads its first result page and total count
+after the request succeeds. Websocket envelopes serialize the operation scope as
+`operation_id`; UI consumers also accept the Pydantic alias
+`gulp.operation_id`.
+
 #### ws_ingest_raw
 
 `ws_ingest_raw` is a websocket specifically meant to ingest `raw` data in any format.

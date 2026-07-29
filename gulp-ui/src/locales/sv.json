@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "Händelsen kunde inte hämtas",
     "notePoint.fetchTitle": "Hämta händelse",
     "notes.deleteConfirm": "Är du säker på att du vill ta bort {count} markerade anteckningar?",
+    "notes.deletedCount": "{count} anteckningar har tagits bort",
     "notes.deleteSelected": "Ta bort markerade anteckningar ({count})",
     "notes.deleteTitle": "Ta bort anteckningar",
     "notes.eventTimestamp": "Händelsens tidsstämpel",

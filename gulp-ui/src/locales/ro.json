@@ -446,6 +446,7 @@
     "notePoint.fetchFailed": "Evenimentul nu a putut fi preluat",
     "notePoint.fetchTitle": "Preluați evenimentul",
     "notes.deleteConfirm": "Sigur doriți să ștergeți {count} notele selectate?",
+    "notes.deletedCount": "{count} note au fost șterse cu succes",
     "notes.deleteSelected": "Ștergeți notele selectate ({count})",
     "notes.deleteTitle": "Ștergeți notele",
     "notes.eventTimestamp": "Marca temporală a evenimentului",

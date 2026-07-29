@@ -712,15 +712,41 @@ export class DataStore {
 		linkId: Link.Id,
 		notificationMode: DataStoreNotificationMode = "immediate",
 	): Link.Type | undefined {
-		const existingIndex = DataStore.links.findIndex((link) => link.id === linkId);
-		if (existingIndex === -1) {
-			return undefined;
+		return DataStore.deleteLinks([linkId], notificationMode)[0];
+	}
+
+	/**
+	 * Deletes canonical links and emits one coalesced collection mutation.
+	 * @param linkIds Identifiers of links to delete.
+	 * @param notificationMode React subscription notification scheduling mode.
+	 * @returns Links removed from the canonical collection.
+	 */
+	public static deleteLinks(
+		linkIds: readonly Link.Id[],
+		notificationMode: DataStoreNotificationMode = "immediate",
+	): Link.Type[] {
+		if (linkIds.length === 0) {
+			return [];
 		}
 
-		const [removedLink] = DataStore.links.splice(existingIndex, 1);
-		DataStore.publishLinksChange("delete", [], [removedLink.id]);
+		const idsToDelete = new Set(linkIds);
+		const removedLinks = DataStore.links.filter((link) =>
+			idsToDelete.has(link.id),
+		);
+		if (removedLinks.length === 0) {
+			return [];
+		}
+
+		DataStore.links = DataStore.links.filter(
+			(link) => !idsToDelete.has(link.id),
+		);
+		DataStore.publishLinksChange(
+			"delete",
+			[],
+			removedLinks.map((link) => link.id),
+		);
 		DataStore.notifyMutation(notificationMode, ["overlays"]);
-		return removedLink;
+		return removedLinks;
 	}
 
 	/**

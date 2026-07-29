@@ -4376,8 +4376,8 @@ export class Info implements InfoProps {
 			deletedNotes.forEach((deletedNote) => {
 				const sourceId = Note.Entity.sourceId(deletedNote);
 				if (sourceId) affectedSourceIds.add(sourceId);
-				Note.Entity.removeIndexedNote(deletedNote);
 			});
+			Note.Entity.removeIndexedNotes(deletedNotes);
 			this.resetNoteRenderCaches(affectedSourceIds);
 		});
 
