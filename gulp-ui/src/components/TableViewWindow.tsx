@@ -37,6 +37,7 @@ import { OpenSearchQueryBuilder } from "@/components/QueryBuilder";
 import { Separator } from "@/ui/Separator";
 import { Filter } from "@/entities/Filter";
 import { Locale } from "@/locales";
+import { resolveTableNotePortalContainer } from "./TableViewWindow.portal";
 
 export namespace TableViewWindow {
 	export interface Props {
@@ -288,7 +289,7 @@ export function TableViewWindow({
 	onClose,
 }: TableViewWindow.Props) {
 	// --- Context & Infrastructure ---
-	const { Info, app, spawnBanner, banner } = Application.use();
+	const { Info, app, spawnBanner, banner, currentDocument } = Application.use();
 	const { t } = Locale.use();
 	const [container, setContainer] = useState<HTMLDivElement | null>(null);
 	const tableRequestControllerRef = useRef<AbortController | null>(null);
@@ -867,7 +868,8 @@ export function TableViewWindow({
 			spawnBanner(
 				<NoteFunctionality.Create.Banner
 					events={selectedDocs}
-					container={container}
+					// Keep modal popovers in the same body-level portal layer as the banner.
+					container={resolveTableNotePortalContainer(currentDocument)}
 				/>,
 				"table",
 			);
