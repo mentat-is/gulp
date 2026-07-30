@@ -45,6 +45,13 @@ import {
 import { AdvancedPluginParams } from "@/components/AdvancedPluginParams";
 import { Internal } from "@/entities/addon/Internal";
 import { Locale } from "@/locales";
+import {
+	isUploadFileSettingsValid,
+	NO_METHOD_SELECTED,
+	NO_MAPPING_SELECTED,
+	resolveOptionalMethod,
+	resolveOptionalMapping,
+} from "./Upload.validation";
 
 export namespace FileEntity {
 	export interface IngestOptions {
@@ -554,13 +561,23 @@ export const MethodSelector = ({
 			<Label value={t("upload.mappingFile")} />
 			<Select.Root
 				value={settings.method || ""}
-				onValueChange={(method) => updateSettings({ method })}
+				onValueChange={(method) => {
+					const resolvedMethod = resolveOptionalMethod(method);
+					updateSettings({
+						method: resolvedMethod,
+						...(resolvedMethod ? {} : { mapping: undefined }),
+					});
+				}}
 			>
 				<Select.Trigger className={s.select} title={text}>
 					<Icon name="ChevronRight" />
 					<span>{text}</span>
 				</Select.Trigger>
 				<Select.Content>
+					<Select.Item value={NO_METHOD_SELECTED}>
+						{t("upload.clearSelection")}
+					</Select.Item>
+					<Select.Separator />
 					{methods.map((m) => (
 						<Select.Item
 							key={m}
@@ -604,13 +621,21 @@ export const MappingSelector = ({
 			<Label value={t("advancedParams.mappingId")} />
 			<Select.Root
 				value={settings.mapping || ""}
-				onValueChange={(mapping) => updateSettings({ mapping })}
+				onValueChange={(mapping) =>
+					updateSettings({
+						mapping: resolveOptionalMapping(mapping),
+					})
+				}
 			>
 				<Select.Trigger className={s.select} title={text}>
 					<Icon name="ChevronRight" />
 					<span>{text}</span>
 				</Select.Trigger>
 				<Select.Content>
+					<Select.Item value={NO_MAPPING_SELECTED}>
+						{t("upload.clearSelection")}
+					</Select.Item>
+					<Select.Separator />
 					{mappings.map((m) => (
 						<Select.Item
 							key={m}
@@ -942,25 +967,9 @@ export function UploadBanner() {
 			const s = settings[k];
 			if (!s) return false;
 
-			const methods = Mapping.Entity.methods(app, s.plugin);
-			const mappings = Mapping.Entity.mappings(app, s.plugin, s.method!);
-
-			const hasCustomMapping = !!(
-				(s.mappings && Object.keys(s.mappings).length > 0) ||
-				(s.additional_mappings &&
-					Object.keys(s.additional_mappings).length > 0) ||
-				(s.sigma_mappings && Object.keys(s.sigma_mappings).length > 0) ||
-				s.additional_mapping_files
-			);
-
-			return (
-				!!s.plugin &&
-				(hasCustomMapping ||
-					((!methods.length || !!s.method) &&
-						(!mappings.length || !!s.mapping)))
-			);
+			return isUploadFileSettingsValid(s);
 		});
-	}, [settings, app]);
+	}, [settings]);
 
 	const DoneButton = useMemo(() => {
 		return (
