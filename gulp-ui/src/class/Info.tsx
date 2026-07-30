@@ -68,6 +68,13 @@ import {
 	hasActiveIngestionResyncLoading,
 	type IngestionResyncLoadings,
 } from "@/class/IngestionResync";
+import {
+	cloneWorkspaceSessionValue,
+	WorkspaceSessionNameExistsError,
+	WorkspaceSessionRepository,
+	type StoredWorkspaceSession,
+	type WorkspaceSessionSnapshot,
+} from "@/class/WorkspaceSessionRepository";
 
 export namespace GulpDataset {
 	export namespace GetAvailableLoginApi {
@@ -449,12 +456,23 @@ export class Info implements InfoProps {
 	private linksReloadSequence = 0;
 	private highlightsReloadSequence = 0;
 	private operationScopedSocketCleanups = new Set<() => void>();
+	private readonly workspaceSessionRepository: WorkspaceSessionRepository;
+	private autosaveFailureNotified = false;
 
 	constructor({ app, setInfo, timeline }: InfoProps) {
 		this._app = app;
 		this.timelineScaleStore = new TimelineScaleStore(app.timeline.scale);
 		this.setInfo = setInfo;
 		this.timeline = timeline;
+		this.workspaceSessionRepository = new WorkspaceSessionRepository(
+			async (userId, key, bucket) =>
+				api<User.Type>("/user_update", {
+					method: "PATCH",
+					query: { user_id: userId },
+					body: { user_data: { [key]: bucket } },
+					showErrorToast: false,
+				}),
+		);
 		Info._latestInstance = this;
 	}
 
@@ -651,53 +669,63 @@ export class Info implements InfoProps {
 		sourceId: Source.Id,
 		offsetNsec: bigint,
 	): Promise<void> => {
-		if (!this.app.general.user) return;
+		const source = this.app.target.files.find((file) => file.id === sourceId);
+		const operationId =
+			source?.operation_id ?? Operation.Entity.selected(this.app)?.id;
+		if (!this.app.general.user || !operationId) return;
+		this.initializeWorkspaceSessionRepository();
 
-		const sessions = (await this.session_list()) ?? [];
-		const nextSessions = sessions.map((session) => {
-			const savedSettings = session.source_settings?.source_settings?.[sourceId];
-			const savedFilter = session.filters?.[sourceId];
-			let nextSession = session;
+		await this.workspaceSessionRepository.updateAll(
+			operationId,
+			(session) => {
+				const savedSettings =
+					session.snapshot.source_settings.source_settings[sourceId];
+				const savedFilter = session.snapshot.filters[sourceId];
+				let snapshot = session.snapshot;
 
-			if (savedSettings && savedSettings.offset !== 0) {
-				nextSession = {
-					...nextSession,
-					source_settings: {
-						...(nextSession.source_settings ?? { source_settings: {} }),
+				if (savedSettings && savedSettings.offset !== 0) {
+					snapshot = {
+						...snapshot,
 						source_settings: {
-							...(nextSession.source_settings?.source_settings ?? {}),
+							source_settings: {
+								...snapshot.source_settings.source_settings,
+								[sourceId]: {
+									...savedSettings,
+									offset: 0,
+								},
+							},
+						},
+					};
+				}
+
+				if (savedFilter?.source_config?.range) {
+					snapshot = {
+						...snapshot,
+						filters: {
+							...snapshot.filters,
 							[sourceId]: {
-								...savedSettings,
-								offset: 0,
+								...savedFilter,
+								source_config: {
+									...savedFilter.source_config,
+									range: this.shiftNanosRange(
+										savedFilter.source_config.range,
+										offsetNsec,
+									),
+								},
 							},
 						},
-					},
-				};
-			}
+					};
+				}
 
-			if (savedFilter?.source_config?.range) {
-				nextSession = {
-					...nextSession,
-					filters: {
-						...nextSession.filters,
-						[sourceId]: {
-							...savedFilter,
-							source_config: {
-								...savedFilter.source_config,
-								range: this.shiftNanosRange(
-									savedFilter.source_config.range,
-									offsetNsec,
-								),
-							},
-						},
-					},
-				};
-			}
-
-			return nextSession;
-		});
-
-		await this.user_set_data("sessions", nextSessions);
+				return snapshot === session.snapshot
+					? session
+					: {
+							...session,
+							updated_at_msec: Date.now(),
+							snapshot,
+						};
+			},
+		);
 	};
 
 	/**
@@ -4954,23 +4982,63 @@ export class Info implements InfoProps {
 	 * Builds the per-source settings payload stored inside saved sessions.
 	 * @returns Source settings keyed by source id for user_data session storage.
 	 */
-	private getSourceSettings = (): Internal.Session.SourceSettings => {
+	private getSourceSettings = (): WorkspaceSessionSnapshot["source_settings"] => {
 		const sourceSettings =
 			this.app.target.files.reduce<
-				Internal.Session.SourceSettings["source_settings"]
+				WorkspaceSessionSnapshot["source_settings"]["source_settings"]
 			>((settingsBySourceId, file) => {
 				settingsBySourceId[file.id] = {
-					offset: file.settings.offset,
-					field: file.settings.field,
-					hash_function: file.settings.hash_function,
-					render_color_palette: file.settings.render_color_palette,
-					color_palette: file.settings.color_palette ?? null,
+					...file.settings,
+					pinned: file.pinned,
 				};
 
 				return settingsBySourceId;
-			}, {} as Internal.Session.SourceSettings["source_settings"]);
+			}, {} as WorkspaceSessionSnapshot["source_settings"]["source_settings"]);
 
 		return { source_settings: sourceSettings };
+	};
+
+	/**
+	 * Initializes the private workspace-session cache from the authenticated profile.
+	 * @returns True when a user is available.
+	 */
+	private initializeWorkspaceSessionRepository = (): boolean => {
+		const user = this.app.general.user;
+		if (!user) return false;
+		this.workspaceSessionRepository.initialize(user);
+		return true;
+	};
+
+	/**
+	 * Captures the current operation state as detached JSON-compatible session data.
+	 * @param operationId Optional expected operation used to reject stale callbacks.
+	 * @returns Current snapshot, or null when no operation is selected.
+	 */
+	session_snapshot = (
+		operationId?: Operation.Id,
+	): WorkspaceSessionSnapshot | null => {
+		const operation = Operation.Entity.selected(this.app);
+		if (!operation || (operationId && operation.id !== operationId)) return null;
+
+		return cloneWorkspaceSessionValue({
+			selected: {
+				files: Source.Entity.selected(this.app).map((file) => file.id),
+				contexts: Context.Entity.selected(this.app).map((context) => context.id),
+			},
+			timeline: {
+				scale: this.getTimelineScaleSnapshot(),
+				frame: {
+					min: this.app.timeline.frame.min,
+					max: this.app.timeline.frame.max,
+				},
+				filter: this.app.timeline.filter,
+				target: this.app.timeline.target,
+				scroll: { x: scrollStore.getX(), y: scrollStore.getY() },
+			},
+			filters: this.app.target.filters,
+			hidden: this.app.hidden,
+			source_settings: this.getSourceSettings(),
+		} satisfies WorkspaceSessionSnapshot);
 	};
 
 	/**
@@ -4981,9 +5049,10 @@ export class Info implements InfoProps {
 	 */
 	private applySessionSourceSettings = (
 		files: Source.Type[],
-		session: Internal.Session.Data,
+		session: StoredWorkspaceSession,
 	): Source.Type[] => {
-		const sourceSettingsById = session.source_settings?.source_settings;
+		const sourceSettingsById =
+			session.snapshot.source_settings?.source_settings;
 		if (!sourceSettingsById) return files;
 
 		return files.map((file) => {
@@ -5007,15 +5076,34 @@ export class Info implements InfoProps {
 				restoredSettings.render_color_palette =
 					savedSettings.render_color_palette;
 			}
+			if (savedSettings.render_engine) {
+				restoredSettings.render_engine = savedSettings.render_engine;
+			}
+			if (
+				typeof savedSettings.frequency_sample === "number" &&
+				Number.isFinite(savedSettings.frequency_sample)
+			) {
+				restoredSettings.frequency_sample = savedSettings.frequency_sample;
+			}
 			if (
 				Object.prototype.hasOwnProperty.call(savedSettings, "color_palette")
 			) {
 				restoredSettings.color_palette =
 					savedSettings.color_palette ?? undefined;
 			}
+			if (
+				Object.prototype.hasOwnProperty.call(savedSettings, "color_override")
+			) {
+				restoredSettings.color_override =
+					savedSettings.color_override ?? undefined;
+			}
 
 			return {
 				...file,
+				pinned:
+					typeof savedSettings.pinned === "boolean"
+						? savedSettings.pinned
+						: file.pinned,
 				settings: {
 					...file.settings,
 					...restoredSettings,
@@ -5024,6 +5112,11 @@ export class Info implements InfoProps {
 		});
 	};
 
+	/**
+	 * Creates a named session for the selected operation with one bucket update.
+	 * @param options Session metadata and optional viewport overrides.
+	 * @returns The stored session, or null when validation or persistence fails.
+	 */
 	session_create = async ({
 		name,
 		icon = Default.Icon.SESSION,
@@ -5036,115 +5129,125 @@ export class Info implements InfoProps {
 		color: string;
 		scroll?: { x: number; y: number };
 		scale?: number;
-	}) => {
+	}): Promise<StoredWorkspaceSession | null> => {
 		const operation = Operation.Entity.selected(this.app);
-		if (!operation) {
-			return;
+		const snapshot = this.session_snapshot();
+		if (!operation || !snapshot || !this.initializeWorkspaceSessionRepository()) {
+			Logger.warn("Tried to create session before user has been defined");
+			return null;
+		}
+		snapshot.timeline.scale = scale ?? snapshot.timeline.scale;
+		snapshot.timeline.scroll = scroll ?? snapshot.timeline.scroll;
+
+		try {
+			const session = await this.workspaceSessionRepository.createNamed(
+				operation.id,
+				{ name, icon, color },
+				snapshot,
+			);
+			if (!session) {
+				toast.error(translate("api.requestFailed"), { richColors: true });
+			}
+			return session;
+		} catch (error) {
+			if (error instanceof WorkspaceSessionNameExistsError) {
+				toast.error(translate("session.nameExists"), { richColors: true });
+				return null;
+			}
+			throw error;
+		}
+	};
+
+	/**
+	 * Atomically replaces the selected operation's rolling autosave with one request.
+	 * @param providedSnapshot Optional snapshot captured by the autosave coordinator.
+	 * @param providedOperationId Optional operation owning the captured snapshot.
+	 * @returns True when the operation bucket is persisted.
+	 */
+	session_autosave = async (
+		providedSnapshot?: WorkspaceSessionSnapshot,
+		providedOperationId?: Operation.Id,
+	): Promise<boolean> => {
+		const selectedOperation = Operation.Entity.selected(this.app);
+		const operationId = providedOperationId ?? selectedOperation?.id;
+		const snapshot =
+			providedSnapshot ?? this.session_snapshot(providedOperationId);
+		if (!operationId || !snapshot || !this.initializeWorkspaceSessionRepository()) {
+			return false;
 		}
 
-		const sessions = await this.session_list();
-		if (sessions.some((s) => s.name === name)) {
-			toast.error(translate("session.nameExists"), {
+		const success = await this.workspaceSessionRepository.upsertAutosave(
+			operationId,
+			snapshot,
+		);
+		if (!success && !this.autosaveFailureNotified) {
+			this.autosaveFailureNotified = true;
+			toast.error(translate("api.requestFailed"), {
 				richColors: true,
 			});
-			return;
 		}
-
-		sessions.push({
-			name,
-			icon,
-			color,
-			selected: {
-				files: Source.Entity.selected(this.app).map((f) => f.id),
-				contexts: Context.Entity.selected(this.app).map((c) => c.id),
-				operations: operation.id,
-			},
-			timeline: {
-				scale: scale ?? this.getTimelineScaleSnapshot(),
-				frame: {
-					min: this.app.timeline.frame.min,
-					max: this.app.timeline.frame.max,
-				},
-				filter: this.app.timeline.filter,
-				target: this.app.timeline.target,
-				scroll: scroll ?? { x: scrollStore.getX(), y: scrollStore.getY() },
-			},
-			filters: this.app.target.filters,
-			hidden: this.app.hidden,
-			source_settings: this.getSourceSettings(),
-		});
-
-		if (!this.app.general.user) {
-			Logger.warn("Tried to create session before user has been defined");
-			return;
-		}
-
-		return api<undefined>("/user_update", {
-			method: "PATCH",
-			query: {
-				user_id: this.app.general.user?.id,
-			},
-			raw: true,
-			body: {
-				user_data: {
-					sessions,
-				},
-			},
-		});
+		if (success) this.autosaveFailureNotified = false;
+		return success;
 	};
 
-	session_autosave = async () => {
-		const prefix = "Autosaved session ";
-		const sessions = await this.session_list();
-		const prev = sessions.filter((session) => session.name.startsWith(prefix));
-		if (prev.length) {
-			await this.sessions_delete(prev.map((s) => s.name));
-		}
-
-		await this.session_create({
-			name: prefix + new Date().toUTCString(),
-			color: "var(--green-700)",
-			icon: "RefreshClockwise",
-		});
+	/**
+	 * Deletes selected operation sessions with one operation-bucket update.
+	 * @param sessionIds Stable session identifiers.
+	 * @returns True when deletion is persisted.
+	 */
+	sessions_delete = async (sessionIds: string[]): Promise<boolean> => {
+		const operation = Operation.Entity.selected(this.app);
+		if (!operation || !this.initializeWorkspaceSessionRepository()) return false;
+		return this.workspaceSessionRepository.delete(operation.id, sessionIds);
 	};
 
-	sessions_delete = async (names: string[]) => {
-		for (const name of names) {
-			try {
-				await this.session_delete(name);
-			} catch (err) {
-				Logger.log(
-					`Failed to delete session ${name}`,
-					"Session.Delete.Banner.deleteSessionButtonClickHandler",
-					{ richColors: true, icon: <Icon name="Warning" /> },
-				);
-			}
-		}
-	};
+	/**
+	 * Deletes one selected-operation session by stable identifier.
+	 * @param sessionId Stable session identifier.
+	 * @returns True when deletion is persisted.
+	 */
+	session_delete = async (sessionId: string): Promise<boolean> =>
+		this.sessions_delete([sessionId]);
 
-	session_delete = async (name: string) => {
-		if (!this.app.general.user) {
-			Logger.error(
-				"Tried to delete session but there is no user",
-				this.session_delete,
+	/**
+	 * Renames one named session in the selected operation.
+	 * @param sessionId Stable session identifier.
+	 * @param name Requested display name.
+	 * @returns True when rename is persisted.
+	 */
+	session_rename = async (
+		sessionId: string,
+		name: string,
+	): Promise<boolean> => {
+		const operation = Operation.Entity.selected(this.app);
+		if (!operation || !this.initializeWorkspaceSessionRepository()) return false;
+		try {
+			return await this.workspaceSessionRepository.rename(
+				operation.id,
+				sessionId,
+				name,
 			);
-			return;
+		} catch (error) {
+			if (error instanceof WorkspaceSessionNameExistsError) {
+				toast.error(translate("session.nameExists"), { richColors: true });
+				return false;
+			}
+			throw error;
 		}
+	};
 
-		const sessions = await this.session_list();
-
-		return api<undefined>("/user_update", {
-			method: "PATCH",
-			query: {
-				user_id: this.app.general.user.id,
-			},
-			raw: true,
-			body: {
-				user_data: {
-					sessions: sessions.filter((s) => s.name !== name),
-				},
-			},
-		});
+	/**
+	 * Subscribes to cached session changes for one operation.
+	 * @param operationId Operation to observe.
+	 * @param listener Listener invoked after successful writes or tab synchronization.
+	 * @returns Unsubscribe callback.
+	 */
+	session_subscribe = (
+		operationId: Operation.Id,
+		listener: () => void,
+	): (() => void) => {
+		this.initializeWorkspaceSessionRepository();
+		return this.workspaceSessionRepository.subscribe(operationId, listener);
 	};
 
 	/**
@@ -5154,31 +5257,32 @@ export class Info implements InfoProps {
 	 * @param session - The session data object to restore.
 	 * @returns A promise that resolves when the session load action has completed.
 	 */
-	session_load = async (session: Internal.Session.Data) => {
-		this.synchronizeTimelineScaleFromState(session.timeline.scale);
+	session_load = async (session: StoredWorkspaceSession) => {
+		const snapshot = session.snapshot;
+		this.synchronizeTimelineScaleFromState(snapshot.timeline.scale);
 		this.batchUpdate((draft) => {
-			draft.timeline.target = session.timeline.target;
-			draft.timeline.frame = session.timeline.frame;
-			draft.timeline.filter = session.timeline.filter;
-			draft.timeline.scale = session.timeline.scale;
+			draft.timeline.target = snapshot.timeline.target;
+			draft.timeline.frame = snapshot.timeline.frame;
+			draft.timeline.filter = snapshot.timeline.filter;
+			draft.timeline.scale = snapshot.timeline.scale;
 			draft.target.operations = Operation.Entity.select(
 				draft.target.operations,
-				session.selected.operations,
+				session.operation_id,
 			);
 			draft.target.contexts = Context.Entity.select(
 				draft.target.contexts,
-				session.selected.contexts,
+				snapshot.selected.contexts,
 			);
 			draft.target.files = this.applySessionSourceSettings(
-				Source.Entity.select(draft, session.selected.files),
+				Source.Entity.select(draft, snapshot.selected.files),
 				session,
 			);
-			draft.target.filters = session.filters;
+			draft.target.filters = snapshot.filters;
 
-			if (session.hidden && typeof session.hidden === "object") {
-				Object.keys(session.hidden).forEach((k) => {
+			if (snapshot.hidden && typeof snapshot.hidden === "object") {
+				Object.keys(snapshot.hidden).forEach((k) => {
 					const key = k as keyof App.Type["hidden"];
-					draft.hidden[key] = session.hidden[key];
+					draft.hidden[key] = snapshot.hidden[key];
 				});
 				draft.hidden.sourcesWithNoEvents =
 					localStorage.getItem("settings.__sourcesWithNoEventsHidden") !==
@@ -5186,17 +5290,17 @@ export class Info implements InfoProps {
 			}
 		});
 
-		session.selected.files.forEach((sourceId) => {
+		snapshot.selected.files.forEach((sourceId) => {
 			RenderEngine.resetSource(sourceId);
 		});
 
-		scrollStore.setScrollX(session.timeline.scroll.x);
-		scrollStore.setScrollY(session.timeline.scroll.y);
+		scrollStore.setScrollX(snapshot.timeline.scroll.x);
+		scrollStore.setScrollY(snapshot.timeline.scroll.y);
 
 		setTimeout(() => {
 			this.refetch({
-				ids: session.selected.files,
-				frame: session.timeline.frame,
+				ids: snapshot.selected.files,
+				frame: snapshot.timeline.frame,
 			});
 		}, 0);
 	};
@@ -5279,30 +5383,47 @@ export class Info implements InfoProps {
 		return normalizedNotes;
 	}
 
+	/**
+	 * Lists selected-operation sessions from the private user_data cache.
+	 * @param operationId Optional operation override.
+	 * @returns Cached operation-scoped sessions without a backend request.
+	 */
 	async session_list(
-		user = this.app.general.user,
-	): Promise<Internal.Session.Data[]> {
-		if (!user) {
-			return Internal.Transformator.toAsync([]);
+		operationId = Operation.Entity.selected(this.app)?.id,
+	): Promise<StoredWorkspaceSession[]> {
+		if (
+			!operationId ||
+			!this.app.general.user ||
+			!this.initializeWorkspaceSessionRepository()
+		) {
+			return [];
 		}
+		return this.workspaceSessionRepository.list(operationId);
+	}
 
-		return api<any>("/user_get_by_id", {
-			method: "GET",
-			query: { user_id: user.id },
-		})
-			.then((data) => {
-				const sessions = data ? data.user_data.sessions : [];
+	/**
+	 * Explicitly refreshes user_data and the private session cache from the backend.
+	 * @returns Refreshed selected-operation sessions.
+	 */
+	async session_refresh(): Promise<StoredWorkspaceSession[]> {
+		const user = this.app.general.user;
+		const operationId = Operation.Entity.selected(this.app)?.id;
+		if (!user || !operationId) return [];
 
-				return sessions || [];
-			})
-			.catch((error) => {
-				toast.error(translate("session.loadFailed"), {
-					description: translate("common.errorMessage", {
-						message: JSON.stringify(error),
-					}),
-					icon: <Icon name="FaceSad" />,
-				});
+		try {
+			const refreshed = await this.user_get_by_id(user.id);
+			if (!refreshed) return this.session_list(operationId);
+			this.workspaceSessionRepository.refresh(refreshed);
+			return this.workspaceSessionRepository.list(operationId);
+		} catch (error) {
+			toast.error(translate("session.loadFailed"), {
+				description: translate("common.errorMessage", {
+					message: JSON.stringify(error),
+				}),
+				icon: <Icon name="FaceSad" />,
 			});
+			return this.session_list(operationId);
+		}
 	}
 
 	private _syncPromise: Promise<
@@ -5729,6 +5850,7 @@ export class Info implements InfoProps {
 
 		Internal.Settings.token = "";
 		localStorage.removeItem("__user_id");
+		this.workspaceSessionRepository.close();
 		this.synchronizeTimelineScaleFromState(App.Base.timeline.scale);
 		this.setInfo({
 			...App.Base,

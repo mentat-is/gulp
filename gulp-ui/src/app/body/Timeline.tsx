@@ -13,8 +13,10 @@ import { debounce, DebouncedFunc } from "lodash";
 import { Context } from "@/entities/Context";
 import {
 	cleanupTimelineAutosave,
+	runTimelineAutosaveWhenIdle,
 	scheduleTimelineAutosave,
 } from "./TimelineAutosave";
+import { serializeWorkspaceSessionValue } from "@/class/WorkspaceSessionRepository";
 
 export namespace Timeline {
 	export interface Props {
@@ -109,6 +111,26 @@ export function Timeline({
 	appRef.current = app;
 	const disableSessionAutosaveRef = useRef(disableSessionAutosave);
 	disableSessionAutosaveRef.current = disableSessionAutosave;
+	const persistedFingerprintsRef = useRef(new Map<string, string>());
+	const autosaveInFlightRef = useRef(false);
+	const autosaveRerunRequestedRef = useRef(false);
+	const debouncedSessionAutosaveRef = useRef<DebouncedFunc<() => void> | null>(
+		null,
+	);
+	const selectedOperationId = app.target.operations.find(
+		(operation) => operation.selected,
+	)?.id;
+
+	useEffect(() => {
+		debouncedSessionAutosaveRef.current?.cancel();
+		const initialSnapshot = Info.session_snapshot();
+		if (selectedOperationId && initialSnapshot) {
+			persistedFingerprintsRef.current.set(
+				selectedOperationId,
+				serializeWorkspaceSessionValue(initialSnapshot),
+			);
+		}
+	}, [Info, selectedOperationId]);
 
 	/**
 	 * Checks whether the current app state contains persistable session data.
@@ -123,15 +145,59 @@ export function Timeline({
 	};
 
 	const debouncedSessionAutosave: DebouncedFunc<() => void> = useMemo(() => {
-		return debounce(() => {
-			if (!hasSessionData()) {
-				console.warn("session auto-save skipped: no sources/contexts selected");
+		const persistLatestSnapshot = (): void => {
+			if (autosaveInFlightRef.current) {
+				autosaveRerunRequestedRef.current = true;
 				return;
 			}
-			console.warn("start session auto-save");
-			Info.session_autosave();
-		}, 10000);
-	}, [Info]);
+
+			runTimelineAutosaveWhenIdle(() => {
+				const snapshot = Info.session_snapshot(selectedOperationId);
+				if (
+					!snapshot ||
+					snapshot.selected.files.length === 0 ||
+					snapshot.selected.contexts.length === 0
+				) {
+					return;
+				}
+				const fingerprint = serializeWorkspaceSessionValue(snapshot);
+				if (
+					selectedOperationId &&
+					persistedFingerprintsRef.current.get(selectedOperationId) ===
+						fingerprint
+				) {
+					return;
+				}
+
+				autosaveInFlightRef.current = true;
+				void Info.session_autosave(snapshot, selectedOperationId)
+					.then((persisted) => {
+						if (persisted && selectedOperationId) {
+							persistedFingerprintsRef.current.set(
+								selectedOperationId,
+								fingerprint,
+							);
+						}
+					})
+					.finally(() => {
+						autosaveInFlightRef.current = false;
+						if (autosaveRerunRequestedRef.current) {
+							autosaveRerunRequestedRef.current = false;
+							debouncedSessionAutosaveRef.current?.();
+						}
+					});
+			});
+		};
+
+		return debounce(
+			() => {
+				persistLatestSnapshot();
+			},
+			10000,
+			{ maxWait: 60000 },
+		);
+	}, [Info, selectedOperationId]);
+	debouncedSessionAutosaveRef.current = debouncedSessionAutosave;
 
 	useEffect(() => {
 		scheduleTimelineAutosave(
@@ -152,6 +218,11 @@ export function Timeline({
 		debouncedSessionAutosave,
 		disableSessionAutosave,
 	]);
+
+	useEffect(() => {
+		if (disableSessionAutosave) return;
+		return scrollStore.subscribe(() => debouncedSessionAutosave());
+	}, [debouncedSessionAutosave, disableSessionAutosave]);
 
 	useEffect(() => {
 		return () => {

@@ -1,12 +1,6 @@
-import { MinMax } from "@/class/Info";
 import { Logger } from "@/dto/Logger.class";
-import { XY } from "@/dto/XY.dto";
 import { Icon } from "@/ui/Icon";
-import { App } from "../App";
-import { Context } from "../Context";
-import { Doc } from "../Doc";
 import { Glyph } from "../Glyph";
-import { Operation } from "../Operation";
 import { Source } from "../Source";
 
 export namespace Internal {
@@ -181,38 +175,4 @@ export namespace Internal {
 		};
 	}
 
-	export namespace Session {
-		export interface SourceSetting {
-			offset?: Source.Type["settings"]["offset"];
-			field?: Source.Type["settings"]["field"];
-			hash_function?: Source.Type["settings"]["hash_function"];
-			render_color_palette?: Source.Type["settings"]["render_color_palette"];
-			color_palette?: Source.Type["settings"]["color_palette"] | null;
-		}
-
-		export interface SourceSettings {
-			source_settings: Record<Source.Id, SourceSetting>;
-		}
-
-		export interface Data {
-			name: string;
-			icon: Icon.Name;
-			color: string;
-			selected: {
-				files: Source.Id[];
-				contexts: Context.Id[];
-				operations?: Operation.Id;
-			};
-			timeline: {
-				scale: number;
-				frame: MinMax;
-				scroll: XY;
-				filter: string;
-				target: Doc.Type | null;
-			};
-			filters: App.Type["target"]["filters"];
-			hidden: App.Type["hidden"];
-			source_settings?: SourceSettings;
-		}
-	}
 }

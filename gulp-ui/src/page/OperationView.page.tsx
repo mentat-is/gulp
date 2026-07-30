@@ -319,7 +319,7 @@ export function OperationTimeline() {
 				label: t("operationView.menu.selectFilesAndContexts"),
 				icon: "FileStack",
 				category: t("operationView.menu.sourcesFilter"),
-				action: () => spawnBanner(<SelectFiles.Banner showSession={false} />),
+				action: () => spawnBanner(<SelectFiles.Banner />),
 			},
 			{
 				label: t("operationView.menu.uploadFiles"),

@@ -42,72 +42,82 @@ import { Select } from "@/ui/Select";
 import { Session } from "./Session.banner";
 import { DisplayEventDialog } from "@/dialogs/Event.dialog";
 import { useParams } from "react-router-dom";
-import { Internal } from "@/entities/addon/Internal";
 import { Locale } from "@/locales";
 import { requestStore } from "@/store/request.store";
+import type { StoredWorkspaceSession } from "@/class/WorkspaceSessionRepository";
 
 export namespace SelectFiles {
 	export namespace Banner {
-		export type Props = UIBanner.Props & {
-			showSession?: boolean;
-		};
+		export type Props = UIBanner.Props;
 	}
 
 	/**
 	 * Renders the source/context selection banner with session loading, upload progress,
 	 * and virtualized source rows.
 	 *
-	 * @param props - Banner options and the optional session selector flag.
+	 * @param props Banner options.
 	 * @returns The source selection banner.
 	 */
-	export function Banner({ showSession = true, fixed: _fixed, ...props }: Banner.Props) {
+	export function Banner({ fixed: _fixed, ...props }: Banner.Props) {
 		const { app, Info, spawnBanner, spawnDialog, destroyBanner } = Application.use();
 		const { t } = Locale.use();
 		const { operation_id: routeOpId } = useParams<{ operation_id: string }>();
 		const operation = Operation.Entity.selected(app);
 		const operation_id = routeOpId || operation?.id;
 
-		const [sessions, setSessions] = useState<Internal.Session.Data[]>([]);
+		const [sessions, setSessions] = useState<StoredWorkspaceSession[]>([]);
 		const [openSelectSession, setOpenSelectSession] = useState(false);
 
 		const activeSessions = useMemo(() => {
 			if (!operation_id) return [];
 			return sessions.filter(
-				(session) =>
-					session.selected.operations &&
-					session.selected.operations === operation_id,
+				(session) => session.operation_id === operation_id,
 			);
 		}, [sessions, operation_id]);
 
 		/**
-		 * Reloads the sessions list from the backend for the current user.
+		 * Reloads the selected operation's sessions from the private repository cache.
+		 * @returns Nothing.
 		 */
-		const reloadSessionsList = () => {
-			Info.session_list(app.general.user).then((res) => {
-				if (res) {
-					setSessions(res);
-				}
-			});
-		};
+		const reloadSessionsList = useCallback((): void => {
+			if (!operation_id) return;
+			void Info.session_list(operation_id as Operation.Id).then(setSessions);
+		}, [Info, operation_id]);
 
 		useEffect(() => {
+			if (!operation_id) return;
 			let isMounted = true;
-			Info.session_list(app.general.user).then((res) => {
+			void Info.session_list(operation_id as Operation.Id).then((res) => {
 				if (isMounted && res) {
 					setSessions(res);
 				}
 			});
+			const unsubscribe = Info.session_subscribe(
+				operation_id as Operation.Id,
+				() => {
+					if (!isMounted) return;
+					void Info.session_list(operation_id as Operation.Id).then(
+						setSessions,
+					);
+				},
+			);
 			return () => {
 				isMounted = false;
+				unsubscribe();
 			};
-		}, [app.general.user]);
+		}, [
+			Info,
+			app.general.user?.id,
+			operation_id,
+			reloadSessionsList,
+		]);
 
 		/**
 		 * Loads a specific saved session, clears local selections, and launches the operation.
-		 * @param name - The name of the session to load.
+		 * @param sessionId - Stable identifier of the session to load.
 		 */
-		const load_session = async (name: string) => {
-			const session = sessions.find((s) => s.name === name);
+		const load_session = async (sessionId: string) => {
+			const session = sessions.find((candidate) => candidate.id === sessionId);
 			if (!session) return;
 
 			await Info.session_load(session);
@@ -115,8 +125,10 @@ export namespace SelectFiles {
 			setSelectedFiles(new Set());
 			spawnBanner(null);
 
-			if (session.timeline.target) {
-				spawnDialog(<DisplayEventDialog event={session.timeline.target} />);
+			if (session.snapshot.timeline.target) {
+				spawnDialog(
+					<DisplayEventDialog event={session.snapshot.timeline.target} />,
+				);
 			}
 		};
 
@@ -321,10 +333,10 @@ export namespace SelectFiles {
 				})),
 			);
 
-			Info.setInfoByKey(contexts, "target", "contexts");
-			Info.setInfoByKey(files, "target", "files");
-
-			Info.session_autosave();
+			Info.batchUpdate((draft) => {
+				draft.target.contexts = contexts;
+				draft.target.files = files;
+			});
 			setTimeout(() => {
 				spawnBanner(
 					<Frame.Banner
@@ -494,7 +506,7 @@ export namespace SelectFiles {
 				}
 				{...props}
 			>
-				{showSession && activeSessions.length > 0 && (
+				{app.general.user ? (
 					<Stack
 						dir="column"
 						gap={6}
@@ -514,8 +526,8 @@ export namespace SelectFiles {
 							<Select.Content>
 								{activeSessions.map((session) => (
 									<Select.Item
-										key={session.name}
-										value={session.name}
+										key={session.id}
+										value={session.id}
 										style={{ color: session.color }}
 									>
 										<Select.Icon name={session.icon} />
@@ -527,11 +539,35 @@ export namespace SelectFiles {
 									className={s.sessionManageButton}
 									onClick={() =>
 										spawnBanner(
+											<Session.Save.Banner
+												logoutAfterSave={false}
+												onSaved={() =>
+													spawnBanner(
+														<SelectFiles.Banner />,
+													)
+												}
+												back={() =>
+													spawnBanner(
+														<SelectFiles.Banner />,
+													)
+												}
+											/>,
+										)
+									}
+									icon="Save"
+								>
+									{t("session.saveCurrent")}
+								</Button>
+								<Button
+									variant="tertiary"
+									className={s.sessionManageButton}
+									onClick={() =>
+										spawnBanner(
 											<Session.Delete.Banner
 												onClose={reloadSessionsList}
 												back={() =>
 													spawnBanner(
-														<SelectFiles.Banner showSession={showSession} />,
+														<SelectFiles.Banner />,
 													)
 												}
 											/>,
@@ -544,7 +580,7 @@ export namespace SelectFiles {
 							</Select.Content>
 						</Select.Root>
 					</Stack>
-				)}
+				) : null}
 				{SearchInput}
 				<Stack className={s.selectionSummary}>
 					<Badge

@@ -28,14 +28,50 @@ event collection inside that context.
 The source selection banner supports:
 
 - loading an autosaved or manually saved session for the operation;
+- saving the current workspace as a named session;
+- renaming or bulk-deleting saved sessions;
+- manually refreshing session data changed on another device;
 - selecting or deselecting all visible sources;
 - selecting a complete context;
 - selecting individual sources;
 - filtering the visible context/source list;
 - refreshing operation data from the backend.
 
-When the selection is saved, the app updates the main timeline, autosaves the
-session, and publishes the context to detached applications that consume it.
+The session selector is available both when entering an operation and whenever
+the source selection banner is opened from the investigation workspace.
+
+When the selection is saved, the app applies the contexts and sources as one
+state update and publishes the context to detached applications that consume
+it. Workspace autosave observes selection, timeline, filter, source-setting,
+and scroll changes.
+
+## Workspace Sessions
+
+Workspace sessions are scoped to the selected operation. Each operation has one
+rolling autosave and can have multiple named sessions. A session stores:
+
+- selected contexts and sources;
+- timeline frame, scale, scroll position, text filter, and selected event;
+- source filters and hidden-state preferences;
+- render engine, sampling frequency, timestamp offset, field, hash function,
+  palettes, color overrides, and pinning for each source.
+
+Named sessions can be saved, loaded, renamed, or deleted in bulk. Session names
+must be unique within an operation but can be reused in other operations.
+Deleting or replacing a session affects only the selected operation.
+
+Autosave treats the loaded workspace as its initial state and does not save it
+again until relevant data changes. It saves after ten seconds without further
+changes. During continuous activity, it saves at least once every sixty
+seconds. Unchanged workspace state is not saved.
+
+Only one autosave request is active at a time. Changes made while a request is
+active are included in a later save. A failed autosave remains pending until
+another relevant change occurs, and the UI displays one failure warning.
+
+Successful session updates are synchronized across tabs logged in as the same
+user. The session manager also provides a manual refresh for updates made in
+another browser or device.
 
 ## Timeline Frame
 

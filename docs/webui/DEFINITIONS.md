@@ -39,9 +39,11 @@ defaults.
 
 ## Session
 
-A session stores selected operation state such as selected sources, timeline
-frame, dialog state, target event, notes, filters, and visual state. Sessions can
-be autosaved or manually saved.
+A session stores one operation's selected sources and contexts, timeline frame,
+scale, scroll position, target event, filters, hidden-state configuration, and
+per-source rendering settings. Each operation has one rolling autosave and any
+number of named sessions. The UI identifies sessions by stable client-generated
+IDs; display names need to be unique only inside their operation.
 
 ## Ingestion
 

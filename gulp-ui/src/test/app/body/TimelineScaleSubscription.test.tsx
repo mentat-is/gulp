@@ -41,6 +41,7 @@ const mockApp = {
 const mockInfo = {
 	width: 100,
 	session_autosave: jest.fn(),
+	session_snapshot: jest.fn(() => null),
 	/** Returns the current test scale snapshot. */
 	getTimelineScaleSnapshot: (): number => mockScale,
 	/** Subscribes the Timeline to deterministic scale changes. */
