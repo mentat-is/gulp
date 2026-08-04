@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "Das Laden der Ereignisse wurde beendet. Prüfen Sie den verfügbaren Speicherplatz und versuchen Sie es erneut.",
+    "eventStore.streamFailed.backlog": "Die Ereignisse kamen schneller an, als der Browser sie speichern konnte. Führen Sie die Abfrage erneut aus.",
+    "eventStore.streamFailed.quota": "Der Browserspeicher reicht zum Laden dieser Ereignisse nicht aus. Geben Sie Speicherplatz frei und versuchen Sie es erneut.",
+    "eventStore.streamFailed.storage": "Der Browserspeicher ist nicht verfügbar. Prüfen Sie die Berechtigungen für Websitedaten oder schließen Sie andere Tabs und versuchen Sie es erneut.",
+    "eventStore.streamFailed.normalization": "Einige Ereignisse konnten nicht gelesen werden. Versuchen Sie es erneut oder prüfen Sie die Quelldaten.",
+    "eventStore.streamFailed.disconnected": "Die Verbindung wurde beim Laden der Ereignisse unterbrochen. Versuchen Sie es nach dem Wiederverbinden erneut.",
+    "group.eventsChangedRefresh": "Die Ereignisse haben sich während des Ladens geändert. Die erste Seite wurde aktualisiert.",
+    "source.cacheRebuildInPlace": "Der Speicherplatz ist begrenzt. Daher wird der Cache dieser Quelle direkt neu aufgebaut. Wird die Abfrage unterbrochen, wird die Quelle erneut abgerufen.",
     "detachedApp.authLost": "Anmeldung erforderlich",
     "detachedApp.authLostDescription": "Der Haupt-Tab ist abgemeldet. Melden Sie sich erneut an und wählen Sie eine Operation aus, um dieses losgelöste Fenster fortzusetzen.",
     "detachedApp.idle": "Warten auf eine Operation",

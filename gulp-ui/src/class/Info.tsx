@@ -75,6 +75,18 @@ import {
 	type StoredWorkspaceSession,
 	type WorkspaceSessionSnapshot,
 } from "@/class/WorkspaceSessionRepository";
+import type {
+	DocumentStreamDescriptor,
+	DocumentStreamStateChange,
+	DocumentStreamSourceSettings,
+	QuerySourceSummaryEvent,
+	QueryStreamFailureEvent,
+	QueryStreamFailureReason,
+} from "@/event-stream";
+import {
+	isEventStoreLodEnabled,
+	type EventSourceSummary,
+} from "@/event-store";
 
 export namespace GulpDataset {
 	export namespace GetAvailableLoginApi {
@@ -327,11 +339,24 @@ interface RefetchOptions {
 	frame?: MinMax;
 }
 
+const EVENT_STREAM_FAILURE_MESSAGE_KEYS: Record<
+	Exclude<QueryStreamFailureReason, "superseded">,
+	string
+> = {
+	backlog: "eventStore.streamFailed.backlog",
+	quota: "eventStore.streamFailed.quota",
+	storage: "eventStore.streamFailed.storage",
+	normalization: "eventStore.streamFailed.normalization",
+	disconnected: "eventStore.streamFailed.disconnected",
+};
+
 type ViewportQueryPriority = RawQueryQueuePriority;
 
 type QueryFileOptions = GulpDataset.QueryGulp.Options & {
 	operationId?: Operation.Id;
 	queuePriority?: ViewportQueryPriority;
+	eventStoreMode?: "replace" | "upsert";
+	eventStreamKind?: "query" | "realtime";
 };
 
 interface QueryStreamState {
@@ -347,6 +372,19 @@ interface QueryStreamState {
 	closed: boolean;
 	completedByStats: boolean;
 	flushChain: Promise<void>;
+}
+
+export interface EventDocumentStreamOptions {
+	requestId: Request.Id;
+	sourceIds: Source.Id[];
+	operationId: Operation.Id;
+	kind: "query" | "enrichment" | "ingestion" | "extension" | "realtime";
+	mode: "replace" | "upsert";
+	completionMode?: "last" | "explicit";
+	deduplicateSequences?: boolean;
+	defaultSourceSettings?: DocumentStreamSourceSettings;
+	sourceSettingsById?: Record<string, DocumentStreamSourceSettings>;
+	expectedEvents?: number;
 }
 
 interface QueryGulpRequestBody {
@@ -456,6 +494,12 @@ export class Info implements InfoProps {
 	private linksReloadSequence = 0;
 	private highlightsReloadSequence = 0;
 	private operationScopedSocketCleanups = new Set<() => void>();
+	private activeEventDocumentStreams = new Set<Request.Id>();
+	private eventDocumentStreamOptions = new Map<
+		Request.Id,
+		EventDocumentStreamOptions
+	>();
+	private eventDocumentStreamCleanups = new Map<Request.Id, Set<() => void>>();
 	private readonly workspaceSessionRepository: WorkspaceSessionRepository;
 	private autosaveFailureNotified = false;
 
@@ -1080,6 +1124,315 @@ export class Info implements InfoProps {
 		const cleanups = Array.from(this.operationScopedSocketCleanups);
 		this.operationScopedSocketCleanups.clear();
 		cleanups.forEach((cleanup) => cleanup());
+
+		const socket = SmartSocket.Class.instance;
+		const operationId = DataStore.getRenderOperationId();
+		if (socket && operationId) {
+			void socket.releaseOperation(operationId).catch((error: unknown) => {
+				Logger.warn(
+					`Unable to release EventStore operation ${operationId}: ${error instanceof Error ? error.message : String(error)}`,
+					Info,
+				);
+			});
+		}
+		for (const requestId of this.activeEventDocumentStreams) {
+			this.releaseEventDocumentStream(requestId);
+		}
+		this.activeEventDocumentStreams.clear();
+		this.eventDocumentStreamOptions.clear();
+	};
+
+	/**
+	 * Registers QueryWorker ownership before an HTTP request can emit document chunks.
+	 * @param options Request identity, source scope, mutation mode, and completion policy.
+	 * @returns True after the worker acknowledges registration.
+	 */
+	beginEventDocumentStream = async (
+		options: EventDocumentStreamOptions,
+	): Promise<boolean> => {
+		const socket = SmartSocket.Class.instance;
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		if (
+			!socket ||
+			!this.isOperationContextCurrent(
+				operationEpoch,
+				options.operationId,
+			)
+		) {
+			return false;
+		}
+
+		if (this.activeEventDocumentStreams.has(options.requestId)) {
+			await this.cancelEventDocumentStream(options.requestId);
+		}
+		const descriptor: DocumentStreamDescriptor = {
+			requestId: options.requestId,
+			operationId: options.operationId,
+			operationEpoch,
+			owner: isEventStoreLodEnabled() ? "persist" : "passthrough",
+			completionMode: options.completionMode ?? "last",
+			deduplicateSequences: options.deduplicateSequences,
+			kind:
+				options.mode === "replace"
+					? "replace"
+					: options.kind === "enrichment"
+						? "enrichment"
+						: options.kind === "ingestion" || options.kind === "realtime"
+							? "realtime-ingest"
+							: "query-upsert",
+			sourceIds: options.sourceIds,
+			defaultSourceSettings: options.defaultSourceSettings,
+			sourceSettingsById:
+				options.sourceSettingsById ??
+				(options.sourceIds.length > 0
+					? this.getQuerySourceSettingsById(options.sourceIds)
+					: undefined),
+			expectedEvents:
+				options.expectedEvents ??
+				(options.mode === "replace"
+					? options.sourceIds.reduce(
+							(total, sourceId) =>
+								total +
+								(Source.Entity.id(this.app, sourceId)?.total ?? 0),
+							0,
+						)
+					: undefined),
+		};
+
+		try {
+			await socket.registerDocumentStream(descriptor);
+			if (
+				SmartSocket.Class.instance !== socket ||
+				!this.isOperationContextCurrent(operationEpoch, options.operationId)
+			) {
+				await socket.cancelDocumentStream(options.requestId);
+				return false;
+			}
+			this.activeEventDocumentStreams.add(options.requestId);
+			this.eventDocumentStreamOptions.set(options.requestId, {
+				...options,
+				sourceIds: [...options.sourceIds],
+				sourceSettingsById: options.sourceSettingsById
+					? { ...options.sourceSettingsById }
+					: undefined,
+			});
+			return true;
+		} catch (error) {
+			Logger.warn(
+				`Unable to register event stream ${options.requestId}: ${(error as Error).message}`,
+				Info,
+			);
+			return false;
+		}
+	};
+
+	/**
+	 * Marks an explicitly completed request after its final storage commit.
+	 * @param requestId Request whose QueryWorker stream can become terminal.
+	 * @returns Promise settled after worker acknowledgement and local cleanup.
+	 * @throws Error when the query transport is unavailable or rejects completion.
+	 */
+	completeEventDocumentStream = async (
+		requestId: Request.Id,
+	): Promise<void> => {
+		const socket = SmartSocket.Class.instance;
+		if (!socket) throw new Error("Query transport is unavailable.");
+		await socket.completeDocumentStream(requestId);
+		this.activeEventDocumentStreams.delete(requestId);
+		this.eventDocumentStreamOptions.delete(requestId);
+		this.releaseEventDocumentStream(requestId);
+	};
+
+	/**
+	 * Invalidates one document stream before callers ask the backend to cancel work.
+	 * @param requestId Request whose late chunks must be rejected.
+	 * @returns Promise settled after QueryWorker installs the terminal guard.
+	 */
+	cancelEventDocumentStream = async (
+		requestId: Request.Id,
+	): Promise<void> => {
+		try {
+			await SmartSocket.Class.instance?.cancelDocumentStream(requestId);
+		} finally {
+			this.activeEventDocumentStreams.delete(requestId);
+			this.eventDocumentStreamOptions.delete(requestId);
+			this.releaseEventDocumentStream(requestId);
+		}
+	};
+
+	/**
+	 * Attaches request-scoped metadata cleanup without exposing document chunks.
+	 * @param requestId Registered document request.
+	 * @param cleanup Idempotent listener cleanup invoked at every terminal path.
+	 * @returns False when the request is no longer active.
+	 */
+	attachEventDocumentStreamCleanup = (
+		requestId: Request.Id,
+		cleanup: () => void,
+	): boolean => {
+		if (!this.activeEventDocumentStreams.has(requestId)) return false;
+		const cleanups = this.eventDocumentStreamCleanups.get(requestId) ?? new Set();
+		cleanups.add(cleanup);
+		this.eventDocumentStreamCleanups.set(requestId, cleanups);
+		return true;
+	};
+
+	/**
+	 * Runs and forgets every non-document listener attached to one request.
+	 * @param requestId Terminal request whose resources must be released.
+	 * @returns Nothing.
+	 */
+	private releaseEventDocumentStream = (requestId: Request.Id): void => {
+		const cleanups = this.eventDocumentStreamCleanups.get(requestId);
+		this.eventDocumentStreamCleanups.delete(requestId);
+		for (const cleanup of cleanups ?? []) {
+			try {
+				cleanup();
+			} catch (error) {
+				Logger.warn(
+					`Event stream cleanup failed for ${requestId}: ${(error as Error).message}`,
+					Info,
+				);
+			}
+		}
+	};
+
+	/**
+	 * Reconciles application-owned query state after QueryWorker changes stream state.
+	 * Document payloads remain worker-owned; this method only releases metadata and UI
+	 * request state after the durable IndexedDB terminal transition.
+	 * @param change Typed request lifecycle transition published by SmartSocket.
+	 * @returns Nothing.
+	 */
+	handleEventDocumentStreamState = (
+		change: DocumentStreamStateChange,
+	): void => {
+		const requestId = change.descriptor.requestId as Request.Id;
+		// A correlated STREAM_FAILURE follows the failed state and carries the
+		// actionable reason. Keep request metadata until that event is handled.
+		if (change.state === "failed") return;
+		if (
+			change.state !== "completed" &&
+			change.state !== "canceled"
+		) {
+			return;
+		}
+
+		this.activeEventDocumentStreams.delete(requestId);
+		this.eventDocumentStreamOptions.delete(requestId);
+		this.releaseEventDocumentStream(requestId);
+
+		const stream = this.activeQueryStreams.get(requestId);
+		if (!stream) return;
+		const completed = change.state === "completed";
+		if (completed && this.isQueryStreamCurrent(stream)) {
+			this.reconcileQuerySourceTotals(stream.sourceIds);
+		}
+		void this.closeQueryStream(requestId, {
+			managedStatus: completed ? "completed" : "canceled",
+		}).then(() => {
+			if (
+				completed &&
+				this.isOperationContextCurrent(
+					change.descriptor.operationEpoch,
+					change.descriptor.operationId as Operation.Id,
+				)
+			) {
+				this.render();
+			}
+		});
+	};
+
+	/**
+	 * Cancels backend work after QueryWorker rejects storage, quota, or backlog.
+	 * @param event Terminal persistence failure containing no document payloads.
+	 * @returns Nothing.
+	 */
+	handleEventDocumentStreamFailure = (
+		event: QueryStreamFailureEvent,
+	): void => {
+		const requestId = event.requestId as Request.Id;
+		const options = this.eventDocumentStreamOptions.get(requestId);
+		const recoverableSourceIds = Array.from(
+			new Set(options?.sourceIds ?? []),
+		).filter((sourceId) => Boolean(Source.Entity.id(this.app, sourceId)));
+		this.request_cancel(requestId);
+		this.activeEventDocumentStreams.delete(requestId);
+		this.eventDocumentStreamOptions.delete(requestId);
+		this.releaseEventDocumentStream(requestId);
+		Logger.warn(
+			`Event stream ${requestId} failed (${event.reason}): ${event.message}`,
+			Info,
+		);
+		if (event.reason !== "superseded") {
+			toast.error(translate(EVENT_STREAM_FAILURE_MESSAGE_KEYS[event.reason]), {
+				id: `event-store-stream-failure-${requestId}`,
+				icon: <Icon name="Stop" />,
+				richColors: true,
+			});
+		}
+		if (
+			event.reason === "disconnected" &&
+			recoverableSourceIds.length > 0 &&
+			this.isOperationContextCurrent(
+				event.operationEpoch,
+				event.operationId as Operation.Id,
+			)
+		) {
+			void SmartSocket.Class.instance
+				.awaitReady(30_000)
+				.then(() => {
+					if (
+						this.isOperationContextCurrent(
+							event.operationEpoch,
+							event.operationId as Operation.Id,
+						)
+					) {
+						return this.refetch({ ids: recoverableSourceIds });
+					}
+				})
+				.catch(() => undefined);
+		}
+
+		if (this.activeQueryStreams.has(requestId)) {
+			void this.closeQueryStream(requestId, {
+				managedStatus: "canceled",
+			});
+			return;
+		}
+		for (const sourceId of options?.sourceIds ?? []) {
+			this.delLoadingByFile(sourceId);
+		}
+		this.delLoading(requestId);
+	};
+
+	/**
+	 * Records compact source authority and surfaces an in-place cache warning once.
+	 * @param event Request-scoped summary without canonical document objects.
+	 * @returns Nothing.
+	 */
+	handleEventSourceSummary = (event: QuerySourceSummaryEvent): void => {
+		if (
+			this.isOperationContextCurrent(
+				event.operationEpoch,
+				event.operationId as Operation.Id,
+			)
+		) {
+			const options = this.eventDocumentStreamOptions.get(
+				event.requestId as Request.Id,
+			);
+			if (options && !options.sourceIds.includes(event.summary.sourceId)) {
+				options.sourceIds.push(event.summary.sourceId);
+			}
+			if (event.replacementMode === "in-place") {
+				toast.warning(translate("source.cacheRebuildInPlace"), {
+					id: `event-store-in-place-${event.requestId}`,
+					icon: <Icon name="Warning" />,
+					richColors: true,
+				});
+			}
+			DataStore.publishEventSourceSummary(event.summary);
+		}
 	};
 
 	/**
@@ -1211,9 +1564,23 @@ export class Info implements InfoProps {
 			}
 		});
 
+		let documentCancellation: Promise<void> | null = null;
+		if (
+			(options.cancelBackend || options.managedStatus === "canceled") &&
+			this.activeEventDocumentStreams.has(requestId)
+		) {
+			documentCancellation = this.cancelEventDocumentStream(requestId);
+		}
+
 		if (options.cancelBackend) {
 			this.request_cancel(requestId);
 		}
+		await documentCancellation?.catch((error: unknown) => {
+			Logger.warn(
+				`QueryWorker cancellation guard failed for ${requestId}: ${error instanceof Error ? error.message : String(error)}`,
+				Info,
+			);
+		});
 
 		await stream.flushChain.catch((error) => {
 			Logger.warn(
@@ -1398,7 +1765,8 @@ export class Info implements InfoProps {
 
 		sourceIds.forEach((sourceId) => {
 			const file = Source.Entity.id(this.app, sourceId);
-			const loadedCount = Doc.Entity.get(this.app, sourceId).length;
+			const loadedCount =
+				DataStore.getEventSourceSummary(sourceId)?.eventCount ?? 0;
 			if (file && loadedCount > file.total) {
 				file.total = loadedCount;
 				changed = true;
@@ -1484,6 +1852,7 @@ export class Info implements InfoProps {
 					id: file.id,
 					operationId: file.operation_id,
 					preview: false,
+					eventStoreMode: "replace",
 					refetchKeys: refetchKeys ? refetchKeys[file.id] : undefined,
 					addToHistory,
 					create_notes,
@@ -1524,19 +1893,17 @@ export class Info implements InfoProps {
 		const now = Date.now();
 		const nowNanos = Internal.Transformator.toNanos(now);
 		let filesUpdated = false;
+		const summaries = await Promise.all(
+			files.map((file) => DataStore.Events.getSourceSummary(file.id)),
+		);
 
-		files.forEach((file) => {
-			const events = Doc.Entity.get(this.app, file.id);
-
-			let fromNanos: bigint;
-			if (events.length > 0) {
-				fromNanos =
-					Internal.Transformator.toNanos(events[0].gulp_timestamp) + 1n;
-			} else {
-				fromNanos =
-					file.nanotimestamp?.max ??
-					Internal.Transformator.toNanos(file.timestamp.max);
-			}
+		files.forEach((file, index) => {
+			const summary = summaries[index];
+			const fromNanos =
+				summary && summary.eventCount > 0
+					? Internal.Transformator.toNanos(summary.maxTimestamp) + 1n
+					: file.nanotimestamp?.max ??
+						Internal.Transformator.toNanos(file.timestamp.max);
 
 			if (fromNanos >= nowNanos) return;
 
@@ -1566,6 +1933,8 @@ export class Info implements InfoProps {
 			this.query_file(query, {
 				id: file.id,
 				preview: false,
+				eventStoreMode: "upsert",
+				eventStreamKind: "realtime",
 			});
 		});
 
@@ -1607,57 +1976,21 @@ export class Info implements InfoProps {
 	): Promise<boolean> => {
 		const operationEpoch = DataStore.getRenderOperationEpoch();
 		const operationId = file.operation_id;
-		const response = await api<undefined>("/enrich_documents", {
-			method: "POST",
-			query: {
-				operation_id: file.operation_id,
-				plugin,
-				ws_id: this.app.general.ws_id,
-				req_id: generateUUID(Request.Prefix.ENRICHMENT)
-			},
-			raw: true,
-			body: {
-				flt: {
-					source_ids: [file.id],
-					time_range: [
-						Internal.Transformator.toNanos(range.min).toString(),
-						Internal.Transformator.toNanos(range.max).toString(),
-					],
-				},
-				plugin_params: {
-					custom_parameters,
-				},
-				fields,
-			},
-			showErrorToast: false,
-			toast: {
-				onError: (errorResponse) =>
-					toast.error(translate("enrichment.failed"), {
-						description: translate("common.reason", {
-							reason: errorResponse.data.__error.msg,
-						}),
-						icon: <Icon name="Stop" />,
-						richColors: true,
-					}),
-			},
+		const req_id = generateUUID<Request.Id>(Request.Prefix.ENRICHMENT);
+		const registered = await this.beginEventDocumentStream({
+			requestId: req_id,
+			sourceIds: [file.id],
+			operationId,
+			kind: "enrichment",
+			mode: isShowOnlyEnriched ? "replace" : "upsert",
+			sourceSettingsById: this.getQuerySourceSettingsById([file.id]),
 		});
+		if (!registered) return false;
 
-		if (
-			!response?.req_id ||
-			!this.isOperationContextCurrent(operationEpoch, operationId)
-		) {
-			return false;
-		}
-
-		const { req_id } = response;
 		if (isShowOnlyEnriched) {
 			this.events_reset_in_file(file);
 			this.setLoading(req_id, file.id);
 		}
-		const bufferedEvents: Doc.Type[] = [];
-		let lastFlushTime = 0;
-		let flushChain: Promise<void> = Promise.resolve();
-		const FLUSH_INTERVAL_MS = 300;
 		let documentsComplete = false;
 		let enrichmentComplete = false;
 		let releaseSocketListeners = (): void => undefined;
@@ -1667,48 +2000,66 @@ export class Info implements InfoProps {
 			}
 		};
 
-		const sid = SmartSocket.Class.instance.con(
-			SmartSocket.Message.Type.DOCUMENTS_CHUNK,
-			(m) =>
-				m.req_id === req_id &&
-				requestStore.hasLoadingForRequest(req_id) &&
-				this.isOperationContextCurrent(operationEpoch, operationId),
-			(m) => {
-				if (!this.isOperationContextCurrent(operationEpoch, operationId)) return;
-				const events = Doc.Entity.normalize(
-					m.payload.docs ?? [],
-					file.settings.field,
-					file.settings.hash_function,
-				);
-				bufferedEvents.push(...events);
-				if (
-					(Date.now() - lastFlushTime >= FLUSH_INTERVAL_MS || m.payload.last) &&
-					bufferedEvents.length > 0
-				) {
-					const toFlush = bufferedEvents.splice(0);
-					lastFlushTime = Date.now();
-					flushChain = flushChain.then(async () => {
-						if (!this.isOperationContextCurrent(operationEpoch, operationId)) {
-							return;
-						}
-						await this.events_add_async(toFlush, operationEpoch);
-					});
-				}
-				if (m.payload.last) {
-					flushChain.then(() => {
-						if (this.isOperationContextCurrent(operationEpoch, operationId)) {
-							this.delLoading(req_id);
-						}
-						SmartSocket.Class.instance.coff(
-							SmartSocket.Message.Type.DOCUMENTS_CHUNK,
-							sid,
+		let documentListenerId: string | null = null;
+		let unsubscribeStreamState = (): void => undefined;
+		if (isEventStoreLodEnabled()) {
+			unsubscribeStreamState =
+				SmartSocket.Class.instance.subscribeDocumentStreamStates((change) => {
+					if (change.descriptor.requestId !== req_id) return;
+					if (
+						change.state !== "completed" &&
+						change.state !== "canceled" &&
+						change.state !== "failed"
+					) {
+						return;
+					}
+					documentsComplete = true;
+					if (change.state !== "completed") enrichmentComplete = true;
+					if (this.isOperationContextCurrent(operationEpoch, operationId)) {
+						this.delLoading(req_id);
+					}
+					releaseCompletedListeners();
+				});
+		} else {
+			const bufferedEvents: Doc.Type[] = [];
+			let lastFlushTime = 0;
+			let flushChain: Promise<void> = Promise.resolve();
+			const flushIntervalMs = 300;
+			documentListenerId = SmartSocket.Class.instance.con(
+				SmartSocket.Message.Type.DOCUMENTS_CHUNK,
+				(message) =>
+					message.req_id === req_id &&
+					this.isOperationContextCurrent(operationEpoch, operationId),
+				(message) => {
+					if (!this.isOperationContextCurrent(operationEpoch, operationId)) return;
+					bufferedEvents.push(
+						...Doc.Entity.normalize(
+							message.payload.docs ?? [],
+							file.settings.field,
+							file.settings.hash_function,
+						),
+					);
+					if (
+						(Date.now() - lastFlushTime >= flushIntervalMs ||
+							message.payload.last) &&
+						bufferedEvents.length > 0
+					) {
+						const toFlush = bufferedEvents.splice(0);
+						lastFlushTime = Date.now();
+						flushChain = flushChain.then(() =>
+							this.events_add_async(toFlush, operationEpoch),
 						);
-						documentsComplete = true;
-						releaseCompletedListeners();
-					});
-				}
-			},
-		);
+					}
+					if (message.payload.last) {
+						void flushChain.then(() => {
+							documentsComplete = true;
+							this.delLoading(req_id);
+							releaseCompletedListeners();
+						});
+					}
+				},
+			);
+		}
 		const enrichmentDoneListenerId = SmartSocket.Class.instance.conce(
 			SmartSocket.Message.Type.ENRICH_DONE,
 			(m) =>
@@ -1735,19 +2086,68 @@ export class Info implements InfoProps {
 					});
 				}
 				enrichmentComplete = true;
+				if (m.payload.obj.status !== "done") {
+					void this.cancelEventDocumentStream(req_id);
+				}
 				releaseCompletedListeners();
 			},
 		);
 		releaseSocketListeners = this.trackOperationSocketCleanup(() => {
-			SmartSocket.Class.instance.coff(
-				SmartSocket.Message.Type.DOCUMENTS_CHUNK,
-				sid,
-			);
+			if (documentListenerId) {
+				SmartSocket.Class.instance.coff(
+					SmartSocket.Message.Type.DOCUMENTS_CHUNK,
+					documentListenerId,
+				);
+			}
+			unsubscribeStreamState();
 			SmartSocket.Class.instance.coff(
 				SmartSocket.Message.Type.ENRICH_DONE,
 				enrichmentDoneListenerId,
 			);
 		});
+
+		const response = await api<undefined>("/enrich_documents", {
+			method: "POST",
+			query: {
+				operation_id: file.operation_id,
+				plugin,
+				ws_id: this.app.general.ws_id,
+				req_id,
+			},
+			raw: true,
+			body: {
+				flt: {
+					source_ids: [file.id],
+					time_range: [
+						Internal.Transformator.toNanos(range.min).toString(),
+						Internal.Transformator.toNanos(range.max).toString(),
+					],
+				},
+				plugin_params: { custom_parameters },
+				fields,
+			},
+			showErrorToast: false,
+			toast: {
+				onError: (errorResponse) =>
+					toast.error(translate("enrichment.failed"), {
+						description: translate("common.reason", {
+							reason: errorResponse.data.__error.msg,
+						}),
+						icon: <Icon name="Stop" />,
+						richColors: true,
+					}),
+			},
+		});
+
+		if (
+			!response?.req_id ||
+			response.req_id !== req_id ||
+			!this.isOperationContextCurrent(operationEpoch, operationId)
+		) {
+			releaseSocketListeners();
+			await this.cancelEventDocumentStream(req_id);
+			return false;
+		}
 
 		return true;
 	};
@@ -2268,115 +2668,101 @@ export class Info implements InfoProps {
 			body.q_options.preview_mode = true;
 		}
 
+		const requestId = generateUUID<Request.Id>(Request.Prefix.QUERY);
 		const request_query: Record<string, string> = {
 			ws_id: this.app.general.ws_id,
 			operation_id: operation.id,
-			req_id: generateUUID(Request.Prefix.QUERY),
+			req_id: requestId,
 		};
+		let releaseSocketListeners = (): void => undefined;
+		if (!preview) {
+			const registered = await this.beginEventDocumentStream({
+				requestId,
+				sourceIds: [],
+				operationId: operation.id,
+				kind: "query",
+				mode: "upsert",
+				sourceSettingsById: this.getQuerySourceSettingsById([]),
+				defaultSourceSettings: {
+					field: "gulp.event_code",
+					hash_function: "fnv1a",
+				},
+			});
+			if (!registered) return { docs: [], total_hits: 0 };
 
-		const resp = await api<QueryGulpResponse>(
-			"/query_gulp",
-			{
-				method: "POST",
-				query: request_query,
-				body,
-				raw: true,
-			},
-			({ req_id, status }) => {
-				if (
-					status !== "pending" ||
-					!this.isOperationContextCurrent(operationEpoch, operation.id)
-				) {
-					return;
-				}
-
+			let documentListenerId: string | null = null;
+			let unsubscribeStreamState = (): void => undefined;
+			if (isEventStoreLodEnabled()) {
+				unsubscribeStreamState =
+					SmartSocket.Class.instance.subscribeDocumentStreamStates((change) => {
+						if (
+							change.descriptor.requestId !== requestId ||
+							(change.state !== "completed" &&
+								change.state !== "canceled" &&
+								change.state !== "failed")
+						) {
+							return;
+						}
+						this.delLoading(requestId);
+						releaseSocketListeners();
+					});
+			} else {
 				const bufferedEvents: Doc.Type[] = [];
 				let lastFlushTime = 0;
 				let flushChain: Promise<void> = Promise.resolve();
-				const FLUSH_INTERVAL_MS = 300;
-				let releaseSocketListeners = (): void => undefined;
-
-				const sid = SmartSocket.Class.instance.con(
+				documentListenerId = SmartSocket.Class.instance.con(
 					SmartSocket.Message.Type.DOCUMENTS_CHUNK,
-					(m) =>
-						m.req_id === req_id &&
-						requestStore.hasLoadingForRequest(req_id) &&
+					(message) =>
+						message.req_id === requestId &&
 						this.isOperationContextCurrent(operationEpoch, operation.id),
-					(m) => {
-						if (!this.isOperationContextCurrent(operationEpoch, operation.id)) {
-							return;
-						}
-						const events = Doc.Entity.normalize(
-							m.payload.docs ?? [],
-							"gulp.event_code",
-							"fnv1a",
+					(message) => {
+						bufferedEvents.push(
+							...Doc.Entity.normalize(
+								message.payload.docs ?? [],
+								"gulp.event_code",
+								"fnv1a",
+							),
 						);
-						bufferedEvents.push(...events);
 						if (
-							(Date.now() - lastFlushTime >= FLUSH_INTERVAL_MS ||
-								m.payload.last) &&
+							(Date.now() - lastFlushTime >= 300 || message.payload.last) &&
 							bufferedEvents.length > 0
 						) {
 							const toFlush = bufferedEvents.splice(0);
 							lastFlushTime = Date.now();
-							flushChain = flushChain.then(async () => {
-								if (
-									!this.isOperationContextCurrent(operationEpoch, operation.id)
-								) {
-									return;
-								}
-								await this.events_add_async(toFlush, operationEpoch);
-							});
+							flushChain = flushChain.then(() =>
+								this.events_add_async(toFlush, operationEpoch),
+							);
 						}
-
-						if (m.payload.last) {
-							flushChain.then(() => {
-								if (
-									this.isOperationContextCurrent(operationEpoch, operation.id)
-								) {
-									this.delLoading(req_id);
-								}
+						if (message.payload.last) {
+							void flushChain.then(() => {
+								this.delLoading(requestId);
 								releaseSocketListeners();
 							});
 						}
 					},
 				);
-				const statsListenerId = SmartSocket.Class.instance.conce(
-					SmartSocket.Message.Type.STATS_UPDATE,
-					(m) =>
-						m.req_id === req_id &&
-						this.isOperationContextCurrent(operationEpoch, operation.id),
-					(m) => {
-						// if (m.payload.obj.status !== 'done') {
-						//   toast.error(`Query ${req_id} failed`, {
-						//     icon: <Icon name='Stop' />,
-						//     description: `Has been failed ${m.payload.obj.data.failed_queries} queries from total amount of ${m.payload.obj.data.num_queries}. \n\nWhich is ${(m.payload.obj.data.num_queries / m.payload.obj.data.failed_queries) * 100}% of total amount of queries. \n\nTraces: \n${m.payload.obj.errors.map((error: string, index: number) => `Error number ${index + 1} is ${error}`).join('\n')}. \nQuery has been executed on server with id ${m.payload.obj.server_id}`,
-						//     duration: 1000 * 2,
-						//     // description: `Has been failed ${m.payload.obj.data.failed_queries} queries from total amount of ${m.payload.obj.data.num_queries}. \n\nWhich is ${(m.payload.obj.data.num_queries / m.payload.obj.data.failed_queries) * 100}% of total amount of queries. \n\nTraces: \n${m.payload.obj.errors.map((error: string, index: number) => `Error number ${index + 1} is ${error}`).join('\n')}. \nQuery has been executed on server with id ${m.payload.obj.server_id}`,
-						//     // duration: 1000 * 60 * 10,
-						//     richColors: true
-						//   })
-						// } else {
-						//   console.log(m);
-						//   toast.success('Query finished', {
-						//     description: `Total processed documents: ${m.payload.obj.data.total_hits}`,
-						//     icon: <Icon name='Check' />
-						//   })
-						// }
-					},
-				);
-				releaseSocketListeners = this.trackOperationSocketCleanup(() => {
+			}
+			releaseSocketListeners = this.trackOperationSocketCleanup(() => {
+				if (documentListenerId) {
 					SmartSocket.Class.instance.coff(
 						SmartSocket.Message.Type.DOCUMENTS_CHUNK,
-						sid,
+						documentListenerId,
 					);
-					SmartSocket.Class.instance.coff(
-						SmartSocket.Message.Type.STATS_UPDATE,
-						statsListenerId,
-					);
-				});
-			},
-		);
+				}
+				unsubscribeStreamState();
+			});
+		}
+
+		const resp = await api<QueryGulpResponse>("/query_gulp", {
+			method: "POST",
+			query: request_query,
+			body,
+			raw: true,
+		});
+		if (!preview && (!resp || resp.status !== "pending")) {
+			releaseSocketListeners();
+			await this.cancelEventDocumentStream(requestId);
+		}
 
 		if (preview) {
 			if (!resp || (resp || {})?.data?.total_hits === 0) {
@@ -2416,6 +2802,8 @@ export class Info implements InfoProps {
 			name,
 			operationId,
 			queuePriority,
+			eventStoreMode = "upsert",
+			eventStreamKind = "query",
 		} = options;
 		const operation = operationId
 			? Operation.Entity.id(this.app, operationId)
@@ -2493,13 +2881,30 @@ export class Info implements InfoProps {
 					abortController,
 					queuePriority,
 				);
+				const registered = await this.beginEventDocumentStream({
+					requestId: req_id,
+					sourceIds,
+					operationId: operation.id,
+					kind: eventStreamKind,
+					mode: eventStoreMode,
+					sourceSettingsById: this.getQuerySourceSettingsById(sourceIds),
+				});
+				if (!registered) {
+					await this.closeQueryStream(req_id, {
+						managedStatus: "canceled",
+					});
+					return {
+						docs: [],
+						total_hits: 0,
+					};
+				}
 			}
 
 			if (sourceIds.length > 0) {
 				sourceIds.forEach((sourceId) => this.setLoading(req_id, sourceId));
 			}
 
-			if (stream) {
+			if (stream && !isEventStoreLodEnabled()) {
 				const bufferedDocs: QueryRawDocument[] = [];
 				let lastFlushTime = 0;
 				const FLUSH_INTERVAL_MS = 300;
@@ -2575,6 +2980,9 @@ export class Info implements InfoProps {
 					},
 				);
 
+			}
+
+			if (stream) {
 				stream.statsListenerId = SmartSocket.Class.instance.conce(
 					SmartSocket.Message.Type.STATS_UPDATE,
 					(m) =>
@@ -2631,7 +3039,9 @@ export class Info implements InfoProps {
 			});
 
 			if (stream && (!resp || resp.status !== "pending")) {
-				await this.closeQueryStream(req_id);
+				await this.closeQueryStream(req_id, {
+					managedStatus: "canceled",
+				});
 			}
 
 			if (preview) {
@@ -2653,7 +3063,9 @@ export class Info implements InfoProps {
 					};
 		} catch (error) {
 			if (stream) {
-				await this.closeQueryStream(req_id);
+				await this.closeQueryStream(req_id, {
+					managedStatus: "canceled",
+				});
 			} else {
 				this.finishQueuedQuery(queuePriority);
 			}
@@ -3235,10 +3647,9 @@ export class Info implements InfoProps {
 				Info,
 			);
 
-			this.app.timeline.cache.data.set(
-				id,
-				this.app.target.events.get(id) || [],
-			);
+			// Keep only an undo marker. Exact events remain in IndexedDB and the
+			// previous query is reconstructed from the cached filter definition.
+			this.app.timeline.cache.data.set(id, []);
 			this.app.timeline.cache.filters[id] = this.app.target.filters[id];
 		});
 
@@ -3247,28 +3658,30 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Restores cached filters and source documents through observable datastore mutations.
+	 * Restores cached filters and refetches their exact source documents.
 	 * @param files Sources whose cached filter result should be restored.
 	 * @returns Nothing.
 	 */
 	filters_undo = (files: Array<Source.Type | Source.Id>): void => {
+		const sourceIds: Source.Id[] = [];
 		files.forEach((file) => {
 			const id = Parser.useUUID(file) as Source.Id;
+			sourceIds.push(id);
 
 			this.app.target.filters = {
 				...this.app.target.filters,
 				[id]: this.app.timeline.cache.filters[id],
 			};
 
-			Doc.Entity.add(this.app, this.app.timeline.cache.data.get(id) || []);
 			RenderEngine.resetSource(id);
 
 			this.filters_delete_cache(file);
 		});
 
 		this.setInfoByKey(this.app.target.filters, "target", "filters");
-		this.setInfoByKey(this.app.target.events, "target", "events");
-		this.render();
+		if (sourceIds.length > 0) {
+			void this.refetch({ ids: sourceIds });
+		}
 	};
 
 	filters_delete_cache = (file: Source.Type | Source.Id) => {
@@ -3398,6 +3811,12 @@ export class Info implements InfoProps {
 		Note.Entity.invalidateCache();
 		Doc.Entity.clearIndex();
 		DataStore.resetRenderOperation(id);
+		if (isEventStoreLodEnabled()) {
+			DataStore.openEventStoreNamespace({
+				coordinatorId: WindowBridge.getOrCreateCoordinatorId(),
+				operationId: id,
+			});
+		}
 
 		// Reset viewport to default position (like first render)
 		scrollStore.setScrollX(0);
@@ -3592,12 +4011,19 @@ export class Info implements InfoProps {
 	/**
 	 * Orchestrates ingestion lifecycle and shared worker callbacks.
 	 * [Tech-Note] Centralizes upload state and error handling.
+	 * @param id Ingestion request identifier.
+	 * @param file Uploaded file tracked by the progress banner.
+	 * @param context Context name associated with the upload.
+	 * @param onProgress Optional upload progress callback.
+	 * @param onError Optional terminal cleanup invoked when the upload worker fails.
+	 * @returns Upload worker callbacks.
 	 */
 	private _ingest_orchestrator = (
 		id: Request.Id,
 		file: File,
 		context: string,
 		onProgress?: (num: number) => void,
+		onError?: () => void,
 	) => {
 		this.activeUploads.set(id, { filename: file.name, percent: 0 });
 
@@ -3624,6 +4050,7 @@ export class Info implements InfoProps {
 			},
 			onError: (err: string) => {
 				isCompletedOrError = true;
+				onError?.();
 				toast.error(
 					translate("source.ingestionFailed", { name: file.name, error: err }),
 				);
@@ -3641,6 +4068,7 @@ export class Info implements InfoProps {
 	 * @param operationId Operation that owns the ingestion.
 	 * @param operationEpoch Datastore generation captured when ingestion started.
 	 * @param filename Optional uploaded filename used to match source messages.
+	 * @param onSource Optional callback receiving each created source identifier.
 	 * @returns Listener identifier used by the streaming cleanup.
 	 */
 	private _register_source_listeners = (
@@ -3648,6 +4076,7 @@ export class Info implements InfoProps {
 		operationId: Operation.Id,
 		operationEpoch: number,
 		filename?: string,
+		onSource?: (sourceId: Source.Id) => void,
 	): string => {
 		return SmartSocket.Class.instance.con(
 			SmartSocket.Message.Type.COLLAB_CREATE,
@@ -3670,7 +4099,13 @@ export class Info implements InfoProps {
 			},
 			(m) => {
 				if (this.isOperationContextCurrent(operationEpoch, operationId)) {
-					this.setLoading(m.req_id || id, m.payload.obj.id as Source.Id);
+					const sourceId = m.payload.obj.id as Source.Id;
+					const streamOptions = this.eventDocumentStreamOptions.get(id);
+					if (streamOptions && !streamOptions.sourceIds.includes(sourceId)) {
+						streamOptions.sourceIds.push(sourceId);
+					}
+					this.setLoading(m.req_id || id, sourceId);
+					onSource?.(sourceId);
 				}
 			},
 		);
@@ -3683,14 +4118,14 @@ export class Info implements InfoProps {
 	 * @param sidSource Source-creation listener identifier.
 	 * @param operationId Operation that owns the ingestion.
 	 * @param operationEpoch Datastore generation captured when ingestion started.
-	 * @returns Nothing.
+	 * @returns Idempotent listener cleanup.
 	 */
 	private _register_streaming_listeners = (
 		id: Request.Id,
 		sidSource: string,
 		operationId: Operation.Id,
 		operationEpoch: number,
-	): void => {
+	): (() => void) => {
 		const bufferedEvents: Doc.Type[] = [];
 		let accumulatedCount = 0;
 		let lastFlushTime = 0;
@@ -3806,6 +4241,7 @@ export class Info implements InfoProps {
 				if (this.isOperationContextCurrent(operationEpoch, operationId)) {
 					this.delLoading(id);
 				}
+				void this.completeEventDocumentStream(id);
 				releaseSocketListeners();
 			},
 		);
@@ -3823,11 +4259,235 @@ export class Info implements InfoProps {
 				statsListenerId,
 			);
 		});
+		return releaseSocketListeners;
 	};
 
 	/**
-	 * Initiates standard data ingestion for a single file.
-	 * Registers worker task and real-time streaming listeners.
+	 * Applies a durable ingestion summary to the source metadata without reading
+	 * canonical document arrays into the main thread.
+	 * @param sourceId Source whose committed manifest is authoritative.
+	 * @param summary Exact IndexedDB count and timestamp range.
+	 * @param toastedSources Sources that already emitted their success toast.
+	 * @returns Nothing.
+	 */
+	private _finalize_persisted_ingestion_source = (
+		sourceId: Source.Id,
+		summary: EventSourceSummary,
+		toastedSources: Set<Source.Id>,
+	): void => {
+		if (summary.status !== "complete") return;
+		const now = Date.now();
+		const timestamp =
+			summary.eventCount > 0
+				? { min: summary.minTimestamp, max: summary.maxTimestamp }
+				: { min: now, max: now };
+		let finalName: string | null = null;
+
+		this.ingestionProgress.delete(sourceId);
+		this.batchUpdate((draft) => {
+			const files = Refractor.array(...draft.target.files);
+			const index = files.findIndex((candidate) => candidate.id === sourceId);
+			const file = files[index];
+			if (index === -1 || !file) return;
+
+			files[index] = Source.Entity.normalize(draft, {
+				...file,
+				timestamp,
+				nanotimestamp: {
+					min: Internal.Transformator.toNanos(timestamp.min),
+					max: Internal.Transformator.toNanos(timestamp.max),
+				},
+				total: summary.eventCount,
+				selected: true,
+			});
+			finalName = file.name;
+			draft.target.files = files;
+			draft.timeline.frame = Source.Entity.renderedFrame(files);
+		});
+		this.delLoadingByFile(sourceId);
+
+		if (finalName && !toastedSources.has(sourceId)) {
+			toastedSources.add(sourceId);
+			toast.success(translate("source.ingested", { name: finalName }), {
+				description: translate("source.totalDocuments", {
+					count: summary.eventCount,
+				}),
+				richColors: true,
+				icon: <Icon name="Check" />,
+			});
+		}
+	};
+
+	/**
+	 * Tracks ingestion metadata while QueryWorker owns every `docs_chunk` payload.
+	 * Source summaries update progress and exact source totals; terminal state and
+	 * ingest stats may arrive in either order, so listeners remain until both do.
+	 * @param id Ingestion request identifier.
+	 * @param operationId Operation that owns the ingestion.
+	 * @param operationEpoch Datastore generation captured before registration.
+	 * @param filename Optional uploaded filename used to correlate source creation.
+	 * @returns Idempotent listener cleanup.
+	 */
+	private _register_persisted_ingestion_listeners = (
+		id: Request.Id,
+		operationId: Operation.Id,
+		operationEpoch: number,
+		filename?: string,
+	): (() => void) => {
+		const sourceIds = new Set<Source.Id>();
+		const summaries = new Map<Source.Id, EventSourceSummary>();
+		const toastedSources = new Set<Source.Id>();
+		let documentsComplete = false;
+		let statsComplete = false;
+		let terminalFailure = false;
+		let releaseSocketListeners = (): void => undefined;
+
+		const finalizeSource = (sourceId: Source.Id): void => {
+			const summary = summaries.get(sourceId) ??
+				DataStore.getEventSourceSummary(sourceId);
+			if (summary) {
+				this._finalize_persisted_ingestion_source(
+					sourceId,
+					summary,
+					toastedSources,
+				);
+			}
+		};
+		const finalizeKnownSources = (): void => {
+			for (const sourceId of sourceIds) finalizeSource(sourceId);
+		};
+		const releaseWhenTerminal = (): void => {
+			if (terminalFailure || (documentsComplete && statsComplete)) {
+				releaseSocketListeners();
+			}
+		};
+		const clearFailedStreamState = (): void => {
+			if (terminalFailure) return;
+			terminalFailure = true;
+			for (const sourceId of sourceIds) {
+				this.ingestionProgress.delete(sourceId);
+				this.delLoadingByFile(sourceId);
+			}
+			this.delLoading(id);
+			releaseWhenTerminal();
+		};
+		const cancelFailedStream = (): void => {
+			clearFailedStreamState();
+			void this.cancelEventDocumentStream(id).catch((error: unknown) => {
+				Logger.warn(
+					`Unable to cancel ingestion stream ${id}: ${(error as Error).message}`,
+					Info,
+				);
+			});
+		};
+
+		const sidSource = this._register_source_listeners(
+			id,
+			operationId,
+			operationEpoch,
+			filename,
+			(sourceId) => {
+				sourceIds.add(sourceId);
+				if (documentsComplete) finalizeSource(sourceId);
+			},
+		);
+		const unsubscribeSummaries =
+			SmartSocket.Class.instance.subscribeSourceSummaries((event) => {
+				if (
+					event.requestId !== id ||
+					event.operationId !== operationId ||
+					event.operationEpoch !== operationEpoch
+				) {
+					return;
+				}
+				const sourceId = event.summary.sourceId;
+				sourceIds.add(sourceId);
+				summaries.set(sourceId, event.summary);
+				this.ingestionProgress.set(sourceId, event.summary.eventCount);
+				if (documentsComplete) finalizeSource(sourceId);
+			});
+		const unsubscribeStates =
+			SmartSocket.Class.instance.subscribeDocumentStreamStates((change) => {
+				if (change.descriptor.requestId !== id) return;
+				if (change.state === "completed") {
+					documentsComplete = true;
+					if (
+						this.isOperationContextCurrent(operationEpoch, operationId)
+					) {
+						finalizeKnownSources();
+					}
+					releaseWhenTerminal();
+					return;
+				}
+				if (change.state === "canceled" || change.state === "failed") {
+					clearFailedStreamState();
+				}
+			});
+		const ingestTerminalListenerId = SmartSocket.Class.instance.conce(
+			SmartSocket.Message.Type.INGEST_SOURCE_DONE,
+			(message) =>
+				message.req_id === id &&
+				[
+					Request.Status.FAILED,
+					Request.Status.CANCELED,
+				].includes(message.payload?.status) &&
+				this.isOperationContextCurrent(operationEpoch, operationId),
+			cancelFailedStream,
+		);
+		const statsListenerId = SmartSocket.Class.instance.conce(
+			SmartSocket.Message.Type.STATS_UPDATE,
+			(message) =>
+				message.req_id === id &&
+				message.payload?.obj?.req_type === "ingest" &&
+				[
+					Request.Status.DONE,
+					Request.Status.FAILED,
+					Request.Status.CANCELED,
+				].includes(message.payload?.obj?.status) &&
+				this.isOperationContextCurrent(operationEpoch, operationId),
+			(message) => {
+				if (message.payload.obj.status !== Request.Status.DONE) {
+					cancelFailedStream();
+					return;
+				}
+				statsComplete = true;
+				this.delLoading(id);
+				if (documentsComplete) finalizeKnownSources();
+				void this.completeEventDocumentStream(id).catch((error: unknown) => {
+					Logger.warn(
+						`Unable to complete ingestion stream ${id}: ${(error as Error).message}`,
+						Info,
+					);
+					cancelFailedStream();
+				});
+				releaseWhenTerminal();
+			},
+		);
+
+		releaseSocketListeners = this.trackOperationSocketCleanup(() => {
+			SmartSocket.Class.instance.coff(
+				SmartSocket.Message.Type.COLLAB_CREATE,
+				sidSource,
+			);
+			SmartSocket.Class.instance.coff(
+				SmartSocket.Message.Type.STATS_UPDATE,
+				statsListenerId,
+			);
+			SmartSocket.Class.instance.coff(
+				SmartSocket.Message.Type.INGEST_SOURCE_DONE,
+				ingestTerminalListenerId,
+			);
+			unsubscribeSummaries();
+			unsubscribeStates();
+		});
+		return releaseSocketListeners;
+	};
+
+	/**
+	 * Initiates standard data ingestion for a single file after QueryWorker has
+	 * claimed its document stream, preventing an upload/socket registration race.
+	 * @param options Upload, parser settings, progress handler, and optional frame.
+	 * @returns Promise settled after the upload task has been enqueued.
 	 */
 	file_ingest = async ({
 		context,
@@ -3849,12 +4509,55 @@ export class Info implements InfoProps {
 		this._register_ingest_source_done_listeners(operation.id);
 
 		const id = generateUUID<Request.Id>(Request.Prefix.INGESTION);
+		const registered = await this.beginEventDocumentStream({
+			requestId: id,
+			sourceIds: [],
+			operationId: operation.id,
+			kind: "ingestion",
+			mode: "upsert",
+			completionMode: "explicit",
+			defaultSourceSettings: {
+				field: String(settings.field ?? Internal.Settings.default.field),
+				hash_function:
+					settings.hash_function ?? Internal.Settings.default.hash_function,
+			},
+		});
+		if (!registered) return;
+
+		let releaseStreamingListeners = (): void => undefined;
 		const callbacks = this._ingest_orchestrator(
 			id,
 			file,
 			context as string,
 			setProgress,
+			() => {
+				releaseStreamingListeners();
+				void this.cancelEventDocumentStream(id);
+			},
 		);
+
+		if (isEventStoreLodEnabled()) {
+			releaseStreamingListeners =
+				this._register_persisted_ingestion_listeners(
+					id,
+					operation.id,
+					operationEpoch,
+					file.name,
+				);
+		} else {
+			const sidSource = this._register_source_listeners(
+				id,
+				operation.id,
+				operationEpoch,
+				file.name,
+			);
+			releaseStreamingListeners = this._register_streaming_listeners(
+				id,
+				sidSource,
+				operation.id,
+				operationEpoch,
+			);
+		}
 
 		ingestWorkerManager.enqueue({
 			req_id: id,
@@ -3868,19 +4571,6 @@ export class Info implements InfoProps {
 			frame,
 			...callbacks,
 		});
-
-		const sidSource = this._register_source_listeners(
-			id,
-			operation.id,
-			operationEpoch,
-			file.name,
-		);
-		this._register_streaming_listeners(
-			id,
-			sidSource,
-			operation.id,
-			operationEpoch,
-		);
 	};
 
 	/**
@@ -3979,25 +4669,15 @@ export class Info implements InfoProps {
 		const isHashInputChanged =
 			newSettings.field !== file.settings.field ||
 			newSettings.hash_function !== file.settings.hash_function;
-		const isNewFieldFetched =
-			isHashInputChanged &&
-			Source.Entity.isEventKeyFetched(this.app, id, [newSettings.field]);
 
-		if (isHashInputChanged && isNewFieldFetched) {
-			Doc.Entity.recalculateNumberHashes(
-				this.app,
-				id,
-				String(newSettings.field),
-				newSettings.hash_function,
-			);
-		}
-
-		if (isHashInputChanged && !isNewFieldFetched) {
+		if (isHashInputChanged) {
 			Doc.Entity.clearHashRange(id);
 			RenderEngine.resetSource(id);
+			// Exact pages intentionally retain only render-minimal columns. A changed
+			// hash input therefore refetches from the authoritative backend instead of
+			// scanning or rehydrating a source-wide object array on the main thread.
+			file.settings = newSettings;
 			this.refetch({ ids: id, refetchKeys: { [id]: [newSettings.field] } });
-		} else if (isHashInputChanged) {
-			RenderEngine.resetSource(id);
 		}
 
 		return this.setInfoByKey(
@@ -5953,16 +6633,8 @@ export class Info implements InfoProps {
 		return () => this.timelineScaleCommandListeners.delete(listener);
 	};
 
-	setTimelineTarget = (event?: Doc.Type | null | 1 | -1): Doc.Type => {
-		const { target } = this.app.timeline;
-		const previousTargetId = target?._id;
-
-		if (typeof event === "number" && target) {
-			const events = Source.Entity.events(this.app, target["gulp.source_id"]);
-			const index =
-				events.findIndex((event) => event._id === target._id) + event;
-			event = events[index];
-		}
+	setTimelineTarget = (event?: Doc.Type | null): Doc.Type => {
+		const previousTargetId = this.app.timeline.target?._id;
 
 		if (typeof event !== "undefined") {
 			this.setInfoByKey(event as Doc.Type, "timeline", "target");
@@ -5972,6 +6644,74 @@ export class Info implements InfoProps {
 		}
 
 		return event as Doc.Type;
+	};
+
+	/**
+	 * Moves the current timeline target through a bounded EventStore neighbor read.
+	 * @param delta Descending-order offset: -1 selects newer and 1 selects older.
+	 * @returns Selected neighboring event, or null at a source boundary.
+	 */
+	moveTimelineTarget = async (delta: -1 | 1): Promise<Doc.Type | null> => {
+		const target = this.app.timeline.target;
+		if (!target) return null;
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const window = await DataStore.Events.getNeighbors(
+				target["gulp.source_id"],
+				target._id,
+				1,
+				1,
+			);
+			if (
+				DataStore.getRenderOperationEpoch() !== operationEpoch ||
+				this.app.timeline.target?._id !== target._id
+			) {
+				return null;
+			}
+			const currentRevision = DataStore.getSourceRevision(
+				target["gulp.source_id"],
+			);
+			if (
+				attempt === 0 &&
+				currentRevision > 0 &&
+				currentRevision !== window.sourceRevision
+			) {
+				continue;
+			}
+			const next = window.events[window.currentIndex + delta] ?? null;
+			if (next) this.setTimelineTarget(next);
+			return next;
+		}
+		return null;
+	};
+
+	/**
+	 * Resolves one source edge without loading or reversing its complete event list.
+	 * @param sourceId Source whose edge is requested.
+	 * @param newest Whether to return the newest rather than oldest timestamp.
+	 * @returns One exact edge event, or null for an empty source.
+	 */
+	getTimelineSourceEdge = async (
+		sourceId: Source.Id,
+		newest: boolean,
+	): Promise<Doc.Type | null> => {
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const summary =
+				DataStore.getEventSourceSummary(sourceId) ??
+				(await DataStore.Events.getSourceSummary(sourceId));
+			if (!summary || summary.eventCount === 0) return null;
+			const timestamp = newest ? summary.maxTimestamp : summary.minTimestamp;
+			const page = await DataStore.Events.queryPixelBucket(
+				sourceId,
+				{ min: timestamp, max: timestamp },
+				1,
+			);
+			if (DataStore.getRenderOperationEpoch() !== operationEpoch) return null;
+			if (attempt === 0 && page.sourceRevision !== summary.revision) continue;
+			return page.events[0] ?? null;
+		}
+		return null;
 	};
 
 	setTimelineFilter = (filter: string) =>
@@ -5997,47 +6737,155 @@ export class Info implements InfoProps {
 		if (!operation) {
 			return { total_hits: 0, docs: [] };
 		}
-
-		return api<{
-			total_hits: number;
-			docs: Doc.Type[];
-		}>("/query_external", {
-			method: "POST",
-			raw: true,
-			query: {
-				ws_id: this.app.general.ws_id,
-				operation_id: operation.id,
-				plugin,
-			},
-			body: {
-				q: q,
-				plugin_params,
-				q_options: {
-					...q_options,
-					preview_mode,
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		const requestId = generateUUID<Request.Id>(Request.Prefix.INGESTION);
+		let releaseStreamingListeners = (): void => undefined;
+		let releaseDoneListener = (): void => undefined;
+		let terminalPromise: Promise<null> | null = null;
+		const persistDocuments = !preview_mode && isEventStoreLodEnabled();
+		if (!preview_mode) {
+			const registered = await this.beginEventDocumentStream({
+				requestId,
+				sourceIds: [],
+				operationId: operation.id,
+				kind: "ingestion",
+				mode: "upsert",
+				completionMode: "explicit",
+				defaultSourceSettings: {
+					field: "gulp.event_code",
+					hash_function: "fnv1a",
 				},
-			},
-		}).then((response) => {
-			if (response.data) {
-				return response.data;
+			});
+			if (!registered) return null;
+
+			if (persistDocuments) {
+				releaseStreamingListeners =
+					this._register_persisted_ingestion_listeners(
+						requestId,
+						operation.id,
+						operationEpoch,
+					);
+			} else {
+				const sidSource = this._register_source_listeners(
+					requestId,
+					operation.id,
+					operationEpoch,
+				);
+				releaseStreamingListeners = this._register_streaming_listeners(
+					requestId,
+					sidSource,
+					operation.id,
+					operationEpoch,
+				);
 			}
 
-			return new Promise((resolve, reject) => {
-				SmartSocket.Class.instance.conce(
+			terminalPromise = new Promise<null>((resolve, reject) => {
+				let isSettled = false;
+				let sourceComplete = false;
+				let documentsComplete = !persistDocuments;
+				let unsubscribeStreamState = (): void => undefined;
+				const settleResolved = (): void => {
+					if (isSettled) return;
+					isSettled = true;
+					resolve(null);
+				};
+				const settleRejected = (error: Error): void => {
+					if (isSettled) return;
+					isSettled = true;
+					reject(error);
+				};
+				const releaseIfSuccessful = (): void => {
+					if (!sourceComplete || !documentsComplete) return;
+					settleResolved();
+					releaseDoneListener();
+				};
+				const finishUnsuccessful = (failed: boolean): void => {
+					if (failed) {
+						settleRejected(new Error("External query ingestion failed."));
+					} else {
+						settleResolved();
+					}
+					releaseDoneListener();
+					releaseStreamingListeners();
+					void this.cancelEventDocumentStream(requestId);
+				};
+				const listenerId = SmartSocket.Class.instance.conce(
 					SmartSocket.Message.Type.INGEST_SOURCE_DONE,
-					(m) => m.req_id === response.req_id,
-					(m) => {
-						if (m.payload.status === "failed") {
-							return reject();
+					(message) =>
+						message.req_id === requestId &&
+						this.isOperationContextCurrent(operationEpoch, operation.id),
+					(message) => {
+						const status = message.payload.status;
+						if (status === Request.Status.DONE) {
+							sourceComplete = true;
+							releaseIfSuccessful();
+							return;
 						}
-
-						// Trust me bro, this is masterpieceofshit
-						// well well well
-						resolve(null);
+						finishUnsuccessful(status === Request.Status.FAILED);
 					},
 				);
+				if (persistDocuments) {
+					unsubscribeStreamState =
+						SmartSocket.Class.instance.subscribeDocumentStreamStates((change) => {
+							if (change.descriptor.requestId !== requestId) return;
+							if (change.state === "completed") {
+								documentsComplete = true;
+								releaseIfSuccessful();
+								return;
+							}
+							if (change.state === "failed" || change.state === "canceled") {
+								finishUnsuccessful(change.state === "failed");
+							}
+						});
+				}
+				releaseDoneListener = this.trackOperationSocketCleanup(() => {
+					SmartSocket.Class.instance.coff(
+						SmartSocket.Message.Type.INGEST_SOURCE_DONE,
+						listenerId,
+					);
+					unsubscribeStreamState();
+					settleResolved();
+				});
 			});
-		});
+		}
+
+		let response;
+		try {
+			response = await api<{
+				total_hits: number;
+				docs: Doc.Type[];
+			}>("/query_external", {
+				method: "POST",
+				raw: true,
+				query: {
+					ws_id: this.app.general.ws_id,
+					operation_id: operation.id,
+					plugin,
+					req_id: requestId,
+				},
+				body: {
+					q: q,
+					plugin_params,
+					q_options: {
+						...q_options,
+						preview_mode,
+					},
+				},
+			});
+		} catch (error) {
+			releaseDoneListener();
+			releaseStreamingListeners();
+			if (!preview_mode) await this.cancelEventDocumentStream(requestId);
+			throw error;
+		}
+		if (response?.data) return response.data;
+		if (!preview_mode && (!response || response.status !== "pending")) {
+			releaseDoneListener();
+			releaseStreamingListeners();
+			await this.cancelEventDocumentStream(requestId);
+			return null;
+		}
+		return terminalPromise;
 	};
 
 	/**
@@ -6154,119 +7002,176 @@ export class Info implements InfoProps {
 		const operationEpoch = DataStore.getRenderOperationEpoch();
 		const sigmaContents = await Promise.all(sigmas.map((sigma) => sigma.text()));
 		if (!this.isOperationContextCurrent(operationEpoch, operation.id)) return;
+		const requestId = generateUUID<Request.Id>(Request.Prefix.QUERY);
+		const registered = await this.beginEventDocumentStream({
+			requestId,
+			sourceIds: src_ids,
+			operationId: operation.id,
+			kind: "query",
+			mode: "upsert",
+			completionMode: "explicit",
+			deduplicateSequences: false,
+			sourceSettingsById: this.getQuerySourceSettingsById(src_ids),
+		});
+		if (!registered) return;
 
-		return api(
-			"/query_sigma",
-			{
-				method: "POST",
-				query: {
-					ws_id: this.app.general.ws_id,
-					operation_id: operation.id,
-				},
-				raw: true,
-				body: {
-					sigmas: sigmaContents,
-					q_options: {
-						create_notes: notes,
-					},
-					src_ids,
-				},
-				showErrorToast: false,
-				toast: {
-					onSuccess: () =>
-						toast.success(translate("sigma.applied"), {
-							richColors: true,
-							icon: <Icon name="Check" />,
-						}),
-					onError: (response) =>
-						toast.error(translate("sigma.notApplied"), {
-							richColors: true,
-							icon: <Icon name="Warning" />,
-						}),
-				},
-			},
-			({ req_id }) => {
+		let statsComplete = false;
+		let documentsComplete = false;
+		let notesComplete = !notes;
+		let releaseSocketListeners = (): void => undefined;
+		const releaseCompletedListeners = (): void => {
+			if (statsComplete && documentsComplete && notesComplete) {
+				releaseSocketListeners();
+			}
+		};
+		const unsubscribeStreamState =
+			SmartSocket.Class.instance.subscribeDocumentStreamStates((change) => {
+				if (change.descriptor.requestId !== requestId) return;
+				if (
+					change.state !== "completed" &&
+					change.state !== "canceled" &&
+					change.state !== "failed"
+				) {
+					return;
+				}
+				documentsComplete = true;
+				if (change.state !== "completed") {
+					statsComplete = true;
+					notesComplete = true;
+				}
+				releaseCompletedListeners();
+			});
+		const statsListenerId = SmartSocket.Class.instance.conce(
+			SmartSocket.Message.Type.STATS_UPDATE,
+			(message) =>
+				message.req_id === requestId &&
+				this.isOperationContextCurrent(operationEpoch, operation.id) &&
+				[
+					Request.Status.DONE,
+					Request.Status.FAILED,
+					Request.Status.CANCELED,
+				].includes(message.payload.obj?.status),
+			(message) => {
 				if (!this.isOperationContextCurrent(operationEpoch, operation.id)) {
 					return;
 				}
-				let statsComplete = false;
-				let notesComplete = !notes;
-				let releaseSocketListeners = (): void => undefined;
-				const releaseCompletedListeners = (): void => {
-					if (statsComplete && notesComplete) releaseSocketListeners();
-				};
-				const statsListenerId = SmartSocket.Class.instance.conce(
-					SmartSocket.Message.Type.STATS_UPDATE,
-					(m) =>
-						m.req_id === req_id &&
-						this.isOperationContextCurrent(operationEpoch, operation.id),
-					(m) => {
-						if (!this.isOperationContextCurrent(operationEpoch, operation.id)) {
-							return;
-						}
-						if (m.payload.obj.status !== "done") {
-							toast.error(translate("sigma.queryFailed"), {
-								icon: <Icon name="Stop" />,
-								richColors: true,
-							});
-						} else {
-							toast.success(
-								translate("sigma.queryFinished", { name: m.payload.obj.name }),
-								{
-									description: translate("sigma.totalMatches", {
-										count: m.payload.obj.data.total_hits ?? 0,
-									}),
-									icon: <Icon name="Sigma" />,
-								},
-							);
-						}
-						statsComplete = true;
-						releaseCompletedListeners();
-					},
-				);
-				const notesListenerId = notes
-					? SmartSocket.Class.instance.con(
-							SmartSocket.Message.Type.COLLAB_CREATE,
-							(m) =>
-								m.req_id === req_id &&
-								this.isOperationContextCurrent(operationEpoch, operation.id),
-							(m) => {
-								if (
-									!this.isOperationContextCurrent(operationEpoch, operation.id)
-								) {
-									return;
-								}
-								if (Array.isArray(m.payload.obj) && m.payload.obj.length > 0) {
-									const newItems = m.payload.obj.filter(
-										(item) => item.type === "note",
-									) as Note.Type[];
-									const storedItems = this.AddNotesToDataStore(newItems);
-									toast.success(
-										translate("notes.fetchedCount", {
-											count: storedItems.length,
-										}),
-										{ richColors: true },
-									);
-								}
-								notesComplete = true;
-								releaseCompletedListeners();
-							},
-						)
-					: null;
-				releaseSocketListeners = this.trackOperationSocketCleanup(() => {
-					SmartSocket.Class.instance.coff(
-						SmartSocket.Message.Type.STATS_UPDATE,
-						statsListenerId,
+				if (message.payload.obj.status !== Request.Status.DONE) {
+					toast.error(translate("sigma.queryFailed"), {
+						icon: <Icon name="Stop" />,
+						richColors: true,
+					});
+					void this.cancelEventDocumentStream(requestId);
+				} else {
+					toast.success(
+						translate("sigma.queryFinished", {
+							name: message.payload.obj.name,
+						}),
+						{
+							description: translate("sigma.totalMatches", {
+								count: message.payload.obj.data.total_hits ?? 0,
+							}),
+							icon: <Icon name="Sigma" />,
+						},
 					);
-					if (notesListenerId) {
-						SmartSocket.Class.instance.coff(
-							SmartSocket.Message.Type.COLLAB_CREATE,
-							notesListenerId,
-						);
-					}
-				});
+					void this.completeEventDocumentStream(requestId);
+				}
+				statsComplete = true;
+				// Terminal query stats are emitted after every note batch is queued;
+				// this also closes zero-result Sigma requests that emit no collab packet.
+				notesComplete = true;
+				releaseCompletedListeners();
 			},
 		);
+		const notesListenerId = notes
+			? SmartSocket.Class.instance.con(
+					SmartSocket.Message.Type.COLLAB_CREATE,
+					(message) =>
+						message.req_id === requestId &&
+						this.isOperationContextCurrent(operationEpoch, operation.id),
+					(message) => {
+						if (
+							!this.isOperationContextCurrent(operationEpoch, operation.id)
+						) {
+							return;
+						}
+						if (
+							Array.isArray(message.payload.obj) &&
+							message.payload.obj.length > 0
+						) {
+							const newItems = message.payload.obj.filter(
+								(item) => item.type === "note",
+							) as Note.Type[];
+							const storedItems = this.AddNotesToDataStore(newItems);
+							toast.success(
+								translate("notes.fetchedCount", {
+									count: storedItems.length,
+								}),
+								{ richColors: true },
+							);
+						}
+						notesComplete = true;
+						releaseCompletedListeners();
+					},
+				)
+			: null;
+		releaseSocketListeners = this.trackOperationSocketCleanup(() => {
+			unsubscribeStreamState();
+			SmartSocket.Class.instance.coff(
+				SmartSocket.Message.Type.STATS_UPDATE,
+				statsListenerId,
+			);
+			if (notesListenerId) {
+				SmartSocket.Class.instance.coff(
+					SmartSocket.Message.Type.COLLAB_CREATE,
+					notesListenerId,
+				);
+			}
+		});
+
+		let response;
+		try {
+			response = await api(
+				"/query_sigma",
+				{
+					method: "POST",
+					query: {
+						ws_id: this.app.general.ws_id,
+						operation_id: operation.id,
+						req_id: requestId,
+					},
+					raw: true,
+					body: {
+						sigmas: sigmaContents,
+						q_options: {
+							create_notes: notes,
+						},
+						src_ids,
+					},
+					showErrorToast: false,
+					toast: {
+						onSuccess: () =>
+							toast.success(translate("sigma.applied"), {
+								richColors: true,
+								icon: <Icon name="Check" />,
+							}),
+						onError: () =>
+							toast.error(translate("sigma.notApplied"), {
+								richColors: true,
+								icon: <Icon name="Warning" />,
+							}),
+					},
+				},
+			);
+		} catch (error) {
+			releaseSocketListeners();
+			await this.cancelEventDocumentStream(requestId);
+			throw error;
+		}
+		if (!response || response.status !== "pending") {
+			releaseSocketListeners();
+			await this.cancelEventDocumentStream(requestId);
+		}
+		return response;
 	};
 
 	toggle_visibility = (key: keyof App.Type["hidden"]) => {

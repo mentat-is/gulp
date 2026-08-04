@@ -756,6 +756,52 @@ class GulpPluginBase(ABC):
             data=ev.model_dump(),
         )
 
+    async def _send_documents_chunk_to_ws(
+        self, docs: list[dict], last: bool
+    ) -> None:
+        """Publish an ingestion chunk, including an empty terminal raw chunk."""
+        send_empty_terminal = (
+            not docs
+            and self._raw_ingestion
+            and self._last_raw_chunk
+            and last
+            and not self._preview_mode
+        )
+        if not docs and not send_empty_terminal:
+            return
+
+        MutyLogger.get_instance().debug("adding %d docs to ws", len(docs))
+        chunk = GulpDocumentsChunkPacket(
+            docs=docs,
+            chunk_size=len(docs),
+            last=last,
+            chunk_number=self._chunks_ingested,
+        )
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put(
+            t=WSDATA_DOCUMENTS_CHUNK,
+            ws_id=self._ws_id,
+            operation_id=self._operation_id,
+            user_id=self._user_id,
+            req_id=self._req_id,
+            d=chunk.model_dump(exclude_none=True),
+        )
+        self._chunks_ingested += 1
+
+        if (
+            self._chunks_ingested % 50 == 0 or self._last_raw_chunk
+        ) and self._raw_ingestion:
+            payload = GulpIngestRawProgress(last=self._last_raw_chunk)
+            await redis_broker.put(
+                t=WSDATA_INGEST_RAW_PROGRESS,
+                ws_id=self._ws_id,
+                operation_id=self._operation_id,
+                user_id=self._user_id,
+                req_id=self._req_id,
+                d=payload.model_dump(exclude_none=True),
+                private=False,
+            )
+
     async def _flush_buffer_and_send_to_ws(
         self,
         flt: GulpIngestionFilter = None,
@@ -779,6 +825,7 @@ class GulpPluginBase(ABC):
         if not self._docs_buffer:
             if wait_for_refresh:
                 await GulpOpenSearch.get_instance().index_refresh(self._index)
+            await self._send_documents_chunk_to_ws([], last=wait_for_refresh)
             return 0, 0, 0
 
         if self._external_query:
@@ -796,7 +843,6 @@ class GulpPluginBase(ABC):
         ingested_docs: list[dict] = []
         # MutyLogger.get_instance().debug(orjson.dumps(self._docs_buffer, option=orjson.OPT_INDENT_2).decode())
         # MutyLogger.get_instance().debug('flushing ingestion buffer, len=%d',len(self.buffer))
-        redis_broker = GulpRedisBroker.get_instance()
         if (
             not self._preview_mode
             and self._event_listener_mask & events.CHUNK_PRE_INGEST
@@ -883,44 +929,7 @@ class GulpPluginBase(ABC):
             # no filter, send all ingested docs to ws
             ws_docs = [__select_ws_doc_fields(doc) for doc in ingested_docs]
 
-        if ws_docs:
-            MutyLogger.get_instance().debug("adding %d docs to ws", len(ws_docs))
-            # send documents to the websocket
-            chunk: GulpDocumentsChunkPacket = GulpDocumentsChunkPacket(
-                docs=ws_docs,
-                chunk_size=len(ws_docs),
-                # wait for refresh is set only on the last chunk
-                last=wait_for_refresh,
-                chunk_number=self._chunks_ingested,
-            )
-            # MutyLogger.get_instance().debug(
-            #     "sending chunk of %d documents to ws_id=%s", len(ws_docs), self._ws_id
-            # )
-            await redis_broker.put(
-                t=WSDATA_DOCUMENTS_CHUNK,
-                ws_id=self._ws_id,
-                operation_id=self._operation_id,
-                user_id=self._user_id,
-                req_id=self._req_id,
-                d=chunk.model_dump(exclude_none=True),
-            )
-            self._chunks_ingested += 1
-            if (
-                self._chunks_ingested % 50 == 0 or self._last_raw_chunk
-            ) and self._raw_ingestion:
-                # for raw ingestion, send a progress update every 50 chunks or on the last chunk
-                payload = GulpIngestRawProgress(
-                    last=self._last_raw_chunk,
-                )
-                await redis_broker.put(
-                    t=WSDATA_INGEST_RAW_PROGRESS,
-                    ws_id=self._ws_id,
-                    operation_id=self._operation_id,
-                    user_id=self._user_id,
-                    req_id=self._req_id,
-                    d=payload.model_dump(exclude_none=True),
-                    private=False,
-                )
+        await self._send_documents_chunk_to_ws(ws_docs, last=wait_for_refresh)
 
         # check if the request is canceled
         canceled: bool = await GulpRequestStats.is_canceled(self._sess, self._req_id)

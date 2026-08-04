@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "Ładowanie zdarzeń zostało zatrzymane. Sprawdź dostępne miejsce i spróbuj ponownie.",
+    "eventStore.streamFailed.backlog": "Zdarzenia napływały szybciej, niż przeglądarka mogła je zapisać. Uruchom zapytanie ponownie.",
+    "eventStore.streamFailed.quota": "Brakuje miejsca w pamięci przeglądarki na załadowanie tych zdarzeń. Zwolnij miejsce i spróbuj ponownie.",
+    "eventStore.streamFailed.storage": "Pamięć przeglądarki jest niedostępna. Sprawdź uprawnienia danych witryny lub zamknij inne karty i spróbuj ponownie.",
+    "eventStore.streamFailed.normalization": "Nie udało się odczytać niektórych zdarzeń. Spróbuj ponownie lub sprawdź dane źródłowe.",
+    "eventStore.streamFailed.disconnected": "Połączenie zostało przerwane podczas ładowania zdarzeń. Spróbuj ponownie po ponownym połączeniu.",
+    "group.eventsChangedRefresh": "Zdarzenia zmieniły się podczas ładowania. Pierwsza strona została odświeżona.",
+    "source.cacheRebuildInPlace": "Miejsce w pamięci jest ograniczone, dlatego pamięć podręczna tego źródła jest przebudowywana w miejscu. Jeśli zapytanie zostanie przerwane, źródło zostanie pobrane ponownie.",
     "detachedApp.authLost": "Wymagane logowanie",
     "detachedApp.authLostDescription": "Główna karta jest wylogowana. Zaloguj się ponownie i wybierz operację, aby wznowić to odłączone okno.",
     "detachedApp.idle": "Oczekiwanie na operację",

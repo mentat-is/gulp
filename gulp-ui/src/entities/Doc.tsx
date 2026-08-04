@@ -53,7 +53,10 @@ export namespace Doc {
 		KEY: string;
 		getList: (operationId?: Operation.Id) => Set<Doc.Id>;
 		getDocIds: (app: App.Type, operationId?: Operation.Id) => Doc.Id[];
-		getDocs: (app: App.Type, operationId?: Operation.Id) => Doc.Type[];
+		getDocs: (
+			app: App.Type,
+			operationId?: Operation.Id,
+		) => Promise<Doc.Type[]>;
 		isLimitReached: (ids?: Set<Doc.Id>) => boolean;
 		toggle: (id: Doc.Id, operationId?: Operation.Id) => boolean;
 		reset: (operationId?: Operation.Id) => void;
@@ -831,20 +834,10 @@ export namespace Doc {
 			 * @param operationId - Optional operation ID to filter by
 			 * @returns Array of Doc.Id
 			 */
-			getDocIds: (app: App.Type, operationId?: Operation.Id): Doc.Id[] => {
-				const ids = Doc.Entity.flag.getList(operationId);
-				if (!ids.size) return [];
-				const result: Doc.Id[] = [];
-
-				for (const events of DataStore.events.values()) {
-					for (const event of events) {
-						if (ids.has(event._id)) {
-							result.push(event._id);
-						}
-					}
-				}
-				return result;
-			},
+			getDocIds: (
+				_app: App.Type,
+				operationId?: Operation.Id,
+			): Doc.Id[] => Array.from(Doc.Entity.flag.getList(operationId)),
 
 			/**
 			 * Method to get all flagged documents for the specified operation
@@ -852,23 +845,13 @@ export namespace Doc {
 			 * @param operationId - Optional operation ID to filter by
 			 * @returns Array of Doc.Type
 			 */
-			getDocs: (app: App.Type, operationId?: Operation.Id): Doc.Type[] => {
-				const ids = Doc.Entity.flag.getList(operationId);
-
-				if (!ids.size) return [];
-
-				const result: Doc.Type[] = [];
-
-				for (const events of DataStore.events.values()) {
-					for (const event of events) {
-						if (ids.has(event._id)) {
-							result.push(event);
-						}
-					}
-				}
-
-				return result;
-			},
+			getDocs: async (
+				_app: App.Type,
+				operationId?: Operation.Id,
+			): Promise<Doc.Type[]> =>
+				DataStore.Events.getByIds(
+					Array.from(Doc.Entity.flag.getList(operationId)),
+				),
 
 			isLimitReached: (ids = Doc.Entity.flag.getList()) => ids.size >= 10,
 

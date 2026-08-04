@@ -1,5 +1,7 @@
 /** Current wire-protocol version shared by the main thread and render worker. */
-export const RENDER_PROTOCOL_VERSION = 4 as const;
+export const RENDER_PROTOCOL_VERSION = 5 as const;
+/** Horizontal graph density interval preserved by both QueryWorker and RenderCore. */
+export const RENDER_GRAPH_BUCKET_PIXEL_WIDTH = 10;
 
 /** Render invalidation reasons that can be coalesced into one worker frame. */
 export enum DirtyCanvas {
@@ -249,6 +251,46 @@ export interface RenderSourcePatch {
 	removedSourceIds: string[];
 }
 
+/** Finite numeric range retained independently from exact event representatives. */
+export interface RenderNumericRange {
+	min: number;
+	max: number;
+}
+
+/**
+ * Atomic viewport-resolution projection for one source.
+ * Every correlated typed array is replaced together and never merged with another window.
+ */
+export interface RenderWindowSourceProjection {
+	sourceId: string;
+	sourceRevision: number;
+	coveredRange: RenderTimeRange;
+	bucketPixelWidth: number;
+	degradedLod: boolean;
+	loadedCount: number;
+	hashRange: RenderNumericRange;
+	representativeHandles: Uint32Array;
+	representativeTimestamps: Float64Array;
+	representativeHashes: Float64Array;
+	heightTimestamps: Float64Array;
+	heightCounts: Float64Array;
+	heightMaximumCount: number;
+	graphTimestamps: Float64Array;
+	graphCounts: Float64Array;
+}
+
+/**
+ * Complete multi-source viewport projection produced from one operation snapshot.
+ * A newer projection replaces this value in full, including source evictions.
+ */
+export interface RenderWindowProjection {
+	operationEpoch: number;
+	viewportRevision: number;
+	projectionRevision: number;
+	sources: RenderWindowSourceProjection[];
+	evictedSourceIds: string[];
+}
+
 /** Data-channel payload containing only changed render projections. */
 export interface RenderDataPatch {
 	globalRevision: number;
@@ -256,6 +298,7 @@ export interface RenderDataPatch {
 	events?: RenderEventBatch[];
 	eventSnapshots?: RenderEventSnapshotRecord[];
 	overlays?: RenderOverlayPatch;
+	renderWindow?: RenderWindowProjection;
 }
 
 /** Font descriptor loadable through FontFace inside the worker. */

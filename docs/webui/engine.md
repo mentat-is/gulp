@@ -3,6 +3,13 @@
 The render engine controls how each source row is drawn on the timeline canvas.
 Source settings also control offset, sampling, colors, and field hashing.
 
+The primary timeline canvas is owned by a render worker. A query worker reads
+the operation EventStore and supplies only the event representatives and
+aggregates required for the visible viewport. See
+[Query worker and event storage architecture](query-worker.md) and
+[Timeline rendering architecture](engine.architecture.md) for the internal
+design.
+
 ![source settings](./images/source_settings.png)
 
 ## Render Engines
@@ -63,6 +70,13 @@ be visually grouped.
 
 ## Caching
 
-RenderEngine and its sub-engines cache per-source render data. Caches are reset
-when notes, flags, source settings, operation context, or selected data changes
-require a redraw.
+Exact timeline events are stored in an operation-scoped IndexedDB EventStore.
+The render worker keeps a bounded render window for the visible source rows and
+time range, including horizontal and vertical overscan. It does not cache the
+complete event collection.
+
+The Default engine receives pixel-equivalent event representatives, HeightMap
+receives persisted density counts, and Graph receives viewport-scale samples.
+Palette-only changes reuse the exact stored pages; source revisions, offsets,
+engine settings, overrides, notes, flags, or viewport changes publish the
+corresponding revisioned render state.

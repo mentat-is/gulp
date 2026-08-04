@@ -71,19 +71,13 @@ export function TargetMenu({ source }: TargetMenuProps) {
 		}
 	};
 
-	const showEvent = (last = false) => {
-		const events = Source.Entity.events(app, source);
-		if (!events.length) {
+	const showEvent = async (last = false): Promise<void> => {
+		const event = await Info.getTimelineSourceEdge(source.id, last);
+		if (!event) {
 			toast.error(t("targetMenu.noEvents"), {
 				icon: <Icon name="FileQuestion" />,
 				richColors: true,
 			});
-			return;
-		}
-
-		const event = last ? events[0] : events[events.length - 1];
-
-		if (!event) {
 			return;
 		}
 
@@ -238,14 +232,14 @@ export function TargetMenu({ source }: TargetMenuProps) {
 				</ContextMenuSub>
 				<Stack gap={2}>
 					<ContextMenuItem
-						onClick={() => showEvent()}
+						onClick={() => void showEvent()}
 						icon="ArrowLeftFromLine"
 					>
 						{t("targetMenu.showFirstEvent")}
 					</ContextMenuItem>
 					<ContextMenuItem
 						revert
-						onClick={() => showEvent(true)}
+						onClick={() => void showEvent(true)}
 						icon="ArrowRightFromLine"
 					>
 						{t("targetMenu.showLastEvent")}

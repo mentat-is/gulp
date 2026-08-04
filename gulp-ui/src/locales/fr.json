@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "Le chargement des événements s’est arrêté. Vérifiez l’espace de stockage disponible et réessayez.",
+    "eventStore.streamFailed.backlog": "Les événements sont arrivés plus vite que le navigateur ne pouvait les enregistrer. Relancez la requête.",
+    "eventStore.streamFailed.quota": "Le stockage du navigateur est insuffisant pour charger ces événements. Libérez de l’espace et réessayez.",
+    "eventStore.streamFailed.storage": "Le stockage du navigateur est indisponible. Vérifiez les autorisations des données du site ou fermez les autres onglets, puis réessayez.",
+    "eventStore.streamFailed.normalization": "Certains événements n’ont pas pu être lus. Réessayez ou vérifiez les données de la source.",
+    "eventStore.streamFailed.disconnected": "La connexion a été interrompue pendant le chargement des événements. Réessayez après la reconnexion.",
+    "group.eventsChangedRefresh": "Les événements ont changé pendant le chargement. La première page a été actualisée.",
+    "source.cacheRebuildInPlace": "L’espace de stockage est limité ; le cache de cette source est donc reconstruit sur place. Si la requête est interrompue, la source sera récupérée à nouveau.",
     "detachedApp.authLost": "Connexion requise",
     "detachedApp.authLostDescription": "L’onglet principal est déconnecté. Reconnectez-vous et sélectionnez une opération pour reprendre cette fenêtre détachée.",
     "detachedApp.idle": "En attente d’une opération",

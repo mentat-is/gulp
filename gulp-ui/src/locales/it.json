@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "Il caricamento degli eventi si è interrotto. Verifica lo spazio disponibile e riprova.",
+    "eventStore.streamFailed.backlog": "Gli eventi sono arrivati più velocemente di quanto il browser riuscisse a salvarli. Riprova la query.",
+    "eventStore.streamFailed.quota": "Lo spazio di archiviazione del browser non è sufficiente per caricare questi eventi. Libera spazio e riprova.",
+    "eventStore.streamFailed.storage": "L'archiviazione del browser non è disponibile. Verifica i permessi per i dati del sito o chiudi le altre schede, quindi riprova.",
+    "eventStore.streamFailed.normalization": "Alcuni eventi non possono essere letti. Riprova o verifica i dati della sorgente.",
+    "eventStore.streamFailed.disconnected": "La connessione si è interrotta durante il caricamento degli eventi. Riprova dopo la riconnessione.",
+    "group.eventsChangedRefresh": "Gli eventi sono cambiati durante il caricamento. La prima pagina è stata aggiornata.",
+    "source.cacheRebuildInPlace": "Lo spazio di archiviazione è limitato, quindi la cache di questa sorgente viene ricostruita in-place. Se la query viene interrotta, la sorgente verrà recuperata nuovamente.",
     "detachedApp.authLost": "Accesso richiesto",
     "detachedApp.authLostDescription": "La scheda principale è disconnessa. Accedi di nuovo e seleziona un'operazione per riprendere questa finestra separata.",
     "detachedApp.idle": "In attesa di un'operazione",

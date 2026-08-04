@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "事件加载已停止。请检查可用存储空间，然后重试。",
+    "eventStore.streamFailed.backlog": "事件到达速度超过了浏览器的保存速度。请重新运行查询。",
+    "eventStore.streamFailed.quota": "浏览器存储空间不足，无法加载这些事件。请释放空间后重试。",
+    "eventStore.streamFailed.storage": "浏览器存储不可用。请检查网站数据权限或关闭其他标签页，然后重试。",
+    "eventStore.streamFailed.normalization": "部分事件无法读取。请重试或检查源数据。",
+    "eventStore.streamFailed.disconnected": "加载事件时连接中断。请在重新连接后重试。",
+    "group.eventsChangedRefresh": "事件在加载期间发生了变化。第一页已刷新。",
+    "source.cacheRebuildInPlace": "存储空间有限，因此正在原地重建此来源的缓存。如果查询中断，系统将重新获取该来源。",
     "detachedApp.authLost": "需要登录",
     "detachedApp.authLostDescription": "主标签页已退出登录。请重新登录并选择一个操作，以继续使用这个分离窗口。",
     "detachedApp.idle": "正在等待操作",

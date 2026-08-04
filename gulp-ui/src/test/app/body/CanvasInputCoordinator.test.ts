@@ -6,7 +6,7 @@ import {
 	type CanvasInputSettleScheduler,
 } from "@/app/body/CanvasInputCoordinator";
 import { DirtyCanvas } from "@/render-worker/RenderWorker.types";
-import { normalizeWheelDelta } from "@/utils";
+import { normalizeWheelDelta } from "@/app/body/CanvasWheelViewport";
 
 /** Deterministic display-frame scheduler used by coordinator tests. */
 class TestFrameScheduler implements CanvasInputFrameScheduler {

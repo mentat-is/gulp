@@ -1,7 +1,7 @@
 import {
 	applyTimelineWheelViewport,
 	shouldInvalidateCanvasGeometry,
-} from "@/utils";
+} from "@/app/body/CanvasWheelViewport";
 
 describe("Canvas coalesced wheel viewport", () => {
 	it("applies horizontal pan and anchored zoom from the same display tick", () => {

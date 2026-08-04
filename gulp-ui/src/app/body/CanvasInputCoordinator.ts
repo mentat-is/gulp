@@ -1,5 +1,5 @@
 import { DirtyCanvas } from "@/render-worker/RenderWorker.types";
-import { normalizeWheelDelta } from "@/utils";
+import { normalizeWheelDelta } from "./CanvasWheelViewport";
 
 /** Minimal native wheel values retained until the next display tick. */
 export interface CanvasWheelInput {

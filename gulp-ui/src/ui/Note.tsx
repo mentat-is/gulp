@@ -65,10 +65,11 @@ export namespace NotePoint {
 					sourceSettings.field,
 					sourceSettings.hash_function,
 				);
-				Info.events_add([event]);
+				DataStore.Events.rememberDocuments([event]);
 
 				const sourceId = event["gulp.source_id"];
-				const loadedCount = Doc.Entity.get(app, sourceId).length;
+				const loadedCount =
+					DataStore.getEventSourceSummary(sourceId)?.eventCount ?? 1;
 				const updatedFiles = app.target.files.map((f) =>
 					f.id === sourceId
 						? {
@@ -195,20 +196,20 @@ export namespace NotePoint {
 	}
 
 	export function Point({ notes, ...props }: NotePoint.Props) {
-		const { app, spawnDialog } = Application.use();
+		const { spawnDialog } = Application.use();
 
 		/**
 		 * Opens the event or group dialog for the notes represented by this point.
 		 *
 		 * @returns Event dialog for one note target or notes group dialog for many.
 		 */
-		const handleClick = useCallback(() => {
+		const handleClick = useCallback(async (): Promise<void> => {
 			const ids = notes.map((n) => n.doc._id);
 			const sourceId = Note.Entity.sourceId(notes[0]);
 			if (!sourceId) return;
 
-			const events = Source.Entity.events(app, sourceId).filter((e) =>
-				ids.includes(e._id),
+			const events = (await DataStore.Events.getByIds(ids)).filter(
+				(event) => event["gulp.source_id"] === sourceId,
 			);
 			if (!events.length) {
 				return;
@@ -224,11 +225,11 @@ export namespace NotePoint {
 					groupKind="notes"
 				/>,
 			);
-		}, [app, notes, spawnDialog]);
+		}, [notes, spawnDialog]);
 
 		return (
 			<UIPoint
-				onClick={handleClick}
+				onClick={() => void handleClick()}
 				icon={notes.length > 1 ? "Status" : Note.Entity.icon(notes[0])}
 				accent={notes.length > 1 ? "#e8e8e8" : Note.Entity.color(notes[0])}
 				name={(notes.length > 1 ? notes.length : notes[0].name).toString()}

@@ -111,6 +111,12 @@ Bottom menu actions:
 Selected sources are displayed as rows in the timeline. Each row belongs to a
 context and shows event activity across the active frame.
 
+Source queries are registered with the query worker before the backend request
+starts. Incoming event chunks are stored incrementally in the operation
+EventStore, and committed source revisions refresh the visible render window.
+Loading several sources can proceed concurrently while the timeline remains
+interactive.
+
 ![Timeline and event detail](images/timeline.png)
 
 Source rows support:
@@ -136,8 +142,13 @@ detached or auxiliary view actions.
 
 ## Event Selection
 
-Clicking a rendered event opens the event detail view. The event panel can be
-docked in the workspace or opened as a detached dialog window. Its selected ID
-is synchronized with detached Notes and Table View for row highlighting.
-Detached row and Assistant event actions can select or fetch an event in the
-main tab.
+Clicking a rendered event performs an exact EventStore lookup for the selected
+source and pixel time interval. A single result opens the event detail view;
+multiple results open the group dialog with pages of up to 100 events. This
+selection uses exact events even when the timeline is displaying a
+viewport-resolution LOD projection.
+
+The event panel can be docked in the workspace or opened as a detached dialog
+window. Its selected ID is synchronized with detached Notes and Table View for
+row highlighting. Detached row and Assistant event actions can select or fetch
+an event in the main tab.

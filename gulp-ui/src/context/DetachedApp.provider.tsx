@@ -33,6 +33,7 @@ import { ownsIndependentDetachedDataStore } from "@/context/detachedDataStore";
 import { applyDetachedThemeSnapshot } from "@/context/detachedTheme";
 import { SmartSocket } from "@/class/SmartSocket";
 import { Boundary } from "@/context/Boundary.context";
+import { isEventStoreLodEnabled } from "@/event-store";
 import s from "./styles/DetachedApp.module.css";
 
 const ACTIVE_HEARTBEAT_MSEC = 30_000;
@@ -481,6 +482,20 @@ export function DetachedAppProvider({
 	);
 
 	/**
+	 * Releases a detached realm's transient QueryWorker operation context.
+	 * @param operationId Previous operation leaving this detached surface.
+	 */
+	const releaseDetachedOperation = useCallback(
+		(operationId: Operation.Id | null): void => {
+			if (!operationId) return;
+			void SmartSocket.Class.instance
+				?.releaseOperation(operationId)
+				.catch(() => undefined);
+		},
+		[],
+	);
+
+	/**
 	 * Applies an atomic first-state replay before exposing detached content.
 	 */
 	const applyBootstrap = useCallback(
@@ -497,7 +512,22 @@ export function DetachedAppProvider({
 			const themeChanged = applyTheme(payload.theme);
 
 			if (payload.context) {
-				selectedOperationIdRef.current = payload.context.operation?.id ?? null;
+				const operationId = payload.context.operation?.id ?? null;
+				const previousOperationId = selectedOperationIdRef.current;
+				if (previousOperationId !== operationId) {
+					releaseDetachedOperation(previousOperationId);
+				}
+				selectedOperationIdRef.current = operationId;
+				if (
+					ownsIndependentDataStore &&
+					operationId &&
+					DataStore.getRenderOperationId() !== operationId
+				) {
+					DataStore.resetRenderOperation(operationId);
+					if (isEventStoreLodEnabled()) {
+						DataStore.openEventStoreNamespace({ coordinatorId, operationId });
+					}
+				}
 				selectedSourceIdsRef.current = payload.context.sources.map(
 					(source) => source.id,
 				);
@@ -583,6 +613,9 @@ export function DetachedAppProvider({
 			applyNotesChanged,
 			applyTheme,
 			getAssistantSocketId,
+			coordinatorId,
+			ownsIndependentDataStore,
+			releaseDetachedOperation,
 			setInfo,
 		],
 	);
@@ -592,13 +625,28 @@ export function DetachedAppProvider({
 			const signature = serializePayload(payload);
 			if (payloadSignaturesRef.current.context === signature) return;
 			payloadSignaturesRef.current.context = signature;
-			selectedOperationIdRef.current = payload.operation?.id ?? null;
+			const operationId = payload.operation?.id ?? null;
+			const previousOperationId = selectedOperationIdRef.current;
+			if (previousOperationId !== operationId) {
+				releaseDetachedOperation(previousOperationId);
+			}
+			selectedOperationIdRef.current = operationId;
+			if (
+				ownsIndependentDataStore &&
+				operationId &&
+				DataStore.getRenderOperationId() !== operationId
+			) {
+				DataStore.resetRenderOperation(operationId);
+				if (isEventStoreLodEnabled()) {
+					DataStore.openEventStoreNamespace({ coordinatorId, operationId });
+				}
+			}
 			selectedSourceIdsRef.current = payload.sources.map(
 				(source) => source.id,
 			);
 			setInfo((previous) => applyContextSnapshot(previous, payload));
 		},
-		[setInfo],
+		[coordinatorId, ownsIndependentDataStore, releaseDetachedOperation, setInfo],
 	);
 
 	const applyQuery = useCallback(
@@ -1084,6 +1132,8 @@ export function DetachedAppProvider({
 		delete payloadSignaturesRef.current.dialog;
 		loadingsRef.current.byRequestId.clear();
 		loadingsRef.current.byFileId.clear();
+		releaseDetachedOperation(selectedOperationIdRef.current);
+		selectedOperationIdRef.current = null;
 		setBanner(null);
 		setDialog(null);
 		setDetachedDialog(null);
@@ -1091,7 +1141,7 @@ export function DetachedAppProvider({
 		setDetachedDialogNavigation(null);
 		if (kind === "dialog" && ownsIndependentDataStore) {
 			Doc.Entity.clearIndex();
-			DataStore.events.clear();
+			DataStore.resetRenderOperation(null);
 			DataStore.replaceNotes([], "deferred");
 			DataStore.replaceLinks([], "deferred");
 		}
@@ -1127,6 +1177,7 @@ export function DetachedAppProvider({
 		detachedStatus,
 		kind,
 		ownsIndependentDataStore,
+		releaseDetachedOperation,
 		setInfo,
 	]);
 

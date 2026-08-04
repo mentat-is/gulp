@@ -391,8 +391,42 @@ function _({ children }: { children: ReactNode }) {
 			(m) => m.payload.obj?.type === "request_stats",
 			requestStatsCallback,
 		);
+		const unsubscribeSourceSummaries =
+			SmartSocket.Class.instance.subscribeSourceSummaries((event) => {
+				if (
+					event.operationEpoch !== DataStore.getRenderOperationEpoch() ||
+					DataStore.getRenderOperationId() !== event.operationId
+				) {
+					return;
+				}
+				instanceRef.current.handleEventSourceSummary(event);
+			});
+		const unsubscribeCapacity = SmartSocket.Class.instance.subscribeCapacity(
+			(event) => {
+				if (
+					DataStore.getRenderOperationId() !== event.operationId ||
+					(event.operationEpoch !== undefined &&
+						event.operationEpoch !== DataStore.getRenderOperationEpoch())
+				) {
+					return;
+				}
+				DataStore.publishEventStoreCapacity(event.capacity);
+			},
+		);
+		const unsubscribeStreamFailures =
+			SmartSocket.Class.instance.subscribeDocumentStreamFailures((event) => {
+				instanceRef.current.handleEventDocumentStreamFailure(event);
+			});
+		const unsubscribeStreamStates =
+			SmartSocket.Class.instance.subscribeDocumentStreamStates((change) => {
+				instanceRef.current.handleEventDocumentStreamState(change);
+			});
 
 		return () => {
+			unsubscribeSourceSummaries();
+			unsubscribeCapacity();
+			unsubscribeStreamFailures();
+			unsubscribeStreamStates();
 			SmartSocket.Class.instance.off(
 				SmartSocket.Message.Type.COLLAB_CREATE,
 				collabCreateCallback,
@@ -517,29 +551,41 @@ function _({ children }: { children: ReactNode }) {
 		)
 			return;
 
-		const events = Source.Entity.events(
-			app,
-			app.timeline.target["gulp.source_id"],
-		);
-
 		if (["d", "a", "arrowright", "arrowleft"].includes(key)) {
-			const delta = key === "a" || key === "arrowleft" ? 1 : -1;
-			const target = instance.setTimelineTarget(delta);
-			if (target) {
-				spawnDialog(<DisplayEventDialog event={target} />);
-			} else {
-				toast(translate(delta > 0 ? "application.cannotOpenPreviousEvent" : "application.cannotOpenNextEvent"));
-			}
+			const delta: -1 | 1 = key === "a" || key === "arrowleft" ? 1 : -1;
+			void instance.moveTimelineTarget(delta).then((nextTarget) => {
+				if (nextTarget) {
+					spawnDialog(<DisplayEventDialog event={nextTarget} />);
+				} else {
+					toast(translate(delta > 0 ? "application.cannotOpenPreviousEvent" : "application.cannotOpenNextEvent"));
+				}
+			});
 		} else if (["ф", "а"].includes(key)) {
 			toast(translate("application.useEnglishScrollKeys"));
 		} else if (key === "end") {
 			event.preventDefault();
-			const target = instance.setTimelineTarget(events[0]);
-			spawnDialog(<DisplayEventDialog event={target} />);
+			void instance
+				.getTimelineSourceEdge(
+					app.timeline.target["gulp.source_id"],
+					true,
+				)
+				.then((nextTarget) => {
+					if (!nextTarget) return;
+					instance.setTimelineTarget(nextTarget);
+					spawnDialog(<DisplayEventDialog event={nextTarget} />);
+				});
 		} else if (key === "home") {
 			event.preventDefault();
-			const target = instance.setTimelineTarget(events[events.length - 1]);
-			spawnDialog(<DisplayEventDialog event={target} />);
+			void instance
+				.getTimelineSourceEdge(
+					app.timeline.target["gulp.source_id"],
+					false,
+				)
+				.then((nextTarget) => {
+					if (!nextTarget) return;
+					instance.setTimelineTarget(nextTarget);
+					spawnDialog(<DisplayEventDialog event={nextTarget} />);
+				});
 		}
 	};
 

@@ -1,7 +1,8 @@
 import type { Source } from "@/entities/Source";
 
 export const CANVAS_SOURCE_ROW_HEIGHT = 48;
-export const CANVAS_SOURCE_OVERSCAN = 48;
+/** Two source rows retained above and below the visible viewport. */
+export const CANVAS_SOURCE_OVERSCAN = CANVAS_SOURCE_ROW_HEIGHT * 2;
 
 /** Inclusive source-index range intersecting the vertically rendered Canvas area. */
 export interface CanvasViewportSourceRange {

@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "La carga de eventos se detuvo. Comprueba el almacenamiento disponible e inténtalo de nuevo.",
+    "eventStore.streamFailed.backlog": "Los eventos llegaron más rápido de lo que el navegador pudo guardarlos. Vuelve a ejecutar la consulta.",
+    "eventStore.streamFailed.quota": "No hay suficiente almacenamiento del navegador para cargar estos eventos. Libera espacio e inténtalo de nuevo.",
+    "eventStore.streamFailed.storage": "El almacenamiento del navegador no está disponible. Comprueba los permisos de datos del sitio o cierra otras pestañas y vuelve a intentarlo.",
+    "eventStore.streamFailed.normalization": "No se pudieron leer algunos eventos. Vuelve a intentarlo o comprueba los datos de origen.",
+    "eventStore.streamFailed.disconnected": "La conexión se interrumpió mientras se cargaban los eventos. Vuelve a intentarlo después de reconectarte.",
+    "group.eventsChangedRefresh": "Los eventos cambiaron durante la carga. Se actualizó la primera página.",
+    "source.cacheRebuildInPlace": "El almacenamiento es limitado, por lo que la caché de esta fuente se está reconstruyendo en el mismo lugar. Si se interrumpe la consulta, se volverá a obtener la fuente.",
     "detachedApp.authLost": "Inicio de sesión requerido",
     "detachedApp.authLostDescription": "La pestaña principal cerró la sesión. Inicia sesión de nuevo y selecciona una operación para reanudar esta ventana separada.",
     "detachedApp.idle": "Esperando una operación",

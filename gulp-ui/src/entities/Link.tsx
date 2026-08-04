@@ -14,6 +14,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Internal } from "./addon/Internal";
 import { Locale } from "@/locales";
+import { EVENT_MAIN_CACHE_SIZE } from "@/event-store";
 
 export namespace Link {
 	export const name = "Link";
@@ -44,27 +45,78 @@ export namespace Link {
 		public static id = (_app: App.Type, id: Link.Id): Link.Type =>
 			DataStore.links.find((link) => link.id === id)!;
 
-		public static selected = (app: App.Type) =>
-			DataStore.links.filter((link) =>
-				link.doc_ids.every(
-					(id) =>
-						Source.Entity.id(app, Doc.Entity.id(app, id)?.["gulp.source_id"])
-							?.selected,
-				),
+		/**
+		 * Resolves links whose destination documents all belong to selected sources.
+		 * IndexedDB reads remain bounded even when an overlay contains many endpoints.
+		 * @param app Current application state used to resolve selected sources.
+		 * @returns Links entirely contained in the current source selection.
+		 */
+		public static selected = async (app: App.Type): Promise<Link.Type[]> => {
+			const selectedSourceIds = new Set(
+				Source.Entity.selected(app).map((source) => source.id),
 			);
+			const selectedLinks: Link.Type[] = [];
 
-		public static timestamp = (app: App.Type, link: Link.Type): number => {
+			for (const link of DataStore.links) {
+				let isSelected = true;
+				for (
+					let index = 0;
+					index < link.doc_ids.length;
+					index += EVENT_MAIN_CACHE_SIZE
+				) {
+					const documentIds = link.doc_ids.slice(
+						index,
+						index + EVENT_MAIN_CACHE_SIZE,
+					);
+					const documents = await DataStore.Events.getByIds(documentIds);
+					if (
+						documents.length !== documentIds.length ||
+						documents.some(
+							(document) =>
+								!selectedSourceIds.has(document["gulp.source_id"]),
+						)
+					) {
+						isSelected = false;
+						break;
+					}
+				}
+				if (isSelected) selectedLinks.push(link);
+			}
+
+			return selectedLinks;
+		};
+
+		/**
+		 * Calculates the average timestamp of the currently persisted link targets.
+		 * @param _app Retained application argument for the existing entity API.
+		 * @param link Link whose destination timestamps should be averaged.
+		 * @returns Average timestamp, or zero when no destination can be resolved.
+		 */
+		public static timestamp = async (
+			_app: App.Type,
+			link: Link.Type,
+		): Promise<number> => {
 			if (link.doc_ids.length === 0) {
 				return 0;
 			}
 
 			let sum = 0;
+			let count = 0;
+			for (
+				let index = 0;
+				index < link.doc_ids.length;
+				index += EVENT_MAIN_CACHE_SIZE
+			) {
+				const documents = await DataStore.Events.getByIds(
+					link.doc_ids.slice(index, index + EVENT_MAIN_CACHE_SIZE),
+				);
+				for (const document of documents) {
+					sum += document.gulp_timestamp;
+					count++;
+				}
+			}
 
-			link.doc_ids.forEach(
-				(d) => (sum += Doc.Entity.id(app, d).gulp_timestamp),
-			);
-
-			return sum / link.doc_ids.length;
+			return count === 0 ? 0 : sum / count;
 		};
 	}
 

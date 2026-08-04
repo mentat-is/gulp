@@ -7,9 +7,11 @@ import type { Doc } from "@/entities/Doc";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
 import type { Note } from "@/entities/Note";
+import type { Link } from "@/entities/Link";
 import { DetachedWindow } from "@/context/DetachedWindow.context";
 import { WindowBridge } from "@/lib/WindowBridge";
 import { DataStore } from "@/store/DataStore";
+import { documentIdentityRegistry } from "@/store/DocumentIdentityRegistry";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
 	.IS_REACT_ACT_ENVIRONMENT = true;
@@ -295,6 +297,18 @@ describe("DetachedWindow coordinator client isolation", () => {
 	}
 
 	/**
+	 * Settles bounded EventStore reads and flushes their coalesced dialog update.
+	 * @returns Promise resolved after pending detached projections are published.
+	 */
+	async function flushEventStoreReads(): Promise<void> {
+		await act(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		flushIdleCallbacks();
+	}
+
+	/**
 	 * Registers an already-opened route as one detached coordinator client.
 	 */
 	function registerOpenedClient(
@@ -403,6 +417,7 @@ describe("DetachedWindow coordinator client isolation", () => {
 		mockApp = createApp();
 		mockInfo.app = mockApp;
 		mockDocsById.clear();
+		documentIdentityRegistry.clearDocumentReferences();
 		DataStore.events.clear();
 		DataStore.notes = [];
 		DataStore.links = [];
@@ -459,7 +474,7 @@ describe("DetachedWindow coordinator client isolation", () => {
 		});
 	});
 
-	it("does not replay Notes state when other clients register or refocus", () => {
+	it("does not replay Notes state when other clients register or refocus", async () => {
 		if (!coordinator) throw new Error("Coordinator was not captured");
 
 		const notesWindow = newlyOpenedWindow(() =>
@@ -513,8 +528,40 @@ describe("DetachedWindow coordinator client isolation", () => {
 			number_hash: index,
 		} as Doc.Type));
 		sourceEvents.forEach((event) => mockDocsById.set(event._id, event));
+		documentIdentityRegistry.indexDocuments(SOURCE_ID, sourceEvents);
 		DataStore.replaceSourceEvents(SOURCE_ID, sourceEvents);
 		const firstEvent = sourceEvents[6];
+		const relatedEvent = sourceEvents[0];
+		DataStore.links = [
+			{
+				id: "dialog-link" as Link.Id,
+				type: "link",
+				operation_id: OPERATION_ID,
+				owner_user_id: "dialog-user",
+				description: "",
+				tags: [],
+				doc_id_from: firstEvent._id,
+				doc_ids: [relatedEvent._id],
+				name: "Dialog link",
+				color: "#fff",
+				glyph_id: "dialog-glyph" as never,
+			},
+		];
+		const originalGetByIds = DataStore.Events.getByIds.bind(DataStore.Events);
+		const originalGetNeighbors =
+			DataStore.Events.getNeighbors.bind(DataStore.Events);
+		const getByIdsCalls: Doc.Id[][] = [];
+		const getNeighborsCalls: Array<
+			Parameters<typeof DataStore.Events.getNeighbors>
+		> = [];
+		DataStore.Events.getByIds = async (documentIds): Promise<Doc.Type[]> => {
+			getByIdsCalls.push([...documentIds]);
+			return originalGetByIds(documentIds);
+		};
+		DataStore.Events.getNeighbors = async (...args) => {
+			getNeighborsCalls.push(args);
+			return originalGetNeighbors(...args);
+		};
 		const dialogWindow = newlyOpenedWindow(() => {
 			coordinator!.openDialogWindow(
 				{ kind: "event", event: firstEvent },
@@ -522,13 +569,41 @@ describe("DetachedWindow coordinator client isolation", () => {
 			);
 		});
 		const dialogMessages = registerOpenedClient(dialogWindow, "dialog");
+		await flushEventStoreReads();
 		const dialogBootstrap = dialogMessages.find(
 			(message) =>
 				message.type === WindowBridge.MessageType.DETACHED_BOOTSTRAP,
 		);
-		const navigation = (
-			dialogBootstrap?.payload as WindowBridge.DetachedBootstrapPayload
-		).dialog?.navigation;
+		const hydratedDialog = dialogMessages.toReversed().find(
+			(message) => message.type === WindowBridge.MessageType.DIALOG_CHANGED,
+		);
+		const navigation = hydratedDialog
+			? (hydratedDialog.payload as WindowBridge.DialogChangedPayload).navigation
+			: (
+					dialogBootstrap?.payload as WindowBridge.DetachedBootstrapPayload
+				).dialog?.navigation;
+		const hydratedPayload = hydratedDialog?.payload as
+			| WindowBridge.DialogChangedPayload
+			| undefined;
+		expect(
+			getByIdsCalls.some(
+				(documentIds) =>
+					documentIds.length === 1 && documentIds[0] === relatedEvent._id,
+			),
+		).toBe(true);
+		expect(
+			getNeighborsCalls.some(
+				([sourceId, documentId, before, after]) =>
+					sourceId === SOURCE_ID &&
+					documentId === firstEvent._id &&
+					before === 5 &&
+					after === 5,
+			),
+		).toBe(true);
+		expect(hydratedPayload?.events.map((event) => event._id)).toEqual([
+			firstEvent._id,
+			relatedEvent._id,
+		]);
 		expect(navigation?.items).toHaveLength(
 			WindowBridge.DETACHED_DIALOG_NAVIGATION_WINDOW_SIZE,
 		);
@@ -628,6 +703,7 @@ describe("DetachedWindow coordinator client isolation", () => {
 			});
 			actionSender.send(WindowBridge.MessageType.DOCK_DIALOG, {});
 		});
+		await flushEventStoreReads();
 		expect(
 			(
 				mockInfo.setTimelineTarget.mock.calls as unknown as Array<
@@ -663,5 +739,7 @@ describe("DetachedWindow coordinator client isolation", () => {
 			),
 		).toBe(true);
 		expect(notesMessages).toEqual([]);
+		DataStore.Events.getByIds = originalGetByIds;
+		DataStore.Events.getNeighbors = originalGetNeighbors;
 	});
 });

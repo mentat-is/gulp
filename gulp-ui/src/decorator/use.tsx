@@ -133,8 +133,14 @@ export const useDrugs = (
     dragState.current.clicked = false;
 
     if (event.type === 'mouseup' && wasClicked && !wasDragging && !isResizing) {
-      // @ts-ignore
-      window.xxc(event);
+      const clickHandler = (
+        window as Window & { xxc?: (click: MouseEvent) => Promise<void> }
+      ).xxc
+      if (clickHandler) {
+        void clickHandler(event).catch((error: unknown) => {
+          console.error('Canvas click lookup failed:', error)
+        })
+      }
     }
 
     event.preventDefault()

@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "Inläsningen av händelser stoppades. Kontrollera tillgängligt lagringsutrymme och försök igen.",
+    "eventStore.streamFailed.backlog": "Händelserna kom snabbare än webbläsaren kunde spara dem. Kör frågan igen.",
+    "eventStore.streamFailed.quota": "Webbläsarens lagringsutrymme räcker inte för att läsa in dessa händelser. Frigör utrymme och försök igen.",
+    "eventStore.streamFailed.storage": "Webbläsarens lagring är inte tillgänglig. Kontrollera behörigheter för webbplatsdata eller stäng andra flikar och försök igen.",
+    "eventStore.streamFailed.normalization": "Vissa händelser kunde inte läsas. Försök igen eller kontrollera källdata.",
+    "eventStore.streamFailed.disconnected": "Anslutningen avbröts medan händelser lästes in. Försök igen efter återanslutning.",
+    "group.eventsChangedRefresh": "Händelserna ändrades under inläsningen. Den första sidan har uppdaterats.",
+    "source.cacheRebuildInPlace": "Lagringsutrymmet är begränsat, så källans cache byggs om på plats. Om frågan avbryts hämtas källan på nytt.",
     "detachedApp.authLost": "Inloggning krävs",
     "detachedApp.authLostDescription": "Huvudfliken är utloggad. Logga in igen och välj en operation för att återuppta det här fristående fönstret.",
     "detachedApp.idle": "Väntar på en operation",

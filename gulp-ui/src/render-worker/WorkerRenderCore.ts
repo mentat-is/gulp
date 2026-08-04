@@ -1,5 +1,6 @@
 import {
 	DirtyCanvas,
+	RENDER_GRAPH_BUCKET_PIXEL_WIDTH,
 	type RenderFrameState,
 	type RenderFrameStatistics,
 	type RenderHighlightRecord,
@@ -19,7 +20,6 @@ const NOTE_SIZE = 32;
 const NOTE_OFFSET = -NOTE_SIZE / 2;
 const HIGHLIGHT_ALPHA = "29";
 const GRAPH_DRAWABLE_HEIGHT = 47;
-const GRAPH_BUCKET_PIXEL_WIDTH = 10;
 const GRAPH_SEMI_LOG_BASE = 10;
 const RULER_HEIGHT = 25;
 const MAX_DENSE_COLOR_RANGE = 8_192;
@@ -490,7 +490,7 @@ export class WorkerRenderCore {
 		statistics: RenderFrameStatistics,
 	): void {
 		const events = this.repository.getEvents(source.id);
-		if (!events || events.timestamps.length === 0) return;
+		if (!events) return;
 		switch (source.engine) {
 			case "height":
 				this.drawHeightEvents(source, events, rowTop, state);
@@ -815,7 +815,7 @@ export class WorkerRenderCore {
 		if (sampleTimestamps.length === 0) return;
 
 		const timePerTenPixels =
-			(GRAPH_BUCKET_PIXEL_WIDTH * (state.frame.max - state.frame.min)) /
+			(RENDER_GRAPH_BUCKET_PIXEL_WIDTH * (state.frame.max - state.frame.min)) /
 			(state.width * state.scale);
 		const dynamicFrequency = Math.max(source.frequency, timePerTenPixels);
 		if (!Number.isFinite(dynamicFrequency) || dynamicFrequency <= 0) return;
@@ -1517,7 +1517,7 @@ export class WorkerRenderCore {
 		this.context.fillRect(minimumX - 1, centerY - 24, 1, 47);
 
 		const eventCount = (
-			this.repository.getEvents(source.id)?.timestamps.length ?? 0
+			this.repository.getEvents(source.id)?.loadedCount ?? 0
 		).toString();
 		const lineY = [centerY - 6, centerY + 4, centerY + 14];
 		this.context.font = '10px "GeistMono", monospace';
@@ -1617,7 +1617,7 @@ export class WorkerRenderCore {
 					? state.localized.loadingSuffix
 					: "";
 		const eventCount =
-			this.repository.getEvents(source.id)?.timestamps.length ?? 0;
+			this.repository.getEvents(source.id)?.loadedCount ?? 0;
 		const contextLabel = source.contextLabel || state.localized.unknownContext;
 		const lines = [
 			{ text: `${source.name}${suffix}`, y: centerY + 4, color: state.palette.fontAccent },

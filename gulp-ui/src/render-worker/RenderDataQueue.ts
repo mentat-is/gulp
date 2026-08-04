@@ -1,5 +1,12 @@
-import { mergeRenderDataPatches } from "./RenderDataPatch";
-import type { RenderDataPatch } from "./RenderWorker.types";
+import {
+	mergeRenderDataPatches,
+	selectNewestRenderWindowProjection,
+} from "./RenderDataPatch";
+import { isRenderWindowProjection } from "./RenderWorker.request";
+import type {
+	RenderDataPatch,
+	RenderWindowProjection,
+} from "./RenderWorker.types";
 
 const MAX_DATA_MESSAGES_IN_FLIGHT = 1;
 
@@ -20,6 +27,7 @@ export interface RenderWorkerDataQueueDepth {
 export class RenderDataQueue {
 	private readonly inFlightSequences = new Set<number>();
 	private pendingPatch: RenderDataPatch | null = null;
+	private latestRenderWindow: RenderWindowProjection | null = null;
 
 	/**
 	 * Returns immutable queue occupancy for synchronization and profiling.
@@ -33,10 +41,29 @@ export class RenderDataQueue {
 
 	/**
 	 * Merges a patch into the sole pending envelope without increasing queue depth.
+	 * A render window older than the newest queued or dispatched window is discarded.
 	 * @param patch Revisioned render data entering the bounded queue.
 	 * @returns Nothing.
+	 * @throws Error when an optional render-window projection is malformed.
 	 */
 	public enqueue(patch: RenderDataPatch): void {
+		if (
+			patch.renderWindow !== undefined &&
+			!isRenderWindowProjection(patch.renderWindow)
+		) {
+			throw new Error("Malformed render-window projection");
+		}
+		if (patch.renderWindow !== undefined) {
+			const selected = selectNewestRenderWindowProjection(
+				this.latestRenderWindow ?? undefined,
+				patch.renderWindow,
+			);
+			if (selected !== patch.renderWindow) {
+				patch = { ...patch, renderWindow: undefined };
+			} else {
+				this.latestRenderWindow = patch.renderWindow;
+			}
+		}
 		this.pendingPatch = this.pendingPatch
 			? mergeRenderDataPatches(this.pendingPatch, patch)
 			: patch;
@@ -70,11 +97,12 @@ export class RenderDataQueue {
 	}
 
 	/**
-	 * Clears pending and in-flight state at reset or disposal.
+	 * Clears pending, in-flight, and render-window freshness state at reset or disposal.
 	 * @returns Nothing.
 	 */
 	public clear(): void {
 		this.pendingPatch = null;
 		this.inFlightSequences.clear();
+		this.latestRenderWindow = null;
 	}
 }

@@ -1,4 +1,4 @@
-"""Regression coverage for final ingestion refreshes on empty buffers."""
+"""Regression coverage for final raw-ingestion refresh and stream markers."""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -45,10 +45,16 @@ async def test_empty_buffer_honors_effective_refresh_policy(
     plugin._raw_ingestion = raw_ingestion
     plugin._last_raw_chunk = last_raw_chunk
     opensearch = MagicMock(index_refresh=AsyncMock())
+    redis_broker = MagicMock(put=AsyncMock())
     monkeypatch.setattr(
         plugin_module.GulpOpenSearch,
         "get_instance",
         staticmethod(lambda: opensearch),
+    )
+    monkeypatch.setattr(
+        plugin_module.GulpRedisBroker,
+        "get_instance",
+        staticmethod(lambda: redis_broker),
     )
 
     assert await plugin._flush_buffer_and_send_to_ws(
@@ -58,3 +64,60 @@ async def test_empty_buffer_honors_effective_refresh_policy(
         opensearch.index_refresh.assert_awaited_once_with("test-index")
     else:
         opensearch.index_refresh.assert_not_awaited()
+
+    if raw_ingestion and last_raw_chunk:
+        assert redis_broker.put.await_count == 2
+        terminal_call = redis_broker.put.await_args_list[0].kwargs
+        assert terminal_call["t"] == plugin_module.WSDATA_DOCUMENTS_CHUNK
+        assert terminal_call["d"]["docs"] == []
+        assert terminal_call["d"]["chunk_size"] == 0
+        assert terminal_call["d"]["last"] is True
+        progress_call = redis_broker.put.await_args_list[1].kwargs
+        assert progress_call["t"] == plugin_module.WSDATA_INGEST_RAW_PROGRESS
+        assert progress_call["d"]["last"] is True
+    else:
+        redis_broker.put.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_last_raw_chunk_emits_terminal_packet_when_all_docs_are_skipped(
+    monkeypatch,
+) -> None:
+    """Complete the stream when OpenSearch accepts no document from the batch."""
+    from gulp import plugin as plugin_module
+
+    plugin = _IngestionPlugin(
+        "/tmp/test_ingestion_final_refresh.py", "test_ingestion_final_refresh"
+    )
+    plugin._index = "test-index"
+    plugin._raw_ingestion = True
+    plugin._last_raw_chunk = True
+    plugin._docs_buffer = [{"_id": "skipped"}]
+
+    opensearch = MagicMock(
+        bulk_ingest=AsyncMock(return_value=(1, [], 0)),
+    )
+    redis_broker = MagicMock(put=AsyncMock())
+    monkeypatch.setattr(
+        plugin_module.GulpOpenSearch,
+        "get_instance",
+        staticmethod(lambda: opensearch),
+    )
+    monkeypatch.setattr(
+        plugin_module.GulpRedisBroker,
+        "get_instance",
+        staticmethod(lambda: redis_broker),
+    )
+    monkeypatch.setattr(
+        plugin_module.GulpRequestStats,
+        "is_canceled",
+        AsyncMock(return_value=False),
+    )
+
+    assert await plugin._flush_buffer_and_send_to_ws() == (1, 0, 0)
+    assert redis_broker.put.await_count == 2
+    terminal_call = redis_broker.put.await_args_list[0].kwargs
+    assert terminal_call["t"] == plugin_module.WSDATA_DOCUMENTS_CHUNK
+    assert terminal_call["d"]["docs"] == []
+    assert terminal_call["d"]["last"] is True

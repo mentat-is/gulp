@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "事件載入已停止。請檢查可用的儲存空間，然後再試一次。",
+    "eventStore.streamFailed.backlog": "事件抵達速度超過瀏覽器的儲存速度。請重新執行查詢。",
+    "eventStore.streamFailed.quota": "瀏覽器儲存空間不足，無法載入這些事件。請釋放空間後再試一次。",
+    "eventStore.streamFailed.storage": "瀏覽器儲存空間無法使用。請檢查網站資料權限或關閉其他分頁，然後再試一次。",
+    "eventStore.streamFailed.normalization": "部分事件無法讀取。請重試或檢查來源資料。",
+    "eventStore.streamFailed.disconnected": "載入事件時連線中斷。請在重新連線後再試一次。",
+    "group.eventsChangedRefresh": "事件在載入期間發生變更。第一頁已重新整理。",
+    "source.cacheRebuildInPlace": "儲存空間有限，因此正在原地重建此來源的快取。若查詢中斷，系統將重新擷取來源。",
     "detachedApp.authLost": "需要登入",
     "detachedApp.authLostDescription": "主分頁已登出。請重新登入並選擇一個作業，以繼續使用這個分離視窗。",
     "detachedApp.idle": "正在等待作業",

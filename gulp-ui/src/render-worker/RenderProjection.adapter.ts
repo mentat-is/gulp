@@ -559,7 +559,8 @@ export class RenderProjectionAdapter {
 		const records: RenderNoteRecord[] = [];
 		for (const note of notes) {
 			if (!note.doc) continue;
-			const document = this.options.resolveDocument(note.doc._id);
+			const document =
+				this.options.resolveDocument(note.doc._id) ?? note.doc;
 			if (!document) continue;
 			records.push({
 				id: note.id,

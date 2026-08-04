@@ -761,7 +761,7 @@ class GulpDocumentsChunkPacket(BaseModel):
     last: Annotated[
         bool,
         Field(
-            description="for query only: is this the last chunk of a query response ?",
+            description="whether this is the terminal chunk of a query or raw-ingestion stream.",
         ),
     ] = False
     enriched: Annotated[

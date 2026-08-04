@@ -290,10 +290,18 @@ export class RenderWorkerController {
 		receivedAt: number,
 	): Promise<void> {
 		try {
-			const result = await this.repository.applyDataPatch(message.payload);
+			const result = await this.repository.applyDataPatch(
+				message.payload,
+				message.operationEpoch,
+			);
 			if (this.disposed || message.operationEpoch !== this.operationEpoch) return;
 			this.renderer.invalidateSources(
-				message.payload.sources?.removedSourceIds ?? [],
+				Array.from(
+					new Set([
+						...(message.payload.sources?.removedSourceIds ?? []),
+						...(message.payload.renderWindow?.evictedSourceIds ?? []),
+					]),
+				),
 			);
 			if (result.committedEvents) {
 				const eventSourceIds = [
@@ -301,6 +309,10 @@ export class RenderWorkerController {
 					...(message.payload.eventSnapshots ?? [])
 						.filter((record) => record.kind === "commit")
 						.map((record) => record.sourceId),
+					...(message.payload.renderWindow?.sources ?? []).map(
+						(source) => source.sourceId,
+					),
+					...(message.payload.renderWindow?.evictedSourceIds ?? []),
 				];
 				this.renderer.invalidateEventSources(
 					Array.from(new Set(eventSourceIds)),
@@ -380,6 +392,10 @@ export class RenderWorkerController {
 			[
 				...(patch.events ?? []).map((batch) => batch.sourceId),
 				...(patch.eventSnapshots ?? []).map((record) => record.sourceId),
+				...(patch.renderWindow?.sources ?? []).map(
+					(source) => source.sourceId,
+				),
+				...(patch.renderWindow?.evictedSourceIds ?? []),
 			],
 		);
 		for (const sourceId of sourceIds) {
@@ -393,6 +409,9 @@ export class RenderWorkerController {
 					.map((record) =>
 						record.kind === "chunk" ? 0 : record.revision,
 					),
+				...(patch.renderWindow?.sources ?? [])
+					.filter((source) => source.sourceId === sourceId)
+					.map((source) => source.sourceRevision),
 			);
 			this.postControl("RESYNC_REQUIRED", {
 				scope: "source",
@@ -981,7 +1000,7 @@ export class RenderWorkerController {
 	/**
 	 * Collects source identities whose event state was represented by one data patch.
 	 * @param message Data message being acknowledged.
-	 * @returns Unique event and snapshot source identities.
+	 * @returns Unique legacy-event, snapshot, projection, and eviction identities.
 	 */
 	private getDataPatchSourceIds(message: RenderDataMessage): string[] {
 		return Array.from(
@@ -990,6 +1009,10 @@ export class RenderWorkerController {
 				...(message.payload.eventSnapshots ?? []).map(
 					(record) => record.sourceId,
 				),
+				...(message.payload.renderWindow?.sources ?? []).map(
+					(source) => source.sourceId,
+				),
+				...(message.payload.renderWindow?.evictedSourceIds ?? []),
 			]),
 		);
 	}

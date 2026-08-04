@@ -1,0 +1,1156 @@
+import type { Doc } from "@/entities/Doc";
+import type { Operation } from "@/entities/Operation";
+import type { Source } from "@/entities/Source";
+import {
+	buildEventPageHeight,
+	buildEventPageLod,
+	encodeEventPage,
+	EVENT_MAIN_CACHE_SIZE,
+	EVENT_PAGE_SIZE,
+	EVENT_PENDING_DOCUMENT_LIMIT,
+	EVENT_RENDER_PROJECTION_LIMIT,
+	EVENT_RENDER_REPRESENTATIVE_LIMIT,
+	EventStoreCapacityTracker,
+	EventStoreRepository,
+	EventStoreViewportProjector,
+	IndexedDbEventStoreBackend,
+	type EventSourceSummary,
+	type EventStoreCapacity,
+	type EventStoreNamespace,
+	type EventStoreViewportDescriptor,
+	type EventStoreWriter,
+} from "@/event-store";
+import { renderWindowProjectionBus } from "@/render-worker/RenderWindowProjection.bus";
+import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
+
+export const RENDERER_BENCHMARK_TARGETS = [
+	10_000_000,
+	20_000_000,
+	30_000_000,
+] as const;
+export const DEFAULT_RENDERER_BENCHMARK_TARGET = RENDERER_BENCHMARK_TARGETS[0];
+export const RENDERER_BENCHMARK_COORDINATOR_ID = "renderer-test";
+
+/** Raw typed-array bytes stored by one document-index locator entry. */
+const DOCUMENT_INDEX_BYTES_PER_EVENT = 6 * Uint32Array.BYTES_PER_ELEMENT;
+
+export type RendererBenchmarkRunStatus =
+	| "idle"
+	| "writing"
+	| "complete"
+	| "skipped"
+	| "failed"
+	| "cancelled";
+
+export type RendererBenchmarkSkipCode =
+	| "quota-insufficient"
+	| "quota-exhausted";
+
+/** Structured reason for a benchmark target that cannot fit in the current origin. */
+export interface RendererBenchmarkSkipReason {
+	code: RendererBenchmarkSkipCode;
+	requiredBytes: number;
+	availableBytes: number;
+}
+
+/** Storage, memory, cache, and bounded-queue telemetry for one benchmark run. */
+export interface RendererBenchmarkDiagnostics {
+	status: RendererBenchmarkRunStatus;
+	targetEvents: number;
+	processedEvents: number;
+	persistedEvents: number;
+	encodedBytes: number;
+	writeElapsedMs: number;
+	writeEventsPerSecond: number;
+	writeEncodedBytesPerSecond: number;
+	capacity: EventStoreCapacity | null;
+	skipReason: RendererBenchmarkSkipReason | null;
+	heapSupported: boolean;
+	heapStartBytes: number;
+	heapPeakBytes: number;
+	heapEndBytes: number;
+	heapDeltaBytes: number;
+	storageUsageStartBytes: number;
+	storageUsageEndBytes: number;
+	storageUsageDeltaBytes: number;
+	estimatedTargetBytes: number;
+	capacityEstimateErrorPercent: number | null;
+	mainCacheDocuments: number;
+	maximumMainCacheDocuments: number;
+	maximumPendingDocuments: number;
+	maximumRenderRepresentatives: number;
+	maximumRenderItems: number;
+	maximumRenderBatchesInFlight: number;
+	projectionBucketPixelWidth: number;
+	projectionDegraded: boolean;
+	resourceGatePassed: boolean;
+	capacityEstimateStatus: RendererBenchmarkCapacityEstimateStatus;
+}
+
+export type RendererBenchmarkCapacityEstimateStatus =
+	| "passed"
+	| "failed"
+	| "unavailable";
+
+/** Deterministic acceptance summary derived from machine-readable diagnostics. */
+export interface RendererBenchmarkResourceGate {
+	passed: boolean;
+	mainCachePassed: boolean;
+	pendingDocumentsPassed: boolean;
+	renderRepresentativesPassed: boolean;
+	renderBatchesPassed: boolean;
+	capacityEstimateStatus: RendererBenchmarkCapacityEstimateStatus;
+}
+
+/** Progress emitted after one bounded source page commits. */
+export interface RendererBenchmarkWriteProgress {
+	status: RendererBenchmarkRunStatus;
+	persistedEvents: number;
+	targetEvents: number;
+	done: boolean;
+	diagnostics: RendererBenchmarkDiagnostics;
+}
+
+/** Immutable parameters used to begin one IndexedDB benchmark generation. */
+export interface RendererBenchmarkStartOptions {
+	targetEvents: number;
+	sourceIds: readonly Source.Id[];
+	generation: number;
+	documentMinTimestamp: number;
+	frameSpanMs: number;
+}
+
+/** Parameters for deterministic generation of one source-local exact page. */
+export interface RendererBenchmarkSourcePageInput {
+	sourceId: Source.Id;
+	sourceIndex: number;
+	sourceCount: number;
+	targetEvents: number;
+	sourceOffset: number;
+	pageSize: number;
+	documentMinTimestamp: number;
+	frameSpanMs: number;
+}
+
+/** Bounded synthetic page plus source-local handles ready for page encoding. */
+export interface RendererBenchmarkSourcePage {
+	documents: Doc.Type[];
+	handles: Uint32Array;
+}
+
+interface RendererBenchmarkSourceCursor {
+	sourceId: Source.Id;
+	sourceIndex: number;
+	eventCount: number;
+	sourceOffset: number;
+	pageId: number;
+	revision: number;
+}
+
+/** Minimal writer lifecycle required by the transition benchmark adapter. */
+export interface RendererBenchmarkWriter extends EventStoreWriter {
+	/** Releases the operation-scoped persistence connection. */
+	close(): void;
+}
+
+/** Stateless LOD projector contract injectable into focused benchmark tests. */
+export interface RendererBenchmarkProjector {
+	/** Produces one complete viewport replacement from persisted pages. */
+	requestRenderWindow(
+		descriptor: EventStoreViewportDescriptor,
+	): Promise<RenderWindowProjection>;
+}
+
+export interface RendererBenchmarkEventStoreDependencies {
+	writer: RendererBenchmarkWriter;
+	projector: RendererBenchmarkProjector;
+	storageManager?: Pick<StorageManager, "estimate">;
+	publishSourceSummary?: (summary: EventSourceSummary) => void;
+	publishProjection?: (projection: RenderWindowProjection) => boolean;
+	readHeapUsageBytes?: () => number | null;
+	readMainCacheDocuments?: () => number;
+	readNowMs?: () => number;
+}
+
+/**
+ * Creates the zeroed machine-readable state published before a benchmark starts.
+ * @param targetEvents Selected 10M, 20M, or 30M target.
+ * @returns Detached diagnostics safe to expose on `window` and DOM datasets.
+ */
+export function createEmptyRendererBenchmarkDiagnostics(
+	targetEvents: number = DEFAULT_RENDERER_BENCHMARK_TARGET,
+): RendererBenchmarkDiagnostics {
+	return {
+		status: "idle",
+		targetEvents,
+		processedEvents: 0,
+		persistedEvents: 0,
+		encodedBytes: 0,
+		writeElapsedMs: 0,
+		writeEventsPerSecond: 0,
+		writeEncodedBytesPerSecond: 0,
+		capacity: null,
+		skipReason: null,
+		heapSupported: false,
+		heapStartBytes: 0,
+		heapPeakBytes: 0,
+		heapEndBytes: 0,
+		heapDeltaBytes: 0,
+		storageUsageStartBytes: 0,
+		storageUsageEndBytes: 0,
+		storageUsageDeltaBytes: 0,
+		estimatedTargetBytes: 0,
+		capacityEstimateErrorPercent: null,
+		mainCacheDocuments: 0,
+		maximumMainCacheDocuments: 0,
+		maximumPendingDocuments: 0,
+		maximumRenderRepresentatives: 0,
+		maximumRenderItems: 0,
+		maximumRenderBatchesInFlight: 0,
+		projectionBucketPixelWidth: 1,
+		projectionDegraded: false,
+		resourceGatePassed: true,
+		capacityEstimateStatus: "unavailable",
+	};
+}
+
+/**
+ * Evaluates bounded RAM-proxy structures and the optional capacity error target.
+ * Chromium heap bytes remain telemetry because no device-independent RAM threshold exists.
+ * @param diagnostics Completed or live benchmark measurements.
+ * @returns Stable pass/fail fields suitable for DOM datasets and automation.
+ */
+export function evaluateRendererBenchmarkResourceGate(
+	diagnostics: RendererBenchmarkDiagnostics,
+): RendererBenchmarkResourceGate {
+	const mainCachePassed =
+		diagnostics.maximumMainCacheDocuments <= EVENT_MAIN_CACHE_SIZE;
+	const pendingDocumentsPassed =
+		diagnostics.maximumPendingDocuments <= EVENT_PENDING_DOCUMENT_LIMIT;
+	const renderRepresentativesPassed =
+		diagnostics.maximumRenderRepresentatives <=
+		EVENT_RENDER_PROJECTION_LIMIT;
+	const renderBatchesPassed = diagnostics.maximumRenderBatchesInFlight <= 2;
+	const capacityEstimateStatus =
+		diagnostics.capacityEstimateErrorPercent === null
+			? "unavailable"
+			: diagnostics.capacityEstimateErrorPercent <= 15
+				? "passed"
+				: "failed";
+	return {
+		passed:
+			mainCachePassed &&
+			pendingDocumentsPassed &&
+			renderRepresentativesPassed &&
+			renderBatchesPassed &&
+			capacityEstimateStatus !== "failed",
+		mainCachePassed,
+		pendingDocumentsPassed,
+		renderRepresentativesPassed,
+		renderBatchesPassed,
+		capacityEstimateStatus,
+	};
+}
+
+interface ChromiumPerformanceMemory {
+	usedJSHeapSize: number;
+}
+
+interface PerformanceWithMemory extends Performance {
+	memory?: ChromiumPerformanceMemory;
+}
+
+/**
+ * Reads an exact supported benchmark target from the URL.
+ * Values may be expressed as `10m`, `20m`, `30m`, or their integer equivalents.
+ * @param search Browser search string.
+ * @param fallback Target used when the URL value is absent or unsupported.
+ * @returns One of the mandatory 10M, 20M, or 30M benchmark targets.
+ */
+export function getRendererBenchmarkTarget(
+	search: string,
+	fallback: number = DEFAULT_RENDERER_BENCHMARK_TARGET,
+): number {
+	const rawValue = new URLSearchParams(search).get("docs")?.trim().toLowerCase();
+	const parsed = rawValue?.endsWith("m")
+		? Number(rawValue.slice(0, -1)) * 1_000_000
+		: Number(rawValue);
+	return RENDERER_BENCHMARK_TARGETS.includes(
+		parsed as (typeof RENDERER_BENCHMARK_TARGETS)[number],
+	)
+		? parsed
+		: fallback;
+}
+
+/**
+ * Returns the exact number of modulo-distributed events owned by one source.
+ * @param targetEvents Total synthetic events across all sources.
+ * @param sourceIndex Zero-based source index.
+ * @param sourceCount Number of benchmark sources.
+ * @returns Source-local event count without enumerating global events.
+ */
+export function getRendererBenchmarkSourceEventCount(
+	targetEvents: number,
+	sourceIndex: number,
+	sourceCount: number,
+): number {
+	if (
+		!Number.isSafeInteger(targetEvents) ||
+		targetEvents < 0 ||
+		!Number.isSafeInteger(sourceIndex) ||
+		sourceIndex < 0 ||
+		!Number.isSafeInteger(sourceCount) ||
+		sourceCount <= 0 ||
+		sourceIndex >= sourceCount ||
+		targetEvents <= sourceIndex
+	) {
+		return 0;
+	}
+	return Math.floor((targetEvents - 1 - sourceIndex) / sourceCount) + 1;
+}
+
+/**
+ * Creates one deterministic synthetic document without retaining neighboring events.
+ * @param sourceId Source that owns the event.
+ * @param sourceIndex Zero-based source index used by global modulo distribution.
+ * @param sourceCount Total benchmark source count.
+ * @param sourceAscendingIndex Event position from oldest zero to newest.
+ * @param targetEvents Total global benchmark count.
+ * @param documentMinTimestamp Minimum benchmark timestamp.
+ * @param frameSpanMs Synthetic timeline span.
+ * @returns One minimal canonical document.
+ */
+export function createRendererBenchmarkDocument(
+	sourceId: Source.Id,
+	sourceIndex: number,
+	sourceCount: number,
+	sourceAscendingIndex: number,
+	targetEvents: number,
+	documentMinTimestamp: number,
+	frameSpanMs: number,
+): Doc.Type {
+	const globalIndex = sourceIndex + sourceAscendingIndex * sourceCount;
+	const fraction = targetEvents <= 0 ? 0 : globalIndex / targetEvents;
+	const jitter = -350 - sourceIndex * 17;
+	return {
+		_id: `rdoc-${globalIndex.toString(16).padStart(12, "0")}` as Doc.Id,
+		gulp_timestamp:
+			documentMinTimestamp + Math.floor(fraction * frameSpanMs) + jitter,
+		"gulp.source_id": sourceId,
+		"gulp.event_code": RENDERER_BENCHMARK_EVENT_CODES[
+			globalIndex % RENDERER_BENCHMARK_EVENT_CODES.length
+		],
+		number_hash: (globalIndex % 2048) - 1024,
+	};
+}
+
+/**
+ * Resolves a deterministic event at an ascending-time source percentile.
+ * @param sourceId Source that owns the event.
+ * @param sourceIndex Zero-based source index.
+ * @param sourceCount Total benchmark source count.
+ * @param percentile Position from oldest zero to newest one.
+ * @param targetEvents Total global benchmark count.
+ * @param documentMinTimestamp Minimum benchmark timestamp.
+ * @param frameSpanMs Synthetic timeline span.
+ * @returns One generated document, or undefined for an empty source.
+ */
+export function getRendererBenchmarkDocumentAtPercentile(
+	sourceId: Source.Id,
+	sourceIndex: number,
+	sourceCount: number,
+	percentile: number,
+	targetEvents: number,
+	documentMinTimestamp: number,
+	frameSpanMs: number,
+): Doc.Type | undefined {
+	const sourceEvents = getRendererBenchmarkSourceEventCount(
+		targetEvents,
+		sourceIndex,
+		sourceCount,
+	);
+	if (sourceEvents === 0) return undefined;
+	const boundedPercentile = Math.max(0, Math.min(1, percentile));
+	const ascendingIndex = Math.floor(boundedPercentile * (sourceEvents - 1));
+	return createRendererBenchmarkDocument(
+		sourceId,
+		sourceIndex,
+		sourceCount,
+		ascendingIndex,
+		targetEvents,
+		documentMinTimestamp,
+		frameSpanMs,
+	);
+}
+
+/**
+ * Generates one exact-size descending source page and its stable handles.
+ * The returned document array never exceeds the EventStore page bound.
+ * @param input Source cursor and deterministic timeline parameters.
+ * @returns Bounded page input for `encodeEventPage`.
+ */
+export function generateRendererBenchmarkSourcePage(
+	input: RendererBenchmarkSourcePageInput,
+): RendererBenchmarkSourcePage {
+	const sourceEvents = getRendererBenchmarkSourceEventCount(
+		input.targetEvents,
+		input.sourceIndex,
+		input.sourceCount,
+	);
+	const remaining = Math.max(0, sourceEvents - input.sourceOffset);
+	const count = Math.min(
+		EVENT_PAGE_SIZE,
+		Math.max(0, Math.floor(input.pageSize)),
+		remaining,
+	);
+	const documents = new Array<Doc.Type>(count);
+	const handles = new Uint32Array(count);
+	for (let index = 0; index < count; index++) {
+		const descendingSourceIndex = input.sourceOffset + index;
+		const ascendingSourceIndex =
+			sourceEvents - 1 - descendingSourceIndex;
+		documents[index] = createRendererBenchmarkDocument(
+			input.sourceId,
+			input.sourceIndex,
+			input.sourceCount,
+			ascendingSourceIndex,
+			input.targetEvents,
+			input.documentMinTimestamp,
+			input.frameSpanMs,
+		);
+		handles[index] = descendingSourceIndex + 1;
+	}
+	return { documents, handles };
+}
+
+/**
+ * Formats byte counts for compact benchmark diagnostics.
+ * @param bytes Non-negative byte count.
+ * @returns IEC value with at most two decimals.
+ */
+export function formatRendererBenchmarkBytes(bytes: number): string {
+	const safeBytes = Math.max(0, bytes);
+	const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+	let value = safeBytes;
+	let unitIndex = 0;
+	while (value >= 1024 && unitIndex < units.length - 1) {
+		value /= 1024;
+		unitIndex++;
+	}
+	return `${value.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
+}
+
+const RENDERER_BENCHMARK_EVENT_CODES = [
+	1, 2, 3, 4, 5, 6, 7, 8, 4624, 4625, 4672, 4776, 4688, 4698, 1102,
+] as const;
+
+/**
+ * Creates the concrete IndexedDB benchmark adapter for one operation namespace.
+ * @param namespace Coordinator and operation identity shared with the main reader.
+ * @param callbacks Main-realm summary/cache hooks retained outside this adapter.
+ * @returns Bounded writer and viewport-projector adapter.
+ */
+export function createRendererBenchmarkEventStore(
+	namespace: EventStoreNamespace,
+	callbacks: Pick<
+		RendererBenchmarkEventStoreDependencies,
+		"publishSourceSummary" | "readMainCacheDocuments"
+	> = {},
+): RendererBenchmarkEventStore {
+	const backend = new IndexedDbEventStoreBackend(namespace);
+	const repository = new EventStoreRepository(backend);
+	return new RendererBenchmarkEventStore({
+		writer: repository,
+		projector: new EventStoreViewportProjector(backend),
+		publishProjection: (projection) =>
+			renderWindowProjectionBus.publish(projection),
+		...callbacks,
+	});
+}
+
+/**
+ * Owns one bounded synthetic EventStore generation without retaining source arrays.
+ * This adapter is intentionally isolated so generation can move into QueryWorker
+ * without changing RendererTest UI and gate orchestration.
+ */
+export class RendererBenchmarkEventStore {
+	private readonly writer: RendererBenchmarkWriter;
+	private readonly projector: RendererBenchmarkProjector;
+	private readonly storageManager?: Pick<StorageManager, "estimate">;
+	private readonly publishSourceSummary: (summary: EventSourceSummary) => void;
+	private readonly publishProjection: (
+		projection: RenderWindowProjection,
+	) => boolean;
+	private readonly readHeapUsageBytes: () => number | null;
+	private readonly readMainCacheDocuments: () => number;
+	private readonly readNowMs: () => number;
+	private capacityTracker = new EventStoreCapacityTracker();
+	private cursors: RendererBenchmarkSourceCursor[] = [];
+	private options: RendererBenchmarkStartOptions | null = null;
+	private nextSourceIndex = 0;
+	private status: RendererBenchmarkRunStatus = "idle";
+	private processedEvents = 0;
+	private persistedEvents = 0;
+	private encodedBytes = 0;
+	private writeStartedAtMs = -1;
+	private writeFinishedAtMs = 0;
+	private capacity: EventStoreCapacity | null = null;
+	private skipReason: RendererBenchmarkSkipReason | null = null;
+	private heapStartBytes = 0;
+	private heapPeakBytes = 0;
+	private heapEndBytes = 0;
+	private storageUsageStartBytes = 0;
+	private storageUsageEndBytes = 0;
+	private estimatedTargetBytes = 0;
+	private maximumMainCacheDocuments = 0;
+	private maximumPendingDocuments = 0;
+	private maximumRenderRepresentatives = 0;
+	private maximumRenderItems = 0;
+	private renderBatchesInFlight = 0;
+	private maximumRenderBatchesInFlight = 0;
+	private projectionBucketPixelWidth = 1;
+	private projectionDegraded = false;
+	private disposed = false;
+
+	/**
+	 * Creates an adapter over explicit persistence and projection dependencies.
+	 * @param dependencies Writer, projector, quota estimator, and publication hooks.
+	 */
+	public constructor(dependencies: RendererBenchmarkEventStoreDependencies) {
+		this.writer = dependencies.writer;
+		this.projector = dependencies.projector;
+		this.storageManager = dependencies.storageManager;
+		this.publishSourceSummary = dependencies.publishSourceSummary ?? (() => undefined);
+		this.publishProjection = dependencies.publishProjection ?? (() => false);
+		this.readHeapUsageBytes =
+			dependencies.readHeapUsageBytes ?? readRendererBenchmarkHeapUsage;
+		this.readMainCacheDocuments =
+			dependencies.readMainCacheDocuments ?? (() => 0);
+		this.readNowMs = dependencies.readNowMs ?? (() => performance.now());
+	}
+
+	/**
+	 * Clears old benchmark generations, checks quota, and opens one generation per source.
+	 * @param options Target, source identities, and deterministic timeline parameters.
+	 * @returns Initial admitted or skipped progress snapshot.
+	 */
+	public async start(
+		options: RendererBenchmarkStartOptions,
+	): Promise<RendererBenchmarkWriteProgress> {
+		this.assertUsable();
+		this.assertStartOptions(options);
+		if (this.status === "writing") {
+			throw new Error("Renderer benchmark generation is already active.");
+		}
+		this.resetRunState(options);
+		try {
+			for (const sourceId of options.sourceIds) {
+				await this.writer.clearSource(sourceId);
+			}
+			this.capacity = await this.capacityTracker.estimate(
+				0,
+				this.storageManager,
+			);
+			this.storageUsageStartBytes = this.capacity.usageBytes;
+			this.storageUsageEndBytes = this.capacity.usageBytes;
+			this.estimatedTargetBytes =
+				options.targetEvents * this.capacity.conservativeBytesPerEvent;
+			if (options.targetEvents > this.capacity.maximumAdditionalEvents) {
+				this.status = "skipped";
+				this.skipReason = {
+					code: "quota-insufficient",
+					requiredBytes: this.estimatedTargetBytes,
+					availableBytes: this.capacity.availableBytes,
+				};
+				return this.getProgress();
+			}
+
+			for (
+				let sourceIndex = 0;
+				sourceIndex < options.sourceIds.length;
+				sourceIndex++
+			) {
+				const sourceId = options.sourceIds[sourceIndex];
+				const summary = await this.writer.beginGeneration({
+					sourceId,
+					generation: options.generation,
+					sourceOrdinal: sourceIndex + 1,
+				});
+				this.publishSourceSummary(summary);
+				this.cursors.push({
+					sourceId,
+					sourceIndex,
+					eventCount: getRendererBenchmarkSourceEventCount(
+						options.targetEvents,
+						sourceIndex,
+						options.sourceIds.length,
+					),
+					sourceOffset: 0,
+					pageId: 0,
+					revision: summary.revision,
+				});
+			}
+			this.status = "writing";
+			this.writeStartedAtMs = this.readNowMs();
+			return this.getProgress();
+		} catch (error) {
+			this.status = "failed";
+			this.writeFinishedAtMs = this.readNowMs();
+			await this.markActiveGenerationsIncomplete();
+			throw error;
+		}
+	}
+
+	/**
+	 * Encodes and commits at most one exact EventStore page.
+	 * @returns Progress after the bounded page, or a terminal status when complete/skipped.
+	 */
+	public async appendNextPage(): Promise<RendererBenchmarkWriteProgress> {
+		this.assertUsable();
+		if (this.status !== "writing" || !this.options) return this.getProgress();
+		const cursor = this.findNextWritableCursor();
+		if (!cursor) return this.getProgress();
+
+		const pageInput = generateRendererBenchmarkSourcePage({
+			sourceId: cursor.sourceId,
+			sourceIndex: cursor.sourceIndex,
+			sourceCount: this.cursors.length,
+			targetEvents: this.options.targetEvents,
+			sourceOffset: cursor.sourceOffset,
+			pageSize: EVENT_PAGE_SIZE,
+			documentMinTimestamp: this.options.documentMinTimestamp,
+			frameSpanMs: this.options.frameSpanMs,
+		});
+		this.maximumPendingDocuments = Math.max(
+			this.maximumPendingDocuments,
+			pageInput.documents.length,
+		);
+		this.sampleHeapUsage();
+		try {
+			const page = encodeEventPage({
+				sourceId: cursor.sourceId,
+				generation: this.options.generation,
+				pageId: cursor.pageId,
+				revision: cursor.revision + 1,
+				documents: pageInput.documents,
+				handles: pageInput.handles,
+			});
+			const lod = buildEventPageLod(page);
+			const height = buildEventPageHeight(page);
+			const summary = await this.writer.appendPages({
+				sourceId: cursor.sourceId,
+				generation: this.options.generation,
+				pages: [page],
+			});
+			const committedBytes =
+				page.encodedByteLength +
+				lod.encodedByteLength +
+				height.encodedByteLength +
+				page.activeCount * DOCUMENT_INDEX_BYTES_PER_EVENT;
+			cursor.sourceOffset += page.activeCount;
+			cursor.pageId++;
+			cursor.revision = summary.revision;
+			this.processedEvents += page.activeCount;
+			this.persistedEvents += page.activeCount;
+			this.encodedBytes += committedBytes;
+			this.publishSourceSummary(summary);
+			this.capacityTracker.recordCommittedWrite(
+				committedBytes,
+				page.activeCount,
+			);
+			this.sampleHeapUsage();
+			if (this.capacityTracker.shouldReestimate()) {
+				const admitted = await this.reestimateRemainingCapacity();
+				if (!admitted) return this.getProgress();
+			}
+			return this.getProgress();
+		} catch (error) {
+			if (isQuotaError(error)) {
+				await this.skipAfterQuotaExhaustion();
+				return this.getProgress();
+			}
+			this.status = "failed";
+			this.writeFinishedAtMs = this.readNowMs();
+			await this.markActiveGenerationsIncomplete();
+			throw error;
+		}
+	}
+
+	/**
+	 * Finalizes every fully written source and publishes compact source summaries.
+	 * @returns Complete diagnostics after a final quota and heap measurement.
+	 */
+	public async finalize(): Promise<RendererBenchmarkDiagnostics> {
+		this.assertUsable();
+		if (this.status !== "writing" || !this.options) {
+			return this.getDiagnostics();
+		}
+		if (!this.isWriteComplete()) {
+			throw new Error("Renderer benchmark cannot finalize before every page commits.");
+		}
+		try {
+			for (const cursor of this.cursors) {
+				const summary = await this.writer.finalizeGeneration(
+					cursor.sourceId,
+					this.options.generation,
+				);
+				cursor.revision = summary.revision;
+				this.publishSourceSummary(summary);
+			}
+		} catch (error) {
+			this.status = "failed";
+			this.writeFinishedAtMs = this.readNowMs();
+			await this.markActiveGenerationsIncomplete();
+			throw error;
+		}
+		this.status = "complete";
+		this.writeFinishedAtMs = this.readNowMs();
+		try {
+			this.capacity = await this.capacityTracker.estimate(
+				this.persistedEvents,
+				this.storageManager,
+			);
+			this.storageUsageEndBytes = this.capacity.usageBytes;
+		} catch {
+			// Persistence is complete even when optional quota telemetry is unavailable.
+		}
+		this.sampleHeapUsage(true);
+		return this.getDiagnostics();
+	}
+
+	/**
+	 * Applies one bounded measured delta to finalized benchmark generations.
+	 * @param documents New or enriched benchmark events, capped to the worker backlog bound.
+	 * @returns Updated source summaries.
+	 */
+	public async upsertDocuments(
+		documents: readonly Doc.Type[],
+	): Promise<EventSourceSummary[]> {
+		this.assertUsable();
+		if (this.status !== "complete") {
+			throw new Error("Renderer benchmark upserts require a complete generation.");
+		}
+		if (documents.length > EVENT_PENDING_DOCUMENT_LIMIT) {
+			throw new RangeError(
+				`Renderer benchmark delta exceeds ${EVENT_PENDING_DOCUMENT_LIMIT} documents.`,
+			);
+		}
+		this.maximumPendingDocuments = Math.max(
+			this.maximumPendingDocuments,
+			documents.length,
+		);
+		this.capacity = await this.capacityTracker.estimate(
+			this.persistedEvents,
+			this.storageManager,
+		);
+		this.storageUsageEndBytes = this.capacity.usageBytes;
+		if (documents.length > this.capacity.maximumAdditionalEvents) {
+			this.skipReason = {
+				code: "quota-insufficient",
+				requiredBytes:
+					documents.length * this.capacity.conservativeBytesPerEvent,
+				availableBytes: this.capacity.availableBytes,
+			};
+			throw new Error("Renderer benchmark delta exceeds origin capacity.");
+		}
+		this.sampleHeapUsage();
+		let summaries: EventSourceSummary[];
+		try {
+			summaries = await this.writer.upsertDocuments({ documents });
+		} catch (error) {
+			if (isQuotaError(error)) {
+				this.skipReason = {
+					code: "quota-exhausted",
+					requiredBytes:
+						documents.length *
+						(this.capacity?.conservativeBytesPerEvent ?? 160),
+					availableBytes: this.capacity?.availableBytes ?? 0,
+				};
+			}
+			throw error;
+		}
+		for (const summary of summaries) this.publishSourceSummary(summary);
+		const summaryCounts = new Map(
+			this.cursors.map((cursor) => [cursor.sourceId, cursor.eventCount]),
+		);
+		for (const summary of summaries) {
+			summaryCounts.set(summary.sourceId, summary.eventCount);
+			const cursor = this.cursors.find(
+				(candidate) => candidate.sourceId === summary.sourceId,
+			);
+			if (cursor) {
+				cursor.eventCount = summary.eventCount;
+				cursor.revision = summary.revision;
+			}
+		}
+		this.persistedEvents = [...summaryCounts.values()].reduce(
+			(total, count) => total + count,
+			0,
+		);
+		this.sampleHeapUsage();
+		return summaries;
+	}
+
+	/**
+	 * Builds one exact-size viewport projection without retaining it in the adapter.
+	 * @param descriptor Current Canvas viewport and visible source settings.
+	 * @returns Complete render-window projection.
+	 */
+	public async requestRenderWindow(
+		descriptor: EventStoreViewportDescriptor,
+	): Promise<RenderWindowProjection> {
+		this.assertUsable();
+		const projection = await this.projector.requestRenderWindow(descriptor);
+		this.recordProjectionMetrics(projection);
+		return projection;
+	}
+
+	/**
+	 * Builds and synchronously hands one projection to the Canvas bus.
+	 * @param descriptor Current Canvas viewport and visible source settings.
+	 * @returns True when the mounted Canvas accepted the projection.
+	 */
+	public async publishRenderWindow(
+		descriptor: EventStoreViewportDescriptor,
+	): Promise<boolean> {
+		if (this.renderBatchesInFlight >= 2) return false;
+		this.renderBatchesInFlight++;
+		this.maximumRenderBatchesInFlight = Math.max(
+			this.maximumRenderBatchesInFlight,
+			this.renderBatchesInFlight,
+		);
+		try {
+			const projection = await this.requestRenderWindow(descriptor);
+			return this.publishProjection(projection);
+		} finally {
+			this.renderBatchesInFlight--;
+		}
+	}
+
+	/**
+	 * Cancels a partially written generation and releases its persisted pages.
+	 * @returns Terminal cancelled diagnostics.
+	 */
+	public async cancel(): Promise<RendererBenchmarkDiagnostics> {
+		if (this.disposed) return this.getDiagnostics();
+		if (this.status === "writing" && this.options) {
+			await this.cancelActiveGenerations();
+			this.persistedEvents = 0;
+			this.status = "cancelled";
+			this.writeFinishedAtMs = this.readNowMs();
+		}
+		this.sampleHeapUsage(true);
+		return this.getDiagnostics();
+	}
+
+	/**
+	 * Returns a detached diagnostics snapshot with live cache and heap measurements.
+	 * @returns Current benchmark resource telemetry.
+	 */
+	public getDiagnostics(): RendererBenchmarkDiagnostics {
+		this.sampleHeapUsage(this.status !== "writing");
+		const storageUsageDeltaBytes = Math.max(
+			0,
+			this.storageUsageEndBytes - this.storageUsageStartBytes,
+		);
+		const capacityEstimateErrorPercent = storageUsageDeltaBytes > 0
+			? Math.abs(this.estimatedTargetBytes - storageUsageDeltaBytes) /
+				storageUsageDeltaBytes * 100
+			: null;
+		const writeElapsedMs = this.writeStartedAtMs < 0
+			? 0
+			: Math.max(
+				0,
+				(this.writeFinishedAtMs || this.readNowMs()) - this.writeStartedAtMs,
+			);
+		const writeSeconds = writeElapsedMs / 1_000;
+		const mainCacheDocuments = this.readMainCacheDocuments();
+		this.maximumMainCacheDocuments = Math.max(
+			this.maximumMainCacheDocuments,
+			mainCacheDocuments,
+		);
+		const diagnostics: RendererBenchmarkDiagnostics = {
+			status: this.status,
+			targetEvents: this.options?.targetEvents ?? 0,
+			processedEvents: this.processedEvents,
+			persistedEvents: this.persistedEvents,
+			encodedBytes: this.encodedBytes,
+			writeElapsedMs,
+			writeEventsPerSecond:
+				writeSeconds > 0 ? this.processedEvents / writeSeconds : 0,
+			writeEncodedBytesPerSecond:
+				writeSeconds > 0 ? this.encodedBytes / writeSeconds : 0,
+			capacity: this.capacity ? { ...this.capacity } : null,
+			skipReason: this.skipReason ? { ...this.skipReason } : null,
+			heapSupported: this.heapStartBytes > 0,
+			heapStartBytes: this.heapStartBytes,
+			heapPeakBytes: this.heapPeakBytes,
+			heapEndBytes: this.heapEndBytes,
+			heapDeltaBytes: Math.max(0, this.heapEndBytes - this.heapStartBytes),
+			storageUsageStartBytes: this.storageUsageStartBytes,
+			storageUsageEndBytes: this.storageUsageEndBytes,
+			storageUsageDeltaBytes,
+			estimatedTargetBytes: this.estimatedTargetBytes,
+			capacityEstimateErrorPercent,
+			mainCacheDocuments,
+			maximumMainCacheDocuments: this.maximumMainCacheDocuments,
+			maximumPendingDocuments: this.maximumPendingDocuments,
+			maximumRenderRepresentatives: this.maximumRenderRepresentatives,
+			maximumRenderItems: this.maximumRenderItems,
+			maximumRenderBatchesInFlight: this.maximumRenderBatchesInFlight,
+			projectionBucketPixelWidth: this.projectionBucketPixelWidth,
+			projectionDegraded: this.projectionDegraded,
+			resourceGatePassed: true,
+			capacityEstimateStatus: "unavailable",
+		};
+		const resourceGate = evaluateRendererBenchmarkResourceGate(diagnostics);
+		diagnostics.resourceGatePassed = resourceGate.passed;
+		diagnostics.capacityEstimateStatus = resourceGate.capacityEstimateStatus;
+		return diagnostics;
+	}
+
+	/** Releases the operation-scoped writer connection. */
+	public close(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+		this.writer.close();
+	}
+
+	/** Resets all run-local counters before capacity admission. */
+	private resetRunState(options: RendererBenchmarkStartOptions): void {
+		this.options = { ...options, sourceIds: [...options.sourceIds] };
+		this.cursors = [];
+		this.nextSourceIndex = 0;
+		this.status = "idle";
+		this.capacityTracker = new EventStoreCapacityTracker();
+		this.processedEvents = 0;
+		this.persistedEvents = 0;
+		this.encodedBytes = 0;
+		this.writeStartedAtMs = -1;
+		this.writeFinishedAtMs = 0;
+		this.capacity = null;
+		this.skipReason = null;
+		const initialHeap = this.readHeapUsageBytes() ?? 0;
+		this.heapStartBytes = initialHeap;
+		this.heapPeakBytes = initialHeap;
+		this.heapEndBytes = initialHeap;
+		this.storageUsageStartBytes = 0;
+		this.storageUsageEndBytes = 0;
+		this.estimatedTargetBytes = 0;
+		this.maximumMainCacheDocuments = 0;
+		this.maximumPendingDocuments = 0;
+		this.maximumRenderRepresentatives = 0;
+		this.maximumRenderItems = 0;
+		this.renderBatchesInFlight = 0;
+		this.maximumRenderBatchesInFlight = 0;
+		this.projectionBucketPixelWidth = 1;
+		this.projectionDegraded = false;
+	}
+
+	/** Selects the next source with a not-yet-written exact page. */
+	private findNextWritableCursor(): RendererBenchmarkSourceCursor | null {
+		for (let offset = 0; offset < this.cursors.length; offset++) {
+			const index = (this.nextSourceIndex + offset) % this.cursors.length;
+			const cursor = this.cursors[index];
+			if (cursor.sourceOffset >= cursor.eventCount) continue;
+			this.nextSourceIndex = (index + 1) % this.cursors.length;
+			return cursor;
+		}
+		return null;
+	}
+
+	/** Checks whether every source cursor reached its deterministic event count. */
+	private isWriteComplete(): boolean {
+		return this.cursors.every(
+			(cursor) => cursor.sourceOffset >= cursor.eventCount,
+		);
+	}
+
+	/** Rechecks quota after the configured EventStore event/byte thresholds. */
+	private async reestimateRemainingCapacity(): Promise<boolean> {
+		if (!this.options) return false;
+		this.capacity = await this.capacityTracker.estimate(
+			this.persistedEvents,
+			this.storageManager,
+		);
+		this.storageUsageEndBytes = this.capacity.usageBytes;
+		this.estimatedTargetBytes =
+			this.options.targetEvents * this.capacity.conservativeBytesPerEvent;
+		const remainingEvents = Math.max(
+			0,
+			this.options.targetEvents - this.persistedEvents,
+		);
+		if (remainingEvents <= this.capacity.maximumAdditionalEvents) return true;
+		this.skipReason = {
+			code: "quota-exhausted",
+			requiredBytes:
+				remainingEvents * this.capacity.conservativeBytesPerEvent,
+			availableBytes: this.capacity.availableBytes,
+		};
+		await this.cancelActiveGenerations();
+		this.persistedEvents = 0;
+		this.status = "skipped";
+		this.writeFinishedAtMs = this.readNowMs();
+		return false;
+	}
+
+	/** Handles a concrete IndexedDB quota failure after admission. */
+	private async skipAfterQuotaExhaustion(): Promise<void> {
+		const remainingEvents = Math.max(
+			0,
+			(this.options?.targetEvents ?? 0) - this.persistedEvents,
+		);
+		this.skipReason = {
+			code: "quota-exhausted",
+			requiredBytes:
+				remainingEvents * (this.capacity?.conservativeBytesPerEvent ?? 160),
+			availableBytes: this.capacity?.availableBytes ?? 0,
+		};
+		await this.cancelActiveGenerations();
+		this.persistedEvents = 0;
+		this.status = "skipped";
+		this.writeFinishedAtMs = this.readNowMs();
+	}
+
+	/** Cancels every source generation opened by the current run. */
+	private async cancelActiveGenerations(): Promise<void> {
+		if (!this.options) return;
+		for (const cursor of this.cursors) {
+			try {
+				await this.writer.cancelGeneration(
+					cursor.sourceId,
+					this.options.generation,
+				);
+			} catch {
+				// Another source may have failed before its generation was opened.
+			}
+		}
+	}
+
+	/** Marks committed partial data incomplete after a non-quota failure. */
+	private async markActiveGenerationsIncomplete(): Promise<void> {
+		if (!this.options) return;
+		for (const cursor of this.cursors) {
+			try {
+				await this.writer.markGenerationIncomplete(
+					cursor.sourceId,
+					this.options.generation,
+				);
+			} catch {
+				// Preserve the original write error when cleanup cannot advance a source.
+			}
+		}
+	}
+
+	/** Records projection residency before buffers transfer to Canvas. */
+	private recordProjectionMetrics(projection: RenderWindowProjection): void {
+		let representatives = 0;
+		let items = 0;
+		for (const source of projection.sources) {
+			representatives += source.representativeHandles.length;
+			items +=
+				source.representativeHandles.length +
+				source.heightCounts.length +
+				source.graphCounts.length;
+			this.projectionBucketPixelWidth = Math.max(
+				this.projectionBucketPixelWidth,
+				source.bucketPixelWidth,
+			);
+			this.projectionDegraded ||= source.degradedLod;
+		}
+		this.maximumRenderRepresentatives = Math.max(
+			this.maximumRenderRepresentatives,
+			representatives,
+		);
+		this.maximumRenderItems = Math.max(this.maximumRenderItems, items);
+	}
+
+	/** Samples optional Chromium heap telemetry without retaining allocation objects. */
+	private sampleHeapUsage(markEnd = false): void {
+		const heapUsage = this.readHeapUsageBytes();
+		if (heapUsage === null) return;
+		this.heapPeakBytes = Math.max(this.heapPeakBytes, heapUsage);
+		if (markEnd) this.heapEndBytes = heapUsage;
+	}
+
+	/** Builds one immutable public progress result. */
+	private getProgress(): RendererBenchmarkWriteProgress {
+		return {
+			status: this.status,
+			persistedEvents: this.persistedEvents,
+			targetEvents: this.options?.targetEvents ?? 0,
+			done: this.status !== "writing" || this.isWriteComplete(),
+			diagnostics: this.getDiagnostics(),
+		};
+	}
+
+	/** Throws after close so callers cannot accidentally reuse detached resources. */
+	private assertUsable(): void {
+		if (this.disposed) {
+			throw new Error("Renderer benchmark EventStore adapter is closed.");
+		}
+	}
+
+	/** Validates finite, bounded run parameters before clearing existing data. */
+	private assertStartOptions(options: RendererBenchmarkStartOptions): void {
+		if (
+			!Number.isSafeInteger(options.targetEvents) ||
+			options.targetEvents < 0 ||
+			!Number.isSafeInteger(options.generation) ||
+			options.generation < 0 ||
+			options.sourceIds.length === 0 ||
+			new Set(options.sourceIds).size !== options.sourceIds.length ||
+			!Number.isFinite(options.documentMinTimestamp) ||
+			!Number.isFinite(options.frameSpanMs) ||
+			options.frameSpanMs <= 0
+		) {
+			throw new RangeError("Renderer benchmark start options are malformed.");
+		}
+		const maximumSourceEvents = Math.max(
+			...options.sourceIds.map((_, sourceIndex) =>
+				getRendererBenchmarkSourceEventCount(
+					options.targetEvents,
+					sourceIndex,
+					options.sourceIds.length,
+				),
+			),
+		);
+		if (maximumSourceEvents > 0xffff_fffe) {
+			throw new RangeError("Renderer benchmark target exhausts uint32 source handles.");
+		}
+	}
+}
+
+/** Reads Chromium's optional heap counter when exposed to the current page. */
+function readRendererBenchmarkHeapUsage(): number | null {
+	const memory = (performance as PerformanceWithMemory).memory;
+	return memory && Number.isFinite(memory.usedJSHeapSize)
+		? memory.usedJSHeapSize
+		: null;
+}
+
+/** Identifies browser quota failures without depending on a specific DOMException realm. */
+function isQuotaError(error: unknown): boolean {
+	return (
+		typeof DOMException !== "undefined" &&
+		error instanceof DOMException &&
+		(error.name === "QuotaExceededError" || error.name === "NS_ERROR_DOM_QUOTA_REACHED")
+	);
+}
+
+export const RENDERER_BENCHMARK_CACHE_LIMIT = EVENT_MAIN_CACHE_SIZE;
+export const RENDERER_BENCHMARK_PENDING_LIMIT = EVENT_PENDING_DOCUMENT_LIMIT;
+export const RENDERER_BENCHMARK_REPRESENTATIVE_LIMIT =
+	EVENT_RENDER_PROJECTION_LIMIT;
+export const RENDERER_BENCHMARK_WORKING_SET_LIMIT =
+	EVENT_RENDER_REPRESENTATIVE_LIMIT;
+
+/** Namespace used by the benchmark reader, writer, and detached realms. */
+export function createRendererBenchmarkNamespace(
+	operationId: Operation.Id,
+): EventStoreNamespace {
+	return {
+		coordinatorId: RENDERER_BENCHMARK_COORDINATOR_ID,
+		operationId,
+	};
+}

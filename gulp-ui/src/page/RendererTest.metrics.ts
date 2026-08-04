@@ -1,5 +1,6 @@
 import type { RendererBackendStatus } from "@/app/body/CanvasRendererBackend";
 import type { CanvasWorkerProfilerSnapshot } from "@/app/body/CanvasProfiler";
+import type { RendererBenchmarkDiagnostics } from "./RendererTest.benchmark";
 
 export type RendererInteractionScenario =
 	| "pointer"
@@ -43,6 +44,7 @@ export interface ReleaseGateResult {
 	scenario: RendererInteractionScenario;
 	burst: number;
 	refreshRateBaseline: RendererRefreshRateBaseline;
+	benchmarkDiagnostics?: RendererBenchmarkDiagnostics;
 }
 
 export interface ReleaseGateCriterion {

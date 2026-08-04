@@ -326,6 +326,68 @@ describe("WorkerRenderCore", () => {
 		expect(statistics?.renderedEventPixels).toBe(1);
 	});
 
+	it("renders aggregate-only LOD data and labels the full loaded count", async () => {
+		const source = {
+			...createRenderSource("source-height-lod", 0),
+			engine: "height" as const,
+			timestamp: { min: 0, max: 180_000 },
+			total: 17,
+		};
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: { revision: 1, records: [source], removedSourceIds: [] },
+			renderWindow: {
+				operationEpoch: 1,
+				viewportRevision: 1,
+				projectionRevision: 1,
+				sources: [
+					{
+						sourceId: source.id,
+						sourceRevision: 4,
+						coveredRange: { min: 0, max: 180_000 },
+						bucketPixelWidth: 1,
+						degradedLod: false,
+						loadedCount: 30_000_000,
+						hashRange: { min: 0, max: 1 },
+						representativeHandles: new Uint32Array(0),
+						representativeTimestamps: new Float64Array(0),
+						representativeHashes: new Float64Array(0),
+						heightTimestamps: Float64Array.of(0, 60_000),
+						heightCounts: Float64Array.of(2, 5),
+						heightMaximumCount: 5,
+						graphTimestamps: new Float64Array(0),
+						graphCounts: new Float64Array(0),
+					},
+				],
+				evictedSourceIds: [],
+			},
+		});
+		repository.setFrameState(
+			createFrameState([source.id], {
+				width: 400,
+				frame: { min: 0, max: 180_000 },
+			}),
+		);
+		const recordedText: string[] = [];
+		const context = createRecordingContext(400, 96, recordedText);
+		const renderCore = new WorkerRenderCore(context, repository, {
+			requestAsset: jest.fn(),
+		});
+
+		const statistics = renderCore.render(100, DirtyCanvas.Events);
+		const fillRectCalls = (
+			context.fillRect as unknown as {
+				mock: { calls: Array<[number, number, number, number]> };
+			}
+		).mock.calls;
+
+		expect(statistics?.renderedRows).toBe(1);
+		expect(
+			fillRectCalls.some(([, , width, height]) => width === 1 && height < 0),
+		).toBe(true);
+		expect(recordedText.includes("30000000")).toBe(true);
+	});
+
 	it("renders graph-engine samples shifted into the visible frame by source offset", async () => {
 		const rawEventTimestamp = 1_743_025_550_367;
 		const offset = -124_900_000_000;

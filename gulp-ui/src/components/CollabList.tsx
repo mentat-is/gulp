@@ -12,9 +12,9 @@ import { Button } from "@/ui/Button";
 import { Badge } from "@/ui/Badge";
 import { Note } from "@/entities/Note";
 import { Link } from "@/entities/Link";
-import { Doc } from "@/entities/Doc";
 import { Glyph } from "@/entities/Glyph";
 import { Locale } from "@/locales";
+import { DataStore } from "@/store/DataStore";
 
 export namespace Collab {
   export namespace List {
@@ -80,7 +80,7 @@ export namespace Collab {
       prevProps.item.type === nextProps.item.type;
   });
   export function List({ notes, links, container, className, ...props }: Collab.List.Props) {
-    const { app, spawnBanner } = Application.use();
+    const { spawnBanner } = Application.use();
     const { t } = Locale.use();
     const collabItems = useMemo(() => [...notes, ...links], [notes, links]);
     const hasItems = notes.length > 0 || links.length > 0;
@@ -97,13 +97,21 @@ export namespace Collab {
       setTargetId(getFirstCollabItemId(collabItems));
     }, [collabItems, targetId]);
 
-    const handleEditClick = useCallback(() => {
+    const handleEditClick = useCallback(async (): Promise<void> => {
       if (!target) return;
+      const documentId = target.type === 'note'
+        ? target.doc._id
+        : target.doc_id_from;
+      const sourceId = target.type === 'note'
+        ? Note.Entity.sourceId(target)
+        : undefined;
+      const event = await DataStore.Events.getById(documentId, sourceId);
+      if (!event) return;
       const banner = target.type === 'note'
-        ? <NoteFunctionality.Create.Banner event={Doc.Entity.id(app, target.doc._id)} note={target} />
-        : <LinkFunctionality.Create.Banner event={Doc.Entity.id(app, target.doc_id_from)} link={target as unknown as Link.Type} />;
+        ? <NoteFunctionality.Create.Banner event={event} note={target} />
+        : <LinkFunctionality.Create.Banner event={event} link={target as unknown as Link.Type} />;
       spawnBanner(banner);
-    }, [target, app, spawnBanner]);
+    }, [target, spawnBanner]);
     const handleDeleteClick = useCallback(() => {
       if (!target) return;
       const banner = target.type === 'note'

@@ -4,6 +4,14 @@
     "@dir": "rtl"
   },
   "strings": {
+    "eventStore.streamFailed": "טעינת האירועים הופסקה. בדקו את שטח האחסון הזמין ונסו שוב.",
+    "eventStore.streamFailed.backlog": "האירועים הגיעו מהר יותר מכפי שהדפדפן הצליח לשמור אותם. הפעילו שוב את השאילתה.",
+    "eventStore.streamFailed.quota": "אין מספיק מקום באחסון הדפדפן לטעינת האירועים האלה. פנו מקום ונסו שוב.",
+    "eventStore.streamFailed.storage": "אחסון הדפדפן אינו זמין. בדקו את הרשאות נתוני האתר או סגרו כרטיסיות אחרות ונסו שוב.",
+    "eventStore.streamFailed.normalization": "לא ניתן היה לקרוא חלק מהאירועים. נסו שוב או בדקו את נתוני המקור.",
+    "eventStore.streamFailed.disconnected": "החיבור נותק בזמן טעינת האירועים. נסו שוב לאחר ההתחברות מחדש.",
+    "group.eventsChangedRefresh": "האירועים השתנו במהלך הטעינה. העמוד הראשון רוענן.",
+    "source.cacheRebuildInPlace": "שטח האחסון מוגבל, ולכן המטמון של מקור זה נבנה מחדש במקום. אם השאילתה תופסק, המקור ייטען מחדש.",
     "detachedApp.authLost": "נדרשת התחברות",
     "detachedApp.authLostDescription": "הלשונית הראשית מנותקת. התחבר מחדש ובחר פעולה כדי להמשיך את החלון המנותק הזה.",
     "detachedApp.idle": "ממתין לפעולה",

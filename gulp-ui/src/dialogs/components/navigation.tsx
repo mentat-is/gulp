@@ -1,6 +1,6 @@
 import { DisplayEventDialog, EventIndicator } from '../Event.dialog'
 import { Application } from '@/context/Application.context'
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Source } from '@/entities/Source'
 import s from './navigation.module.css'
 import { cn } from '@/ui/utils'
@@ -9,6 +9,7 @@ import { Stack } from '@/ui/Stack'
 import { Button } from '@/ui/Button'
 import { Locale } from '@/locales'
 import { WindowBridge } from '@/lib/WindowBridge'
+import { DataStore } from '@/store/DataStore'
 
 export namespace Navigation {
   export interface Props {
@@ -42,23 +43,60 @@ export function Navigation({ event }: Navigation.Props) {
       : null
 
   const file = Source.Entity.id(app, event['gulp.source_id'])
+  const sourceId = file?.id
+  const [allEvents, setAllEvents] = useState<Doc.Type[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const documentRevision = useSyncExternalStore(
+    DataStore.subscribeDocuments,
+    DataStore.getDocumentsSnapshot,
+    DataStore.getDocumentsSnapshot
+  )
 
-  /** Local deduplication to ensure a clean list even if DataStore has stale duplicates */
-  const allEvents = useMemo(() => {
-    const raw =
-      !detachedNavigation && file
-        ? Doc.Entity.get(app, file.id).toReversed()
-        : []
-    const unique: Doc.Type[] = []
-    const seen = new Set<Doc.Id>()
-    for (const e of raw) {
-      if (e && !seen.has(e._id)) {
-        seen.add(e._id)
-        unique.push(e)
-      }
+  useEffect(() => {
+    if (detachedNavigation || !sourceId) {
+      setAllEvents([])
+      setIsLoading(false)
+      return
     }
-    return unique
-  }, [file, app.timeline.renderVersion, detachedNavigation])
+
+    let canceled = false
+    setIsLoading(true)
+    void DataStore.Events.getNeighbors(
+      sourceId,
+      event._id,
+      Math.floor(WINDOW_SIZE / 2),
+      Math.floor(WINDOW_SIZE / 2)
+    )
+      .then((result) => {
+        if (canceled) return
+        // EventStore ordering is newest-first; the navigation strip is oldest-first.
+        const unique: Doc.Type[] = []
+        const seen = new Set<Doc.Id>()
+        for (let index = result.events.length - 1; index >= 0; index--) {
+          const candidate = result.events[index]
+          if (!candidate || seen.has(candidate._id)) continue
+          seen.add(candidate._id)
+          unique.push(candidate)
+        }
+        setAllEvents(unique)
+      })
+      .catch(() => {
+        if (!canceled) setAllEvents([])
+      })
+      .finally(() => {
+        if (!canceled) setIsLoading(false)
+      })
+
+    return () => {
+      canceled = true
+    }
+  }, [
+    app.timeline.renderVersion,
+    detachedNavigation,
+    documentRevision,
+    event._id,
+    sourceId,
+  ])
 
   const currentIndex = allEvents.findIndex((e) => e && e._id === event._id)
 
@@ -144,10 +182,10 @@ export function Navigation({ event }: Navigation.Props) {
 
   const hasPreviousEvent = detachedNavigation
     ? detachedNavigation.previousEventId !== null
-    : currentIndex > 0
+    : !isLoading && currentIndex > 0
   const hasNextEvent = detachedNavigation
     ? detachedNavigation.nextEventId !== null
-    : currentIndex >= 0 && currentIndex < allEvents.length - 1
+    : !isLoading && currentIndex >= 0 && currentIndex < allEvents.length - 1
 
   return (
     <Stack

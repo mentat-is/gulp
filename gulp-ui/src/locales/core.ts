@@ -1,3 +1,5 @@
+import enLocale from "./en.json";
+
 export const defaultLanguage = "en";
 export type Language = string;
 export type LocaleDir = "ltr" | "rtl";
@@ -14,18 +16,43 @@ type LocaleFile = {
   strings?: LocaleTable;
 };
 
+interface LocaleModuleContext {
+  keys: () => string[];
+  <T = unknown>(id: string): T;
+}
+
 declare const require: {
-  context: (path: string, deep?: boolean, filter?: RegExp) => {
-    keys: () => string[];
-    <T = unknown>(id: string): T;
-  };
+  context: (path: string, deep?: boolean, filter?: RegExp) => LocaleModuleContext;
 };
 
+/** Returns a Jest-safe single-module context for the required English fallback. */
+function createEnglishFallbackContext(): LocaleModuleContext {
+  const context = (<T = unknown>(id: string): T => {
+    if (id !== "./en.json") throw new Error(`Unknown fallback locale module: ${id}`);
+    return enLocale as T;
+  }) as LocaleModuleContext;
+  context.keys = () => ["./en.json"];
+  return context;
+}
+
+/** Returns an empty module context when plugin discovery is unavailable outside Webpack. */
+function createEmptyLocaleContext(): LocaleModuleContext {
+  const context = (<T = unknown>(id: string): T => {
+    throw new Error(`Unknown plugin locale module: ${id}`);
+  }) as LocaleModuleContext;
+  context.keys = () => [];
+  return context;
+}
+
 const localeContext = () =>
-  require.context("./", false, /^\.\/.+\.json$/);
+  process.env.NODE_ENV === "test"
+    ? createEnglishFallbackContext()
+    : require.context("./", false, /^\.\/.+\.json$/);
 
 const pluginLocaleContext = () =>
-  require.context("../plugins", false, /^\.\/.+\.locale\.[^.]+\.json$/);
+  process.env.NODE_ENV === "test"
+    ? createEmptyLocaleContext()
+    : require.context("../plugins", false, /^\.\/.+\.locale\.[^.]+\.json$/);
 
 const languageStorageKey = "settings.ui_language";
 

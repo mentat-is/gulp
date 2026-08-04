@@ -75,6 +75,54 @@ describe("DataStore source insertion", () => {
 		expect(DataStore.hasRenderableSourceEvents(SOURCE_ID, 5)).toBe(true);
 	});
 
+	it("uses compact event-store summaries without materializing source arrays", () => {
+		const summaries: number[] = [];
+		const unsubscribe = DataStore.subscribeEventSourceSummaries((summary) => {
+			summaries.push(summary.eventCount);
+		});
+		const summary = {
+			sourceId: SOURCE_ID,
+			revision: 3,
+			status: "complete",
+			eventCount: 12,
+			minTimestamp: 100,
+			maxTimestamp: 300,
+			hashMin: 1,
+			hashMax: 9,
+		} as const;
+		DataStore.publishEventSourceSummary(summary);
+		DataStore.publishEventSourceSummary(summary);
+
+		expect(DataStore.peekSourceEvents(SOURCE_ID)).toBeUndefined();
+		expect(DataStore.hasRenderableSourceEvents(SOURCE_ID, 0)).toBe(true);
+		expect(DataStore.getSourceRevision(SOURCE_ID)).toBe(3);
+		expect(DataStore.getEventSourceSummary(SOURCE_ID)?.eventCount).toBe(12);
+		expect(summaries).toEqual([12]);
+		unsubscribe();
+	});
+
+	it("publishes quota capacity independently from canonical documents", () => {
+		const observedMaximums: number[] = [];
+		const unsubscribe = DataStore.subscribeEventStoreCapacity((capacity) => {
+			observedMaximums.push(capacity.effectiveMaximumEvents);
+		});
+		DataStore.publishEventStoreCapacity({
+			quotaBytes: 10_000,
+			usageBytes: 1_000,
+			reserveBytes: 2_000,
+			availableBytes: 7_000,
+			conservativeBytesPerEvent: 100,
+			currentEventCount: 20,
+			maximumAdditionalEvents: 70,
+			effectiveMaximumEvents: 90,
+		});
+
+		expect(DataStore.getEventStoreCapacity()?.effectiveMaximumEvents).toBe(90);
+		expect(observedMaximums).toEqual([90]);
+		expect(DataStore.events.size).toBe(0);
+		unsubscribe();
+	});
+
 	it("appends proven-new older batches without replacing the canonical array", () => {
 		const existing = [createDocument("newest", 300)];
 		DataStore.replaceSourceEvents(SOURCE_ID, existing);

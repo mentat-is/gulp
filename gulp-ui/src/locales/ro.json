@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "Încărcarea evenimentelor s-a oprit. Verificați spațiul de stocare disponibil și încercați din nou.",
+    "eventStore.streamFailed.backlog": "Evenimentele au sosit mai repede decât le-a putut salva browserul. Rulați din nou interogarea.",
+    "eventStore.streamFailed.quota": "Spațiul de stocare al browserului este insuficient pentru aceste evenimente. Eliberați spațiu și încercați din nou.",
+    "eventStore.streamFailed.storage": "Spațiul de stocare al browserului nu este disponibil. Verificați permisiunile datelor site-ului sau închideți alte file și încercați din nou.",
+    "eventStore.streamFailed.normalization": "Unele evenimente nu au putut fi citite. Încercați din nou sau verificați datele sursă.",
+    "eventStore.streamFailed.disconnected": "Conexiunea s-a întrerupt în timpul încărcării evenimentelor. Încercați din nou după reconectare.",
+    "group.eventsChangedRefresh": "Evenimentele s-au modificat în timpul încărcării. Prima pagină a fost reîmprospătată.",
+    "source.cacheRebuildInPlace": "Spațiul de stocare este limitat, astfel că memoria cache a acestei surse este reconstruită pe loc. Dacă interogarea este întreruptă, sursa va fi preluată din nou.",
     "detachedApp.authLost": "Autentificare necesară",
     "detachedApp.authLostDescription": "Fila principală este deconectată. Autentificați-vă din nou și selectați o operațiune pentru a relua această fereastră detașată.",
     "detachedApp.idle": "Se așteaptă o operațiune",

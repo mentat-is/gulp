@@ -76,6 +76,13 @@ Each built-in or plugin Assistant route owns a websocket with an independent
 socket ID in its browser realm. Notes, Table View, Dashboard, and Dialog use
 the bridge and create no backend websocket.
 
+Same-origin realms that need exact timeline documents open bounded readers on
+the operation EventStore namespace identified by the coordinator and operation
+IDs. IndexedDB holds the shared exact pages; the bridge carries only compact UI
+projections and invalidation state. Document-stream writes and viewport render
+projection remain owned by the main application's query worker. See
+[Query worker and event storage architecture](query-worker.md).
+
 Route parameters carry the coordinator ID, client ID, and application-specific
 startup values such as the initial Table source, Assistant title, or Assistant
 plugin filename.

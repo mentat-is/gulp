@@ -97,6 +97,7 @@ import {
 } from "./CanvasInputCoordinator";
 import {
 	getCanvasRendererPreference,
+	reloadWithLegacyEventPipeline,
 	type CanvasRendererBackend,
 	type CanvasRendererPreference,
 	type RendererBackendStatus,
@@ -104,8 +105,34 @@ import {
 import {
 	applyTimelineWheelViewport,
 	shouldInvalidateCanvasGeometry,
-} from "@/utils";
+} from "./CanvasWheelViewport";
 import { shouldStreamWorkerSourceSnapshot } from "./WorkerSourceSnapshotPolicy";
+import { renderWindowProjectionBus } from "@/render-worker/RenderWindowProjection.bus";
+import { SmartSocket } from "@/class/SmartSocket";
+import type { QueryRenderWindowDescriptor } from "@/event-stream";
+import {
+	getCanvasEventTimestampRange,
+	isCanvasEventLookupSourceCurrent,
+	isCanvasPixelWithinEventSourceRange,
+	type CanvasEventLookupGeometry,
+} from "./CanvasEventLookup";
+import {
+	CANVAS_RENDER_WINDOW_RETRY_DELAY_MS,
+	isCanvasRenderWindowRequestCurrent,
+	isCanvasRenderWindowSourceStale,
+	shouldRetryCanvasRenderWindow,
+	type CanvasRenderWindowRequestFence,
+} from "./CanvasRenderWindowRetry";
+import {
+	EVENT_MAIN_CACHE_SIZE,
+	EVENT_PIXEL_PAGE_SIZE,
+	EVENT_RENDER_PROJECTION_LIMIT,
+	StaleEventStoreCursorError,
+	isEventStoreLodEnabled,
+	type EventPageCursor,
+	type EventPixelPage,
+	type EventTimestampRange,
+} from "@/event-store";
 
 export namespace Canvas {
 	export interface Props extends Stack.Props {
@@ -218,20 +245,11 @@ function getWorkerDirtyMask(reason: string, force: boolean): DirtyCanvas {
 
 /**
  * Resolves the events opened by an interactive Canvas link badge.
- * @param app Current application state used for document lookup.
  * @param link Link represented by the clicked badge.
  * @returns Connected events, or the root event for single-document links.
  */
-function getCanvasLinkDialogEvents(app: App.Type, link: Link.Type): Doc.Type[] {
-	const docIds = getUniqueCanvasLinkDocIds(link);
-	const docs: Doc.Type[] = [];
-
-	for (const docId of docIds) {
-		const doc = Doc.Entity.id(app, docId);
-		if (doc) docs.push(doc);
-	}
-
-	return docs;
+async function getCanvasLinkDialogEvents(link: Link.Type): Promise<Doc.Type[]> {
+	return DataStore.Events.getByIds(getUniqueCanvasLinkDocIds(link));
 }
 
 /**
@@ -250,6 +268,13 @@ function getUniqueCanvasLinkDocIds(link: Link.Type): Doc.Id[] {
 	}
 
 	return uniqueDocIds;
+}
+
+interface CanvasEventStoreGroup {
+	sourceId: Source.Id;
+	range: EventTimestampRange;
+	initialPage: EventPixelPage;
+	operationEpoch: number;
 }
 
 export function Canvas({ timeline }: Canvas.Props) {
@@ -275,6 +300,8 @@ export function Canvas({ timeline }: Canvas.Props) {
 	const [, setFlagRenderRevision] = useState<number>(0);
 	const [target, setTarget] = useState<Source.Type | null>(null);
 	const [groupDialogEvents, setGroupDialogEvents] = useState<Doc.Type[]>([]);
+	const [groupDialogEventStore, setGroupDialogEventStore] =
+		useState<CanvasEventStoreGroup | null>(null);
 	const [groupDialogAnchor, setGroupDialogAnchor] = useState<{
 		x: number;
 		y: number;
@@ -287,13 +314,21 @@ export function Canvas({ timeline }: Canvas.Props) {
 	const forcedLegacyBackendRef = useRef<boolean>(false);
 	const workerClientRef = useRef<RenderWorkerClient | null>(null);
 	const workerViewportRevisionRef = useRef<number>(0);
+	const workerLodProjectionRevisionRef = useRef<number>(0);
+	const workerLodRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
 	const workerSourcePatchRevisionRef = useRef<number>(0);
 	const workerNotesProjectionRevisionRef = useRef<number>(0);
 	const workerLinksProjectionRevisionRef = useRef<number>(0);
 	const workerHighlightsProjectionRevisionRef = useRef<number>(0);
 	const workerFlagsRevisionRef = useRef<number>(0);
+	const workerFlagDocumentsRef = useRef<Doc.Type[]>([]);
+	const workerFlagLookupSequenceRef = useRef<number>(0);
 	const workerUnresolvedNoteDocumentIdsRef = useRef<Set<Doc.Id>>(new Set());
 	const workerUnresolvedLinkDocumentIdsRef = useRef<Set<Doc.Id>>(new Set());
+	const workerOverlayLookupSignatureRef = useRef<string>("");
+	const workerOverlayLookupSequenceRef = useRef<number>(0);
 	const workerThemeRevisionRef = useRef<number>(1);
 	const workerAssetRevisionRef = useRef<number>(1);
 	const workerKnownSourceIdsRef = useRef<Set<Source.Id>>(new Set());
@@ -307,6 +342,8 @@ export function Canvas({ timeline }: Canvas.Props) {
 	const workerSourceMembershipRevisionsRef = useRef<Map<Source.Id, number>>(
 		new Map(),
 	);
+	const workerOverrideSignaturesRef = useRef<Map<Source.Id, string>>(new Map());
+	const workerOverrideRevisionsRef = useRef<Map<Source.Id, number>>(new Map());
 	const workerProjectionGenerationRef = useRef<number>(0);
 	const workerSnapshotIdRef = useRef<number>(0);
 	const workerProjectionScheduler = useMemo(
@@ -346,6 +383,12 @@ export function Canvas({ timeline }: Canvas.Props) {
 	const syncWorkerSourcesRef = useRef<
 		(client: RenderWorkerClient, streamMissingEvents: boolean) => void
 	>(() => undefined);
+	const requestEventStoreRenderWindowRef = useRef<() => void>(() => undefined);
+	const cancelEventStoreRenderWindowRetry = useCallback((): void => {
+		if (workerLodRetryTimerRef.current === null) return;
+		clearTimeout(workerLodRetryTimerRef.current);
+		workerLodRetryTimerRef.current = null;
+	}, []);
 	const syncWorkerOverlaysRef = useRef<
 		(client: RenderWorkerClient, includeFlags: boolean) => void
 	>(() => undefined);
@@ -446,6 +489,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 		() =>
 			new RenderProjectionAdapter({
 				resolveDocument: (documentId) =>
+					DataStore.Events.peekDocument(documentId) ??
 					Doc.Entity.id(Info.app, documentId),
 				resolveNoteIconKey: (note) =>
 					createRenderAssetIconKey(
@@ -819,66 +863,132 @@ export function Canvas({ timeline }: Canvas.Props) {
 	}, [overlay_ref, canvas_ref, resize, theme]);
 
 	/**
-	 * Finds canonical events drawn at a canvas X coordinate for one source row.
-	 * @param x Rounded canvas-relative horizontal coordinate.
-	 * @param file Source whose descending event list is searched.
-	 * @returns Events occupying the clicked pixel or graph segment.
+	 * Returns the CSS-pixel width shared by Canvas transforms and exact lookups.
+	 * @returns Positive viewport width.
 	 */
-	const getEventsListFromFileByClickX = (x: number, file: Source.Type) => {
-		const events = Source.Entity.events(Info.app, file);
-		const result: Doc.Type[] = [];
-		if (events.length === 0) return result;
-		let left = 0;
-		let right = events.length - 1;
-		let foundIdx = -1;
-		while (left <= right) {
-			const mid = Math.floor((left + right) / 2);
-			const pos = getPixelPosition(
-				events[mid].gulp_timestamp + file.settings.offset,
+	const getEventLookupCanvasWidth = (): number =>
+		Math.max(
+			1,
+			workerCanvasSizeRef.current?.width ??
+				wrapperRectRef.current?.width ??
+				canvas_ref.current?.clientWidth ??
+				1,
+		);
+
+	/**
+	 * Captures the immutable transform used by one IndexedDB pixel lookup.
+	 * @param file Source whose offset participates in the transform.
+	 * @returns Geometry matching the renderer's rounded timestamp projection.
+	 */
+	const captureEventLookupGeometry = (
+		file: Source.Type,
+	): CanvasEventLookupGeometry => ({
+		sourceId: file.id,
+		frameMin: Info.app.timeline.frame.min,
+		frameMax: Info.app.timeline.frame.max,
+		canvasWidth: getEventLookupCanvasWidth(),
+		scale: scaleRef.current,
+		scrollX: scrollXRef.current,
+		sourceOffset: file.settings.offset,
+		renderEngine: file.settings.render_engine,
+	});
+
+	/**
+	 * Returns whether viewport and operation state still match a pending click read.
+	 * @param geometry Geometry captured before IndexedDB access.
+	 * @param file Source whose offset must remain stable.
+	 * @param operationEpoch Operation boundary captured with the click.
+	 * @param viewportRevision Worker viewport revision captured with the click.
+	 * @returns True only while the read can still address the clicked pixel.
+	 */
+	const isEventLookupCurrent = (
+		geometry: CanvasEventLookupGeometry,
+		file: Source.Type,
+		operationEpoch: number,
+		viewportRevision: number,
+	): boolean => {
+		const currentFile = Source.Entity.id(Info.app, file.id);
+		return (
+			DataStore.getRenderOperationEpoch() === operationEpoch &&
+			(rendererBackendRef.current !== "worker" ||
+				workerViewportRevisionRef.current === viewportRevision) &&
+			Info.app.timeline.frame.min === geometry.frameMin &&
+			Info.app.timeline.frame.max === geometry.frameMax &&
+			getEventLookupCanvasWidth() === geometry.canvasWidth &&
+			scaleRef.current === geometry.scale &&
+			scrollXRef.current === geometry.scrollX &&
+			isCanvasEventLookupSourceCurrent(
+				geometry,
+				currentFile
+					? {
+							sourceId: currentFile.id,
+							sourceOffset: currentFile.settings.offset,
+							renderEngine: currentFile.settings.render_engine,
+						}
+					: null,
+			)
+		);
+	};
+
+	/**
+	 * Reads one exact Canvas hit area without materializing its source in RAM.
+	 * @param x Rounded Canvas-relative hit pixel.
+	 * @param file Source row selected by the click.
+	 * @param geometry Immutable transform captured for this click.
+	 * @param operationEpoch Operation boundary captured for this click.
+	 * @param viewportRevision Worker viewport revision captured for this click.
+	 * @returns Exact first page and timestamp range, null for an empty pixel, or undefined when stale.
+	 */
+	const queryEventPageByClickX = async (
+		x: number,
+		file: Source.Type,
+		geometry: CanvasEventLookupGeometry,
+		operationEpoch: number,
+		viewportRevision: number,
+	): Promise<
+		{ page: EventPixelPage; range: EventTimestampRange } | null | undefined
+	> => {
+		const range = getCanvasEventTimestampRange(
+			x,
+			geometry,
+			geometry.renderEngine === "graph" ? 16 : 0,
+		);
+		if (!range) return null;
+
+		let page = await DataStore.Events.queryPixelBucket(
+			file.id,
+			range,
+			EVENT_PIXEL_PAGE_SIZE,
+		);
+		if (!isEventLookupCurrent(geometry, file, operationEpoch, viewportRevision)) {
+			return undefined;
+		}
+
+		const currentSourceRevision = DataStore.getSourceRevision(file.id);
+		if (
+			currentSourceRevision > 0 &&
+			page.sourceRevision !== currentSourceRevision
+		) {
+			page = await DataStore.Events.queryPixelBucket(
+				file.id,
+				range,
+				EVENT_PIXEL_PAGE_SIZE,
 			);
-
-			const isGraph = file.settings.render_engine === "graph";
-			const isHit = isGraph ? x >= pos - 16 && x <= pos : x === pos;
-
-			if (isHit) {
-				foundIdx = mid;
-				break;
-			} else if (pos < x) {
-				right = mid - 1;
-			} else {
-				left = mid + 1;
+			if (
+				!isEventLookupCurrent(
+					geometry,
+					file,
+					operationEpoch,
+					viewportRevision,
+				) ||
+				(DataStore.getSourceRevision(file.id) > 0 &&
+					page.sourceRevision !== DataStore.getSourceRevision(file.id))
+			) {
+				return undefined;
 			}
 		}
 
-		if (foundIdx !== -1) {
-			let i = foundIdx;
-			while (i >= 0) {
-				const p = getPixelPosition(
-					events[i].gulp_timestamp + file.settings.offset,
-				);
-				if (
-					p === x ||
-					(file.settings.render_engine === "graph" && x >= p - 16 && x <= p)
-				) {
-					result.push(events[i]);
-					i--;
-				} else break;
-			}
-			i = foundIdx + 1;
-			while (i < events.length) {
-				const p = getPixelPosition(
-					events[i].gulp_timestamp + file.settings.offset,
-				);
-				if (
-					p === x ||
-					(file.settings.render_engine === "graph" && x >= p - 16 && x <= p)
-				) {
-					result.push(events[i]);
-					i++;
-				} else break;
-			}
-		}
-		return result;
+		return page.total > 0 ? { page, range } : null;
 	};
 
 	/**
@@ -909,25 +1019,39 @@ export function Canvas({ timeline }: Canvas.Props) {
 		const { top, left } = canvas_ref.current.getBoundingClientRect();
 		const canvasHitX = Math.round(event.clientX - left);
 		const canvasHitY = Math.round(event.clientY - top);
+		const interactionOperationEpoch = DataStore.getRenderOperationEpoch();
 
 		if (rendererBackendRef.current === "worker") {
 			const client = workerClientRef.current;
+			const hitTestViewportRevision = client?.requestedViewportRevision ?? 0;
 			const workerHit = client
 				? await client.hitTest(
 						canvasHitX,
 						canvasHitY,
-						client.requestedViewportRevision,
+						hitTestViewportRevision,
 					)
 				: null;
+			if (
+				DataStore.getRenderOperationEpoch() !== interactionOperationEpoch ||
+				!client ||
+				client.requestedViewportRevision !== hitTestViewportRevision ||
+				client.lastViewportRevision !== hitTestViewportRevision
+			) {
+				return;
+			}
 			if (workerHit?.kind === "link") {
 				const link = DataStore.links.find((item) => item.id === workerHit.id);
 				if (link) {
-					const docs = getCanvasLinkDialogEvents(Info.app, link);
+					const docs = await getCanvasLinkDialogEvents(link);
+					if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
+						return;
+					}
 					if (docs.length === 1) {
 						spawnDialog(<DisplayEventDialog event={docs[0]} />);
 						return;
 					}
 					if (docs.length > 1) {
+						setGroupDialogEventStore(null);
 						setGroupDialogEvents(docs);
 						setGroupDialogKind("links");
 						setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
@@ -936,16 +1060,20 @@ export function Canvas({ timeline }: Canvas.Props) {
 				}
 			}
 			if (workerHit?.kind === "note") {
-				const noteDocuments = workerHit.noteIds
+				const noteDocumentIds = workerHit.noteIds
 					.map((noteId) => DataStore.notes.find((note) => note.id === noteId))
 					.filter((note): note is Note.Type => Boolean(note))
-					.map((note) => Doc.Entity.id(Info.app, note.doc._id))
-					.filter((document): document is Doc.Type => Boolean(document));
+					.map((note) => note.doc._id);
+				const noteDocuments = await DataStore.Events.getByIds(noteDocumentIds);
+				if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
+					return;
+				}
 				if (noteDocuments.length === 1) {
 					spawnDialog(<DisplayEventDialog event={noteDocuments[0]} />);
 					return;
 				}
 				if (noteDocuments.length > 1) {
+					setGroupDialogEventStore(null);
 					setGroupDialogEvents(noteDocuments);
 					setGroupDialogKind("notes");
 					setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
@@ -966,10 +1094,14 @@ export function Canvas({ timeline }: Canvas.Props) {
 					canvasHitY <= item.rect.y + item.rect.h
 				) {
 					const link = item.link;
-					const docs = getCanvasLinkDialogEvents(Info.app, link);
+					const docs = await getCanvasLinkDialogEvents(link);
+					if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
+						return;
+					}
 					if (docs.length === 1) {
 						spawnDialog(<DisplayEventDialog event={docs[0]} />);
 					} else if (docs.length > 1) {
+						setGroupDialogEventStore(null);
 						setGroupDialogEvents(docs);
 						setGroupDialogKind("links");
 						setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
@@ -990,17 +1122,20 @@ export function Canvas({ timeline }: Canvas.Props) {
 					canvasHitY >= item.rect.y &&
 					canvasHitY <= item.rect.y + item.rect.h
 				) {
-					if (item.notes.length === 1) {
+					const noteDocuments = await DataStore.Events.getByIds(
+						item.notes.map((note) => note.doc._id),
+					);
+					if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
+						return;
+					}
+					if (noteDocuments.length === 1) {
 						return spawnDialog(
-							<DisplayEventDialog
-								event={Doc.Entity.id(Info.app, item.notes[0].doc._id)}
-							/>,
+							<DisplayEventDialog event={noteDocuments[0]} />,
 						);
 					}
 
-					setGroupDialogEvents(
-						item.notes.map((note) => Doc.Entity.id(Info.app, note.doc._id)),
-					);
+					setGroupDialogEventStore(null);
+					setGroupDialogEvents(noteDocuments);
 					setGroupDialogKind("notes");
 					setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
 					return;
@@ -1012,46 +1147,99 @@ export function Canvas({ timeline }: Canvas.Props) {
 			x: canvasHitX,
 			y: Math.round(event.clientY - top + scrollYRef.current),
 		};
+		const clickScrollY = scrollYRef.current;
 		const index = Math.floor(click.y / 48);
 
 		const files = Source.Entity.rendered(Info.app);
 		const file = files[index];
 
 		if (!file) return;
+		const sourceSummary = DataStore.getEventSourceSummary(file.id);
+		if (sourceSummary?.eventCount === 0) return;
 
+		const lookupGeometry = captureEventLookupGeometry(file);
 		if (
-			click.x < getPixelPosition(file.timestamp.min + file.settings.offset) ||
-			getPixelPosition(file.timestamp.max + file.settings.offset) < click.x
+			!isCanvasPixelWithinEventSourceRange(
+				click.x,
+				sourceSummary?.minTimestamp ?? file.timestamp.min,
+				sourceSummary?.maxTimestamp ?? file.timestamp.max,
+				lookupGeometry,
+				lookupGeometry.renderEngine === "graph" ? 16 : 0,
+			)
 		) {
 			return;
 		}
 
-		let events = getEventsListFromFileByClickX(click.x, file);
-		if (events.length === 0) {
-			events = getEventsListFromFileByClickX(click.x - 1, file);
+		const lookupViewportRevision = workerViewportRevisionRef.current;
+		let lookup = await queryEventPageByClickX(
+			click.x,
+			file,
+			lookupGeometry,
+			interactionOperationEpoch,
+			lookupViewportRevision,
+		);
+		if (lookup === undefined) return;
+		if (lookup === null) {
+			lookup = await queryEventPageByClickX(
+				click.x - 1,
+				file,
+				lookupGeometry,
+				interactionOperationEpoch,
+				lookupViewportRevision,
+			);
 		}
-		if (events.length === 0) {
-			events = getEventsListFromFileByClickX(click.x + 1, file);
+		if (lookup === undefined) return;
+		if (lookup === null) {
+			lookup = await queryEventPageByClickX(
+				click.x + 1,
+				file,
+				lookupGeometry,
+				interactionOperationEpoch,
+				lookupViewportRevision,
+			);
+		}
+		if (
+			lookup === undefined ||
+			scrollYRef.current !== clickScrollY ||
+			Source.Entity.rendered(Info.app)[index]?.id !== file.id
+		) {
+			return;
 		}
 
+		const events = lookup?.page.events ?? [];
 		LoggerHandler.canvasClick(file, events, click.x);
 
-		if (events.length > 0) {
-			if (events.length > 1) {
-				setGroupDialogEvents(events);
+		if (lookup && lookup.page.total > 0) {
+			if (lookup.page.total > 1) {
+				setGroupDialogEvents([]);
+				setGroupDialogEventStore({
+					sourceId: file.id,
+					range: lookup.range,
+					initialPage: lookup.page,
+					operationEpoch: interactionOperationEpoch,
+				});
 				setGroupDialogKind("events");
 				setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
 				return;
 			}
 
-			spawnDialog(<DisplayEventDialog event={events[0]} />);
+			if (events[0]) {
+				spawnDialog(<DisplayEventDialog event={events[0]} />);
+			}
 		} else {
 			Info.setTimelineTarget(null);
 		}
 	};
 
-	// @ts-ignore
-	window.xxc = handleClick;
+	useEffect(() => {
+		const activeWindow = window as Window & {
+			xxc?: (click: MouseEvent) => Promise<void>;
+		};
+		activeWindow.xxc = handleClick;
+		return () => {
+			if (activeWindow.xxc === handleClick) delete activeWindow.xxc;
+		};
+	}, [handleClick]);
 
 	/**
 	 * Refreshes cached Canvas geometry outside high-frequency pointer and wheel loops.
@@ -1446,6 +1634,42 @@ export function Canvas({ timeline }: Canvas.Props) {
 		return () => workerProjectionScheduler.dispose();
 	}, [workerProjectionScheduler]);
 
+	useLayoutEffect(() => {
+		const unsubscribe = renderWindowProjectionBus.subscribe((projection) => {
+			const client = workerClientRef.current;
+			if (
+				rendererBackendRef.current !== "worker" ||
+				!client ||
+				projection.operationEpoch !== DataStore.getRenderOperationEpoch() ||
+				projection.viewportRevision !== workerViewportRevisionRef.current ||
+				(workerLodProjectionRevisionRef.current > 0 &&
+					projection.projectionRevision !==
+						workerLodProjectionRevisionRef.current) ||
+				projection.sources.some((source) => {
+					const summary = DataStore.getEventSourceSummary(
+						source.sourceId as Source.Id,
+					);
+					return isCanvasRenderWindowSourceStale(
+						source.sourceRevision,
+						summary?.revision,
+					);
+				})
+			) {
+				return false;
+			}
+			client.queueDataPatch("render-window", {
+				globalRevision: DataStore.getRenderSequence(),
+				renderWindow: projection,
+			});
+			inputCoordinator.invalidate(DirtyCanvas.Events);
+			return true;
+		});
+		return () => {
+			unsubscribe();
+			cancelEventStoreRenderWindowRetry();
+		};
+	}, [cancelEventStoreRenderWindowRetry, inputCoordinator]);
+
 	/**
 	 * Converts a timeline timestamp into the current rounded canvas coordinate.
 	 * @param timestamp Timeline timestamp to transform.
@@ -1513,6 +1737,164 @@ export function Canvas({ timeline }: Canvas.Props) {
 		},
 		[Info],
 	);
+
+	/**
+	 * Requests an operation-scoped, pixel-equivalent event projection from
+	 * QueryWorker. Only vertically visible rows plus the standard two-row overscan
+	 * are included, while horizontal overscan keeps normal pan motion populated.
+	 * The unchanged latest request is retried once after a delivery failure.
+	 * @returns Nothing; stale and superseded results are discarded by the protocol.
+	 */
+	const requestEventStoreRenderWindow = useCallback((): void => {
+		cancelEventStoreRenderWindowRetry();
+		const client = workerClientRef.current;
+		const socket = SmartSocket.Class.instance;
+		if (
+			!isEventStoreLodEnabled() ||
+			rendererBackendRef.current !== "worker" ||
+			!client ||
+			!socket
+		) {
+			return;
+		}
+		const operation = Operation.Entity.selected(Info.app);
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		const viewportRevision = workerViewportRevisionRef.current;
+		if (
+			!operation ||
+			DataStore.getRenderOperationId() !== operation.id ||
+			viewportRevision <= 0
+		) {
+			return;
+		}
+
+		const width = Math.max(
+			1,
+			workerCanvasSizeRef.current?.width ??
+				wrapperRectRef.current?.width ??
+				1,
+		);
+		const height = Math.max(
+			1,
+			workerCanvasSizeRef.current?.height ??
+				wrapperRectRef.current?.height ??
+				1,
+		);
+		const selectedSources = Source.Entity.rendered(Info.app);
+		const visibleSourceIds = new Set(
+			getCanvasViewportSourceIds(selectedSources, scrollYRef.current, height),
+		);
+		const visibleSources = selectedSources.filter((source) =>
+			visibleSourceIds.has(source.id),
+		);
+		const descriptor: QueryRenderWindowDescriptor = {
+			operationId: operation.id,
+			operationEpoch,
+			viewportRevision,
+			projectionRevision: ++workerLodProjectionRevisionRef.current,
+			frame: {
+				min: Info.app.timeline.frame.min,
+				max: Info.app.timeline.frame.max,
+			},
+			width,
+			scale: scaleRef.current,
+			scrollX: scrollXRef.current,
+			horizontalOverscanPixels: width,
+			maxRepresentatives: EVENT_RENDER_PROJECTION_LIMIT,
+			evictedSourceIds: selectedSources
+				.filter((source) => !visibleSourceIds.has(source.id))
+				.map((source) => source.id),
+			sources: visibleSources.map((source) => {
+				const overrideHashes = Object.keys(
+					source.settings.color_override?.lookup ?? {},
+				)
+					.map(Number)
+					.filter(Number.isFinite)
+					.sort((left, right) => left - right);
+				const overrideSignature = overrideHashes.join(":");
+				const previousSignature =
+					workerOverrideSignaturesRef.current.get(source.id);
+				let overrideRevision =
+					workerOverrideRevisionsRef.current.get(source.id) ?? 0;
+				if (previousSignature !== overrideSignature) {
+					overrideRevision++;
+					workerOverrideSignaturesRef.current.set(
+						source.id,
+						overrideSignature,
+					);
+					workerOverrideRevisionsRef.current.set(
+						source.id,
+						overrideRevision,
+					);
+				}
+				return {
+					sourceId: source.id,
+					offset: source.settings.offset ?? 0,
+					engine: source.settings.render_engine,
+					frequency: source.settings.frequency_sample,
+					overrideHashes,
+					settingsRevision:
+						workerSourceMetadataRevisionsRef.current.get(source.id) ?? 0,
+					overrideRevision,
+				};
+			}),
+			};
+		const requestFence: CanvasRenderWindowRequestFence = {
+			socket,
+			operationEpoch,
+			viewportRevision,
+			projectionRevision: descriptor.projectionRevision,
+		};
+		const getCurrentFence = (): CanvasRenderWindowRequestFence => ({
+			socket: SmartSocket.Class.instance,
+			operationEpoch: DataStore.getRenderOperationEpoch(),
+			viewportRevision: workerViewportRevisionRef.current,
+			projectionRevision: workerLodProjectionRevisionRef.current,
+		});
+		const isCurrent = (): boolean =>
+			isCanvasRenderWindowRequestCurrent(requestFence, getCurrentFence()) &&
+			workerClientRef.current === client &&
+			rendererBackendRef.current === "worker" &&
+			DataStore.getRenderOperationId() === operation.id;
+
+		const handleAttemptFailure = (attempt: number, error: unknown): void => {
+			const currentFence = getCurrentFence();
+			if (
+				shouldRetryCanvasRenderWindow(attempt, requestFence, currentFence) &&
+				isCurrent()
+			) {
+				cancelEventStoreRenderWindowRetry();
+				workerLodRetryTimerRef.current = setTimeout(() => {
+					workerLodRetryTimerRef.current = null;
+					if (isCurrent()) runAttempt(attempt + 1);
+				}, CANVAS_RENDER_WINDOW_RETRY_DELAY_MS);
+				return;
+			}
+			if (!isCurrent()) return;
+			const message = error instanceof Error ? error.message : String(error);
+			Logger.warn(
+				`Unable to project the current EventStore viewport: ${message}`,
+				"Canvas.EventStore",
+			);
+		};
+
+		const runAttempt = (attempt: number): void => {
+			if (!isCurrent()) return;
+			void socket.requestRenderWindow(descriptor).then(
+				(projection) => {
+					if (!isCurrent() || projection) return;
+					handleAttemptFailure(
+						attempt,
+						new Error("QueryWorker returned no render-window projection."),
+					);
+				},
+				(error: unknown) => handleAttemptFailure(attempt, error),
+			);
+		};
+
+		runAttempt(1);
+	}, [Info, cancelEventStoreRenderWindowRetry]);
+	requestEventStoreRenderWindowRef.current = requestEventStoreRenderWindow;
 
 	/**
 	 * Builds infrequently changing source and appearance state for the worker.
@@ -1804,6 +2186,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 					Info.setViewportSourceIds(viewportSourceIds);
 					workerProjectionScheduler.setViewportSourceIds(viewportSourceIds);
 					client.sendViewportState(viewportState, dirtyMask, workerPointer);
+					requestEventStoreRenderWindowRef.current();
 					pointerBundledWithViewport = workerPointer !== undefined;
 				}
 			}
@@ -1837,23 +2220,59 @@ export function Canvas({ timeline }: Canvas.Props) {
 	 * @returns Nothing.
 	 */
 	const refreshWorkerOverlayDependencies = useCallback((): void => {
-		const unresolvedNoteIds = new Set<Doc.Id>();
-		for (const note of DataStore.notes) {
-			if (note.doc && !Doc.Entity.id(Info.app, note.doc._id)) {
-				unresolvedNoteIds.add(note.doc._id);
-			}
-		}
 		const unresolvedLinkIds = new Set<Doc.Id>();
 		for (const link of DataStore.links) {
 			for (const documentId of [link.doc_id_from, ...link.doc_ids]) {
-				if (!Doc.Entity.id(Info.app, documentId)) {
+				if (
+					!DataStore.Events.peekDocument(documentId) &&
+					!Doc.Entity.id(Info.app, documentId)
+				) {
 					unresolvedLinkIds.add(documentId);
 				}
 			}
 		}
-		workerUnresolvedNoteDocumentIdsRef.current = unresolvedNoteIds;
+		workerUnresolvedNoteDocumentIdsRef.current = new Set();
 		workerUnresolvedLinkDocumentIdsRef.current = unresolvedLinkIds;
-	}, [Info]);
+
+		const missingIds = Array.from(unresolvedLinkIds).slice(
+			0,
+			EVENT_MAIN_CACHE_SIZE,
+		);
+		const lookupSignature = [...missingIds].sort().join("|");
+		if (
+			missingIds.length === 0 ||
+			lookupSignature === workerOverlayLookupSignatureRef.current
+		) {
+			return;
+		}
+		workerOverlayLookupSignatureRef.current = lookupSignature;
+		const lookupSequence = ++workerOverlayLookupSequenceRef.current;
+		void DataStore.Events.getByIds(missingIds)
+			.then(() => {
+				if (lookupSequence !== workerOverlayLookupSequenceRef.current) return;
+				const client = workerClientRef.current;
+				if (rendererBackendRef.current !== "worker" || !client) return;
+				syncWorkerOverlaysRef.current(client, false);
+				inputCoordinator.invalidate(DirtyCanvas.Overlays);
+			})
+			.catch((error) => {
+				Logger.warn(
+					`Unable to resolve link endpoints: ${(error as Error).message}`,
+					"Canvas.EventStore",
+				);
+			})
+			.finally(() => {
+				if (
+					lookupSequence === workerOverlayLookupSequenceRef.current &&
+					workerOverlayLookupSignatureRef.current === lookupSignature &&
+					workerUnresolvedLinkDocumentIdsRef.current.size > 0
+				) {
+					// A terminal source summary must be able to retry unresolved IDs. This
+					// also advances through dependency sets larger than the bounded batch.
+					workerOverlayLookupSignatureRef.current = "";
+				}
+			});
+	}, [Info, inputCoordinator]);
 
 	/**
 	 * Creates a fresh overlay projection revision so document-dependent endpoints can refresh.
@@ -1869,8 +2288,6 @@ export function Canvas({ timeline }: Canvas.Props) {
 			if (advanceFlagsRevision || workerFlagsRevisionRef.current === 0) {
 				workerFlagsRevisionRef.current++;
 			}
-			const currentApp = Info.app;
-			const selectedOperation = Operation.Entity.selected(currentApp);
 			return renderProjectionAdapter.createOverlaySnapshot({
 				notes: DataStore.notes,
 				notesRevision: workerNotesProjectionRevisionRef.current,
@@ -1878,14 +2295,11 @@ export function Canvas({ timeline }: Canvas.Props) {
 				linksRevision: workerLinksProjectionRevisionRef.current,
 				highlights: DataStore.highlights,
 				highlightsRevision: workerHighlightsProjectionRevisionRef.current,
-				flaggedDocuments: Doc.Entity.flag.getDocs(
-					currentApp,
-					selectedOperation?.id,
-				),
+				flaggedDocuments: workerFlagDocumentsRef.current,
 				flagsRevision: workerFlagsRevisionRef.current,
 			});
 		},
-		[Info, refreshWorkerOverlayDependencies, renderProjectionAdapter],
+		[refreshWorkerOverlayDependencies, renderProjectionAdapter],
 	);
 
 	/**
@@ -2176,15 +2590,17 @@ export function Canvas({ timeline }: Canvas.Props) {
 						: "non-graph";
 				const previousGraphSignature =
 					workerGraphSignaturesRef.current.get(source.id);
-				const needsEventSnapshot = shouldStreamWorkerSourceSnapshot({
-					streamMissingEvents,
-					wasKnownSource: previousSourceIds.has(source.id),
-					graphSignature,
-					previousGraphSignature,
-					sourceRevision: DataStore.getSourceRevision(source.id),
-					acknowledgedSourceRevision:
-						acknowledgedSourceRevisions.get(source.id) ?? 0,
-				});
+				const needsEventSnapshot =
+					!isEventStoreLodEnabled() &&
+					shouldStreamWorkerSourceSnapshot({
+						streamMissingEvents,
+						wasKnownSource: previousSourceIds.has(source.id),
+						graphSignature,
+						previousGraphSignature,
+						sourceRevision: DataStore.getSourceRevision(source.id),
+						acknowledgedSourceRevision:
+							acknowledgedSourceRevisions.get(source.id) ?? 0,
+					});
 				workerGraphSignaturesRef.current.set(source.id, graphSignature);
 				if (needsEventSnapshot) {
 					streamWorkerSourceSnapshot(client, source);
@@ -2197,6 +2613,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 				workerSourceMetadataSignaturesRef.current.delete(removedSourceId);
 				workerSourceMetadataRevisionsRef.current.delete(removedSourceId);
 			}
+			requestEventStoreRenderWindowRef.current();
 		},
 		[
 			Info,
@@ -2233,21 +2650,101 @@ export function Canvas({ timeline }: Canvas.Props) {
 	const syncWorkerFlags = useCallback(
 		(client: RenderWorkerClient): void => {
 			const selectedOperation = Operation.Entity.selected(Info.app);
-			client.queueDataPatch("overlays:flags", {
-				globalRevision: DataStore.getRenderSequence(),
-				overlays: {
-					flags: {
-						revision: ++workerFlagsRevisionRef.current,
-						records: renderProjectionAdapter.createFlagRecords(
-							Doc.Entity.flag.getDocs(Info.app, selectedOperation?.id),
-						),
-					},
-				},
-			});
+			const documentIds = Array.from(
+				Doc.Entity.flag.getList(selectedOperation?.id),
+			);
+			const lookupSequence = ++workerFlagLookupSequenceRef.current;
+			void DataStore.Events.getByIds(documentIds)
+				.then((documents) => {
+					if (
+						lookupSequence !== workerFlagLookupSequenceRef.current ||
+						workerClientRef.current !== client ||
+						rendererBackendRef.current !== "worker"
+					) {
+						return;
+					}
+					workerFlagDocumentsRef.current = documents;
+					client.queueDataPatch("overlays:flags", {
+						globalRevision: DataStore.getRenderSequence(),
+						overlays: {
+							flags: {
+								revision: ++workerFlagsRevisionRef.current,
+								records:
+									renderProjectionAdapter.createFlagRecords(documents),
+							},
+						},
+					});
+				})
+				.catch((error: unknown) => {
+					Logger.warn(
+						error instanceof Error ? error.message : String(error),
+						"Canvas.RenderWorker.Flags",
+					);
+				});
 		},
 		[Info, renderProjectionAdapter],
 	);
 	syncWorkerFlagsRef.current = syncWorkerFlags;
+
+	useEffect(() => {
+		if (!isEventStoreLodEnabled()) return;
+		let lastProjectionAt = 0;
+		let pendingProjection: ReturnType<typeof setTimeout> | null = null;
+		const requestProjection = (immediate: boolean): void => {
+			if (immediate) {
+				if (pendingProjection) clearTimeout(pendingProjection);
+				pendingProjection = null;
+				lastProjectionAt = performance.now();
+				requestEventStoreRenderWindowRef.current();
+				return;
+			}
+			const elapsed = performance.now() - lastProjectionAt;
+			if (elapsed >= 250) {
+				lastProjectionAt = performance.now();
+				requestEventStoreRenderWindowRef.current();
+				return;
+			}
+			if (pendingProjection) return;
+			pendingProjection = setTimeout(() => {
+				pendingProjection = null;
+				lastProjectionAt = performance.now();
+				requestEventStoreRenderWindowRef.current();
+			}, 250 - elapsed);
+		};
+
+		const unsubscribe = DataStore.subscribeEventSourceSummaries((summary) => {
+			if (rendererBackendRef.current !== "worker") return;
+
+			const isTerminal = summary.status !== "building";
+			if (isTerminal) {
+				refreshWorkerOverlayDependencies();
+			}
+			if (summary.status === "complete") {
+				const client = workerClientRef.current;
+				if (client) syncWorkerFlagsRef.current(client);
+			}
+
+			const renderedSources = Source.Entity.rendered(Info.app);
+			const canvasHeight = Math.max(
+				1,
+				workerCanvasSizeRef.current?.height ??
+					wrapperRectRef.current?.height ??
+					1,
+			);
+			const viewportSourceIds = getCanvasViewportSourceIds(
+				renderedSources,
+				scrollYRef.current,
+				canvasHeight,
+			);
+			if (!viewportSourceIds.includes(summary.sourceId)) return;
+			requestProjection(isTerminal);
+		});
+
+		return () => {
+			unsubscribe();
+			if (pendingProjection) clearTimeout(pendingProjection);
+		};
+	}, [Info, refreshWorkerOverlayDependencies, rendererBackend]);
 
 	/**
 	 * Reprojects only overlay collections whose previously missing documents arrived.
@@ -2298,6 +2795,9 @@ export function Canvas({ timeline }: Canvas.Props) {
 	 */
 	const handleWorkerRenderChange = useCallback(
 		(change: DataStoreRenderChange): void => {
+			if (change.type === "operation-reset") {
+				cancelEventStoreRenderWindowRetry();
+			}
 			const client = workerClientRef.current;
 			if (rendererBackendRef.current !== "worker" || !client) return;
 
@@ -2309,13 +2809,20 @@ export function Canvas({ timeline }: Canvas.Props) {
 				workerSourceMetadataSignaturesRef.current.clear();
 				workerSourceMetadataRevisionsRef.current.clear();
 				workerSourceMembershipRevisionsRef.current.clear();
+				workerOverrideSignaturesRef.current.clear();
+				workerOverrideRevisionsRef.current.clear();
 				workerSourcePatchRevisionRef.current = 0;
+				workerLodProjectionRevisionRef.current = 0;
 				workerNotesProjectionRevisionRef.current = 0;
 				workerLinksProjectionRevisionRef.current = 0;
 				workerHighlightsProjectionRevisionRef.current = 0;
 				workerFlagsRevisionRef.current = 0;
+				workerFlagDocumentsRef.current = [];
+				workerFlagLookupSequenceRef.current++;
 				workerUnresolvedNoteDocumentIdsRef.current.clear();
 				workerUnresolvedLinkDocumentIdsRef.current.clear();
+				workerOverlayLookupSignatureRef.current = "";
+				workerOverlayLookupSequenceRef.current++;
 				workerViewportRevisionRef.current = 0;
 				workerViewportSignatureRef.current = "";
 				workerSceneSignatureRef.current = "";
@@ -2325,6 +2832,10 @@ export function Canvas({ timeline }: Canvas.Props) {
 			}
 
 			if (change.type === "source-events") {
+				if (isEventStoreLodEnabled()) {
+					requestEventStoreRenderWindowRef.current();
+					return;
+				}
 				if (!workerKnownSourceIdsRef.current.has(change.sourceId)) return;
 				const mode =
 					change.mutation === "replace"
@@ -2453,6 +2964,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 		},
 		[
 			Info,
+			cancelEventStoreRenderWindowRetry,
 			inputCoordinator,
 			renderProjectionAdapter,
 			refreshWorkerOverlayDependencies,
@@ -2477,6 +2989,10 @@ export function Canvas({ timeline }: Canvas.Props) {
 			if (request.scope === "source" && request.id) {
 				const sourceId = request.id as Source.Id;
 				if (!workerKnownSourceIdsRef.current.has(sourceId)) return;
+				if (isEventStoreLodEnabled()) {
+					requestEventStoreRenderWindowRef.current();
+					return;
+				}
 				const source = Source.Entity.id(
 					Info.app,
 					sourceId,
@@ -2501,6 +3017,20 @@ export function Canvas({ timeline }: Canvas.Props) {
 	 */
 	const activateLegacyRenderer = useCallback((error: Error): void => {
 		if (forcedLegacyBackendRef.current) return;
+		if (isEventStoreLodEnabled()) {
+			Logger.error(
+				`The render worker failed while EventStore LOD owned the documents: ${error.message}`,
+				"Canvas.RenderWorker.LodRollback",
+			);
+			if (reloadWithLegacyEventPipeline()) return;
+			publishRendererBackendStatus({
+				requestedBackend: requestedRendererBackendRef.current,
+				activeBackend: "initializing",
+				fallbackReason:
+					"Legacy fallback was blocked because the EventStore LOD rollback could not be persisted.",
+			});
+			return;
+		}
 		forcedLegacyBackendRef.current = true;
 		workerProjectionGenerationRef.current++;
 		workerProjectionScheduler.cancelAll();
@@ -2582,6 +3112,18 @@ export function Canvas({ timeline }: Canvas.Props) {
 			: requestedPreference;
 		const capabilities = RenderWorkerClient.probeCapabilities();
 		if (preference === "legacy" || !capabilities.supported) {
+			if (isEventStoreLodEnabled()) {
+				if (reloadWithLegacyEventPipeline()) return;
+				const lodFallbackReason =
+					"Legacy rendering cannot start while EventStore LOD owns document storage.";
+				Logger.error(lodFallbackReason, "Canvas.RenderWorker.LodRollback");
+				publishRendererBackendStatus({
+					requestedBackend: requestedPreference,
+					activeBackend: "initializing",
+					fallbackReason: lodFallbackReason,
+				});
+				return;
+			}
 			const fallbackReason = forcedLegacyBackendRef.current
 				? rendererFallbackReasonRef.current
 				: preference !== "legacy"
@@ -2843,8 +3385,53 @@ export function Canvas({ timeline }: Canvas.Props) {
 	const closeGroupDialog = useCallback(() => {
 		setGroupDialogAnchor(null);
 		setGroupDialogEvents([]);
+		setGroupDialogEventStore(null);
 		setGroupDialogKind("events");
 	}, []);
+
+	/**
+	 * Loads one bounded page for the open exact-event group.
+	 * A stale cursor is converted into a fresh first page so the dialog can publish
+	 * its non-blocking source-revision reset notice.
+	 * @param cursor Optional EventStore cursor for the next page.
+	 * @returns Exact page tied to the current operation epoch.
+	 */
+	const loadGroupDialogEventPage = useCallback(
+		async (cursor?: EventPageCursor): Promise<EventPixelPage> => {
+			const group = groupDialogEventStore;
+			if (
+				!group ||
+				DataStore.getRenderOperationEpoch() !== group.operationEpoch
+			) {
+				throw new Error("The event group belongs to an inactive operation.");
+			}
+
+			let page: EventPixelPage;
+			try {
+				page = await DataStore.Events.queryPixelBucket(
+					group.sourceId,
+					group.range,
+					EVENT_PIXEL_PAGE_SIZE,
+					cursor,
+				);
+			} catch (error) {
+				if (!cursor || !(error instanceof StaleEventStoreCursorError)) {
+					throw error;
+				}
+				page = await DataStore.Events.queryPixelBucket(
+					group.sourceId,
+					group.range,
+					EVENT_PIXEL_PAGE_SIZE,
+				);
+			}
+
+			if (DataStore.getRenderOperationEpoch() !== group.operationEpoch) {
+				throw new Error("The operation changed while loading the event group.");
+			}
+			return page;
+		},
+		[groupDialogEventStore],
+	);
 
 	const totalHeight = useMemo(() => {
 		if (!canvas_ref.current) {
@@ -3030,7 +3617,19 @@ export function Canvas({ timeline }: Canvas.Props) {
 				{highlightsOverlay}
 			</ContextMenuTrigger>
 			<Menu />
-			{groupDialogAnchor && groupDialogEvents.length > 1 ? (
+			{groupDialogAnchor &&
+			groupDialogEventStore &&
+			groupDialogEventStore.initialPage.total > 1 ? (
+				<DisplayGroupDialog
+					mode="event-store"
+					initialPage={groupDialogEventStore.initialPage}
+					loadPage={loadGroupDialogEventPage}
+					anchor={groupDialogAnchor}
+					groupKind="events"
+					onClose={closeGroupDialog}
+					preserveTimelineTarget={Boolean(app.timeline.target)}
+				/>
+			) : groupDialogAnchor && groupDialogEvents.length > 1 ? (
 				<DisplayGroupDialog
 					events={groupDialogEvents}
 					anchor={groupDialogAnchor}

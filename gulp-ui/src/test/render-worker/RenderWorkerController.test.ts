@@ -57,6 +57,7 @@ function createOffscreenCanvas(): OffscreenCanvas {
 		imageSmoothingQuality: "low",
 		arc: jest.fn(),
 		beginPath: jest.fn(),
+		closePath: jest.fn(),
 		clearRect: jest.fn(),
 		createLinearGradient: jest.fn(
 			() =>
@@ -1302,6 +1303,182 @@ describe("RenderWorkerController", () => {
 		);
 
 		expect(rendered?.payload).toMatchObject({ visibleSources: 1 });
+	});
+
+	it("includes render-window sources and evictions in invalidation and ACK telemetry", async () => {
+		const harness = createControllerHarness(1);
+		harnesses.push(harness);
+		await waitForCondition(() =>
+			harness.responses.some((response) => response.type === "READY"),
+		);
+		const sourceA = createRenderSource();
+		const sourceB = { ...createRenderSource(), id: "source-b", rowOrder: 1 };
+		const renderer = (
+			harness.controller as unknown as {
+				renderer: {
+					invalidateSources: (sourceIds: readonly string[]) => void;
+					invalidateEventSources: (sourceIds: readonly string[]) => void;
+				};
+		}
+		).renderer;
+		const invalidateSources = jest.spyOn(renderer, "invalidateSources");
+		const invalidateEventSources = jest.spyOn(
+			renderer,
+			"invalidateEventSources",
+		);
+
+		const renderWindowMessage = {
+			protocolVersion: RENDER_PROTOCOL_VERSION,
+			operationEpoch: 1,
+			sequence: 1,
+			type: "DATA_PATCH",
+			payload: {
+				globalRevision: 1,
+				sources: {
+					revision: 1,
+					records: [sourceA, sourceB],
+					removedSourceIds: [],
+				},
+				renderWindow: {
+					operationEpoch: 1,
+					viewportRevision: 1,
+					projectionRevision: 1,
+					sources: [
+						{
+							sourceId: sourceA.id,
+							sourceRevision: 7,
+							coveredRange: { min: 0, max: 1_000 },
+							bucketPixelWidth: 1,
+							degradedLod: false,
+							loadedCount: 12_000_000,
+							hashRange: { min: 1, max: 1 },
+							representativeHandles: Uint32Array.of(1),
+							representativeTimestamps: Float64Array.of(500),
+							representativeHashes: Float64Array.of(1),
+							heightTimestamps: Float64Array.of(0),
+							heightCounts: Float64Array.of(12_000_000),
+							heightMaximumCount: 12_000_000,
+							graphTimestamps: new Float64Array(0),
+							graphCounts: new Float64Array(0),
+						},
+					],
+					evictedSourceIds: [sourceB.id],
+				},
+			},
+		} satisfies RenderDataMessage;
+		// worker_threads clones typed arrays into Node's realm while this suite runs
+		// in jsdom; exercise the post-validation controller path without that artifact.
+		await (
+			harness.controller as unknown as {
+				handleDataMessage: (
+					message: RenderDataMessage,
+					receivedAt: number,
+				) => Promise<void>;
+			}
+		).handleDataMessage(renderWindowMessage, performance.now());
+		await waitForCondition(() =>
+			harness.responses.some(
+				(response) =>
+					response.type === "ACK" &&
+					response.payload.acknowledgedSequence === 1,
+			),
+		);
+
+		const acknowledgement = harness.responses.find(
+			(response) => response.type === "ACK",
+		);
+		expect(acknowledgement?.payload).toMatchObject({
+			sourceRevisions: [
+				{ sourceId: "source-a", revision: 7 },
+				{ sourceId: "source-b", revision: 0 },
+			],
+			rejectedSourceIds: [],
+		});
+		expect(invalidateSources.mock.calls).toEqual([[["source-b"]]]);
+		expect(invalidateEventSources.mock.calls).toEqual([
+			[["source-a", "source-b"]],
+		]);
+	});
+
+	it("resynchronizes every source identity in a malformed render window", async () => {
+		const harness = createControllerHarness(1);
+		harnesses.push(harness);
+		await waitForCondition(() =>
+			harness.responses.some((response) => response.type === "READY"),
+		);
+		const malformedMessage: RenderDataMessage = {
+			protocolVersion: RENDER_PROTOCOL_VERSION,
+			operationEpoch: 1,
+			sequence: 1,
+			type: "DATA_PATCH",
+			payload: {
+				globalRevision: 1,
+				renderWindow: {
+					operationEpoch: 1,
+					viewportRevision: 1,
+					projectionRevision: 1,
+					sources: [
+						{
+							sourceId: "source-a",
+							sourceRevision: 9,
+							coveredRange: { min: 0, max: 1_000 },
+							bucketPixelWidth: 1,
+							degradedLod: false,
+							loadedCount: 2,
+							hashRange: { min: 1, max: 2 },
+							representativeHandles: Uint32Array.of(1, 2),
+							representativeTimestamps: Float64Array.of(500),
+							representativeHashes: Float64Array.of(1, 2),
+							heightTimestamps: new Float64Array(0),
+							heightCounts: new Float64Array(0),
+							heightMaximumCount: 0,
+							graphTimestamps: new Float64Array(0),
+							graphCounts: new Float64Array(0),
+						},
+					],
+					evictedSourceIds: ["source-b"],
+				},
+			},
+		};
+
+		harness.dataPort.postMessage(malformedMessage);
+		await waitForCondition(
+			() =>
+				harness.responses.filter(
+					(response) =>
+						response.type === "RESYNC_REQUIRED" &&
+						response.payload.scope === "source",
+				).length === 2,
+		);
+
+		const sourceResyncs = harness.responses
+			.filter(
+				(response) =>
+					response.type === "RESYNC_REQUIRED" &&
+					response.payload.scope === "source",
+			)
+			.map((response) => response.payload);
+		const acknowledgement = harness.responses.find(
+			(response) => response.type === "ACK",
+		);
+		expect(sourceResyncs).toEqual([
+			{
+				scope: "source",
+				id: "source-a",
+				expectedRevision: 0,
+				receivedRevision: 9,
+			},
+			{
+				scope: "source",
+				id: "source-b",
+				expectedRevision: 0,
+				receivedRevision: 0,
+			},
+		]);
+		expect(acknowledgement?.payload).toMatchObject({
+			sourceRevisions: [],
+			rejectedSourceIds: ["source-a", "source-b"],
+		});
 	});
 
 	it("acknowledges failed data and requests authoritative source recovery", async () => {

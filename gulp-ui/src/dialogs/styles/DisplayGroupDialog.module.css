@@ -119,6 +119,44 @@
   min-height: 0;
 }
 
+.paginationShell {
+  background: var(--background-100);
+  border-top: 1px solid var(--gray-300);
+  flex: none;
+  padding: 6px;
+}
+
+.pageNotice {
+  background: var(--gray-alpha-200);
+  border-radius: 4px;
+  color: var(--second);
+  font-size: 10px;
+  margin: 0 0 6px;
+  padding: 5px 6px;
+}
+
+.paginationControls {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.paginationLabel {
+  color: var(--second);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paginationButtons {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
 .virtualSpacer {
   position: relative;
   width: 100%;

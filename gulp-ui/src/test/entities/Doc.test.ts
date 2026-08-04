@@ -55,7 +55,37 @@ describe("Doc asynchronous ingestion", () => {
 	beforeEach(() => {
 		DataStore.resetRenderOperation();
 		Doc.Entity.clearIndex();
+		localStorage.removeItem(Doc.Entity.flag.KEY);
+		Doc.Entity.flag.invalidateCache();
 		mockSourceEntityId.mockReset();
+	});
+
+	it("reads flag membership without scanning resident source events", async () => {
+		const operationId = "flag-operation" as Operation.Id;
+		const firstId = "flag-one" as Doc.Id;
+		const secondId = "flag-two" as Doc.Id;
+		localStorage.setItem(
+			Doc.Entity.flag.KEY,
+			JSON.stringify({ [operationId]: [firstId, secondId] }),
+		);
+		Doc.Entity.flag.invalidateCache();
+		const firstDocument = createDocument(firstId, 100);
+		const originalGetByIds = DataStore.Events.getByIds.bind(DataStore.Events);
+		const getByIdsCalls: Doc.Id[][] = [];
+		DataStore.Events.getByIds = async (documentIds): Promise<Doc.Type[]> => {
+			getByIdsCalls.push([...documentIds]);
+			return [firstDocument];
+		};
+
+		expect(Doc.Entity.flag.getDocIds(APP, operationId)).toEqual([
+			firstId,
+			secondId,
+		]);
+		expect(await Doc.Entity.flag.getDocs(APP, operationId)).toEqual([
+			firstDocument,
+		]);
+		expect(getByIdsCalls).toEqual([[firstId, secondId]]);
+		DataStore.Events.getByIds = originalGetByIds;
 	});
 
 	it("uses serialized operation and context IDs when a source is not hydrated", () => {

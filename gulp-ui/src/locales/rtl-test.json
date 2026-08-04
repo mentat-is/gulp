@@ -5,6 +5,14 @@
     "@sample": "true"
   },
   "strings": {
+    "eventStore.streamFailed": "Event loading stopped. Check the available storage and try again.",
+    "eventStore.streamFailed.backlog": "Incoming events arrived faster than the browser could save them. Try the query again.",
+    "eventStore.streamFailed.quota": "There is not enough browser storage to load these events. Free some space and try again.",
+    "eventStore.streamFailed.storage": "Browser storage is unavailable. Check site-data permissions or close other tabs, then try again.",
+    "eventStore.streamFailed.normalization": "Some events could not be read. Try again or check the source data.",
+    "eventStore.streamFailed.disconnected": "The connection was interrupted while loading events. Try again after reconnecting.",
+    "group.eventsChangedRefresh": "Events changed while loading. The first page has been refreshed.",
+    "source.cacheRebuildInPlace": "Storage is limited, so this source cache is being rebuilt in place. If the query is interrupted, the source will be refetched.",
     "settings.language": "اللغة",
     "settings.realtime.off": "بدون تحديث",
     "settings.realtime.on": "تحديث مباشر",

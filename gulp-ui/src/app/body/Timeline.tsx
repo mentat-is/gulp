@@ -2,7 +2,7 @@ import { Application } from "@/context/Application.context";
 import { scrollStore } from "@/store/scroll.store";
 import { Algorhithm } from "@/ui/utils";
 import { Source } from "@/entities/Source";
-import { Doc } from "@/entities/Doc";
+import { DataStore } from "@/store/DataStore";
 import { Navigator } from "./Navigator";
 import { Stack } from "@/ui/Stack";
 import s from "../Gulp.module.css";
@@ -73,7 +73,8 @@ export function Timeline({
 
 			// Reveal the source if it's currently unselected or excluded by the
 			// sourcesWithNoEvents toggle, so focusing always lands on a visible row.
-			const loadedCount = Doc.Entity.get(app, file_id).length;
+			const loadedCount =
+				DataStore.getEventSourceSummary(file_id)?.eventCount ?? 0;
 			const needsReveal = !target.selected || (target.total ?? 0) === 0;
 			const files = needsReveal
 				? app.target.files.map((f) =>

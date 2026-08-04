@@ -1,4 +1,5 @@
 import {
+	getDataPatchTransferables,
 	isOperationEpochAdvance,
 	mergeRenderDataPatches,
 } from "@/render-worker/RenderDataPatch";
@@ -7,6 +8,7 @@ import {
 	type RenderEventBatch,
 	type RenderNoteRecord,
 	type RenderSource,
+	type RenderWindowProjection,
 } from "@/render-worker/RenderWorker.types";
 
 /**
@@ -60,6 +62,47 @@ function createRenderSource(id: string, name: string): RenderSource {
 		gradient: ["#000000", "#ffffff"],
 		overrides: [],
 		customPaletteColors: [],
+	};
+}
+
+/**
+ * Creates one complete render-window replacement with deterministic aggregate columns.
+ * @param viewportRevision Viewport owned by the projection.
+ * @param projectionRevision Producer revision within the viewport.
+ * @param sourceId Sole projected source identity.
+ * @param handle Representative handle used to distinguish fixtures.
+ * @returns Atomic transferable render-window projection.
+ */
+function createRenderWindowProjection(
+	viewportRevision: number,
+	projectionRevision: number,
+	sourceId: string,
+	handle: number,
+): RenderWindowProjection {
+	return {
+		operationEpoch: 3,
+		viewportRevision,
+		projectionRevision,
+		sources: [
+			{
+				sourceId,
+				sourceRevision: projectionRevision,
+				coveredRange: { min: 100, max: 200 },
+				bucketPixelWidth: 1,
+				degradedLod: false,
+				loadedCount: 20,
+				hashRange: { min: -10, max: 10 },
+				representativeHandles: Uint32Array.of(handle),
+				representativeTimestamps: Float64Array.of(150),
+				representativeHashes: Float64Array.of(handle * 10),
+				heightTimestamps: Float64Array.of(100),
+				heightCounts: Float64Array.of(20),
+				heightMaximumCount: 20,
+				graphTimestamps: Float64Array.of(100),
+				graphCounts: Float64Array.of(20),
+			},
+		],
+		evictedSourceIds: [],
 	};
 }
 
@@ -201,6 +244,63 @@ describe("mergeRenderDataPatches", () => {
 		expect(merged.overlays?.notes).toBe(next.overlays?.notes);
 		expect(merged.overlays?.links).toBe(next.overlays?.links);
 		expect(merged.overlays?.highlights).toBe(previous.overlays?.highlights);
+	});
+
+	it("retains only the newest complete render window without concatenating sources", () => {
+		const previous = createRenderWindowProjection(8, 10, "source-a", 1);
+		const next = {
+			...createRenderWindowProjection(9, 11, "source-b", 2),
+			evictedSourceIds: ["source-a"],
+		};
+
+		const merged = mergeRenderDataPatches(
+			{ globalRevision: 10, renderWindow: previous },
+			{ globalRevision: 11, renderWindow: next },
+		);
+
+		expect(merged.renderWindow).toBe(next);
+		expect(merged.renderWindow?.sources).toHaveLength(1);
+		expect(merged.renderWindow?.sources[0].sourceId).toBe("source-b");
+		expect(merged.renderWindow?.evictedSourceIds).toEqual(["source-a"]);
+	});
+
+	it("does not let a late stale viewport replace a newer pending window", () => {
+		const current = createRenderWindowProjection(12, 4, "source-a", 12);
+		const late = createRenderWindowProjection(11, 99, "source-b", 11);
+
+		const merged = mergeRenderDataPatches(
+			{ globalRevision: 4, renderWindow: current },
+			{ globalRevision: 5, renderWindow: late },
+		);
+
+		expect(merged.renderWindow).toBe(current);
+	});
+
+	it("transfers every representative and aggregate buffer exactly once", () => {
+		const renderWindow = createRenderWindowProjection(
+			14,
+			6,
+			"source-a",
+			4,
+		);
+		const source = renderWindow.sources[0];
+
+		const transferables = getDataPatchTransferables({
+			globalRevision: 6,
+			renderWindow,
+		});
+
+		expect(new Set(transferables)).toEqual(
+			new Set([
+				source.representativeHandles.buffer,
+				source.representativeTimestamps.buffer,
+				source.representativeHashes.buffer,
+				source.heightTimestamps.buffer,
+				source.heightCounts.buffer,
+				source.graphTimestamps.buffer,
+				source.graphCounts.buffer,
+			]),
+		);
 	});
 
 	it("preserves an unsent source removal across a newer metadata refresh", () => {

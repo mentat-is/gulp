@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "Het laden van gebeurtenissen is gestopt. Controleer de beschikbare opslagruimte en probeer het opnieuw.",
+    "eventStore.streamFailed.backlog": "De gebeurtenissen kwamen sneller binnen dan de browser ze kon opslaan. Voer de query opnieuw uit.",
+    "eventStore.streamFailed.quota": "Er is onvoldoende browseropslag om deze gebeurtenissen te laden. Maak ruimte vrij en probeer het opnieuw.",
+    "eventStore.streamFailed.storage": "Browseropslag is niet beschikbaar. Controleer de machtigingen voor sitegegevens of sluit andere tabbladen en probeer het opnieuw.",
+    "eventStore.streamFailed.normalization": "Sommige gebeurtenissen konden niet worden gelezen. Probeer het opnieuw of controleer de brongegevens.",
+    "eventStore.streamFailed.disconnected": "De verbinding werd onderbroken tijdens het laden van gebeurtenissen. Probeer het opnieuw nadat de verbinding is hersteld.",
+    "group.eventsChangedRefresh": "De gebeurtenissen zijn tijdens het laden gewijzigd. De eerste pagina is vernieuwd.",
+    "source.cacheRebuildInPlace": "De opslagruimte is beperkt, daarom wordt de cache van deze bron ter plaatse opnieuw opgebouwd. Als de query wordt onderbroken, wordt de bron opnieuw opgehaald.",
     "detachedApp.authLost": "Inloggen vereist",
     "detachedApp.authLostDescription": "Het hoofdtabblad is uitgelogd. Log opnieuw in en selecteer een operatie om dit losgekoppelde venster te hervatten.",
     "detachedApp.idle": "Wachten op een operatie",

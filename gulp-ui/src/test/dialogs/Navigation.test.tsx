@@ -14,6 +14,15 @@ const mockSpawnDialog = jest.fn();
 const mockSelectDetachedDialogEvent = jest.fn();
 let mockSourceEvents: Doc.Type[] = [];
 const mockGetEvents = jest.fn<void, [App.Type, Source.Id]>();
+const mockGetNeighbors = jest.fn<
+	void,
+	[Source.Id, Doc.Id, number, number]
+>();
+let mockNeighborResult: {
+	events: Doc.Type[];
+	currentIndex: number;
+	sourceRevision: number;
+} = { events: [], currentIndex: -1, sourceRevision: 0 };
 let mockDetached = true;
 let mockNavigation: WindowBridge.DetachedDialogNavigation | null = null;
 
@@ -46,6 +55,24 @@ jest.mock("@/entities/Doc", () => ({
 			get: (app: App.Type, sourceId: Source.Id) => {
 				mockGetEvents(app, sourceId);
 				return mockSourceEvents;
+			},
+		},
+	},
+}));
+
+jest.mock("@/store/DataStore", () => ({
+	DataStore: {
+		subscribeDocuments: () => () => undefined,
+		getDocumentsSnapshot: () => 0,
+		Events: {
+			getNeighbors: (
+				sourceId: Source.Id,
+				documentId: Doc.Id,
+				before: number,
+				after: number,
+			) => {
+				mockGetNeighbors(sourceId, documentId, before, after);
+				return Promise.resolve(mockNeighborResult);
 			},
 		},
 	},
@@ -142,6 +169,12 @@ describe("Event Dialog navigation", () => {
 		mockSpawnDialog.mock.calls.splice(0);
 		mockSelectDetachedDialogEvent.mock.calls.splice(0);
 		mockGetEvents.mock.calls.splice(0);
+		mockGetNeighbors.mock.calls.splice(0);
+		mockNeighborResult = {
+			events: [],
+			currentIndex: -1,
+			sourceRevision: 0,
+		};
 		mockSourceEvents = [];
 		mockDetached = true;
 		mockNavigation = null;
@@ -206,20 +239,33 @@ describe("Event Dialog navigation", () => {
 		expect(mockSpawnDialog).not.toHaveBeenCalled();
 	});
 
-	it("retains the docked DataStore navigation path", () => {
+	it("uses the bounded async EventStore navigation path", async () => {
 		const newest = createEvent("newest", 3);
 		const current = createEvent("current", 2);
 		const oldest = createEvent("oldest", 1);
 		mockDetached = false;
-		mockSourceEvents = [newest, current, oldest];
+		mockNeighborResult = {
+			events: [newest, current, oldest],
+			currentIndex: 1,
+			sourceRevision: 1,
+		};
 
-		act(() => root.render(<Navigation event={current} />));
+		await act(async () => {
+			root.render(<Navigation event={current} />);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
 		const nextButton = [...container.querySelectorAll("button")].find(
 			(button) => button.title === "eventDialog.nextEvent",
 		);
 		act(() => nextButton?.click());
 
-		expect(mockGetEvents).toHaveBeenCalled();
+		expect(mockGetNeighbors).toHaveBeenCalled();
+		expect(mockGetNeighbors.mock.calls.at(-1)?.[0]).toBe(SOURCE_ID);
+		expect(mockGetNeighbors.mock.calls.at(-1)?.[1]).toBe(current._id);
+		expect(mockGetNeighbors.mock.calls.at(-1)?.[2]).toBe(5);
+		expect(mockGetNeighbors.mock.calls.at(-1)?.[3]).toBe(5);
+		expect(mockGetEvents).not.toHaveBeenCalled();
 		expect(mockSpawnDialog).toHaveBeenCalledTimes(1);
 		expect(mockSelectDetachedDialogEvent).not.toHaveBeenCalled();
 	});

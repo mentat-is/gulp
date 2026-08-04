@@ -85,6 +85,39 @@ can be built with the query builder or written manually as JSON. See
 A query is the structured search payload used by filters, previews, table view,
 dashboards, external queries, and backend search calls.
 
+## Document Stream
+
+A document stream is the sequence of `docs_chunk` WebSocket messages associated
+with one UI-generated request ID. The stream is registered before the backend
+query begins and reaches completion only after its final EventStore write has
+committed.
+
+## Query Worker
+
+The query worker is the dedicated browser worker that owns the authenticated
+WebSocket event path. It routes document streams, normalizes timeline events,
+writes the operation EventStore, and creates viewport render projections. See
+[Query worker and event storage architecture](query-worker.md).
+
+## EventStore
+
+EventStore is the operation-scoped IndexedDB cache containing exact event pages,
+source metadata, LOD summaries, density counts, and the compact document index.
+The backend remains the authoritative event source.
+
+## Event Handle
+
+An event handle is a compact, source-local unsigned integer that identifies an
+exact event within one source revision. Rendering and navigation can carry a
+handle without retaining a full event object.
+
+## Level of Detail
+
+Level of detail, or LOD, is the viewport projection strategy that selects page,
+microblock, or exact pixel representatives according to the current canvas
+resolution. Exact events remain available in EventStore for clicks and
+navigation.
+
 ## Preview
 
 Preview runs a query without committing it to the timeline. It lets an analyst
@@ -181,6 +214,19 @@ A group is a collection of users used to grant permissions more efficiently.
 
 A render engine controls how source events are drawn on the timeline. Available
 engines are `Default`, `HeightMap`, and `Graph`. See [Engine](engine.md).
+
+## Render Window
+
+A render window is the atomic, revisioned set of typed arrays and aggregates
+needed to draw the visible time range and source rows, including overscan. It is
+produced by the query worker and transferred to the render worker.
+
+## Render Worker
+
+The render worker is the dedicated browser worker that owns the timeline
+`OffscreenCanvas`. It keeps the current render window and compact overlay state,
+then performs culling, drawing, hit testing, and frame scheduling. See
+[Timeline rendering architecture](engine.architecture.md).
 
 ## Default Engine
 

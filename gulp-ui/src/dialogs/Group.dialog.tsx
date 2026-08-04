@@ -24,6 +24,11 @@ import s from "./styles/DisplayGroupDialog.module.css";
 import { Internal } from "@/entities/addon/Internal";
 import { Locale } from "@/locales";
 import { DataStore } from "@/store/DataStore";
+import {
+	EVENT_PIXEL_PAGE_SIZE,
+	type EventPageCursor,
+	type EventPixelPage,
+} from "@/event-store/EventStore.types";
 
 type DisplayGroupTitleKey = `group.title.${DisplayGroupKind}`;
 
@@ -85,11 +90,18 @@ const GROUP_PREVIEW_WIDTH = 520;
 const GROUP_POPUP_HEIGHT = 250;
 const DOCKED_DIALOG_WIDTH_RATIO = 0.5;
 const FLOATING_GAP = 14;
+const EVENT_GROUP_HISTORY_LIMIT = 20;
+const EMPTY_GROUP_EVENTS: Doc.Type[] = [];
 
 interface EventListRow {
 	key: string;
 	event: Doc.Type;
 	note: Note.Type | null;
+}
+
+interface EventPageHistoryEntry {
+	page: EventPixelPage;
+	pageNumber: number;
 }
 
 /**
@@ -211,7 +223,7 @@ const resolveFloatingPreviewStyle = (
  */
 function sortUniqueEventsByTimestamp(events: Doc.Type[]): Doc.Type[] {
 	const seenEventIds = new Set<string>();
-	const sortedEvents = events.toSorted(
+	const sortedEvents = [...events].sort(
 		(a, b) => a.gulp_timestamp - b.gulp_timestamp,
 	);
 	const uniqueEvents: Doc.Type[] = [];
@@ -273,27 +285,62 @@ function buildEventRows(events: Doc.Type[], notes: Note.Type[]): EventListRow[] 
 	return rows;
 }
 
-interface DisplayGroupDialogProps {
-	events: Doc.Type[];
+/** Shared presentation options accepted by both group-data modes. */
+interface DisplayGroupDialogCommonProps {
 	anchor?: { x: number; y: number } | null;
 	groupKind?: DisplayGroupKind;
 	onClose?: () => void;
 	preserveTimelineTarget?: boolean;
 }
 
+/** Existing bounded or caller-owned event list used by note and link dialogs. */
+export interface DisplayGroupDialogStaticProps
+	extends DisplayGroupDialogCommonProps {
+	mode?: "static";
+	events: Doc.Type[];
+	initialPage?: never;
+	loadPage?: never;
+}
+
+/** EventStore-backed group whose exact events are loaded in pages of at most 100. */
+export interface DisplayGroupDialogEventStoreProps
+	extends DisplayGroupDialogCommonProps {
+	mode: "event-store";
+	events?: never;
+	initialPage: EventPixelPage;
+	loadPage: (cursor?: EventPageCursor) => Promise<EventPixelPage>;
+}
+
+/** Discriminated group-dialog props preserving the original static call shape. */
+export type DisplayGroupDialogProps =
+	| DisplayGroupDialogStaticProps
+	| DisplayGroupDialogEventStoreProps;
+
+/**
+ * Bounds an EventStore response before it enters component history.
+ * @param page Exact EventStore page returned by the bounded reader.
+ * @returns Page metadata with no more than 100 retained event references.
+ */
+function boundEventPixelPage(page: EventPixelPage): EventPixelPage {
+	return {
+		...page,
+		events: page.events.slice(0, EVENT_PIXEL_PAGE_SIZE),
+	};
+}
+
 /**
  * Displays a sorted group of events either as an anchored popup or full dialog.
  *
- * @param props - Event collection, popup anchor, group kind, close callback, and timeline target behavior.
+ * @param props Static events or an EventStore page loader plus presentation options.
  * @returns Virtualized event list with hover-preview controls.
  */
-export function DisplayGroupDialog({
-	events,
-	anchor,
-	groupKind = "events",
-	onClose,
-	preserveTimelineTarget = false,
-}: DisplayGroupDialogProps) {
+export function DisplayGroupDialog(props: DisplayGroupDialogProps) {
+	const {
+		anchor,
+		groupKind = "events",
+		onClose,
+		preserveTimelineTarget = false,
+	} = props;
 	const { spawnDialog, Info, app, currentDocument } = Application.use();
 	const { t } = Locale.use();
 	const dataStoreVersion = useSyncExternalStore(
@@ -304,12 +351,44 @@ export function DisplayGroupDialog({
 	const floatingPreviewRef = useRef<HTMLElement>(null);
 	const hasExpandedDockedDialogRef = useRef(false);
 	const previewRequestIdRef = useRef(0);
+	const pageRequestIdRef = useRef(0);
+	const pageCursorsRef = useRef(
+		new Map<number, EventPageCursor | undefined>([[1, undefined]]),
+	);
 	const [floatingGroupRect, setFloatingGroupRect] = useState<DOMRect | null>(null);
 	const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
 	const [hoveredEventData, setHoveredEventData] = useState<Doc.Type | null>(null);
 	const [isLoadingHover, setIsLoadingHover] = useState(false);
 	const [openPreviewRowKey, setOpenPreviewRowKey] = useState<string | null>(null);
 	const [showPreview, setShowPreview] = useState(() => app.general.user?.user_data?.show_preview ?? true);
+	const initialEventStorePage =
+		props.mode === "event-store" ? props.initialPage : null;
+	const eventStoreLoadPage =
+		props.mode === "event-store" ? props.loadPage : null;
+	const boundedInitialPage = useMemo(
+		() =>
+			initialEventStorePage
+				? boundEventPixelPage(initialEventStorePage)
+				: null,
+		[initialEventStorePage],
+	);
+	const [pageHistory, setPageHistory] = useState<EventPageHistoryEntry[]>(
+		() =>
+			boundedInitialPage
+				? [{ page: boundedInitialPage, pageNumber: 1 }]
+				: [],
+	);
+	const [pageHistoryIndex, setPageHistoryIndex] = useState(0);
+	const [isPageLoading, setIsPageLoading] = useState(false);
+	const [pageNotice, setPageNotice] = useState<string | null>(null);
+	const currentPageEntry =
+		props.mode === "event-store"
+			? (pageHistory[pageHistoryIndex] ?? null)
+			: null;
+	const events =
+		props.mode === "event-store"
+			? (currentPageEntry?.page.events ?? EMPTY_GROUP_EVENTS)
+			: props.events;
 	const groupTitle = t(GROUP_TITLE_KEYS[groupKind]);
 	const sortedEvents = useMemo(
 		() => sortUniqueEventsByTimestamp(events),
@@ -319,6 +398,19 @@ export function DisplayGroupDialog({
 		() => buildEventRows(sortedEvents, DataStore.notes),
 		[dataStoreVersion, sortedEvents],
 	);
+
+	useEffect(() => {
+		pageRequestIdRef.current += 1;
+		pageCursorsRef.current = new Map([[1, undefined]]);
+		setPageHistory(
+			boundedInitialPage
+				? [{ page: boundedInitialPage, pageNumber: 1 }]
+				: [],
+		);
+		setPageHistoryIndex(0);
+		setIsPageLoading(false);
+		setPageNotice(null);
+	}, [boundedInitialPage]);
 
 	useEffect(() => {
 		setShowPreview(app.general.user?.user_data?.show_preview ?? true);
@@ -385,6 +477,207 @@ export function DisplayGroupDialog({
 		estimateSize: () => 44,
 		overscan: 5,
 	});
+
+	useEffect(() => {
+		if (parentRef.current) {
+			parentRef.current.scrollTop = 0;
+		}
+		previewRequestIdRef.current += 1;
+		setHoveredEventId(null);
+		setHoveredEventData(null);
+		setIsLoadingHover(false);
+		setOpenPreviewRowKey(null);
+	}, [currentPageEntry]);
+
+	/**
+	 * Returns to the previous EventStore page. Evicted document pages are reloaded
+	 * from their compact revision-bound cursor instead of growing main-thread RAM.
+	 * @returns Promise settled after cached navigation or an exact page reload.
+	 */
+	const handlePreviousPage = useCallback(async (): Promise<void> => {
+		if (
+			props.mode !== "event-store" ||
+			!eventStoreLoadPage ||
+			isPageLoading ||
+			!currentPageEntry
+		) {
+			return;
+		}
+		setPageNotice(null);
+		if (pageHistoryIndex > 0) {
+			setPageHistoryIndex(pageHistoryIndex - 1);
+			return;
+		}
+		const previousPageNumber = currentPageEntry.pageNumber - 1;
+		if (
+			previousPageNumber < 1 ||
+			!pageCursorsRef.current.has(previousPageNumber)
+		) {
+			return;
+		}
+
+		const requestId = pageRequestIdRef.current + 1;
+		pageRequestIdRef.current = requestId;
+		setIsPageLoading(true);
+		try {
+			const previousPage = boundEventPixelPage(
+				await eventStoreLoadPage(
+					pageCursorsRef.current.get(previousPageNumber),
+				),
+			);
+			if (pageRequestIdRef.current !== requestId) return;
+			if (
+				previousPage.sourceRevision !==
+				currentPageEntry.page.sourceRevision
+			) {
+				const refreshedFirstPage = boundEventPixelPage(
+					await eventStoreLoadPage(),
+				);
+				if (pageRequestIdRef.current !== requestId) return;
+				pageCursorsRef.current = new Map([[1, undefined]]);
+				setPageHistory([
+					{ page: refreshedFirstPage, pageNumber: 1 },
+				]);
+				setPageHistoryIndex(0);
+				setPageNotice(t("group.eventsChangedRefresh"));
+				return;
+			}
+			const previousHistory = [
+				{ page: previousPage, pageNumber: previousPageNumber },
+				...pageHistory,
+			].slice(0, EVENT_GROUP_HISTORY_LIMIT);
+			setPageHistory(previousHistory);
+			setPageHistoryIndex(0);
+		} catch (error) {
+			console.error("Failed to load the previous event group page:", error);
+			if (pageRequestIdRef.current === requestId) {
+				setPageNotice(t("common.unexpectedError"));
+			}
+		} finally {
+			if (pageRequestIdRef.current === requestId) {
+				setIsPageLoading(false);
+			}
+		}
+	}, [
+		currentPageEntry,
+		eventStoreLoadPage,
+		isPageLoading,
+		pageHistory,
+		pageHistoryIndex,
+		props.mode,
+		t,
+	]);
+
+	/**
+	 * Opens a cached next page or requests the next bounded EventStore cursor.
+	 * A source revision change invalidates history and reloads the authoritative first page.
+	 * @returns Promise settled after the requested page or refreshed first page is displayed.
+	 */
+	const handleNextPage = useCallback(async (): Promise<void> => {
+		if (
+			props.mode !== "event-store" ||
+			!eventStoreLoadPage ||
+			isPageLoading ||
+			!currentPageEntry
+		) {
+			return;
+		}
+		if (pageHistoryIndex < pageHistory.length - 1) {
+			setPageNotice(null);
+			setPageHistoryIndex(pageHistoryIndex + 1);
+			return;
+		}
+
+		const nextCursor = currentPageEntry.page.nextCursor;
+		if (!nextCursor) return;
+		const loadPage = eventStoreLoadPage;
+		const requestId = pageRequestIdRef.current + 1;
+		pageRequestIdRef.current = requestId;
+		setIsPageLoading(true);
+		setPageNotice(null);
+
+		try {
+			const nextPage = boundEventPixelPage(await loadPage(nextCursor));
+			if (pageRequestIdRef.current !== requestId) return;
+
+			if (
+				nextPage.sourceRevision !==
+				currentPageEntry.page.sourceRevision
+			) {
+				const refreshedFirstPage = boundEventPixelPage(await loadPage());
+				if (pageRequestIdRef.current !== requestId) return;
+				pageCursorsRef.current = new Map([[1, undefined]]);
+				setPageHistory([
+					{ page: refreshedFirstPage, pageNumber: 1 },
+				]);
+				setPageHistoryIndex(0);
+				setPageNotice(t("group.eventsChangedRefresh"));
+				return;
+			}
+
+			pageCursorsRef.current.set(
+				currentPageEntry.pageNumber + 1,
+				nextCursor,
+			);
+			const nextHistory = [
+				...pageHistory.slice(0, pageHistoryIndex + 1),
+				{
+					page: nextPage,
+					pageNumber: currentPageEntry.pageNumber + 1,
+				},
+			].slice(-EVENT_GROUP_HISTORY_LIMIT);
+			setPageHistory(nextHistory);
+			setPageHistoryIndex(nextHistory.length - 1);
+		} catch (error) {
+			console.error("Failed to load the event group page:", error);
+			if (pageRequestIdRef.current === requestId) {
+				setPageNotice(t("common.unexpectedError"));
+			}
+		} finally {
+			if (pageRequestIdRef.current === requestId) {
+				setIsPageLoading(false);
+			}
+		}
+	}, [
+		currentPageEntry,
+		eventStoreLoadPage,
+		isPageLoading,
+		pageHistory,
+		pageHistoryIndex,
+		props.mode,
+		t,
+	]);
+
+	const currentPageNumber = currentPageEntry?.pageNumber ?? 1;
+	const totalEventPages = currentPageEntry
+		? Math.max(1, Math.ceil(currentPageEntry.page.total / EVENT_PIXEL_PAGE_SIZE))
+		: 1;
+	const pageRangeStart = currentPageEntry
+		? currentPageEntry.page.total > 0 &&
+			currentPageEntry.page.events.length > 0
+			? Math.min(
+					(currentPageNumber - 1) * EVENT_PIXEL_PAGE_SIZE + 1,
+					currentPageEntry.page.total,
+				)
+			: 0
+		: 0;
+	const pageRangeEnd = currentPageEntry
+		? pageRangeStart > 0
+			? Math.min(
+					pageRangeStart + currentPageEntry.page.events.length - 1,
+					currentPageEntry.page.total,
+				)
+			: 0
+		: 0;
+	const hasPreviousEventPage =
+		props.mode === "event-store" &&
+		Boolean(currentPageEntry && currentPageEntry.pageNumber > 1);
+	const hasNextEventPage =
+		props.mode === "event-store" &&
+		Boolean(
+			pageHistoryIndex < pageHistory.length - 1 ||
+				currentPageEntry?.page.nextCursor,
+		);
 
 	/**
 	 * Opens the selected event and keeps the timeline crosshair focused on it.
@@ -664,7 +957,7 @@ export function DisplayGroupDialog({
 				</Stack>
 			);
 		},
-		[handleSelectEvent, handleEventPreviewOpen, openPreviewRowKey, renderNoteInfo, showPreview],
+		[anchor, handleSelectEvent, handleEventPreviewOpen, openPreviewRowKey, renderNoteInfo, showPreview],
 	);
 
 	/**
@@ -704,6 +997,82 @@ export function DisplayGroupDialog({
 		),
 		[eventRows, renderEvent, virtualizer],
 	);
+
+	/**
+	 * Renders bounded EventStore pagination without affecting static note/link lists.
+	 * @returns Navigation, total range, and a polite revision/error status when applicable.
+	 */
+	const renderPagination = useCallback(() => {
+		if (props.mode !== "event-store" || !currentPageEntry) return null;
+
+		return (
+			<nav
+				className={s.paginationShell}
+				aria-label={groupTitle}
+			>
+				{pageNotice ? (
+					<p
+						className={s.pageNotice}
+						role="status"
+						aria-live="polite"
+					>
+						{pageNotice}
+					</p>
+				) : null}
+				<div className={s.paginationControls}>
+					<span className={s.paginationLabel}>
+						{t("tableView.showingRange", {
+							from: pageRangeStart,
+							to: pageRangeEnd,
+							total: currentPageEntry.page.total,
+						})}
+					</span>
+					<span className={s.paginationLabel}>
+						{t("tableView.pageOf", {
+							page: currentPageNumber,
+							total: totalEventPages,
+						})}
+					</span>
+					<div className={s.paginationButtons}>
+						<Button
+							variant="secondary"
+							size="sm"
+							icon="ChevronLeft"
+							disabled={!hasPreviousEventPage || isPageLoading}
+							title={t("tableView.previousPage")}
+							aria-label={t("tableView.previousPage")}
+							onClick={handlePreviousPage}
+						/>
+						<Button
+							variant="secondary"
+							size="sm"
+							icon="ChevronRight"
+							disabled={!hasNextEventPage || isPageLoading}
+							loading={isPageLoading}
+							title={t("tableView.nextPage")}
+							aria-label={t("tableView.nextPage")}
+							onClick={() => void handleNextPage()}
+						/>
+					</div>
+				</div>
+			</nav>
+		);
+	}, [
+		currentPageEntry,
+		currentPageNumber,
+		groupTitle,
+		handleNextPage,
+		handlePreviousPage,
+		hasNextEventPage,
+		hasPreviousEventPage,
+		isPageLoading,
+		pageNotice,
+		pageRangeEnd,
+		pageRangeStart,
+		props.mode,
+		t,
+		totalEventPages,
+	]);
 
 	/**
 	 * Renders the localized group header and shared preview/close controls.
@@ -764,6 +1133,7 @@ export function DisplayGroupDialog({
 					<div className={s.listPane}>
 						{renderHeader(() => onClose?.(), true)}
 						{renderSortedEventsList(s.menuBody)}
+						{renderPagination()}
 					</div>
 					{renderEventPreview()}
 				</div>
@@ -781,6 +1151,7 @@ export function DisplayGroupDialog({
 				<div className={s.listPane}>
 					{renderHeader(handleCloseDialog, false)}
 					{renderSortedEventsList(s.dialogEventList)}
+					{renderPagination()}
 				</div>
 				{renderEventPreview()}
 			</div>

@@ -95,8 +95,17 @@ export namespace Note {
 			});
 		};
 
-		public static event = (app: App.Type, note: Note.Type): Doc.Type =>
-			Doc.Entity.id(app, note.doc._id);
+		/**
+		 * Resolves the exact event attached to a note through the bounded EventStore.
+		 * @param _app Retained application argument for the existing entity API.
+		 * @param note Note whose event should be resolved.
+		 * @returns Persisted event, or null when the note target is unavailable.
+		 */
+		public static event = (
+			_app: App.Type,
+			note: Note.Type,
+		): Promise<Doc.Type | null> =>
+			DataStore.Events.getById(note.doc._id, Note.Entity.sourceId(note));
 
 		/**
 		 * Resolves the note color used by DOM surfaces, falling back to the active theme accent.

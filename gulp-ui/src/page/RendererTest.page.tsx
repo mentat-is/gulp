@@ -4,9 +4,9 @@
  * Renderer stress-test mode — triggered by navigating to /renderer-test.
  *
  * Bypasses authentication, creates a fully mock operation / context / source and
- * feeds millions of synthetic DOCUMENTS_CHUNK-equivalent events directly into the
- * DataStore so the Canvas / Timeline pipeline can be exercised without a running
- * backend server.
+ * writes synthetic DOCUMENTS_CHUNK-equivalent events to bounded IndexedDB pages.
+ * Canvas receives only viewport LOD projections, so the Timeline pipeline can be
+ * exercised without a running backend server or source-wide RAM arrays.
  *
  * Navigate to http://localhost:3000/renderer-test to activate.
  */
@@ -42,6 +42,7 @@ import {
     type CanvasWorkerSynchronizationSnapshot,
 } from '@/app/body/CanvasProfiler';
 import type { RendererBackendStatus } from '@/app/body/CanvasRendererBackend';
+import type { EventStoreViewportDescriptor } from '@/event-store';
 import {
     buildReleaseGateCriteria,
     createEmptyRendererRefreshRateBaseline,
@@ -58,28 +59,43 @@ import {
 } from './RendererTest.metrics';
 import s from './styles/RendererTest.module.css';
 import { createOfflineRendererTestApp } from './RendererTest.fixture';
+import {
+    createEmptyRendererBenchmarkDiagnostics,
+    createRendererBenchmarkEventStore,
+    createRendererBenchmarkNamespace,
+    DEFAULT_RENDERER_BENCHMARK_TARGET,
+    evaluateRendererBenchmarkResourceGate,
+    formatRendererBenchmarkBytes,
+    getRendererBenchmarkDocumentAtPercentile,
+    getRendererBenchmarkSourceEventCount,
+    getRendererBenchmarkTarget,
+    RENDERER_BENCHMARK_CACHE_LIMIT,
+    RENDERER_BENCHMARK_PENDING_LIMIT,
+    RENDERER_BENCHMARK_REPRESENTATIVE_LIMIT,
+    RENDERER_BENCHMARK_TARGETS,
+    type RendererBenchmarkDiagnostics,
+    type RendererBenchmarkEventStore,
+} from './RendererTest.benchmark';
 
 declare global {
     interface Window {
         /** Latest terminal renderer gate result retained for passive automation. */
         __rendererReleaseGateResult?: ReleaseGateResult;
+        /** Live bounded-storage diagnostics retained for passive benchmark automation. */
+        __rendererBenchmarkDiagnostics?: RendererBenchmarkDiagnostics;
     }
 }
 
 // ─── tuneable constants ──────────────────────────────────────────────────────
 
-/** Total number of synthetic documents to inject. */
-const DEFAULT_TOTAL_DOCS = 1_000_000;
-const RELEASE_GATE_TOTAL_DOCS = 10_000_000;
-const MIN_TOTAL_DOCS = 0;
-const MAX_TOTAL_DOCS = 100_000_000;
-const DOC_STEP = 100_000;
-
-/** How many docs to inject per animation frame / tick. */
-const CHUNK_SIZE = 10_000;
-
 /** Simulated time window (ms) spread across all docs. */
 const TIME_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
+
+/** Maximum progressive projection rate while exact pages are still committing. */
+const STREAM_PROJECTION_INTERVAL_MS = 250;
+
+/** Poll interval used to react to viewport revisions after the dataset commits. */
+const VIEWPORT_PROJECTION_POLL_MS = 50;
 
 /** Optional synthetic notes to render on top of docs. */
 const DEFAULT_TOTAL_NOTES = 50;
@@ -427,7 +443,6 @@ function buildMockSources(
     totalDocs: number,
     engineMode: RendererBenchmarkEngineMode,
 ): Source.Type[] {
-    const perSource = Math.ceil(totalDocs / SOURCE_COUNT);
     return SOURCE_IDS.map((id, i) => {
         const contextId = i < SOURCE_COUNT / 2 ? MOCK_CONTEXT_A_ID : MOCK_CONTEXT_B_ID;
         const settings = {
@@ -450,7 +465,11 @@ function buildMockSources(
             selected: true,
             pinned: false,
             settings,
-            total: perSource,
+            total: getRendererBenchmarkSourceEventCount(
+                totalDocs,
+                i,
+                SOURCE_COUNT,
+            ),
             timestamp: { min: frameMinTs, max: frameMaxTs },
             nanotimestamp: {
                 min: Internal.Transformator.toNanos(frameMinTs),
@@ -464,47 +483,6 @@ function buildMockSources(
                 }
         } as Source.Type;
     });
-}
-
-/**
- * Generates one globally unique, descending-timestamp document batch.
- * The ordering lets the canonical datastore append older benchmark chunks without
- * repeatedly sorting every previously generated document.
- * @param batchIndex Zero-based benchmark batch index.
- * @param batchSize Number of documents to generate in this batch.
- * @param documentMinTs Minimum timestamp before deterministic per-source jitter.
- * @param frameSpanMs Total benchmark timeline duration.
- * @param totalDocs Total document count across all batches and sources.
- * @returns Synthetic documents distributed deterministically across eight sources.
- */
-function generateDocBatch(
-    batchIndex: number,
-    batchSize: number,
-    documentMinTs: number,
-    frameSpanMs: number,
-    totalDocs: number,
-): Doc.Type[] {
-    const docs: Doc.Type[] = new Array(batchSize);
-    const offset = batchIndex * CHUNK_SIZE;
-    for (let i = 0; i < batchSize; i++) {
-        const globalIdx = totalDocs - 1 - (offset + i);
-        const sourceIdx = globalIdx % SOURCE_COUNT;
-        const sourceId = SOURCE_IDS[sourceIdx];
-        // A source-constant jitter preserves strict descending order across chunk
-        // boundaries, keeping 10M bootstrap ingestion on the O(delta) edge path.
-        const fraction = globalIdx / totalDocs;
-        const jitter = -350 - (sourceIdx * 17);
-        const ts = documentMinTs + Math.floor(fraction * frameSpanMs) + jitter;
-
-        docs[i] = {
-            _id: `rdoc-${globalIdx.toString(16).padStart(12, '0')}` as Doc.Id,
-            gulp_timestamp: ts,
-            'gulp.source_id': sourceId,
-            'gulp.event_code': EVENT_CODES[globalIdx % EVENT_CODES.length],
-            number_hash: (globalIdx % 2048) - 1024,
-        } as Doc.Type;
-    }
-    return docs;
 }
 
 /**
@@ -659,20 +637,180 @@ function dispatchReleaseGateInteraction(
 }
 
 /**
- * Selects one event by ascending-time percentile from a descending source array.
- * @param sourceId Source whose canonical benchmark events are inspected.
- * @param percentile Desired position from oldest zero to newest one.
- * @returns Matching canonical document, or undefined for an empty source.
+ * Resolves one deterministic benchmark event without consulting a source-wide array.
+ * @param sourceId Source owning the synthetic event.
+ * @param percentile Ascending-time percentile from zero through one.
+ * @param targetEvents Total benchmark target across every source.
+ * @param documentMinTimestamp Minimum synthetic document timestamp.
+ * @param frameSpanMs Synthetic timeline span.
+ * @returns Recreated canonical event, or undefined when the source is empty.
  */
-function getBenchmarkEventAtPercentile(
+function getBenchmarkDocumentAtPercentile(
     sourceId: Source.Id,
     percentile: number,
+    targetEvents: number,
+    documentMinTimestamp: number,
+    frameSpanMs: number,
 ): Doc.Type | undefined {
-    const events = DataStore.events.get(sourceId) ?? [];
-    if (events.length === 0) return undefined;
-    const boundedPercentile = Math.max(0, Math.min(1, percentile));
-    const ascendingIndex = Math.floor(boundedPercentile * (events.length - 1));
-    return events[events.length - 1 - ascendingIndex];
+    const sourceIndex = SOURCE_IDS.indexOf(sourceId);
+    if (sourceIndex < 0) return undefined;
+    return getRendererBenchmarkDocumentAtPercentile(
+        sourceId,
+        sourceIndex,
+        SOURCE_COUNT,
+        percentile,
+        targetEvents,
+        documentMinTimestamp,
+        frameSpanMs,
+    );
+}
+
+interface RendererBenchmarkViewportInput {
+    operationEpoch: number;
+    viewportRevision: number;
+    projectionRevision: number;
+    frame: { min: number; max: number };
+    width: number;
+    scale: number;
+    scrollX: number;
+    sources: readonly Source.Type[];
+}
+
+/**
+ * Creates the bounded viewport request consumed by the stateless EventStore projector.
+ * @param input Current Canvas transform, revisions, and visible benchmark sources.
+ * @returns Projection descriptor containing no exact document objects.
+ */
+function createRendererBenchmarkViewportDescriptor(
+    input: RendererBenchmarkViewportInput,
+): EventStoreViewportDescriptor {
+    return {
+        operationEpoch: input.operationEpoch,
+        viewportRevision: input.viewportRevision,
+        projectionRevision: input.projectionRevision,
+        frame: input.frame,
+        width: Math.max(1, input.width),
+        scale: Math.max(0.01, input.scale),
+        scrollX: input.scrollX,
+        horizontalOverscanPixels: Math.max(1, input.width),
+        maxRepresentatives: RENDERER_BENCHMARK_REPRESENTATIVE_LIMIT,
+        sources: input.sources.map((source) => ({
+            sourceId: source.id,
+            offset: source.settings.offset,
+            engine: source.settings.render_engine,
+            frequency: source.settings.frequency_sample,
+            overrideHashes: Object.keys(
+                source.settings.color_override?.lookup ?? {},
+            )
+                .map(Number)
+                .filter(Number.isFinite),
+            settingsRevision: 0,
+            overrideRevision: 0,
+        })),
+    };
+}
+
+/**
+ * Publishes live benchmark diagnostics without adding translated UI strings.
+ * @param diagnostics Detached storage, memory, cache, and LOD measurements.
+ * @param terminal Whether automation should receive the terminal completion event.
+ * @returns Nothing.
+ */
+function publishRendererBenchmarkDiagnostics(
+    diagnostics: RendererBenchmarkDiagnostics,
+    terminal = false,
+): void {
+    window.__rendererBenchmarkDiagnostics = diagnostics;
+    const resourceGate = evaluateRendererBenchmarkResourceGate(diagnostics);
+    const dataset = document.documentElement.dataset;
+    dataset.rendererBenchmarkStatus = diagnostics.status;
+    dataset.rendererBenchmarkTargetEvents = String(diagnostics.targetEvents);
+    dataset.rendererBenchmarkProcessedEvents = String(diagnostics.processedEvents);
+    dataset.rendererBenchmarkPersistedEvents = String(diagnostics.persistedEvents);
+    dataset.rendererBenchmarkEncodedBytes = String(diagnostics.encodedBytes);
+    dataset.rendererBenchmarkWriteElapsedMs = String(diagnostics.writeElapsedMs);
+    dataset.rendererBenchmarkWriteEventsPerSecond = String(
+        diagnostics.writeEventsPerSecond,
+    );
+    dataset.rendererBenchmarkWriteEncodedBytesPerSecond = String(
+        diagnostics.writeEncodedBytesPerSecond,
+    );
+    dataset.rendererBenchmarkHeapPeakBytes = String(diagnostics.heapPeakBytes);
+    dataset.rendererBenchmarkHeapDeltaBytes = String(diagnostics.heapDeltaBytes);
+    dataset.rendererBenchmarkHeapSupported = String(diagnostics.heapSupported);
+    dataset.rendererBenchmarkStorageDeltaBytes = String(
+        diagnostics.storageUsageDeltaBytes,
+    );
+    dataset.rendererBenchmarkMainCacheDocuments = String(
+        diagnostics.mainCacheDocuments,
+    );
+    dataset.rendererBenchmarkMaximumMainCacheDocuments = String(
+        diagnostics.maximumMainCacheDocuments,
+    );
+    dataset.rendererBenchmarkMaximumPendingDocuments = String(
+        diagnostics.maximumPendingDocuments,
+    );
+    dataset.rendererBenchmarkMaximumRepresentatives = String(
+        diagnostics.maximumRenderRepresentatives,
+    );
+    dataset.rendererBenchmarkMaximumRenderBatches = String(
+        diagnostics.maximumRenderBatchesInFlight,
+    );
+    dataset.rendererBenchmarkCacheLimit = String(RENDERER_BENCHMARK_CACHE_LIMIT);
+    dataset.rendererBenchmarkPendingLimit = String(RENDERER_BENCHMARK_PENDING_LIMIT);
+    dataset.rendererBenchmarkRepresentativeLimit = String(
+        RENDERER_BENCHMARK_REPRESENTATIVE_LIMIT,
+    );
+    dataset.rendererBenchmarkResourceLimits = resourceGate.passed
+        ? 'passed'
+        : 'failed';
+    dataset.rendererBenchmarkCapacityEstimate =
+        resourceGate.capacityEstimateStatus;
+    dataset.rendererBenchmarkCapacityErrorPercent = String(
+        diagnostics.capacityEstimateErrorPercent ?? '',
+    );
+    dataset.rendererBenchmarkSkipReason = diagnostics.skipReason?.code ?? '';
+    dataset.rendererBenchmarkSkipRequiredBytes = String(
+        diagnostics.skipReason?.requiredBytes ?? 0,
+    );
+    dataset.rendererBenchmarkSkipAvailableBytes = String(
+        diagnostics.skipReason?.availableBytes ?? 0,
+    );
+    dataset.rendererBenchmarkAvailableBytes = String(
+        diagnostics.capacity?.availableBytes ?? 0,
+    );
+    dataset.rendererBenchmarkQuotaBytes = String(
+        diagnostics.capacity?.quotaBytes ?? 0,
+    );
+    dataset.rendererBenchmarkUsageBytes = String(
+        diagnostics.capacity?.usageBytes ?? 0,
+    );
+    dataset.rendererBenchmarkReserveBytes = String(
+        diagnostics.capacity?.reserveBytes ?? 0,
+    );
+    dataset.rendererBenchmarkEffectiveMaximumEvents = String(
+        diagnostics.capacity?.effectiveMaximumEvents ?? 0,
+    );
+    dataset.rendererBenchmarkMaximumAdditionalEvents = String(
+        diagnostics.capacity?.maximumAdditionalEvents ?? 0,
+    );
+    dataset.rendererBenchmarkBytesPerEvent = String(
+        diagnostics.capacity?.conservativeBytesPerEvent ?? 160,
+    );
+    dataset.rendererBenchmarkEncodedBytesPerEvent = String(
+        diagnostics.processedEvents > 0
+            ? diagnostics.encodedBytes / diagnostics.processedEvents
+            : 0,
+    );
+    if (!terminal) return;
+    requestAnimationFrame(() => {
+        document.dispatchEvent(
+            new CustomEvent<RendererBenchmarkDiagnostics>(
+                'renderer-benchmark-complete',
+                { detail: diagnostics },
+            ),
+        );
+    });
 }
 
 // ─── performance HUD ─────────────────────────────────────────────────────────
@@ -776,31 +914,21 @@ function PerfOverlay(props: PerfOverlayProps) {
             </div>
             {!releaseGate.enabled ? <div className={s.controls}>
                 <div className={s.sliderRow}>
-                    <label className={s.sliderLabel} htmlFor='renderer-doc-slider'>{t('rendererTest.documents')}</label>
-                    <input
-                        id='renderer-doc-number'
+                    <label className={s.sliderLabel} htmlFor='renderer-doc-target'>{t('rendererTest.documents')}</label>
+                    <select
+                        id='renderer-doc-target'
                         className={s.numberInput}
-                        type='number'
-                        min={MIN_TOTAL_DOCS}
-                        max={MAX_TOTAL_DOCS}
-                        step={DOC_STEP}
+                        disabled={isRunning}
                         value={targetDocs}
-                        onChange={(e) => {
-                            const v = Math.max(MIN_TOTAL_DOCS, Math.min(MAX_TOTAL_DOCS, Number(e.target.value) || MIN_TOTAL_DOCS));
-                            onTargetDocsChange(v);
-                        }}
-                    />
+                        onChange={(event) => onTargetDocsChange(Number(event.target.value))}
+                    >
+                        {RENDERER_BENCHMARK_TARGETS.map((target) => (
+                            <option key={target} value={target}>
+                                {target.toLocaleString()}
+                            </option>
+                        ))}
+                    </select>
                 </div>
-                <input
-                    id='renderer-doc-slider'
-                    className={s.slider}
-                    type='range'
-                    min={MIN_TOTAL_DOCS}
-                    max={MAX_TOTAL_DOCS}
-                    step={DOC_STEP}
-                    value={targetDocs}
-                    onChange={(e) => onTargetDocsChange(Number(e.target.value))}
-                />
                 <label className={s.checkRow} htmlFor='renderer-notes-toggle'>
                     <input
                         id='renderer-notes-toggle'
@@ -1199,8 +1327,8 @@ export namespace RendererTest {
         const [timelineEnabled, setTimelineEnabled] = useState<boolean>(
             !releaseGateEnabled,
         );
-        const [targetDocs, setTargetDocs] = useState<number>(
-            releaseGateEnabled ? RELEASE_GATE_TOTAL_DOCS : DEFAULT_TOTAL_DOCS,
+        const [targetDocs, setTargetDocs] = useState<number>(() =>
+            getRendererBenchmarkTarget(window.location.search),
         );
         const [renderNotes, setRenderNotes] = useState<boolean>(true);
         const [targetNotes, setTargetNotes] = useState<number>(DEFAULT_TOTAL_NOTES);
@@ -1225,9 +1353,16 @@ export namespace RendererTest {
             result: null,
         });
 
+        const [benchmarkDiagnostics, setBenchmarkDiagnostics] =
+            useState<RendererBenchmarkDiagnostics>(() =>
+                createEmptyRendererBenchmarkDiagnostics(
+                    getRendererBenchmarkTarget(window.location.search),
+                ),
+            );
+
         const [perfStats, setPerfStats] = useState<PerfStats>({
             injected: 0,
-            total: releaseGateEnabled ? RELEASE_GATE_TOTAL_DOCS : DEFAULT_TOTAL_DOCS,
+            total: getRendererBenchmarkTarget(window.location.search),
             fps: 0,
             elapsed: 0,
             done: false,
@@ -1240,6 +1375,14 @@ export namespace RendererTest {
         const animFrameRef = useRef<number>(0);
         const releaseGateFrameRef = useRef<number>(0);
         const releaseGateFixtureRef = useRef<ReleaseGateFixture | null>(null);
+        const benchmarkStoreRef = useRef<RendererBenchmarkEventStore | null>(null);
+        const benchmarkSourcesRef = useRef<Source.Type[]>([]);
+        const benchmarkProjectionRevisionRef = useRef<number>(0);
+        const benchmarkProjectionInFlightRef = useRef<Promise<boolean> | null>(null);
+        const benchmarkProjectionErrorRef = useRef<unknown>(null);
+        const benchmarkTeardownRef = useRef<Promise<void>>(Promise.resolve());
+        const benchmarkProjectionKeyRef = useRef<string>('');
+        const benchmarkLastProjectionAtRef = useRef<number>(0);
         const latestAppRef = useRef<App.Type>(app);
         latestAppRef.current = app;
 
@@ -1275,6 +1418,8 @@ export namespace RendererTest {
 
             if (!releaseGateSupported) {
                 const unsupportedStats = createEmptyWorkerSnapshot();
+                const unsupportedDiagnostics =
+                    createEmptyRendererBenchmarkDiagnostics(targetDocs);
                 const unsupportedResult: ReleaseGateResult = {
                     durationMs: 0,
                     mainThreadFps: 0,
@@ -1293,7 +1438,12 @@ export namespace RendererTest {
                     scenario: interactionScenario,
                     burst: interactionBurst,
                     refreshRateBaseline: createEmptyRendererRefreshRateBaseline(),
+                    benchmarkDiagnostics: unsupportedDiagnostics,
                 };
+                publishRendererBenchmarkDiagnostics(
+                    unsupportedDiagnostics,
+                    true,
+                );
                 setRefreshRateBaseline(unsupportedResult.refreshRateBaseline);
                 setReleaseGate({
                     enabled: true,
@@ -1364,6 +1514,105 @@ export namespace RendererTest {
             [],
         );
 
+        /**
+         * Projects the current viewport from IndexedDB and publishes it only through
+         * the render-window bus. At most one request is active in this page adapter.
+         * @param force Whether to bypass duplicate and streaming cadence checks.
+         * @returns True when a mounted Canvas listener received the projection.
+         */
+        const publishBenchmarkRenderWindow = useCallback(async (
+            force = false,
+        ): Promise<boolean> => {
+            const store = benchmarkStoreRef.current;
+            if (!store) return false;
+            if (benchmarkProjectionErrorRef.current && !force) return false;
+            if (force) benchmarkProjectionErrorRef.current = null;
+            const status = store.getDiagnostics().status;
+            if (status === 'idle' || status === 'skipped' || status === 'failed') {
+                return false;
+            }
+
+            const activeRequest = benchmarkProjectionInFlightRef.current;
+            if (activeRequest) {
+                if (!force) return false;
+                await activeRequest;
+                return publishBenchmarkRenderWindow(true);
+            }
+
+            const synchronization = CanvasProfiler.getWorkerSynchronizationSnapshot();
+            if (!synchronization?.ready) return false;
+            const currentApp = latestAppRef.current;
+            const frame = currentApp.timeline.frame;
+            if (frame.max <= frame.min) return false;
+            const sources = benchmarkSourcesRef.current;
+            if (sources.length === 0) return false;
+
+            const operationEpoch = DataStore.getRenderOperationEpoch();
+            const sourceSignature = sources
+                .map((source) => `${source.id}:${DataStore.getSourceRevision(source.id)}`)
+                .join('|');
+            const projectionKey = [
+                operationEpoch,
+                synchronization.requestedViewportRevision,
+                frame.min,
+                frame.max,
+                Info.width,
+                currentApp.timeline.scale,
+                scrollStore.getX(),
+                sourceSignature,
+            ].join(':');
+            const now = performance.now();
+            if (!force && projectionKey === benchmarkProjectionKeyRef.current) {
+                return false;
+            }
+            if (
+                !force &&
+                status === 'writing' &&
+                now - benchmarkLastProjectionAtRef.current <
+                    STREAM_PROJECTION_INTERVAL_MS
+            ) {
+                return false;
+            }
+
+            benchmarkLastProjectionAtRef.current = now;
+            const descriptor = createRendererBenchmarkViewportDescriptor({
+                operationEpoch,
+                viewportRevision: synchronization.requestedViewportRevision,
+                projectionRevision: ++benchmarkProjectionRevisionRef.current,
+                frame,
+                width: Math.max(1, Info.width),
+                scale: currentApp.timeline.scale,
+                scrollX: scrollStore.getX(),
+                sources,
+            });
+            const request = store.publishRenderWindow(descriptor);
+            benchmarkProjectionInFlightRef.current = request;
+            try {
+                const published = await request;
+                if (published) benchmarkProjectionKeyRef.current = projectionKey;
+                const diagnostics = store.getDiagnostics();
+                publishRendererBenchmarkDiagnostics(diagnostics);
+                return published;
+            } catch (error) {
+                benchmarkProjectionErrorRef.current = error;
+                throw error;
+            } finally {
+                if (benchmarkProjectionInFlightRef.current === request) {
+                    benchmarkProjectionInFlightRef.current = null;
+                }
+            }
+        }, [Info.width]);
+
+        useEffect(() => {
+            if (runKey === 0 || !timelineEnabled) return;
+            const interval = window.setInterval(() => {
+                void publishBenchmarkRenderWindow().catch((error) => {
+                    console.error('[RendererBenchmark] projection failed', error);
+                });
+            }, VIEWPORT_PROJECTION_POLL_MS);
+            return () => window.clearInterval(interval);
+        }, [publishBenchmarkRenderWindow, runKey, timelineEnabled]);
+
         // Initialize + inject documents for each run.
         useEffect(() => {
             if (runKey === 0) {
@@ -1376,6 +1625,12 @@ export namespace RendererTest {
             setRefreshRateBaseline(null);
             cancelAnimationFrame(releaseGateFrameRef.current);
             if (releaseGateEnabled) {
+                delete window.__rendererReleaseGateResult;
+                document.documentElement.dataset.rendererReleaseGate = 'pending';
+                document.documentElement.dataset.rendererReleaseGatePhase =
+                    'injecting';
+                document.documentElement.dataset.rendererReleaseGateResult =
+                    'pending';
                 setReleaseGate({
                     enabled: true,
                     supported: releaseGateSupported,
@@ -1409,9 +1664,7 @@ export namespace RendererTest {
                 totalDocs,
                 engineMode,
             );
-            const batches = Math.ceil(totalDocs / CHUNK_SIZE);
             const startTs = performance.now();
-            let batchIdx = 0;
             let cancelled = false;
 
             // Reset data stores for a fresh run.
@@ -1419,11 +1672,24 @@ export namespace RendererTest {
             Doc.Entity.clearIndex();
             DataStore.resetRenderOperation(MOCK_OPERATION_ID);
             Note.Entity.invalidateCache();
-
-            // Pre-allocate event buckets per source.
-            sources.forEach((src) => {
-                DataStore.replaceSourceEvents(src.id, [], 'deferred');
+            const namespace = createRendererBenchmarkNamespace(MOCK_OPERATION_ID);
+            DataStore.openEventStoreNamespace(namespace);
+            const benchmarkStore = createRendererBenchmarkEventStore(namespace, {
+                publishSourceSummary: (summary) => {
+                    if (cancelled) return;
+                    DataStore.publishEventSourceSummary(summary, 'deferred');
+                },
+                readMainCacheDocuments: () => DataStore.Events.cacheSize,
             });
+            benchmarkStoreRef.current = benchmarkStore;
+            benchmarkSourcesRef.current = sources;
+            benchmarkProjectionRevisionRef.current = 0;
+            benchmarkProjectionErrorRef.current = null;
+            benchmarkProjectionKeyRef.current = '';
+            benchmarkLastProjectionAtRef.current = 0;
+            const emptyDiagnostics = createEmptyRendererBenchmarkDiagnostics(totalDocs);
+            setBenchmarkDiagnostics(emptyDiagnostics);
+            publishRendererBenchmarkDiagnostics(emptyDiagnostics);
 
             // Center horizontal viewport on the generated event time range.
             const algorithm = new Algorhithm({
@@ -1480,7 +1746,7 @@ export namespace RendererTest {
                 );
 
                 const notes: Note.Type[] = [];
-                if (!sources.some((source) => (DataStore.events.get(source.id)?.length ?? 0) > 0)) {
+                if (totalDocs === 0) {
                     return [];
                 }
 
@@ -1489,9 +1755,12 @@ export namespace RendererTest {
                     // are scattered across the whole rendered timestamp range.
                     const percentile = noteCount <= 1 ? 0 : i / (noteCount - 1);
                     const selectedSource = sources[i % sources.length];
-                    const event = getBenchmarkEventAtPercentile(
+                    const event = getBenchmarkDocumentAtPercentile(
                         selectedSource.id,
                         percentile,
+                        totalDocs,
+                        documentMinTs,
+                        documentSpanMs,
                     );
                     if (!event) continue;
                     const sourceId = event['gulp.source_id'] as Source.Id;
@@ -1576,13 +1845,19 @@ export namespace RendererTest {
                     // destination uses a shifted percentile to avoid clustering on the same side.
                     const sourcePercentile = linkCount <= 1 ? 0 : i / (linkCount - 1);
                     const destinationPercentile = (sourcePercentile + 0.38196601125) % 1;
-                    const sourceEvent = getBenchmarkEventAtPercentile(
+                    const sourceEvent = getBenchmarkDocumentAtPercentile(
                         sourceIdsInA[i % sourceIdsInA.length],
                         sourcePercentile,
+                        totalDocs,
+                        documentMinTs,
+                        documentSpanMs,
                     );
-                    const destinationEvent = getBenchmarkEventAtPercentile(
+                    const destinationEvent = getBenchmarkDocumentAtPercentile(
                         sourceIdsInB[i % sourceIdsInB.length],
                         destinationPercentile,
+                        totalDocs,
+                        documentMinTs,
+                        documentSpanMs,
                     );
                     if (!sourceEvent || !destinationEvent) continue;
 
@@ -1625,20 +1900,33 @@ export namespace RendererTest {
                     return [];
                 }
 
-                const nonEmptyEventArrays = sources
-                    .map((source) => DataStore.events.get(source.id) ?? [])
-                    .filter((events) => events.length > 0);
-                if (nonEmptyEventArrays.length === 0) {
+                const sourceEdges = sources
+                    .flatMap((source) => [
+                        getBenchmarkDocumentAtPercentile(
+                            source.id,
+                            0,
+                            totalDocs,
+                            documentMinTs,
+                            documentSpanMs,
+                        ),
+                        getBenchmarkDocumentAtPercentile(
+                            source.id,
+                            1,
+                            totalDocs,
+                            documentMinTs,
+                            documentSpanMs,
+                        ),
+                    ])
+                    .filter((event): event is Doc.Type => event !== undefined);
+                if (sourceEdges.length === 0) {
                     return [];
                 }
 
                 const docsMinTs = Math.min(
-                    ...nonEmptyEventArrays.map(
-                        (events) => events[events.length - 1].gulp_timestamp,
-                    ),
+                    ...sourceEdges.map((event) => event.gulp_timestamp),
                 );
                 const docsMaxTs = Math.max(
-                    ...nonEmptyEventArrays.map((events) => events[0].gulp_timestamp),
+                    ...sourceEdges.map((event) => event.gulp_timestamp),
                 );
                 const span = Math.max(1, docsMaxTs - docsMinTs);
                 const colors = ['blue', 'green', 'red', 'teal', 'gray', 'pink'];
@@ -1677,41 +1965,182 @@ export namespace RendererTest {
             };
 
             /**
-             * Appends one descending document chunk and yields until the next frame.
+             * Terminates an unadmitted benchmark without turning partial data into a
+             * fallback dataset, while waking both benchmark and gate automation.
+             * @param diagnostics Structured quota reason and resource measurements.
              * @returns Nothing.
              */
-            const injectNextBatch = (): void => {
-                if (cancelled) {
-                    setIsRunning(false);
-                    return;
+            const completeQuotaSkip = (
+                diagnostics: RendererBenchmarkDiagnostics,
+            ): void => {
+                const elapsed = performance.now() - startTs;
+                setBenchmarkDiagnostics(diagnostics);
+                setPerfStats((previous) => ({
+                    ...previous,
+                    injected: diagnostics.persistedEvents,
+                    elapsed,
+                    done: true,
+                }));
+                setIsRunning(false);
+                if (releaseGateEnabled) {
+                    const emptyWorkerStats = createEmptyWorkerSnapshot();
+                    const result: ReleaseGateResult = {
+                        durationMs: elapsed,
+                        mainThreadFps: 0,
+                        workerReady: false,
+                        deltaSent: false,
+                        deltaSynchronized: false,
+                        workerStats: emptyWorkerStats,
+                        bootstrapStats: emptyWorkerStats,
+                        totalResyncCount: 0,
+                        totalWorkerErrorCount: 0,
+                        totalFallbackCount: 0,
+                        maximumQueueDepth: 0,
+                        maximumInFlightQueueDepth: 0,
+                        maximumPendingQueueDepth: 0,
+                        backendStatus: CanvasProfiler.getRendererBackendStatus(),
+                        scenario: interactionScenario,
+                        burst: interactionBurst,
+                        refreshRateBaseline:
+                            createEmptyRendererRefreshRateBaseline(),
+                        benchmarkDiagnostics: diagnostics,
+                    };
+                    window.__rendererReleaseGateResult = result;
+                    setReleaseGate((previous) => ({
+                        ...previous,
+                        phase: 'complete',
+                        phaseElapsedMs: elapsed,
+                        result: null,
+                    }));
+                    document.documentElement.dataset.rendererReleaseGate = 'skipped';
+                    document.documentElement.dataset.rendererReleaseGatePhase =
+                        'complete';
+                    document.documentElement.dataset.rendererReleaseGateResult =
+                        'skipped';
+                    requestAnimationFrame(() => {
+                        document.dispatchEvent(
+                            new CustomEvent<ReleaseGateResult>(
+                                'renderer-release-gate-complete',
+                                { detail: result },
+                            ),
+                        );
+                    });
                 }
+                publishRendererBenchmarkDiagnostics(diagnostics, true);
+                console.info('[RendererBenchmark] skipped', {
+                    targetEvents: totalDocs,
+                    reason: diagnostics.skipReason?.code,
+                    required: formatRendererBenchmarkBytes(
+                        diagnostics.skipReason?.requiredBytes ?? 0,
+                    ),
+                    available: formatRendererBenchmarkBytes(
+                        diagnostics.skipReason?.availableBytes ?? 0,
+                    ),
+                });
+            };
 
-                if (batchIdx >= batches) {
-                    // All done — finalize source totals and frame.
-                    const allSources = sources.map((src) => {
-                        const events = DataStore.events.get(src.id) ?? [];
-                        const ts = releaseGateEnabled
+            /**
+             * Runs one quota-admitted exact-page generation and publishes its LOD view.
+             * @returns Promise settled after completion, skip, cancellation, or failure.
+             */
+            const runBenchmark = async (): Promise<void> => {
+                try {
+                    await benchmarkTeardownRef.current;
+                    if (cancelled) return;
+                    let progress = await benchmarkStore.start({
+                        targetEvents: totalDocs,
+                        sourceIds: SOURCE_IDS,
+                        generation: runKey,
+                        documentMinTimestamp: documentMinTs,
+                        frameSpanMs: documentSpanMs,
+                    });
+                    setBenchmarkDiagnostics(progress.diagnostics);
+                    publishRendererBenchmarkDiagnostics(progress.diagnostics);
+                    if (progress.status === 'skipped') {
+                        completeQuotaSkip(progress.diagnostics);
+                        return;
+                    }
+
+                    while (!progress.done && !cancelled) {
+                        await new Promise<void>((resolve) => {
+                            animFrameRef.current = requestAnimationFrame(() => resolve());
+                        });
+                        if (cancelled) break;
+                        progress = await benchmarkStore.appendNextPage();
+                        setBenchmarkDiagnostics(progress.diagnostics);
+                        publishRendererBenchmarkDiagnostics(progress.diagnostics);
+                        setPerfStats((previous) => ({
+                            ...previous,
+                            injected: progress.persistedEvents,
+                            elapsed: performance.now() - startTs,
+                        }));
+                    }
+
+                    if (cancelled) {
+                        await benchmarkStore.cancel();
+                        return;
+                    }
+                    if (progress.status === 'skipped') {
+                        const diagnostics = progress.diagnostics;
+                        if (diagnostics.processedEvents > 0) {
+                            DataStore.resetRenderOperation(MOCK_OPERATION_ID);
+                        }
+                        completeQuotaSkip(diagnostics);
+                        return;
+                    }
+
+                    await benchmarkStore.finalize();
+                    const allSources = sources.map((source, sourceIndex) => {
+                        const oldest = getBenchmarkDocumentAtPercentile(
+                            source.id,
+                            0,
+                            totalDocs,
+                            documentMinTs,
+                            documentSpanMs,
+                        );
+                        const newest = getBenchmarkDocumentAtPercentile(
+                            source.id,
+                            1,
+                            totalDocs,
+                            documentMinTs,
+                            documentSpanMs,
+                        );
+                        const timestamp = releaseGateEnabled || !oldest || !newest
                             ? { min: frameMinTs, max: frameMaxTs }
-                            : events.length > 0
-                                ? Doc.Entity.range(events)
-                                : { min: frameMinTs, max: frameMaxTs };
+                            : {
+                                min: Math.min(
+                                    oldest.gulp_timestamp,
+                                    newest.gulp_timestamp,
+                                ),
+                                max: Math.max(
+                                    oldest.gulp_timestamp,
+                                    newest.gulp_timestamp,
+                                ),
+                            };
                         return {
-                            ...src,
-                            total: events.length,
-                            timestamp: ts,
+                            ...source,
+                            total: getRendererBenchmarkSourceEventCount(
+                                totalDocs,
+                                sourceIndex,
+                                SOURCE_COUNT,
+                            ),
+                            timestamp,
                             nanotimestamp: {
-                                min: Internal.Transformator.toNanos(ts.min),
-                                max: Internal.Transformator.toNanos(ts.max),
+                                min: Internal.Transformator.toNanos(timestamp.min),
+                                max: Internal.Transformator.toNanos(timestamp.max),
                             },
                         } as Source.Type;
                     });
+                    benchmarkSourcesRef.current = allSources;
 
                     const generatedNotes = buildSyntheticNotes();
                     const generatedLinks = buildSyntheticLinks();
                     const generatedHighlights = buildSyntheticHighlights();
                     const linkFocusDoc =
                         renderLinks && generatedLinks.length > 0
-                            ? Doc.Entity.id(app, generatedLinks[0].doc_ids[0])
+                            ? await DataStore.Events.getById(
+                                generatedLinks[0].doc_ids[0],
+                            )
                             : null;
                     const nextScale =
                         linkFocusDoc && renderLinks
@@ -1722,19 +2151,19 @@ export namespace RendererTest {
                     DataStore.replaceHighlights(generatedHighlights, 'deferred');
                     Note.Entity.invalidateCache();
 
-                    setInfo(((prev: App.Type) => ({
-                        ...prev,
+                    setInfo(((previous: App.Type) => ({
+                        ...previous,
                         target: {
-                            ...prev.target,
+                            ...previous.target,
                             files: allSources,
                             notes: generatedNotes,
                             links: generatedLinks,
                             highlights: generatedHighlights,
                         },
                         timeline: {
-                            ...prev.timeline,
+                            ...previous.timeline,
                             scale: nextScale,
-                            target: linkFocusDoc ?? prev.timeline.target,
+                            target: linkFocusDoc ?? previous.timeline.target,
                         },
                     })) as unknown as App.Type);
 
@@ -1755,57 +2184,71 @@ export namespace RendererTest {
                         });
                     }
 
-                    setPerfStats((prev) => ({
-                        ...prev,
+                    await publishBenchmarkRenderWindow(true);
+                    const diagnostics = benchmarkStore.getDiagnostics();
+                    setBenchmarkDiagnostics(diagnostics);
+                    publishRendererBenchmarkDiagnostics(diagnostics, true);
+                    setPerfStats((previous) => ({
+                        ...previous,
                         done: true,
                         elapsed: performance.now() - startTs,
-                        injected: totalDocs,
+                        injected: diagnostics.persistedEvents,
                     }));
                     setIsRunning(false);
                     if (releaseGateEnabled) {
                         setReleaseGate((previous) => ({
                             ...previous,
-                            phase: "synchronizing",
+                            phase: 'synchronizing',
                             phaseElapsedMs: 0,
                         }));
                     }
-                    return;
+                } catch (error) {
+                    if (cancelled) return;
+                    const diagnostics: RendererBenchmarkDiagnostics = {
+                        ...benchmarkStore.getDiagnostics(),
+                        status: 'failed',
+                    };
+                    setBenchmarkDiagnostics(diagnostics);
+                    publishRendererBenchmarkDiagnostics(diagnostics, true);
+                    setIsRunning(false);
+                    if (releaseGateEnabled) {
+                        setReleaseGate((previous) => ({
+                            ...previous,
+                            phase: 'complete',
+                            phaseElapsedMs: performance.now() - startTs,
+                        }));
+                        document.documentElement.dataset.rendererReleaseGatePhase =
+                            'complete';
+                        document.documentElement.dataset.rendererReleaseGate = 'failed';
+                        document.documentElement.dataset.rendererReleaseGateResult =
+                            'failed';
+                    }
+                    console.error('[RendererBenchmark] failed', error);
                 }
-
-                const remaining = totalDocs - batchIdx * CHUNK_SIZE;
-                const thisBatch = Math.min(CHUNK_SIZE, remaining);
-                const docs = generateDocBatch(
-                    batchIdx,
-                    thisBatch,
-                    documentMinTs,
-                    documentSpanMs,
-                    totalDocs,
-                );
-
-                // Use the same ingestion data path used in the rest of the UI.
-                Doc.Entity.add(app, docs);
-                batchIdx++;
-
-                const injected = batchIdx * CHUNK_SIZE;
-                const elapsed = performance.now() - startTs;
-
-                if (!releaseGateEnabled) {
-                    setPerfStats((prev) => ({
-                        ...prev,
-                        injected: Math.min(injected, totalDocs),
-                        elapsed,
-                    }));
-                }
-
-                // Yield to the browser so it can render, then continue.
-                animFrameRef.current = requestAnimationFrame(injectNextBatch);
             };
 
-            animFrameRef.current = requestAnimationFrame(injectNextBatch);
-
+            const runPromise = runBenchmark();
             return () => {
                 cancelled = true;
                 cancelAnimationFrame(animFrameRef.current);
+                const pendingProjection = benchmarkProjectionInFlightRef.current;
+                if (benchmarkStoreRef.current === benchmarkStore) {
+                    benchmarkStoreRef.current = null;
+                }
+                benchmarkTeardownRef.current = runPromise
+                    .then(async () => {
+                        try {
+                            await pendingProjection;
+                        } catch {
+                            // A stale projection is expected when its viewport is replaced.
+                        }
+                        await benchmarkStore.cancel();
+                        benchmarkStore.close();
+                    })
+                    .catch((error) => {
+                        benchmarkStore.close();
+                        console.error('[RendererBenchmark] cleanup failed', error);
+                    });
             };
             // eslint-disable-next-line
         }, [runKey]);
@@ -1815,6 +2258,7 @@ export namespace RendererTest {
                 !releaseGateEnabled ||
                 !releaseGateSupported ||
                 !perfStats.done ||
+                benchmarkDiagnostics.status !== 'complete' ||
                 runKey === 0
             ) {
                 return;
@@ -1832,6 +2276,13 @@ export namespace RendererTest {
                     ]),
                 ),
             };
+
+            /**
+             * Reads the freshest adapter telemetry for terminal release-gate output.
+             * @returns Current bounded-storage benchmark diagnostics.
+             */
+            const readBenchmarkDiagnostics = (): RendererBenchmarkDiagnostics =>
+                benchmarkStoreRef.current?.getDiagnostics() ?? benchmarkDiagnostics;
 
             /**
              * Publishes the terminal machine-readable and visual gate result.
@@ -1880,6 +2331,7 @@ export namespace RendererTest {
                     scenario: interactionScenario,
                     burst: interactionBurst,
                     refreshRateBaseline: createEmptyRendererRefreshRateBaseline(),
+                    benchmarkDiagnostics: readBenchmarkDiagnostics(),
                 });
             };
 
@@ -1915,6 +2367,7 @@ export namespace RendererTest {
                     scenario: interactionScenario,
                     burst: interactionBurst,
                     refreshRateBaseline: displayBaseline,
+                    benchmarkDiagnostics: readBenchmarkDiagnostics(),
                 });
             };
 
@@ -1968,13 +2421,11 @@ export namespace RendererTest {
 
                     if (!deltaSent && elapsedMs >= 10_000) {
                         const fixture = releaseGateFixtureRef.current;
-                        if (fixture) {
+                        const benchmarkStore = benchmarkStoreRef.current;
+                        if (fixture && benchmarkStore) {
                             deltaSent = true;
-                            void Doc.Entity.addAsync(
-                                latestAppRef.current,
-                                fixture.delta,
-                                measurementOperationEpoch,
-                            ).then(() => {
+                            void benchmarkStore.upsertDocuments(fixture.delta).then(
+                                async (summaries) => {
                                 if (
                                     cancelled ||
                                     DataStore.getRenderOperationEpoch() !==
@@ -1983,6 +2434,46 @@ export namespace RendererTest {
                                     deltaFailed = true;
                                     return;
                                 }
+                                const summariesBySource = new Map(
+                                    summaries.map((summary) => [
+                                        summary.sourceId,
+                                        summary,
+                                    ]),
+                                );
+                                const updatedSources = benchmarkSourcesRef.current.map(
+                                    (source) => {
+                                        const summary = summariesBySource.get(source.id);
+                                        if (!summary) return source;
+                                        return {
+                                            ...source,
+                                            total: summary.eventCount,
+                                            timestamp: {
+                                                min: summary.minTimestamp,
+                                                max: summary.maxTimestamp,
+                                            },
+                                            nanotimestamp: {
+                                                min: Internal.Transformator.toNanos(
+                                                    summary.minTimestamp,
+                                                ),
+                                                max: Internal.Transformator.toNanos(
+                                                    summary.maxTimestamp,
+                                                ),
+                                            },
+                                        } as Source.Type;
+                                    },
+                                );
+                                benchmarkSourcesRef.current = updatedSources;
+                                setInfo(((previous: App.Type) => ({
+                                    ...previous,
+                                    target: {
+                                        ...previous.target,
+                                        files: updatedSources,
+                                    },
+                                })) as unknown as App.Type);
+                                await publishBenchmarkRenderWindow(true);
+                                const diagnostics = benchmarkStore.getDiagnostics();
+                                setBenchmarkDiagnostics(diagnostics);
+                                publishRendererBenchmarkDiagnostics(diagnostics);
                                 deltaSynchronizationTarget = {
                                     operationEpoch: measurementOperationEpoch,
                                     globalRevision: DataStore.getRenderSequence(),
@@ -1995,6 +2486,9 @@ export namespace RendererTest {
                                 };
                                 deltaCompleted = true;
                             }).catch(() => {
+                                const diagnostics = benchmarkStore.getDiagnostics();
+                                setBenchmarkDiagnostics(diagnostics);
+                                publishRendererBenchmarkDiagnostics(diagnostics);
                                 deltaFailed = true;
                             });
                         }
@@ -2051,6 +2545,7 @@ export namespace RendererTest {
                         scenario: interactionScenario,
                         burst: interactionBurst,
                         refreshRateBaseline: displayBaseline,
+                        benchmarkDiagnostics: readBenchmarkDiagnostics(),
                     };
                     publishReleaseGateResult(result);
                 };
@@ -2166,6 +2661,7 @@ export namespace RendererTest {
                 cancelAnimationFrame(releaseGateFrameRef.current);
             };
         }, [
+            benchmarkDiagnostics.status,
             engineMode,
             interactionBurst,
             interactionScenario,
@@ -2187,10 +2683,23 @@ export namespace RendererTest {
          * @returns Nothing.
          */
         const handleTargetDocsChange = (docs: number) => {
-            const boundedDocs = Math.max(MIN_TOTAL_DOCS, Math.min(MAX_TOTAL_DOCS, docs));
-            setTargetDocs(boundedDocs);
-            setTargetNotes((prev) => Math.min(prev, Math.max(MIN_TOTAL_NOTES, boundedDocs)));
-            setTargetLinks((prev) => Math.min(prev, Math.max(MIN_TOTAL_LINKS, boundedDocs)));
+            const target = RENDERER_BENCHMARK_TARGETS.reduce(
+                (closest, candidate) =>
+                    Math.abs(candidate - docs) < Math.abs(closest - docs)
+                        ? candidate
+                        : closest,
+                DEFAULT_RENDERER_BENCHMARK_TARGET,
+            );
+            setTargetDocs(target);
+            const diagnostics = createEmptyRendererBenchmarkDiagnostics(target);
+            setBenchmarkDiagnostics(diagnostics);
+            publishRendererBenchmarkDiagnostics(diagnostics);
+            setTargetNotes((previous) =>
+                Math.min(previous, Math.max(MIN_TOTAL_NOTES, target)),
+            );
+            setTargetLinks((previous) =>
+                Math.min(previous, Math.max(MIN_TOTAL_LINKS, target)),
+            );
         };
 
         /**

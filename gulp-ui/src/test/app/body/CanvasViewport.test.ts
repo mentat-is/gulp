@@ -14,10 +14,10 @@ function createSource(id: string): Source.Type {
 }
 
 describe("Canvas viewport source range", () => {
-	it("includes one 48-pixel row of overscan above and below", () => {
+	it("includes two 48-pixel rows of overscan above and below", () => {
 		expect(getCanvasViewportSourceRange(20, 96, 96)).toEqual({
-			firstIndex: 1,
-			lastIndex: 4,
+			firstIndex: 0,
+			lastIndex: 5,
 		});
 	});
 
@@ -34,10 +34,12 @@ describe("Canvas viewport source range", () => {
 		);
 
 		expect(getCanvasViewportSourceIds(sources, 96, 96)).toEqual([
+			"source-0",
 			"source-1",
 			"source-2",
 			"source-3",
 			"source-4",
+			"source-5",
 		]);
 	});
 });

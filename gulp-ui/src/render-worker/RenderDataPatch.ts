@@ -2,6 +2,7 @@ import type {
 	RenderDataPatch,
 	RenderEventSnapshotRecord,
 	RenderSourcePatch,
+	RenderWindowProjection,
 } from "./RenderWorker.types";
 
 /**
@@ -60,7 +61,7 @@ function collectTransferables(
 }
 
 /**
- * Creates a transfer list containing every newly allocated typed-array buffer in a patch.
+ * Creates a transfer list containing every newly allocated event or render-window buffer.
  * @param patch Render data patch whose buffers will be detached after posting.
  * @returns Unique transferables owned by the patch.
  */
@@ -76,8 +77,8 @@ export function getDataPatchTransferables(
  * Coalesces partial metadata records by source identity while preserving removals
  * unless the newer patch explicitly reintroduces that source. New records win for
  * repeated IDs and combined removals are applied to all retained records.
-	 * @param previous Source metadata already retained by the pending envelope.
-	 * @param next Newer source metadata entering the pending envelope.
+ * @param previous Source metadata already retained by the pending envelope.
+ * @param next Newer source metadata entering the pending envelope.
  * @returns Newer source records with all still-applicable removals retained.
  */
 function mergeSourcePatches(
@@ -135,8 +136,33 @@ function mergeEventSnapshotRecords(
 }
 
 /**
- * Coalesces two unsent data patches from any producer key without mutating or
- * reusing transferable buffers.
+ * Selects one complete render window without combining source arrays or evictions.
+ * Operation and viewport freshness take precedence over the producer-local projection revision.
+ * @param previous Projection already retained by the pending envelope.
+ * @param next New projection entering the pending envelope.
+ * @returns The newest complete projection, preserving its original transferable buffers.
+ */
+export function selectNewestRenderWindowProjection(
+	previous: RenderWindowProjection | undefined,
+	next: RenderWindowProjection | undefined,
+): RenderWindowProjection | undefined {
+	if (!next) return previous;
+	if (!previous) return next;
+	if (next.operationEpoch !== previous.operationEpoch) {
+		return next.operationEpoch > previous.operationEpoch ? next : previous;
+	}
+	if (next.viewportRevision !== previous.viewportRevision) {
+		return next.viewportRevision > previous.viewportRevision ? next : previous;
+	}
+	if (next.projectionRevision !== previous.projectionRevision) {
+		return next.projectionRevision > previous.projectionRevision ? next : previous;
+	}
+	return next;
+}
+
+/**
+ * Coalesces two unsent data patches without mutating transferable buffers.
+ * Incremental sections preserve their ordering while a render window remains atomic.
  * @param previous Patch already retained by the bounded pending envelope.
  * @param next Newer patch entering the pending envelope.
  * @returns Patch representing both queued updates.
@@ -200,5 +226,9 @@ export function mergeRenderDataPatches(
 					)
 				: undefined,
 		overlays,
+		renderWindow: selectNewestRenderWindowProjection(
+			previous.renderWindow,
+			next.renderWindow,
+		),
 	};
 }

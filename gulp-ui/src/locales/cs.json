@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "Načítání událostí bylo zastaveno. Zkontrolujte dostupné úložiště a zkuste to znovu.",
+    "eventStore.streamFailed.backlog": "Události přicházely rychleji, než je prohlížeč dokázal uložit. Spusťte dotaz znovu.",
+    "eventStore.streamFailed.quota": "V úložišti prohlížeče není dost místa pro načtení těchto událostí. Uvolněte místo a zkuste to znovu.",
+    "eventStore.streamFailed.storage": "Úložiště prohlížeče není dostupné. Zkontrolujte oprávnění dat webu nebo zavřete ostatní karty a zkuste to znovu.",
+    "eventStore.streamFailed.normalization": "Některé události se nepodařilo přečíst. Zkuste to znovu nebo zkontrolujte zdrojová data.",
+    "eventStore.streamFailed.disconnected": "Při načítání událostí bylo přerušeno připojení. Zkuste to znovu po opětovném připojení.",
+    "group.eventsChangedRefresh": "Události se během načítání změnily. První stránka byla obnovena.",
+    "source.cacheRebuildInPlace": "Úložiště je omezené, proto se mezipaměť tohoto zdroje znovu vytváří na místě. Pokud bude dotaz přerušen, zdroj se znovu načte.",
     "detachedApp.authLost": "Je vyžadováno přihlášení",
     "detachedApp.authLostDescription": "Hlavní karta je odhlášená. Přihlaste se znovu a vyberte operaci, aby bylo možné toto samostatné okno obnovit.",
     "detachedApp.idle": "Čeká se na operaci",

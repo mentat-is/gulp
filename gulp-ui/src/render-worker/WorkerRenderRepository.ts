@@ -12,8 +12,12 @@ import {
 	type RenderPointerState,
 	type RenderSceneState,
 	type RenderSource,
+	type RenderTimeRange,
 	type RenderViewportState,
+	type RenderWindowProjection,
+	type RenderWindowSourceProjection,
 } from "./RenderWorker.types";
+import { isRenderWindowProjection } from "./RenderWorker.request";
 
 const HEIGHT_BUCKET_DURATION = 60_000;
 const INTERACTIVE_STAGING_SLICE_BUDGET_MS = 1;
@@ -25,6 +29,7 @@ const STAGING_CLOCK_CHECK_MASK = 2_047;
 /** Precomputed event state atomically exposed to the renderer after staging. */
 export interface WorkerRenderEventView {
 	revision: number;
+	loadedCount: number;
 	handles: Uint32Array;
 	timestamps: Float64Array;
 	hashes: Float64Array;
@@ -36,13 +41,19 @@ export interface WorkerRenderEventView {
 	overrideIndexes: Uint32Array;
 	colorSourceRevision: number;
 	heightTimestamps: Float64Array;
-	heightCounts: Uint32Array;
+	heightCounts: Uint32Array | Float64Array;
 	heightSuffixCounts: Float64Array;
 	maxHeightCount: number;
 	sampleTimestamps: Float64Array;
 	sampleCounts: Float64Array;
 	sampleSuffixCounts: Float64Array;
 	samplesAreDerived: boolean;
+	operationEpoch?: number;
+	viewportRevision?: number;
+	projectionRevision?: number;
+	coveredRange?: RenderTimeRange;
+	bucketPixelWidth?: number;
+	degradedLod?: boolean;
 }
 
 /** Canvas rectangle associated with a compact overlay identity. */
@@ -205,6 +216,9 @@ export class WorkerRenderRepository {
 	private flagsRevision = 0;
 	private globalRevision = 0;
 	private acknowledgedGlobalRevision = 0;
+	private renderWindowOperationEpoch = -1;
+	private renderWindowViewportRevision = -1;
+	private renderWindowProjectionRevision = -1;
 	private resetGeneration = 0;
 	private disposed = false;
 	private lastInteractionAt = Number.NEGATIVE_INFINITY;
@@ -424,10 +438,12 @@ export class WorkerRenderRepository {
 	/**
 	 * Applies source metadata, overlays, and staged event views from one data message.
 	 * @param patch Revisioned render-only data patch.
+	 * @param operationEpoch Envelope epoch used to reject cross-operation windows.
 	 * @returns Commit flags plus any source-level resynchronization requests.
 	 */
 	public async applyDataPatch(
 		patch: RenderDataPatch,
+		operationEpoch?: number,
 	): Promise<WorkerRepositoryApplyResult> {
 		const result: WorkerRepositoryApplyResult = {
 			committedEvents: false,
@@ -436,6 +452,12 @@ export class WorkerRenderRepository {
 			resync: [],
 		};
 		if (this.disposed) return result;
+		if (
+			patch.renderWindow !== undefined &&
+			!isRenderWindowProjection(patch.renderWindow)
+		) {
+			throw new Error("Malformed render-window projection");
+		}
 		for (const batch of patch.events ?? []) {
 			this.validateEventBatch(batch);
 		}
@@ -544,6 +566,14 @@ export class WorkerRenderRepository {
 			}
 		}
 
+		if (patch.renderWindow) {
+			result.committedEvents =
+				(await this.applyRenderWindowProjection(
+					patch.renderWindow,
+					operationEpoch,
+				)) || result.committedEvents;
+		}
+
 		if (
 			this.disposed ||
 			applyResetGeneration !== this.resetGeneration
@@ -567,6 +597,270 @@ export class WorkerRenderRepository {
 			this.globalRevision = Math.max(this.globalRevision, patch.globalRevision);
 		}
 		return result;
+	}
+
+	/**
+	 * Stages every source in one viewport projection before publishing any of them.
+	 * The transferred projection columns become the committed render view directly;
+	 * only representative override indexes and aggregate suffix sums are allocated.
+	 * @param projection Complete render-window replacement from the query worker.
+	 * @param expectedOperationEpoch Data-envelope epoch, when supplied by the controller.
+	 * @returns True when the complete projection and its explicit evictions committed.
+	 */
+	private async applyRenderWindowProjection(
+		projection: RenderWindowProjection,
+		expectedOperationEpoch?: number,
+	): Promise<boolean> {
+		if (
+			!this.isRenderWindowProjectionFresh(
+				projection,
+				expectedOperationEpoch,
+			)
+		) {
+			return false;
+		}
+
+		for (const sourceProjection of projection.sources) {
+			if (!this.hasExactRenderWindowBuffers(sourceProjection)) {
+				throw new Error(
+					`Render window retains spare buffers for source ${sourceProjection.sourceId}`,
+				);
+			}
+			if (
+				this.removedSourceIds.has(sourceProjection.sourceId) ||
+				!this.sources.has(sourceProjection.sourceId)
+			) {
+				throw new Error(
+					`Render window references unknown source ${sourceProjection.sourceId}`,
+				);
+			}
+			const current = this.events.get(sourceProjection.sourceId);
+			if (
+				current &&
+				sourceProjection.sourceRevision < current.revision
+			) {
+				return false;
+			}
+		}
+
+		const resetGeneration = this.resetGeneration;
+		const isCancelled = (): boolean =>
+			this.disposed ||
+			resetGeneration !== this.resetGeneration ||
+			!this.isRenderWindowProjectionFresh(
+				projection,
+				expectedOperationEpoch,
+			);
+		const stagedViews = new Map<string, WorkerRenderEventView>();
+		for (const sourceProjection of projection.sources) {
+			const view = await this.createRenderWindowEventView(
+				sourceProjection,
+				projection,
+				isCancelled,
+			);
+			if (!view) return false;
+			stagedViews.set(sourceProjection.sourceId, view);
+		}
+		if (isCancelled()) return false;
+
+		for (const sourceId of projection.evictedSourceIds) {
+			this.eventStageGeneration.set(
+				sourceId,
+				(this.eventStageGeneration.get(sourceId) ?? 0) + 1,
+			);
+			this.events.delete(sourceId);
+			this.eventSnapshotStages.delete(sourceId);
+		}
+		for (const [sourceId, view] of stagedViews) {
+			this.eventStageGeneration.set(
+				sourceId,
+				(this.eventStageGeneration.get(sourceId) ?? 0) + 1,
+			);
+			this.eventSnapshotStages.delete(sourceId);
+			this.events.set(sourceId, view);
+		}
+		this.renderWindowOperationEpoch = projection.operationEpoch;
+		this.renderWindowViewportRevision = projection.viewportRevision;
+		this.renderWindowProjectionRevision = projection.projectionRevision;
+		return true;
+	}
+
+	/**
+	 * Checks that every adopted projection view spans its complete backing buffer.
+	 * This preserves zero-copy ownership without retaining hidden sender capacity.
+	 * @param sourceProjection Source projection whose columns will be retained.
+	 * @returns True when every typed array has zero byte offset and exact capacity.
+	 */
+	private hasExactRenderWindowBuffers(
+		sourceProjection: RenderWindowSourceProjection,
+	): boolean {
+		const columns: Array<Uint32Array | Float64Array> = [
+			sourceProjection.representativeHandles,
+			sourceProjection.representativeTimestamps,
+			sourceProjection.representativeHashes,
+			sourceProjection.heightTimestamps,
+			sourceProjection.heightCounts,
+			sourceProjection.graphTimestamps,
+			sourceProjection.graphCounts,
+		];
+		return columns.every(
+			(column) =>
+				column.byteOffset === 0 &&
+				column.byteLength === column.buffer.byteLength,
+		);
+	}
+
+	/**
+	 * Determines whether a render-window replacement is newer than committed state
+	 * and still targets the currently known viewport.
+	 * @param projection Candidate complete viewport projection.
+	 * @param expectedOperationEpoch Data-envelope epoch, when available.
+	 * @returns True when staging and committing the projection is still useful.
+	 */
+	private isRenderWindowProjectionFresh(
+		projection: RenderWindowProjection,
+		expectedOperationEpoch?: number,
+	): boolean {
+		if (
+			expectedOperationEpoch !== undefined &&
+			projection.operationEpoch !== expectedOperationEpoch
+		) {
+			return false;
+		}
+		if (
+			this.viewportState &&
+			projection.viewportRevision < this.viewportState.viewportRevision
+		) {
+			return false;
+		}
+		if (projection.operationEpoch !== this.renderWindowOperationEpoch) {
+			return projection.operationEpoch > this.renderWindowOperationEpoch;
+		}
+		if (projection.viewportRevision !== this.renderWindowViewportRevision) {
+			return projection.viewportRevision > this.renderWindowViewportRevision;
+		}
+		return (
+			projection.projectionRevision > this.renderWindowProjectionRevision
+		);
+	}
+
+	/**
+	 * Creates a render-only LOD view while retaining the transferred data columns.
+	 * No spare-capacity buffers or dense handle-to-position index are constructed.
+	 * @param sourceProjection One source's viewport-resolution projection.
+	 * @param projection Parent projection carrying operation and viewport revisions.
+	 * @param isCancelled Callback that aborts stale cooperative preprocessing.
+	 * @returns Prepared immutable event view, or null when superseded.
+	 */
+	private async createRenderWindowEventView(
+		sourceProjection: RenderWindowSourceProjection,
+		projection: RenderWindowProjection,
+		isCancelled: StageCancellationCheck,
+	): Promise<WorkerRenderEventView | null> {
+		const source = this.sources.get(sourceProjection.sourceId);
+		if (!source || isCancelled()) return null;
+		const overrideHashes = new Set(
+			source.overrides.map((override) => override.hash),
+		);
+		let overrideCount = 0;
+		let sliceStartedAt = performance.now();
+		for (
+			let index = 0;
+			index < sourceProjection.representativeHashes.length;
+			index++
+		) {
+			if (overrideHashes.has(sourceProjection.representativeHashes[index])) {
+				overrideCount++;
+			}
+			if (
+				(index & STAGING_CLOCK_CHECK_MASK) === 0 &&
+				performance.now() - sliceStartedAt >= this.getStagingSliceBudgetMs()
+			) {
+				await this.yieldScheduler.yield();
+				if (isCancelled()) return null;
+				sliceStartedAt = performance.now();
+			}
+		}
+
+		const overrideIndexes = new Uint32Array(overrideCount);
+		let overrideIndex = 0;
+		sliceStartedAt = performance.now();
+		for (
+			let index = 0;
+			index < sourceProjection.representativeHashes.length;
+			index++
+		) {
+			if (overrideHashes.has(sourceProjection.representativeHashes[index])) {
+				overrideIndexes[overrideIndex++] = index;
+			}
+			if (
+				(index & STAGING_CLOCK_CHECK_MASK) === 0 &&
+				performance.now() - sliceStartedAt >= this.getStagingSliceBudgetMs()
+			) {
+				await this.yieldScheduler.yield();
+				if (isCancelled()) return null;
+				sliceStartedAt = performance.now();
+			}
+		}
+
+		const heightSuffixCounts = new Float64Array(
+			sourceProjection.heightCounts.length,
+		);
+		if (
+			!(await this.buildSuffixCounts(
+				heightSuffixCounts,
+				sourceProjection.heightCounts,
+				0,
+				sourceProjection.heightCounts.length,
+				isCancelled,
+			))
+		) {
+			return null;
+		}
+		const sampleSuffixCounts = new Float64Array(
+			sourceProjection.graphCounts.length,
+		);
+		if (
+			!(await this.buildSuffixCounts(
+				sampleSuffixCounts,
+				sourceProjection.graphCounts,
+				0,
+				sourceProjection.graphCounts.length,
+				isCancelled,
+			))
+		) {
+			return null;
+		}
+		if (isCancelled()) return null;
+
+		return {
+			revision: sourceProjection.sourceRevision,
+			loadedCount: sourceProjection.loadedCount,
+			handles: sourceProjection.representativeHandles,
+			timestamps: sourceProjection.representativeTimestamps,
+			hashes: sourceProjection.representativeHashes,
+			hashMin: sourceProjection.hashRange.min,
+			hashMax: sourceProjection.hashRange.max,
+			hashMinCount: 0,
+			hashMaxCount: 0,
+			handleIndexes: new Uint32Array(0),
+			overrideIndexes,
+			colorSourceRevision: source.revision,
+			heightTimestamps: sourceProjection.heightTimestamps,
+			heightCounts: sourceProjection.heightCounts,
+			heightSuffixCounts,
+			maxHeightCount: sourceProjection.heightMaximumCount,
+			sampleTimestamps: sourceProjection.graphTimestamps,
+			sampleCounts: sourceProjection.graphCounts,
+			sampleSuffixCounts,
+			samplesAreDerived: false,
+			operationEpoch: projection.operationEpoch,
+			viewportRevision: projection.viewportRevision,
+			projectionRevision: projection.projectionRevision,
+			coveredRange: sourceProjection.coveredRange,
+			bucketPixelWidth: sourceProjection.bucketPixelWidth,
+			degradedLod: sourceProjection.degradedLod,
+		};
 	}
 
 	/**
@@ -819,6 +1113,17 @@ export class WorkerRenderRepository {
 		}
 		const current = this.events.get(batch.sourceId);
 		const currentRevision = current?.revision ?? 0;
+		if (batch.mode === "upsert" && current?.operationEpoch !== undefined) {
+			return {
+				committed: false,
+				resync: {
+					scope: "source",
+					id: batch.sourceId,
+					expectedRevision: currentRevision,
+					receivedRevision: batch.baseRevision,
+				},
+			};
+		}
 		if (
 			current &&
 			(batch.revision < currentRevision ||
@@ -1252,6 +1557,7 @@ export class WorkerRenderRepository {
 		const hashMax = Math.max(current.hashMax, deltaHashMax);
 		const view: WorkerRenderEventView = {
 			revision: batch.revision,
+			loadedCount: nextLength,
 			handles: nextStore.handles.subarray(0, nextStore.eventLength),
 			timestamps: nextStore.timestamps.subarray(0, nextStore.eventLength),
 			hashes: nextStore.hashes.subarray(0, nextStore.eventLength),
@@ -2345,6 +2651,7 @@ export class WorkerRenderRepository {
 		if (!backingStore) return null;
 		const view: WorkerRenderEventView = {
 			revision,
+			loadedCount: arrays.handles.length,
 			handles: backingStore.handles.subarray(
 				0,
 				backingStore.eventLength,
@@ -2412,6 +2719,13 @@ export class WorkerRenderRepository {
 		if (!current || !source || current.colorSourceRevision >= source.revision) {
 			return false;
 		}
+		if (current.operationEpoch !== undefined) {
+			return this.restageRenderWindowColorMetadata(
+				sourceId,
+				current,
+				source,
+			);
+		}
 
 		const stageGeneration = this.eventStageGeneration.get(sourceId) ?? 0;
 		const resetGeneration = this.resetGeneration;
@@ -2474,6 +2788,91 @@ export class WorkerRenderRepository {
 			this.eventBackingStores.set(identityPreservingView, refreshedStore);
 		}
 		this.events.set(sourceId, identityPreservingView);
+		return true;
+	}
+
+	/**
+	 * Refreshes override membership for an LOD view without rebuilding or copying
+	 * its transferred representative and aggregate columns.
+	 * @param sourceId Source whose override hashes changed.
+	 * @param current Current LOD event view retained by the renderer.
+	 * @param source Latest source metadata used to resolve override membership.
+	 * @returns True when the refreshed representative override index committed.
+	 */
+	private async restageRenderWindowColorMetadata(
+		sourceId: string,
+		current: WorkerRenderEventView,
+		source: RenderSource,
+	): Promise<boolean> {
+		const stageGeneration = this.eventStageGeneration.get(sourceId) ?? 0;
+		const resetGeneration = this.resetGeneration;
+		const overrideHashes = new Set(
+			source.overrides.map((override) => override.hash),
+		);
+		let overrideCount = 0;
+		let sliceStartedAt = performance.now();
+		for (let index = 0; index < current.hashes.length; index++) {
+			if (overrideHashes.has(current.hashes[index])) overrideCount++;
+			if (
+				(index & STAGING_CLOCK_CHECK_MASK) === 0 &&
+				performance.now() - sliceStartedAt >= this.getStagingSliceBudgetMs()
+			) {
+				await this.yieldScheduler.yield();
+				if (
+					this.isEventStageCancelled(
+						sourceId,
+						stageGeneration,
+						resetGeneration,
+					) ||
+					this.events.get(sourceId) !== current
+				) {
+					return false;
+				}
+				sliceStartedAt = performance.now();
+			}
+		}
+		const overrideIndexes = new Uint32Array(overrideCount);
+		let overrideIndex = 0;
+		sliceStartedAt = performance.now();
+		for (let index = 0; index < current.hashes.length; index++) {
+			if (overrideHashes.has(current.hashes[index])) {
+				overrideIndexes[overrideIndex++] = index;
+			}
+			if (
+				(index & STAGING_CLOCK_CHECK_MASK) === 0 &&
+				performance.now() - sliceStartedAt >= this.getStagingSliceBudgetMs()
+			) {
+				await this.yieldScheduler.yield();
+				if (
+					this.isEventStageCancelled(
+						sourceId,
+						stageGeneration,
+						resetGeneration,
+					) ||
+					this.events.get(sourceId) !== current
+				) {
+					return false;
+				}
+				sliceStartedAt = performance.now();
+			}
+		}
+		if (
+			this.isEventStageCancelled(
+				sourceId,
+				stageGeneration,
+				resetGeneration,
+			) ||
+			this.events.get(sourceId) !== current ||
+			this.sources.get(sourceId) !== source
+		) {
+			return false;
+		}
+
+		this.events.set(sourceId, {
+			...current,
+			overrideIndexes,
+			colorSourceRevision: source.revision,
+		});
 		return true;
 	}
 
@@ -2570,6 +2969,9 @@ export class WorkerRenderRepository {
 		this.flagsRevision = 0;
 		this.globalRevision = 0;
 		this.acknowledgedGlobalRevision = 0;
+		this.renderWindowOperationEpoch = -1;
+		this.renderWindowViewportRevision = -1;
+		this.renderWindowProjectionRevision = -1;
 		this.viewportState = null;
 		this.sceneState = null;
 		this.pointerState = { x: -1000, y: -1000, inside: false };

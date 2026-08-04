@@ -99,23 +99,20 @@ interface EventActionTarget extends ResolvedEventValueTarget {
 /**
  * Resolves every document related to a link, including the root document and
  * connected destination documents, while preserving stored link order.
- * @param app Current application state used for document lookup.
  * @param link Link whose related events should be displayed.
  * @returns Related documents that are currently available in the document index.
  */
-function getRelatedLinkEvents(app: App.Type, link: Link.Type): Doc.Type[] {
-	const relatedEvents: Doc.Type[] = [];
+async function getRelatedLinkEvents(link: Link.Type): Promise<Doc.Type[]> {
+	const relatedDocumentIds: Doc.Id[] = [];
 	const seenDocIds = new Set<Doc.Id>();
 
 	for (const docId of [link.doc_id_from, ...link.doc_ids]) {
 		if (seenDocIds.has(docId)) continue;
 		seenDocIds.add(docId);
-
-		const event = Doc.Entity.id(app, docId);
-		if (event) relatedEvents.push(event);
+		relatedDocumentIds.push(docId);
 	}
 
-	return relatedEvents;
+	return DataStore.Events.getByIds(relatedDocumentIds);
 }
 
 /**
@@ -1462,12 +1459,14 @@ export function DisplayEventDialog({
 	 * @param triggerEvent Mouse event used to anchor the floating event list.
 	 */
 	const handleOpenLinkedEvents = useCallback(
-		(link: Link.Type, triggerEvent: ReactMouseEvent<HTMLButtonElement>) => {
-			const linkedEvents = getRelatedLinkEvents(app, link);
+		async (
+			link: Link.Type,
+			triggerEvent: ReactMouseEvent<HTMLButtonElement>,
+		): Promise<void> => {
+			const rect = triggerEvent.currentTarget.getBoundingClientRect();
+			const linkedEvents = await getRelatedLinkEvents(link);
 
 			if (linkedEvents.length === 0) return;
-
-			const rect = triggerEvent.currentTarget.getBoundingClientRect();
 
 			setLinkedEventsPopup({
 				events: linkedEvents,
@@ -1477,7 +1476,7 @@ export function DisplayEventDialog({
 				},
 			});
 		},
-		[app],
+		[],
 	);
 
 	/**

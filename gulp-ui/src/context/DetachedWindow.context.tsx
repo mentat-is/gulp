@@ -33,6 +33,10 @@ import {
 	removePersistedDetachedWindow,
 	resolveEventRenderColor,
 } from "@/utils";
+import {
+	EVENT_MAIN_CACHE_SIZE,
+	type EventNeighborWindow,
+} from "@/event-store";
 
 type DetachedWindowKind = WindowBridge.DetachedClientKind;
 type RoutedDetachedWindowKind = DetachedWindowKind;
@@ -234,16 +238,18 @@ function createThemeSnapshot(
  * Projects the centered event strip consumed by a detached single-event Dialog.
  * Complete source collections stay in the main realm; only the eleven visible
  * indicators and their compact presentation state cross the private channel.
+ * @param app Current application state used to resolve render colors.
+ * @param event Current event at the center of the detached navigation strip.
+ * @param neighborWindow Bounded EventStore window, or null before hydration.
+ * @returns Compact navigation state containing at most eleven event indicators.
  */
 function createDialogNavigation(
 	app: App.Type,
 	event: Doc.Type,
+	neighborWindow: EventNeighborWindow | null,
 ): WindowBridge.DetachedDialogNavigation {
-	const sourceEvents =
-		DataStore.peekSourceEvents(event["gulp.source_id"]) ?? [];
-	const currentDescendingIndex = sourceEvents.findIndex(
-		(sourceEvent) => sourceEvent._id === event._id,
-	);
+	const sourceEvents = neighborWindow?.events ?? [event];
+	const currentDescendingIndex = neighborWindow?.currentIndex ?? 0;
 
 	const noteEventIds = new Set(
 		DataStore.notes
@@ -303,10 +309,17 @@ function createDialogNavigation(
  * Projects only the collaboration and presentation data needed by the active
  * detached Dialog. Related link events are included when they are already
  * indexed in the main tab; no timeline-wide event collection is cloned.
+ * @param app Current application state used for presentation metadata.
+ * @param dialog Dialog descriptor currently hosted by the detached window.
+ * @param resolvedRelatedEvents Bounded link endpoints hydrated from EventStore.
+ * @param neighborWindow Bounded neighbor window for a single-event dialog.
+ * @returns Serializable detached dialog projection.
  */
 function createDialogChangedPayload(
 	app: App.Type,
 	dialog: WindowBridge.DetachedDialogDescriptor | null,
+	resolvedRelatedEvents: readonly Doc.Type[],
+	neighborWindow: EventNeighborWindow | null,
 ): WindowBridge.DialogChangedPayload {
 	if (!dialog) {
 		return {
@@ -337,9 +350,9 @@ function createDialogChangedPayload(
 
 	const eventsById = new Map<Doc.Id, Doc.Type>();
 	descriptorEvents.forEach((event) => eventsById.set(event._id, event));
-	Doc.Entity.ids(app, [...relatedEventIds]).forEach((event) =>
-		eventsById.set(event._id, event),
-	);
+	resolvedRelatedEvents.forEach((event) => {
+		if (relatedEventIds.has(event._id)) eventsById.set(event._id, event);
+	});
 	const events = [...eventsById.values()];
 	const canonicalDialog =
 		WindowBridge.canonicalizeDetachedDialogDescriptor(dialog, eventsById);
@@ -361,9 +374,42 @@ function createDialogChangedPayload(
 		eventColors,
 		navigation:
 			canonicalDialog.kind === "event"
-				? createDialogNavigation(app, canonicalDialog.event)
+				? createDialogNavigation(
+						app,
+						canonicalDialog.event,
+						neighborWindow,
+					)
 				: null,
 	};
+}
+
+/**
+ * Collects document IDs referenced by the active detached dialog and its links.
+ * @param dialog Dialog whose bounded related-event projection is being hydrated.
+ * @returns Unique document IDs in stable descriptor/link order.
+ */
+function getDialogRelatedDocumentIds(
+	dialog: WindowBridge.DetachedDialogDescriptor,
+): Doc.Id[] {
+	const descriptorEvents =
+		dialog.kind === "event" ? [dialog.event] : dialog.events;
+	const descriptorEventIds = new Set(
+		descriptorEvents.map((event) => event._id),
+	);
+	const relatedEventIds = new Set<Doc.Id>(descriptorEventIds);
+	for (const link of DataStore.links) {
+		if (
+			!descriptorEventIds.has(link.doc_id_from) &&
+			!link.doc_ids.some((documentId) => descriptorEventIds.has(documentId))
+		) {
+			continue;
+		}
+		relatedEventIds.add(link.doc_id_from);
+		for (const documentId of link.doc_ids) {
+			relatedEventIds.add(documentId);
+		}
+	}
+	return Array.from(relatedEventIds);
 }
 
 /**
@@ -513,6 +559,9 @@ function _({ children }: { children: ReactNode }) {
 		useRef<WindowBridge.DetachedDialogDescriptor | null>(null);
 	const dialogProjectionRef =
 		useRef<WindowBridge.DialogChangedPayload | null>(null);
+	const dialogRelatedEventsRef = useRef<readonly Doc.Type[]>([]);
+	const dialogNeighborWindowRef = useRef<EventNeighborWindow | null>(null);
+	const dialogHydrationSequenceRef = useRef(0);
 	const dialogSourcePresentationSignatureRef = useRef("");
 	const recoveredPersistedWindowsRef = useRef(false);
 	const coordinatorIdRef = useRef(
@@ -523,6 +572,8 @@ function _({ children }: { children: ReactNode }) {
 	const bridgeMessageHandlerRef = useRef<
 		(message: WindowBridge.Message) => void
 	>(() => {});
+	const bridgeNavigateLookupSequenceRef = useRef(0);
+	const bridgeTargetLookupSequenceRef = useRef(0);
 	const [authLost, setAuthLost] = useState(false);
 	const authLostRef = useRef(false);
 	const routeOperationId = getRouteOperationId(location.pathname);
@@ -609,11 +660,22 @@ function _({ children }: { children: ReactNode }) {
 		);
 	}, []);
 
+	/**
+	 * Builds the current detached dialog payload from bounded hydrated references.
+	 * @param currentApp Current application presentation state.
+	 * @param dialog Dialog descriptor to project, defaulting to the active descriptor.
+	 * @returns Serializable payload retained for incremental detached updates.
+	 */
 	const projectDialog = useCallback((
 		currentApp: App.Type,
 		dialog = dialogDescriptorRef.current,
 	): WindowBridge.DialogChangedPayload => {
-		const payload = createDialogChangedPayload(currentApp, dialog);
+		const payload = createDialogChangedPayload(
+			currentApp,
+			dialog,
+			dialogRelatedEventsRef.current,
+			dialogNeighborWindowRef.current,
+		);
 		dialogProjectionRef.current = payload;
 		dialogSourcePresentationSignatureRef.current =
 			getDialogSourcePresentationSignature(currentApp, payload);
@@ -1005,6 +1067,69 @@ function _({ children }: { children: ReactNode }) {
 		};
 	}, []);
 
+	/**
+	 * Hydrates only the bounded EventStore records needed by a detached dialog.
+	 * Stale reads are ignored across descriptor and operation changes.
+	 * @param dialog Dialog descriptor to hydrate, defaulting to the active dialog.
+	 * @returns Promise settled after the bounded projection has been refreshed.
+	 */
+	const hydrateDialogProjection = useCallback(async (
+		dialog = dialogDescriptorRef.current,
+	): Promise<void> => {
+		const hydrationSequence = ++dialogHydrationSequenceRef.current;
+		if (!dialog) {
+			dialogRelatedEventsRef.current = [];
+			dialogNeighborWindowRef.current = null;
+			projectDialog(appRef.current, null);
+			return;
+		}
+
+		const operationEpoch = DataStore.getRenderOperationEpoch();
+		const descriptorEvents =
+			dialog.kind === "event" ? [dialog.event] : dialog.events;
+		const descriptorEventIds = new Set(
+			descriptorEvents.map((event) => event._id),
+		);
+		const relatedLimit = Math.max(
+			0,
+			EVENT_MAIN_CACHE_SIZE - descriptorEventIds.size,
+		);
+		const relatedDocumentIds = getDialogRelatedDocumentIds(dialog)
+			.filter((documentId) => !descriptorEventIds.has(documentId))
+			.slice(0, relatedLimit);
+		const halfWindow = Math.floor(
+			WindowBridge.DETACHED_DIALOG_NAVIGATION_WINDOW_SIZE / 2,
+		);
+
+		try {
+			const [relatedEvents, neighborWindow] = await Promise.all([
+				DataStore.Events.getByIds(relatedDocumentIds),
+				dialog.kind === "event"
+					? DataStore.Events.getNeighbors(
+							dialog.event["gulp.source_id"],
+							dialog.event._id,
+							halfWindow,
+							halfWindow,
+						)
+					: Promise.resolve(null),
+			]);
+			if (
+				hydrationSequence !== dialogHydrationSequenceRef.current ||
+				dialogDescriptorRef.current !== dialog ||
+				operationEpoch !== DataStore.getRenderOperationEpoch()
+			) {
+				return;
+			}
+
+			dialogRelatedEventsRef.current = relatedEvents;
+			dialogNeighborWindowRef.current = neighborWindow;
+			projectDialog(appRef.current, dialog);
+			scheduleDetachedState(["context", "dialog"]);
+		} catch (error) {
+			console.warn("Unable to hydrate detached dialog events", error);
+		}
+	}, [projectDialog, scheduleDetachedState]);
+
 	const unregisterClient = useCallback((clientId: string): void => {
 		const client = clientsRef.current.get(clientId);
 		client?.bridge.destroy();
@@ -1174,6 +1299,9 @@ function _({ children }: { children: ReactNode }) {
 		): boolean => {
 			pruneClients();
 			dialogDescriptorRef.current = nextDialog;
+			dialogRelatedEventsRef.current = [];
+			dialogNeighborWindowRef.current = null;
+			void hydrateDialogProjection(nextDialog);
 			const key = "dialog";
 			const existing = windowsRef.current[key];
 			if (existing && !existing.window.closed) {
@@ -1216,6 +1344,7 @@ function _({ children }: { children: ReactNode }) {
 		},
 		[
 			getCurrentOperationId,
+			hydrateDialogProjection,
 			projectDialog,
 			openRoutedDetachedWindow,
 			pruneClients,
@@ -1226,6 +1355,9 @@ function _({ children }: { children: ReactNode }) {
 	const closeDialogWindow = useCallback((): void => {
 		dialogDescriptorRef.current = null;
 		dialogProjectionRef.current = null;
+		dialogRelatedEventsRef.current = [];
+		dialogNeighborWindowRef.current = null;
+		dialogHydrationSequenceRef.current++;
 		dialogSourcePresentationSignatureRef.current = "";
 		const record = windowsRef.current.dialog;
 		if (!record) return;
@@ -1266,36 +1398,62 @@ function _({ children }: { children: ReactNode }) {
 				case WindowBridge.MessageType.NAVIGATE_TO_EVENT: {
 					const { docId, operationId } =
 						message.payload as WindowBridge.NavigateToEventPayload;
-					const event = Doc.Entity.id(appRef.current, docId);
-					if (event) {
-						infoRef.current.setTimelineTarget(event);
-						const focusCanvasOnEvent = (
-							window as Window & {
-								focusCanvasOnEvent?: (
-									timestamp: number,
-									onLeft?: boolean,
-									sourceId?: Source.Id,
-								) => void;
+					const lookupSequence = ++bridgeNavigateLookupSequenceRef.current;
+					const operationEpoch = DataStore.getRenderOperationEpoch();
+					void DataStore.Events.getById(docId)
+						.then((event) => {
+							if (
+								lookupSequence !== bridgeNavigateLookupSequenceRef.current ||
+								operationEpoch !== DataStore.getRenderOperationEpoch()
+							) {
+								return;
 							}
-						).focusCanvasOnEvent;
-						focusCanvasOnEvent?.(
-							event.gulp_timestamp,
-							false,
-							event["gulp.source_id"],
-						);
-						window.focus();
-						spawnDialogRef.current(
-							<DisplayEventDialog event={event} />,
-						);
-					} else {
-						window.focus();
-						spawnBannerRef.current(
-							<FetchEventBannerMain
-								docId={docId}
-								operationId={operationId}
-							/>,
-						);
-					}
+							if (!event) {
+								window.focus();
+								spawnBannerRef.current(
+									<FetchEventBannerMain
+										docId={docId}
+										operationId={operationId}
+									/>,
+								);
+								return;
+							}
+
+							infoRef.current.setTimelineTarget(event);
+							const focusCanvasOnEvent = (
+								window as Window & {
+									focusCanvasOnEvent?: (
+										timestamp: number,
+										onLeft?: boolean,
+										sourceId?: Source.Id,
+									) => void;
+								}
+							).focusCanvasOnEvent;
+							focusCanvasOnEvent?.(
+								event.gulp_timestamp,
+								false,
+								event["gulp.source_id"],
+							);
+							window.focus();
+							spawnDialogRef.current(
+								<DisplayEventDialog event={event} />,
+							);
+						})
+						.catch(() => {
+							if (
+								lookupSequence !== bridgeNavigateLookupSequenceRef.current ||
+								operationEpoch !== DataStore.getRenderOperationEpoch()
+							) {
+								return;
+							}
+							window.focus();
+							spawnBannerRef.current(
+								<FetchEventBannerMain
+									docId={docId}
+									operationId={operationId}
+								/>,
+							);
+						});
 					break;
 				}
 				case WindowBridge.MessageType.FOCUS_TIMELINE_REQUEST: {
@@ -1357,19 +1515,36 @@ function _({ children }: { children: ReactNode }) {
 				case WindowBridge.MessageType.EVENT_TARGET_REQUEST: {
 					const { docId } =
 						message.payload as WindowBridge.EventTargetRequestPayload;
-					const event = docId ? Doc.Entity.id(appRef.current, docId) : null;
-					if (docId && !event) break;
-					if (event?._id !== infoRef.current.app.timeline.target?._id) {
-						infoRef.current.setTimelineTarget(event ?? null);
+					const lookupSequence = ++bridgeTargetLookupSequenceRef.current;
+					if (!docId) {
+						infoRef.current.setTimelineTarget(null);
+						if (
+							clientsRef.current.get(message.senderId)?.kind === "dialog"
+						) {
+							spawnDialogRef.current(null);
+						}
+						break;
 					}
-					if (
-						clientsRef.current.get(message.senderId)?.kind ===
-						"dialog"
-					) {
-						spawnDialogRef.current(
-							event ? <DisplayEventDialog event={event} /> : null,
-						);
-					}
+					const operationEpoch = DataStore.getRenderOperationEpoch();
+					void DataStore.Events.getById(docId).then((event) => {
+						if (
+							!event ||
+							lookupSequence !== bridgeTargetLookupSequenceRef.current ||
+							operationEpoch !== DataStore.getRenderOperationEpoch()
+						) {
+							return;
+						}
+						if (event._id !== infoRef.current.app.timeline.target?._id) {
+							infoRef.current.setTimelineTarget(event);
+						}
+						if (
+							clientsRef.current.get(message.senderId)?.kind === "dialog"
+						) {
+							spawnDialogRef.current(
+								<DisplayEventDialog event={event} />,
+							);
+						}
+					}).catch(() => undefined);
 					break;
 				}
 				case WindowBridge.MessageType.DOCK_DIALOG:
@@ -1381,6 +1556,9 @@ function _({ children }: { children: ReactNode }) {
 					const existing = clientsRef.current.get(message.senderId);
 					if (existing) {
 						existing.lastSeenAt = Date.now();
+						if (existing.kind === "dialog") {
+							void hydrateDialogProjection();
+						}
 						const wasTableSyncEnabled = existing.tableSyncEnabled;
 						existing.tableSyncEnabled =
 							payload.tableSyncEnabled ?? existing.tableSyncEnabled;
@@ -1464,6 +1642,9 @@ function _({ children }: { children: ReactNode }) {
 						signatures: {},
 					};
 					clientsRef.current.set(client.id, client);
+					if (client.kind === "dialog") {
+						void hydrateDialogProjection();
+					}
 					if (statusRef.current === "active") {
 						scheduleDetachedState(["status"]);
 					} else {
@@ -1531,6 +1712,7 @@ function _({ children }: { children: ReactNode }) {
 			clientsRef.current.clear();
 		};
 	}, [
+		hydrateDialogProjection,
 		scheduleDetachedState,
 		sendBootstrap,
 		setDialogsDocked,
@@ -1647,14 +1829,32 @@ function _({ children }: { children: ReactNode }) {
 				return;
 			}
 			if (change.type === "links") {
+				void hydrateDialogProjection();
 				scheduleDetachedState(["context", "dialog"]);
 				return;
 			}
 			if (change.type === "source-events") {
+				void hydrateDialogProjection();
 				scheduleDetachedState(["context", "dialog"]);
 			}
 		});
-	}, [scheduleDetachedState]);
+	}, [hydrateDialogProjection, scheduleDetachedState]);
+
+	useEffect(() => {
+		return DataStore.subscribeEventSourceSummaries((summary) => {
+			if (
+				summary.status === "building" ||
+				statusRef.current !== "active" ||
+				!dialogDescriptorRef.current ||
+				![...clientsRef.current.values()].some(
+					(client) => client.kind === "dialog",
+				)
+			) {
+				return;
+			}
+			void hydrateDialogProjection();
+		});
+	}, [hydrateDialogProjection]);
 
 	useEffect(() => {
 		if (status !== "active") return;

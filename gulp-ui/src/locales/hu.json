@@ -4,6 +4,14 @@
     "@dir": "ltr"
   },
   "strings": {
+    "eventStore.streamFailed": "Az események betöltése leállt. Ellenőrizze a rendelkezésre álló tárhelyet, majd próbálja újra.",
+    "eventStore.streamFailed.backlog": "Az események gyorsabban érkeztek, mint ahogy a böngésző menteni tudta őket. Futtassa újra a lekérdezést.",
+    "eventStore.streamFailed.quota": "Nincs elég böngészőtárhely az események betöltéséhez. Szabadítson fel helyet, majd próbálja újra.",
+    "eventStore.streamFailed.storage": "A böngészőtárhely nem érhető el. Ellenőrizze a webhelyadatok engedélyeit, vagy zárjon be más lapokat, majd próbálja újra.",
+    "eventStore.streamFailed.normalization": "Néhány esemény nem olvasható. Próbálja újra, vagy ellenőrizze a forrásadatokat.",
+    "eventStore.streamFailed.disconnected": "A kapcsolat megszakadt az események betöltése közben. Újracsatlakozás után próbálja újra.",
+    "group.eventsChangedRefresh": "Az események betöltés közben megváltoztak. Az első oldal frissült.",
+    "source.cacheRebuildInPlace": "A tárhely korlátozott, ezért a forrás gyorsítótára helyben épül újra. Ha a lekérdezés megszakad, a forrás újra le lesz kérve.",
     "detachedApp.authLost": "Bejelentkezés szükséges",
     "detachedApp.authLostDescription": "A fő lap ki van jelentkezve. Jelentkezzen be újra, és válasszon egy műveletet a leválasztott ablak folytatásához.",
     "detachedApp.idle": "Műveletre vár",

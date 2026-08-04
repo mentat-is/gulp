@@ -5,7 +5,7 @@ import {
 	ColorPickerPopover,
 	ColorPickerTrigger,
 } from "@/ui/Color";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import s from "./styles/CreateNoteBanner.module.css";
 import { Separator } from "@/ui/Separator";
 import { Default } from "@/dto/Dataset";
@@ -462,10 +462,20 @@ export namespace LinkFunctionality {
 			const { app, Info, destroyBanner, spawnBanner } = Application.use();
 			const { t } = Locale.use();
 
-			const links = useMemo(
-				() => Link.Entity.selected(app),
-				[app.timeline.renderVersion],
-			);
+			const [links, setLinks] = useState<Link.Type[]>([]);
+			useEffect(() => {
+				let active = true;
+				void Link.Entity.selected(app)
+					.then((selectedLinks) => {
+						if (active) setLinks(selectedLinks);
+					})
+					.catch(() => {
+						if (active) setLinks([]);
+					});
+				return () => {
+					active = false;
+				};
+			}, [app, app.timeline.renderVersion]);
 
 			const [loading, setLoading] = useState<boolean>(false);
 

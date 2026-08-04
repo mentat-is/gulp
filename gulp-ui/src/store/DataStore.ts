@@ -6,6 +6,17 @@ import type { Note } from "@/entities/Note";
 import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
 import { documentIdentityRegistry } from "@/store/DocumentIdentityRegistry";
+import { EventStoreFacade } from "@/event-store/EventStore.facade";
+import {
+	EventStoreRepository,
+	EventStoreRevisionBus,
+	IndexedDbEventStoreBackend,
+} from "@/event-store";
+import type {
+	EventSourceSummary,
+	EventStoreCapacity,
+	EventStoreNamespace,
+} from "@/event-store/EventStore.types";
 
 export type DataStoreNotificationMode = "immediate" | "deferred";
 export type SourceEventsMutation = "replace" | "upsert" | "clear" | "touch";
@@ -66,6 +77,12 @@ export type NotesRealtimeSyncChange =
 	| NotesDeleteSyncChange;
 
 export type NotesSyncChangeListener = (change: NotesSyncChange) => void;
+export type EventSourceSummaryListener = (
+	summary: EventSourceSummary,
+) => void;
+export type EventStoreCapacityListener = (
+	capacity: EventStoreCapacity,
+) => void;
 
 export interface LinksRenderChange extends RenderChangeBase {
 	type: "links";
@@ -106,6 +123,14 @@ type DataStoreMutationDomain = "documents" | "overlays";
  * notifications and render-specific, revisioned mutations.
  */
 export class DataStore {
+	/** Async bounded facade that replaces direct all-event access incrementally. */
+	public static readonly Events = new EventStoreFacade({
+		resolveById: (documentId) =>
+			documentIdentityRegistry.getDocument(documentId),
+		resolveSource: (sourceId) => DataStore.events.get(sourceId) ?? [],
+		resolveSourceRevision: (sourceId) => DataStore.getSourceRevision(sourceId),
+	});
+
 	/** Canonical note records used by React surfaces and the renderer projection. */
 	public static notes: Note.Type[] = [];
 
@@ -131,7 +156,15 @@ export class DataStore {
 		new Set<DataStoreRenderChangeListener>();
 	private static readonly notesSyncChangeListeners =
 		new Set<NotesSyncChangeListener>();
+	private static readonly eventSourceSummaryListeners =
+		new Set<EventSourceSummaryListener>();
+	private static readonly eventStoreCapacityListeners =
+		new Set<EventStoreCapacityListener>();
 	private static readonly sourceRevisions = new Map<Source.Id, number>();
+	private static readonly eventSourceSummaries = new Map<
+		Source.Id,
+		EventSourceSummary
+	>();
 	private static readonly collectionRevisions: Record<RenderCollectionName, number> = {
 		notes: 0,
 		links: 0,
@@ -144,6 +177,10 @@ export class DataStore {
 	private static notesSyncSequence = 0;
 	private static operationEpoch = 1;
 	private static renderOperationId: Operation.Id | null = null;
+	private static eventStoreRepository: EventStoreRepository | null = null;
+	private static eventStoreRevisionBus: EventStoreRevisionBus | null = null;
+	private static eventStoreNamespaceKey: string | null = null;
+	private static eventStoreCapacity: EventStoreCapacity | null = null;
 	private static pendingDirtyFrame: number | null = null;
 	private static pendingDirtyTimeout: ReturnType<typeof setTimeout> | null = null;
 	private static pendingDocumentNotification = false;
@@ -210,6 +247,34 @@ export class DataStore {
 		DataStore.notesSyncChangeListeners.add(listener);
 		return () => {
 			DataStore.notesSyncChangeListeners.delete(listener);
+		};
+	}
+
+	/**
+	 * Subscribes to compact source commits published by QueryWorker or another realm.
+	 * @param listener Callback receiving one source summary without document payloads.
+	 * @returns Function that removes the listener.
+	 */
+	public static subscribeEventSourceSummaries(
+		listener: EventSourceSummaryListener,
+	): () => void {
+		DataStore.eventSourceSummaryListeners.add(listener);
+		return () => {
+			DataStore.eventSourceSummaryListeners.delete(listener);
+		};
+	}
+
+	/**
+	 * Subscribes to the latest quota-derived EventStore capacity estimate.
+	 * @param listener Callback receiving device-specific storage capacity snapshots.
+	 * @returns Function that removes the listener.
+	 */
+	public static subscribeEventStoreCapacity(
+		listener: EventStoreCapacityListener,
+	): () => void {
+		DataStore.eventStoreCapacityListeners.add(listener);
+		return () => {
+			DataStore.eventStoreCapacityListeners.delete(listener);
 		};
 	}
 
@@ -347,6 +412,115 @@ export class DataStore {
 	}
 
 	/**
+	 * Returns the compact worker/IndexedDB authority for one source.
+	 * @param sourceId Source whose loaded count and range are requested.
+	 * @returns Latest summary, or undefined before the event-store pipeline publishes one.
+	 */
+	public static getEventSourceSummary(
+		sourceId: Source.Id,
+	): EventSourceSummary | undefined {
+		return DataStore.eventSourceSummaries.get(sourceId);
+	}
+
+	/**
+	 * Publishes a compact source commit without retaining canonical documents.
+	 * @param summary Source state committed by QueryWorker and IndexedDB.
+	 * @param notificationMode React subscription notification scheduling mode.
+	 * @returns Stored source summary.
+	 */
+	public static publishEventSourceSummary(
+		summary: EventSourceSummary,
+		notificationMode: DataStoreNotificationMode = "deferred",
+	): EventSourceSummary {
+		const currentRevision = DataStore.getSourceRevision(summary.sourceId);
+		const currentSummary = DataStore.eventSourceSummaries.get(summary.sourceId);
+		if (summary.revision < currentRevision) {
+			return currentSummary ?? summary;
+		}
+		if (
+			currentSummary &&
+			currentSummary.revision === summary.revision &&
+			currentSummary.status === summary.status &&
+			currentSummary.eventCount === summary.eventCount &&
+			currentSummary.minTimestamp === summary.minTimestamp &&
+			currentSummary.maxTimestamp === summary.maxTimestamp &&
+			currentSummary.hashMin === summary.hashMin &&
+			currentSummary.hashMax === summary.hashMax
+		) {
+			return currentSummary;
+		}
+		DataStore.eventSourceSummaries.set(summary.sourceId, summary);
+		DataStore.sourceRevisions.set(summary.sourceId, summary.revision);
+		for (const listener of DataStore.eventSourceSummaryListeners) {
+			listener(summary);
+		}
+		DataStore.notifyMutation(notificationMode, ["documents"]);
+		return summary;
+	}
+
+	/**
+	 * Returns the latest origin quota estimate published by QueryWorker.
+	 * @returns Capacity snapshot, or null before the first stream admission check.
+	 */
+	public static getEventStoreCapacity(): EventStoreCapacity | null {
+		return DataStore.eventStoreCapacity;
+	}
+
+	/**
+	 * Publishes one device-specific capacity estimate without retaining query documents.
+	 * @param capacity Latest origin quota and conservative event-limit calculation.
+	 * @returns Stored capacity snapshot.
+	 */
+	public static publishEventStoreCapacity(
+		capacity: EventStoreCapacity,
+	): EventStoreCapacity {
+		DataStore.eventStoreCapacity = { ...capacity };
+		for (const listener of DataStore.eventStoreCapacityListeners) {
+			listener(DataStore.eventStoreCapacity);
+		}
+		return DataStore.eventStoreCapacity;
+	}
+
+	/**
+	 * Opens the operation-scoped IndexedDB reader shared with QueryWorker and detached realms.
+	 * @param namespace Coordinator and operation identity for the exact event cache.
+	 * @returns Nothing.
+	 */
+	public static openEventStoreNamespace(namespace: EventStoreNamespace): void {
+		const namespaceKey = `${namespace.coordinatorId}:${namespace.operationId}`;
+		if (
+			DataStore.eventStoreNamespaceKey === namespaceKey &&
+			DataStore.eventStoreRepository
+		) {
+			return;
+		}
+		DataStore.closeEventStoreNamespace();
+		const repository = new EventStoreRepository(
+			new IndexedDbEventStoreBackend(namespace),
+		);
+		DataStore.eventStoreRepository = repository;
+		DataStore.eventStoreNamespaceKey = namespaceKey;
+		DataStore.Events.useReader(repository);
+		DataStore.eventStoreRevisionBus = new EventStoreRevisionBus(
+			namespace,
+			(summary) => {
+				if (DataStore.eventStoreNamespaceKey !== namespaceKey) return;
+				DataStore.publishEventSourceSummary(summary);
+			},
+		);
+	}
+
+	/** Closes the realm-local EventStore connection and bounded document cache. */
+	public static closeEventStoreNamespace(): void {
+		DataStore.eventStoreRevisionBus?.close();
+		DataStore.eventStoreRevisionBus = null;
+		DataStore.eventStoreRepository?.close();
+		DataStore.eventStoreRepository = null;
+		DataStore.eventStoreNamespaceKey = null;
+		DataStore.Events.reset();
+	}
+
+	/**
 	 * Returns the current revision for a render overlay collection.
 	 * @param collection Collection whose revision is requested.
 	 * @returns Collection-local revision.
@@ -393,6 +567,8 @@ export class DataStore {
 		sourceId: Source.Id,
 		fallbackTotal: number,
 	): boolean {
+		const summary = DataStore.eventSourceSummaries.get(sourceId);
+		if (summary) return summary.eventCount > 0;
 		const loadedEvents = DataStore.events.get(sourceId);
 		if (loadedEvents) {
 			return loadedEvents.length > 0;
@@ -782,6 +958,7 @@ export class DataStore {
 	public static resetRenderOperation(
 		operationId: Operation.Id | null = null,
 	): number {
+		DataStore.closeEventStoreNamespace();
 		DataStore.operationEpoch++;
 		DataStore.renderOperationId = operationId;
 		DataStore.events.clear();
@@ -789,6 +966,8 @@ export class DataStore {
 		DataStore.links = [];
 		DataStore.highlights = [];
 		DataStore.sourceRevisions.clear();
+		DataStore.eventSourceSummaries.clear();
+		DataStore.eventStoreCapacity = null;
 		DataStore.collectionRevisions.notes = 0;
 		DataStore.collectionRevisions.links = 0;
 		DataStore.collectionRevisions.highlights = 0;

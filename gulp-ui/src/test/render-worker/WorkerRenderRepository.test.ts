@@ -3,6 +3,8 @@ import {
 	type RenderEventBatch,
 	type RenderNoteRecord,
 	type RenderSource,
+	type RenderWindowProjection,
+	type RenderWindowSourceProjection,
 } from "@/render-worker/RenderWorker.types";
 import { WorkerRenderRepository } from "@/render-worker/WorkerRenderRepository";
 import { MessageChannel as NodeMessageChannel } from "worker_threads";
@@ -93,6 +95,52 @@ function createSourcePatch(
 			removedSourceIds: [],
 		},
 		events,
+	};
+}
+
+/**
+ * Creates one deterministic source projection backed by exact-size typed arrays.
+ * @param overrides Projection fields to replace in the default fixture.
+ * @returns Complete viewport-resolution source projection.
+ */
+function createRenderWindowSourceProjection(
+	overrides: Partial<RenderWindowSourceProjection> = {},
+): RenderWindowSourceProjection {
+	return {
+		sourceId: "source-a",
+		sourceRevision: 1,
+		coveredRange: { min: 0, max: 240_000 },
+		bucketPixelWidth: 1,
+		degradedLod: false,
+		loadedCount: 3,
+		hashRange: { min: -2, max: 8 },
+		representativeHandles: Uint32Array.of(11, 12, 13),
+		representativeTimestamps: Float64Array.of(130_000, 70_000, 10_000),
+		representativeHashes: Float64Array.of(4, 8, -2),
+		heightTimestamps: Float64Array.of(0, 60_000, 120_000),
+		heightCounts: Float64Array.of(1, 1, 1),
+		heightMaximumCount: 1,
+		graphTimestamps: Float64Array.of(0, 60_000, 120_000),
+		graphCounts: Float64Array.of(1, 1, 1),
+		...overrides,
+	};
+}
+
+/**
+ * Creates one complete multi-source render-window replacement.
+ * @param overrides Root projection fields to replace in the default fixture.
+ * @returns Atomic render-window projection fixture.
+ */
+function createRenderWindowProjection(
+	overrides: Partial<RenderWindowProjection> = {},
+): RenderWindowProjection {
+	return {
+		operationEpoch: 1,
+		viewportRevision: 1,
+		projectionRevision: 1,
+		sources: [createRenderWindowSourceProjection()],
+		evictedSourceIds: [],
+		...overrides,
 	};
 }
 
@@ -823,6 +871,273 @@ describe("WorkerRenderRepository", () => {
 		expect(nextView?.colorSourceRevision).toBe(2);
 		expect(nextView?.handles).toBe(previousView?.handles);
 		expect(nextView?.timestamps).toBe(previousView?.timestamps);
+	});
+
+	it("adopts exact LOD columns without a dense index or spare capacity", async () => {
+		const source = createRenderSource({
+			overrides: [{ hash: 8, color: "#ff0000" }],
+		});
+		await repository.applyDataPatch(createSourcePatch(source));
+		const handles = Uint32Array.of(0xffff_fffe, 12);
+		const timestamps = Float64Array.of(130_000, 70_000);
+		const hashes = Float64Array.of(8, -2);
+		const heightTimestamps = Float64Array.of(0, 60_000, 120_000);
+		const heightCounts = Float64Array.of(2, 3, 1);
+		const graphTimestamps = Float64Array.of(0, 120_000);
+		const graphCounts = Float64Array.of(5, 1);
+		const projection = createRenderWindowProjection({
+			operationEpoch: 7,
+			viewportRevision: 3,
+			projectionRevision: 2,
+			sources: [
+				createRenderWindowSourceProjection({
+					sourceRevision: 8,
+					loadedCount: 30_000_000,
+					representativeHandles: handles,
+					representativeTimestamps: timestamps,
+					representativeHashes: hashes,
+					heightTimestamps,
+					heightCounts,
+					heightMaximumCount: 30,
+					graphTimestamps,
+					graphCounts,
+				}),
+			],
+		});
+
+		const result = await repository.applyDataPatch(
+			{ globalRevision: 2, renderWindow: projection },
+			7,
+		);
+		const view = repository.getEvents("source-a");
+
+		expect(result.committedEvents).toBe(true);
+		expect(view?.loadedCount).toBe(30_000_000);
+		expect(view?.handles).toBe(handles);
+		expect(view?.timestamps).toBe(timestamps);
+		expect(view?.hashes).toBe(hashes);
+		expect(view?.heightTimestamps).toBe(heightTimestamps);
+		expect(view?.heightCounts).toBe(heightCounts);
+		expect(view?.maxHeightCount).toBe(30);
+		expect(view?.sampleTimestamps).toBe(graphTimestamps);
+		expect(view?.sampleCounts).toBe(graphCounts);
+		expect(view?.handles.buffer.byteLength).toBe(handles.byteLength);
+		expect(view?.handleIndexes.length).toBe(0);
+		expect(Array.from(view?.overrideIndexes ?? [])).toEqual([0]);
+		expect(Array.from(view?.heightSuffixCounts ?? [])).toEqual([6, 4, 1]);
+		expect(Array.from(view?.sampleSuffixCounts ?? [])).toEqual([6, 1]);
+		expect(view?.hashMin).toBe(-2);
+		expect(view?.hashMax).toBe(8);
+
+		const spareHandles = new Uint32Array(8).subarray(0, 1);
+		spareHandles[0] = 21;
+		await expect(
+			repository.applyDataPatch(
+				{
+					globalRevision: 3,
+					renderWindow: createRenderWindowProjection({
+						operationEpoch: 7,
+						viewportRevision: 4,
+						projectionRevision: 3,
+						sources: [
+							createRenderWindowSourceProjection({
+								sourceRevision: 9,
+								loadedCount: 1,
+								representativeHandles: spareHandles,
+								representativeTimestamps: Float64Array.of(50_000),
+								representativeHashes: Float64Array.of(4),
+							}),
+						],
+					}),
+				},
+				7,
+			),
+		).rejects.toThrow("Render window retains spare buffers for source source-a");
+		expect(repository.getEvents("source-a")).toBe(view);
+	});
+
+	it("rejects obsolete render windows and stale source revisions", async () => {
+		await repository.applyDataPatch(createSourcePatch(createRenderSource()));
+		const initialProjection = createRenderWindowProjection({
+			operationEpoch: 4,
+			viewportRevision: 5,
+			projectionRevision: 10,
+			sources: [
+				createRenderWindowSourceProjection({ sourceRevision: 8 }),
+			],
+		});
+		await repository.applyDataPatch(
+			{ globalRevision: 2, renderWindow: initialProjection },
+			4,
+		);
+		const committedView = repository.getEvents("source-a");
+
+		const staleEpoch = await repository.applyDataPatch(
+			{
+				globalRevision: 3,
+				renderWindow: createRenderWindowProjection({
+					operationEpoch: 3,
+					viewportRevision: 99,
+					projectionRevision: 99,
+					sources: [
+						createRenderWindowSourceProjection({ sourceRevision: 9 }),
+					],
+				}),
+			},
+			3,
+		);
+		const staleViewport = await repository.applyDataPatch(
+			{
+				globalRevision: 4,
+				renderWindow: createRenderWindowProjection({
+					operationEpoch: 4,
+					viewportRevision: 4,
+					projectionRevision: 99,
+					sources: [
+						createRenderWindowSourceProjection({ sourceRevision: 9 }),
+					],
+				}),
+			},
+			4,
+		);
+		const repeatedProjection = await repository.applyDataPatch(
+			{ globalRevision: 5, renderWindow: initialProjection },
+			4,
+		);
+		const staleSource = await repository.applyDataPatch(
+			{
+				globalRevision: 6,
+				renderWindow: createRenderWindowProjection({
+					operationEpoch: 4,
+					viewportRevision: 6,
+					projectionRevision: 11,
+					sources: [
+						createRenderWindowSourceProjection({ sourceRevision: 7 }),
+					],
+				}),
+			},
+			4,
+		);
+		repository.setViewportState({
+			width: 100,
+			height: 48,
+			frame: { min: 0, max: 1_000 },
+			scale: 1,
+			scrollX: 0,
+			scrollY: 0,
+			viewportRevision: 7,
+			inputSequence: 1,
+			inputTimestamp: 0,
+		});
+		const supersededByControl = await repository.applyDataPatch(
+			{
+				globalRevision: 7,
+				renderWindow: createRenderWindowProjection({
+					operationEpoch: 4,
+					viewportRevision: 6,
+					projectionRevision: 12,
+					sources: [
+						createRenderWindowSourceProjection({ sourceRevision: 9 }),
+					],
+				}),
+			},
+			4,
+		);
+
+		expect(staleEpoch.committedEvents).toBe(false);
+		expect(staleViewport.committedEvents).toBe(false);
+		expect(repeatedProjection.committedEvents).toBe(false);
+		expect(staleSource.committedEvents).toBe(false);
+		expect(supersededByControl.committedEvents).toBe(false);
+		expect(repository.getEvents("source-a")).toBe(committedView);
+	});
+
+	it("publishes multi-source windows atomically and applies explicit evictions", async () => {
+		const sourceA = createRenderSource();
+		const sourceB = createRenderSource({ id: "source-b", rowOrder: 1 });
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: {
+				revision: 1,
+				records: [sourceA, sourceB],
+				removedSourceIds: [],
+			},
+		});
+		await repository.applyDataPatch({
+			globalRevision: 2,
+			renderWindow: createRenderWindowProjection({
+				sources: [
+					createRenderWindowSourceProjection(),
+					createRenderWindowSourceProjection({ sourceId: "source-b" }),
+				],
+			}),
+		});
+		const previousA = repository.getEvents("source-a");
+
+		await expect(
+			repository.applyDataPatch({
+				globalRevision: 3,
+				renderWindow: createRenderWindowProjection({
+					viewportRevision: 2,
+					projectionRevision: 2,
+					sources: [
+						createRenderWindowSourceProjection({ sourceRevision: 2 }),
+						createRenderWindowSourceProjection({
+							sourceId: "source-missing",
+						}),
+					],
+				}),
+			}),
+		).rejects.toThrow("Render window references unknown source source-missing");
+		expect(repository.getEvents("source-a")).toBe(previousA);
+
+		const replacementHandles = Uint32Array.of(21);
+		const evictionResult = await repository.applyDataPatch({
+			globalRevision: 4,
+			renderWindow: createRenderWindowProjection({
+				viewportRevision: 2,
+				projectionRevision: 2,
+				sources: [
+					createRenderWindowSourceProjection({
+						representativeHandles: replacementHandles,
+						representativeTimestamps: Float64Array.of(100_000),
+						representativeHashes: Float64Array.of(4),
+						loadedCount: 1,
+					}),
+				],
+				evictedSourceIds: ["source-b"],
+			}),
+		});
+
+		expect(evictionResult.committedEvents).toBe(true);
+		expect(repository.getEvents("source-a")?.handles).toBe(replacementHandles);
+		expect(repository.getEvents("source-b")).toBeUndefined();
+		expect(repository.getSource("source-b")).toBe(sourceB);
+	});
+
+	it("refreshes LOD override metadata without copying projection columns", async () => {
+		await repository.applyDataPatch(createSourcePatch(createRenderSource()));
+		await repository.applyDataPatch({
+			globalRevision: 2,
+			renderWindow: createRenderWindowProjection(),
+		});
+		const previous = repository.getEvents("source-a");
+		const updatedSource = createRenderSource({
+			revision: 2,
+			overrides: [{ hash: 8, color: "#ff0000" }],
+		});
+
+		const result = await repository.applyDataPatch(
+			createSourcePatch(updatedSource, [], 3),
+		);
+		const refreshed = repository.getEvents("source-a");
+
+		expect(result.committedEvents).toBe(true);
+		expect(Array.from(refreshed?.overrideIndexes ?? [])).toEqual([1]);
+		expect(refreshed?.handles).toBe(previous?.handles);
+		expect(refreshed?.timestamps).toBe(previous?.timestamps);
+		expect(refreshed?.heightCounts).toBe(previous?.heightCounts);
+		expect(refreshed?.sampleCounts).toBe(previous?.sampleCounts);
 	});
 
 	it("ignores stale overlay collection revisions independently", async () => {
