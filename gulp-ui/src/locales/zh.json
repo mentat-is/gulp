@@ -798,6 +798,7 @@
     "upload.selectMapping": "选择映射",
     "upload.selectMethod": "选择方法",
     "upload.selectPlugin": "选择插件",
+    "upload.selectPluginsForFiles": "请为以下文件选择插件：{files}",
     "upload.selectSettingsForAll": "选择所有文件的设置",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "摄取文件",

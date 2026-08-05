@@ -96,6 +96,19 @@
 .files .filePreview:not(:last-child) {
   border-bottom: 1px solid var(--gray-alpha-400);
 }
+.files .filePreview.filePreviewMissingPlugin {
+  position: relative;
+}
+.files .filePreview.filePreviewMissingPlugin::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  box-sizing: border-box;
+  border: 1px solid var(--red-700);
+  border-radius: inherit;
+  pointer-events: none;
+}
 .files .filePreview:first-child,
 .files .filePreview:last-child {
   overflow: hidden;

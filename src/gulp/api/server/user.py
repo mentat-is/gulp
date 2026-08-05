@@ -688,7 +688,7 @@ async def user_update_handler(
     },
     summary="list users.",
     description="""
-- `token` needs `admin` permission.
+- `token` needs `edit` permission.
     """,
 )
 async def user_list_handler(
@@ -696,13 +696,14 @@ async def user_list_handler(
     req_id: Annotated[str, Depends(APIDependencies.ensure_req_id_optional)] = None,
 ) -> JSONResponse:
     ServerUtils.dump_params(locals())
-    # only admin can get users list
+    # only edit can get users list
     try:
         d = await GulpUser.get_by_filter_wrapper(
             token,
             flt=GulpCollabFilter(),
-            permission=[GulpUserPermission.ADMIN],
+            permission=[GulpUserPermission.EDIT],
             recursive=True,
+            bypass_usr_flt=True,
         )
         return JSendResponse.success(req_id=req_id, data=d)
     except Exception as ex:

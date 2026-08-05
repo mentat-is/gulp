@@ -798,6 +798,7 @@
     "upload.selectMapping": "मैपिंग का चयन करें",
     "upload.selectMethod": "विधि चुनें",
     "upload.selectPlugin": "प्लगइन का चयन करें",
+    "upload.selectPluginsForFiles": "इन फ़ाइलों के लिए प्लगइन चुनें: {files}",
     "upload.selectSettingsForAll": "सभी फ़ाइलों के लिए सेटिंग्स चुनें",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "फ़ाइलें निगलें",

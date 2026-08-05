@@ -798,6 +798,7 @@
     "upload.selectMapping": "Выберите сопоставление",
     "upload.selectMethod": "Выберите метод",
     "upload.selectPlugin": "Выберите плагин",
+    "upload.selectPluginsForFiles": "Выберите плагины для: {files}",
     "upload.selectSettingsForAll": "Выберите настройки для всех файлов",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "Вставить файлы",

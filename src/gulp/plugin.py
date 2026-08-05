@@ -756,9 +756,51 @@ class GulpPluginBase(ABC):
             data=ev.model_dump(),
         )
 
-    async def _send_documents_chunk_to_ws(
-        self, docs: list[dict], last: bool
-    ) -> None:
+    async def _send_documents_chunk_to_ws(self, docs: list[dict], last: bool) -> None:
+        """Publish an ingestion chunk, including an empty terminal raw chunk."""
+        send_empty_terminal = (
+            not docs
+            and self._raw_ingestion
+            and self._last_raw_chunk
+            and last
+            and not self._preview_mode
+        )
+        if not docs and not send_empty_terminal:
+            return
+
+        MutyLogger.get_instance().debug("adding %d docs to ws", len(docs))
+        chunk = GulpDocumentsChunkPacket(
+            docs=docs,
+            chunk_size=len(docs),
+            last=last,
+            chunk_number=self._chunks_ingested,
+        )
+        redis_broker = GulpRedisBroker.get_instance()
+        await redis_broker.put(
+            t=WSDATA_DOCUMENTS_CHUNK,
+            ws_id=self._ws_id,
+            operation_id=self._operation_id,
+            user_id=self._user_id,
+            req_id=self._req_id,
+            d=chunk.model_dump(exclude_none=True),
+        )
+        self._chunks_ingested += 1
+
+        if (
+            self._chunks_ingested % 50 == 0 or self._last_raw_chunk
+        ) and self._raw_ingestion:
+            payload = GulpIngestRawProgress(last=self._last_raw_chunk)
+            await redis_broker.put(
+                t=WSDATA_INGEST_RAW_PROGRESS,
+                ws_id=self._ws_id,
+                operation_id=self._operation_id,
+                user_id=self._user_id,
+                req_id=self._req_id,
+                d=payload.model_dump(exclude_none=True),
+                private=False,
+            )
+
+    async def _send_documents_chunk_to_ws(self, docs: list[dict], last: bool) -> None:
         """Publish an ingestion chunk, including an empty terminal raw chunk."""
         send_empty_terminal = (
             not docs
@@ -1267,18 +1309,25 @@ class GulpPluginBase(ABC):
         u: GulpPluginBase = self
         while u._upper_instance != None:
             # walk the chain of upper stacked plugins and call each _enrich_documents_chunk (from bottom to top)
-            chunk = await self._upper_enrich_documents_chunk_fun(
-                sess,
-                chunk,
-                chunk_num=chunk_num,
-                total_hits=total_hits,
-                index=index,
-                last=last,
-                req_id=req_id,
-                q_name=q_name,
-                **kwargs,
-            )
-            u = u._upper_instance
+            try:
+                chunk = await self._upper_enrich_documents_chunk_fun(
+                    sess,
+                    chunk,
+                    chunk_num=chunk_num,
+                    total_hits=total_hits,
+                    index=index,
+                    last=last,
+                    req_id=req_id,
+                    q_name=q_name,
+                    **kwargs,
+                )
+                u = u._upper_instance
+            except Exception as e:
+                raise e
+        if chunk is None:
+            raise ObjectNotFound("cannot enrich!")
+        if len(chunk) == 0:
+            raise ObjectNotFound("no enrich data found")
         return chunk
 
     async def _enrich_documents_chunk_wrapper(
@@ -1540,18 +1589,15 @@ class GulpPluginBase(ABC):
 
         # get the document and call the plugin to enrich
         doc = await GulpOpenSearch.get_instance().query_single_document(index, doc_id)
-        docs = await self._enrich_documents_chunk(
-            None, [doc], fields=fields
-        )  # sess not used here
-
-        # MutyLogger.get_instance().debug("docs=%s" % (docs))
-        if not docs:
-            raise ValueError(
-                "document %s found but not enriched, returned docs len=%s (check plugin %s)!",
-                doc_id,
-                len(docs),
-                self.name,
-            )
+        try:
+            docs = await self._enrich_documents_chunk(
+                None, [doc], fields=fields
+            )  # sess not used here
+        except Exception as e:
+            raise Exception(
+                "failed to enrich document %s with plugin %s: %s"
+                % (doc_id, self.name, str(e))
+            ) from e
 
         # update the document
         dry_run: bool = GulpConfig.get_instance().debug_enrich_dry_run()

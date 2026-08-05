@@ -39,3 +39,18 @@ export const resolveOptionalMapping = (
 export const isUploadFileSettingsValid = (
 	settings: UploadFileSettingsValidation,
 ): boolean => !!settings.plugin;
+
+/**
+ * Lists selected file paths that do not have a valid ingestion plugin.
+ *
+ * @param filePaths Paths of the files currently selected in the upload banner.
+ * @param settings Per-file ingestion settings keyed by file path.
+ * @returns Current file paths that still require a plugin selection.
+ */
+export const getFilePathsWithoutPlugin = (
+	filePaths: string[],
+	settings: Record<string, UploadFileSettingsValidation | undefined>,
+): string[] =>
+	filePaths.filter(
+		(path) => !settings[path] || !isUploadFileSettingsValid(settings[path]),
+	);

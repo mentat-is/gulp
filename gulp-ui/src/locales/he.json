@@ -798,6 +798,7 @@
     "upload.selectMapping": "בחר מיפוי",
     "upload.selectMethod": "בחר שיטה",
     "upload.selectPlugin": "בחר תוסף",
+    "upload.selectPluginsForFiles": "בחר תוספים עבור: {files}",
     "upload.selectSettingsForAll": "בחר הגדרות עבור כל הקבצים",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "הטמעת קבצים",

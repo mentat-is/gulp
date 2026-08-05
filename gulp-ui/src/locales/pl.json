@@ -798,6 +798,7 @@
     "upload.selectMapping": "Wybierz mapowanie",
     "upload.selectMethod": "Wybierz metodę",
     "upload.selectPlugin": "Wybierz wtyczkę",
+    "upload.selectPluginsForFiles": "Wybierz wtyczki dla: {files}",
     "upload.selectSettingsForAll": "Wybierz ustawienia dla wszystkich plików",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "Pozyskaj pliki",

@@ -798,6 +798,7 @@
     "upload.selectMapping": "Vyberte mapování",
     "upload.selectMethod": "Vyberte metodu",
     "upload.selectPlugin": "Vyberte plugin",
+    "upload.selectPluginsForFiles": "Vyberte pluginy pro: {files}",
     "upload.selectSettingsForAll": "Vyberte nastavení pro všechny soubory",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "Ingest soubory",

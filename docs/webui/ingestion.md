@@ -26,14 +26,24 @@ operation. Open it from the operation menu with **Upload files**.
    source selection banner so the newly ingested sources can be selected into the
    timeline after they are available.
 
-The confirm button stays disabled until a context, at least one file, and valid
-file settings are present.
+The confirm button stays disabled until a context and at least one file are
+present. If any current file has no plugin, confirmation is blocked, the UI
+lists those files in an error message, and their rows are outlined in red until
+a plugin is selected.
 
 ## Per-File Settings
 
-In **Files** mode, each selected file has a settings control. The app tries to
-detect a plugin from the file signature and may preselect the parser, mapping
-file, and mapping ID when only one valid option exists.
+In **Files** mode, each selected file has a settings control. The app first
+tries to detect a plugin from known magic-byte signatures. If no signature
+matches, it looks up the case-insensitive file extension in an explicit
+extension-to-plugin allowlist, for example `.csv` to `csv.py`, `.json` to
+`json.py`, and `.evtx` to `win_evtx.py`. Plugin names are never inferred from
+arbitrary extensions, so a generic `.log` file remains blank. Signature matches
+take priority over extension matches, and an unavailable or unlisted plugin
+remains blank. There is no default EVTX fallback.
+
+After a plugin is detected or selected, the UI also preselects the mapping file
+and mapping ID when each has only one valid option.
 
 Common file settings:
 
@@ -44,9 +54,9 @@ Common file settings:
 - **Mapping ID**: selects the mapping inside the mapping file.
 - **Advanced**: opens the full advanced plugin parameter dialog.
 
-If the selected plugin requires a mapping file or mapping ID, ingestion settings
-are considered valid only after those values are selected. Custom mappings in
-advanced parameters can also satisfy mapping requirements.
+Only plugin selection is mandatory at submission time. Mapping files and mapping
+IDs remain optional because some ingestion plugins parse their input without a
+mapping.
 
 ## Settings for All Files
 

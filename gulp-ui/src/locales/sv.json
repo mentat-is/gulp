@@ -798,6 +798,7 @@
     "upload.selectMapping": "Välj mappning",
     "upload.selectMethod": "Välj metod",
     "upload.selectPlugin": "Välj plugin",
+    "upload.selectPluginsForFiles": "Välj plugin för: {files}",
     "upload.selectSettingsForAll": "Välj inställningar för alla filer",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "Ta emot filer",

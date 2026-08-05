@@ -798,6 +798,7 @@
     "upload.selectMapping": "Seleccionar mapeo",
     "upload.selectMethod": "Seleccionar método",
     "upload.selectPlugin": "Seleccionar complemento",
+    "upload.selectPluginsForFiles": "Seleccione complementos para: {files}",
     "upload.selectSettingsForAll": "Seleccione la configuración para todos los archivos",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "Ingerir archivos",
