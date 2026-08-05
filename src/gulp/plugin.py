@@ -756,8 +756,6 @@ class GulpPluginBase(ABC):
             data=ev.model_dump(),
         )
 
-<<<<<<< Updated upstream
-=======
     async def _send_documents_chunk_to_ws(self, docs: list[dict], last: bool) -> None:
         """Publish an ingestion chunk, including an empty terminal raw chunk."""
         send_empty_terminal = (
@@ -802,7 +800,6 @@ class GulpPluginBase(ABC):
                 private=False,
             )
 
->>>>>>> Stashed changes
     async def _flush_buffer_and_send_to_ws(
         self,
         flt: GulpIngestionFilter = None,
@@ -1320,9 +1317,10 @@ class GulpPluginBase(ABC):
                 u = u._upper_instance
             except Exception as e:
                 raise e
-
-        if not chunk:
+        if chunk is None:
             raise ObjectNotFound("cannot enrich!")
+        if len(chunk) == 0:
+            raise ObjectNotFound("no enrich data found")
         return chunk
 
     async def _enrich_documents_chunk_wrapper(
