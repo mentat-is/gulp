@@ -328,7 +328,7 @@ async def user_group_get_by_id_handler(
     },
     summary="list user groups, optionally using a filter.",
     description="""
-- `token` needs `admin` permission.
+- `token` needs `edit` permission.
 """,
 )
 async def user_group_list_handler(
@@ -346,7 +346,8 @@ async def user_group_list_handler(
             token,
             flt,
             recursive=True,
-            permission=[GulpUserPermission.ADMIN],
+            permission=[GulpUserPermission.EDIT],
+            bypass_usr_flt=True,
         )
         return JSendResponse.success(req_id=req_id, data=d)
 

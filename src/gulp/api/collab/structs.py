@@ -2126,6 +2126,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         user_id: str = None,
         recursive: bool = False,
         first_only: bool = False,
+        bypass_usr_flt: bool = False,
     ) -> list[T]:
         """
         retrieves objects based on the provided filter.
@@ -2145,9 +2146,13 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
             Exception: If there is an error during the query execution or result processing.
         """
         # build filter for the user
-        flt: GulpCollabFilter = await GulpCollabBase._restrict_flt_to_user(
-            sess, user_id, flt
-        )
+        flt = flt or GulpCollabFilter()
+
+        if not bypass_usr_flt:
+            MutyLogger.get_instance().debug(f"bypass_usr_flt: {bypass_usr_flt}")
+            flt: GulpCollabFilter = await GulpCollabBase._restrict_flt_to_user(
+                sess, user_id, flt
+            )
 
         # MutyLogger.get_instance().debug("pre to_select_query: user=%s, admin=%r, groups=%s, flt=%s", u.to_dict(), is_admin, group_ids, flt)
         q = flt.to_select_query(cls)
@@ -2247,6 +2252,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
         permission: list[GulpUserPermission] = None,
         throw_if_not_found: bool = False,
         recursive: bool = False,
+        bypass_usr_flt: bool = False,
     ) -> list[dict]:
         """
         same as get_by_filter, but handling session and ACL check, returning list of dicts
@@ -2298,6 +2304,7 @@ class GulpCollabBase(DeclarativeBase, MappedAsDataclass, AsyncAttrs, SerializeMi
                 throw_if_not_found=throw_if_not_found,
                 user_id=s.user.id,
                 recursive=recursive,
+                bypass_usr_flt=bypass_usr_flt,
             )
             if not objs:
                 return []

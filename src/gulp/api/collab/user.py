@@ -403,7 +403,7 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
             # create new session
             time_expire = GulpConfig.get_instance().token_expiration_time(u.is_admin())
-            
+
             # pylint: disable=protected-access
             new_session: GulpUserSession = await GulpUserSession.create_internal(
                 sess,
