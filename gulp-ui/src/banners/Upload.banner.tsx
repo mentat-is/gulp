@@ -46,12 +46,16 @@ import { AdvancedPluginParams } from "@/components/AdvancedPluginParams";
 import { Internal } from "@/entities/addon/Internal";
 import { Locale } from "@/locales";
 import {
-	isUploadFileSettingsValid,
+	getFilePathsWithoutPlugin,
 	NO_METHOD_SELECTED,
 	NO_MAPPING_SELECTED,
 	resolveOptionalMethod,
 	resolveOptionalMapping,
 } from "./Upload.validation";
+import {
+	detectFilePlugin,
+	MAX_FILE_SIGNATURE_LENGTH,
+} from "./Upload.detection";
 
 export namespace FileEntity {
 	export interface IngestOptions {
@@ -74,40 +78,6 @@ export namespace FileEntity {
 		[key: string]: any;
 	}
 }
-
-const FILE_SIGNATURES: Record<string, Uint8Array[]> = {
-	"win_evtx.py": [new Uint8Array([0x45, 0x6c, 0x66, 0x46, 0x69, 0x6c, 0x65])],
-	"systemd_journal.py": [
-		new Uint8Array([0x4c, 0x50, 0x4b, 0x53, 0x48, 0x48, 0x52, 0x48]),
-	],
-	"sqlite.py": [
-		new Uint8Array([
-			0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72,
-		]),
-	],
-	"pcap.py": [
-		new Uint8Array([0x0a, 0x0d, 0x0d, 0x0a]),
-		new Uint8Array([0xa1, 0xb2, 0xc3, 0xd4]),
-		new Uint8Array([0xd4, 0xc3, 0xb2, 0xa1]),
-		new Uint8Array([0xa1, 0xb2, 0x3c, 0x4d]),
-		new Uint8Array([0x4d, 0x3c, 0xb2, 0xa1]),
-	],
-	"win_reg.py": [new Uint8Array([0x72, 0x65, 0x67, 0x66])],
-	"win_pe.py": [new Uint8Array([0x4d, 0x5a])],
-	"zip.py": [
-		new Uint8Array([0x50, 0x4b, 0x05, 0x06]),
-		new Uint8Array([0x50, 0x4b, 0x07, 0x08]),
-		new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
-	],
-};
-
-let MAX_BYTE_LENGTH = 0;
-
-Object.values(FILE_SIGNATURES).forEach((array) => {
-	array.forEach((entity) => {
-		MAX_BYTE_LENGTH = Math.max(entity.length, MAX_BYTE_LENGTH);
-	});
-});
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 
@@ -356,7 +326,11 @@ export const FilePreview = React.memo(
 					ref={ref}
 					style={style}
 					data-index={dataIndex}
-					className={s.filePreview}
+					className={cn(
+						s.filePreview,
+						!settings.plugin && s.filePreviewMissingPlugin,
+					)}
+					aria-invalid={!settings.plugin}
 					gap={0}
 					flex={0}
 					pos={style?.position || "relative"}
@@ -376,6 +350,11 @@ export const FilePreview = React.memo(
 							<Button
 								icon="PreviewDocument"
 								variant="tertiary"
+								disabled={!settings.plugin}
+								aria-disabled={!settings.plugin}
+								onClick={(event) => {
+									if (!settings.plugin) event.preventDefault();
+								}}
 							/>
 						</Popover.Trigger>
 						<Popover.Content
@@ -872,17 +851,18 @@ export function UploadBanner() {
 	);
 
 	/**
-	 * Performs signature-based file type identification via magic bytes.
+	 * Identifies an available plugin by magic bytes, then by file extension.
 	 * @param file Target file for analysis.
-	 * @returns Detected plugin identifier or null.
+	 * @param availablePlugins Ingestion plugins exposed by the current backend.
+	 * @returns Detected plugin identifier or undefined.
 	 */
-	const detectFileType = useCallback((file: File) => {
-		return readFileChunk(file).then((buffer) =>
-			Object.keys(FILE_SIGNATURES).find((key) =>
-				FILE_SIGNATURES[key].some((uint) => compareSignature(buffer, uint)),
-			),
-		);
-	}, []);
+	const detectFileType = useCallback(
+		async (file: File, availablePlugins: string[]) => {
+			const buffer = await readFileChunk(file);
+			return detectFilePlugin(buffer, file.name, availablePlugins);
+		},
+		[],
+	);
 
 	/**
 	 * Provisions default ingestion parameters based on detected file characteristics.
@@ -890,7 +870,8 @@ export function UploadBanner() {
 	 * @param appState Current application context for mapping resolution.
 	 */
 	const initializeFileSettings = async (file: File, appState: any) => {
-		const plugin = (await detectFileType(file)) || "win_evtx.py";
+		const availablePlugins = Mapping.Entity.plugins(appState);
+		const plugin = await detectFileType(file, availablePlugins);
 		const methods = Mapping.Entity.methods(appState, plugin);
 		const method = methods.length === 1 ? methods[0] : undefined;
 		const mappings = method
@@ -912,16 +893,8 @@ export function UploadBanner() {
 			const reader = new FileReader();
 			reader.onload = () => resolve(reader.result as ArrayBuffer);
 			reader.onerror = reject;
-			reader.readAsArrayBuffer(file.slice(0, MAX_BYTE_LENGTH));
+			reader.readAsArrayBuffer(file.slice(0, MAX_FILE_SIGNATURE_LENGTH));
 		});
-	};
-
-	const compareSignature = (
-		buffer: ArrayBuffer,
-		signature: Uint8Array,
-	): boolean => {
-		const slice = new Uint8Array(buffer);
-		return signature.every((value, index) => value === slice[index]);
 	};
 
 	const [progress, setProgress] = useState<Record<string, number>>({});
@@ -939,6 +912,20 @@ export function UploadBanner() {
 	 * @returns A promise that resolves after ingestion requests have been queued.
 	 */
 	const handleSubmit = useCallback(async () => {
+		const missingPluginPaths = getFilePathsWithoutPlugin(
+			files.map(filePath),
+			settings,
+		);
+		if (missingPluginPaths.length > 0) {
+			toast.error(
+				t("upload.selectPluginsForFiles", {
+					files: missingPluginPaths.join(", "),
+				}),
+				{ richColors: true },
+			);
+			return;
+		}
+
 		setLoading(true);
 
 		const frameConfig = customFrame ? frame : undefined;
@@ -959,17 +946,7 @@ export function UploadBanner() {
 
 		setLoading(false);
 		spawnBanner(<SelectFiles.Banner />);
-	}, [files, settings, context, customFrame, frame, Info, spawnBanner]);
-
-	const isValidSettings = useMemo(() => {
-		return Object.keys(settings).every((k) => {
-			if (k === "all") return true;
-			const s = settings[k];
-			if (!s) return false;
-
-			return isUploadFileSettingsValid(s);
-		});
-	}, [settings]);
+	}, [files, settings, context, customFrame, frame, Info, spawnBanner, t]);
 
 	const DoneButton = useMemo(() => {
 		return (
@@ -978,15 +955,11 @@ export function UploadBanner() {
 				onClick={handleSubmit}
 				icon="Check"
 				className={s.done}
-				disabled={
-					!context ||
-					!files.length ||
-					!isValidSettings
-				}
+				disabled={!context || !files.length}
 				loading={loading}
 			/>
 		);
-	}, [context, handleSubmit, files, isValidSettings, loading]);
+	}, [context, handleSubmit, files, loading]);
 
 	/**
 	 * Applies a specific set of settings to all selected files in a single batch.

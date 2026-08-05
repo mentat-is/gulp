@@ -790,6 +790,7 @@
     "upload.selectMapping": "Sélectionnez le mappage",
     "upload.selectMethod": "Sélectionnez la méthode",
     "upload.selectPlugin": "Sélectionnez le plugin",
+    "upload.selectPluginsForFiles": "Sélectionnez des plugins pour : {files}",
     "upload.selectSettingsForAll": "Sélectionnez les paramètres pour tous les fichiers",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "Ingérer des fichiers",

@@ -790,6 +790,7 @@
     "upload.selectMapping": "選擇映射",
     "upload.selectMethod": "選擇方法",
     "upload.selectPlugin": "選擇插件",
+    "upload.selectPluginsForFiles": "請為以下檔案選擇插件：{files}",
     "upload.selectSettingsForAll": "選擇所有文件的設置",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "攝取文件",

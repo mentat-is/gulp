@@ -800,6 +800,7 @@
     "upload.selectMapping": "Select mapping",
     "upload.selectMethod": "Select method",
     "upload.selectPlugin": "Select plugin",
+    "upload.selectPluginsForFiles": "Select plugins for: {files}",
     "upload.selectSettingsForAll": "Select settings for all files",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "Ingest files",

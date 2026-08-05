@@ -790,6 +790,7 @@
     "upload.selectMapping": "حدد التعيين",
     "upload.selectMethod": "اختر الطريقة",
     "upload.selectPlugin": "حدد البرنامج المساعد",
+    "upload.selectPluginsForFiles": "حدد المكونات الإضافية للملفات التالية: {files}",
     "upload.selectSettingsForAll": "حدد الإعدادات لجميع الملفات",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "استيعاب الملفات",

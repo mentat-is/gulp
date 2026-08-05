@@ -790,6 +790,7 @@
     "upload.selectMapping": "Selectați maparea",
     "upload.selectMethod": "Selectați metoda",
     "upload.selectPlugin": "Selectați pluginul",
+    "upload.selectPluginsForFiles": "Selectați pluginuri pentru: {files}",
     "upload.selectSettingsForAll": "Selectați setările pentru toate fișierele",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "Ingerați fișiere",

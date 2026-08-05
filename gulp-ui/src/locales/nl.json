@@ -790,6 +790,7 @@
     "upload.selectMapping": "Selecteer toewijzing",
     "upload.selectMethod": "Selecteer methode",
     "upload.selectPlugin": "Selecteer plug-in",
+    "upload.selectPluginsForFiles": "Selecteer plug-ins voor: {files}",
     "upload.selectSettingsForAll": "Selecteer instellingen voor alle bestanden",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "Bestanden opnemen",

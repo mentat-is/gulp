@@ -790,6 +790,7 @@
     "upload.selectMapping": "Wählen Sie die Zuordnung aus",
     "upload.selectMethod": "Methode auswählen",
     "upload.selectPlugin": "Plugin auswählen",
+    "upload.selectPluginsForFiles": "Wählen Sie Plugins aus für: {files}",
     "upload.selectSettingsForAll": "Wählen Sie Einstellungen für alle Dateien aus",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "Dateien aufnehmen",

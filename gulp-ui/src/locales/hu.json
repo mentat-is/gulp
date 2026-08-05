@@ -790,6 +790,7 @@
     "upload.selectMapping": "Válassza ki a leképezést",
     "upload.selectMethod": "Válassza ki a módszert",
     "upload.selectPlugin": "Válassza ki a bővítményt",
+    "upload.selectPluginsForFiles": "Válasszon bővítményeket a következőkhöz: {files}",
     "upload.selectSettingsForAll": "Válassza ki az összes fájl beállításait",
     "upload.selectedFiles": "{count} files selected",
     "upload.title": "Fájlok felvétele",
