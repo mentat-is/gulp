@@ -650,41 +650,45 @@ export namespace Source {
 		};
 
 		/**
-		 * Counts the total number of events within the specified nanosecond time range using binary search.
+		 * Counts the total number of events within the specified millisecond time range using binary search.
 		 * Auto-detects whether the events array is sorted in ascending or descending order.
 		 * Performs in O(log N) time, completely avoiding any sequential loop traversals even with identical timestamps.
 		 *
 		 * @param events List of events to count.
-		 * @param minTimestampNanos The start of the time range in nanoseconds (inclusive).
-		 * @param maxTimestampNanos The end of the time range in nanoseconds (inclusive).
+		 * @param minTimestamp The start of the time range in milliseconds (inclusive).
+		 * @param maxTimestamp The end of the time range in milliseconds (inclusive).
 		 * @returns The total number of events inside the time range.
 		 */
 		public static countEventsInTimeRange = (
 			events: Doc.Type[],
-			minTimestampNanos: number | bigint,
-			maxTimestampNanos: number | bigint,
+			minTimestamp: number,
+			maxTimestamp: number,
 		): number => {
-			if (!events || events.length === 0) {
+			if (
+				!events ||
+				events.length === 0 ||
+				minTimestamp > maxTimestamp
+			) {
 				return 0;
 			}
 
-			const getEventNanos = (event: Doc.Type): number => {
+			const getEventTimestamp = (event: Doc.Type): number => {
 				return event.gulp_timestamp;
 			};
 
-			const firstNanos = getEventNanos(events[0]);
-			const lastNanos = getEventNanos(events[events.length - 1]);
-			const isDescending = firstNanos > lastNanos;
+			const firstTimestamp = getEventTimestamp(events[0]);
+			const lastTimestamp = getEventTimestamp(events[events.length - 1]);
+			const isDescending = firstTimestamp > lastTimestamp;
 
 			if (isDescending) {
-				// Find the first index where eventNanos <= maxNanos
+				// Find the first index where the event timestamp is <= maxTimestamp.
 				let low = 0;
 				let high = events.length - 1;
 				let firstIdx = -1;
 				while (low <= high) {
 					const mid = (low + high) >> 1;
-					const eventNanos = getEventNanos(events[mid]);
-					if (eventNanos < maxTimestampNanos) {
+					const eventTimestamp = getEventTimestamp(events[mid]);
+					if (eventTimestamp <= maxTimestamp) {
 						firstIdx = mid;
 						high = mid - 1;
 					} else {
@@ -692,14 +696,14 @@ export namespace Source {
 					}
 				}
 
-				// Find the last index where eventNanos >= minNanos
+				// Find the last index where the event timestamp is >= minTimestamp.
 				low = 0;
 				high = events.length - 1;
 				let lastIdx = -1;
 				while (low <= high) {
 					const mid = (low + high) >> 1;
-					const eventNanos = getEventNanos(events[mid]);
-					if (eventNanos >= minTimestampNanos) {
+					const eventTimestamp = getEventTimestamp(events[mid]);
+					if (eventTimestamp >= minTimestamp) {
 						lastIdx = mid;
 						low = mid + 1;
 					} else {
@@ -713,14 +717,14 @@ export namespace Source {
 
 				return lastIdx - firstIdx + 1;
 			} else {
-				// Find the first index where eventNanos >= minNanos
+				// Find the first index where the event timestamp is >= minTimestamp.
 				let low = 0;
 				let high = events.length - 1;
 				let firstIdx = -1;
 				while (low <= high) {
 					const mid = (low + high) >> 1;
-					const eventNanos = getEventNanos(events[mid]);
-					if (eventNanos >= minTimestampNanos) {
+					const eventTimestamp = getEventTimestamp(events[mid]);
+					if (eventTimestamp >= minTimestamp) {
 						firstIdx = mid;
 						high = mid - 1;
 					} else {
@@ -728,14 +732,14 @@ export namespace Source {
 					}
 				}
 
-				// Find the last index where eventNanos <= maxNanos
+				// Find the last index where the event timestamp is <= maxTimestamp.
 				low = 0;
 				high = events.length - 1;
 				let lastIdx = -1;
 				while (low <= high) {
 					const mid = (low + high) >> 1;
-					const eventNanos = getEventNanos(events[mid]);
-					if (eventNanos < maxTimestampNanos) {
+					const eventTimestamp = getEventTimestamp(events[mid]);
+					if (eventTimestamp <= maxTimestamp) {
 						lastIdx = mid;
 						low = mid + 1;
 					} else {

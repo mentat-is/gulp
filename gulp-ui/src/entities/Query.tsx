@@ -20,7 +20,10 @@ export namespace Query {
     text_filter?: string
     /** Array of structured filter conditions and/or nested groups. */
     filters: Filter.Item[]
-    /** Raw OpenSearch JSON used in manual mode. */
+    /**
+     * Raw OpenSearch filter JSON layered on the structured source/time scope
+     * in manual mode.
+     */
     raw?: any
     /** Whether this query was built in manual (JSON) mode. */
     isManual?: boolean

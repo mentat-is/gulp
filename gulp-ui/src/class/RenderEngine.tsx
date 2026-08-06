@@ -1004,6 +1004,20 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		return { dots };
 	};
 
+	/**
+	 * Counts loaded events whose offset-adjusted timestamps are in the selected frame.
+	 * @param file Source whose events should be counted.
+	 * @returns Loaded event count inside the selected timeline frame.
+	 */
+	private getFrameEventCount = (file: Source.Type): number => {
+		const frame = this.info.app.timeline.frame;
+		return Source.Entity.countEventsInTimeRange(
+			Source.Entity.events(this.info.app, file),
+			frame.min - file.settings.offset,
+			frame.max - file.settings.offset,
+		);
+	};
+
 	public locals = (file: Source.Type, y?: number) => {
 		y =
 			typeof y === "number"
@@ -1039,7 +1053,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 			48 - 1,
 		);
 
-		const events = Doc.Entity.get(this.info.app, file.id).length.toString();
+		const eventCount = this.getFrameEventCount(file).toString();
 
 		this.ctx.fillStyle = Color.Themer.theme.FONT_ACCENT;
 
@@ -1053,7 +1067,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 			line.two,
 		);
 		this.ctx.fillStyle = Color.Themer.theme.FONT_SECOND;
-		this.ctx.fillText(events, right, line.three);
+		this.ctx.fillText(eventCount, right, line.three);
 
 		this.ctx.textAlign = "right";
 		this.ctx.fillStyle = Color.Themer.theme.FONT_ACCENT;
@@ -1065,7 +1079,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 			line.two,
 		);
 		this.ctx.fillStyle = Color.Themer.theme.FONT_SECOND;
-		this.ctx.fillText(events, left, line.three);
+		this.ctx.fillText(eventCount, left, line.three);
 
 		if (requestStore.hasLoadingForFile(file.id)) {
 			this.loading(file);
@@ -1240,6 +1254,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 				: translate("renderEngine.loadingSuffix");
 
 		const context = Source.Entity.context(this.info.app, file);
+		const frameEventCount = this.getFrameEventCount(file);
 		const lines: Array<{ text: string; dy: number; color: string }> = [
 			{
 				text: file.name + suffix,
@@ -1247,7 +1262,7 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 				color: Color.Themer.theme.FONT_ACCENT,
 			},
 			{
-				text: Source.Entity.events(this.info.app, file).length.toString(),
+				text: frameEventCount.toString(),
 				dy: lineHeight,
 				color: Color.Themer.theme.FONT_ACCENT,
 			},

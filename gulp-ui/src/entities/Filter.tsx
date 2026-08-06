@@ -65,6 +65,82 @@ export namespace Filter {
 
 	export class Entity {
 		/**
+		 * Checks whether a top-level manual-query clause is one of the structured
+		 * operation, source, or time constraints generated from source_config.
+		 * @param clause Manual OpenSearch clause to inspect.
+		 * @param sourceConfig Structured source scope represented by the clause.
+		 * @returns True when the clause exactly duplicates the structured scope.
+		 */
+		private static isSourceScopeClause = (
+			clause: Record<string, any>,
+			sourceConfig: NonNullable<Query.Type["source_config"]>,
+		): boolean => {
+			if (
+				String(clause.term?.["gulp.operation_id"]) ===
+				String(sourceConfig.operation_id)
+			) {
+				return true;
+			}
+
+			const sourceIds = clause.terms?.["gulp.source_id"];
+			if (Array.isArray(sourceIds)) {
+				const actual = sourceIds.map(String).sort();
+				const expected = sourceConfig.source_ids.map(String).sort();
+				if (
+					actual.length === expected.length &&
+					actual.every((id, index) => id === expected[index])
+				) {
+					return true;
+				}
+			}
+
+			const range = clause.range?.["gulp.timestamp"];
+			return (
+				range !== undefined &&
+				String(range.gte) === String(sourceConfig.range.min) &&
+				String(range.lte) === String(sourceConfig.range.max)
+			);
+		};
+
+		/**
+		 * Removes generated source-scope clauses from a manual query so the current
+		 * structured scope can be applied exactly once. User clauses that differ
+		 * from the previous generated values are preserved.
+		 * @param raw Manual OpenSearch query JSON.
+		 * @param sourceConfig Previous structured source scope represented in raw.
+		 * @returns The manual filter without duplicate generated scope, or undefined
+		 * when no manual clauses remain.
+		 */
+		public static withoutSourceScope = (
+			raw: any,
+			sourceConfig?: Query.Type["source_config"],
+		): any => {
+			if (
+				!sourceConfig ||
+				!raw ||
+				typeof raw !== "object" ||
+				!raw.bool ||
+				!Array.isArray(raw.bool.must)
+			) {
+				return raw;
+			}
+
+			const must = raw.bool.must.filter(
+				(clause: Record<string, any>) =>
+					!Filter.Entity.isSourceScopeClause(clause, sourceConfig),
+			);
+			const bool = { ...raw.bool };
+			if (must.length > 0) {
+				bool.must = must;
+			} else {
+				delete bool.must;
+			}
+
+			if (Object.keys(bool).length === 0) return undefined;
+			return { ...raw, bool };
+		};
+
+		/**
 		 * Builds a single OpenSearch clause for one `Filter.Item` (leaf or group).
 		 *
 		 * - Leaf: produces a match/wildcard/regexp/range clause as before.
@@ -136,11 +212,16 @@ export namespace Filter {
 			}
 		};
 
+		/**
+		 * Builds the OpenSearch query while keeping operation, source, and timeline
+		 * constraints as the immutable base of structured and manual filters.
+		 * @param q Structured or manual query definition.
+		 * @returns OpenSearch query DSL object.
+		 */
 		static query = (q: Query.Type) => {
-			// Manual mode: return raw JSON directly
-			if (q.isManual && q.raw) return q.raw;
-
 			const { filters, text_filter, source_config, fieldTypeMap } = q;
+			if (q.isManual && q.raw && !source_config) return q.raw;
+
 			const query: Record<string, any> = {
 				bool: {
 					must: [],
@@ -168,24 +249,32 @@ export namespace Filter {
 				});
 			}
 
-			// Apply wildcard text filter on event.original (case-insensitive)
-			if (text_filter) {
-				query.bool.must.push({
-					wildcard: {
-						"event.original": {
-							value: text_filter.trim(),
-							case_insensitive: true,
+			if (q.isManual && q.raw) {
+				const manualFilter = Filter.Entity.withoutSourceScope(
+					q.raw,
+					source_config,
+				);
+				if (manualFilter) query.bool.must.push(manualFilter);
+			} else {
+				// Apply wildcard text filter on event.original (case-insensitive)
+				if (text_filter) {
+					query.bool.must.push({
+						wildcard: {
+							"event.original": {
+								value: text_filter.trim(),
+								case_insensitive: true,
+							},
 						},
-					},
+					});
+				}
+
+				// Process each item — flat condition or nested group
+				filters.forEach((item) => {
+					if (!item.enabled) return;
+					const clause = Filter.Entity.buildItemClause(item, fieldTypeMap);
+					if (clause) query.bool[item.operator].push(clause);
 				});
 			}
-
-			// Process each item — flat condition or nested group
-			filters.forEach((item) => {
-				if (!item.enabled) return;
-				const clause = Filter.Entity.buildItemClause(item, fieldTypeMap);
-				if (clause) query.bool[item.operator].push(clause);
-			});
 
 			// Clean up empty bool buckets to keep the query compact
 			Object.keys(query.bool).forEach((key) => {
@@ -312,6 +401,40 @@ export namespace Filter {
 					},
 				},
 				filters: [],
+			};
+		};
+
+		/**
+		 * Scopes an existing query to one source and optionally replaces its base
+		 * range with an offset-adjusted rendered timeline frame.
+		 * @param app Current application state.
+		 * @param file Source receiving the dedicated query.
+		 * @param query Existing query whose user filters must be preserved.
+		 * @param range Optional rendered millisecond timeline frame.
+		 * @returns Dedicated query with a canonical source_config and cleaned manual filter.
+		 */
+		public static scopeToSource = (
+			app: App.Type,
+			file: Source.Type,
+			query: Query.Type,
+			range?: MinMax,
+		): Query.Type => {
+			const defaultQuery = Filter.Entity.default(app, file, range);
+			const defaultSourceConfig = defaultQuery.source_config!;
+
+			return {
+				...query,
+				raw: query.isManual
+					? Filter.Entity.withoutSourceScope(query.raw, query.source_config)
+					: query.raw,
+				source_config: {
+					operation_id: file.operation_id,
+					source_ids: [file.id],
+					range:
+						range !== undefined
+							? defaultSourceConfig.range
+							: query.source_config?.range ?? defaultSourceConfig.range,
+				},
 			};
 		};
 

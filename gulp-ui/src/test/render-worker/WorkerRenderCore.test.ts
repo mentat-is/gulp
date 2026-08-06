@@ -300,6 +300,75 @@ describe("WorkerRenderCore", () => {
 		expect(recordedText.includes(source.name)).toBe(true);
 	});
 
+	it("labels the exact loaded count instead of the LOD representative count", async () => {
+		const source = {
+			...createRenderSource("source-frame-count", 0),
+			timestamp: { min: 0, max: 1_000 },
+			total: 102_000,
+			offset: 100,
+		};
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: { revision: 1, records: [source], removedSourceIds: [] },
+			renderWindow: {
+				operationEpoch: 1,
+				viewportRevision: 1,
+				projectionRevision: 1,
+				sources: [
+					{
+						sourceId: source.id,
+						sourceRevision: 1,
+						coveredRange: { min: 300, max: 700 },
+						bucketPixelWidth: 1,
+						degradedLod: false,
+						loadedCount: 3,
+						hashRange: { min: 1, max: 1 },
+						representativeHandles: Uint32Array.of(1),
+						representativeTimestamps: Float64Array.of(500),
+						representativeHashes: Float64Array.of(1),
+						heightTimestamps: new Float64Array(0),
+						heightCounts: new Float64Array(0),
+						heightMaximumCount: 0,
+						graphTimestamps: new Float64Array(0),
+						graphCounts: new Float64Array(0),
+					},
+				],
+				evictedSourceIds: [],
+			},
+		});
+		repository.setFrameState(
+			createFrameState([source.id], {
+				frame: { min: 400, max: 800 },
+			}),
+		);
+		const context = createRecordingContext(1_000, 96);
+		const renderCore = new WorkerRenderCore(context, repository, {
+			requestAsset: jest.fn(),
+		});
+
+		renderCore.render(100, DirtyCanvas.Events);
+
+		const fillTextCalls = (
+			context.fillText as unknown as {
+				mock: { calls: Array<[string, number, number]> };
+			}
+		).mock.calls;
+		const loadedCountLabels = fillTextCalls.filter(
+			([label, , y]) => label === "3" && (y === 38 || y === 42),
+		);
+
+		expect(loadedCountLabels).toHaveLength(3);
+		expect(fillTextCalls.some(([label]) => label === "1")).toBe(false);
+		expect(
+			fillTextCalls.filter(([label]) => label === source.total.toString()),
+		).toHaveLength(2);
+		expect(
+			fillTextCalls.some(
+				([label]) => label === `${source.total} | ${source.contextLabel}`,
+			),
+		).toBe(true);
+	});
+
 	it("renders default-engine events shifted into the visible frame by source offset", async () => {
 		const rawEventTimestamp = 1_743_025_550_367;
 		const offset = -124_900_000_000;
