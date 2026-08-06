@@ -90,8 +90,8 @@ export namespace Settings {
               }}
             />
             <Input
-              label={t("settings.timeoff.label")}
-              placeholder={t("settings.timeoff.placeholder")}
+              label={t("settings.timeoffset.label")}
+              placeholder={t("settings.timeoffset.placeholder")}
               type="number"
               min={10}
               value={timeoffInput}
