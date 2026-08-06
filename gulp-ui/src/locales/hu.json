@@ -693,6 +693,7 @@
     "settings.scroll.normal": "Normál görgetés",
     "settings.scroll.reverse": "Fordított görgetés",
     "settings.theme": "Téma",
+    "settings.timeoff.label": "Valós idejű lekérdezési intervallum",
     "settings.timeoff.placeholder": "Lekérdezési intervallum másodpercben (min 10)",
     "settings.timestamps.local": "Helyi időbélyegek",
     "settings.timestamps.utc": "UTC időbélyegek",

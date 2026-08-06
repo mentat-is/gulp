@@ -694,6 +694,7 @@
     "settings.scroll.reverse": "Scorrimento inverso",
     "settings.theme": "Tema",
     "settings.timeoffset.label": "Offset temporale in secondi (solo realtime)",
+    "settings.timeoff.label": "Intervallo di polling in tempo reale",
     "settings.timeoff.placeholder": "Intervallo di polling in secondi (min 10)",
     "settings.timestamps.local": "Timestamp locali",
     "settings.timestamps.utc": "Timestamp UTC",

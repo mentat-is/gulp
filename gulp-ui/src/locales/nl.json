@@ -693,6 +693,7 @@
     "settings.scroll.normal": "Normaal scrollen",
     "settings.scroll.reverse": "Omgekeerd scrollen",
     "settings.theme": "Thema",
+    "settings.timeoff.label": "Pollinginterval voor realtime-updates",
     "settings.timeoff.placeholder": "Polling-interval in seconden (min 10)",
     "settings.timestamps.local": "Lokale tijdstempels",
     "settings.timestamps.utc": "UTC-tijdstempels",

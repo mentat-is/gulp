@@ -693,6 +693,7 @@
     "settings.scroll.normal": "Defilare normală",
     "settings.scroll.reverse": "Defilare inversă",
     "settings.theme": "Temă",
+    "settings.timeoff.label": "Interval de interogare în timp real",
     "settings.timeoff.placeholder": "Interval de sondare în secunde (min 10)",
     "settings.timestamps.local": "Marcaje orare locale",
     "settings.timestamps.utc": "Marcaje orare UTC",

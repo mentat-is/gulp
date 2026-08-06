@@ -702,6 +702,7 @@
     "settings.scroll.reverse": "Reverse scroll",
     "settings.theme": "Theme",
     "settings.timeoffset.label": "Time offset in seconds (realtime only)",
+    "settings.timeoff.label": "Realtime polling interval",
     "settings.timeoff.placeholder": "Polling interval in seconds (min 10)",
     "settings.timestamps.local": "Local timestamps",
     "settings.timestamps.utc": "UTC timestamps",

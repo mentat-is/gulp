@@ -693,6 +693,7 @@
     "settings.scroll.normal": "Normální rolování",
     "settings.scroll.reverse": "Zpětné posouvání",
     "settings.theme": "Téma",
+    "settings.timeoff.label": "Interval dotazování v reálném čase",
     "settings.timeoff.placeholder": "Interval dotazování v sekundách (min 10)",
     "settings.timestamps.local": "Místní časová razítka",
     "settings.timestamps.utc": "Časová razítka UTC",

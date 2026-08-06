@@ -693,6 +693,7 @@
     "settings.scroll.normal": "सामान्य स्क्रॉल",
     "settings.scroll.reverse": "उलटा स्क्रॉल करें",
     "settings.theme": "थीम",
+    "settings.timeoff.label": "रीयल-टाइम पोलिंग अंतराल",
     "settings.timeoff.placeholder": "मतदान अंतराल सेकंड में (न्यूनतम 10)",
     "settings.timestamps.local": "स्थानीय टाइमस्टैम्प",
     "settings.timestamps.utc": "यूटीसी टाइमस्टैम्प",

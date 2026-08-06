@@ -693,6 +693,7 @@
     "settings.scroll.normal": "正常滾動",
     "settings.scroll.reverse": "反向捲動",
     "settings.theme": "主題",
+    "settings.timeoff.label": "即時輪詢間隔",
     "settings.timeoff.placeholder": "輪詢間隔（以秒為單位）（分鐘 10）",
     "settings.timestamps.local": "本地時間戳",
     "settings.timestamps.utc": "UTC 時間戳",

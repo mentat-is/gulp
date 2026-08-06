@@ -693,6 +693,7 @@
     "settings.scroll.normal": "Normal rullning",
     "settings.scroll.reverse": "Omvänd rullning",
     "settings.theme": "Tema",
+    "settings.timeoff.label": "Pollingintervall i realtid",
     "settings.timeoff.placeholder": "Pollingintervall i sekunder (min 10)",
     "settings.timestamps.local": "Lokala tidsstämplar",
     "settings.timestamps.utc": "UTC-tidsstämplar",
