@@ -1620,7 +1620,11 @@ export class WorkerRenderCore {
 			this.repository.getEvents(source.id)?.timestamps.length ?? 0;
 		const contextLabel = source.contextLabel || state.localized.unknownContext;
 		const lines = [
-			{ text: `${source.name}${suffix}`, y: centerY + 4, color: state.palette.fontAccent },
+			{
+				text: `${source.name.split(/[\\/]/).pop() || source.name}${suffix}`,
+				y: centerY + 4,
+				color: state.palette.fontAccent,
+			},
 			{ text: eventCount.toString(), y: centerY + 18, color: state.palette.fontAccent },
 			{
 				text: `${source.total} | ${contextLabel}${suffix}`,

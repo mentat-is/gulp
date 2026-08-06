@@ -277,6 +277,29 @@ describe("WorkerRenderCore", () => {
 		expect(statistics?.renderedRows).toBe(0);
 	});
 
+	it("renders only the file name for path-based source names", async () => {
+		const source = {
+			...createRenderSource("source-path", 0),
+			name: "C:\\\\evidence\\\\events.json",
+		};
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: { revision: 1, records: [source], removedSourceIds: [] },
+		});
+		repository.setFrameState(createFrameState([source.id]));
+		const recordedText: string[] = [];
+		const renderCore = new WorkerRenderCore(
+			createRecordingContext(1, 1, recordedText),
+			repository,
+			{ requestAsset: jest.fn() },
+		);
+
+		renderCore.render(100, DirtyCanvas.Sources);
+
+		expect(recordedText.includes("events.json")).toBe(true);
+		expect(recordedText.includes(source.name)).toBe(false);
+	});
+
 	it("renders default-engine events shifted into the visible frame by source offset", async () => {
 		const rawEventTimestamp = 1_743_025_550_367;
 		const offset = -124_900_000_000;

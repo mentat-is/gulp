@@ -29,6 +29,7 @@
 
 ## Bug Fixes and Stability
 
+- `Timeline Source Labels`: Displayed only the file name for path-based source names.
 - `Autosave Refactoring`: Replaced interval-based autosaving with a debounced effect.
 - `WebSocket Reconnection`: Handled WebSocket reconnections using existing WSID configurations.
 - `Safe Component Unmounting`: Implemented unmount delays and fallback clipboard logic for UI consistency.
