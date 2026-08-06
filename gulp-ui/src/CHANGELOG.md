@@ -30,6 +30,7 @@
 
 ## Bug Fixes and Stability
 
+- `Frame Date Selection`: Preserved in-progress From and To edits while timeline request-loading updates rerender the frame banner.
 - `Timeline Source Labels`: Added a source setting to display either a file name or full path.
 - `Autosave Refactoring`: Replaced interval-based autosaving with a debounced effect.
 - `WebSocket Reconnection`: Handled WebSocket reconnections using existing WSID configurations.
