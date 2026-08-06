@@ -21,15 +21,20 @@ interface MockButtonProps extends MockChildrenProps {
 	onClick?: () => void;
 }
 
+const mockRefetch = jest.fn();
+const mockSetTimelineFrame = jest.fn();
+const mockDestroyBanner = jest.fn();
+const mockSelectedSourceId = "selected-frame-source" as Source.Id;
+
 jest.mock("@/context/Application.context", () => ({
 	Application: {
 		/** Returns the minimal application services required by Frame.Banner. */
 		use: (): unknown => ({
 			Info: {
-				setTimelineFrame: jest.fn(),
-				refetch: jest.fn(),
+				setTimelineFrame: mockSetTimelineFrame,
+				refetch: mockRefetch,
 			},
-			destroyBanner: jest.fn(),
+			destroyBanner: mockDestroyBanner,
 			app: {},
 		}),
 	},
@@ -55,7 +60,9 @@ jest.mock("@/entities/Context", () => ({
 jest.mock("@/entities/Source", () => ({
 	Source: {
 		Entity: {
-			selected: (): never[] => [],
+			selected: (): Array<{ id: Source.Id }> => [
+				{ id: mockSelectedSourceId },
+			],
 		},
 	},
 }));
@@ -127,6 +134,9 @@ describe("Frame.Banner date selection", () => {
 
 	beforeEach(() => {
 		requestStore.reset();
+		mockRefetch.mock.calls.length = 0;
+		mockSetTimelineFrame.mock.calls.length = 0;
+		mockDestroyBanner.mock.calls.length = 0;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -182,5 +192,29 @@ describe("Frame.Banner date selection", () => {
 			min: new Date("2024-01-02T03:04").valueOf(),
 			max: initialFrame.max,
 		});
+	});
+
+	it("refetches every selected source with the committed frame", () => {
+		const initialFrame = {
+			min: new Date("2025-03-17T00:00:00").valueOf(),
+			max: new Date("2025-03-27T00:00:00").valueOf(),
+		};
+
+		act(() => {
+			root.render(<Frame.Banner frame={initialFrame} />);
+		});
+
+		const doneButton = container.querySelector<HTMLButtonElement>(
+			'button[data-icon="Check"]',
+		);
+		expect(doneButton).not.toBeNull();
+		act(() => doneButton!.click());
+
+		expect(mockRefetch).toHaveBeenCalledWith({
+			ids: [mockSelectedSourceId],
+			frame: initialFrame,
+		});
+		expect(mockSetTimelineFrame).not.toHaveBeenCalled();
+		expect(mockDestroyBanner).toHaveBeenCalled();
 	});
 });

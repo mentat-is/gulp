@@ -300,6 +300,60 @@ describe("WorkerRenderCore", () => {
 		expect(recordedText.includes(source.name)).toBe(true);
 	});
 
+	it("counts loaded source events inside the selected timeline frame", async () => {
+		const source = {
+			...createRenderSource("source-frame-count", 0),
+			timestamp: { min: 0, max: 1_000 },
+			total: 102_000,
+			offset: 100,
+		};
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: { revision: 1, records: [source], removedSourceIds: [] },
+			events: [
+				{
+					sourceId: source.id,
+					baseRevision: 0,
+					revision: 1,
+					mode: "replace",
+					handles: Uint32Array.of(1, 2, 3, 4, 5),
+					timestamps: Float64Array.of(1_000, 700, 500, 300, 0),
+					hashes: Float64Array.of(1, 1, 1, 1, 1),
+				},
+			],
+		});
+		repository.setFrameState(
+			createFrameState([source.id], {
+				frame: { min: 400, max: 800 },
+			}),
+		);
+		const context = createRecordingContext(1_000, 96);
+		const renderCore = new WorkerRenderCore(context, repository, {
+			requestAsset: jest.fn(),
+		});
+
+		renderCore.render(100, DirtyCanvas.Events);
+
+		const fillTextCalls = (
+			context.fillText as unknown as {
+				mock: { calls: Array<[string, number, number]> };
+			}
+		).mock.calls;
+		const frameCountLabels = fillTextCalls.filter(
+			([label, , y]) => label === "3" && (y === 38 || y === 42),
+		);
+
+		expect(frameCountLabels).toHaveLength(3);
+		expect(
+			fillTextCalls.filter(([label]) => label === source.total.toString()),
+		).toHaveLength(2);
+		expect(
+			fillTextCalls.some(
+				([label]) => label === `${source.total} | ${source.contextLabel}`,
+			),
+		).toBe(true);
+	});
+
 	it("renders default-engine events shifted into the visible frame by source offset", async () => {
 		const rawEventTimestamp = 1_743_025_550_367;
 		const offset = -124_900_000_000;

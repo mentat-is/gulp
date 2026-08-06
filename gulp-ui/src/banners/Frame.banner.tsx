@@ -11,7 +11,6 @@ import { Button } from "@/ui/Button";
 import { Input } from "@/ui/Input";
 import { Stack } from "@/ui/Stack";
 import { Toggle } from "@/ui/Toggle";
-import { useRequestLoadings } from "@/store/request.store";
 import s from "./styles/LimitsBanner.module.css";
 
 type FrameBoundary = keyof MinMax;
@@ -41,7 +40,7 @@ function formatSelectionValue(value: number, manual: boolean): string {
 /**
  * Edits one frame boundary while retaining the draft until it is committed.
  * Keeping this component at module scope preserves its state when the banner
- * rerenders for request-loading updates.
+ * rerenders because surrounding application state changes.
  * @param props Date-selection configuration and commit callback.
  * @returns A date or ISO-string input for one frame boundary.
  */
@@ -105,7 +104,6 @@ export namespace Frame {
 	}: Frame.Banner.Props) {
 		const { Info, destroyBanner, app } = Application.use();
 		const { t } = Locale.use();
-		const loadings = useRequestLoadings();
 		const [frame, setFrame] = useState<MinMax>(
 			initFrame ?? Context.Entity.frame(app),
 		);
@@ -114,7 +112,8 @@ export namespace Frame {
 		const [manual, setManual] = useState(false);
 
 		/**
-		 * Persists the selected frame or returns it to the caller.
+		 * Persists the selected frame and refetches every selected source, or
+		 * returns it to the caller when the banner is used as a nested editor.
 		 * @param minimum Optional preset lower boundary.
 		 * @returns Nothing after the frame action is dispatched.
 		 */
@@ -129,11 +128,9 @@ export namespace Frame {
 				return;
 			}
 
-			Info.setTimelineFrame(nextFrame);
-			Info.refetch({
-				ids: Source.Entity.selected(app)
-					.map((file) => file.id)
-					.filter((id) => !loadings.byFileId.has(id)),
+			void Info.refetch({
+				ids: Source.Entity.selected(app).map((file) => file.id),
+				frame: nextFrame,
 			});
 			destroyBanner();
 		};

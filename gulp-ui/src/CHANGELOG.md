@@ -30,6 +30,8 @@
 
 ## Bug Fixes and Stability
 
+- `Timeline Frame Queries`: Applied the selected frame as the offset-adjusted backend range for every selected source, including in-flight rendering and subsequent structured or manual filters.
+- `Timeline Frame Counts`: Limited rendered source counts to loaded events inside the selected timeline frame while preserving the canonical source total.
 - `Frame Date Selection`: Preserved in-progress From and To edits while timeline request-loading updates rerender the frame banner.
 - `Timeline Source Labels`: Added a source setting to display either a file name or full path.
 - `Autosave Refactoring`: Replaced interval-based autosaving with a debounced effect.

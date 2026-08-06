@@ -1422,7 +1422,8 @@ export class Info implements InfoProps {
 	 * @param options.notes_tags - Tags to apply to any auto-created notes.
 	 * @param options.notes_glyph_id - Icon glyph ID for any auto-created notes.
 	 * @param options.name - Optional name label for this search action.
-	 * @param options.frame - Optional custom timeframe to apply to the timeline.
+	 * @param options.frame - Optional rendered timeframe to persist before the
+	 * current timeline frame is applied as every source query's base range.
 	 * @returns A promise that resolves when all queries are queued.
 	 */
 	refetch = async ({
@@ -1439,16 +1440,33 @@ export class Info implements InfoProps {
 		const files: Source.Type[] = Parser.array(_ids).map((id) =>
 			Source.Entity.id(this.app, id),
 		).filter(Boolean);
-		if (files.length === 0) return;
 
 		if (frame) {
 			this.setTimelineFrame(frame);
-		} else if (
+		}
+		if (files.length === 0) return;
+
+		let effectiveFrame = frame;
+		if (
+			!effectiveFrame &&
 			this.app.timeline.frame.min === 0 &&
 			this.app.timeline.frame.max === 0
 		) {
-			this.setTimelineFrame(Source.Entity.renderedFrame(files));
+			effectiveFrame = Source.Entity.renderedFrame(files);
+			this.setTimelineFrame(effectiveFrame);
 		}
+		effectiveFrame ??= this.app.timeline.frame;
+
+		const sourceQueries = files.map((file) => ({
+			file,
+			query: Filter.Entity.scopeToSource(
+				this.app,
+				file,
+				this.getQuery(file),
+				effectiveFrame,
+			),
+		}));
+		this.persistSourceQueries(sourceQueries);
 
 		this.notes_reload();
 		this.links_reload();
@@ -1460,26 +1478,13 @@ export class Info implements InfoProps {
 		);
 		this.removeQueuedRefetchesForSources(files.map((file) => file.id));
 
-		files.forEach((file) => {
+		sourceQueries.forEach(({ file, query }) => {
 			this.events_reset_in_file(file);
-			const query = this.getQuery(file);
-
-			// Ensure that each query is strictly filtered by its specific source_id to avoid duplicate results
-			// and ensure correct loading state mapping (1 req_id = 1 source_id)
-			const dedicatedQuery = {
-				...query,
-				source_config: query.source_config
-					? {
-							...query.source_config,
-							source_ids: [file.id],
-						}
-					: undefined,
-			};
 
 			this.enqueueRefetchQuery({
 				sourceId: file.id,
 				operationId: file.operation_id,
-				query: dedicatedQuery,
+				query,
 				options: {
 					id: file.id,
 					operationId: file.operation_id,
@@ -6057,19 +6062,28 @@ export class Info implements InfoProps {
 	 * @param query - The structured query to persist.
 	 */
 	setQuery = (file: Arrayed<Source.Type>, query: Query.Type): void => {
-		const files = Parser.array(file);
+		this.persistSourceQueries(
+			Parser.array(file).map((source) => ({ file: source, query })),
+		);
+	};
 
-		// Auto-generate the display label from the current query state
-		const displayLabel = Filter.Entity.describe(query, this.app);
+	/**
+	 * Persists distinct per-source queries in one state update. This is required
+	 * for timeline frames because source offsets produce different raw ranges.
+	 * @param entries Source/query pairs to store in the application filter cache.
+	 * @returns Nothing.
+	 */
+	private persistSourceQueries = (
+		entries: Array<{ file: Source.Type; query: Query.Type }>,
+	): void => {
+		const filters = { ...this.app.target.filters };
 
-		files.forEach((file) => {
-			this.app.target.filters[file.id] = {
-				string: displayLabel,
+		entries.forEach(({ file, query }) => {
+			filters[file.id] = {
+				string: Filter.Entity.describe(query, this.app),
 				text_filter: query.text_filter,
 				source_config: query.source_config,
-				// Always use the incoming filters array directly.
-				// An empty array is a valid "cleared" state and must NOT fall back
-				// to the previously stored filters.
+				// An empty array is a valid cleared state and must be persisted.
 				filters: Array.isArray(query.filters) ? query.filters : [],
 				raw: query.raw,
 				isManual: query.isManual,
@@ -6077,11 +6091,8 @@ export class Info implements InfoProps {
 			};
 		});
 
-		this.setInfoByKey(
-			Refractor.object(this.app.target.filters),
-			"target",
-			"filters",
-		);
+		this.app.target.filters = filters;
+		this.setInfoByKey(Refractor.object(filters), "target", "filters");
 	};
 
 	getQuery = (file: Source.Type): Query.Type => {

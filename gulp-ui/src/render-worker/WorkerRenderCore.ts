@@ -195,8 +195,9 @@ export class WorkerRenderCore {
 			if (index === 0) this.drawPrimaryRowEdge(centerY, state);
 			this.drawSourceRow(source, centerY, state);
 			this.drawTargetGuide(source, centerY, state);
-			this.drawSourceLocals(source, centerY, state);
-			this.drawSourceInfo(source, centerY, state);
+			const frameEventCount = this.countSourceEventsInFrame(source, state);
+			this.drawSourceLocals(source, centerY, frameEventCount, state);
+			this.drawSourceInfo(source, centerY, frameEventCount, state);
 		}
 
 		this.drawTargetMarker(state);
@@ -647,6 +648,33 @@ export class WorkerRenderCore {
 			}
 		}
 		return result;
+	}
+
+	/**
+	 * Counts loaded source events inside the selected timeline frame.
+	 * @param source Source whose raw timestamps may have a display offset.
+	 * @param state Current selected timeline frame.
+	 * @returns Number of loaded events whose displayed timestamp is in the frame.
+	 */
+	private countSourceEventsInFrame(
+		source: RenderSource,
+		state: RenderFrameState,
+	): number {
+		const timestamps = this.repository.getEvents(source.id)?.timestamps;
+		if (!timestamps || timestamps.length === 0) return 0;
+
+		const minimum = state.frame.min - source.offset;
+		const maximum = state.frame.max - source.offset;
+		if (minimum > maximum) return 0;
+
+		const startIndex = this.findFirstDescendingAtMost(timestamps, maximum);
+		if (startIndex === timestamps.length) return 0;
+		const endIndex = this.findLastDescendingAtLeast(
+			timestamps,
+			minimum,
+			startIndex,
+		);
+		return endIndex < startIndex ? 0 : endIndex - startIndex + 1;
 	}
 
 	/**
@@ -1496,12 +1524,14 @@ export class WorkerRenderCore {
 	 * Draws source bounds, totals, dates, counts, and loading decoration.
 	 * @param source Source metadata.
 	 * @param centerY Row center coordinate.
+	 * @param frameEventCount Loaded event count inside the selected frame.
 	 * @param state Current viewport and palette.
 	 * @returns Nothing.
 	 */
 	private drawSourceLocals(
 		source: RenderSource,
 		centerY: number,
+		frameEventCount: number,
 		state: RenderFrameState,
 	): void {
 		const maximumX = this.getPixelPosition(
@@ -1516,9 +1546,7 @@ export class WorkerRenderCore {
 		this.context.fillRect(maximumX + 1, centerY - 24, 1, 47);
 		this.context.fillRect(minimumX - 1, centerY - 24, 1, 47);
 
-		const eventCount = (
-			this.repository.getEvents(source.id)?.timestamps.length ?? 0
-		).toString();
+		const eventCount = frameEventCount.toString();
 		const lineY = [centerY - 6, centerY + 4, centerY + 14];
 		this.context.font = '10px "GeistMono", monospace';
 		this.context.textAlign = "left";
@@ -1602,12 +1630,14 @@ export class WorkerRenderCore {
 	 * Draws source name, loaded count, total, context, and localized loading suffixes.
 	 * @param source Source metadata.
 	 * @param centerY Source row center.
+	 * @param frameEventCount Loaded event count inside the selected frame.
 	 * @param state Current palette and localized strings.
 	 * @returns Nothing.
 	 */
 	private drawSourceInfo(
 		source: RenderSource,
 		centerY: number,
+		frameEventCount: number,
 		state: RenderFrameState,
 	): void {
 		const suffix =
@@ -1616,12 +1646,10 @@ export class WorkerRenderCore {
 				: source.loadingKind === "loading"
 					? state.localized.loadingSuffix
 					: "";
-		const eventCount =
-			this.repository.getEvents(source.id)?.timestamps.length ?? 0;
 		const contextLabel = source.contextLabel || state.localized.unknownContext;
 		const lines = [
 			{ text: `${source.name}${suffix}`, y: centerY + 4, color: state.palette.fontAccent },
-			{ text: eventCount.toString(), y: centerY + 18, color: state.palette.fontAccent },
+			{ text: frameEventCount.toString(), y: centerY + 18, color: state.palette.fontAccent },
 			{
 				text: `${source.total} | ${contextLabel}${suffix}`,
 				y: centerY - 10,
