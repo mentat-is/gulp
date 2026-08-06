@@ -2509,6 +2509,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 						source.timestamp.max,
 						source.settings.offset,
 						source.settings.render_engine,
+						source.settings.timeline_label,
 						source.settings.frequency_sample,
 						source.settings.render_color_palette,
 						source.settings.color_override?.lookup ?? null,

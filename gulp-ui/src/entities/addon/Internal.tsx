@@ -24,6 +24,7 @@ export namespace Internal {
 			hash_function: "fnv1a",
 			render_color_palette: "plasma",
 			render_engine: "default",
+			timeline_label: "filename",
 			frequency_sample: 1000,
 		};
 

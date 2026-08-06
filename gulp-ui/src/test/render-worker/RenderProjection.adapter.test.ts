@@ -53,4 +53,38 @@ describe("RenderProjectionAdapter cooperative ranges", () => {
 		expect(batch.hashes[3_099]).toBe(documents[4_099].number_hash);
 		expect(yieldCallback).toHaveBeenCalledTimes(1);
 	});
+
+	it("projects the configured timeline source label", () => {
+		const adapter = new RenderProjectionAdapter({
+			resolveDocument: () => undefined,
+		});
+		const source = {
+			id: SOURCE_ID,
+			name: "C:\\\\evidence\\\\events.json",
+			settings: {
+				offset: 0,
+				render_engine: "default",
+				timeline_label: "filename",
+				frequency_sample: 1_000,
+			} as Source.Type["settings"],
+			timestamp: { min: 0, max: 1 },
+			total: 0,
+		} as Source.Type;
+		const project = (timeline_label: "filename" | "full_path") =>
+			adapter.createSource({
+				source: {
+					...source,
+					settings: { ...source.settings, timeline_label },
+				},
+				revision: 1,
+				rowOrder: 0,
+				contextLabel: "Context",
+				contextColor: "#000000",
+				loadingKind: "none",
+				gradient: [],
+			}).name;
+
+		expect(project("filename")).toBe("events.json");
+		expect(project("full_path")).toBe(source.name);
+	});
 });

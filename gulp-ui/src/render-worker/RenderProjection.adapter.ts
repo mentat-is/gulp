@@ -162,7 +162,10 @@ export class RenderProjectionAdapter {
 			id: source.id,
 			revision: input.revision,
 			rowOrder: input.rowOrder,
-			name: source.name,
+			name:
+				source.settings.timeline_label === "full_path"
+					? source.name
+					: source.name.split(/[\\/]/).pop() || source.name,
 			contextLabel: input.contextLabel,
 			contextColor: input.contextColor,
 			contextTintAlpha: input.contextTintAlpha ?? 0.08,

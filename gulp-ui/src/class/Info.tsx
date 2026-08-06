@@ -5760,6 +5760,12 @@ export class Info implements InfoProps {
 				restoredSettings.render_engine = savedSettings.render_engine;
 			}
 			if (
+				savedSettings.timeline_label === "filename" ||
+				savedSettings.timeline_label === "full_path"
+			) {
+				restoredSettings.timeline_label = savedSettings.timeline_label;
+			}
+			if (
 				typeof savedSettings.frequency_sample === "number" &&
 				Number.isFinite(savedSettings.frequency_sample)
 			) {
