@@ -44,10 +44,13 @@ export namespace Session {
 			onSaved,
 			...props
 		}: Session.Save.Banner.Props) {
-			const [name, setName] = useState<string>("");
-			const [color, setColor] = useState<string>(Default.Color.OPERATION);
-			const [icon, setIcon] = useState<Glyph.Id | null>(null);
 			const { Info, app, spawnBanner } = Application.use();
+			const defaultSessionName = `${app.general.user?.name || "session"}.session`;
+			const [name, setName] = useState<string>(defaultSessionName);
+			const [color, setColor] = useState<string>(Default.Color.OPERATION);
+			const [icon, setIcon] = useState<Glyph.Id | null>(() =>
+				Glyph.getIdByName(Default.Icon.SESSION),
+			);
 			const { t } = Locale.use();
 			const [loading, setLoading] = useState<boolean>(false);
 			const navigate = useNavigate();
@@ -81,15 +84,16 @@ export namespace Session {
 				}
 
 				setLoading(true);
+				const sessionName = name.trim() || defaultSessionName;
 				const session = await Info.session_create({
-					name,
+					name: sessionName,
 					color,
 					icon: Glyph.List.get(icon)!,
 				});
 				setLoading(false);
 				if (session) {
 					Logger.log(
-						t("session.saved", { name }),
+						t("session.saved", { name: sessionName }),
 						Session.Save.Banner,
 						{
 							richColors: true,
@@ -139,7 +143,6 @@ export namespace Session {
 						gap={12}
 					>
 						<Input
-							valid={name.trim().length > 0}
 							icon="TextTitle"
 							label={t("session.nameLabel")}
 							placeholder={t("session.namePlaceholder")}
@@ -168,7 +171,7 @@ export namespace Session {
 							loading={loading}
 							onClick={saveSession}
 							variant="glass"
-							disabled={!name.trim().length || !icon}
+							disabled={!icon}
 							icon="Check"
 						>
 							{t("session.saveCurrent")}
