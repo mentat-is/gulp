@@ -88,6 +88,7 @@ export namespace Source {
 			hash_function: HashFunctionName;
 			render_color_palette: Color.Gradient;
 			render_engine: Engine.List;
+			timeline_label: "filename" | "full_path";
 			frequency_sample: number; //value in millisecondi
 			color_override?: Source.ColorOverride;
 			color_palette?: Source.ColorPalette;
@@ -1142,6 +1143,9 @@ export namespace Source {
 			const [render_engine, setEngine] = useState<Engine.List>(
 				source.settings.render_engine,
 			);
+			const [timeline_label, setTimelineLabel] = useState<
+				Source.Type["settings"]["timeline_label"]
+			>(source.settings.timeline_label);
 			const context = useMemo(
 				() => Context.Entity.id(app, source.context_id),
 				[app.target.contexts, source.context_id],
@@ -1229,6 +1233,7 @@ export namespace Source {
 				Info.file_set_settings(source.id, {
 					render_color_palette,
 					render_engine,
+					timeline_label,
 					offset,
 					field,
 					hash_function,
@@ -1432,6 +1437,27 @@ export namespace Source {
 											{i.title}
 										</UISelect.Item>
 									))}
+								</UISelect.Content>
+							</UISelect.Root>
+						</Stack>
+						<Stack
+							dir="column"
+							gap={6}
+							ai="flex-start"
+						>
+							<Label value="Timeline label" />
+							<UISelect.Root
+								onValueChange={(value: Source.Type["settings"]["timeline_label"]) =>
+									setTimelineLabel(value)
+								}
+								value={timeline_label}
+							>
+								<UISelect.Trigger data-no-icon>
+									{timeline_label === "full_path" ? "Full path" : "Filename only"}
+								</UISelect.Trigger>
+								<UISelect.Content>
+									<UISelect.Item value="filename">Filename only</UISelect.Item>
+									<UISelect.Item value="full_path">Full path</UISelect.Item>
 								</UISelect.Content>
 							</UISelect.Root>
 						</Stack>

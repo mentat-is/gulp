@@ -50,6 +50,7 @@ function snapshot(marker: number): WorkspaceSessionSnapshot {
 					hash_function: "fnv1a",
 					render_color_palette: "plasma",
 					render_engine: "default",
+					timeline_label: "full_path",
 					frequency_sample: 1000,
 					color_palette: {
 						id: "palette",

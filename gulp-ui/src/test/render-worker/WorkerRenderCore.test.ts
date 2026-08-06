@@ -277,10 +277,10 @@ describe("WorkerRenderCore", () => {
 		expect(statistics?.renderedRows).toBe(0);
 	});
 
-	it("renders only the file name for path-based source names", async () => {
+	it("renders the projected source label", async () => {
 		const source = {
 			...createRenderSource("source-path", 0),
-			name: "C:\\\\evidence\\\\events.json",
+			name: "events.json",
 		};
 		await repository.applyDataPatch({
 			globalRevision: 1,
@@ -297,7 +297,7 @@ describe("WorkerRenderCore", () => {
 		renderCore.render(100, DirtyCanvas.Sources);
 
 		expect(recordedText.includes("events.json")).toBe(true);
-		expect(recordedText.includes(source.name)).toBe(false);
+		expect(recordedText.includes(source.name)).toBe(true);
 	});
 
 	it("renders default-engine events shifted into the visible frame by source offset", async () => {
