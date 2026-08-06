@@ -685,6 +685,7 @@
     "settings.scroll.normal": "גלילה רגילה",
     "settings.scroll.reverse": "הגלילה הפוכה",
     "settings.theme": "נושא",
+    "settings.timeoff.label": "מרווח תשאול בזמן אמת",
     "settings.timeoff.placeholder": "מרווח סקרים בשניות (דקות 10)",
     "settings.timestamps.local": "חותמות זמן מקומיות",
     "settings.timestamps.utc": "חותמות זמן של UTC",

@@ -685,6 +685,7 @@
     "settings.scroll.normal": "Desplazamiento normal",
     "settings.scroll.reverse": "Desplazamiento inverso",
     "settings.theme": "Tema",
+    "settings.timeoff.label": "Intervalo de sondeo en tiempo real",
     "settings.timeoff.placeholder": "Intervalo de sondeo en segundos (min 10)",
     "settings.timestamps.local": "Marcas de tiempo locales",
     "settings.timestamps.utc": "marcas de tiempo UTC",

@@ -11,7 +11,7 @@
     "settings.scroll.normal": "تمرير عادي",
     "settings.scroll.reverse": "تمرير عكسي",
     "settings.theme": "السمة",
-    "settings.timeoff.label": "مهلة",
+    "settings.timeoff.label": "فاصل الاستطلاع في الوقت الفعلي",
     "settings.timeoff.placeholder": "فاصل الاستطلاع بالثواني (حد أدنى 10)",
     "settings.timestamps.local": "توقيت محلي",
     "settings.timestamps.utc": "توقيت UTC",

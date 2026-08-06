@@ -685,6 +685,7 @@
     "settings.scroll.normal": "Normales Scrollen",
     "settings.scroll.reverse": "Rückwärtsscrollen",
     "settings.theme": "Thema",
+    "settings.timeoff.label": "Echtzeit-Abfrageintervall",
     "settings.timeoff.placeholder": "Abfrageintervall in Sekunden (min. 10)",
     "settings.timestamps.local": "Lokale Zeitstempel",
     "settings.timestamps.utc": "UTC-Zeitstempel",

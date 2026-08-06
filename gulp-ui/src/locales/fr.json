@@ -685,6 +685,7 @@
     "settings.scroll.normal": "Défilement normal",
     "settings.scroll.reverse": "Défilement inversé",
     "settings.theme": "Thème",
+    "settings.timeoff.label": "Intervalle d’interrogation en temps réel",
     "settings.timeoff.placeholder": "Intervalle d'interrogation en secondes (min 10)",
     "settings.timestamps.local": "Horodatages locaux",
     "settings.timestamps.utc": "Horodatage UTC",

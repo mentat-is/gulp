@@ -685,6 +685,7 @@
     "settings.scroll.normal": "التمرير العادي",
     "settings.scroll.reverse": "التمرير العكسي",
     "settings.theme": "الموضوع",
+    "settings.timeoff.label": "فاصل الاستطلاع في الوقت الفعلي",
     "settings.timeoff.placeholder": "الفاصل الزمني للاستقصاء بالثواني (10 دقائق على الأقل)",
     "settings.timestamps.local": "الطوابع الزمنية المحلية",
     "settings.timestamps.utc": "الطوابع الزمنية UTC",

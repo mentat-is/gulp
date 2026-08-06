@@ -685,6 +685,7 @@
     "settings.scroll.normal": "Обычная прокрутка",
     "settings.scroll.reverse": "Обратная прокрутка",
     "settings.theme": "Тема",
+    "settings.timeoff.label": "Интервал опроса в реальном времени",
     "settings.timeoff.placeholder": "Интервал опроса в секундах (мин 10)",
     "settings.timestamps.local": "Местные временные метки",
     "settings.timestamps.utc": "Временные метки UTC",

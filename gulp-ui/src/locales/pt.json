@@ -685,6 +685,7 @@
     "settings.scroll.normal": "Rolagem normal",
     "settings.scroll.reverse": "Rolagem reversa",
     "settings.theme": "Tema",
+    "settings.timeoff.label": "Intervalo de consulta em tempo real",
     "settings.timeoff.placeholder": "Intervalo de pesquisa em segundos (min 10)",
     "settings.timestamps.local": "Carimbos de data e hora locais",
     "settings.timestamps.utc": "Carimbos de data e hora UTC",

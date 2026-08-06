@@ -685,6 +685,7 @@
     "settings.scroll.normal": "Normalny scroll",
     "settings.scroll.reverse": "Odwrotne przewijanie",
     "settings.theme": "Temat",
+    "settings.timeoff.label": "Interwał odpytywania w czasie rzeczywistym",
     "settings.timeoff.placeholder": "Interwał odpytywania w sekundach (min. 10)",
     "settings.timestamps.local": "Lokalne znaczniki czasu",
     "settings.timestamps.utc": "znaczniki czasu UTC",
