@@ -15,6 +15,7 @@
 
 ## UI/UX and Customization
 
+- `Session Saving`: Defaulted unnamed sessions to the username-based session name and selected the panel-bottom icon.
 - `New Theme System`: Add new themes management, allowing users to define custom styles and themes with fallback logic.
 - `Context-Based Event Coloring`: Upgraded the rendering engine to support dynamic hex alpha values and custom context-based color schemes.
 - `Dockable Event Dialog`: Supported docking and undocking behavior for the Event Dialog window.

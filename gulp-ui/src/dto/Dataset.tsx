@@ -24,7 +24,7 @@ export namespace Default {
     SOURCE: 'File',
     NOTE: 'StickyNote',
     LINK: 'Link',
-    SESSION: 'FacePlus',
+    SESSION: 'LucidePanelBottomInactive',
     HIGHLIGHT: 'Status'
   }
 
