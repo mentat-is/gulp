@@ -26,6 +26,8 @@ interface JestMatchers<TActual> {
 	toBeNull(): void;
 	toHaveLength(expected: number): void;
 	toHaveBeenCalled(): void;
+	/** Checks that a mock received the expected arguments in at least one call. */
+	toHaveBeenCalledWith(...expected: unknown[]): void;
 	toHaveBeenCalledTimes(expected: number): void;
 }
 
