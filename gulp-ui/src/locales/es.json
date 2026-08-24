@@ -688,6 +688,7 @@
     "settings.timeoff.label": "Intervalo de sondeo en tiempo real",
     "settings.timeoff.placeholder": "Intervalo de sondeo en segundos (min 10)",
     "settings.timestamps.local": "Marcas de tiempo locales",
+    "settings.timestamps.timeZone": "Zona horaria",
     "settings.timestamps.utc": "marcas de tiempo UTC",
     "settings.title": "Ajustes",
     "sigma.applied": "La regla sigma se ha aplicado con éxito",

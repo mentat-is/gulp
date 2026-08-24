@@ -199,6 +199,7 @@ function createFrameState(
 			loadingSuffix: " loading",
 			unknownContext: "Unknown",
 			locale: "en-US",
+			timeZone: "UTC",
 		},
 		revisions: {
 			settings: 1,

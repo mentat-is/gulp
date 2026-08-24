@@ -723,6 +723,13 @@ export namespace Doc {
 					link.doc_ids.some((docId) => docId === event._id),
 			);
 
+		/**
+		 * Normalizes raw events into minimal Canvas documents using @timestamp as authority.
+		 * @param docs Raw backend documents to normalize in place.
+		 * @param field Source field used to calculate the render hash.
+		 * @param hashFunction Configured deterministic render hash function.
+		 * @returns Minimal normalized documents for timeline storage and rendering.
+		 */
 		public static normalize = (
 			docs: Doc.Type[],
 			field: string,
@@ -733,7 +740,7 @@ export namespace Doc {
 				docs[i] = {
 					_id: raw._id,
 					gulp_timestamp: Internal.Transformator.toTimestamp(
-						raw["gulp.timestamp"],
+						raw["@timestamp"] ?? raw["gulp.timestamp"],
 						"round",
 					),
 					"gulp.source_id": raw["gulp.source_id"],

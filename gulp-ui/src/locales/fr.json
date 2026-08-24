@@ -688,6 +688,7 @@
     "settings.timeoff.label": "Intervalle d’interrogation en temps réel",
     "settings.timeoff.placeholder": "Intervalle d'interrogation en secondes (min 10)",
     "settings.timestamps.local": "Horodatages locaux",
+    "settings.timestamps.timeZone": "Fuseau horaire",
     "settings.timestamps.utc": "Horodatage UTC",
     "settings.title": "Paramètres",
     "sigma.applied": "La règle Sigma a été appliquée avec succès",

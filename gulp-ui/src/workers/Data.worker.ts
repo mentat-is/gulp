@@ -194,7 +194,9 @@ function normalizeQueryDocs(
 
 		const normalized = {
 			_id: raw._id,
-			gulp_timestamp: toTimestamp(raw["gulp.timestamp"]),
+			gulp_timestamp: toTimestamp(
+				raw["@timestamp"] ?? raw["gulp.timestamp"],
+			),
 			"gulp.source_id": sourceId,
 			"gulp.event_code": raw["gulp.event_code"],
 			number_hash: anyToNumber(

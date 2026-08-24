@@ -1,6 +1,5 @@
 import { Application } from '@/context/Application.context'
 import { Theme } from '@/context/Theme.context'
-import { Internal } from '@/entities/addon/Internal'
 import { Banner as UIBanner } from '@/ui/Banner'
 import { Toggle } from '@/ui/Toggle'
 import { Input } from '@/ui/Input'
@@ -8,7 +7,12 @@ import { Stack } from '@/ui/Stack'
 import { Label } from '@/ui/Label'
 import { Select } from '@/ui/Select'
 import { Locale, localeList } from '@/locales'
-import { useState } from 'react'
+import { getSupportedTimestampTimeZones } from '@/timeZone'
+import {
+  setTimestampTimeZone,
+  useTimestampTimeZone,
+} from '@/store/timestampTimeZone.store'
+import { useMemo, useState } from 'react'
 
 export namespace Settings {
   export type Section = 'timestamps' | 'scroll' | 'realtime' | 'theme' | 'language'
@@ -51,7 +55,8 @@ export namespace Settings {
   export function Banner({ visibility, ...props }: Settings.Banner.Props) {
     const { app, Info } = Application.use()
     const { t, language, setLanguage } = Locale.use()
-    const [isUTCTimestamps, setIsUTCTimestamps] = useState<boolean>(Internal.Settings.isUTCTimestamps);
+    const timestampTimeZone = useTimestampTimeZone()
+    const timestampTimeZones = useMemo(getSupportedTimestampTimeZones, [])
     const resolvedVisibility = resolveVisibility(visibility)
 
     const isRealtime = !!app.settings.realtimeEnabled;
@@ -64,14 +69,25 @@ export namespace Settings {
     return (
       <UIBanner title={t("settings.title")} {...props}>
         {resolvedVisibility.timestamps ? (
-          <Toggle
-            option={[t("settings.timestamps.local"), t("settings.timestamps.utc")]}
-            checked={isUTCTimestamps}
-            onCheckedChange={(v) => {
-              setIsUTCTimestamps(v)
-              Internal.Settings.isUTCTimestamps = v
-            }}
-          />
+          <Stack jc='space-between' ai='center'>
+            <Label value={t("settings.timestamps.timeZone")} />
+            <Select.Root
+              value={timestampTimeZone}
+              onValueChange={setTimestampTimeZone}
+            >
+              <Select.Trigger
+                data-no-icon
+                aria-label={t("settings.timestamps.timeZone")}
+              >
+                <Select.Value />
+              </Select.Trigger>
+              <Select.Content>
+                {timestampTimeZones.map((timeZone) => (
+                  <Select.Item key={timeZone} value={timeZone}>{timeZone}</Select.Item>
+                ))}
+              </Select.Content>
+            </Select.Root>
+          </Stack>
         ) : null}
         {resolvedVisibility.scroll ? (
           <Toggle

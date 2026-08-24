@@ -688,6 +688,7 @@
     "settings.timeoff.label": "فاصل الاستطلاع في الوقت الفعلي",
     "settings.timeoff.placeholder": "الفاصل الزمني للاستقصاء بالثواني (10 دقائق على الأقل)",
     "settings.timestamps.local": "الطوابع الزمنية المحلية",
+    "settings.timestamps.timeZone": "المنطقة الزمنية",
     "settings.timestamps.utc": "الطوابع الزمنية UTC",
     "settings.title": "الإعدادات",
     "sigma.applied": "تم تطبيق قاعدة سيجما بنجاح",

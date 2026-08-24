@@ -688,6 +688,7 @@
     "settings.timeoff.label": "Interval dotazování v reálném čase",
     "settings.timeoff.placeholder": "Interval dotazování v sekundách (min 10)",
     "settings.timestamps.local": "Místní časová razítka",
+    "settings.timestamps.timeZone": "Časové pásmo",
     "settings.timestamps.utc": "Časová razítka UTC",
     "settings.title": "Nastavení",
     "sigma.applied": "Pravidlo Sigma bylo úspěšně aplikováno",

@@ -689,6 +689,7 @@
     "settings.timeoff.label": "Intervallo di polling in tempo reale",
     "settings.timeoff.placeholder": "Intervallo di polling in secondi (min 10)",
     "settings.timestamps.local": "Timestamp locali",
+    "settings.timestamps.timeZone": "Fuso orario",
     "settings.timestamps.utc": "Timestamp UTC",
     "settings.title": "Impostazioni",
     "sigma.applied": "La regola Sigma è stata applicata con successo",

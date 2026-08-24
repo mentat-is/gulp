@@ -5,6 +5,7 @@ import {
 } from "@/store/DataStore";
 import { requestStore } from "@/store/request.store";
 import { scrollStore } from "@/store/scroll.store";
+import { useTimestampTimeZone } from "@/store/timestampTimeZone.store";
 import {
 	getLimits,
 	getTimestamp,
@@ -42,7 +43,10 @@ import { ContextMenu, ContextMenuTrigger } from "@/ui/ContextMenu";
 import { TargetMenu } from "./Target.menu";
 import { cn } from "@/ui/utils";
 import { Pointers } from "@/components/Pointers";
-import { PointerPositionStore } from "@/components/PointerPosition.store";
+import {
+	PointerPositionStore,
+	projectLocalPointerTimestamp,
+} from "@/components/PointerPosition.store";
 import { XY } from "@/dto/XY.dto";
 import { Highlights } from "@/overlays/Highlights";
 import { Stack } from "@/ui/Stack";
@@ -255,6 +259,7 @@ function getUniqueCanvasLinkDocIds(link: Link.Type): Doc.Id[] {
 export function Canvas({ timeline }: Canvas.Props) {
 	const { theme } = useTheme();
 	const { t, language } = Locale.use();
+	const timestampTimeZone = useTimestampTimeZone();
 	const canvas_ref = useRef<HTMLCanvasElement>(
 		null as unknown as HTMLCanvasElement,
 	);
@@ -1203,6 +1208,10 @@ export function Canvas({ timeline }: Canvas.Props) {
 	}, [language, theme, rendererBackend, requestCanvasRender]);
 
 	useEffect(() => {
+		requestCanvasRender("locale-time-zone");
+	}, [requestCanvasRender, timestampTimeZone]);
+
+	useEffect(() => {
 		return requestStore.subscribe(() => {
 			const client = workerClientRef.current;
 			if (rendererBackendRef.current === "worker" && client) {
@@ -1547,6 +1556,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 				loadingSuffix: t("renderEngine.loadingSuffix"),
 				unknownContext: t("collab.unknownContext"),
 				locale: language,
+				timeZone: timestampTimeZone,
 			},
 			revisions: {
 				settings: currentApp.timeline.renderVersion,
@@ -1561,7 +1571,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 				assets: workerAssetRevisionRef.current,
 			},
 		};
-	}, [Info, language, t]);
+	}, [Info, language, t, timestampTimeZone]);
 
 	/**
 	 * Creates a stable comparison key for viewport values that affect rendering.
@@ -1670,19 +1680,22 @@ export function Canvas({ timeline }: Canvas.Props) {
 				mouseXRef.current = pointerX;
 				mouseYRef.current = pointerY;
 				const canvasWidth = Math.max(1, rect?.width ?? 1);
-				const frameRange =
-					Info.app.timeline.frame.max - Info.app.timeline.frame.min;
-				const virtualWidth = Math.max(1, canvasWidth * nextScale);
-				const pointerTimestamp = Math.round(
-					Info.app.timeline.frame.min +
-						((nextScrollX + pointerX) / virtualWidth) * frameRange,
+				pointerPositionStore.setPosition(
+					projectLocalPointerTimestamp(
+						{
+							x: pointerX,
+							y: pointerY,
+							timestamp: pointerPositionStore.getSnapshot().timestamp,
+							isRightSide: pointerX > canvasWidth / 2,
+						},
+						{
+							frame: Info.app.timeline.frame,
+							viewportWidth: canvasWidth,
+							scale: nextScale,
+							scrollX: nextScrollX,
+						},
+					),
 				);
-				pointerPositionStore.setPosition({
-					x: pointerX,
-					y: pointerY,
-					timestamp: pointerTimestamp,
-					isRightSide: pointerX > canvasWidth / 2,
-				});
 				move({ x: pointerX, y: pointerY });
 				CanvasProfiler.recordLocalPointerLatency(
 					Math.max(0, performance.now() - batch.pointer.inputTimestamp),
@@ -1721,6 +1734,26 @@ export function Canvas({ timeline }: Canvas.Props) {
 						dirtyMask |= DirtyCanvas.Hover;
 					}
 				}
+			} else if (
+				scrollChanged ||
+				scaleChanged ||
+				(dirtyMask & (DirtyCanvas.Size | DirtyCanvas.Viewport)) !== 0
+			) {
+				const currentPointer = pointerPositionStore.getSnapshot();
+				const canvasWidth = Math.max(
+					1,
+					workerCanvasSizeRef.current?.width ??
+						wrapperRectRef.current?.width ??
+						1,
+				);
+				pointerPositionStore.setPosition(
+					projectLocalPointerTimestamp(currentPointer, {
+						frame: Info.app.timeline.frame,
+						viewportWidth: canvasWidth,
+						scale: nextScale,
+						scrollX: nextScrollX,
+					}),
+				);
 			}
 
 			workerProjectionScheduler.markInteraction();

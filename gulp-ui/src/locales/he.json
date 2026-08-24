@@ -688,6 +688,7 @@
     "settings.timeoff.label": "מרווח תשאול בזמן אמת",
     "settings.timeoff.placeholder": "מרווח סקרים בשניות (דקות 10)",
     "settings.timestamps.local": "חותמות זמן מקומיות",
+    "settings.timestamps.timeZone": "אזור זמן",
     "settings.timestamps.utc": "חותמות זמן של UTC",
     "settings.title": "הגדרות",
     "sigma.applied": "כלל Sigma הוחל בהצלחה",

@@ -688,6 +688,7 @@
     "settings.timeoff.label": "रीयल-टाइम पोलिंग अंतराल",
     "settings.timeoff.placeholder": "मतदान अंतराल सेकंड में (न्यूनतम 10)",
     "settings.timestamps.local": "स्थानीय टाइमस्टैम्प",
+    "settings.timestamps.timeZone": "समय क्षेत्र",
     "settings.timestamps.utc": "यूटीसी टाइमस्टैम्प",
     "settings.title": "सेटिंग्स",
     "sigma.applied": "सिग्मा नियम सफलतापूर्वक लागू किया गया है",

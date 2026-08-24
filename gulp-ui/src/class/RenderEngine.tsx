@@ -1,6 +1,5 @@
 import { MinMax } from "@/class/Info";
 import { Info } from "./Info";
-import { format } from "date-fns";
 import { RulerDrawer } from "./Ruler.drawer";
 import { DefaultEngine } from "../engines/Default.engine";
 import { Engine, Hardcode, CacheKey } from "./Engine.dto";
@@ -23,6 +22,7 @@ import { Context } from "@/entities/Context";
 import { stringToHexColor } from "@/ui/utils";
 import { translate } from "@/locales/core";
 import { requestStore } from "@/store/request.store";
+import { formatTimestampInTimeZone } from "@/timeZone";
 
 const NOTE_SIZE = 32;
 const NOTE_OFFSET = (NOTE_SIZE / 2) * -1;
@@ -1018,6 +1018,12 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		);
 	};
 
+	/**
+	 * Draws source boundary totals, dates, and visible event counts.
+	 * @param file Source whose boundary labels should be drawn.
+	 * @param y Optional precomputed source-row center.
+	 * @returns Nothing.
+	 */
 	public locals = (file: Source.Type, y?: number) => {
 		y =
 			typeof y === "number"
@@ -1062,7 +1068,11 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		this.ctx.fillText(file.total.toString(), right, line.one);
 		this.ctx.fillStyle = Color.Themer.theme.FONT_SECOND;
 		this.ctx.fillText(
-			format(file.timestamp.max + file.settings.offset, "dd.MM.yyyy"),
+			formatTimestampInTimeZone(
+				file.timestamp.max + file.settings.offset,
+				"dd.MM.yyyy",
+				Internal.Settings.timestampTimeZone,
+			),
 			right,
 			line.two,
 		);
@@ -1074,7 +1084,11 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		this.ctx.fillText(file.total.toString(), left, line.one);
 		this.ctx.fillStyle = Color.Themer.theme.FONT_SECOND;
 		this.ctx.fillText(
-			format(file.timestamp.min + file.settings.offset, "dd.MM.yyyy"),
+			formatTimestampInTimeZone(
+				file.timestamp.min + file.settings.offset,
+				"dd.MM.yyyy",
+				Internal.Settings.timestampTimeZone,
+			),
 			left,
 			line.two,
 		);

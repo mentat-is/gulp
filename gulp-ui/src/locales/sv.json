@@ -688,6 +688,7 @@
     "settings.timeoff.label": "Pollingintervall i realtid",
     "settings.timeoff.placeholder": "Pollingintervall i sekunder (min 10)",
     "settings.timestamps.local": "Lokala tidsstämplar",
+    "settings.timestamps.timeZone": "Tidszon",
     "settings.timestamps.utc": "UTC-tidsstämplar",
     "settings.title": "Inställningar",
     "sigma.applied": "Regeln Sigma har tillämpats",

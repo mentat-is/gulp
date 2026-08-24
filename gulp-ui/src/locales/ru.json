@@ -688,6 +688,7 @@
     "settings.timeoff.label": "Интервал опроса в реальном времени",
     "settings.timeoff.placeholder": "Интервал опроса в секундах (мин 10)",
     "settings.timestamps.local": "Местные временные метки",
+    "settings.timestamps.timeZone": "Часовой пояс",
     "settings.timestamps.utc": "Временные метки UTC",
     "settings.title": "Настройки",
     "sigma.applied": "Правило сигмы успешно применено",

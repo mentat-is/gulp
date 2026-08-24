@@ -6,6 +6,38 @@ export interface LocalPointerSnapshot extends XY {
 	isRightSide: boolean;
 }
 
+/** Timeline geometry required to project a local pointer into an absolute instant. */
+export interface LocalPointerTimelineProjection {
+	frame: { min: number; max: number };
+	viewportWidth: number;
+	scale: number;
+	scrollX: number;
+}
+
+/**
+ * Reprojects a stationary local pointer after timeline viewport movement.
+ * @param snapshot Current Canvas-relative pointer coordinates and display metadata.
+ * @param projection Current frame, viewport width, scale, and horizontal scroll.
+ * @returns Pointer snapshot whose timestamp matches the timeline beneath its x coordinate.
+ */
+export function projectLocalPointerTimestamp(
+	snapshot: LocalPointerSnapshot,
+	projection: LocalPointerTimelineProjection,
+): LocalPointerSnapshot {
+	const frameRange = projection.frame.max - projection.frame.min;
+	const virtualWidth = projection.viewportWidth * projection.scale;
+	const timestamp =
+		Number.isFinite(frameRange) &&
+		Number.isFinite(virtualWidth) &&
+		virtualWidth > 0
+			? Math.round(
+					projection.frame.min +
+						((projection.scrollX + snapshot.x) / virtualWidth) * frameRange,
+				)
+			: projection.frame.min;
+	return { ...snapshot, timestamp };
+}
+
 /**
  * Applies one local pointer snapshot directly to existing DOM nodes.
  * @param pointerElement Positioning element updated through a compositor transform.
