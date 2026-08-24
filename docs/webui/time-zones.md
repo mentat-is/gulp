@@ -19,7 +19,9 @@ Other windows update through the browser storage event.
 The local pointer timestamp is recalculated when the timeline moves beneath a
 stationary pointer, including event focus, panning, zooming, frame changes, and
 Canvas resizing. Its label therefore remains aligned with the ruler even when
-no new mouse-move event occurs.
+no new mouse-move event occurs. Pointer movement uses the render worker's active
+viewport width as well, so docking or resizing the event panel cannot make the
+pointer and worker-rendered ruler use different timeline transforms.
 
 Changing the time zone changes only the displayed calendar date and time. It
 does not change the underlying `@timestamp`, the event's Canvas position, or a
