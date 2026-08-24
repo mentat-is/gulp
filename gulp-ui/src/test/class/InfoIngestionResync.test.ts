@@ -239,6 +239,28 @@ describe("Info ingestion resynchronization lifecycle", () => {
 		expect(requestStore.getLoadings().byFileId.size).toBe(0);
 	});
 
+	it("applies ongoing ingestion websocket statistics to source activity", () => {
+		const info = createInfo();
+		const request = createRequest(ingestionRequestId, "ingest");
+		request.data = {
+			...request.data,
+			records_ingested: 18_000,
+		};
+
+		info.request_add(request);
+
+		expect(requestStore.getRequestIdByFile(sourceId)).toBe(ingestionRequestId);
+		expect(info.ingestionProgress.get(sourceId)).toBe(18_000);
+
+		request.data.records_ingested = 24_000;
+		info.request_add(request);
+		expect(info.ingestionProgress.get(sourceId)).toBe(24_000);
+
+		request.data.records_ingested = 23_000;
+		info.request_add(request);
+		expect(info.ingestionProgress.get(sourceId)).toBe(24_000);
+	});
+
 	it("polls only while a reconstructed ingestion marker owns its source", async () => {
 		const info = createInfo();
 		jest

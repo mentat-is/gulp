@@ -7,6 +7,19 @@ const INGESTION_REQUEST_TYPES = new Set(["ingest", "raw_ingest"]);
 export type IngestionResyncLoadings = Map<Source.Id, Request.Id>;
 
 /**
+ * Checks whether request statistics describe an ingestion operation.
+ * @param request Request statistics received from the API or websocket.
+ * @returns True for standard and raw ingestion requests.
+ */
+export function isIngestionRequest(
+	request: Pick<Request.Type, "req_type">,
+): boolean {
+	return Boolean(
+		request.req_type && INGESTION_REQUEST_TYPES.has(request.req_type),
+	);
+}
+
+/**
  * Collects source loading markers for ongoing backend ingestion requests.
  * @param requests Requests returned by the operation-scoped request list API.
  * @returns Source-to-request markers that are eligible for ingestion recovery.
@@ -19,8 +32,7 @@ export function collectIngestionResyncLoadings(
 	requests.forEach((request) => {
 		if (
 			request.status !== Request.Status.ONGOING ||
-			!request.req_type ||
-			!INGESTION_REQUEST_TYPES.has(request.req_type)
+			!isIngestionRequest(request)
 		) {
 			return;
 		}
