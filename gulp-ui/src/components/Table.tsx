@@ -1325,7 +1325,15 @@ export function Table<T extends Object>({
 					<ContextMenu onOpenChange={handleColumnMenuOpenChange}>
 						<ContextMenuTrigger asChild>{tableElement}</ContextMenuTrigger>
 						{isColumnMenuOpen ? (
-							<ContextMenuContent>
+							<ContextMenuContent
+								className={s.columnVisibilityMenu}
+								data-column-visibility-menu="true"
+								style={
+									columnMenuMaxHeight
+										? { maxHeight: columnMenuMaxHeight }
+										: undefined
+								}
+							>
 								<ContextMenuLabel>{t("table.columnVisibility")}</ContextMenuLabel>
 								<ContextMenuSeparator />
 								{columns.map((col) => (
