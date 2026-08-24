@@ -123,10 +123,12 @@ import {
 import {
 	CANVAS_RENDER_WINDOW_RETRY_DELAY_MS,
 	isCanvasRenderWindowRequestCurrent,
+	isCanvasRenderWindowSourceCountMismatch,
 	isCanvasRenderWindowSourceStale,
 	shouldRetryCanvasRenderWindow,
 	type CanvasRenderWindowRequestFence,
 } from "./CanvasRenderWindowRetry";
+import { CanvasTerminalRenderConvergence } from "./CanvasTerminalRenderConvergence";
 import {
 	EVENT_MAIN_CACHE_SIZE,
 	EVENT_PIXEL_PAGE_SIZE,
@@ -355,6 +357,10 @@ export function Canvas({ timeline }: Canvas.Props) {
 		() => new RenderProjectionScheduler(),
 		[],
 	);
+	const workerTerminalRenderConvergence = useMemo(
+		() => new CanvasTerminalRenderConvergence(),
+		[],
+	);
 	const workerCanvasSizeRef = useRef<{ width: number; height: number } | null>(
 		null,
 	);
@@ -389,6 +395,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 		(client: RenderWorkerClient, streamMissingEvents: boolean) => void
 	>(() => undefined);
 	const requestEventStoreRenderWindowRef = useRef<() => void>(() => undefined);
+	const scheduleTerminalRenderWatchdogRef = useRef<() => void>(() => undefined);
 	const cancelEventStoreRenderWindowRetry = useCallback((): void => {
 		if (workerLodRetryTimerRef.current === null) return;
 		clearTimeout(workerLodRetryTimerRef.current);
@@ -1421,14 +1428,21 @@ export function Canvas({ timeline }: Canvas.Props) {
 			if (!client) return;
 			const visible = document.visibilityState !== "hidden";
 			client.setVisibility(visible);
-			if (visible) inputCoordinator.invalidate(DirtyCanvas.Force);
+			if (!visible) {
+				workerTerminalRenderConvergence.cancelWatchdog();
+				return;
+			}
+			inputCoordinator.invalidate(DirtyCanvas.Force);
+			if (workerTerminalRenderConvergence.hasTargets()) {
+				requestEventStoreRenderWindowRef.current();
+			}
 		};
 
 		document.addEventListener("visibilitychange", handleVisibilityChange);
 		return () => {
 			document.removeEventListener("visibilitychange", handleVisibilityChange);
 		};
-	}, [inputCoordinator]);
+	}, [inputCoordinator, workerTerminalRenderConvergence]);
 
 	useEffect(() => {
 		/**
@@ -1643,9 +1657,35 @@ export function Canvas({ timeline }: Canvas.Props) {
 		return () => workerProjectionScheduler.dispose();
 	}, [workerProjectionScheduler]);
 
+	useEffect(() => {
+		return () => workerTerminalRenderConvergence.reset();
+	}, [workerTerminalRenderConvergence]);
+
+	/**
+	 * Resolves source identities occupying the current vertically visible Canvas rows.
+	 * @returns Current viewport source identities as a stable lookup set.
+	 */
+	const getCurrentCanvasViewportSourceIds = useCallback((): Set<Source.Id> => {
+		const selectedSources = Source.Entity.rendered(Info.app);
+		const height = Math.max(
+			1,
+			workerCanvasSizeRef.current?.height ??
+				wrapperRectRef.current?.height ??
+				1,
+		);
+		return new Set(
+			getCanvasViewportSourceIds(
+				selectedSources,
+				scrollYRef.current,
+				height,
+			),
+		);
+	}, [Info]);
+
 	useLayoutEffect(() => {
 		const unsubscribe = renderWindowProjectionBus.subscribe((projection) => {
 			const client = workerClientRef.current;
+			const visibleSourceIds = getCurrentCanvasViewportSourceIds();
 			if (
 				rendererBackendRef.current !== "worker" ||
 				!client ||
@@ -1658,11 +1698,23 @@ export function Canvas({ timeline }: Canvas.Props) {
 					const summary = DataStore.getEventSourceSummary(
 						source.sourceId as Source.Id,
 					);
-					return isCanvasRenderWindowSourceStale(
-						source.sourceRevision,
-						summary?.revision,
+					return (
+						isCanvasRenderWindowSourceStale(
+							source.sourceRevision,
+							summary?.revision,
+						) ||
+						isCanvasRenderWindowSourceCountMismatch(
+							source.sourceRevision,
+							source.loadedCount,
+							summary,
+						)
 					);
-				})
+				}) ||
+				!workerTerminalRenderConvergence.acceptsProjection(
+					projection.operationEpoch,
+					visibleSourceIds,
+					projection.sources,
+				)
 			) {
 				return false;
 			}
@@ -1677,7 +1729,12 @@ export function Canvas({ timeline }: Canvas.Props) {
 			unsubscribe();
 			cancelEventStoreRenderWindowRetry();
 		};
-	}, [cancelEventStoreRenderWindowRetry, inputCoordinator]);
+	}, [
+		cancelEventStoreRenderWindowRetry,
+		getCurrentCanvasViewportSourceIds,
+		inputCoordinator,
+		workerTerminalRenderConvergence,
+	]);
 
 	/**
 	 * Converts a timeline timestamp into the current rounded canvas coordinate.
@@ -1783,16 +1840,8 @@ export function Canvas({ timeline }: Canvas.Props) {
 				wrapperRectRef.current?.width ??
 				1,
 		);
-		const height = Math.max(
-			1,
-			workerCanvasSizeRef.current?.height ??
-				wrapperRectRef.current?.height ??
-				1,
-		);
 		const selectedSources = Source.Entity.rendered(Info.app);
-		const visibleSourceIds = new Set(
-			getCanvasViewportSourceIds(selectedSources, scrollYRef.current, height),
-		);
+		const visibleSourceIds = getCurrentCanvasViewportSourceIds();
 		const visibleSources = selectedSources.filter((source) =>
 			visibleSourceIds.has(source.id),
 		);
@@ -1845,9 +1894,9 @@ export function Canvas({ timeline }: Canvas.Props) {
 					settingsRevision:
 						workerSourceMetadataRevisionsRef.current.get(source.id) ?? 0,
 					overrideRevision,
-				};
-			}),
-			};
+					};
+				}),
+		};
 		const requestFence: CanvasRenderWindowRequestFence = {
 			socket,
 			operationEpoch,
@@ -1889,21 +1938,64 @@ export function Canvas({ timeline }: Canvas.Props) {
 
 		const runAttempt = (attempt: number): void => {
 			if (!isCurrent()) return;
-			void socket.requestRenderWindow(descriptor).then(
-				(projection) => {
-					if (!isCurrent() || projection) return;
-					handleAttemptFailure(
-						attempt,
-						new Error("QueryWorker returned no render-window projection."),
-					);
-				},
-				(error: unknown) => handleAttemptFailure(attempt, error),
-			);
+			void socket
+				.requestRenderWindow(descriptor)
+				.then(
+					(projection) => {
+						if (!isCurrent() || projection) return;
+						handleAttemptFailure(
+							attempt,
+							new Error("QueryWorker returned no render-window projection."),
+						);
+					},
+					(error: unknown) => handleAttemptFailure(attempt, error),
+				)
+				.finally(() => scheduleTerminalRenderWatchdogRef.current());
 		};
 
 		runAttempt(1);
-	}, [Info, cancelEventStoreRenderWindowRetry]);
+	}, [
+		Info,
+		cancelEventStoreRenderWindowRetry,
+		getCurrentCanvasViewportSourceIds,
+	]);
 	requestEventStoreRenderWindowRef.current = requestEventStoreRenderWindow;
+
+	/**
+	 * Arms one capped terminal-convergence check after a projection request settles.
+	 * Offscreen targets remain dormant until normal viewport synchronization makes them
+	 * visible again; a busy render queue is rechecked without adding another patch.
+	 * @returns Nothing.
+	 */
+	const scheduleTerminalRenderWatchdog = useCallback((): void => {
+		workerTerminalRenderConvergence.scheduleWatchdog(() => {
+			const client = workerClientRef.current;
+			if (
+				rendererBackendRef.current !== "worker" ||
+				!client ||
+				document.visibilityState === "hidden" ||
+				!isEventStoreLodEnabled()
+			) {
+				return;
+			}
+			const operationEpoch = DataStore.getRenderOperationEpoch();
+			const visibleSourceIds = getCurrentCanvasViewportSourceIds();
+			if (
+				workerTerminalRenderConvergence.getVisibleTargets(
+					operationEpoch,
+					visibleSourceIds,
+				).length === 0
+			) {
+				return;
+			}
+			if (client.dataQueueDepth.aggregate === 0) {
+				requestEventStoreRenderWindowRef.current();
+				return;
+			}
+			scheduleTerminalRenderWatchdogRef.current();
+		});
+	}, [getCurrentCanvasViewportSourceIds, workerTerminalRenderConvergence]);
+	scheduleTerminalRenderWatchdogRef.current = scheduleTerminalRenderWatchdog;
 
 	/**
 	 * Builds infrequently changing source and appearance state for the worker.
@@ -2600,6 +2692,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 			const removedSourceIds = Array.from(
 				previousSourceIds,
 			).filter((sourceId) => !nextSourceIds.has(sourceId));
+			workerTerminalRenderConvergence.removeSources(removedSourceIds);
 			for (const removedSourceId of removedSourceIds) {
 				const currentMembershipRevision =
 					workerSourceMembershipRevisionsRef.current.get(removedSourceId) ?? 0;
@@ -2661,6 +2754,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 			streamWorkerSourceSnapshot,
 			t,
 			workerProjectionScheduler,
+			workerTerminalRenderConvergence,
 		],
 	);
 	syncWorkerSourcesRef.current = syncWorkerSources;
@@ -2753,30 +2847,24 @@ export function Canvas({ timeline }: Canvas.Props) {
 		};
 
 		const unsubscribe = DataStore.subscribeEventSourceSummaries((summary) => {
-			if (rendererBackendRef.current !== "worker") return;
-
 			const isTerminal = summary.status !== "building";
 			if (isTerminal) {
-				refreshWorkerOverlayDependencies();
+				workerTerminalRenderConvergence.record({
+					sourceId: summary.sourceId,
+					operationEpoch: DataStore.getRenderOperationEpoch(),
+					sourceRevision: summary.revision,
+					eventCount: summary.eventCount,
+				});
 			}
+			if (rendererBackendRef.current !== "worker") return;
+			if (isTerminal) refreshWorkerOverlayDependencies();
 			if (summary.status === "complete") {
 				const client = workerClientRef.current;
 				if (client) syncWorkerFlagsRef.current(client);
 			}
 
-			const renderedSources = Source.Entity.rendered(Info.app);
-			const canvasHeight = Math.max(
-				1,
-				workerCanvasSizeRef.current?.height ??
-					wrapperRectRef.current?.height ??
-					1,
-			);
-			const viewportSourceIds = getCanvasViewportSourceIds(
-				renderedSources,
-				scrollYRef.current,
-				canvasHeight,
-			);
-			if (!viewportSourceIds.includes(summary.sourceId)) return;
+			const viewportSourceIds = getCurrentCanvasViewportSourceIds();
+			if (!viewportSourceIds.has(summary.sourceId)) return;
 			requestProjection(isTerminal);
 		});
 
@@ -2784,7 +2872,12 @@ export function Canvas({ timeline }: Canvas.Props) {
 			unsubscribe();
 			if (pendingProjection) clearTimeout(pendingProjection);
 		};
-	}, [Info, refreshWorkerOverlayDependencies, rendererBackend]);
+	}, [
+		getCurrentCanvasViewportSourceIds,
+		refreshWorkerOverlayDependencies,
+		rendererBackend,
+		workerTerminalRenderConvergence,
+	]);
 
 	/**
 	 * Reprojects only overlay collections whose previously missing documents arrived.
@@ -2837,6 +2930,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 		(change: DataStoreRenderChange): void => {
 			if (change.type === "operation-reset") {
 				cancelEventStoreRenderWindowRetry();
+				workerTerminalRenderConvergence.reset();
 			}
 			const client = workerClientRef.current;
 			if (rendererBackendRef.current !== "worker" || !client) return;
@@ -3012,6 +3106,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 			syncResolvedWorkerOverlayDependencies,
 			waitForWorkerProjectionCapacity,
 			workerProjectionScheduler,
+			workerTerminalRenderConvergence,
 		],
 	);
 	handleWorkerRenderChangeRef.current = handleWorkerRenderChange;
@@ -3057,6 +3152,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 	 */
 	const activateLegacyRenderer = useCallback((error: Error): void => {
 		if (forcedLegacyBackendRef.current) return;
+		workerTerminalRenderConvergence.reset();
 		if (isEventStoreLodEnabled()) {
 			Logger.error(
 				`The render worker failed while EventStore LOD owned the documents: ${error.message}`,
@@ -3088,7 +3184,11 @@ export function Canvas({ timeline }: Canvas.Props) {
 			fallbackReason: error.message,
 		});
 		setCanvasElementKey((currentKey) => currentKey + 1);
-	}, [publishRendererBackendStatus, workerProjectionScheduler]);
+	}, [
+		publishRendererBackendStatus,
+		workerProjectionScheduler,
+		workerTerminalRenderConvergence,
+	]);
 
 	/**
 	 * Reconciles wrapper dimensions before posting one atomic worker size/viewport state.
@@ -3232,6 +3332,20 @@ export function Canvas({ timeline }: Canvas.Props) {
 								workerReceiveDuration: statistics.workerReceiveDuration,
 								workerWaitDuration: statistics.workerWaitDuration,
 							});
+							if (
+								statistics.viewportRevision ===
+								workerViewportRevisionRef.current
+							) {
+								const synchronization = client.getSynchronizationState();
+								workerTerminalRenderConvergence.acknowledgeFrame(
+									DataStore.getRenderOperationEpoch(),
+									getCurrentCanvasViewportSourceIds(),
+									synchronization.acknowledgedSourceRevisions,
+								);
+								if (workerTerminalRenderConvergence.hasTargets()) {
+									scheduleTerminalRenderWatchdogRef.current();
+								}
+							}
 						},
 						onHoverChanged: (hit) => {
 							hoveredItemRef.current = hit
@@ -3372,9 +3486,11 @@ export function Canvas({ timeline }: Canvas.Props) {
 	}, [
 		activateLegacyRenderer,
 		canvasElementKey,
+		getCurrentCanvasViewportSourceIds,
 		inputCoordinator,
 		publishRendererBackendStatus,
 		workerProjectionScheduler,
+		workerTerminalRenderConvergence,
 	]);
 
 	/**

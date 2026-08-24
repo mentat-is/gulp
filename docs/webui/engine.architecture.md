@@ -378,14 +378,27 @@ complete replacement.
 
 Committed updates for a building source are projected at most four times per
 second. A terminal source revision bypasses that throttle so the final state is
-requested immediately.
+requested immediately. Canvas retains that terminal source revision and exact
+event count as a convergence target. A later ordinary viewport request may
+supersede the projection request, but it cannot discard the target.
 
 The render-window bus has one synchronous consumer: the mounted Canvas. Canvas
 validates operation and viewport revisions, creates a data patch, and transfers
 the buffers immediately to `RenderWorkerClient`. If the current request produces
 no usable projection while the same viewport is still active, Canvas performs
 one short delayed retry. A later viewport revision cancels the relevance of that
-retry.
+retry. For terminal targets, Canvas additionally rejects a same-revision window
+whose `loadedCount` differs from the committed source summary, and requires every
+terminal source in the visible rows to be present.
+
+A terminal target is complete only when a worker `ACK` at or above its source
+revision is followed by `FRAME_RENDERED` for the current viewport. The worker
+posts the ACK after the atomic repository commit and before its guaranteed final
+redraw, so the ordered frame proves the revision was drawn. Until then, one
+watchdog reprojects after 500 milliseconds with exponential backoff capped at
+two seconds. It never adds work while the two-slot render data queue is busy and
+is canceled on success, operation reset, source removal, hidden-document state,
+legacy fallback, or unmount.
 
 ## Failure and lifecycle behavior
 

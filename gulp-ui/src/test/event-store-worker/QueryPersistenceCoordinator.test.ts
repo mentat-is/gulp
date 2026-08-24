@@ -364,6 +364,54 @@ describe("QueryPersistenceCoordinator", () => {
 		harness.coordinator.destroy();
 	});
 
+	it(
+		"commits nine 10k chunks and the final 4,391 events before terminal completion",
+		async () => {
+			const harness = createHarness();
+			const expectedEvents = 94_391;
+			const descriptor = createDescriptor("ninety-four-thousand-replace", {
+				expectedEvents,
+			});
+			await harness.coordinator.register(descriptor);
+
+			for (let chunkIndex = 0; chunkIndex < 10; chunkIndex++) {
+				const eventCount = chunkIndex === 9 ? 4_391 : 10_000;
+				harness.coordinator.handleDocumentChunk(
+					createChunk(
+						descriptor,
+						createRawDocuments(
+							`terminal-${chunkIndex}`,
+							eventCount,
+							SOURCE_ONE,
+							1_700_000_000_000 + chunkIndex * 10_000,
+						),
+						chunkIndex === 9,
+						chunkIndex,
+					),
+				);
+			}
+
+			await waitFor(
+				() => harness.completed.includes(descriptor.requestId),
+				120_000,
+			);
+			const repository = harness.repositories.get(descriptor.operationId);
+			expect(await repository?.getSourceSummary(SOURCE_ONE)).toMatchObject({
+				status: "complete",
+				eventCount: expectedEvents,
+			});
+			expect(harness.summaries.at(-1)?.summary).toMatchObject({
+				status: "complete",
+				eventCount: expectedEvents,
+			});
+			expect(harness.completed).toEqual([descriptor.requestId]);
+			expect(harness.failures).toHaveLength(0);
+			expect(harness.coordinator.pendingDocumentCount).toBe(0);
+			expect(harness.coordinator.pendingRawChunkByteCount).toBe(0);
+			harness.coordinator.destroy();
+		},
+	);
+
 	it("serializes four interleaved 10k streams through weighted normalized credit", async () => {
 		const harness = createHarness();
 		const rawBytesPerStream = 17 * MEBIBYTE;

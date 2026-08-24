@@ -370,6 +370,63 @@ describe("WorkerRenderCore", () => {
 		).toBe(true);
 	});
 
+	for (const engine of ["default", "height", "graph"] as const) {
+		it(`renders the terminal 94,391 loaded count with the ${engine} engine`, async () => {
+			const source = {
+				...createRenderSource(`source-terminal-${engine}`, 0),
+				engine,
+				timestamp: { min: 0, max: 1_000 },
+				total: 94_391,
+			};
+			await repository.applyDataPatch({
+				globalRevision: 1,
+				sources: { revision: 1, records: [source], removedSourceIds: [] },
+				renderWindow: {
+					operationEpoch: 1,
+					viewportRevision: 1,
+					projectionRevision: 2,
+					sources: [
+						{
+							sourceId: source.id,
+							sourceRevision: 12,
+							coveredRange: { min: 0, max: 1_000 },
+							bucketPixelWidth: 1,
+							degradedLod: false,
+							loadedCount: 94_391,
+							hashRange: { min: 1, max: 1 },
+							representativeHandles: Uint32Array.of(1),
+							representativeTimestamps: Float64Array.of(500),
+							representativeHashes: Float64Array.of(1),
+							heightTimestamps: Float64Array.of(0),
+							heightCounts: Float64Array.of(94_391),
+							heightMaximumCount: 94_391,
+							graphTimestamps: Float64Array.of(0),
+							graphCounts: Float64Array.of(94_391),
+						},
+					],
+					evictedSourceIds: [],
+				},
+			});
+			repository.setFrameState(
+				createFrameState([source.id], {
+					width: 400,
+					frame: { min: 0, max: 1_000 },
+				}),
+			);
+			const recordedText: string[] = [];
+			const renderCore = new WorkerRenderCore(
+				createRecordingContext(400, 96, recordedText),
+				repository,
+				{ requestAsset: jest.fn() },
+			);
+
+			const statistics = renderCore.render(100, DirtyCanvas.Events);
+
+			expect(statistics?.renderedRows).toBe(1);
+			expect(recordedText.includes("94391")).toBe(true);
+		});
+	}
+
 	it("renders default-engine events shifted into the visible frame by source offset", async () => {
 		const rawEventTimestamp = 1_743_025_550_367;
 		const offset = -124_900_000_000;

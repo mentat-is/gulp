@@ -180,6 +180,103 @@ describe("QuerySocketSession render windows", () => {
 		session.destroy();
 	});
 
+	it("forwards query_done without completing before the final docs chunk commits", async () => {
+		const backend = new MemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const appendPages = repository.appendPages.bind(repository);
+		let releaseFinalCommit = (): void => undefined;
+		const finalCommitGate = new Promise<void>((resolve) => {
+			releaseFinalCommit = resolve;
+		});
+		repository.appendPages = async (input) => {
+			await finalCommitGate;
+			return appendPages(input);
+		};
+		const states: DocumentStreamStateChange[] = [];
+		const forwardedTypes: string[] = [];
+		const session = new QuerySocketSession(
+			{
+				socketUrl: "ws://gulp.test/ws",
+				token: "token",
+				wsId: "socket-query-done",
+				coordinatorId: "test-coordinator",
+			},
+			{
+				...callbacks,
+				onForwardMessage: (message) => forwardedTypes.push(message.type),
+				onStreamStateChange: (change) => states.push(change),
+			},
+			undefined,
+			{
+				createOperationStore: () => ({ backend, repository }),
+				createRevisionBus: () => ({
+					publish: () => undefined,
+					close: () => undefined,
+				}),
+			},
+		);
+		const descriptor: DocumentStreamDescriptor = {
+			requestId: "query-done-after-last",
+			operationId: "operation-one",
+			operationEpoch: 2,
+			owner: "persist",
+			kind: "replace",
+			sourceIds: ["source-one" as Source.Id],
+		};
+		await session.registerDocumentStream(descriptor);
+		const socket = {
+			close: jest.fn(),
+			readyState: WebSocket.OPEN,
+		} as unknown as WebSocket;
+		const internalSession = session as unknown as {
+			socket: WebSocket | null;
+			handleSocketMessage: (socket: WebSocket, rawData: unknown) => void;
+		};
+		internalSession.socket = socket;
+
+		internalSession.handleSocketMessage(
+			socket,
+			JSON.stringify({
+				type: "docs_chunk",
+				req_id: descriptor.requestId,
+				operation_id: descriptor.operationId,
+				payload: {
+					docs: [
+						{
+							_id: "final-event",
+							"gulp.source_id": "source-one",
+							"gulp.timestamp": 1_700_000_000_000,
+							"gulp.event_code": 7,
+						},
+					],
+					last: true,
+					chunk_num: 0,
+				},
+			}),
+		);
+		internalSession.handleSocketMessage(
+			socket,
+			JSON.stringify({
+				type: "query_done",
+				req_id: descriptor.requestId,
+				operation_id: descriptor.operationId,
+				payload: { obj: {} },
+			}),
+		);
+
+		expect(forwardedTypes.includes("query_done")).toBe(true);
+		expect(states.at(-1)?.state).not.toBe("completed");
+		releaseFinalCommit();
+		await waitFor(() => states.at(-1)?.state === "completed");
+		expect(await repository.getSourceSummary("source-one" as Source.Id)).toMatchObject(
+			{
+				status: "complete",
+				eventCount: 1,
+			},
+		);
+		session.destroy();
+	});
+
 	it("drains an invalidated active projection before releasing its operation", async () => {
 		const deferred: DeferredProjection[] = [];
 		const backend = new MemoryEventStoreBackend();

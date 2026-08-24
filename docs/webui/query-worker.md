@@ -187,7 +187,9 @@ failures.
 
 `last` means complete only after all page builders have flushed and the final
 IndexedDB transaction has committed. Other WebSocket messages, including
-statistics updates, continue through the normal main-thread event path.
+statistics updates and `query_done`, continue through the normal main-thread
+event path. `query_done` reports backend query completion; it does not finalize
+EventStore persistence ahead of the durable terminal stream transition.
 
 ## Operation-scoped EventStore
 
@@ -313,7 +315,12 @@ one-in-flight plus one-coalesced-pending data queue.
 
 While a source is `building`, committed source summaries trigger projection
 refreshes at most once every 250 milliseconds. A terminal `complete` or
-`incomplete` summary requests the final projection immediately.
+`incomplete` summary requests the final projection immediately. Canvas retains
+the terminal revision and committed `eventCount` until the render worker has
+acknowledged that source revision and emitted a frame for the current viewport.
+Same-revision projections with a different `loadedCount` are rejected. A
+single capped-backoff watchdog reissues a current-viewport projection only after
+the previous request has settled and the bounded render data queue is empty.
 
 ### LOD selection
 

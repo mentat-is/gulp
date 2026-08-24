@@ -62,3 +62,29 @@ export function isCanvasRenderWindowSourceStale(
 ): boolean {
 	return currentRevision !== undefined && projectedRevision < currentRevision;
 }
+
+/** Compact source summary fields used to validate one same-revision projection. */
+export interface CanvasRenderWindowSourceSummary {
+	revision: number;
+	eventCount: number;
+}
+
+/**
+ * Checks whether a projection disagrees with the committed count for its exact revision.
+ * Newer projections remain valid because their compact summary may still be in transit.
+ * @param projectedRevision Source revision carried by the render window.
+ * @param loadedCount Event count encoded in that render-window source.
+ * @param summary Latest compact source authority, when known.
+ * @returns True only for a same-revision count mismatch.
+ */
+export function isCanvasRenderWindowSourceCountMismatch(
+	projectedRevision: number,
+	loadedCount: number,
+	summary: CanvasRenderWindowSourceSummary | undefined,
+): boolean {
+	return (
+		summary !== undefined &&
+		projectedRevision === summary.revision &&
+		loadedCount !== summary.eventCount
+	);
+}

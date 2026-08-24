@@ -2,6 +2,7 @@ import {
 	CANVAS_RENDER_WINDOW_MAX_ATTEMPTS,
 	CANVAS_RENDER_WINDOW_RETRY_DELAY_MS,
 	isCanvasRenderWindowRequestCurrent,
+	isCanvasRenderWindowSourceCountMismatch,
 	isCanvasRenderWindowSourceStale,
 	shouldRetryCanvasRenderWindow,
 	type CanvasRenderWindowRequestFence,
@@ -41,5 +42,21 @@ describe("Canvas render-window retry policy", () => {
 		expect(isCanvasRenderWindowSourceStale(12, 12)).toBe(false);
 		expect(isCanvasRenderWindowSourceStale(13, 12)).toBe(false);
 		expect(isCanvasRenderWindowSourceStale(13, undefined)).toBe(false);
+	});
+
+	it("rejects count mismatches only for the exact committed revision", () => {
+		const summary = { revision: 12, eventCount: 94_391 };
+		expect(
+			isCanvasRenderWindowSourceCountMismatch(12, 90_000, summary),
+		).toBe(true);
+		expect(
+			isCanvasRenderWindowSourceCountMismatch(12, 94_391, summary),
+		).toBe(false);
+		expect(
+			isCanvasRenderWindowSourceCountMismatch(13, 95_000, summary),
+		).toBe(false);
+		expect(
+			isCanvasRenderWindowSourceCountMismatch(12, 90_000, undefined),
+		).toBe(false);
 	});
 });
