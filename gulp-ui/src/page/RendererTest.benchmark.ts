@@ -10,12 +10,10 @@ import {
 	EVENT_PENDING_DOCUMENT_LIMIT,
 	EVENT_RENDER_PROJECTION_LIMIT,
 	EVENT_RENDER_REPRESENTATIVE_LIMIT,
-	EventStoreCapacityTracker,
 	EventStoreRepository,
 	EventStoreViewportProjector,
 	IndexedDbEventStoreBackend,
 	type EventSourceSummary,
-	type EventStoreCapacity,
 	type EventStoreNamespace,
 	type EventStoreViewportDescriptor,
 	type EventStoreWriter,
@@ -42,15 +40,11 @@ export type RendererBenchmarkRunStatus =
 	| "failed"
 	| "cancelled";
 
-export type RendererBenchmarkSkipCode =
-	| "quota-insufficient"
-	| "quota-exhausted";
+export type RendererBenchmarkSkipCode = "quota-exhausted";
 
 /** Structured reason for a benchmark target that cannot fit in the current origin. */
 export interface RendererBenchmarkSkipReason {
 	code: RendererBenchmarkSkipCode;
-	requiredBytes: number;
-	availableBytes: number;
 }
 
 /** Storage, memory, cache, and bounded-queue telemetry for one benchmark run. */
@@ -63,18 +57,12 @@ export interface RendererBenchmarkDiagnostics {
 	writeElapsedMs: number;
 	writeEventsPerSecond: number;
 	writeEncodedBytesPerSecond: number;
-	capacity: EventStoreCapacity | null;
 	skipReason: RendererBenchmarkSkipReason | null;
 	heapSupported: boolean;
 	heapStartBytes: number;
 	heapPeakBytes: number;
 	heapEndBytes: number;
 	heapDeltaBytes: number;
-	storageUsageStartBytes: number;
-	storageUsageEndBytes: number;
-	storageUsageDeltaBytes: number;
-	estimatedTargetBytes: number;
-	capacityEstimateErrorPercent: number | null;
 	mainCacheDocuments: number;
 	maximumMainCacheDocuments: number;
 	maximumPendingDocuments: number;
@@ -84,13 +72,7 @@ export interface RendererBenchmarkDiagnostics {
 	projectionBucketPixelWidth: number;
 	projectionDegraded: boolean;
 	resourceGatePassed: boolean;
-	capacityEstimateStatus: RendererBenchmarkCapacityEstimateStatus;
 }
-
-export type RendererBenchmarkCapacityEstimateStatus =
-	| "passed"
-	| "failed"
-	| "unavailable";
 
 /** Deterministic acceptance summary derived from machine-readable diagnostics. */
 export interface RendererBenchmarkResourceGate {
@@ -99,7 +81,6 @@ export interface RendererBenchmarkResourceGate {
 	pendingDocumentsPassed: boolean;
 	renderRepresentativesPassed: boolean;
 	renderBatchesPassed: boolean;
-	capacityEstimateStatus: RendererBenchmarkCapacityEstimateStatus;
 }
 
 /** Progress emitted after one bounded source page commits. */
@@ -164,7 +145,6 @@ export interface RendererBenchmarkProjector {
 export interface RendererBenchmarkEventStoreDependencies {
 	writer: RendererBenchmarkWriter;
 	projector: RendererBenchmarkProjector;
-	storageManager?: Pick<StorageManager, "estimate">;
 	publishSourceSummary?: (summary: EventSourceSummary) => void;
 	publishProjection?: (projection: RenderWindowProjection) => boolean;
 	readHeapUsageBytes?: () => number | null;
@@ -189,18 +169,12 @@ export function createEmptyRendererBenchmarkDiagnostics(
 		writeElapsedMs: 0,
 		writeEventsPerSecond: 0,
 		writeEncodedBytesPerSecond: 0,
-		capacity: null,
 		skipReason: null,
 		heapSupported: false,
 		heapStartBytes: 0,
 		heapPeakBytes: 0,
 		heapEndBytes: 0,
 		heapDeltaBytes: 0,
-		storageUsageStartBytes: 0,
-		storageUsageEndBytes: 0,
-		storageUsageDeltaBytes: 0,
-		estimatedTargetBytes: 0,
-		capacityEstimateErrorPercent: null,
 		mainCacheDocuments: 0,
 		maximumMainCacheDocuments: 0,
 		maximumPendingDocuments: 0,
@@ -210,12 +184,11 @@ export function createEmptyRendererBenchmarkDiagnostics(
 		projectionBucketPixelWidth: 1,
 		projectionDegraded: false,
 		resourceGatePassed: true,
-		capacityEstimateStatus: "unavailable",
 	};
 }
 
 /**
- * Evaluates bounded RAM-proxy structures and the optional capacity error target.
+ * Evaluates bounded RAM-proxy structures used by the renderer benchmark.
  * Chromium heap bytes remain telemetry because no device-independent RAM threshold exists.
  * @param diagnostics Completed or live benchmark measurements.
  * @returns Stable pass/fail fields suitable for DOM datasets and automation.
@@ -231,24 +204,16 @@ export function evaluateRendererBenchmarkResourceGate(
 		diagnostics.maximumRenderRepresentatives <=
 		EVENT_RENDER_PROJECTION_LIMIT;
 	const renderBatchesPassed = diagnostics.maximumRenderBatchesInFlight <= 2;
-	const capacityEstimateStatus =
-		diagnostics.capacityEstimateErrorPercent === null
-			? "unavailable"
-			: diagnostics.capacityEstimateErrorPercent <= 15
-				? "passed"
-				: "failed";
 	return {
 		passed:
 			mainCachePassed &&
 			pendingDocumentsPassed &&
 			renderRepresentativesPassed &&
-			renderBatchesPassed &&
-			capacityEstimateStatus !== "failed",
+			renderBatchesPassed,
 		mainCachePassed,
 		pendingDocumentsPassed,
 		renderRepresentativesPassed,
 		renderBatchesPassed,
-		capacityEstimateStatus,
 	};
 }
 
@@ -476,7 +441,6 @@ export function createRendererBenchmarkEventStore(
 export class RendererBenchmarkEventStore {
 	private readonly writer: RendererBenchmarkWriter;
 	private readonly projector: RendererBenchmarkProjector;
-	private readonly storageManager?: Pick<StorageManager, "estimate">;
 	private readonly publishSourceSummary: (summary: EventSourceSummary) => void;
 	private readonly publishProjection: (
 		projection: RenderWindowProjection,
@@ -484,7 +448,6 @@ export class RendererBenchmarkEventStore {
 	private readonly readHeapUsageBytes: () => number | null;
 	private readonly readMainCacheDocuments: () => number;
 	private readonly readNowMs: () => number;
-	private capacityTracker = new EventStoreCapacityTracker();
 	private cursors: RendererBenchmarkSourceCursor[] = [];
 	private options: RendererBenchmarkStartOptions | null = null;
 	private nextSourceIndex = 0;
@@ -494,14 +457,10 @@ export class RendererBenchmarkEventStore {
 	private encodedBytes = 0;
 	private writeStartedAtMs = -1;
 	private writeFinishedAtMs = 0;
-	private capacity: EventStoreCapacity | null = null;
 	private skipReason: RendererBenchmarkSkipReason | null = null;
 	private heapStartBytes = 0;
 	private heapPeakBytes = 0;
 	private heapEndBytes = 0;
-	private storageUsageStartBytes = 0;
-	private storageUsageEndBytes = 0;
-	private estimatedTargetBytes = 0;
 	private maximumMainCacheDocuments = 0;
 	private maximumPendingDocuments = 0;
 	private maximumRenderRepresentatives = 0;
@@ -514,12 +473,11 @@ export class RendererBenchmarkEventStore {
 
 	/**
 	 * Creates an adapter over explicit persistence and projection dependencies.
-	 * @param dependencies Writer, projector, quota estimator, and publication hooks.
+	 * @param dependencies Writer, projector, and publication hooks.
 	 */
 	public constructor(dependencies: RendererBenchmarkEventStoreDependencies) {
 		this.writer = dependencies.writer;
 		this.projector = dependencies.projector;
-		this.storageManager = dependencies.storageManager;
 		this.publishSourceSummary = dependencies.publishSourceSummary ?? (() => undefined);
 		this.publishProjection = dependencies.publishProjection ?? (() => false);
 		this.readHeapUsageBytes =
@@ -530,7 +488,7 @@ export class RendererBenchmarkEventStore {
 	}
 
 	/**
-	 * Clears old benchmark generations, checks quota, and opens one generation per source.
+	 * Clears old benchmark generations and opens one generation per source.
 	 * @param options Target, source identities, and deterministic timeline parameters.
 	 * @returns Initial admitted or skipped progress snapshot.
 	 */
@@ -546,23 +504,6 @@ export class RendererBenchmarkEventStore {
 		try {
 			for (const sourceId of options.sourceIds) {
 				await this.writer.clearSource(sourceId);
-			}
-			this.capacity = await this.capacityTracker.estimate(
-				0,
-				this.storageManager,
-			);
-			this.storageUsageStartBytes = this.capacity.usageBytes;
-			this.storageUsageEndBytes = this.capacity.usageBytes;
-			this.estimatedTargetBytes =
-				options.targetEvents * this.capacity.conservativeBytesPerEvent;
-			if (options.targetEvents > this.capacity.maximumAdditionalEvents) {
-				this.status = "skipped";
-				this.skipReason = {
-					code: "quota-insufficient",
-					requiredBytes: this.estimatedTargetBytes,
-					availableBytes: this.capacity.availableBytes,
-				};
-				return this.getProgress();
 			}
 
 			for (
@@ -654,15 +595,7 @@ export class RendererBenchmarkEventStore {
 			this.persistedEvents += page.activeCount;
 			this.encodedBytes += committedBytes;
 			this.publishSourceSummary(summary);
-			this.capacityTracker.recordCommittedWrite(
-				committedBytes,
-				page.activeCount,
-			);
 			this.sampleHeapUsage();
-			if (this.capacityTracker.shouldReestimate()) {
-				const admitted = await this.reestimateRemainingCapacity();
-				if (!admitted) return this.getProgress();
-			}
 			return this.getProgress();
 		} catch (error) {
 			if (isQuotaError(error)) {
@@ -678,7 +611,7 @@ export class RendererBenchmarkEventStore {
 
 	/**
 	 * Finalizes every fully written source and publishes compact source summaries.
-	 * @returns Complete diagnostics after a final quota and heap measurement.
+	 * @returns Complete diagnostics after final heap measurement.
 	 */
 	public async finalize(): Promise<RendererBenchmarkDiagnostics> {
 		this.assertUsable();
@@ -705,15 +638,6 @@ export class RendererBenchmarkEventStore {
 		}
 		this.status = "complete";
 		this.writeFinishedAtMs = this.readNowMs();
-		try {
-			this.capacity = await this.capacityTracker.estimate(
-				this.persistedEvents,
-				this.storageManager,
-			);
-			this.storageUsageEndBytes = this.capacity.usageBytes;
-		} catch {
-			// Persistence is complete even when optional quota telemetry is unavailable.
-		}
 		this.sampleHeapUsage(true);
 		return this.getDiagnostics();
 	}
@@ -739,33 +663,13 @@ export class RendererBenchmarkEventStore {
 			this.maximumPendingDocuments,
 			documents.length,
 		);
-		this.capacity = await this.capacityTracker.estimate(
-			this.persistedEvents,
-			this.storageManager,
-		);
-		this.storageUsageEndBytes = this.capacity.usageBytes;
-		if (documents.length > this.capacity.maximumAdditionalEvents) {
-			this.skipReason = {
-				code: "quota-insufficient",
-				requiredBytes:
-					documents.length * this.capacity.conservativeBytesPerEvent,
-				availableBytes: this.capacity.availableBytes,
-			};
-			throw new Error("Renderer benchmark delta exceeds origin capacity.");
-		}
 		this.sampleHeapUsage();
 		let summaries: EventSourceSummary[];
 		try {
 			summaries = await this.writer.upsertDocuments({ documents });
 		} catch (error) {
 			if (isQuotaError(error)) {
-				this.skipReason = {
-					code: "quota-exhausted",
-					requiredBytes:
-						documents.length *
-						(this.capacity?.conservativeBytesPerEvent ?? 160),
-					availableBytes: this.capacity?.availableBytes ?? 0,
-				};
+				this.skipReason = { code: "quota-exhausted" };
 			}
 			throw error;
 		}
@@ -849,14 +753,6 @@ export class RendererBenchmarkEventStore {
 	 */
 	public getDiagnostics(): RendererBenchmarkDiagnostics {
 		this.sampleHeapUsage(this.status !== "writing");
-		const storageUsageDeltaBytes = Math.max(
-			0,
-			this.storageUsageEndBytes - this.storageUsageStartBytes,
-		);
-		const capacityEstimateErrorPercent = storageUsageDeltaBytes > 0
-			? Math.abs(this.estimatedTargetBytes - storageUsageDeltaBytes) /
-				storageUsageDeltaBytes * 100
-			: null;
 		const writeElapsedMs = this.writeStartedAtMs < 0
 			? 0
 			: Math.max(
@@ -880,18 +776,12 @@ export class RendererBenchmarkEventStore {
 				writeSeconds > 0 ? this.processedEvents / writeSeconds : 0,
 			writeEncodedBytesPerSecond:
 				writeSeconds > 0 ? this.encodedBytes / writeSeconds : 0,
-			capacity: this.capacity ? { ...this.capacity } : null,
 			skipReason: this.skipReason ? { ...this.skipReason } : null,
 			heapSupported: this.heapStartBytes > 0,
 			heapStartBytes: this.heapStartBytes,
 			heapPeakBytes: this.heapPeakBytes,
 			heapEndBytes: this.heapEndBytes,
 			heapDeltaBytes: Math.max(0, this.heapEndBytes - this.heapStartBytes),
-			storageUsageStartBytes: this.storageUsageStartBytes,
-			storageUsageEndBytes: this.storageUsageEndBytes,
-			storageUsageDeltaBytes,
-			estimatedTargetBytes: this.estimatedTargetBytes,
-			capacityEstimateErrorPercent,
 			mainCacheDocuments,
 			maximumMainCacheDocuments: this.maximumMainCacheDocuments,
 			maximumPendingDocuments: this.maximumPendingDocuments,
@@ -901,11 +791,9 @@ export class RendererBenchmarkEventStore {
 			projectionBucketPixelWidth: this.projectionBucketPixelWidth,
 			projectionDegraded: this.projectionDegraded,
 			resourceGatePassed: true,
-			capacityEstimateStatus: "unavailable",
 		};
 		const resourceGate = evaluateRendererBenchmarkResourceGate(diagnostics);
 		diagnostics.resourceGatePassed = resourceGate.passed;
-		diagnostics.capacityEstimateStatus = resourceGate.capacityEstimateStatus;
 		return diagnostics;
 	}
 
@@ -916,27 +804,22 @@ export class RendererBenchmarkEventStore {
 		this.writer.close();
 	}
 
-	/** Resets all run-local counters before capacity admission. */
+	/** Resets all run-local counters before opening benchmark generations. */
 	private resetRunState(options: RendererBenchmarkStartOptions): void {
 		this.options = { ...options, sourceIds: [...options.sourceIds] };
 		this.cursors = [];
 		this.nextSourceIndex = 0;
 		this.status = "idle";
-		this.capacityTracker = new EventStoreCapacityTracker();
 		this.processedEvents = 0;
 		this.persistedEvents = 0;
 		this.encodedBytes = 0;
 		this.writeStartedAtMs = -1;
 		this.writeFinishedAtMs = 0;
-		this.capacity = null;
 		this.skipReason = null;
 		const initialHeap = this.readHeapUsageBytes() ?? 0;
 		this.heapStartBytes = initialHeap;
 		this.heapPeakBytes = initialHeap;
 		this.heapEndBytes = initialHeap;
-		this.storageUsageStartBytes = 0;
-		this.storageUsageEndBytes = 0;
-		this.estimatedTargetBytes = 0;
 		this.maximumMainCacheDocuments = 0;
 		this.maximumPendingDocuments = 0;
 		this.maximumRenderRepresentatives = 0;
@@ -966,46 +849,9 @@ export class RendererBenchmarkEventStore {
 		);
 	}
 
-	/** Rechecks quota after the configured EventStore event/byte thresholds. */
-	private async reestimateRemainingCapacity(): Promise<boolean> {
-		if (!this.options) return false;
-		this.capacity = await this.capacityTracker.estimate(
-			this.persistedEvents,
-			this.storageManager,
-		);
-		this.storageUsageEndBytes = this.capacity.usageBytes;
-		this.estimatedTargetBytes =
-			this.options.targetEvents * this.capacity.conservativeBytesPerEvent;
-		const remainingEvents = Math.max(
-			0,
-			this.options.targetEvents - this.persistedEvents,
-		);
-		if (remainingEvents <= this.capacity.maximumAdditionalEvents) return true;
-		this.skipReason = {
-			code: "quota-exhausted",
-			requiredBytes:
-				remainingEvents * this.capacity.conservativeBytesPerEvent,
-			availableBytes: this.capacity.availableBytes,
-		};
-		await this.cancelActiveGenerations();
-		this.persistedEvents = 0;
-		this.status = "skipped";
-		this.writeFinishedAtMs = this.readNowMs();
-		return false;
-	}
-
-	/** Handles a concrete IndexedDB quota failure after admission. */
+	/** Handles a concrete IndexedDB quota failure during a benchmark write. */
 	private async skipAfterQuotaExhaustion(): Promise<void> {
-		const remainingEvents = Math.max(
-			0,
-			(this.options?.targetEvents ?? 0) - this.persistedEvents,
-		);
-		this.skipReason = {
-			code: "quota-exhausted",
-			requiredBytes:
-				remainingEvents * (this.capacity?.conservativeBytesPerEvent ?? 160),
-			availableBytes: this.capacity?.availableBytes ?? 0,
-		};
+		this.skipReason = { code: "quota-exhausted" };
 		await this.cancelActiveGenerations();
 		this.persistedEvents = 0;
 		this.status = "skipped";

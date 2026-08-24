@@ -89,7 +89,6 @@ export class QuerySocketSession {
 			initialization.coordinatorId,
 			{
 				onSourceSummary: callbacks.onSourceSummary,
-				onCapacity: callbacks.onCapacity,
 				onStreamFailure: (event) => {
 					this.router.fail(event.requestId, event.message);
 					callbacks.onStreamFailure(event);

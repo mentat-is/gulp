@@ -1,7 +1,6 @@
 import type {
 	DocumentStreamDescriptor,
 	DocumentStreamStateChange,
-	QueryCapacityEvent,
 	QuerySocketCloseDetails,
 	QuerySocketErrorDetails,
 	QuerySocketMessage,
@@ -21,7 +20,6 @@ export interface QueryTransportCallbacks {
 	onForwardMessage: (message: QuerySocketMessage) => void;
 	onStreamStateChange: (change: DocumentStreamStateChange) => void;
 	onSourceSummary: (event: QuerySourceSummaryEvent) => void;
-	onCapacity: (event: QueryCapacityEvent) => void;
 	onStreamFailure: (event: QueryStreamFailureEvent) => void;
 	onProtocolError: (details: QuerySocketErrorDetails) => void;
 }

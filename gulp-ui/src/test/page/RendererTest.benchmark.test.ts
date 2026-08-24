@@ -23,7 +23,6 @@ import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types"
 
 const SOURCE_A = "aaaaaaaa-0000-4000-8000-00000000000a" as Source.Id;
 const SOURCE_B = "aaaaaaaa-0000-4000-8000-00000000000b" as Source.Id;
-const GIBIBYTE = 1024 ** 3;
 
 if (typeof TextEncoder === "undefined") {
 	Object.defineProperty(globalThis, "TextEncoder", {
@@ -40,6 +39,8 @@ class RendererBenchmarkWriterSpy {
 	public beginCount = 0;
 	public upsertCount = 0;
 	public closed = false;
+	public quotaAfterSuccessfulPageWrites: number | null = null;
+	public failUpsertWithQuota = false;
 	private readonly counts = new Map<Source.Id, number>();
 	private readonly revisions = new Map<Source.Id, number>();
 
@@ -63,6 +64,12 @@ class RendererBenchmarkWriterSpy {
 	public async appendPages(
 		input: AppendEventStorePagesInput,
 	): Promise<EventSourceSummary> {
+		if (
+			this.quotaAfterSuccessfulPageWrites !== null &&
+			this.pageSizes.length >= this.quotaAfterSuccessfulPageWrites
+		) {
+			throw new DOMException("origin is full", "QuotaExceededError");
+		}
 		const appended = input.pages.reduce(
 			(total, page) => total + page.activeCount,
 			0,
@@ -80,6 +87,9 @@ class RendererBenchmarkWriterSpy {
 	public async upsertDocuments(
 		input: UpsertEventStoreDocumentsInput,
 	): Promise<EventSourceSummary[]> {
+		if (this.failUpsertWithQuota) {
+			throw new DOMException("origin is full", "QuotaExceededError");
+		}
 		this.upsertCount++;
 		const touched = new Set<Source.Id>();
 		for (const document of input.documents) {
@@ -276,31 +286,6 @@ describe("RendererTest bounded EventStore benchmark", () => {
 		expect(first.documents[0]._id === second.documents[0]._id).toBe(false);
 	});
 
-	it("skips before opening generations when the origin reserve consumes quota", async () => {
-		const writer = new RendererBenchmarkWriterSpy();
-		const adapter = new RendererBenchmarkEventStore({
-			writer,
-			projector: new RendererBenchmarkProjectorSpy(),
-			storageManager: {
-				estimate: async () => ({ quota: GIBIBYTE, usage: 0 }),
-			},
-		});
-
-		const progress = await adapter.start({
-			targetEvents: 10_000_000,
-			sourceIds: [SOURCE_A, SOURCE_B],
-			generation: 1,
-			documentMinTimestamp: 1,
-			frameSpanMs: 10,
-		});
-
-		expect(progress.status).toBe("skipped");
-		expect(progress.diagnostics.skipReason?.code).toBe("quota-insufficient");
-		expect(progress.diagnostics.skipReason?.availableBytes).toBe(0);
-		expect(writer.beginCount).toBe(0);
-		adapter.close();
-	});
-
 	it("commits and projects only bounded batches while preserving resource gates", async () => {
 		const writer = new RendererBenchmarkWriterSpy();
 		const projector = new RendererBenchmarkProjectorSpy();
@@ -308,9 +293,6 @@ describe("RendererTest bounded EventStore benchmark", () => {
 		const adapter = new RendererBenchmarkEventStore({
 			writer,
 			projector,
-			storageManager: {
-				estimate: async () => ({ quota: 10 * GIBIBYTE, usage: GIBIBYTE }),
-			},
 			publishProjection: () => {
 				published++;
 				return true;
@@ -350,24 +332,16 @@ describe("RendererTest bounded EventStore benchmark", () => {
 		expect(writer.closed).toBe(true);
 	});
 
-	it("cancels partial generations when a 100k-event quota recheck fails", async () => {
+	it("cancels partial generations after a concrete IndexedDB quota failure", async () => {
 		const writer = new RendererBenchmarkWriterSpy();
-		let estimateCount = 0;
+		writer.quotaAfterSuccessfulPageWrites = 1;
 		const adapter = new RendererBenchmarkEventStore({
 			writer,
 			projector: new RendererBenchmarkProjectorSpy(),
-			storageManager: {
-				estimate: async () => {
-					estimateCount++;
-					return estimateCount === 1
-						? { quota: 10 * GIBIBYTE, usage: GIBIBYTE }
-						: { quota: GIBIBYTE, usage: GIBIBYTE };
-				},
-			},
 		});
 		let progress = await adapter.start({
-			targetEvents: 150_000,
-			sourceIds: [SOURCE_A, SOURCE_B],
+			targetEvents: EVENT_PAGE_SIZE + 1,
+			sourceIds: [SOURCE_A],
 			generation: 1,
 			documentMinTimestamp: 1_000,
 			frameSpanMs: 100_000,
@@ -376,26 +350,17 @@ describe("RendererTest bounded EventStore benchmark", () => {
 
 		expect(progress.status).toBe("skipped");
 		expect(progress.diagnostics.skipReason?.code).toBe("quota-exhausted");
-		expect(progress.diagnostics.processedEvents >= 100_000).toBe(true);
+		expect(progress.diagnostics.processedEvents).toBe(EVENT_PAGE_SIZE);
 		expect(progress.diagnostics.persistedEvents).toBe(0);
-		expect(writer.cancelledSources).toEqual([SOURCE_A, SOURCE_B]);
+		expect(writer.cancelledSources).toEqual([SOURCE_A]);
 		adapter.close();
 	});
 
-	it("rechecks capacity before a measured query delta", async () => {
+	it("reports a concrete IndexedDB quota failure during a measured query delta", async () => {
 		const writer = new RendererBenchmarkWriterSpy();
-		let estimateCount = 0;
 		const adapter = new RendererBenchmarkEventStore({
 			writer,
 			projector: new RendererBenchmarkProjectorSpy(),
-			storageManager: {
-				estimate: async () => {
-					estimateCount++;
-					return estimateCount <= 2
-						? { quota: 10 * GIBIBYTE, usage: GIBIBYTE }
-						: { quota: GIBIBYTE, usage: GIBIBYTE };
-				},
-			},
 		});
 		let progress = await adapter.start({
 			targetEvents: 1,
@@ -406,6 +371,7 @@ describe("RendererTest bounded EventStore benchmark", () => {
 		});
 		while (!progress.done) progress = await adapter.appendNextPage();
 		await adapter.finalize();
+		writer.failUpsertWithQuota = true;
 		let rejected = false;
 		try {
 			await adapter.upsertDocuments([{
@@ -421,7 +387,7 @@ describe("RendererTest bounded EventStore benchmark", () => {
 
 		expect(rejected).toBe(true);
 		expect(writer.upsertCount).toBe(0);
-		expect(adapter.getDiagnostics().skipReason?.code).toBe("quota-insufficient");
+		expect(adapter.getDiagnostics().skipReason?.code).toBe("quota-exhausted");
 		adapter.close();
 	});
 
@@ -432,7 +398,6 @@ describe("RendererTest bounded EventStore benchmark", () => {
 		diagnostics.maximumRenderRepresentatives =
 			RENDERER_BENCHMARK_REPRESENTATIVE_LIMIT + 1;
 		diagnostics.maximumRenderBatchesInFlight = 3;
-		diagnostics.capacityEstimateErrorPercent = 15.01;
 		const gate = evaluateRendererBenchmarkResourceGate(diagnostics);
 
 		expect(gate.passed).toBe(false);
@@ -440,11 +405,5 @@ describe("RendererTest bounded EventStore benchmark", () => {
 		expect(gate.pendingDocumentsPassed).toBe(false);
 		expect(gate.renderRepresentativesPassed).toBe(false);
 		expect(gate.renderBatchesPassed).toBe(false);
-		expect(gate.capacityEstimateStatus).toBe("failed");
-		diagnostics.capacityEstimateErrorPercent = 15;
-		expect(
-			evaluateRendererBenchmarkResourceGate(diagnostics)
-				.capacityEstimateStatus,
-		).toBe("passed");
 	});
 });

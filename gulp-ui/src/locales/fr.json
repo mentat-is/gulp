@@ -10,7 +10,7 @@
     "eventStore.streamFailed.storage": "Le stockage du navigateur est indisponible. Vérifiez les autorisations des données du site ou fermez les autres onglets, puis réessayez.",
     "eventStore.streamFailed.normalization": "Certains événements n’ont pas pu être lus. Réessayez ou vérifiez les données de la source.",
     "eventStore.streamFailed.disconnected": "La connexion a été interrompue pendant le chargement des événements. Réessayez après la reconnexion.",
-    "eventStore.legacyFallback": "Le mode de compatibilité est actif car le stockage sécurisé du navigateur est indisponible. Les opérations volumineuses peuvent utiliser davantage de mémoire ; utilisez HTTPS ou localhost pour activer le stockage évolutif.",
+    "eventStore.legacyFallback": "Le mode de compatibilité est actif après la désactivation de la persistance du navigateur. Les événements restent en mémoire, les opérations volumineuses peuvent donc utiliser plus de RAM.",
     "group.eventsChangedRefresh": "Les événements ont changé pendant le chargement. La première page a été actualisée.",
     "source.cacheRebuildInPlace": "L’espace de stockage est limité ; le cache de cette source est donc reconstruit sur place. Si la requête est interrompue, la source sera récupérée à nouveau.",
     "detachedApp.authLost": "Connexion requise",

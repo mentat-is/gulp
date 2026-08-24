@@ -1,7 +1,6 @@
 export * from "./EventPage.codec";
 export * from "./EventStore.backend";
 export * from "./EventStore.cache";
-export * from "./EventStore.capacity";
 export * from "./EventStore.facade";
 export * from "./EventStore.reader";
 export * from "./EventStore.repository";

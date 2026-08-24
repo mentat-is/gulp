@@ -10,7 +10,7 @@
     "eventStore.streamFailed.storage": "El almacenamiento del navegador no está disponible. Comprueba los permisos de datos del sitio o cierra otras pestañas y vuelve a intentarlo.",
     "eventStore.streamFailed.normalization": "No se pudieron leer algunos eventos. Vuelve a intentarlo o comprueba los datos de origen.",
     "eventStore.streamFailed.disconnected": "La conexión se interrumpió mientras se cargaban los eventos. Vuelve a intentarlo después de reconectarte.",
-    "eventStore.legacyFallback": "El modo de compatibilidad está activo porque el almacenamiento seguro del navegador no está disponible. Las operaciones grandes pueden usar más memoria; utiliza HTTPS o localhost para activar el almacenamiento escalable.",
+    "eventStore.legacyFallback": "El modo de compatibilidad está activo después de desactivar la persistencia del navegador. Los eventos se conservan en memoria, por lo que las operaciones grandes pueden usar más RAM.",
     "group.eventsChangedRefresh": "Los eventos cambiaron durante la carga. Se actualizó la primera página.",
     "source.cacheRebuildInPlace": "El almacenamiento es limitado, por lo que la caché de esta fuente se está reconstruyendo en el mismo lugar. Si se interrumpe la consulta, se volverá a obtener la fuente.",
     "detachedApp.authLost": "Inicio de sesión requerido",

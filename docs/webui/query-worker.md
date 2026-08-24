@@ -14,28 +14,22 @@ The companion [timeline rendering architecture](engine.architecture.md)
 describes how a projection is transferred to the render worker and drawn on the
 `OffscreenCanvas`.
 
-## Capability selection and compatibility mode
+## Persistence selection and compatibility mode
 
-The persistent EventStore/LOD path requires a secure browser context,
-IndexedDB, Web Workers, and `navigator.storage.estimate()`. HTTPS and
-`http://localhost` satisfy the secure-context requirement in supported
-browsers. Plain HTTP on another hostname, for example `http://gulp:3000`, does
-not.
-
-The UI evaluates these capabilities before socket transport and stream
-ownership are selected. If any requirement is unavailable, document streams
-use `passthrough`, the direct transport is selected, and no EventStore database
-is opened. A single localized warning identifies compatibility mode. Documents
-and sources still load, but canonical events remain in main-thread RAM, so
-memory consumption grows with operation size.
+The UI selects the persistent EventStore/LOD path by default on every origin.
+It does not gate persistence on `isSecureContext` and does not call
+`navigator.storage.estimate()` before registering or writing a stream. A plain
+HTTP hostname such as `http://gulp:3000` therefore attempts the same IndexedDB
+path as HTTPS or `http://localhost`.
 
 The build-time rollout flag and the browser-local
-`gulp:event-store-lod-enabled=false` rollback keep their existing precedence.
-If `navigator.storage.estimate()` is initially available but rejects at
-runtime, the failure is classified as unavailable quota telemetry—not exhausted
-quota or an IndexedDB commit failure. The UI persists the same rollback flag and
-performs one controlled reload into compatibility mode. Deleting site data also
-deletes this manual marker.
+`gulp:event-store-lod-enabled=false` rollback retain precedence. If IndexedDB
+cannot be opened or a transaction fails, including a real quota-exceeded error,
+the UI persists that rollback flag and performs one controlled reload. After
+reload, document streams use `passthrough`, the direct transport is selected,
+and canonical events remain in main-thread RAM. A single localized warning
+identifies compatibility mode; memory consumption then grows with operation
+size. Deleting site data also deletes the persisted fallback marker.
 
 ## Runtime topology
 
@@ -181,14 +175,15 @@ chunk waits in raw form instead of failing against a raw-byte budget. A single
 chunk containing more than 32,768 documents is a backlog protocol failure; the
 normal backend chunk size must remain below that bound.
 
-If normalization, storage, quota admission, or the IndexedDB write path fails,
+If normalization or the IndexedDB write path fails,
 the worker marks the stream failed and reports its `req_id` and failure reason.
 The main thread requests backend cancellation only when that request crossed
 the HTTP or ingestion-worker dispatch boundary. Registration failures therefore
 cannot issue `/request_cancel` for a request the backend has never seen. There
-is no in-place fallback for a stream that already failed after receiving
-documents; only quota-telemetry unavailability uses the controlled persisted
-rollback and reload described above.
+is no in-place RAM handoff for a partially persisted stream. Storage and real
+quota failures use the controlled persisted rollback and reload described
+above; normalization, backlog, and connection failures remain ordinary stream
+failures.
 
 `last` means complete only after all page builders have flushed and the final
 IndexedDB transaction has committed. Other WebSocket messages, including
@@ -267,46 +262,34 @@ index rewrite on every append.
 
 ## Replace and mutation semantics
 
-A replace builds a new source generation. When storage permits, the committed
-generation remains readable until the building generation is finalized. The
-manifest switches generations atomically after the final commit, then obsolete
-records are reclaimed incrementally.
-
-If capacity is insufficient for both generations, the coordinator can reclaim
-the rollback generation and continue in-place. The source summary identifies
-that replacement mode. An interrupted in-place build is marked `incomplete` so
-the UI can request the source again instead of treating partial data as final.
+A replace builds a new source generation. The committed generation remains
+readable until the building generation is finalized. The manifest switches
+generations atomically after the final commit, then obsolete records are
+reclaimed incrementally. If IndexedDB rejects the new generation, cleanup
+restores the last coherent committed generation before the UI reloads into the
+persisted RAM fallback.
 
 Query upserts, enrichment, and real-time ingestion mutate the active generation
 under the same source lease. Browser Web Locks coordinate writers across
 same-origin realms; a coordinator-local FIFO lease provides the in-realm order.
 Leases are acquired in deterministic source order for multi-source chunks.
 
-## Dynamic storage capacity
+## Storage limits
 
-The query worker performs admission control with `navigator.storage.estimate()`.
-The usable capacity is calculated at runtime:
+The query worker does not predict how many events a future operation will
+occupy and performs no quota admission. Each normalized page is written to
+IndexedDB until the browser accepts or rejects the transaction. This avoids
+treating unavailable quota telemetry as unavailable storage and avoids
+rejecting a stream from an estimate that cannot know its eventual encoded size.
+The former capacity calculator, `CAPACITY` worker event, SmartSocket subscriber,
+and DataStore snapshot have been removed rather than retained as inactive
+test-only behavior.
 
-```text
-reserve = min(quota, max(1 GiB, quota * 20%))
-available = max(0, quota - usage - reserve)
-maxAdditionalEvents = floor(available / conservativeBytesPerEvent)
-effectiveMaximumEvents = currentEvents + maxAdditionalEvents
-```
-
-Until encoded writes have been measured, the estimate uses 160 bytes per event.
-Afterward it uses the p95 of recent encoded byte-per-event samples multiplied by
-1.5 for IndexedDB overhead. The worker measures before accepting each stream
-and again after either 100,000 committed events or 256 MiB of committed data.
-
-The result is a device-specific capacity, not a universal event-count promise.
-The source handle range is the absolute per-source format limit, while browser
-quota is expected to be the practical limit.
-
-An unavailable quota estimate is reported as unavailable telemetry, not as zero
-capacity. An actual quota error during commit fails the affected stream and
-preserves the last coherent source state whenever a committed generation still
-exists.
+The source handle range remains the absolute per-source format limit. In
+practice, browser quota and device capacity may be reached first. A real
+`QuotaExceededError` is classified separately from other storage failures, but
+both activate the same persisted RAM fallback after preserving the last
+coherent source state.
 
 ## Viewport render projection
 
@@ -381,7 +364,7 @@ of a dataset-sized event collection:
 - `getByHandle(sourceId, handle)`;
 - `getNeighbors(sourceId, handle, before, after)`;
 - `queryPixelBucket(sourceId, timeRange, limit, cursor?)`;
-- source summary and capacity reads.
+- source summary reads.
 
 `queryPixelBucket` returns exact events, the total matching count, a stable
 cursor, and the source revision. Its page size is capped at 100. This API is
@@ -443,9 +426,11 @@ The event path is expected to preserve these bounds:
 - exact pixel and dialog reads return at most 100 events per page.
 
 Benchmarking at 10, 20, and 30 million events must verify IndexedDB throughput,
-storage estimates, steady-state memory, query correctness, viewport latency,
-and interaction latency on the selected reference device. Admission remains
-subject to the origin quota available on that device.
+actual storage consumption, steady-state memory, query correctness, viewport
+latency, and interaction latency on the selected reference device. Successful
+persistence remains subject to the origin quota available on that device. The
+`/renderer-test` benchmark performs no predictive admission either: it writes
+bounded pages until completion or a concrete IndexedDB quota failure.
 
 ## Source reference
 

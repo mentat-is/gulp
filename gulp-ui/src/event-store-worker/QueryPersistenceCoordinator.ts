@@ -1,8 +1,4 @@
 import { encodeEventPage } from "@/event-store/EventPage.codec";
-import {
-	EventStoreCapacityTelemetryUnavailableError,
-	EventStoreCapacityTracker,
-} from "@/event-store/EventStore.capacity";
 import type { EventStoreBackend } from "@/event-store/EventStore.backend";
 import { EventStoreRevisionBus } from "@/event-store/EventStore.revisions";
 import {
@@ -24,7 +20,6 @@ import {
 	EVENT_PENDING_DOCUMENT_LIMIT,
 	type EventSourceManifest,
 	type EventSourceSummary,
-	type EventStoreCapacity,
 	type EventStoreNamespace,
 } from "@/event-store/EventStore.types";
 import { IndexedDbEventStoreBackend } from "@/event-store/IndexedDbEventStore.backend";
@@ -34,7 +29,6 @@ import type { Source } from "@/entities/Source";
 import type {
 	DocumentChunkReady,
 	DocumentStreamDescriptor,
-	QueryCapacityEvent,
 	QueryRenderWindowDescriptor,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
@@ -54,10 +48,6 @@ interface QueryPersistenceRepository {
 	): Promise<EventSourceSummary>;
 	appendPages(input: AppendEventStorePagesInput): Promise<EventSourceSummary>;
 	finalizeGeneration(
-		sourceId: Source.Id,
-		generation: number,
-	): Promise<EventSourceSummary>;
-	discardGenerationRollback(
 		sourceId: Source.Id,
 		generation: number,
 	): Promise<EventSourceSummary>;
@@ -95,7 +85,6 @@ interface QueryViewportProjector {
 
 export interface QueryPersistenceCallbacks {
 	onSourceSummary: (event: QuerySourceSummaryEvent) => void;
-	onCapacity: (event: QueryCapacityEvent) => void;
 	onStreamFailure: (event: QueryStreamFailureEvent) => void;
 	onStreamFlushing: (requestId: string) => void;
 	onStreamCompleted: (requestId: string) => void;
@@ -109,8 +98,6 @@ export interface QueryPersistenceCoordinatorOptions {
 		namespace: EventStoreNamespace,
 	) => QueryPersistenceRevisionBus;
 	createViewportProjector?: (backend: EventStoreBackend) => QueryViewportProjector;
-	capacityTracker?: EventStoreCapacityTracker;
-	storageManager?: Pick<StorageManager, "estimate">;
 	lockManager?: Pick<LockManager, "request">;
 	pendingDocumentLimit?: number;
 	maximumConcurrentCommits?: number;
@@ -128,7 +115,6 @@ interface OperationPersistenceContext {
 
 interface StoredEventSourceManifest extends EventSourceManifest {
 	rollback?: EventSourceManifest;
-	inPlaceReplacement?: true;
 }
 
 interface ReplaceSourceContext {
@@ -148,11 +134,6 @@ interface PersistenceStreamContext {
 	replaceSources: Map<Source.Id, ReplaceSourceContext>;
 	releaseSourceLeases: Array<() => void>;
 	chain: Promise<void>;
-	reservedEvents: number;
-	unallocatedExpectedEvents: number;
-	reclaimableEventsBySource: Map<Source.Id, number>;
-	inPlaceReplacement: boolean;
-	inPlaceNotificationPublished: boolean;
 	accepting: boolean;
 	canceling: boolean;
 	explicitCompletionRequested: boolean;
@@ -201,8 +182,6 @@ export class QueryPersistenceCoordinator {
 	private readonly createViewportProjector: (
 		backend: EventStoreBackend,
 	) => QueryViewportProjector;
-	private readonly capacityTracker: EventStoreCapacityTracker;
-	private readonly storageManager?: Pick<StorageManager, "estimate">;
 	private readonly lockManager?: Pick<LockManager, "request">;
 	private readonly pendingDocumentLimit: number;
 	private readonly maximumConcurrentCommits: number;
@@ -227,17 +206,13 @@ export class QueryPersistenceCoordinator {
 	private currentPageBuilderDocuments = 0;
 	private currentPendingRawChunkBytes = 0;
 	private currentCommitCount = 0;
-	private latestCapacity: EventStoreCapacity | null = null;
-	private capacityEstimatePromise: Promise<EventStoreCapacity> | null = null;
-	private remainingCapacityEvents = 0;
-	private totalReservedEvents = 0;
 	private destroyed = false;
 
 	/**
 	 * Creates a coordinator for one cross-window EventStore namespace.
 	 * @param coordinatorId Main/detached browsing-context coordinator identity.
-	 * @param callbacks Summary, capacity, failure, and router lifecycle hooks.
-	 * @param options Injectable storage and deterministic limits for tests.
+	 * @param callbacks Summary, failure, and router lifecycle hooks.
+	 * @param options Injectable persistence backends and deterministic limits for tests.
 	 */
 	public constructor(
 		coordinatorId: string,
@@ -249,8 +224,6 @@ export class QueryPersistenceCoordinator {
 		}
 		this.coordinatorId = coordinatorId;
 		this.callbacks = callbacks;
-		this.capacityTracker = options.capacityTracker ?? new EventStoreCapacityTracker();
-		this.storageManager = options.storageManager;
 		this.lockManager = options.lockManager ?? globalThis.navigator?.locks;
 		this.pendingDocumentLimit =
 			options.pendingDocumentLimit ?? EVENT_PENDING_DOCUMENT_LIMIT;
@@ -438,9 +411,9 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Admits one persist stream and prepares its storage state before worker ACK.
+	 * Registers one persist stream and prepares its storage state before worker ACK.
 	 * @param descriptor Persist stream descriptor supplied before the backend call.
-	 * @returns Promise resolved only after quota checks and source preparation commit.
+	 * @returns Promise resolved after source preparation commits to IndexedDB.
 	 */
 	public async register(descriptor: DocumentStreamDescriptor): Promise<void> {
 		if (this.destroyed) throw new Error("Query persistence is destroyed.");
@@ -467,36 +440,8 @@ export class QueryPersistenceCoordinator {
 			try {
 				const operation = await this.getOperation(descriptor.operationId);
 				await this.refreshDeclaredSourceManifests(operation, sourceIds);
-				await this.estimateCapacity(
-					operation.operationId,
-					descriptor.requestId,
-					descriptor.operationEpoch,
-				);
-				const expectedEvents = descriptor.expectedEvents ?? 0;
-				const availableAfterReservations = Math.max(
-					0,
-					this.remainingCapacityEvents - this.totalReservedEvents,
-				);
 				const isReplace =
 					(descriptor.kind ?? "query-upsert") === "replace";
-				const reclaimableEventsBySource = isReplace
-					? this.getReclaimableReplaceEvents(operation, sourceIds)
-					: new Map<Source.Id, number>();
-				const reclaimableEvents = this.getTotalReclaimableEvents(
-					reclaimableEventsBySource,
-				);
-				const requiredReclaim = Math.max(
-					0,
-					expectedEvents - availableAfterReservations,
-				);
-				if (requiredReclaim > reclaimableEvents) {
-					throw new QueryPersistenceError(
-						"quota",
-						`Query expects ${expectedEvents} events but protected and reclaimable capacity allow only ${
-							availableAfterReservations + reclaimableEvents
-						}.`,
-					);
-				}
 
 				context = {
 					descriptor: this.cloneDescriptor(descriptor),
@@ -506,11 +451,6 @@ export class QueryPersistenceCoordinator {
 					replaceSources: new Map(),
 					releaseSourceLeases,
 					chain: Promise.resolve(),
-					reservedEvents: expectedEvents,
-					unallocatedExpectedEvents: expectedEvents,
-					reclaimableEventsBySource,
-					inPlaceReplacement: false,
-					inPlaceNotificationPublished: false,
 					accepting: true,
 					canceling: false,
 					explicitCompletionRequested: false,
@@ -521,11 +461,9 @@ export class QueryPersistenceCoordinator {
 					released: false,
 					cleanupPromise: null,
 				};
-				this.totalReservedEvents += expectedEvents;
 
 				if (isReplace) {
 					await this.prepareReplaceSources(context);
-					await this.activateInPlaceReplacement(context, requiredReclaim);
 				} else {
 					await this.prepareUpsertSources(context);
 				}
@@ -622,7 +560,6 @@ export class QueryPersistenceCoordinator {
 					if (chunk.message.payload) chunk.message.payload.docs = [];
 					rawDocuments = [];
 				}
-				await this.ensureChunkCapacity(context, queuedDocumentCount);
 				const sourceIds = [...grouped.keys()].sort();
 				if (!context.hasDeclaredSourceAuthority) {
 					await this.acquireDiscoveredSourceLeases(context, sourceIds);
@@ -1172,118 +1109,8 @@ export class QueryPersistenceCoordinator {
 					revision: summary.revision,
 					pendingDocuments: [],
 				});
-				await this.afterCommit(context, summary, 0);
+				await this.afterCommit(context, summary);
 			}),
-		);
-	}
-
-	/**
-	 * Captures complete generations that a source-leased replacement may discard.
-	 * @param operation Operation containing the source manifests read under lease.
-	 * @param sourceIds Declared replacement sources in deterministic lock order.
-	 * @returns Per-source event counts whose physical generations are reclaimable.
-	 */
-	private getReclaimableReplaceEvents(
-		operation: OperationPersistenceContext,
-		sourceIds: readonly Source.Id[],
-	): Map<Source.Id, number> {
-		const reclaimable = new Map<Source.Id, number>();
-		for (const sourceId of sourceIds) {
-			const manifest = operation.manifests.get(sourceId);
-			const completeGeneration =
-				manifest?.status === "complete"
-					? manifest
-					: manifest?.rollback?.status === "complete"
-						? manifest.rollback
-						: undefined;
-			const eventCount = Math.max(
-				0,
-				Math.floor(completeGeneration?.eventCount ?? 0),
-			);
-			if (eventCount > 0) reclaimable.set(sourceId, eventCount);
-		}
-		return reclaimable;
-	}
-
-	/**
-	 * Sums remaining replacement credit without exceeding safe integer arithmetic.
-	 * @param reclaimableEventsBySource Per-source complete-generation event counts.
-	 * @returns Saturated total events available by dropping retained rollbacks.
-	 */
-	private getTotalReclaimableEvents(
-		reclaimableEventsBySource: ReadonlyMap<Source.Id, number>,
-	): number {
-		let total = 0;
-		for (const eventCount of reclaimableEventsBySource.values()) {
-			total = Math.min(Number.MAX_SAFE_INTEGER, total + eventCount);
-		}
-		return total;
-	}
-
-	/**
-	 * Drops only as many retained complete generations as a replacement needs.
-	 * The stream already holds every declared source lease, so the captured rollback
-	 * counts cannot be consumed by another writer while storage is being reclaimed.
-	 * @param context Source-leased replacement stream.
-	 * @param requiredEvents Minimum additional event capacity to reclaim.
-	 */
-	private async activateInPlaceReplacement(
-		context: PersistenceStreamContext,
-		requiredEvents: number,
-	): Promise<void> {
-		if (requiredEvents <= 0) return;
-		let reclaimedEvents = 0;
-		for (const [sourceId, eventCount] of context.reclaimableEventsBySource) {
-			const source = context.replaceSources.get(sourceId);
-			if (!source) continue;
-			const manifest =
-				await context.operation.backend.get<StoredEventSourceManifest>(
-					"sources",
-					sourceId,
-				);
-			if (!manifest?.rollback || manifest.rollback.eventCount !== eventCount) {
-				context.reclaimableEventsBySource.delete(sourceId);
-				continue;
-			}
-			let summary: EventSourceSummary;
-			try {
-				summary = await this.withCommitSlot(() =>
-					context.operation.repository.discardGenerationRollback(
-						sourceId,
-						source.generation,
-					),
-				);
-			} catch (error) {
-				try {
-					const detached =
-						await context.operation.backend.get<StoredEventSourceManifest>(
-							"sources",
-							sourceId,
-						);
-					if (detached?.inPlaceReplacement && !detached.rollback) {
-						context.inPlaceReplacement = true;
-					}
-				} catch {
-					// Preserve the primary storage failure; cleanup will remain conservative.
-				}
-				throw error;
-			}
-			context.reclaimableEventsBySource.delete(sourceId);
-			context.inPlaceReplacement = true;
-			reclaimedEvents = Math.min(
-				Number.MAX_SAFE_INTEGER,
-				reclaimedEvents + eventCount,
-			);
-			this.remainingCapacityEvents = Math.min(
-				Number.MAX_SAFE_INTEGER,
-				this.remainingCapacityEvents + eventCount,
-			);
-			await this.afterCommit(context, summary, 0);
-			if (reclaimedEvents >= requiredEvents) return;
-		}
-		throw new QueryPersistenceError(
-			"quota",
-			`Replacement could reclaim ${reclaimedEvents} events but requires ${requiredEvents}.`,
 		);
 	}
 
@@ -1309,11 +1136,11 @@ export class QueryPersistenceCoordinator {
 				const building = await this.withCommitSlot(() =>
 					context.operation.repository.beginGeneration({ sourceId, generation }),
 				);
-				await this.afterCommit(context, building, 0);
+				await this.afterCommit(context, building);
 				const complete = await this.withCommitSlot(() =>
 					context.operation.repository.finalizeGeneration(sourceId, generation),
 				);
-				await this.afterCommit(context, complete, 0);
+				await this.afterCommit(context, complete);
 			}),
 		);
 	}
@@ -1461,11 +1288,7 @@ export class QueryPersistenceCoordinator {
 				}),
 			);
 			for (let index = 0; index < summaries.length; index++) {
-				await this.afterCommit(
-					context,
-					summaries[index],
-					index === 0 ? batch.length : 0,
-				);
+				await this.afterCommit(context, summaries[index]);
 			}
 		}
 	}
@@ -1475,7 +1298,7 @@ export class QueryPersistenceCoordinator {
 	 * @param context Owning persistence stream.
 	 * @param source Prepared replace source.
 	 * @param documents Full page or final partial page.
-	 * @returns Promise settled after page persistence and capacity publication.
+	 * @returns Promise settled after page persistence and summary publication.
 	 */
 	private async appendReplacePage(
 		context: PersistenceStreamContext,
@@ -1513,7 +1336,7 @@ export class QueryPersistenceCoordinator {
 			source.nextHandle = finalHandle + 1;
 			source.nextPageId += 1;
 			source.revision = summary.revision;
-			await this.afterCommit(context, summary, documents.length);
+			await this.afterCommit(context, summary);
 		} finally {
 			this.currentPageBuilderDocuments = Math.max(
 				0,
@@ -1558,7 +1381,7 @@ export class QueryPersistenceCoordinator {
 							source.generation,
 						),
 					);
-					await this.afterCommit(context, summary, 0);
+					await this.afterCommit(context, summary);
 				}),
 			);
 		}
@@ -1647,7 +1470,7 @@ export class QueryPersistenceCoordinator {
 									source.generation,
 								),
 							);
-							await this.afterCommit(context, summary, 0);
+							await this.afterCommit(context, summary);
 							return;
 						}
 						await this.withCommitSlot(() =>
@@ -1692,7 +1515,7 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Releases source leases and unused capacity reservation exactly once.
+	 * Releases source leases and pending buffers exactly once.
 	 * @param context Terminal persistence stream.
 	 */
 	private releaseContext(context: PersistenceStreamContext): void {
@@ -1707,65 +1530,10 @@ export class QueryPersistenceCoordinator {
 		}
 		this.cancelPendingDocumentCreditWaiters(context);
 		this.drainPendingDocumentCreditWaiters();
-		this.totalReservedEvents = Math.max(
-			0,
-			this.totalReservedEvents - context.reservedEvents,
-		);
-		context.reservedEvents = 0;
-		context.unallocatedExpectedEvents = 0;
 		for (const release of context.releaseSourceLeases.reverse()) release();
 		context.releaseSourceLeases.length = 0;
 		this.streams.delete(context.descriptor.requestId);
 		for (const resolve of context.completionWaiters.splice(0)) resolve();
-	}
-
-	/**
-	 * Checks current quota before accepting one queued normalized batch.
-	 * @param context Stream consuming capacity.
-	 * @param eventCount Conservative event count to reserve for this chunk.
-	 */
-	private async ensureChunkCapacity(
-		context: PersistenceStreamContext,
-		eventCount: number,
-	): Promise<void> {
-		if (this.capacityTracker.shouldReestimate() || !this.latestCapacity) {
-			await this.estimateCapacity(
-				context.operation.operationId,
-				context.descriptor.requestId,
-				context.descriptor.operationEpoch,
-			);
-		}
-		const allocatedExpected = Math.min(
-			context.unallocatedExpectedEvents,
-			eventCount,
-		);
-		context.unallocatedExpectedEvents -= allocatedExpected;
-		const additionalReservation = eventCount - allocatedExpected;
-		const unreservedAvailable = Math.max(
-			0,
-			this.remainingCapacityEvents - this.totalReservedEvents,
-		);
-		if (additionalReservation > unreservedAvailable) {
-			const requiredReclaim = additionalReservation - unreservedAvailable;
-			if (
-				(context.descriptor.kind ?? "query-upsert") !== "replace" ||
-				requiredReclaim >
-					this.getTotalReclaimableEvents(
-						context.reclaimableEventsBySource,
-					)
-			) {
-				throw new QueryPersistenceError(
-					"quota",
-					`Chunk requires ${additionalReservation} unreserved events but current protected and reclaimable capacity is exhausted.`,
-				);
-			}
-			context.reservedEvents += additionalReservation;
-			this.totalReservedEvents += additionalReservation;
-			await this.activateInPlaceReplacement(context, requiredReclaim);
-			return;
-		}
-		context.reservedEvents += additionalReservation;
-		this.totalReservedEvents += additionalReservation;
 	}
 
 	/**
@@ -1805,17 +1573,14 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Updates manifests, write-cost samples, summary, and capacity telemetry after commit.
+	 * Updates the cached manifest and publishes its source summary after a commit.
 	 * @param context Stream owning the commit.
 	 * @param summary Source summary returned by EventStore.
-	 * @param committedEvents Conservative number of documents written.
 	 */
 	private async afterCommit(
 		context: PersistenceStreamContext,
 		summary: EventSourceSummary,
-		committedEvents: number,
 	): Promise<void> {
-		const previous = context.operation.manifests.get(summary.sourceId);
 		const manifest =
 			await context.operation.backend.get<StoredEventSourceManifest>(
 				"sources",
@@ -1823,32 +1588,12 @@ export class QueryPersistenceCoordinator {
 			);
 		if (manifest) context.operation.manifests.set(summary.sourceId, manifest);
 		else context.operation.manifests.delete(summary.sourceId);
-		const encodedBytes = Math.max(
-			0,
-			(manifest?.encodedBytes ?? 0) - (previous?.encodedBytes ?? 0),
-		);
-		this.capacityTracker.recordCommittedWrite(encodedBytes, committedEvents);
-		this.consumeCapacityReservation(context, committedEvents);
 		context.operation.revisionBus.publish(summary);
 		this.publishSourceSummary(context, summary);
-		if (this.capacityTracker.shouldReestimate()) {
-			await this.estimateCapacity(
-				context.operation.operationId,
-				context.descriptor.requestId,
-				context.descriptor.operationEpoch,
-			);
-		} else if (this.latestCapacity) {
-			this.callbacks.onCapacity({
-				requestId: context.descriptor.requestId,
-				operationId: context.descriptor.operationId,
-				operationEpoch: context.descriptor.operationEpoch,
-				capacity: this.latestCapacity,
-			});
-		}
 	}
 
 	/**
-	 * Publishes one compact source update and attaches the in-place notice once.
+	 * Publishes one compact source update.
 	 * @param context Stream owning the durable source revision.
 	 * @param summary Source authority to publish to the main thread.
 	 */
@@ -1856,85 +1601,12 @@ export class QueryPersistenceCoordinator {
 		context: PersistenceStreamContext,
 		summary: EventSourceSummary,
 	): void {
-		const publishReplacementMode =
-			context.inPlaceReplacement && !context.inPlaceNotificationPublished;
-		if (publishReplacementMode) context.inPlaceNotificationPublished = true;
 		this.callbacks.onSourceSummary({
 			requestId: context.descriptor.requestId,
 			operationId: context.descriptor.operationId,
 			operationEpoch: context.descriptor.operationEpoch,
 			summary,
-			...(publishReplacementMode
-				? { replacementMode: "in-place" as const }
-				: {}),
 		});
-	}
-
-	/**
-	 * Deducts committed events from both global capacity and this stream reservation.
-	 * @param context Stream whose write committed.
-	 * @param committedEvents Conservative committed document count.
-	 */
-	private consumeCapacityReservation(
-		context: PersistenceStreamContext,
-		committedEvents: number,
-	): void {
-		const safeEvents = Math.max(0, Math.floor(committedEvents));
-		this.remainingCapacityEvents = Math.max(
-			0,
-			this.remainingCapacityEvents - safeEvents,
-		);
-		const reservedConsumption = Math.min(context.reservedEvents, safeEvents);
-		context.reservedEvents -= reservedConsumption;
-		this.totalReservedEvents = Math.max(
-			0,
-			this.totalReservedEvents - reservedConsumption,
-		);
-	}
-
-	/**
-	 * Measures origin quota and emits one operation-scoped capacity snapshot.
-	 * @param operationId Operation associated with the telemetry request.
-	 * @param requestId Optional request associated with the estimate.
-	 * @param operationEpoch Optional epoch guarding a stream-scoped estimate.
-	 * @returns Current conservative capacity.
-	 */
-	private async estimateCapacity(
-		operationId: string,
-		requestId?: string,
-		operationEpoch?: number,
-	): Promise<EventStoreCapacity> {
-		if (!this.capacityEstimatePromise) {
-			this.capacityEstimatePromise = this.capacityTracker
-				.estimate(this.getCurrentEventCount(), this.storageManager)
-				.then((capacity) => {
-					this.latestCapacity = capacity;
-					this.remainingCapacityEvents = capacity.maximumAdditionalEvents;
-					return capacity;
-				})
-				.finally(() => {
-					this.capacityEstimatePromise = null;
-				});
-		}
-		const capacity = await this.capacityEstimatePromise;
-		this.callbacks.onCapacity({
-			requestId,
-			operationId,
-			operationEpoch,
-			capacity,
-		});
-		return capacity;
-	}
-
-	/** Returns the logical event count represented by loaded source manifests. */
-	private getCurrentEventCount(): number {
-		let count = 0;
-		for (const operation of this.operations.values()) {
-			for (const manifest of operation.manifests.values()) {
-				count += manifest.eventCount;
-			}
-		}
-		return count;
 	}
 
 	/**
@@ -2163,11 +1835,7 @@ export class QueryPersistenceCoordinator {
 		error: unknown,
 	): QueryStreamFailureEvent {
 		const reason =
-			error instanceof QueryPersistenceError
-				? error.reason
-				: error instanceof EventStoreCapacityTelemetryUnavailableError
-					? "capacity-unavailable"
-					: "storage";
+			error instanceof QueryPersistenceError ? error.reason : "storage";
 		return {
 			requestId: descriptor.requestId,
 			operationId: descriptor.operationId,

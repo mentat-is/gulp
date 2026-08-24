@@ -14,7 +14,6 @@ import { QueryPersistenceCoordinator } from "@/event-store-worker/QueryPersisten
 import type {
 	DocumentChunkReady,
 	DocumentStreamDescriptor,
-	QueryCapacityEvent,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
 } from "@/event-stream";
@@ -25,7 +24,6 @@ Object.defineProperties(globalThis, {
 	TextDecoder: { configurable: true, value: TextDecoder },
 });
 
-const GIBIBYTE = 1024 ** 3;
 const MEBIBYTE = 1024 ** 2;
 const SOURCE_ONE = "source-one" as Source.Id;
 const SOURCE_TWO = "source-two" as Source.Id;
@@ -65,30 +63,20 @@ interface PersistenceHarness {
 	backends: Map<string, MemoryEventStoreBackend>;
 	repositories: Map<string, EventStoreRepository>;
 	summaries: QuerySourceSummaryEvent[];
-	capacities: QueryCapacityEvent[];
 	failures: QueryStreamFailureEvent[];
 	flushing: string[];
 	completed: string[];
 	broadcasts: EventSourceSummary[];
-	/** Changes the deterministic free-space estimate used by later registrations. */
-	setAvailableEventCapacity: (eventCapacity: number) => void;
 }
 
 /**
  * Creates one isolated coordinator backed by deterministic in-memory storage.
- * @param initialAvailableEventCapacity Event capacity exposed by the default estimate.
- * @param storageManager Optional quota telemetry implementation for failure tests.
  * @returns Coordinator harness and captured lifecycle events.
  */
-function createHarness(
-	initialAvailableEventCapacity = 1_000_000,
-	storageManager?: Pick<StorageManager, "estimate">,
-): PersistenceHarness {
-	let availableEventCapacity = initialAvailableEventCapacity;
+function createHarness(): PersistenceHarness {
 	const backends = new Map<string, MemoryEventStoreBackend>();
 	const repositories = new Map<string, EventStoreRepository>();
 	const summaries: QuerySourceSummaryEvent[] = [];
-	const capacities: QueryCapacityEvent[] = [];
 	const failures: QueryStreamFailureEvent[] = [];
 	const flushing: string[] = [];
 	const completed: string[] = [];
@@ -97,7 +85,6 @@ function createHarness(
 		"test-coordinator",
 		{
 			onSourceSummary: (event) => summaries.push(event),
-			onCapacity: (event) => capacities.push(event),
 			onStreamFailure: (event) => failures.push(event),
 			onStreamFlushing: (requestId) => flushing.push(requestId),
 			onStreamCompleted: (requestId) => completed.push(requestId),
@@ -115,12 +102,6 @@ function createHarness(
 				publish: (summary) => broadcasts.push(summary),
 				close: () => undefined,
 			}),
-			storageManager: storageManager ?? {
-				estimate: async () => ({
-					quota: GIBIBYTE + availableEventCapacity * 160,
-					usage: 0,
-				}),
-			},
 		},
 	);
 	return {
@@ -128,14 +109,10 @@ function createHarness(
 		backends,
 		repositories,
 		summaries,
-		capacities,
 		failures,
 		flushing,
 		completed,
 		broadcasts,
-		setAvailableEventCapacity: (eventCapacity) => {
-			availableEventCapacity = eventCapacity;
-		},
 	};
 }
 
@@ -246,23 +223,68 @@ async function seedCompleteReplacement(
 }
 
 describe("QueryPersistenceCoordinator", () => {
-	it("classifies rejected quota telemetry independently from storage failures", async () => {
-		const harness = createHarness(1_000_000, {
-			estimate: async () => {
-				throw new Error("estimate denied");
+	it("registers persistence without consulting quota telemetry", async () => {
+		const storageDescriptor = Object.getOwnPropertyDescriptor(
+			globalThis.navigator,
+			"storage",
+		);
+		let estimateCalls = 0;
+		Object.defineProperty(globalThis.navigator, "storage", {
+			configurable: true,
+			value: {
+				estimate: async () => {
+					estimateCalls += 1;
+					throw new Error("estimate must not be called");
+				},
 			},
 		});
-		const descriptor = createDescriptor("capacity-telemetry-failure");
+		const harness = createHarness();
+		const descriptor = createDescriptor("no-capacity-telemetry");
 
-		await expect(harness.coordinator.register(descriptor)).rejects.toThrow(
-			"Browser storage quota telemetry is unavailable",
+		try {
+			await harness.coordinator.register(descriptor);
+			expect(harness.coordinator.hasStream(descriptor.requestId)).toBe(true);
+			expect(estimateCalls).toBe(0);
+			expect(harness.failures).toHaveLength(0);
+			await harness.coordinator.cancel(descriptor.requestId);
+		} finally {
+			harness.coordinator.destroy();
+			if (storageDescriptor) {
+				Object.defineProperty(
+					globalThis.navigator,
+					"storage",
+					storageDescriptor,
+				);
+			} else {
+				Reflect.deleteProperty(globalThis.navigator, "storage");
+			}
+		}
+	});
+
+	it("classifies a real IndexedDB quota rejection during commit", async () => {
+		const harness = createHarness();
+		type CommitSlotRunner = <TResult>(
+			task: () => Promise<TResult>,
+		) => Promise<TResult>;
+		const runWithSlot = (
+			harness.coordinator as unknown as { withCommitSlot: CommitSlotRunner }
+		).withCommitSlot.bind(harness.coordinator);
+		const quotaError = new Error("origin is full");
+		quotaError.name = "QuotaExceededError";
+
+		let rejection: unknown;
+		try {
+			await runWithSlot(async () => {
+				throw quotaError;
+			});
+		} catch (error) {
+			rejection = error;
+		}
+		expect(rejection).toBeInstanceOf(Error);
+		expect((rejection as { reason?: string }).reason).toBe("quota");
+		expect((rejection as Error).message).toBe(
+			"IndexedDB quota was exhausted during commit.",
 		);
-		expect(harness.failures).toHaveLength(1);
-		expect(harness.failures[0]).toMatchObject({
-			requestId: descriptor.requestId,
-			reason: "capacity-unavailable",
-		});
-		expect(harness.coordinator.hasStream(descriptor.requestId)).toBe(false);
 		harness.coordinator.destroy();
 	});
 
@@ -647,8 +669,6 @@ describe("QueryPersistenceCoordinator", () => {
 			createRawDocument("protected-one"),
 			createRawDocument("protected-two", SOURCE_ONE, 1_700_000_000_001),
 		]);
-		harness.setAvailableEventCapacity(1_000_000);
-
 		const replacement = createDescriptor("protected-replacement", {
 			expectedEvents: 5,
 		});
@@ -674,53 +694,7 @@ describe("QueryPersistenceCoordinator", () => {
 		harness.coordinator.destroy();
 	});
 
-	it("uses only sufficient rollback capacity and publishes one in-place notice", async () => {
-		const harness = createHarness();
-		const original = createDescriptor("in-place-original", {
-			sourceIds: [SOURCE_ONE, SOURCE_TWO],
-			expectedEvents: 4,
-		});
-		await seedCompleteReplacement(harness, original, [
-			createRawDocument("source-one-a", SOURCE_ONE),
-			createRawDocument("source-one-b", SOURCE_ONE, 1_700_000_000_001),
-			createRawDocument("source-two-a", SOURCE_TWO),
-			createRawDocument("source-two-b", SOURCE_TWO, 1_700_000_000_001),
-		]);
-		harness.setAvailableEventCapacity(0);
-
-		const replacement = createDescriptor("in-place-replacement", {
-			sourceIds: [SOURCE_ONE, SOURCE_TWO],
-			expectedEvents: 3,
-		});
-		await harness.coordinator.register(replacement);
-		const notices = harness.summaries.filter(
-			(event) =>
-				event.requestId === replacement.requestId &&
-				event.replacementMode === "in-place",
-		);
-		expect(notices).toHaveLength(1);
-
-		await harness.coordinator.cancel(replacement.requestId);
-		const repository = harness.repositories.get(replacement.operationId);
-		if (!repository) throw new Error("Expected operation repository.");
-		expect(await repository.getSourceSummary(SOURCE_ONE)).toMatchObject({
-			status: "incomplete",
-			eventCount: 0,
-		});
-		expect(await repository.getSourceSummary(SOURCE_TWO)).toMatchObject({
-			status: "incomplete",
-			eventCount: 0,
-		});
-		expect(
-			await repository.getById("source-one-a" as Doc.Id, SOURCE_ONE),
-		).toBeNull();
-		expect(
-			await repository.getById("source-two-a" as Doc.Id, SOURCE_TWO),
-		).toBeNull();
-		harness.coordinator.destroy();
-	});
-
-	it("rejects an oversized replacement before touching its complete generation", async () => {
+	it("does not reject a replacement from its expected event count", async () => {
 		const harness = createHarness();
 		const original = createDescriptor("insufficient-original", {
 			expectedEvents: 2,
@@ -729,14 +703,14 @@ describe("QueryPersistenceCoordinator", () => {
 			createRawDocument("insufficient-one"),
 			createRawDocument("insufficient-two", SOURCE_ONE, 1_700_000_000_001),
 		]);
-		harness.setAvailableEventCapacity(0);
 
 		const replacement = createDescriptor("insufficient-replacement", {
-			expectedEvents: 3,
+			expectedEvents: Number.MAX_SAFE_INTEGER,
 		});
-		await expect(harness.coordinator.register(replacement)).rejects.toThrow(
-			"protected and reclaimable capacity",
-		);
+		await harness.coordinator.register(replacement);
+		expect(harness.coordinator.hasStream(replacement.requestId)).toBe(true);
+		expect(harness.failures).toHaveLength(0);
+		await harness.coordinator.cancel(replacement.requestId);
 		const repository = harness.repositories.get(replacement.operationId);
 		if (!repository) throw new Error("Expected operation repository.");
 		expect(await repository.getSourceSummary(SOURCE_ONE)).toMatchObject({
@@ -746,121 +720,8 @@ describe("QueryPersistenceCoordinator", () => {
 		expect(
 			await repository.getById("insufficient-one" as Doc.Id, SOURCE_ONE),
 		).not.toBeNull();
-		expect(harness.failures.at(-1)).toMatchObject({
-			requestId: replacement.requestId,
-			reason: "quota",
-		});
 		harness.coordinator.destroy();
 	});
-
-	it("keeps a detached replacement incomplete when rollback cleanup fails", async () => {
-		const harness = createHarness();
-		const original = createDescriptor("detach-failure-original", {
-			expectedEvents: 1,
-		});
-		await seedCompleteReplacement(harness, original, [
-			createRawDocument("detach-failure-old"),
-		]);
-		const repository = harness.repositories.get(original.operationId);
-		if (!repository) throw new Error("Expected operation repository.");
-		const discardGenerationRollback =
-			repository.discardGenerationRollback.bind(repository);
-		repository.discardGenerationRollback = async (
-			sourceId: Source.Id,
-			generation: number,
-		): Promise<EventSourceSummary> => {
-			await discardGenerationRollback(sourceId, generation);
-			throw new Error("Injected cleanup failure after detach");
-		};
-		harness.setAvailableEventCapacity(0);
-
-		const replacement = createDescriptor("detach-failure-replacement", {
-			expectedEvents: 1,
-		});
-		await expect(harness.coordinator.register(replacement)).rejects.toThrow(
-			"Injected cleanup failure after detach",
-		);
-		expect(await repository.getSourceSummary(SOURCE_ONE)).toMatchObject({
-			status: "incomplete",
-			eventCount: 0,
-		});
-		expect(
-			await repository.getById("detach-failure-old" as Doc.Id, SOURCE_ONE),
-		).toBeNull();
-		expect(
-			harness.summaries.filter(
-				(event) =>
-					event.requestId === replacement.requestId &&
-					event.replacementMode === "in-place",
-			),
-		).toHaveLength(1);
-		harness.coordinator.destroy();
-	});
-
-	for (const [caseName, expectedEvents] of [
-		["missing", undefined],
-		["underestimated", 0],
-	] as const) {
-		it(
-			`activates in-place replacement when the stream estimate is ${caseName}`,
-			async () => {
-				const harness = createHarness();
-				const original = createDescriptor(`late-original-${caseName}`, {
-					expectedEvents: 2,
-				});
-				await seedCompleteReplacement(harness, original, [
-					createRawDocument("late-one"),
-					createRawDocument("late-two", SOURCE_ONE, 1_700_000_000_001),
-				]);
-				harness.setAvailableEventCapacity(0);
-
-				const replacement = createDescriptor(`late-replacement-${caseName}`, {
-					...(expectedEvents === undefined ? {} : { expectedEvents }),
-				});
-				await harness.coordinator.register(replacement);
-				expect(
-					harness.summaries.some(
-						(event) =>
-							event.requestId === replacement.requestId &&
-							event.replacementMode === "in-place",
-					),
-				).toBe(false);
-				harness.coordinator.handleDocumentChunk(
-					createChunk(
-						replacement,
-						[
-							createRawDocument("late-new-one"),
-							createRawDocument(
-								"late-new-two",
-								SOURCE_ONE,
-								1_700_000_000_002,
-							),
-						],
-						false,
-					),
-				);
-				await waitFor(() =>
-					harness.summaries.some(
-						(event) =>
-							event.requestId === replacement.requestId &&
-							event.replacementMode === "in-place",
-					),
-				);
-				await harness.coordinator.cancel(replacement.requestId);
-
-				const repository = harness.repositories.get(replacement.operationId);
-				if (!repository) throw new Error("Expected operation repository.");
-				expect(await repository.getSourceSummary(SOURCE_ONE)).toMatchObject({
-					status: "incomplete",
-					eventCount: 2,
-				});
-				expect(
-					await repository.getById("late-one" as Doc.Id, SOURCE_ONE),
-				).toBeNull();
-				harness.coordinator.destroy();
-			},
-		);
-	}
 
 	it("supersedes an older replacement on the same source before ACK", async () => {
 		const harness = createHarness();
@@ -882,8 +743,8 @@ describe("QueryPersistenceCoordinator", () => {
 		harness.coordinator.destroy();
 	});
 
-	it("atomically rejects concurrent unreserved chunks beyond measured quota", async () => {
-		const harness = createHarness(2);
+	it("persists concurrent chunks without quota admission", async () => {
+		const harness = createHarness();
 		const first = createDescriptor("capacity-first", {
 			kind: "realtime-ingest",
 			sourceIds: undefined,
@@ -909,14 +770,10 @@ describe("QueryPersistenceCoordinator", () => {
 				true,
 			),
 		);
-		await waitFor(
-			() =>
-				harness.completed.length + harness.failures.length >= 2,
-		);
+		await waitFor(() => harness.completed.length >= 2);
 
-		expect(harness.completed).toHaveLength(1);
-		expect(harness.failures).toHaveLength(1);
-		expect(harness.failures[0].reason).toBe("quota");
+		expect(harness.completed).toHaveLength(2);
+		expect(harness.failures).toHaveLength(0);
 		harness.coordinator.destroy();
 	});
 
@@ -1098,7 +955,6 @@ describe("QueryPersistenceCoordinator", () => {
 				"shared-coordinator",
 				{
 					onSourceSummary: () => undefined,
-					onCapacity: () => undefined,
 					onStreamFailure: () => undefined,
 					onStreamFlushing: () => undefined,
 					onStreamCompleted: (requestId) => completed.push(requestId),
@@ -1112,12 +968,6 @@ describe("QueryPersistenceCoordinator", () => {
 						publish: () => undefined,
 						close: () => undefined,
 					}),
-					storageManager: {
-						estimate: async () => ({
-							quota: GIBIBYTE + 1_000_000 * 160,
-							usage: 0,
-						}),
-					},
 					lockManager,
 				},
 			);

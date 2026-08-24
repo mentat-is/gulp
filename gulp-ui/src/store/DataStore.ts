@@ -14,7 +14,6 @@ import {
 } from "@/event-store";
 import type {
 	EventSourceSummary,
-	EventStoreCapacity,
 	EventStoreNamespace,
 } from "@/event-store/EventStore.types";
 
@@ -79,9 +78,6 @@ export type NotesRealtimeSyncChange =
 export type NotesSyncChangeListener = (change: NotesSyncChange) => void;
 export type EventSourceSummaryListener = (
 	summary: EventSourceSummary,
-) => void;
-export type EventStoreCapacityListener = (
-	capacity: EventStoreCapacity,
 ) => void;
 
 export interface LinksRenderChange extends RenderChangeBase {
@@ -158,8 +154,6 @@ export class DataStore {
 		new Set<NotesSyncChangeListener>();
 	private static readonly eventSourceSummaryListeners =
 		new Set<EventSourceSummaryListener>();
-	private static readonly eventStoreCapacityListeners =
-		new Set<EventStoreCapacityListener>();
 	private static readonly sourceRevisions = new Map<Source.Id, number>();
 	private static readonly eventSourceSummaries = new Map<
 		Source.Id,
@@ -180,7 +174,6 @@ export class DataStore {
 	private static eventStoreRepository: EventStoreRepository | null = null;
 	private static eventStoreRevisionBus: EventStoreRevisionBus | null = null;
 	private static eventStoreNamespaceKey: string | null = null;
-	private static eventStoreCapacity: EventStoreCapacity | null = null;
 	private static pendingDirtyFrame: number | null = null;
 	private static pendingDirtyTimeout: ReturnType<typeof setTimeout> | null = null;
 	private static pendingDocumentNotification = false;
@@ -261,20 +254,6 @@ export class DataStore {
 		DataStore.eventSourceSummaryListeners.add(listener);
 		return () => {
 			DataStore.eventSourceSummaryListeners.delete(listener);
-		};
-	}
-
-	/**
-	 * Subscribes to the latest quota-derived EventStore capacity estimate.
-	 * @param listener Callback receiving device-specific storage capacity snapshots.
-	 * @returns Function that removes the listener.
-	 */
-	public static subscribeEventStoreCapacity(
-		listener: EventStoreCapacityListener,
-	): () => void {
-		DataStore.eventStoreCapacityListeners.add(listener);
-		return () => {
-			DataStore.eventStoreCapacityListeners.delete(listener);
 		};
 	}
 
@@ -456,29 +435,6 @@ export class DataStore {
 		}
 		DataStore.notifyMutation(notificationMode, ["documents"]);
 		return summary;
-	}
-
-	/**
-	 * Returns the latest origin quota estimate published by QueryWorker.
-	 * @returns Capacity snapshot, or null before the first stream admission check.
-	 */
-	public static getEventStoreCapacity(): EventStoreCapacity | null {
-		return DataStore.eventStoreCapacity;
-	}
-
-	/**
-	 * Publishes one device-specific capacity estimate without retaining query documents.
-	 * @param capacity Latest origin quota and conservative event-limit calculation.
-	 * @returns Stored capacity snapshot.
-	 */
-	public static publishEventStoreCapacity(
-		capacity: EventStoreCapacity,
-	): EventStoreCapacity {
-		DataStore.eventStoreCapacity = { ...capacity };
-		for (const listener of DataStore.eventStoreCapacityListeners) {
-			listener(DataStore.eventStoreCapacity);
-		}
-		return DataStore.eventStoreCapacity;
 	}
 
 	/**
@@ -967,7 +923,6 @@ export class DataStore {
 		DataStore.highlights = [];
 		DataStore.sourceRevisions.clear();
 		DataStore.eventSourceSummaries.clear();
-		DataStore.eventStoreCapacity = null;
 		DataStore.collectionRevisions.notes = 0;
 		DataStore.collectionRevisions.links = 0;
 		DataStore.collectionRevisions.highlights = 0;

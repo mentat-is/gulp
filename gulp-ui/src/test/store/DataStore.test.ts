@@ -101,28 +101,6 @@ describe("DataStore source insertion", () => {
 		unsubscribe();
 	});
 
-	it("publishes quota capacity independently from canonical documents", () => {
-		const observedMaximums: number[] = [];
-		const unsubscribe = DataStore.subscribeEventStoreCapacity((capacity) => {
-			observedMaximums.push(capacity.effectiveMaximumEvents);
-		});
-		DataStore.publishEventStoreCapacity({
-			quotaBytes: 10_000,
-			usageBytes: 1_000,
-			reserveBytes: 2_000,
-			availableBytes: 7_000,
-			conservativeBytesPerEvent: 100,
-			currentEventCount: 20,
-			maximumAdditionalEvents: 70,
-			effectiveMaximumEvents: 90,
-		});
-
-		expect(DataStore.getEventStoreCapacity()?.effectiveMaximumEvents).toBe(90);
-		expect(observedMaximums).toEqual([90]);
-		expect(DataStore.events.size).toBe(0);
-		unsubscribe();
-	});
-
 	it("appends proven-new older batches without replacing the canonical array", () => {
 		const existing = [createDocument("newest", 300)];
 		DataStore.replaceSourceEvents(SOURCE_ID, existing);

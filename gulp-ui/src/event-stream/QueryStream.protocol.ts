@@ -149,29 +149,11 @@ export interface QuerySourceSummaryEvent {
 	};
 }
 
-/** Latest quota-derived capacity snapshot associated with a stream operation. */
-export interface QueryCapacityEvent {
-	requestId?: string;
-	operationId: string;
-	operationEpoch?: number;
-	capacity: {
-		quotaBytes: number;
-		usageBytes: number;
-		reserveBytes: number;
-		availableBytes: number;
-		conservativeBytesPerEvent: number;
-		currentEventCount: number;
-		maximumAdditionalEvents: number;
-		effectiveMaximumEvents: number;
-	};
-}
-
 /** Persistence failure reasons surfaced to the main-thread stream lifecycle. */
 export type QueryStreamFailureReason =
 	| "backlog"
 	| "quota"
 	| "storage"
-	| "capacity-unavailable"
 	| "normalization"
 	| "disconnected"
 	| "superseded";
@@ -317,12 +299,6 @@ export interface QueryWorkerSourceSummaryEvent {
 	event: QuerySourceSummaryEvent;
 }
 
-/** Publishes the latest origin capacity telemetry. */
-export interface QueryWorkerCapacityEvent {
-	type: "CAPACITY";
-	event: QueryCapacityEvent;
-}
-
 /** Publishes a persistence failure that requires backend cancellation. */
 export interface QueryWorkerStreamFailureEvent {
 	type: "STREAM_FAILURE";
@@ -353,7 +329,6 @@ export type QueryWorkerEvent =
 	| QueryWorkerForwardMessageEvent
 	| QueryWorkerStreamStateEvent
 	| QueryWorkerSourceSummaryEvent
-	| QueryWorkerCapacityEvent
 	| QueryWorkerStreamFailureEvent
 	| QueryWorkerRenderWindowResultEvent
 	| QueryWorkerProtocolErrorEvent;

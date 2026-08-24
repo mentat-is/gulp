@@ -135,18 +135,6 @@ export interface EventPixelPage {
 	sourceRevision: number;
 }
 
-/** Runtime storage estimate used to admit or reject additional query data. */
-export interface EventStoreCapacity {
-	quotaBytes: number;
-	usageBytes: number;
-	reserveBytes: number;
-	availableBytes: number;
-	conservativeBytesPerEvent: number;
-	currentEventCount: number;
-	maximumAdditionalEvents: number;
-	effectiveMaximumEvents: number;
-}
-
 /** Serializable source-level update sent from QueryWorker to browser clients. */
 export interface EventSourceSummary {
 	sourceId: Source.Id;

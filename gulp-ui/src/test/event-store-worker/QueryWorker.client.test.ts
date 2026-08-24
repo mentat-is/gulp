@@ -1,6 +1,5 @@
 import type {
 	DocumentStreamStateChange,
-	QueryCapacityEvent,
 	QuerySocketCloseDetails,
 	QuerySocketErrorDetails,
 	QuerySocketMessage,
@@ -53,7 +52,6 @@ describe("QueryWorkerClient", () => {
 		const forwarded: QuerySocketMessage[] = [];
 		const streamChanges: DocumentStreamStateChange[] = [];
 		const sourceSummaries: QuerySourceSummaryEvent[] = [];
-		const capacities: QueryCapacityEvent[] = [];
 		const streamFailures: QueryStreamFailureEvent[] = [];
 		const protocolErrors: QuerySocketErrorDetails[] = [];
 		let socketOpenCount = 0;
@@ -67,7 +65,6 @@ describe("QueryWorkerClient", () => {
 			onForwardMessage: (message) => forwarded.push(message),
 			onStreamStateChange: (change) => streamChanges.push(change),
 			onSourceSummary: (event) => sourceSummaries.push(event),
-			onCapacity: (event) => capacities.push(event),
 			onStreamFailure: (event) => streamFailures.push(event),
 			onProtocolError: (details) => protocolErrors.push(details),
 		};
@@ -136,22 +133,6 @@ describe("QueryWorkerClient", () => {
 			},
 		};
 		worker.emitWorkerEvent({ type: "SOURCE_SUMMARY", event: sourceSummary });
-		const capacity: QueryCapacityEvent = {
-			requestId: "worker-request",
-			operationId: "operation-one",
-			operationEpoch: 7,
-			capacity: {
-				quotaBytes: 2_000,
-				usageBytes: 100,
-				reserveBytes: 1_000,
-				availableBytes: 900,
-				conservativeBytesPerEvent: 160,
-				currentEventCount: 1,
-				maximumAdditionalEvents: 5,
-				effectiveMaximumEvents: 6,
-			},
-		};
-		worker.emitWorkerEvent({ type: "CAPACITY", event: capacity });
 		const streamFailure: QueryStreamFailureEvent = {
 			requestId: "another-request",
 			operationId: "operation-one",
@@ -224,7 +205,6 @@ describe("QueryWorkerClient", () => {
 		expect(socketCloses).toHaveLength(0);
 		expect(socketErrors).toHaveLength(0);
 		expect(sourceSummaries).toEqual([sourceSummary]);
-		expect(capacities).toEqual([capacity]);
 		expect(streamFailures).toEqual([streamFailure]);
 		expect(streamChanges).toHaveLength(0);
 		expect(protocolErrors).toHaveLength(0);
@@ -249,7 +229,6 @@ describe("QueryWorkerClient", () => {
 				onForwardMessage: () => undefined,
 				onStreamStateChange: () => undefined,
 				onSourceSummary: () => undefined,
-				onCapacity: () => undefined,
 				onStreamFailure: () => undefined,
 				onProtocolError: (details) => protocolErrors.push(details),
 			},

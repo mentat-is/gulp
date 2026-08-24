@@ -401,18 +401,6 @@ function _({ children }: { children: ReactNode }) {
 				}
 				instanceRef.current.handleEventSourceSummary(event);
 			});
-		const unsubscribeCapacity = SmartSocket.Class.instance.subscribeCapacity(
-			(event) => {
-				if (
-					DataStore.getRenderOperationId() !== event.operationId ||
-					(event.operationEpoch !== undefined &&
-						event.operationEpoch !== DataStore.getRenderOperationEpoch())
-				) {
-					return;
-				}
-				DataStore.publishEventStoreCapacity(event.capacity);
-			},
-		);
 		const subscribeStreamFailures =
 			SmartSocket.Class.instance.subscribeDocumentStreamFailures((event) => {
 				instanceRef.current.handleEventDocumentStreamFailure(event);
@@ -424,7 +412,6 @@ function _({ children }: { children: ReactNode }) {
 
 		return () => {
 			unsubscribeSourceSummaries();
-			unsubscribeCapacity();
 			subscribeStreamFailures();
 			subscribeStreamStates();
 			SmartSocket.Class.instance.off(

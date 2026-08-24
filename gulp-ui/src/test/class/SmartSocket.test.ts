@@ -68,9 +68,6 @@ jest.mock("@/event-store-worker/QueryWorker.factory", () => {
 					publish: () => undefined,
 					close: () => undefined,
 				}),
-				storageManager: {
-					estimate: async () => ({ quota: 8 * 1024 ** 3, usage: 0 }),
-				},
 			}),
 	};
 });
@@ -215,7 +212,7 @@ describe("SmartSocket lifecycle", () => {
 		expect(SmartSocket.Class.instance).toBe(second);
 	});
 
-	it("selects direct passthrough for unknown streams on an insecure origin", () => {
+	it("does not enable RAM passthrough solely for an insecure origin", () => {
 		Object.defineProperty(globalThis, "isSecureContext", {
 			configurable: true,
 			value: false,
@@ -237,8 +234,30 @@ describe("SmartSocket lifecycle", () => {
 			payload: { docs: [{ _id: "one" }], chunk_num: 0, last: true },
 		});
 
-		expect(received).toHaveLength(1);
+		expect(received).toHaveLength(0);
 		expect(FakeWebSocket.instances).toHaveLength(1);
+	});
+
+	it("enables RAM passthrough after the persisted EventStore rollback", () => {
+		globalThis.localStorage?.setItem(EVENT_STORE_LOD_ROLLBACK_KEY, "false");
+		const socket = new SmartSocket.Class("fallback-client");
+		const directSocket = FakeWebSocket.instances[0];
+		const received: SmartSocket.Message.Entity[] = [];
+		socket.con(
+			SmartSocket.Message.Type.DOCUMENTS_CHUNK,
+			() => true,
+			(message) => received.push(message),
+		);
+		directSocket.triggerOpen();
+
+		directSocket.triggerMessage({
+			type: "docs_chunk",
+			req_id: "fallback-request",
+			"gulp.operation_id": "operation-one",
+			payload: { docs: [{ _id: "one" }], chunk_num: 0, last: true },
+		});
+
+		expect(received).toHaveLength(1);
 	});
 
 	it("does not expose persist-owned document chunks through EventEmitter", async () => {
@@ -246,14 +265,10 @@ describe("SmartSocket lifecycle", () => {
 		const directSocket = FakeWebSocket.instances[0];
 		const listener = jest.fn();
 		const summaries: string[] = [];
-		const capacityEpochs: Array<number | undefined> = [];
 		const states: string[] = [];
 		socket.on(SmartSocket.Message.Type.DOCUMENTS_CHUNK, listener);
 		const unsubscribeSummaries = socket.subscribeSourceSummaries((event) => {
 			summaries.push(`${event.operationEpoch}:${event.summary.status}`);
-		});
-		const unsubscribeCapacity = socket.subscribeCapacity((event) => {
-			capacityEpochs.push(event.operationEpoch);
 		});
 		const unsubscribeStates = socket.subscribeDocumentStreamStates((change) => {
 			states.push(change.state);
@@ -298,8 +313,6 @@ describe("SmartSocket lifecycle", () => {
 
 		expect(listener).not.toHaveBeenCalled();
 		expect(summaries.includes("3:complete")).toBe(true);
-		expect(capacityEpochs.length === 0).toBe(false);
-		expect(capacityEpochs.every((epoch) => epoch === 3)).toBe(true);
 		expect(states).toEqual([
 			"registered",
 			"streaming",
@@ -307,7 +320,6 @@ describe("SmartSocket lifecycle", () => {
 			"completed",
 		]);
 		unsubscribeSummaries();
-		unsubscribeCapacity();
 		unsubscribeStates();
 	});
 

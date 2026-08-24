@@ -352,9 +352,6 @@ export class QueryWorkerClient implements QueryTransport {
 			case "SOURCE_SUMMARY":
 				this.callbacks.onSourceSummary(event.event);
 				break;
-			case "CAPACITY":
-				this.callbacks.onCapacity(event.event);
-				break;
 			case "STREAM_FAILURE":
 				this.callbacks.onStreamFailure(event.event);
 				break;

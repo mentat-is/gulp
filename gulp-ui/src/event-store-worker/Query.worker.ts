@@ -36,7 +36,6 @@ const callbacks: QueryTransportCallbacks = {
 		postWorkerEvent({ type: "STREAM_STATE", change }),
 	onSourceSummary: (event) =>
 		postWorkerEvent({ type: "SOURCE_SUMMARY", event }),
-	onCapacity: (event) => postWorkerEvent({ type: "CAPACITY", event }),
 	onStreamFailure: (event) =>
 		postWorkerEvent({ type: "STREAM_FAILURE", event }),
 	onProtocolError: (details) =>

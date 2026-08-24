@@ -10,7 +10,7 @@
     "eventStore.streamFailed.storage": "L'archiviazione del browser non è disponibile. Verifica i permessi per i dati del sito o chiudi le altre schede, quindi riprova.",
     "eventStore.streamFailed.normalization": "Alcuni eventi non possono essere letti. Riprova o verifica i dati della sorgente.",
     "eventStore.streamFailed.disconnected": "La connessione si è interrotta durante il caricamento degli eventi. Riprova dopo la riconnessione.",
-    "eventStore.legacyFallback": "La modalità compatibilità è attiva perché l'archiviazione sicura del browser non è disponibile. Le operation grandi possono usare più memoria; usa HTTPS o localhost per abilitare l'archiviazione scalabile.",
+    "eventStore.legacyFallback": "La modalità compatibilità è attiva dopo la disattivazione della persistenza del browser. Gli eventi restano in memoria, quindi le operation grandi possono usare più RAM.",
     "group.eventsChangedRefresh": "Gli eventi sono cambiati durante il caricamento. La prima pagina è stata aggiornata.",
     "source.cacheRebuildInPlace": "Lo spazio di archiviazione è limitato, quindi la cache di questa sorgente viene ricostruita in-place. Se la query viene interrotta, la sorgente verrà recuperata nuovamente.",
     "detachedApp.authLost": "Accesso richiesto",

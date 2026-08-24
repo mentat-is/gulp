@@ -68,7 +68,6 @@ const callbacks: QueryTransportCallbacks = {
 	onForwardMessage: () => undefined,
 	onStreamStateChange: () => undefined,
 	onSourceSummary: () => undefined,
-	onCapacity: () => undefined,
 	onStreamFailure: () => undefined,
 	onProtocolError: () => undefined,
 };
@@ -155,12 +154,6 @@ describe("QuerySocketSession render windows", () => {
 					publish: () => undefined,
 					close: () => undefined,
 				}),
-				storageManager: {
-					estimate: async () => ({
-						quota: 2 * 1024 ** 3,
-						usage: 0,
-					}),
-				},
 			},
 		);
 		const descriptor: DocumentStreamDescriptor = {

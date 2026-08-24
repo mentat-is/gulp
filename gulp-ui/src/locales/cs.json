@@ -10,7 +10,7 @@
     "eventStore.streamFailed.storage": "Úložiště prohlížeče není dostupné. Zkontrolujte oprávnění dat webu nebo zavřete ostatní karty a zkuste to znovu.",
     "eventStore.streamFailed.normalization": "Některé události se nepodařilo přečíst. Zkuste to znovu nebo zkontrolujte zdrojová data.",
     "eventStore.streamFailed.disconnected": "Při načítání událostí bylo přerušeno připojení. Zkuste to znovu po opětovném připojení.",
-    "eventStore.legacyFallback": "Režim kompatibility je aktivní, protože zabezpečené úložiště prohlížeče není dostupné. Velké operace mohou spotřebovat více paměti; pro škálovatelné úložiště použijte HTTPS nebo localhost.",
+		"eventStore.legacyFallback": "Režim kompatibility je aktivní po vypnutí trvalého úložiště prohlížeče. Události zůstávají v paměti, takže velké operace mohou využít více RAM.",
     "group.eventsChangedRefresh": "Události se během načítání změnily. První stránka byla obnovena.",
     "source.cacheRebuildInPlace": "Úložiště je omezené, proto se mezipaměť tohoto zdroje znovu vytváří na místě. Pokud bude dotaz přerušen, zdroj se znovu načte.",
     "detachedApp.authLost": "Je vyžadováno přihlášení",

@@ -10,7 +10,7 @@
     "eventStore.streamFailed.storage": "浏览器存储不可用。请检查网站数据权限或关闭其他标签页，然后重试。",
     "eventStore.streamFailed.normalization": "部分事件无法读取。请重试或检查源数据。",
     "eventStore.streamFailed.disconnected": "加载事件时连接中断。请在重新连接后重试。",
-    "eventStore.legacyFallback": "由于安全的浏览器存储不可用，兼容模式已启用。大型操作可能使用更多内存；请使用 HTTPS 或 localhost 以启用可扩展存储。",
+		"eventStore.legacyFallback": "浏览器持久化被禁用后，兼容模式已启用。事件保存在内存中，因此大型操作可能使用更多 RAM。",
     "group.eventsChangedRefresh": "事件在加载期间发生了变化。第一页已刷新。",
     "source.cacheRebuildInPlace": "存储空间有限，因此正在原地重建此来源的缓存。如果查询中断，系统将重新获取该来源。",
     "detachedApp.authLost": "需要登录",

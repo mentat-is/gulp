@@ -348,7 +348,6 @@ const EVENT_STREAM_FAILURE_MESSAGE_KEYS: Record<
 	backlog: "eventStore.streamFailed.backlog",
 	quota: "eventStore.streamFailed.quota",
 	storage: "eventStore.streamFailed.storage",
-	"capacity-unavailable": "eventStore.streamFailed.storage",
 	normalization: "eventStore.streamFailed.normalization",
 	disconnected: "eventStore.streamFailed.disconnected",
 };
@@ -1173,7 +1172,6 @@ export class Info implements InfoProps {
 		const lodDecision = getEventStoreLodDecision();
 		if (
 			!lodDecision.enabled &&
-			lodDecision.automatic &&
 			!this.eventStoreFallbackNotified
 		) {
 			this.eventStoreFallbackNotified = true;
@@ -1399,7 +1397,7 @@ export class Info implements InfoProps {
 			Info,
 		);
 		if (
-			event.reason === "capacity-unavailable" &&
+			(event.reason === "storage" || event.reason === "quota") &&
 			reloadWithLegacyEventPipeline()
 		) {
 			return;

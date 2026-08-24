@@ -5,12 +5,6 @@ import {
 } from "@/event-store/EventStore.rollout";
 
 describe("EventStore rollout", () => {
-	const completeCapabilities = {
-		isSecureContext: true,
-		hasIndexedDb: true,
-		hasStorageEstimate: true,
-		hasWorker: true,
-	};
 	const originalBuildFlag = process.env.REACT_APP_EVENT_STORE_LOD;
 
 	beforeEach(() => {
@@ -29,63 +23,50 @@ describe("EventStore rollout", () => {
 		expect(isEventStoreLodEnabled({ getItem: () => null })).toBe(true);
 	});
 
-	it("keeps the persistent pipeline in a secure, fully capable browser", () => {
-		expect(
-			getEventStoreLodDecision(
-				{ getItem: () => null },
-				completeCapabilities,
-			),
-		).toEqual({ enabled: true, reason: null, automatic: false });
-	});
-
-	it("selects compatibility mode for an insecure context", () => {
-		expect(
-			getEventStoreLodDecision(
-				{ getItem: () => null },
-				{ ...completeCapabilities, isSecureContext: false },
-			),
-		).toEqual({
-			enabled: false,
-			reason: "insecure-context",
-			automatic: true,
+	it("keeps IndexedDB enabled in an insecure context", () => {
+		const secureContextDescriptor = Object.getOwnPropertyDescriptor(
+			globalThis,
+			"isSecureContext",
+		);
+		Object.defineProperty(globalThis, "isSecureContext", {
+			configurable: true,
+			value: false,
 		});
+		try {
+			expect(getEventStoreLodDecision({ getItem: () => null })).toEqual({
+				enabled: true,
+				reason: null,
+			});
+		} finally {
+			if (secureContextDescriptor) {
+				Object.defineProperty(
+					globalThis,
+					"isSecureContext",
+					secureContextDescriptor,
+				);
+			} else {
+				Reflect.deleteProperty(globalThis, "isSecureContext");
+			}
+		}
 	});
-
-	for (const [capability, reason] of [
-		["hasIndexedDb", "indexeddb-unavailable"],
-		["hasStorageEstimate", "storage-estimate-unavailable"],
-		["hasWorker", "worker-unavailable"],
-	] as const) {
-		it(`selects compatibility mode when ${capability} is missing`, () => {
-			expect(
-				getEventStoreLodDecision(
-					{ getItem: () => null },
-					{ ...completeCapabilities, [capability]: false },
-				),
-			).toEqual({ enabled: false, reason, automatic: true });
-		});
-	}
 
 	it("supports one explicit browser-local rollback", () => {
 		expect(
 			getEventStoreLodDecision(
 				{
-				getItem: (key) =>
-					key === EVENT_STORE_LOD_ROLLBACK_KEY ? "false" : null,
+					getItem: (key) =>
+						key === EVENT_STORE_LOD_ROLLBACK_KEY ? "false" : null,
 				},
-				{ ...completeCapabilities, isSecureContext: false },
 			),
-		).toEqual({ enabled: false, reason: "manual-disabled", automatic: false });
+		).toEqual({ enabled: false, reason: "manual-disabled" });
 	});
 
-	it("gives the build rollback precedence over browser capabilities", () => {
+	it("gives the build rollback precedence over IndexedDB persistence", () => {
 		process.env.REACT_APP_EVENT_STORE_LOD = "false";
-		expect(
-			getEventStoreLodDecision(
-				{ getItem: () => null },
-				completeCapabilities,
-			),
-		).toEqual({ enabled: false, reason: "build-disabled", automatic: false });
+		expect(getEventStoreLodDecision({ getItem: () => null })).toEqual({
+			enabled: false,
+			reason: "build-disabled",
+		});
 	});
 
 	it("fails open when storage access is unavailable", () => {

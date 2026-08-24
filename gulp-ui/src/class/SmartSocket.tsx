@@ -2,7 +2,6 @@ import { Logger } from "@/dto/Logger.class";
 import type {
 	DocumentStreamDescriptor,
 	DocumentStreamStateChange,
-	QueryCapacityEvent,
 	QueryRenderWindowDescriptor,
 	QuerySocketCloseDetails,
 	QuerySocketErrorDetails,
@@ -88,9 +87,6 @@ export namespace SmartSocket {
 		private readonly sourceSummarySubscribers = new Set<
 			(event: QuerySourceSummaryEvent) => void
 		>();
-		private readonly capacitySubscribers = new Set<
-			(event: QueryCapacityEvent) => void
-		>();
 		private readonly streamFailureSubscribers = new Set<
 			(event: QueryStreamFailureEvent) => void
 		>();
@@ -129,7 +125,6 @@ export namespace SmartSocket {
 					onStreamStateChange: (change) =>
 						this.publishStreamState(change),
 					onSourceSummary: (event) => this.publishSourceSummary(event),
-					onCapacity: (event) => this.publishCapacity(event),
 					onStreamFailure: (event) => this.publishStreamFailure(event),
 					onProtocolError: (details) => this.handleProtocolError(details),
 				},
@@ -192,14 +187,6 @@ export namespace SmartSocket {
 		 */
 		private publishSourceSummary(event: QuerySourceSummaryEvent): void {
 			for (const subscriber of this.sourceSummarySubscribers) subscriber(event);
-		}
-
-		/**
-		 * Publishes one quota-derived capacity snapshot to dedicated subscribers.
-		 * @param event Operation-scoped capacity telemetry.
-		 */
-		private publishCapacity(event: QueryCapacityEvent): void {
-			for (const subscriber of this.capacitySubscribers) subscriber(event);
 		}
 
 		/**
@@ -461,18 +448,6 @@ export namespace SmartSocket {
 		}
 
 		/**
-		 * Subscribes to origin storage capacity telemetry.
-		 * @param subscriber Capacity snapshot handler.
-		 * @returns Cleanup callback removing the subscription.
-		 */
-		public subscribeCapacity(
-			subscriber: (event: QueryCapacityEvent) => void,
-		): () => void {
-			this.capacitySubscribers.add(subscriber);
-			return () => this.capacitySubscribers.delete(subscriber);
-		}
-
-		/**
 		 * Subscribes to persistence failures requiring backend request cancellation.
 		 * @param subscriber Stream failure handler.
 		 * @returns Cleanup callback removing the subscription.
@@ -528,7 +503,6 @@ export namespace SmartSocket {
 			this.transport.destroy();
 			this.conditional.clear();
 			this.sourceSummarySubscribers.clear();
-			this.capacitySubscribers.clear();
 			this.streamFailureSubscribers.clear();
 			this.streamStateSubscribers.clear();
 			this.removeAllListeners();

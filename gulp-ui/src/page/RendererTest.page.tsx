@@ -65,7 +65,6 @@ import {
     createRendererBenchmarkNamespace,
     DEFAULT_RENDERER_BENCHMARK_TARGET,
     evaluateRendererBenchmarkResourceGate,
-    formatRendererBenchmarkBytes,
     getRendererBenchmarkDocumentAtPercentile,
     getRendererBenchmarkSourceEventCount,
     getRendererBenchmarkTarget,
@@ -738,9 +737,6 @@ function publishRendererBenchmarkDiagnostics(
     dataset.rendererBenchmarkHeapPeakBytes = String(diagnostics.heapPeakBytes);
     dataset.rendererBenchmarkHeapDeltaBytes = String(diagnostics.heapDeltaBytes);
     dataset.rendererBenchmarkHeapSupported = String(diagnostics.heapSupported);
-    dataset.rendererBenchmarkStorageDeltaBytes = String(
-        diagnostics.storageUsageDeltaBytes,
-    );
     dataset.rendererBenchmarkMainCacheDocuments = String(
         diagnostics.mainCacheDocuments,
     );
@@ -764,39 +760,7 @@ function publishRendererBenchmarkDiagnostics(
     dataset.rendererBenchmarkResourceLimits = resourceGate.passed
         ? 'passed'
         : 'failed';
-    dataset.rendererBenchmarkCapacityEstimate =
-        resourceGate.capacityEstimateStatus;
-    dataset.rendererBenchmarkCapacityErrorPercent = String(
-        diagnostics.capacityEstimateErrorPercent ?? '',
-    );
     dataset.rendererBenchmarkSkipReason = diagnostics.skipReason?.code ?? '';
-    dataset.rendererBenchmarkSkipRequiredBytes = String(
-        diagnostics.skipReason?.requiredBytes ?? 0,
-    );
-    dataset.rendererBenchmarkSkipAvailableBytes = String(
-        diagnostics.skipReason?.availableBytes ?? 0,
-    );
-    dataset.rendererBenchmarkAvailableBytes = String(
-        diagnostics.capacity?.availableBytes ?? 0,
-    );
-    dataset.rendererBenchmarkQuotaBytes = String(
-        diagnostics.capacity?.quotaBytes ?? 0,
-    );
-    dataset.rendererBenchmarkUsageBytes = String(
-        diagnostics.capacity?.usageBytes ?? 0,
-    );
-    dataset.rendererBenchmarkReserveBytes = String(
-        diagnostics.capacity?.reserveBytes ?? 0,
-    );
-    dataset.rendererBenchmarkEffectiveMaximumEvents = String(
-        diagnostics.capacity?.effectiveMaximumEvents ?? 0,
-    );
-    dataset.rendererBenchmarkMaximumAdditionalEvents = String(
-        diagnostics.capacity?.maximumAdditionalEvents ?? 0,
-    );
-    dataset.rendererBenchmarkBytesPerEvent = String(
-        diagnostics.capacity?.conservativeBytesPerEvent ?? 160,
-    );
     dataset.rendererBenchmarkEncodedBytesPerEvent = String(
         diagnostics.processedEvents > 0
             ? diagnostics.encodedBytes / diagnostics.processedEvents
@@ -1965,9 +1929,9 @@ export namespace RendererTest {
             };
 
             /**
-             * Terminates an unadmitted benchmark without turning partial data into a
-             * fallback dataset, while waking both benchmark and gate automation.
-             * @param diagnostics Structured quota reason and resource measurements.
+             * Terminates a benchmark rejected by IndexedDB quota without exposing a
+             * partial dataset, while waking both benchmark and gate automation.
+             * @param diagnostics Concrete quota failure and resource measurements.
              * @returns Nothing.
              */
             const completeQuotaSkip = (
@@ -2030,17 +1994,11 @@ export namespace RendererTest {
                 console.info('[RendererBenchmark] skipped', {
                     targetEvents: totalDocs,
                     reason: diagnostics.skipReason?.code,
-                    required: formatRendererBenchmarkBytes(
-                        diagnostics.skipReason?.requiredBytes ?? 0,
-                    ),
-                    available: formatRendererBenchmarkBytes(
-                        diagnostics.skipReason?.availableBytes ?? 0,
-                    ),
                 });
             };
 
             /**
-             * Runs one quota-admitted exact-page generation and publishes its LOD view.
+             * Writes exact pages until completion or a concrete IndexedDB failure.
              * @returns Promise settled after completion, skip, cancellation, or failure.
              */
             const runBenchmark = async (): Promise<void> => {
@@ -2056,10 +2014,6 @@ export namespace RendererTest {
                     });
                     setBenchmarkDiagnostics(progress.diagnostics);
                     publishRendererBenchmarkDiagnostics(progress.diagnostics);
-                    if (progress.status === 'skipped') {
-                        completeQuotaSkip(progress.diagnostics);
-                        return;
-                    }
 
                     while (!progress.done && !cancelled) {
                         await new Promise<void>((resolve) => {

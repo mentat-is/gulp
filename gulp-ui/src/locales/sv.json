@@ -10,7 +10,7 @@
     "eventStore.streamFailed.storage": "Webbläsarens lagring är inte tillgänglig. Kontrollera behörigheter för webbplatsdata eller stäng andra flikar och försök igen.",
     "eventStore.streamFailed.normalization": "Vissa händelser kunde inte läsas. Försök igen eller kontrollera källdata.",
     "eventStore.streamFailed.disconnected": "Anslutningen avbröts medan händelser lästes in. Försök igen efter återanslutning.",
-    "eventStore.legacyFallback": "Kompatibilitetsläget är aktivt eftersom säker webbläsarlagring inte är tillgänglig. Stora operationer kan använda mer minne; använd HTTPS eller localhost för skalbar lagring.",
+    "eventStore.legacyFallback": "Kompatibilitetsläget är aktivt efter att webbläsarens beständiga lagring inaktiverades. Händelser lagras i minnet, så stora operationer kan använda mer RAM.",
     "group.eventsChangedRefresh": "Händelserna ändrades under inläsningen. Den första sidan har uppdaterats.",
     "source.cacheRebuildInPlace": "Lagringsutrymmet är begränsat, så källans cache byggs om på plats. Om frågan avbryts hämtas källan på nytt.",
     "detachedApp.authLost": "Inloggning krävs",
