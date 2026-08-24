@@ -10,6 +10,7 @@
     "eventStore.streamFailed.storage": "Der Browserspeicher ist nicht verfügbar. Prüfen Sie die Berechtigungen für Websitedaten oder schließen Sie andere Tabs und versuchen Sie es erneut.",
     "eventStore.streamFailed.normalization": "Einige Ereignisse konnten nicht gelesen werden. Versuchen Sie es erneut oder prüfen Sie die Quelldaten.",
     "eventStore.streamFailed.disconnected": "Die Verbindung wurde beim Laden der Ereignisse unterbrochen. Versuchen Sie es nach dem Wiederverbinden erneut.",
+    "eventStore.legacyFallback": "Der Kompatibilitätsmodus ist aktiv, da sicherer Browserspeicher nicht verfügbar ist. Große Vorgänge können mehr Arbeitsspeicher verwenden; nutzen Sie HTTPS oder localhost für skalierbaren Speicher.",
     "group.eventsChangedRefresh": "Die Ereignisse haben sich während des Ladens geändert. Die erste Seite wurde aktualisiert.",
     "source.cacheRebuildInPlace": "Der Speicherplatz ist begrenzt. Daher wird der Cache dieser Quelle direkt neu aufgebaut. Wird die Abfrage unterbrochen, wird die Quelle erneut abgerufen.",
     "detachedApp.authLost": "Anmeldung erforderlich",

@@ -2,6 +2,7 @@ import { Info } from "@/class/Info";
 import { SmartSocket } from "@/class/SmartSocket";
 import type { App } from "@/entities/App";
 import type { Operation } from "@/entities/Operation";
+import type { Query } from "@/entities/Query";
 import { Request } from "@/entities/Request";
 import type { Source } from "@/entities/Source";
 import type {
@@ -12,6 +13,7 @@ import type {
 } from "@/event-stream";
 import { DataStore } from "@/store/DataStore";
 import { requestStore } from "@/store/request.store";
+import { generateUUID } from "@/ui/utils";
 import { toast } from "sonner";
 
 jest.mock("@/class/IndexedDB", () => ({
@@ -282,6 +284,11 @@ describe("Info event stream registration", () => {
 	beforeEach(() => {
 		requestStore.reset();
 		(
+			generateUUID as unknown as {
+				mockReturnValue: (value: Request.Id) => void;
+			}
+		).mockReturnValue("generated-request-id" as Request.Id);
+		(
 			toast.error as unknown as {
 				mockClear: () => void;
 			}
@@ -342,6 +349,264 @@ describe("Info event stream registration", () => {
 			operationEpoch: DataStore.getRenderOperationEpoch(),
 		});
 		expect(cancelDocumentStream.mock.calls).toHaveLength(0);
+	});
+
+	it("streams raw-query documents through passthrough on an insecure origin", async () => {
+		let documentCondition:
+			| ((message: SmartSocket.Message.Entity) => boolean)
+			| null = null;
+		let documentHandler:
+			| ((message: SmartSocket.Message.Entity) => void)
+			| null = null;
+		const registerDocumentStream = jest.fn(
+			(_descriptor: DocumentStreamDescriptor): Promise<void> => Promise.resolve(),
+		);
+		const socket = {
+			registerDocumentStream,
+			cancelDocumentStream: jest.fn(() => Promise.resolve()),
+			completeDocumentStream: jest.fn(() => Promise.resolve()),
+			con: (
+				_event: SmartSocket.Message.Type,
+				condition: (message: SmartSocket.Message.Entity) => boolean,
+				handler: (message: SmartSocket.Message.Entity) => void,
+			): string => {
+				documentCondition = condition;
+				documentHandler = handler;
+				return "insecure-document-listener";
+			},
+			conce: (): string => "insecure-stats-listener",
+			coff: (): void => undefined,
+		};
+		setEventStreamSocket(socket as unknown as EventStreamSocket);
+
+		const app = createApp();
+		app.target = {
+			operations: [
+				{
+					id: operationId,
+					index: "operation-index",
+					name: "Operation",
+					selected: true,
+				} as Operation.Type,
+			],
+			files: [],
+			contexts: [],
+		} as unknown as App.Type["target"];
+		app.general.ws_id = "insecure-stream-test";
+		const info = createInfo(app);
+		const preparedBatch = { sourceId, documents: [] };
+		const prepareQueryDocBatches = jest.fn(async () => [preparedBatch]);
+		const addPrepared = jest.fn(async () => undefined);
+		(
+			info as unknown as {
+				prepareQueryDocBatches: typeof prepareQueryDocBatches;
+			}
+		).prepareQueryDocBatches = prepareQueryDocBatches;
+		info.events_add_prepared_async =
+			addPrepared as unknown as typeof info.events_add_prepared_async;
+
+		const previousApi = globalThis.api;
+		const secureContextDescriptor = Object.getOwnPropertyDescriptor(
+			globalThis,
+			"isSecureContext",
+		);
+		const previousRollout = localStorage.getItem(
+			"gulp:event-store-lod-enabled",
+		);
+		const apiMock = jest.fn(async (_path: string, _options: unknown) => ({
+			status: "pending",
+			data: { total_hits: 1, docs: [] },
+		}));
+		Object.defineProperty(globalThis, "isSecureContext", {
+			configurable: true,
+			value: false,
+		});
+		localStorage.removeItem("gulp:event-store-lod-enabled");
+		globalThis.api = apiMock as unknown as typeof globalThis.api;
+
+		try {
+			await info.query_file(
+				{ string: "all", filters: [] } as Query.Type,
+				{ preview: false },
+			);
+			expect(registerDocumentStream.mock.calls[0][0]).toMatchObject({
+				requestId: "generated-request-id",
+				owner: "passthrough",
+			});
+			expect(apiMock.mock.calls[0][0]).toBe("/query_raw");
+			expect(toast.warning).toHaveBeenCalledTimes(1);
+			expect(
+				(
+					toast.warning as unknown as {
+						mock: { calls: Array<[unknown, unknown]> };
+					}
+				).mock.calls[0][0],
+			).toBe("eventStore.legacyFallback");
+
+			const condition = documentCondition as unknown as (
+				message: SmartSocket.Message.Entity,
+			) => boolean;
+			const handler = documentHandler as unknown as (
+				message: SmartSocket.Message.Entity,
+			) => void;
+			const rawDocument = {
+				_id: "insecure-event",
+				"gulp.source_id": sourceId,
+			};
+			const message = {
+				req_id: "generated-request-id",
+				payload: { docs: [rawDocument], last: false },
+			} as unknown as SmartSocket.Message.Entity;
+			expect(condition(message)).toBe(true);
+			handler(message);
+			for (let iteration = 0; iteration < 6; iteration++) {
+				await Promise.resolve();
+			}
+
+			expect(prepareQueryDocBatches).toHaveBeenCalledWith([rawDocument], []);
+			expect(addPrepared).toHaveBeenCalledWith(
+				[preparedBatch],
+				DataStore.getRenderOperationEpoch(),
+			);
+			await info.beginEventDocumentStream({
+				requestId: "second-insecure-request" as Request.Id,
+				sourceIds: [],
+				operationId,
+				kind: "query",
+				mode: "upsert",
+			});
+			expect(toast.warning).toHaveBeenCalledTimes(1);
+		} finally {
+			globalThis.api = previousApi;
+			if (secureContextDescriptor) {
+				Object.defineProperty(
+					globalThis,
+					"isSecureContext",
+					secureContextDescriptor,
+				);
+			} else {
+				Reflect.deleteProperty(globalThis, "isSecureContext");
+			}
+			if (previousRollout === null) {
+				localStorage.removeItem("gulp:event-store-lod-enabled");
+			} else {
+				localStorage.setItem(
+					"gulp:event-store-lod-enabled",
+					previousRollout,
+				);
+			}
+		}
+	});
+
+	it("does not cancel the backend when persistence fails before dispatch", async () => {
+		const registerDocumentStream = jest.fn(
+			(_descriptor: DocumentStreamDescriptor): Promise<void> => Promise.resolve(),
+		);
+		setEventStreamSocket({
+			registerDocumentStream,
+			cancelDocumentStream: jest.fn(() => Promise.resolve()),
+			completeDocumentStream: jest.fn(() => Promise.resolve()),
+		});
+		const info = createInfo();
+		const requestCancel = jest.fn(() => Promise.resolve());
+		info.request_cancel = requestCancel as typeof info.request_cancel;
+		await info.beginEventDocumentStream({
+			requestId: queryRequestId,
+			sourceIds: [],
+			operationId,
+			kind: "query",
+			mode: "upsert",
+		});
+
+		info.handleEventDocumentStreamFailure({
+			requestId: queryRequestId,
+			operationId,
+			operationEpoch: DataStore.getRenderOperationEpoch(),
+			reason: "storage",
+			message: "registration failed",
+		});
+
+		expect(requestCancel).not.toHaveBeenCalled();
+		expect(
+			info.attachEventDocumentStreamCleanup(queryRequestId, jest.fn()),
+		).toBe(false);
+	});
+
+	it("cancels exactly once after dispatch and clears dispatch state", async () => {
+		setEventStreamSocket({
+			registerDocumentStream: jest.fn(() => Promise.resolve()),
+			cancelDocumentStream: jest.fn(() => Promise.resolve()),
+			completeDocumentStream: jest.fn(() => Promise.resolve()),
+		});
+		const info = createInfo();
+		const requestCancel = jest.fn(() => Promise.resolve());
+		info.request_cancel = requestCancel as typeof info.request_cancel;
+		await info.beginEventDocumentStream({
+			requestId: queryRequestId,
+			sourceIds: [],
+			operationId,
+			kind: "query",
+			mode: "upsert",
+		});
+		(
+			info as unknown as {
+				markEventDocumentStreamDispatched: (requestId: Request.Id) => boolean;
+			}
+		).markEventDocumentStreamDispatched(queryRequestId);
+		const failure: QueryStreamFailureEvent = {
+			requestId: queryRequestId,
+			operationId,
+			operationEpoch: DataStore.getRenderOperationEpoch(),
+			reason: "storage",
+			message: "commit failed",
+		};
+
+		info.handleEventDocumentStreamFailure(failure);
+		info.handleEventDocumentStreamFailure(failure);
+
+		expect(requestCancel.mock.calls).toEqual([[queryRequestId]]);
+	});
+
+	it("removes dispatch state on normal terminal cleanup", async () => {
+		setEventStreamSocket({
+			registerDocumentStream: jest.fn(() => Promise.resolve()),
+			cancelDocumentStream: jest.fn(() => Promise.resolve()),
+			completeDocumentStream: jest.fn(() => Promise.resolve()),
+		});
+		const info = createInfo();
+		const requestCancel = jest.fn(() => Promise.resolve());
+		info.request_cancel = requestCancel as typeof info.request_cancel;
+		await info.beginEventDocumentStream({
+			requestId: queryRequestId,
+			sourceIds: [],
+			operationId,
+			kind: "query",
+			mode: "upsert",
+		});
+		(
+			info as unknown as {
+				markEventDocumentStreamDispatched: (requestId: Request.Id) => boolean;
+			}
+		).markEventDocumentStreamDispatched(queryRequestId);
+		const descriptor: DocumentStreamDescriptor = {
+			requestId: queryRequestId,
+			operationId,
+			operationEpoch: DataStore.getRenderOperationEpoch(),
+			owner: "persist",
+			kind: "query-upsert",
+			sourceIds: [],
+		};
+		info.handleEventDocumentStreamState({ descriptor, state: "completed" });
+
+		info.handleEventDocumentStreamFailure({
+			requestId: queryRequestId,
+			operationId,
+			operationEpoch: DataStore.getRenderOperationEpoch(),
+			reason: "storage",
+			message: "late failure",
+		});
+
+		expect(requestCancel).not.toHaveBeenCalled();
 	});
 
 	it("shows one localized warning for an in-place replacement summary", () => {

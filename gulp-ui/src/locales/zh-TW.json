@@ -10,6 +10,7 @@
     "eventStore.streamFailed.storage": "瀏覽器儲存空間無法使用。請檢查網站資料權限或關閉其他分頁，然後再試一次。",
     "eventStore.streamFailed.normalization": "部分事件無法讀取。請重試或檢查來源資料。",
     "eventStore.streamFailed.disconnected": "載入事件時連線中斷。請在重新連線後再試一次。",
+    "eventStore.legacyFallback": "由於安全的瀏覽器儲存空間無法使用，已啟用相容模式。大型操作可能使用更多記憶體；請使用 HTTPS 或 localhost 以啟用可擴充儲存空間。",
     "group.eventsChangedRefresh": "事件在載入期間發生變更。第一頁已重新整理。",
     "source.cacheRebuildInPlace": "儲存空間有限，因此正在原地重建此來源的快取。若查詢中斷，系統將重新擷取來源。",
     "detachedApp.authLost": "需要登入",

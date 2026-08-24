@@ -2,6 +2,7 @@ import {
 	calculateEventStoreCapacity,
 	EVENT_CAPACITY_RECHECK_BYTES,
 	EVENT_CAPACITY_RECHECK_EVENTS,
+	EventStoreCapacityTelemetryUnavailableError,
 	EventStoreCapacityTracker,
 	estimateEventStoreCapacity,
 	getEventStoreByteP95,
@@ -154,8 +155,14 @@ describe("EventStore capacity", () => {
 			value: undefined,
 		});
 		try {
-			await expect(estimateEventStoreCapacity(30_000)).rejects.toThrow(
-				"Browser storage quota telemetry is unavailable",
+			let telemetryError: unknown;
+			try {
+				await estimateEventStoreCapacity(30_000);
+			} catch (error) {
+				telemetryError = error;
+			}
+			expect(telemetryError).toBeInstanceOf(
+				EventStoreCapacityTelemetryUnavailableError,
 			);
 		} finally {
 			if (storageDescriptor) {

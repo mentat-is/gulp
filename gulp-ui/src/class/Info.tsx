@@ -84,7 +84,9 @@ import type {
 	QueryStreamFailureReason,
 } from "@/event-stream";
 import {
+	getEventStoreLodDecision,
 	isEventStoreLodEnabled,
+	reloadWithLegacyEventPipeline,
 	type EventSourceSummary,
 } from "@/event-store";
 
@@ -346,6 +348,7 @@ const EVENT_STREAM_FAILURE_MESSAGE_KEYS: Record<
 	backlog: "eventStore.streamFailed.backlog",
 	quota: "eventStore.streamFailed.quota",
 	storage: "eventStore.streamFailed.storage",
+	"capacity-unavailable": "eventStore.streamFailed.storage",
 	normalization: "eventStore.streamFailed.normalization",
 	disconnected: "eventStore.streamFailed.disconnected",
 };
@@ -495,6 +498,7 @@ export class Info implements InfoProps {
 	private highlightsReloadSequence = 0;
 	private operationScopedSocketCleanups = new Set<() => void>();
 	private activeEventDocumentStreams = new Set<Request.Id>();
+	private backendDispatchedEventDocumentStreams = new Set<Request.Id>();
 	private eventDocumentStreamOptions = new Map<
 		Request.Id,
 		EventDocumentStreamOptions
@@ -502,6 +506,7 @@ export class Info implements InfoProps {
 	private eventDocumentStreamCleanups = new Map<Request.Id, Set<() => void>>();
 	private readonly workspaceSessionRepository: WorkspaceSessionRepository;
 	private autosaveFailureNotified = false;
+	private eventStoreFallbackNotified = false;
 
 	constructor({ app, setInfo, timeline }: InfoProps) {
 		this._app = app;
@@ -1165,11 +1170,24 @@ export class Info implements InfoProps {
 		if (this.activeEventDocumentStreams.has(options.requestId)) {
 			await this.cancelEventDocumentStream(options.requestId);
 		}
+		const lodDecision = getEventStoreLodDecision();
+		if (
+			!lodDecision.enabled &&
+			lodDecision.automatic &&
+			!this.eventStoreFallbackNotified
+		) {
+			this.eventStoreFallbackNotified = true;
+			toast.warning(translate("eventStore.legacyFallback"), {
+				id: "event-store-legacy-fallback",
+				icon: <Icon name="Warning" />,
+				richColors: true,
+			});
+		}
 		const descriptor: DocumentStreamDescriptor = {
 			requestId: options.requestId,
 			operationId: options.operationId,
 			operationEpoch,
-			owner: isEventStoreLodEnabled() ? "persist" : "passthrough",
+			owner: lodDecision.enabled ? "persist" : "passthrough",
 			completionMode: options.completionMode ?? "last",
 			deduplicateSequences: options.deduplicateSequences,
 			kind:
@@ -1224,6 +1242,19 @@ export class Info implements InfoProps {
 			);
 			return false;
 		}
+	};
+
+	/**
+	 * Records that a registered stream has crossed the backend dispatch boundary.
+	 * @param requestId Registered request about to be sent or enqueued.
+	 * @returns True when the request was active and its dispatch state was recorded.
+	 */
+	private markEventDocumentStreamDispatched = (
+		requestId: Request.Id,
+	): boolean => {
+		if (!this.activeEventDocumentStreams.has(requestId)) return false;
+		this.backendDispatchedEventDocumentStreams.add(requestId);
+		return true;
 	};
 
 	/**
@@ -1283,6 +1314,7 @@ export class Info implements InfoProps {
 	 * @returns Nothing.
 	 */
 	private releaseEventDocumentStream = (requestId: Request.Id): void => {
+		this.backendDispatchedEventDocumentStreams.delete(requestId);
 		const cleanups = this.eventDocumentStreamCleanups.get(requestId);
 		this.eventDocumentStreamCleanups.delete(requestId);
 		for (const cleanup of cleanups ?? []) {
@@ -1352,18 +1384,26 @@ export class Info implements InfoProps {
 		event: QueryStreamFailureEvent,
 	): void => {
 		const requestId = event.requestId as Request.Id;
+		const backendDispatched =
+			this.backendDispatchedEventDocumentStreams.has(requestId);
 		const options = this.eventDocumentStreamOptions.get(requestId);
 		const recoverableSourceIds = Array.from(
 			new Set(options?.sourceIds ?? []),
 		).filter((sourceId) => Boolean(Source.Entity.id(this.app, sourceId)));
-		this.request_cancel(requestId);
+		if (backendDispatched) this.request_cancel(requestId);
 		this.activeEventDocumentStreams.delete(requestId);
 		this.eventDocumentStreamOptions.delete(requestId);
 		this.releaseEventDocumentStream(requestId);
-		Logger.warn(
+		console.error(
 			`Event stream ${requestId} failed (${event.reason}): ${event.message}`,
 			Info,
 		);
+		if (
+			event.reason === "capacity-unavailable" &&
+			reloadWithLegacyEventPipeline()
+		) {
+			return;
+		}
 		if (event.reason !== "superseded") {
 			toast.error(translate(EVENT_STREAM_FAILURE_MESSAGE_KEYS[event.reason]), {
 				id: `event-store-stream-failure-${requestId}`,
@@ -2111,6 +2151,7 @@ export class Info implements InfoProps {
 			);
 		});
 
+		this.markEventDocumentStreamDispatched(req_id);
 		const response = await api<undefined>("/enrich_documents", {
 			method: "POST",
 			query: {
@@ -2758,6 +2799,7 @@ export class Info implements InfoProps {
 			});
 		}
 
+		if (!preview) this.markEventDocumentStreamDispatched(requestId);
 		const resp = await api<QueryGulpResponse>("/query_gulp", {
 			method: "POST",
 			query: request_query,
@@ -3035,6 +3077,7 @@ export class Info implements InfoProps {
 				);
 			}
 
+			if (stream) this.markEventDocumentStreamDispatched(req_id);
 			const resp = await api<any>("/query_raw", {
 				method: "POST",
 				query: request_query,
@@ -4564,6 +4607,7 @@ export class Info implements InfoProps {
 			);
 		}
 
+		this.markEventDocumentStreamDispatched(id);
 		ingestWorkerManager.enqueue({
 			req_id: id,
 			file,
@@ -6862,6 +6906,9 @@ export class Info implements InfoProps {
 
 		let response;
 		try {
+			if (!preview_mode) {
+				this.markEventDocumentStreamDispatched(requestId);
+			}
 			response = await api<{
 				total_hits: number;
 				docs: Doc.Type[];
@@ -7147,6 +7194,7 @@ export class Info implements InfoProps {
 
 		let response;
 		try {
+			this.markEventDocumentStreamDispatched(requestId);
 			response = await api(
 				"/query_sigma",
 				{

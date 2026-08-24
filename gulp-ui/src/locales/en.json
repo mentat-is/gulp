@@ -10,6 +10,7 @@
     "eventStore.streamFailed.storage": "Browser storage is unavailable. Check site-data permissions or close other tabs, then try again.",
     "eventStore.streamFailed.normalization": "Some events could not be read. Try again or check the source data.",
     "eventStore.streamFailed.disconnected": "The connection was interrupted while loading events. Try again after reconnecting.",
+    "eventStore.legacyFallback": "Compatibility mode is active because secure browser storage is unavailable. Large operations may use more memory; use HTTPS or localhost to enable scalable storage.",
     "detachedApp.authLost": "Login required",
     "detachedApp.authLostDescription": "The main tab is logged out. Log in again and select an operation to resume this detached window.",
     "detachedApp.idle": "Waiting for an operation",

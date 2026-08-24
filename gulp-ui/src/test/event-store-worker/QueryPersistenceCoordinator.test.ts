@@ -74,8 +74,16 @@ interface PersistenceHarness {
 	setAvailableEventCapacity: (eventCapacity: number) => void;
 }
 
-/** Creates one isolated coordinator backed by deterministic in-memory storage. */
-function createHarness(initialAvailableEventCapacity = 1_000_000): PersistenceHarness {
+/**
+ * Creates one isolated coordinator backed by deterministic in-memory storage.
+ * @param initialAvailableEventCapacity Event capacity exposed by the default estimate.
+ * @param storageManager Optional quota telemetry implementation for failure tests.
+ * @returns Coordinator harness and captured lifecycle events.
+ */
+function createHarness(
+	initialAvailableEventCapacity = 1_000_000,
+	storageManager?: Pick<StorageManager, "estimate">,
+): PersistenceHarness {
 	let availableEventCapacity = initialAvailableEventCapacity;
 	const backends = new Map<string, MemoryEventStoreBackend>();
 	const repositories = new Map<string, EventStoreRepository>();
@@ -107,7 +115,7 @@ function createHarness(initialAvailableEventCapacity = 1_000_000): PersistenceHa
 				publish: (summary) => broadcasts.push(summary),
 				close: () => undefined,
 			}),
-			storageManager: {
+			storageManager: storageManager ?? {
 				estimate: async () => ({
 					quota: GIBIBYTE + availableEventCapacity * 160,
 					usage: 0,
@@ -238,6 +246,26 @@ async function seedCompleteReplacement(
 }
 
 describe("QueryPersistenceCoordinator", () => {
+	it("classifies rejected quota telemetry independently from storage failures", async () => {
+		const harness = createHarness(1_000_000, {
+			estimate: async () => {
+				throw new Error("estimate denied");
+			},
+		});
+		const descriptor = createDescriptor("capacity-telemetry-failure");
+
+		await expect(harness.coordinator.register(descriptor)).rejects.toThrow(
+			"Browser storage quota telemetry is unavailable",
+		);
+		expect(harness.failures).toHaveLength(1);
+		expect(harness.failures[0]).toMatchObject({
+			requestId: descriptor.requestId,
+			reason: "capacity-unavailable",
+		});
+		expect(harness.coordinator.hasStream(descriptor.requestId)).toBe(false);
+		harness.coordinator.destroy();
+	});
+
 	it("commits replace chunks before completion and broadcasts only compact summaries", async () => {
 		const harness = createHarness();
 		const descriptor = createDescriptor("replace-request", {

@@ -10,6 +10,7 @@
     "eventStore.streamFailed.storage": "Pamięć przeglądarki jest niedostępna. Sprawdź uprawnienia danych witryny lub zamknij inne karty i spróbuj ponownie.",
     "eventStore.streamFailed.normalization": "Nie udało się odczytać niektórych zdarzeń. Spróbuj ponownie lub sprawdź dane źródłowe.",
     "eventStore.streamFailed.disconnected": "Połączenie zostało przerwane podczas ładowania zdarzeń. Spróbuj ponownie po ponownym połączeniu.",
+    "eventStore.legacyFallback": "Tryb zgodności jest aktywny, ponieważ bezpieczna pamięć przeglądarki jest niedostępna. Duże operacje mogą zużywać więcej pamięci; użyj HTTPS lub localhost, aby włączyć skalowalną pamięć.",
     "group.eventsChangedRefresh": "Zdarzenia zmieniły się podczas ładowania. Pierwsza strona została odświeżona.",
     "source.cacheRebuildInPlace": "Miejsce w pamięci jest ograniczone, dlatego pamięć podręczna tego źródła jest przebudowywana w miejscu. Jeśli zapytanie zostanie przerwane, źródło zostanie pobrane ponownie.",
     "detachedApp.authLost": "Wymagane logowanie",

@@ -10,6 +10,7 @@
     "eventStore.streamFailed.storage": "Spațiul de stocare al browserului nu este disponibil. Verificați permisiunile datelor site-ului sau închideți alte file și încercați din nou.",
     "eventStore.streamFailed.normalization": "Unele evenimente nu au putut fi citite. Încercați din nou sau verificați datele sursă.",
     "eventStore.streamFailed.disconnected": "Conexiunea s-a întrerupt în timpul încărcării evenimentelor. Încercați din nou după reconectare.",
+    "eventStore.legacyFallback": "Modul de compatibilitate este activ deoarece stocarea securizată a browserului nu este disponibilă. Operațiunile mari pot folosi mai multă memorie; utilizați HTTPS sau localhost pentru stocare scalabilă.",
     "group.eventsChangedRefresh": "Evenimentele s-au modificat în timpul încărcării. Prima pagină a fost reîmprospătată.",
     "source.cacheRebuildInPlace": "Spațiul de stocare este limitat, astfel că memoria cache a acestei surse este reconstruită pe loc. Dacă interogarea este întreruptă, sursa va fi preluată din nou.",
     "detachedApp.authLost": "Autentificare necesară",

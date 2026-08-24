@@ -1,5 +1,8 @@
 import { encodeEventPage } from "@/event-store/EventPage.codec";
-import { EventStoreCapacityTracker } from "@/event-store/EventStore.capacity";
+import {
+	EventStoreCapacityTelemetryUnavailableError,
+	EventStoreCapacityTracker,
+} from "@/event-store/EventStore.capacity";
 import type { EventStoreBackend } from "@/event-store/EventStore.backend";
 import { EventStoreRevisionBus } from "@/event-store/EventStore.revisions";
 import {
@@ -2160,7 +2163,11 @@ export class QueryPersistenceCoordinator {
 		error: unknown,
 	): QueryStreamFailureEvent {
 		const reason =
-			error instanceof QueryPersistenceError ? error.reason : "storage";
+			error instanceof QueryPersistenceError
+				? error.reason
+				: error instanceof EventStoreCapacityTelemetryUnavailableError
+					? "capacity-unavailable"
+					: "storage";
 		return {
 			requestId: descriptor.requestId,
 			operationId: descriptor.operationId,

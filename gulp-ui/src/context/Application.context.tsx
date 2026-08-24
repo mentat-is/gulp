@@ -413,11 +413,11 @@ function _({ children }: { children: ReactNode }) {
 				DataStore.publishEventStoreCapacity(event.capacity);
 			},
 		);
-		const unsubscribeStreamFailures =
+		const subscribeStreamFailures =
 			SmartSocket.Class.instance.subscribeDocumentStreamFailures((event) => {
 				instanceRef.current.handleEventDocumentStreamFailure(event);
 			});
-		const unsubscribeStreamStates =
+		const subscribeStreamStates =
 			SmartSocket.Class.instance.subscribeDocumentStreamStates((change) => {
 				instanceRef.current.handleEventDocumentStreamState(change);
 			});
@@ -425,8 +425,8 @@ function _({ children }: { children: ReactNode }) {
 		return () => {
 			unsubscribeSourceSummaries();
 			unsubscribeCapacity();
-			unsubscribeStreamFailures();
-			unsubscribeStreamStates();
+			subscribeStreamFailures();
+			subscribeStreamStates();
 			SmartSocket.Class.instance.off(
 				SmartSocket.Message.Type.COLLAB_CREATE,
 				collabCreateCallback,

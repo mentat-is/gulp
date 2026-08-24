@@ -16,6 +16,20 @@ export interface EventStoreCapacityInput {
 	encodedBytesPerEventSamples?: readonly number[];
 }
 
+/** Error raised when quota telemetry cannot be read, independently of available space. */
+export class EventStoreCapacityTelemetryUnavailableError extends Error {
+	/**
+	 * Creates a distinct telemetry failure that callers can route to compatibility mode.
+	 * @param message Human-readable diagnostic detail.
+	 */
+	public constructor(
+		message = "Browser storage quota telemetry is unavailable.",
+	) {
+		super(message);
+		this.name = "EventStoreCapacityTelemetryUnavailableError";
+	}
+}
+
 /** One simulated checkpoint used by capacity diagnostics and benchmarks. */
 export interface EventStoreCapacitySimulationPoint {
 	additionalEvents: number;
@@ -94,14 +108,16 @@ export async function estimateEventStoreCapacity(
 		globalThis.navigator?.storage,
 ): Promise<EventStoreCapacity> {
 	if (!storageManager) {
-		throw new Error("Browser storage quota telemetry is unavailable.");
+		throw new EventStoreCapacityTelemetryUnavailableError();
 	}
 	let estimate: StorageEstimate;
 	try {
 		estimate = await storageManager.estimate();
 	} catch (error) {
 		const detail = error instanceof Error ? ` ${error.message}` : "";
-		throw new Error(`Browser storage quota telemetry is unavailable.${detail}`);
+		throw new EventStoreCapacityTelemetryUnavailableError(
+			`Browser storage quota telemetry is unavailable.${detail}`,
+		);
 	}
 	const estimatedQuota = estimate?.quota;
 	if (
@@ -109,7 +125,7 @@ export async function estimateEventStoreCapacity(
 		!Number.isFinite(estimatedQuota) ||
 		estimatedQuota <= 0
 	) {
-		throw new Error("Browser storage quota telemetry is unavailable.");
+		throw new EventStoreCapacityTelemetryUnavailableError();
 	}
 	return calculateEventStoreCapacity({
 		quotaBytes: estimatedQuota,

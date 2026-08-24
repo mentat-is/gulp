@@ -155,6 +155,10 @@ function createProjectionDescriptor(): QueryRenderWindowDescriptor {
 describe("SmartSocket lifecycle", () => {
 	const originalWebSocket = globalThis.WebSocket;
 	const originalWorker = globalThis.Worker;
+	const originalSecureContextDescriptor = Object.getOwnPropertyDescriptor(
+		globalThis,
+		"isSecureContext",
+	);
 
 	beforeEach(() => {
 		Reflect.deleteProperty(SmartSocket.Class, "instance");
@@ -188,6 +192,15 @@ describe("SmartSocket lifecycle", () => {
 		} else {
 			Reflect.deleteProperty(globalThis, "Worker");
 		}
+		if (originalSecureContextDescriptor) {
+			Object.defineProperty(
+				globalThis,
+				"isSecureContext",
+				originalSecureContextDescriptor,
+			);
+		} else {
+			Reflect.deleteProperty(globalThis, "isSecureContext");
+		}
 	});
 
 	it("releases the closed singleton so a detached route can reconnect", () => {
@@ -202,8 +215,11 @@ describe("SmartSocket lifecycle", () => {
 		expect(SmartSocket.Class.instance).toBe(second);
 	});
 
-	it("keeps legacy unknown document streams working through direct passthrough", () => {
-		globalThis.localStorage?.setItem(EVENT_STORE_LOD_ROLLBACK_KEY, "false");
+	it("selects direct passthrough for unknown streams on an insecure origin", () => {
+		Object.defineProperty(globalThis, "isSecureContext", {
+			configurable: true,
+			value: false,
+		});
 		const socket = new SmartSocket.Class("legacy-client");
 		const directSocket = FakeWebSocket.instances[0];
 		const received: SmartSocket.Message.Entity[] = [];

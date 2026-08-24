@@ -30,6 +30,16 @@ uses the pinned `serve` package through pnpm, which may download that package
 on first use. Use `--host` and `--port` to change the default
 `0.0.0.0:3000` listener.
 
+`http://localhost` and HTTPS origins can use the scalable EventStore pipeline,
+which persists streamed events in IndexedDB after checking the browser's quota.
+An HTTP origin with a non-local hostname, such as `http://gulp:3000`, is not a
+secure browser context and therefore cannot expose the required
+`StorageManager.estimate()` API. The UI detects this before loading an operation
+and automatically uses its in-memory compatibility pipeline. This keeps source
+and event loading functional, but large operations can consume substantially
+more RAM. Use HTTPS in deployments, or forward both VM ports and connect to the
+UI and API through `http://localhost`, to retain scalable storage.
+
 ## Install Dependencies
 
 From a gULP repository checkout, install UI dependencies. These commands are

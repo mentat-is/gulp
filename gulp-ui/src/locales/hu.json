@@ -10,6 +10,7 @@
     "eventStore.streamFailed.storage": "A böngészőtárhely nem érhető el. Ellenőrizze a webhelyadatok engedélyeit, vagy zárjon be más lapokat, majd próbálja újra.",
     "eventStore.streamFailed.normalization": "Néhány esemény nem olvasható. Próbálja újra, vagy ellenőrizze a forrásadatokat.",
     "eventStore.streamFailed.disconnected": "A kapcsolat megszakadt az események betöltése közben. Újracsatlakozás után próbálja újra.",
+    "eventStore.legacyFallback": "A kompatibilitási mód aktív, mert a biztonságos böngészőtárhely nem érhető el. A nagy műveletek több memóriát használhatnak; a skálázható tárhelyhez használjon HTTPS-t vagy localhostot.",
     "group.eventsChangedRefresh": "Az események betöltés közben megváltoztak. Az első oldal frissült.",
     "source.cacheRebuildInPlace": "A tárhely korlátozott, ezért a forrás gyorsítótára helyben épül újra. Ha a lekérdezés megszakad, a forrás újra le lesz kérve.",
     "detachedApp.authLost": "Bejelentkezés szükséges",

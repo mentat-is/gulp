@@ -10,6 +10,7 @@
     "eventStore.streamFailed.storage": "Browseropslag is niet beschikbaar. Controleer de machtigingen voor sitegegevens of sluit andere tabbladen en probeer het opnieuw.",
     "eventStore.streamFailed.normalization": "Sommige gebeurtenissen konden niet worden gelezen. Probeer het opnieuw of controleer de brongegevens.",
     "eventStore.streamFailed.disconnected": "De verbinding werd onderbroken tijdens het laden van gebeurtenissen. Probeer het opnieuw nadat de verbinding is hersteld.",
+    "eventStore.legacyFallback": "De compatibiliteitsmodus is actief omdat beveiligde browseropslag niet beschikbaar is. Grote bewerkingen kunnen meer geheugen gebruiken; gebruik HTTPS of localhost om schaalbare opslag in te schakelen.",
     "group.eventsChangedRefresh": "De gebeurtenissen zijn tijdens het laden gewijzigd. De eerste pagina is vernieuwd.",
     "source.cacheRebuildInPlace": "De opslagruimte is beperkt, daarom wordt de cache van deze bron ter plaatse opnieuw opgebouwd. Als de query wordt onderbroken, wordt de bron opnieuw opgehaald.",
     "detachedApp.authLost": "Inloggen vereist",

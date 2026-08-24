@@ -166,11 +166,12 @@ export interface QueryCapacityEvent {
 	};
 }
 
-/** Failure reasons that require the main thread to cancel the backend request. */
+/** Persistence failure reasons surfaced to the main-thread stream lifecycle. */
 export type QueryStreamFailureReason =
 	| "backlog"
 	| "quota"
 	| "storage"
+	| "capacity-unavailable"
 	| "normalization"
 	| "disconnected"
 	| "superseded";

@@ -14,6 +14,29 @@ The companion [timeline rendering architecture](engine.architecture.md)
 describes how a projection is transferred to the render worker and drawn on the
 `OffscreenCanvas`.
 
+## Capability selection and compatibility mode
+
+The persistent EventStore/LOD path requires a secure browser context,
+IndexedDB, Web Workers, and `navigator.storage.estimate()`. HTTPS and
+`http://localhost` satisfy the secure-context requirement in supported
+browsers. Plain HTTP on another hostname, for example `http://gulp:3000`, does
+not.
+
+The UI evaluates these capabilities before socket transport and stream
+ownership are selected. If any requirement is unavailable, document streams
+use `passthrough`, the direct transport is selected, and no EventStore database
+is opened. A single localized warning identifies compatibility mode. Documents
+and sources still load, but canonical events remain in main-thread RAM, so
+memory consumption grows with operation size.
+
+The build-time rollout flag and the browser-local
+`gulp:event-store-lod-enabled=false` rollback keep their existing precedence.
+If `navigator.storage.estimate()` is initially available but rejects at
+runtime, the failure is classified as unavailable quota telemetry—not exhausted
+quota or an IndexedDB commit failure. The UI persists the same rollback flag and
+performs one controlled reload into compatibility mode. Deleting site data also
+deletes this manual marker.
+
 ## Runtime topology
 
 ```mermaid
@@ -160,8 +183,12 @@ normal backend chunk size must remain below that bound.
 
 If normalization, storage, quota admission, or the IndexedDB write path fails,
 the worker marks the stream failed and reports its `req_id` and failure reason.
-The main thread then requests backend cancellation. There is no fallback that
-loads the failed stream's documents into main-thread memory.
+The main thread requests backend cancellation only when that request crossed
+the HTTP or ingestion-worker dispatch boundary. Registration failures therefore
+cannot issue `/request_cancel` for a request the backend has never seen. There
+is no in-place fallback for a stream that already failed after receiving
+documents; only quota-telemetry unavailability uses the controlled persisted
+rollback and reload described above.
 
 `last` means complete only after all page builders have flushed and the final
 IndexedDB transaction has committed. Other WebSocket messages, including
