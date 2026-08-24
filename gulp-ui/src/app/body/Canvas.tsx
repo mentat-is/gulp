@@ -1679,7 +1679,13 @@ export function Canvas({ timeline }: Canvas.Props) {
 					: -1000;
 				mouseXRef.current = pointerX;
 				mouseYRef.current = pointerY;
-				const canvasWidth = Math.max(1, rect?.width ?? 1);
+				// Pointer timestamps must use the render viewport width. The cached DOM
+				// rectangle can briefly describe the pre-dock layout while ResizeObserver
+				// has already committed the worker's narrower canvas viewport.
+				const canvasWidth = Math.max(
+					1,
+					workerCanvasSizeRef.current?.width ?? rect?.width ?? 1,
+				);
 				pointerPositionStore.setPosition(
 					projectLocalPointerTimestamp(
 						{

@@ -60,4 +60,23 @@ describe("PointerPositionStore", () => {
 			timestamp: 1_300,
 		});
 	});
+
+	it("projects pointer motion with the active worker viewport width", () => {
+		const pointer = {
+			x: 200,
+			y: 40,
+			timestamp: 0,
+			isRightSide: false,
+		};
+		const frame = { min: 1_700_000_000_000, max: 1_700_086_400_000 };
+
+		expect(
+			projectLocalPointerTimestamp(pointer, {
+				frame,
+				viewportWidth: 800,
+				scale: 4,
+				scrollX: 1_600,
+			}).timestamp,
+		).toBe(1_700_048_600_000);
+	});
 });
