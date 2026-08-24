@@ -513,9 +513,9 @@ function readTableCellValue<T extends Object>(
 		: (row as RowRecord)[accessor.key];
 
 	return hasExplicitColumns
-		? value ?? "<BLANK>"
+		? value ?? ""
 		: value === undefined
-			? "<BLANK>"
+			? ""
 			: value;
 }
 
@@ -709,6 +709,7 @@ export function Table<T extends Object>({
 	const isResizingRef = useRef(false);
 	const lastResolvedActionsRef = useRef<Table.Action<T>[]>([]);
 	const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
+	const [columnMenuMaxHeight, setColumnMenuMaxHeight] = useState<number>();
 	const [sharedTooltip, setSharedTooltip] =
 		useState<SharedTooltipState | null>(null);
 
@@ -916,7 +917,7 @@ export function Table<T extends Object>({
 							rowIndex,
 							hasExplicitColumns,
 						);
-						if (value !== undefined && value !== null && value !== "<BLANK>") {
+						if (value !== undefined && value !== null && value !== "") {
 							const valueText = formatCellValueWithCache(value, formatCache);
 							if (valueText.length > maxLen) {
 								maxLen = valueText.length;
@@ -1143,7 +1144,7 @@ export function Table<T extends Object>({
 	);
 
 	/**
-	 * Tracks column visibility menu state so menu items render only while open.
+	 * Tracks column visibility menu state and captures the table viewport height.
 	 * @param open Whether the context menu is open.
 	 * @returns Nothing.
 	 */
@@ -1151,6 +1152,12 @@ export function Table<T extends Object>({
 		(open: boolean) => {
 			setIsColumnMenuOpen(open);
 			if (open) {
+				const tableViewportHeight = wrapperRef.current?.clientHeight;
+				setColumnMenuMaxHeight(
+					tableViewportHeight && tableViewportHeight > 0
+						? tableViewportHeight
+						: undefined,
+				);
 				hideSharedTooltip();
 			}
 		},
@@ -1244,7 +1251,10 @@ export function Table<T extends Object>({
 			<thead>
 				<tr>
 					{selectable && (
-						<th className={s.selectAllCell}>
+						<th
+							className={cn(s.selectAllCell, s.stickySelectionCell)}
+							data-sticky-column="selection"
+						>
 							{onSelectAll ? (
 								<div className={s.centered}>
 									<Checkbox
@@ -1269,7 +1279,12 @@ export function Table<T extends Object>({
 							/>
 						);
 					})}
-					{resolvedActions.length > 0 && <th className={s.actionCell} />}
+					{resolvedActions.length > 0 && (
+						<th
+							className={cn(s.actionCell, s.stickyActionsCell)}
+							data-sticky-column="actions"
+						/>
+					)}
 				</tr>
 			</thead>
 			<tbody data-clickable={isClickable || undefined}>
@@ -1325,7 +1340,11 @@ export function Table<T extends Object>({
 					<ContextMenu onOpenChange={handleColumnMenuOpenChange}>
 						<ContextMenuTrigger asChild>{tableElement}</ContextMenuTrigger>
 						{isColumnMenuOpen ? (
-							<ContextMenuContent>
+							<ContextMenuContent
+								className={s.columnVisibilityMenu}
+								data-column-visibility-menu="true"
+								style={{ maxHeight: columnMenuMaxHeight }}
+							>
 								<ContextMenuLabel>{t("table.columnVisibility")}</ContextMenuLabel>
 								<ContextMenuSeparator />
 								{columns.map((col) => (
@@ -1549,7 +1568,10 @@ const Item = React.memo(
 				{...props}
 			>
 				{selectable && (
-					<td className={cn(s.value, s.actionCell)}>
+					<td
+						className={cn(s.value, s.actionCell, s.stickySelectionCell)}
+						data-sticky-column="selection"
+					>
 						<div className={s.centered}>
 							<Checkbox
 								checked={!!selected}
@@ -1572,7 +1594,7 @@ const Item = React.memo(
 					if (columnRenderer) {
 						return (
 							<td
-								className={cn(s.value, cellValue === "<BLANK>" && s.blank)}
+								className={cn(s.value, cellValue === "" && s.blank)}
 								key={c}
 							>
 								{columnRenderer(cellValue, renderRow, c, index)}
@@ -1582,7 +1604,7 @@ const Item = React.memo(
 					if (renderCell) {
 						return (
 							<td
-								className={cn(s.value, cellValue === "<BLANK>" && s.blank)}
+								className={cn(s.value, cellValue === "" && s.blank)}
 								key={c}
 							>
 								{renderCell(cellValue, renderRow, c, index)}
@@ -1598,7 +1620,10 @@ const Item = React.memo(
 					);
 				})}
 				{actions.length > 0 && (
-					<td className={cn(s.value, s.actionsCell)}>
+					<td
+						className={cn(s.value, s.actionsCell, s.stickyActionsCell)}
+						data-sticky-column="actions"
+					>
 						<Stack
 							gap={4}
 							ai="center"
@@ -1694,7 +1719,7 @@ const Value = React.memo(
 
 		return (
 			<td
-				className={cn(s.value, displayValue === "<BLANK>" && s.blank)}
+				className={cn(s.value, displayValue === "" && s.blank)}
 				style={valueStyle}
 				{...props}
 			>

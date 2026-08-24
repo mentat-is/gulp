@@ -1142,7 +1142,7 @@ const getSelectedTableKeyValueObject = (
 		const key = row.cells[keyIndex]?.textContent?.trim();
 		const value = row.cells[valueIndex]?.textContent?.trim();
 
-		if (!key || key === "<BLANK>" || value == null) {
+		if (!key || key === "" || value == null) {
 			return;
 		}
 

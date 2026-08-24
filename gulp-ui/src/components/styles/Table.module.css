@@ -204,6 +204,37 @@
 	vertical-align: middle;
 }
 
+/* ─── Frozen edge columns ─── */
+.stickySelectionCell,
+.stickyActionsCell {
+	position: sticky;
+	z-index: 5;
+	background: inherit;
+}
+
+.stickySelectionCell {
+	left: 0;
+	box-shadow: 1px 0 0 var(--gray-400);
+}
+
+.stickyActionsCell {
+	right: 0;
+	box-shadow: -1px 0 0 var(--gray-400);
+}
+
+.table th.stickySelectionCell,
+.table th.stickyActionsCell {
+	z-index: 20;
+	background: var(--background-100);
+}
+
+/* ─── Column visibility menu ─── */
+.columnVisibilityMenu.columnVisibilityMenu {
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
 .headerStack {
 	height: 100%;
 	min-width: 0;

@@ -86,6 +86,11 @@ Table View supports:
 - creating notes from selected events;
 - opening target events in the main tab.
 
+When horizontal scrolling is required, the optional row-selection column stays
+fixed to the left edge and the optional row-actions column stays fixed to the
+right edge. The column-visibility context menu is limited to the table viewport
+height and scrolls independently when the source exposes many fields.
+
 ## Dashboard
 
 The Dashboard window combines a Data Explorer sidebar with fixed dashboards and
