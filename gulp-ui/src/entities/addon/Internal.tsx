@@ -1,5 +1,9 @@
 import { Logger } from "@/dto/Logger.class";
 import { Icon } from "@/ui/Icon";
+import {
+	DEFAULT_TIMESTAMP_TIME_ZONE,
+	isSupportedTimestampTimeZone,
+} from "@/timeZone";
 import { Glyph } from "../Glyph";
 import { Source } from "../Source";
 
@@ -7,7 +11,7 @@ export namespace Internal {
 	export enum LocalStorageItemsList {
 		GENERAL_SERVER_VALUE = "__server",
 		GENERAL_TOKEN_VALUE = "__token",
-		IS_UTC_TIMESTAMPS = "__is_utc_timestamps",
+		TIMESTAMP_TIME_ZONE = "__timestamp_time_zone",
 	}
 
 	export namespace Sync {
@@ -70,25 +74,31 @@ export namespace Internal {
 			);
 		}
 
-		public static set isUTCTimestamps(is: boolean) {
+		/**
+		 * Persists the time zone used to display event timestamps.
+		 * @param timeZone Candidate IANA time-zone identifier.
+		 */
+		public static set timestampTimeZone(timeZone: string) {
 			localStorage.setItem(
-				Internal.LocalStorageItemsList.IS_UTC_TIMESTAMPS,
-				String(is),
+				Internal.LocalStorageItemsList.TIMESTAMP_TIME_ZONE,
+				isSupportedTimestampTimeZone(timeZone)
+					? timeZone
+					: DEFAULT_TIMESTAMP_TIME_ZONE,
 			);
 		}
 
-		public static get isUTCTimestamps(): boolean {
+		/** Returns the persisted, validated timestamp time zone or UTC by default. */
+		public static get timestampTimeZone(): string {
 			const value = localStorage.getItem(
-				Internal.LocalStorageItemsList.IS_UTC_TIMESTAMPS,
+				Internal.LocalStorageItemsList.TIMESTAMP_TIME_ZONE,
 			);
 
-			if (value) {
-				return value === "true";
+			if (value && isSupportedTimestampTimeZone(value)) {
+				return value;
 			}
 
-			Internal.Settings.isUTCTimestamps = false;
-
-			return Internal.Settings.isUTCTimestamps;
+			Internal.Settings.timestampTimeZone = DEFAULT_TIMESTAMP_TIME_ZONE;
+			return DEFAULT_TIMESTAMP_TIME_ZONE;
 		}
 	}
 

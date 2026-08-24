@@ -696,6 +696,7 @@
     "settings.timeoffset.label": "Pollinginterval voor realtime-updates",
     "settings.timeoffset.placeholder": "Polling-interval in seconden (min 10)",
     "settings.timestamps.local": "Lokale tijdstempels",
+    "settings.timestamps.timeZone": "Tijdzone",
     "settings.timestamps.utc": "UTC-tijdstempels",
     "settings.title": "Instellingen",
     "sigma.applied": "De Sigma regel is succesvol toegepast",

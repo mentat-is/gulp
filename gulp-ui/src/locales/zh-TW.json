@@ -696,6 +696,7 @@
     "settings.timeoffset.label": "即時輪詢間隔",
     "settings.timeoffset.placeholder": "輪詢間隔（以秒為單位）（分鐘 10）",
     "settings.timestamps.local": "本地時間戳",
+    "settings.timestamps.timeZone": "時區",
     "settings.timestamps.utc": "UTC 時間戳",
     "settings.title": "設定",
     "sigma.applied": "西格瑪規則已成功應用",

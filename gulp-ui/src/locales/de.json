@@ -696,6 +696,7 @@
     "settings.timeoffset.label": "Echtzeit-Abfrageintervall",
     "settings.timeoffset.placeholder": "Abfrageintervall in Sekunden (min. 10)",
     "settings.timestamps.local": "Lokale Zeitstempel",
+    "settings.timestamps.timeZone": "Zeitzone",
     "settings.timestamps.utc": "UTC-Zeitstempel",
     "settings.title": "Einstellungen",
     "sigma.applied": "Die Sigma-Regel wurde erfolgreich angewendet",

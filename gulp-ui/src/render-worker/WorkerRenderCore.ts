@@ -13,6 +13,7 @@ import {
 	type WorkerRenderEventView,
 	WorkerRenderRepository,
 } from "./WorkerRenderRepository";
+import { formatTimestampInTimeZone } from "@/timeZone";
 
 const ROW_HEIGHT = 48;
 const ROW_CENTER_OFFSET = 24;
@@ -1565,20 +1566,22 @@ export class WorkerRenderCore {
 		this.context.fillStyle = state.palette.fontAccent;
 		this.context.fillText(total.toString(), x, lineY[0]);
 		this.context.fillStyle = state.palette.fontSecondary;
-		this.context.fillText(this.formatShortDate(timestamp), x, lineY[1]);
+		this.context.fillText(
+			this.formatShortDate(timestamp, state.localized.timeZone),
+			x,
+			lineY[1],
+		);
 		this.context.fillText(eventCount, x, lineY[2]);
 	}
 
 	/**
 	 * Formats a timestamp using the existing day-month-year source label layout.
 	 * @param timestamp Timestamp in milliseconds.
-	 * @returns Local-time date label.
+	 * @param timeZone IANA time zone selected for timestamp presentation.
+	 * @returns Date label in the selected time zone.
 	 */
-	private formatShortDate(timestamp: number): string {
-		const date = new Date(timestamp);
-		const day = date.getDate().toString().padStart(2, "0");
-		const month = (date.getMonth() + 1).toString().padStart(2, "0");
-		return `${day}.${month}.${date.getFullYear()}`;
+	private formatShortDate(timestamp: number, timeZone: string): string {
+		return formatTimestampInTimeZone(timestamp, "dd.MM.yyyy", timeZone);
 	}
 
 	/**
@@ -2568,7 +2571,7 @@ export class WorkerRenderCore {
 	 * Formats one ruler timestamp according to the active interval size.
 	 * @param timestamp Timestamp in milliseconds.
 	 * @param step Ruler interval duration.
-	 * @param state Current locale payload retained for render-state parity.
+	 * @param state Current locale and time-zone payload.
 	 * @returns Legacy-compatible ruler label.
 	 */
 	private formatRulerTimestamp(
@@ -2576,24 +2579,18 @@ export class WorkerRenderCore {
 		step: number,
 		state: RenderFrameState,
 	): string {
-		void state;
 		const day = 86_400_000;
 		const hour = 3_600_000;
 		const minute = 60_000;
-		const date = new Date(timestamp);
-		const twoDigits = (value: number): string =>
-			value.toString().padStart(2, "0");
-		const datePart = `${twoDigits(date.getDate())}.${twoDigits(
-			date.getMonth() + 1,
-		)}`;
-		const timePart = `${twoDigits(date.getHours())}:${twoDigits(
-			date.getMinutes(),
-		)}`;
-		if (step >= day) return `${datePart}.${date.getFullYear()}`;
-		if (step >= hour) return `${timePart} ${datePart}`;
-		const timeWithSeconds = `${timePart}:${twoDigits(date.getSeconds())}`;
-		if (step >= minute) return `${timeWithSeconds} ${datePart}`;
-		return `${timeWithSeconds} ${datePart}.${date.getFullYear()}`;
+		let pattern = "HH:mm:ss dd.MM.yyyy";
+		if (step >= day) pattern = "dd.MM.yyyy";
+		else if (step >= hour) pattern = "HH:mm dd.MM";
+		else if (step >= minute) pattern = "HH:mm:ss dd.MM";
+		return formatTimestampInTimeZone(
+			timestamp,
+			pattern,
+			state.localized.timeZone,
+		);
 	}
 
 	/**

@@ -3,6 +3,7 @@ import { Color } from "@/entities/Color";
 import { User } from "@/entities/User";
 import { Locale } from "@/locales";
 import { scrollStore } from "@/store/scroll.store";
+import { useTimestampTimeZone } from "@/store/timestampTimeZone.store";
 import { Icon } from "@/ui/Icon";
 import { Stack } from "@/ui/Stack";
 import { cn, formatTimestampToReadableString } from "@/ui/utils";
@@ -376,6 +377,7 @@ export function Pointers({
 }: Pointers.Props) {
 	const { app } = Application.use();
 	const { t } = Locale.use();
+	const timestampTimeZone = useTimestampTimeZone();
 	const { resolvedTheme, theme } = useTheme();
 	const pointerLayerRef = useRef<HTMLDivElement>(null);
 	const remoteVerticalLayerRef = useRef<HTMLDivElement>(null);
@@ -392,9 +394,12 @@ export function Pointers({
 	const formatLocalLabel = useCallback(
 		(timestamp: number): string =>
 			t("pointers.localLabel", {
-				timestamp: formatTimestampToReadableString(timestamp),
+				timestamp: formatTimestampToReadableString(
+					timestamp,
+					timestampTimeZone,
+				),
 			}),
-		[t],
+		[t, timestampTimeZone],
 	);
 	/**
 	 * Applies current horizontal scroll and direction to timestamp-based pointers.

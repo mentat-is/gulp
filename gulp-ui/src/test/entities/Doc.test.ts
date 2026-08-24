@@ -17,10 +17,22 @@ jest.mock("@/entities/Source", () => ({
 jest.mock("@/entities/Note", () => ({ Note: { Entity: {} } }));
 jest.mock("@/entities/Operation", () => ({ Operation: { Entity: {} } }));
 jest.mock("@/entities/Context", () => ({ Context: { Entity: {} } }));
-jest.mock("@/entities/addon/Internal", () => ({ Internal: {} }));
+jest.mock("@/entities/addon/Internal", () => ({
+	Internal: {
+		Transformator: {
+			toTimestamp: (value: string | number | Date): number =>
+				new Date(value).valueOf(),
+		},
+	},
+}));
 jest.mock("@/ui/Icon", () => ({ Icon: (): null => null }));
 jest.mock("@/dto/Logger.class", () => ({ Logger: {} }));
-jest.mock("@/ui/utils", () => ({ Refractor: {} }));
+jest.mock("@/ui/utils", () => ({
+	Refractor: {
+		any: { toNumber: (): number => 1 },
+		get: (value: Record<string, unknown>, field: string): unknown => value[field],
+	},
+}));
 
 const mockSourceEntityId = Source.Entity.id as unknown as {
 	(app: App.Type, sourceId: Source.Id): Source.Type | undefined;
@@ -99,6 +111,23 @@ describe("Doc asynchronous ingestion", () => {
 
 		expect(Doc.Entity.operationId(APP, document)).toBe(operationId);
 		expect(Doc.Entity.contextId(APP, document)).toBe(contextId);
+	});
+
+	it("normalizes the timeline timestamp from @timestamp first", () => {
+		const documents = Doc.Entity.normalize(
+			[
+				{
+					_id: "timestamp-authority",
+					"@timestamp": "2025-03-26T09:24:39.186Z",
+					"gulp.timestamp": "2025-03-25T17:57:19.339Z",
+					"gulp.source_id": SOURCE_ID,
+					"gulp.event_code": 1,
+				} as unknown as Doc.Type,
+			],
+			"gulp.event_code",
+		);
+
+		expect(documents[0].gulp_timestamp).toBe(1_742_981_079_186);
 	});
 
 	it("publishes proven-new prepared batches as compact upserts", async () => {

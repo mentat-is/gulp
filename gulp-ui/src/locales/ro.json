@@ -696,6 +696,7 @@
     "settings.timeoffset.label": "Interval de interogare în timp real",
     "settings.timeoffset.placeholder": "Interval de sondare în secunde (min 10)",
     "settings.timestamps.local": "Marcaje orare locale",
+    "settings.timestamps.timeZone": "Fus orar",
     "settings.timestamps.utc": "Marcaje orare UTC",
     "settings.title": "Setări",
     "sigma.applied": "Regula Sigma a fost aplicată cu succes",

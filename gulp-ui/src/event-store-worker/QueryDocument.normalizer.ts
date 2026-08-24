@@ -93,7 +93,7 @@ function toNanoseconds(value: unknown): bigint {
 
 /**
  * Converts backend timestamp units or ISO strings into timeline milliseconds.
- * @param value Raw `gulp.timestamp` or already normalized timestamp.
+ * @param value Raw `@timestamp`, `gulp.timestamp`, or already normalized timestamp.
  * @returns Rounded millisecond timestamp matching DataWorker normalization.
  */
 function normalizeTimestamp(value: unknown): number {
@@ -206,7 +206,8 @@ function appendNormalizedDocument(
 		descriptor.sourceSettingsById?.[sourceValue] ??
 		descriptor.defaultSourceSettings ??
 		DEFAULT_SETTINGS;
-	const rawTimestamp = raw.gulp_timestamp ?? raw["gulp.timestamp"];
+	const rawTimestamp =
+		raw["@timestamp"] ?? raw.gulp_timestamp ?? raw["gulp.timestamp"];
 	const eventCode = Number(raw["gulp.event_code"] ?? 0);
 	const document: Doc.Type = {
 		_id: documentId as Doc.Id,

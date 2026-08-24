@@ -704,6 +704,7 @@
     "settings.timeoffset.label": "Realtime polling interval in seconds",
     "settings.timeoffset.placeholder": "Polling interval in seconds (min 10)",
     "settings.timestamps.local": "Local timestamps",
+    "settings.timestamps.timeZone": "Time zone",
     "settings.timestamps.utc": "UTC timestamps",
     "settings.title": "Settings",
     "sigma.applied": "Sigma rule has been successfully applied",

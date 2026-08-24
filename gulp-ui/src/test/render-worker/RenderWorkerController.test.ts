@@ -138,6 +138,7 @@ function createFrameState(viewportRevision: number): RenderFrameState {
 			loadingSuffix: " loading",
 			unknownContext: "Unknown",
 			locale: "en-US",
+			timeZone: "UTC",
 		},
 		revisions: {
 			settings: 1,

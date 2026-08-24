@@ -19,6 +19,7 @@ backend setup is in the [gULP installation guide](installation.md).
 - [Rendering engines](webui/engine.md)
 - [Query worker and event storage architecture](webui/query-worker.md)
 - [Timeline rendering architecture](webui/engine.architecture.md)
+- [Timeline time zones](webui/time-zones.md)
 - [Views](webui/view.md)
 - [Detached applications](webui/detached-windows.md)
 

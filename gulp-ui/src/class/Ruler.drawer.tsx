@@ -1,8 +1,10 @@
 import { MinMax } from '@/class/Info'
 import { Theme } from '@/context/Theme.context'
 import { Color } from '@/entities/Color'
+import { Internal } from '@/entities/addon/Internal'
+import { formatTimestampInTimeZone } from '@/timeZone'
 import { getDateFormat } from '@/ui/utils'
-import { addMilliseconds, differenceInMilliseconds, formatDate } from 'date-fns'
+import { addMilliseconds, differenceInMilliseconds } from 'date-fns'
 
 interface RulerDrawerConstructor {
   ctx: CanvasRenderingContext2D
@@ -225,12 +227,22 @@ export class RulerDrawer implements RulerDrawerConstructor {
     this.separator()
   }
 
+  /**
+   * Draws one ruler header section in the selected timestamp time zone.
+   * @param props Timestamp, interval, and position metadata for the section.
+   * @param nextPosition Optional x coordinate of the following section.
+   * @returns Nothing.
+   */
   section(props: RulerSectionProps, nextPosition?: number) {
     const sectionWidth = (nextPosition ?? this.ctx.canvas.width) - props.position;
     this.ctx.fillStyle = props.even ? Color.Themer.theme.BACKGROUND_ACCENT : Color.Themer.theme.BACKGROUND_SECOND
     this.ctx.fillRect(props.position, 0, sectionWidth, 25)
     const timeUnit = props.format || 'MMM yyyy'
-    const label = formatDate(props.timestamp, timeUnit)
+    const label = formatTimestampInTimeZone(
+      props.timestamp,
+      timeUnit,
+      Internal.Settings.timestampTimeZone,
+    )
     this.ctx.font = '12px Arial'
     this.ctx.fillStyle = Color.Themer.theme.FONT_ACCENT
     this.ctx.textAlign = 'left';

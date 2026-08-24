@@ -1,5 +1,5 @@
 /** Current wire-protocol version shared by the main thread and render worker. */
-export const RENDER_PROTOCOL_VERSION = 5 as const;
+export const RENDER_PROTOCOL_VERSION = 6 as const;
 /** Horizontal graph density interval preserved by both QueryWorker and RenderCore. */
 export const RENDER_GRAPH_BUCKET_PIXEL_WIDTH = 10;
 
@@ -41,6 +41,7 @@ export interface RenderLocalizedStrings {
 	loadingSuffix: string;
 	unknownContext: string;
 	locale?: string;
+	timeZone: string;
 }
 
 /** Pointer coordinates expressed in primary-canvas pixels. */

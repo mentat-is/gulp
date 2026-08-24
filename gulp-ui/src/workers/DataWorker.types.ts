@@ -12,6 +12,7 @@ export type TimestampInput =
 
 export type QueryRawDocument = Record<string, unknown> &
 	Partial<Pick<Doc.Type, "_id" | "gulp.source_id" | "gulp.event_code">> & {
+		"@timestamp"?: TimestampInput;
 		"gulp.timestamp"?: TimestampInput;
 	};
 

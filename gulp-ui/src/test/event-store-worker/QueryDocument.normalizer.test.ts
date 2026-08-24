@@ -50,6 +50,20 @@ describe("normalizeQueryDocuments", () => {
 		}
 	});
 
+	it("prefers @timestamp when backend timestamp fields disagree", () => {
+		const document = normalizeOne({
+			_id: "timestamp-authority",
+			"gulp.source_id": "source-dynamic",
+			"@timestamp": "2025-03-26T09:24:39.186065+00:00",
+			"gulp.timestamp": 1_700_000_000_000,
+			gulp_timestamp: 1_600_000_000_000,
+			"gulp.event_code": 1,
+			category: "network",
+		});
+
+		expect(document.gulp_timestamp).toBe(1_742_981_079_186);
+	});
+
 	it("uses default settings for discovered sources and source-specific overrides", () => {
 		const dynamic = normalizeOne({
 			_id: "dynamic",

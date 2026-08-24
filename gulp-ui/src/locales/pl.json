@@ -696,6 +696,7 @@
     "settings.timeoffset.label": "Interwał odpytywania w czasie rzeczywistym",
     "settings.timeoffset.placeholder": "Interwał odpytywania w sekundach (min. 10)",
     "settings.timestamps.local": "Lokalne znaczniki czasu",
+    "settings.timestamps.timeZone": "Strefa czasowa",
     "settings.timestamps.utc": "znaczniki czasu UTC",
     "settings.title": "Ustawienia",
     "sigma.applied": "Reguła Sigma została pomyślnie zastosowana",

@@ -12,6 +12,7 @@ import { App } from "@/entities/App";
 import { Color as EntityColor } from "@/entities/Color";
 import { Internal } from "@/entities/addon/Internal";
 import { translate } from "@/locales";
+import { formatTimestampInTimeZone } from "@/timeZone";
 
 export type Callback<T> = (data: T) => void;
 
@@ -523,46 +524,24 @@ export function getSortOrder<T>(
 	return "unsorted";
 }
 
+/**
+ * Formats a timestamp for pointer and event labels in the selected time zone.
+ * @param value Date-compatible event timestamp.
+ * @param timeZone IANA time zone used for presentation.
+ * @returns Readable timestamp including milliseconds, or an empty string when invalid.
+ */
 export const formatTimestampToReadableString = (
 	value: Date | number | string,
-) => {
+	timeZone = Internal.Settings.timestampTimeZone,
+): string => {
 	try {
-		const date = new Date(value);
-
-		const pad = (n: number, z = 2) => ("00" + n).slice(-z);
-
-		const getters = {
-			year: Internal.Settings.isUTCTimestamps
-				? date.getUTCFullYear()
-				: date.getFullYear(),
-			month: Internal.Settings.isUTCTimestamps
-				? date.getUTCMonth() + 1
-				: date.getMonth() + 1,
-			day: Internal.Settings.isUTCTimestamps
-				? date.getUTCDate()
-				: date.getDate(),
-			hour: Internal.Settings.isUTCTimestamps
-				? date.getUTCHours()
-				: date.getHours(),
-			minute: Internal.Settings.isUTCTimestamps
-				? date.getUTCMinutes()
-				: date.getMinutes(),
-			second: Internal.Settings.isUTCTimestamps
-				? date.getUTCSeconds()
-				: date.getSeconds(),
-			ms: Internal.Settings.isUTCTimestamps
-				? date.getUTCMilliseconds()
-				: date.getMilliseconds(),
-		};
-
-		return "yyyy.MM.dd HH:mm:ss SSS"
-			.replace("yyyy", getters.year.toString())
-			.replace("MM", pad(getters.month))
-			.replace("dd", pad(getters.day))
-			.replace("HH", pad(getters.hour))
-			.replace("mm", pad(getters.minute))
-			.replace("ss", pad(getters.second))
-			.replace("SSS", pad(getters.ms, 3));
+		const formatted = formatTimestampInTimeZone(
+			value,
+			"yyyy.MM.dd HH:mm:ss SSS",
+			timeZone,
+		);
+		if (formatted) return formatted;
+		throw new RangeError("Unsupported timestamp or time zone.");
 	} catch (error) {
 		Logger.error(
 			`Invalid time value. Expected number | string | Date, got ${value}`,
