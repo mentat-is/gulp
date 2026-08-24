@@ -1,6 +1,7 @@
 import {
 	collectIngestionResyncLoadings,
 	hasActiveIngestionResyncLoading,
+	isIngestionRequest,
 } from "@/class/IngestionResync";
 import { Request } from "@/entities/Request";
 import type { Source } from "@/entities/Source";
@@ -59,6 +60,13 @@ function createLoadings(
 }
 
 describe("ingestion resynchronization", () => {
+	it("identifies standard and raw ingestion request statistics", () => {
+		expect(isIngestionRequest({ req_type: "ingest" })).toBe(true);
+		expect(isIngestionRequest({ req_type: "raw_ingest" })).toBe(true);
+		expect(isIngestionRequest({ req_type: "query" })).toBe(false);
+		expect(isIngestionRequest({ req_type: undefined })).toBe(false);
+	});
+
 	it("collects only ongoing ingestion and raw-ingestion sources", () => {
 		const recovered = collectIngestionResyncLoadings([
 			createRequest(

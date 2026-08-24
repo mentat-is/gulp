@@ -43,8 +43,13 @@ import { Session } from "./Session.banner";
 import { DisplayEventDialog } from "@/dialogs/Event.dialog";
 import { useParams } from "react-router-dom";
 import { Locale } from "@/locales";
-import { requestStore } from "@/store/request.store";
+import {
+	useRequestLoadings,
+	useRequests,
+} from "@/store/request.store";
 import type { StoredWorkspaceSession } from "@/class/WorkspaceSessionRepository";
+import { isSelectFilesSourceVisible } from "./SelectFiles.visibility";
+import { isIngestionRequest } from "@/class/IngestionResync";
 
 export namespace SelectFiles {
 	export namespace Banner {
@@ -142,6 +147,39 @@ export namespace SelectFiles {
 		const [selectedFiles, setSelectedFiles] = useState<Set<Source.Id>>(
 			new Set(Source.Entity.selected(app).map((c) => c.id)),
 		);
+		const requestLoadings = useRequestLoadings();
+		const requests = useRequests();
+
+		/** Active source IDs and source-exact progress advertised by request statistics. */
+		const activeIngestionProgressBySourceId = useMemo(() => {
+			const progressBySourceId = new Map<Source.Id, number>();
+			requests.forEach((request) => {
+				if (
+					!isIngestionRequest(request) ||
+					(request.status !== Request.Status.PENDING &&
+						request.status !== Request.Status.ONGOING)
+				) {
+					return;
+				}
+
+				const sourceLinks = Request.Entity.sourceLinks(request);
+				const requestProgress =
+					sourceLinks.length === 1
+						? Request.Entity.recordCounts(request).records_ingested
+						: 0;
+				sourceLinks.forEach(({ sourceId }) => {
+					const typedSourceId = sourceId as Source.Id;
+					progressBySourceId.set(
+						typedSourceId,
+						Math.max(
+							progressBySourceId.get(typedSourceId) ?? 0,
+							requestProgress,
+						),
+					);
+				});
+			});
+			return progressBySourceId;
+		}, [requests]);
 
 		useEffect(() => {
 			const timer = setInterval(debug, 1000);
@@ -159,6 +197,55 @@ export namespace SelectFiles {
 
 		const update = <T,>(values: Set<T>, vault: SetState<Set<T>>) =>
 			vault(new Set(values));
+
+		/**
+		 * Checks whether a source currently belongs to a websocket-tracked ingestion.
+		 * @param file Source whose ingestion state is requested.
+		 * @returns True while ingestion statistics or a local loading marker is active.
+		 */
+		const isSourceIngesting = useCallback(
+			(file: Source.Type): boolean =>
+				activeIngestionProgressBySourceId.has(file.id) ||
+				(requestLoadings.byFileId.has(file.id) &&
+					Source.Entity.getRequestType(app, file.id) ===
+						Request.Prefix.INGESTION),
+			[activeIngestionProgressBySourceId, app, requestLoadings],
+		);
+
+		/**
+		 * Resolves the greatest source-exact count received from document or stats messages.
+		 * @param file Source whose live event count is requested.
+		 * @returns Monotonic live ingestion count for the source.
+		 */
+		const getSourceIngestionProgress = useCallback(
+			(file: Source.Type): number =>
+				Math.max(
+					Info.ingestionProgress.get(file.id) ?? 0,
+					activeIngestionProgressBySourceId.get(file.id) ?? 0,
+				),
+			[Info, activeIngestionProgressBySourceId],
+		);
+
+		/**
+		 * Reads the live state that makes an in-flight source visible before its
+		 * persisted total is refreshed from OpenSearch.
+		 *
+		 * @param file Source whose current visibility is being evaluated.
+		 * @returns True when the source should be available for selection.
+		 */
+		const isSourceVisible = useCallback(
+			(file: Source.Type): boolean =>
+				isSelectFilesSourceVisible(file, showEmptySources, {
+					ingestionProgress: getSourceIngestionProgress(file),
+					isIngesting: isSourceIngesting(file),
+				}),
+			[
+				getSourceIngestionProgress,
+				isSourceIngesting,
+				refreshToken,
+				showEmptySources,
+			],
+		);
 
 		const selectedContextIdsForFiles = useCallback(
 			(files: Set<Source.Id>): Set<Context.Id> => {
@@ -184,14 +271,14 @@ export namespace SelectFiles {
 				let changed = false;
 
 				app.target.files.forEach((file) => {
-					if (!file.total && nextFiles.delete(file.id)) {
+					if (!isSourceVisible(file) && nextFiles.delete(file.id)) {
 						changed = true;
 					}
 				});
 
 				return changed ? nextFiles : files;
 			},
-			[app.target.files],
+			[app.target.files, isSourceVisible],
 		);
 
 		const pruneEmptySourceSelection = useCallback(() => {
@@ -227,7 +314,7 @@ export namespace SelectFiles {
 						context.name.toLowerCase().includes(filter.toLowerCase());
 
 					Context.Entity.sources(app, context).forEach((file) => {
-						if (!showEmptySources && !file.total) return;
+						if (!isSourceVisible(file)) return;
 						const fileMatches =
 							!filter || file.name.toLowerCase().includes(filter.toLowerCase());
 						if (contextMatches || fileMatches) {
@@ -240,7 +327,7 @@ export namespace SelectFiles {
 				.filter((context) => context.operation_id === operation.id)
 				.forEach((context) => {
 					const files = Context.Entity.sources(app, context).filter(
-						(file) => showEmptySources || file.total,
+						isSourceVisible,
 					);
 
 					if (files.some((file) => selectedFiles.has(file.id))) {
@@ -262,9 +349,7 @@ export namespace SelectFiles {
 			const contextMatches =
 				!filter || context.name.toLowerCase().includes(filter.toLowerCase());
 
-			const files = Context.Entity.sources(app, context).filter(
-				(file) => showEmptySources || file.total,
-			);
+			const files = Context.Entity.sources(app, context).filter(isSourceVisible);
 
 			files.forEach((file) => {
 				const fileMatches =
@@ -360,11 +445,11 @@ export namespace SelectFiles {
 				if (!filter) return true;
 				const contextMatches = ctx.name.toLowerCase().includes(term);
 				const sourceMatches = Context.Entity.sources(app, ctx)
-					.filter((file) => showEmptySources || file.total)
+					.filter(isSourceVisible)
 					.some((f) => f.name.toLowerCase().includes(term));
 				return contextMatches || sourceMatches;
 			});
-		}, [app.target.contexts, app.target.files, filter, showEmptySources]);
+		}, [app, filter, isSourceVisible]);
 
 		const selectionSummary = useMemo(() => {
 			const contexts = app.target.contexts.filter(
@@ -372,8 +457,7 @@ export namespace SelectFiles {
 			);
 			const contextIds = new Set(contexts.map((context) => context.id));
 			const files = app.target.files.filter(
-				(file) =>
-					contextIds.has(file.context_id) && (showEmptySources || file.total),
+				(file) => contextIds.has(file.context_id) && isSourceVisible(file),
 			);
 			const selectedContextCount = contexts.filter((context) =>
 				selectedContexts.has(context.id),
@@ -394,7 +478,15 @@ export namespace SelectFiles {
 					total: files.length,
 				}),
 			};
-		}, [app.target.contexts, app.target.files, operation_id, selectedContexts, selectedFiles, showEmptySources, t]);
+		}, [
+			app.target.contexts,
+			app.target.files,
+			isSourceVisible,
+			operation_id,
+			selectedContexts,
+			selectedFiles,
+			t,
+		]);
 
 		const SearchInput = useMemo(() => {
 			return (
@@ -423,6 +515,8 @@ export namespace SelectFiles {
 					file: Source.Type;
 					context: Context.Type;
 					isLast: boolean;
+					isIngesting: boolean;
+					ingestionProgress: number;
 			  };
 
 		const items = useMemo(() => {
@@ -440,7 +534,7 @@ export namespace SelectFiles {
 				const contextMatches =
 					!filter || context.name.toLowerCase().includes(term);
 				const files = Context.Entity.sources(app, context).filter((file) => {
-					if (!showEmptySources && !file.total) return false;
+					if (!isSourceVisible(file)) return false;
 					if (contextMatches) return true;
 					return file.name.toLowerCase().includes(term);
 				});
@@ -453,11 +547,22 @@ export namespace SelectFiles {
 						file,
 						context,
 						isLast: index === files.length - 1,
+						isIngesting: isSourceIngesting(file),
+						ingestionProgress: getSourceIngestionProgress(file),
 					});
 				});
 			});
 			return arr;
-		}, [filteredContexts, filter, app.target.files, Info.activeUploads.size, refreshToken]);
+		}, [
+			filteredContexts,
+			filter,
+			app,
+			Info.activeUploads.size,
+			getSourceIngestionProgress,
+			isSourceIngesting,
+			isSourceVisible,
+			refreshToken,
+		]);
 
 		const parentRef = useRef<HTMLDivElement>(null);
 		const rowVirtualizer = useVirtualizer({
@@ -703,14 +808,16 @@ export namespace SelectFiles {
 												<div
 													className={cn(s.fileWrapper, item.isLast && s.last)}
 												>
-													<FlatFileComponent
-														file={item.file}
-														selectedFiles={selectedFiles}
-														setFile={setFile}
-														isLast={item.isLast}
-														onPreviewBack={() =>
-															spawnBanner(<SelectFiles.Banner />)
-														}
+												<FlatFileComponent
+													file={item.file}
+													selectedFiles={selectedFiles}
+													setFile={setFile}
+													isLast={item.isLast}
+													isIngesting={item.isIngesting}
+													ingestionProgress={item.ingestionProgress}
+													onPreviewBack={() =>
+														spawnBanner(<SelectFiles.Banner />)
+													}
 													/>
 												</div>
 											</div>
@@ -829,6 +936,15 @@ interface ContextHeadingProps {
 	onDeleteBack?: () => void;
 }
 
+interface FlatFileComponentProps extends FileComponentProps {
+	isLast: boolean;
+}
+
+/**
+ * Renders a source as a flat branch row inside a context.
+ * @param props Source row state and interaction callbacks.
+ * @returns The flat source branch.
+ */
 export function FlatFileComponent({
 	file,
 	selectedFiles,
@@ -837,7 +953,9 @@ export function FlatFileComponent({
 	showFilter = true,
 	showCheckbox = true,
 	onPreviewBack,
-}: any) {
+	isIngesting,
+	ingestionProgress,
+}: FlatFileComponentProps) {
 	return (
 		<Stack
 			dir="column"
@@ -852,6 +970,8 @@ export function FlatFileComponent({
 				showFilter={showFilter}
 				showCheckbox={showCheckbox}
 				onPreviewBack={onPreviewBack}
+				isIngesting={isIngesting}
+				ingestionProgress={ingestionProgress}
 			/>
 		</Stack>
 	);
@@ -864,8 +984,15 @@ interface FileComponentProps {
 	showFilter?: boolean;
 	showCheckbox?: boolean;
 	onPreviewBack?: () => void;
+	isIngesting?: boolean;
+	ingestionProgress?: number;
 }
 
+/**
+ * Renders one selectable source with live ingestion state and source actions.
+ * @param props Source metadata, selection state, and optional ingestion override.
+ * @returns The source row controls.
+ */
 function FileComponent({
 	file,
 	setFile,
@@ -873,8 +1000,10 @@ function FileComponent({
 	showFilter = true,
 	showCheckbox = true,
 	onPreviewBack,
+	isIngesting,
+	ingestionProgress,
 }: FileComponentProps) {
-	const { app, Info, spawnBanner } = Application.use();
+	const { Info, spawnBanner } = Application.use();
 	const { t } = Locale.use();
 	const [loading, setLoading] = useState<boolean>(false);
 
@@ -895,25 +1024,20 @@ function FileComponent({
 		);
 	};
 
-	const progressDefault = Info.ingestionProgress.get(file.id) || 0;
-	const [progress, setProgress] = useState<number>(progressDefault);
+	const progressDefault =
+		ingestionProgress ?? Info.ingestionProgress.get(file.id) ?? 0;
+	const [polledProgress, setPolledProgress] = useState<number>(progressDefault);
+	const progress = ingestionProgress ?? polledProgress;
+	const sourceIsIngesting =
+		isIngesting ??
+		Source.Entity.getRequestType(Info.app, file.id) === Request.Prefix.INGESTION;
 
 	useEffect(() => {
 		const interval = setInterval(() => {
-			const isIngesting =
-				Source.Entity.getRequestType(Info.app, file.id) ===
-				Request.Prefix.INGESTION;
-
-			if (isIngesting) {
-				const reqId = requestStore.getRequestIdByFile(file.id);
-				const p =
-					Info.ingestionProgress.get(file.id) ||
-					(reqId ? Info.ingestionProgress.get(reqId as any) : 0) ||
-					0;
-				setProgress((prev) => (prev !== p ? p : prev));
-			} else {
-				setProgress((prev) => (prev !== 0 ? 0 : prev));
-			}
+			const nextProgress = Info.ingestionProgress.get(file.id) ?? 0;
+			setPolledProgress((previousProgress) =>
+				previousProgress !== nextProgress ? nextProgress : previousProgress,
+			);
 		}, 1000);
 
 		return () => clearInterval(interval);
@@ -947,7 +1071,7 @@ function FileComponent({
 					onCheckedChange={(checked) => setFile(file.id, !!checked)}
 				/>
 			)}
-			{Source.Entity.getRequestType(app, file) === Request.Prefix.INGESTION && (
+			{sourceIsIngesting && (
 				<TooltipProvider>
 					<Tooltip>
 						<TooltipTrigger asChild>

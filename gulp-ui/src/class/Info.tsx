@@ -66,6 +66,7 @@ import {
 import {
 	collectIngestionResyncLoadings,
 	hasActiveIngestionResyncLoading,
+	isIngestionRequest,
 	type IngestionResyncLoadings,
 } from "@/class/IngestionResync";
 import {
@@ -3011,13 +3012,40 @@ export class Info implements InfoProps {
 		this.query_file(query, { preview: true });
 
 	/**
-	 * Inserts or updates a request while preserving detail fields omitted by websocket stats.
+	 * Inserts or updates a request and applies active ingestion statistics to its sources.
 	 * @param req Request stats object received from websocket or API.
 	 * @returns Nothing.
 	 */
 	request_add = (req: Request.Type): void => {
+		const activeIngestionSourceLinks =
+			isIngestionRequest(req) && ACTIVE_REQUEST_STATUSES.has(req.status)
+				? Request.Entity.sourceLinks(req)
+				: [];
+
+		// Request statistics are aggregate values. They are source-exact only
+		// when the ingestion request contains one source. Apply progress before
+		// publishing the request-store update so React sees one atomic change.
+		if (activeIngestionSourceLinks.length === 1) {
+			const typedSourceId = activeIngestionSourceLinks[0].sourceId as Source.Id;
+			const progress = Request.Entity.recordCounts(req).records_ingested;
+			this.ingestionProgress.set(
+				typedSourceId,
+				Math.max(this.ingestionProgress.get(typedSourceId) ?? 0, progress),
+			);
+		}
+
 		requestStore.upsertRequest(req);
 		this.app.general.requests = requestStore.getRequests();
+
+		if (activeIngestionSourceLinks.length > 0) {
+			activeIngestionSourceLinks.forEach(({ sourceId }) => {
+				const typedSourceId = sourceId as Source.Id;
+				if (requestStore.getRequestIdByFile(typedSourceId) !== req.id) {
+					this.setLoading(req.id, typedSourceId);
+				}
+			});
+		}
+
 		if (ACTIVE_REQUEST_STATUSES.has(req.status)) return;
 
 		if (req.status === Request.Status.DONE) {
