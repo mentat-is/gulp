@@ -1343,7 +1343,11 @@ export function Table<T extends Object>({
 							<ContextMenuContent
 								className={s.columnVisibilityMenu}
 								data-column-visibility-menu="true"
-								style={{ maxHeight: columnMenuMaxHeight }}
+								style={
+									columnMenuMaxHeight
+										? { maxHeight: columnMenuMaxHeight }
+										: undefined
+								}
 							>
 								<ContextMenuLabel>{t("table.columnVisibility")}</ContextMenuLabel>
 								<ContextMenuSeparator />
