@@ -27,6 +27,7 @@ _SAMPLE_EVTX = Path("/gulp/samples/win_evtx/Security_short_selected.evtx")
 _LARGE_CLIENT_DATA_BLOB = "client-data-large-payload-" + ("x" * (300 * 1024))
 _LARGE_COLLAB_NOTE_TEXT = "collab-large-broadcast-note-" + ("y" * (300 * 1024))
 _LARGE_QUERY_EVENT_ORIGINAL = "query-large-targeted-payload-" + ("z" * (300 * 1024))
+_LARGE_QUERY_DOCUMENT_COUNT = 3
 _DEFAULT_LARGE_POINTER_STRESS_COUNT = 3
 _DEFAULT_LARGE_COLLAB_STRESS_COUNT = 1
 _DEFAULT_MULTI_INSTANCE_RAW_INGEST_DOCS = 25
@@ -460,6 +461,70 @@ async def _assert_requester_only_query_ws_events(
         ), f"non-requesting websocket idx={idx} received query_done for req_id={req_id}"
 
 
+def _assert_query_ws_message_order(
+    messages: list[Any],
+    req_id: str,
+    *,
+    total_limit: int = 0,
+) -> None:
+    """Assert one query's chunks are complete and precede its terminal event."""
+    matching_messages = [
+        message for message in messages if getattr(message, "req_id", None) == req_id
+    ]
+    chunks = [
+        (position, message)
+        for position, message in enumerate(matching_messages)
+        if message.type == WSMessageType.DOCUMENTS_CHUNK.value
+    ]
+    done_positions = [
+        position
+        for position, message in enumerate(matching_messages)
+        if message.type == WSMessageType.QUERY_DONE.value
+    ]
+
+    assert chunks, f"no docs_chunk received for req_id={req_id}"
+    assert len(done_positions) == 1, (
+        f"expected one query_done for req_id={req_id}, got {len(done_positions)}"
+    )
+
+    chunk_numbers = [
+        message.data.get("chunk_num", message.data.get("chunk_number"))
+        for _, message in chunks
+    ]
+    assert all(isinstance(chunk_number, int) for chunk_number in chunk_numbers), (
+        f"invalid chunk numbers for req_id={req_id}: {chunk_numbers}"
+    )
+    assert chunk_numbers == list(range(len(chunk_numbers))), (
+        f"out-of-order chunks for req_id={req_id}: {chunk_numbers}"
+    )
+
+    terminal_positions = [
+        position for position, message in chunks if message.data.get("last") is True
+    ]
+    assert len(terminal_positions) == 1, (
+        f"expected one terminal docs_chunk for req_id={req_id}, "
+        f"got positions={terminal_positions}"
+    )
+    final_chunk_position = chunks[-1][0]
+    assert terminal_positions[0] == final_chunk_position, (
+        f"docs_chunk received after last=true for req_id={req_id}"
+    )
+    assert final_chunk_position < done_positions[0], (
+        f"query_done overtook terminal docs_chunk for req_id={req_id}"
+    )
+
+    documents_received = sum(
+        len(message.data.get("docs", [])) for _, message in chunks
+    )
+    total_hits = chunks[-1][1].data.get("total_hits")
+    if isinstance(total_hits, int):
+        expected_documents = min(total_hits, total_limit) if total_limit else total_hits
+        assert documents_received == expected_documents, (
+            f"incomplete documents for req_id={req_id}: "
+            f"received={documents_received}, expected={expected_documents}"
+        )
+
+
 async def _assert_cross_instance_query_ws_routing(
     request_url: str,
     websocket_owner_client: GulpClient,
@@ -473,6 +538,7 @@ async def _assert_cross_instance_query_ws_routing(
 ) -> None:
     """Send a query through one instance and assert delivery to another instance's websocket."""
     query_req_id = _unique(req_id_prefix)
+    arrival_trace: list[Any] = []
     baselines = [
         {
             WSMessageType.DOCUMENTS_CHUNK: len(store[WSMessageType.DOCUMENTS_CHUNK]),
@@ -481,45 +547,73 @@ async def _assert_cross_instance_query_ws_routing(
         for store in stores
     ]
 
-    async with GulpClient(
-        request_url,
-        token=websocket_owner_client.token,
-        ws_auto_connect=False,
-    ) as request_client:
-        query_response = await request_client.queries.query_raw(
-            operation_id=operation_id,
-            ws_id=websocket_owner_client.ws_id,
-            q=q or {"query": {"match_all": {}}},
-            q_options=q_options or {"limit": 25, "name": _unique("cross_qn")},
+    async def _trace_query_message(message: Any) -> None:
+        if getattr(message, "req_id", None) == query_req_id:
+            arrival_trace.append(message)
+
+    for message_type in (
+        WSMessageType.DOCUMENTS_CHUNK,
+        WSMessageType.QUERY_DONE,
+    ):
+        await websocket_owner_client.register_ws_message_handler(
+            message_type,
+            _trace_query_message,
+        )
+
+    effective_query_options = q_options or {
+        "limit": 25,
+        "name": _unique("cross_qn"),
+    }
+    try:
+        async with GulpClient(
+            request_url,
+            token=websocket_owner_client.token,
+            ws_auto_connect=False,
+        ) as request_client:
+            query_response = await request_client.queries.query_raw(
+                operation_id=operation_id,
+                ws_id=websocket_owner_client.ws_id,
+                q=q or {"query": {"match_all": {}}},
+                q_options=effective_query_options,
+                req_id=query_req_id,
+                wait=False,
+            )
+            print("cross-instance query_raw response:", query_response)
+
+            assert query_response.get("req_id") == query_req_id
+            assert str(query_response.get("status", "")).lower() == "pending"
+
+            query_stats = await _wait_for_request_terminal_status(
+                request_client,
+                query_req_id,
+                timeout=120.0,
+            )
+            print("cross-instance query stats:", query_stats)
+            assert str(query_stats.get("status", "")).lower() == "done"
+
+        await _assert_requester_only_query_ws_events(
+            stores,
+            requester_idx=websocket_owner_idx,
             req_id=query_req_id,
-            wait=False,
+            expect_ws_events=True,
+            timeout=30.0,
+            baselines=baselines,
+            expected_docs_chunk_marker=expected_docs_chunk_marker,
         )
-        print("cross-instance query_raw response:", query_response)
-
-        assert query_response.get("req_id") == query_req_id
-        assert str(query_response.get("status", "")).lower() == "pending"
-
-        query_stats = await _wait_for_request_terminal_status(
-            request_client,
+        _assert_query_ws_message_order(
+            arrival_trace,
             query_req_id,
-            timeout=120.0,
+            total_limit=int(effective_query_options.get("total_limit", 0)),
         )
-        print("cross-instance query stats:", query_stats)
-        assert str(query_stats.get("status", "")).lower() in {
-            "done",
-            "failed",
-            "canceled",
-        }
-
-    await _assert_requester_only_query_ws_events(
-        stores,
-        requester_idx=websocket_owner_idx,
-        req_id=query_req_id,
-        expect_ws_events=True,
-        timeout=30.0,
-        baselines=baselines,
-        expected_docs_chunk_marker=expected_docs_chunk_marker,
-    )
+    finally:
+        for message_type in (
+            WSMessageType.DOCUMENTS_CHUNK,
+            WSMessageType.QUERY_DONE,
+        ):
+            websocket_owner_client.unregister_ws_message_handler(
+                message_type,
+                _trace_query_message,
+            )
 
 
 def _ws_url(base_url: str, path: str) -> str:
@@ -1156,14 +1250,17 @@ async def _run_multi_user_scenario(
                     plugin_name="raw",
                     data=[
                         {
-                            "@timestamp": "2026-01-01T00:00:00.000Z",
+                            "@timestamp": f"2026-01-01T00:00:0{doc_idx}.000Z",
                             "event.code": large_query_marker,
                             "event.original": (
-                                f"{large_query_marker} {_LARGE_QUERY_EVENT_ORIGINAL}"
+                                f"{large_query_marker}-{doc_idx} "
+                                f"{_LARGE_QUERY_EVENT_ORIGINAL}"
                             ),
+                            "event.sequence": doc_idx,
                             "gulp.context_id": "multi_instance_large_query_context",
                             "gulp.source_id": "multi_instance_large_query_source",
                         }
+                        for doc_idx in range(_LARGE_QUERY_DOCUMENT_COUNT)
                     ],
                     params={
                         "last": True,

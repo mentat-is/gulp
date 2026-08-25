@@ -85,8 +85,11 @@ Task queue and pub/sub:
   concurrency to Redis, PostgreSQL, and OpenSearch pressure. Local query tasks
   have a separate admission limit so a query burst cannot starve other work.
 - Redis pub/sub is used for WebSocket fan-out, internal event delivery, and
-  inter-instance coordination. Internal events use their own envelope and
-  listener registry; they are not websocket packets. See
+  inter-instance coordination. Subscriber callbacks that carry both `ws_id`
+  and `req_id` are processed FIFO within that request, including large-payload
+  resolution and WebSocket enqueueing; callbacks for independent requests stay
+  concurrent. Internal events use their own envelope and listener registry;
+  they are not websocket packets. See
   [plugin events](plugins_and_mapping.md#advanced-registering-and-emitting-events-from-extension-plugins)
   for delivery and listener semantics.
 

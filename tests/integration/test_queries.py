@@ -21,6 +21,12 @@ import pytest
 import uuid
 import orjson
 
+from gulp_sdk import GulpClient, WSMessageType
+from tests.integration._test_multi_instance_base import (
+    _assert_query_ws_message_order,
+    _run_multi_user_scenario,
+)
+
 
 def _unique(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
@@ -108,6 +114,114 @@ class _InlineProcessPool:
 
     async def apply(self, func, args: tuple = (), kwds: dict[str, Any] = None):
         return await func(*(args or ()), **(kwds or {}))
+
+
+@pytest.mark.integration
+async def test_query_large_chunks_precede_query_done(
+    gulp_base_url, gulp_test_user, gulp_test_password
+):
+    """Large multi-chunk query results must remain FIFO through WebSocket delivery."""
+    marker = _unique("query_ws_fifo")
+    req_id = _unique("req_query_ws_fifo")
+    query_done = asyncio.Event()
+    arrival_trace: list[Any] = []
+    payload = [
+        {
+            "@timestamp": f"2026-01-01T00:00:0{doc_idx}.000Z",
+            "gulp.context_id": f"ctx_{marker}",
+            "gulp.source_id": f"src_{marker}",
+            "event.original": f"{marker}-{doc_idx}-" + ("x" * (300 * 1024)),
+            "event.sequence": doc_idx,
+        }
+        for doc_idx in range(3)
+    ]
+
+    async def _trace_query_message(message: Any) -> None:
+        if getattr(message, "req_id", None) != req_id:
+            return
+        arrival_trace.append(message)
+        if message.type == WSMessageType.QUERY_DONE.value:
+            query_done.set()
+
+    async with GulpClient(gulp_base_url) as client:
+        await client.auth.login(gulp_test_user, gulp_test_password)
+        op_id = await _setup_operation(client)
+        try:
+            ingest = await client.ingest.raw(
+                operation_id=op_id,
+                plugin_name="raw",
+                data=payload,
+                params={"last": True, "req_id": _unique("req_query_ws_ingest")},
+                wait=True,
+                timeout=180,
+            )
+            assert ingest.req_id
+            assert len(await _wait_query_docs(client, op_id)) == len(payload)
+
+            for message_type in (
+                WSMessageType.DOCUMENTS_CHUNK,
+                WSMessageType.QUERY_DONE,
+            ):
+                await client.register_ws_message_handler(
+                    message_type,
+                    _trace_query_message,
+                )
+
+            query_response = await client.queries.query_raw(
+                operation_id=op_id,
+                ws_id=client.ws_id,
+                q={"query": {"match_all": {}}},
+                q_options={"limit": 1, "fields": "*", "name": marker},
+                req_id=req_id,
+                wait=False,
+            )
+            assert query_response.get("req_id") == req_id
+            stats = await _wait_request_done(client, req_id)
+            assert str(stats.get("status", "")).lower() == "done"
+            await asyncio.wait_for(query_done.wait(), timeout=30.0)
+
+            _assert_query_ws_message_order(arrival_trace, req_id)
+            received_docs = [
+                document
+                for message in arrival_trace
+                if message.type == WSMessageType.DOCUMENTS_CHUNK.value
+                for document in message.data.get("docs", [])
+            ]
+            assert len(received_docs) == len(payload)
+            assert all(
+                marker in document.get("event.original", "")
+                for document in received_docs
+            )
+        finally:
+            for message_type in (
+                WSMessageType.DOCUMENTS_CHUNK,
+                WSMessageType.QUERY_DONE,
+            ):
+                client.unregister_ws_message_handler(
+                    message_type,
+                    _trace_query_message,
+                )
+            await _teardown_operation(client, op_id)
+
+
+@pytest.mark.integration
+async def test_query_large_chunks_precede_query_done_cross_instance(
+    gulp_base_url,
+):
+    """Preserve multi-chunk ordering when HTTP ingress and WebSocket owner differ."""
+    second_base_url = os.getenv("GULP_SECOND_BASE_URL")
+    if not second_base_url:
+        pytest.skip("GULP_SECOND_BASE_URL is required for cross-instance coverage")
+
+    await _run_multi_user_scenario(
+        [gulp_base_url, second_base_url],
+        run_client_data=False,
+        run_cross_instance_query=True,
+        run_query_isolation=False,
+        run_collab_lifecycle=False,
+        run_ingest=False,
+        run_enrich=False,
+    )
 
 
 @pytest.mark.integration

@@ -268,6 +268,148 @@ async def test_gulp_redis_subscribe_and_broker_lifecycle_are_idempotent(monkeypa
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+async def test_gulp_redis_serializes_callbacks_for_same_websocket_request():
+    GulpRedis._instance = None
+    redis_client = GulpRedis.get_instance()
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    callback_order: list[str] = []
+
+    async def _callback(message: dict) -> None:
+        if message["type"] == "docs_chunk":
+            first_started.set()
+            await release_first.wait()
+        callback_order.append(message["type"])
+
+    docs_task = await redis_client._schedule_handler_callback(
+        _callback,
+        {"type": "docs_chunk", "ws_id": "ws-a", "req_id": "req-a"},
+        "gulpredis",
+    )
+    await asyncio.wait_for(first_started.wait(), timeout=1.0)
+    done_task = await redis_client._schedule_handler_callback(
+        _callback,
+        {"type": "query_done", "ws_id": "ws-a", "req_id": "req-a"},
+        "gulpredis",
+    )
+
+    await asyncio.sleep(0)
+    assert not done_task.done()
+    assert callback_order == []
+
+    release_first.set()
+    await asyncio.gather(docs_task, done_task)
+    await asyncio.sleep(0)
+
+    assert callback_order == ["docs_chunk", "query_done"]
+    assert redis_client._handler_tasks == set()
+    assert redis_client._request_handler_tails == {}
+    assert redis_client._handler_semaphore._value == 16
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ({"ws_id": "ws-a", "req_id": "req-a"}, ("ws-a", "req-a")),
+        ({"ws_id": "ws-a"}, None),
+        ({"req_id": "req-a"}, None),
+        ({"ws_id": "", "req_id": "req-a"}, None),
+    ],
+)
+def test_gulp_redis_request_handler_key_requires_both_ids(
+    message: dict,
+    expected: tuple[str, str] | None,
+) -> None:
+    assert GulpRedis._request_handler_key(message) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_gulp_redis_keeps_independent_requests_concurrent():
+    GulpRedis._instance = None
+    redis_client = GulpRedis.get_instance()
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    second_completed = asyncio.Event()
+
+    async def _callback(message: dict) -> None:
+        if message["req_id"] == "req-a":
+            first_started.set()
+            await release_first.wait()
+        else:
+            second_completed.set()
+
+    first_task = await redis_client._schedule_handler_callback(
+        _callback,
+        {"type": "docs_chunk", "ws_id": "ws-a", "req_id": "req-a"},
+        "gulpredis",
+    )
+    await asyncio.wait_for(first_started.wait(), timeout=1.0)
+    second_task = await redis_client._schedule_handler_callback(
+        _callback,
+        {"type": "query_done", "ws_id": "ws-a", "req_id": "req-b"},
+        "gulpredis",
+    )
+
+    await asyncio.wait_for(second_completed.wait(), timeout=1.0)
+    assert second_task.done()
+    assert not first_task.done()
+
+    release_first.set()
+    await first_task
+    await asyncio.sleep(0)
+
+    assert redis_client._handler_tasks == set()
+    assert redis_client._request_handler_tails == {}
+    assert redis_client._handler_semaphore._value == 16
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_gulp_redis_callback_error_releases_request_chain(monkeypatch):
+    GulpRedis._instance = None
+    redis_client = GulpRedis.get_instance()
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    callback_order: list[str] = []
+    monkeypatch.setattr(
+        "gulp.api.redis_api.GulpConfig.get_instance",
+        lambda: _FakeConfig(prometheus_enabled=False),
+    )
+
+    async def _callback(message: dict) -> None:
+        if message["type"] == "docs_chunk":
+            first_started.set()
+            await release_first.wait()
+            callback_order.append(message["type"])
+            raise RuntimeError("artificial callback failure")
+        callback_order.append(message["type"])
+
+    failed_task = await redis_client._schedule_handler_callback(
+        _callback,
+        {"type": "docs_chunk", "ws_id": "ws-a", "req_id": "req-a"},
+        "gulpredis",
+    )
+    await asyncio.wait_for(first_started.wait(), timeout=1.0)
+    successor_task = await redis_client._schedule_handler_callback(
+        _callback,
+        {"type": "query_done", "ws_id": "ws-a", "req_id": "req-a"},
+        "gulpredis",
+    )
+
+    release_first.set()
+    await asyncio.gather(failed_task, successor_task)
+    await asyncio.sleep(0)
+
+    assert callback_order == ["docs_chunk", "query_done"]
+    assert redis_client._handler_tasks == set()
+    assert redis_client._request_handler_tails == {}
+    assert redis_client._handler_semaphore._value == 16
+
+
+@pytest.mark.unit
 def test_wsdata_check_type_in_broadcast_types():
     broker = GulpRedisBroker.get_instance()
     original_types = set(broker.broadcast_types)

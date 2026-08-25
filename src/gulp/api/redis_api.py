@@ -185,7 +185,12 @@ class GulpRedis:
         # semaphore to limit concurrent message handler tasks in subscriber loop
         self._handler_semaphore: asyncio.Semaphore = asyncio.Semaphore(16)
         # track in-flight handler tasks for cleanup
-        self._handler_tasks: set[asyncio.Task] = set()
+        self._handler_tasks: set[asyncio.Task[None]] = set()
+        # Preserve Redis reception order within one websocket request while
+        # retaining concurrent callback processing across independent requests.
+        self._request_handler_tails: dict[
+            tuple[str, str], asyncio.Task[None]
+        ] = {}
 
     def __new__(cls):
         """
@@ -1081,14 +1086,13 @@ class GulpRedis:
                         try:
                             d: dict = orjson.loads(message["data"])
                             d["__redis_channel__"] = actual_channel
-                            # dispatch as concurrent task to avoid head-of-line blocking
-                            await self._handler_semaphore.acquire()
-                            # calls _handle_pubsub_message releasing the lock in the end
-                            task = asyncio.create_task(
-                                self._guarded_callback(callback, d, actual_channel)
+                            # Dispatch requests independently while preserving the
+                            # Redis reception order inside one websocket request.
+                            await self._schedule_handler_callback(
+                                callback,
+                                d,
+                                actual_channel,
                             )
-                            self._handler_tasks.add(task)
-                            task.add_done_callback(self._handler_tasks.discard)
                         except Exception as ex:
                             if GulpConfig.get_instance().prometheus_enabled():
                                 # update Prometheus counter for subscriber callback errors
@@ -1166,15 +1170,80 @@ class GulpRedis:
                 _MAIN_REDIS_CHANNEL,
                 _CLIENT_DATA_REDIS_CHANNEL,
             )
+        finally:
             # wait for in-flight handler tasks to finish
             if self._handler_tasks:
                 await asyncio.gather(*self._handler_tasks, return_exceptions=True)
+            self._request_handler_tails.clear()
+
+    @staticmethod
+    def _request_handler_key(message: dict) -> tuple[str, str] | None:
+        """Return the websocket request identity that requires FIFO delivery."""
+        ws_id = message.get("ws_id")
+        req_id = message.get("req_id")
+        if not isinstance(ws_id, str) or not ws_id:
+            return None
+        if not isinstance(req_id, str) or not req_id:
+            return None
+        return ws_id, req_id
+
+    async def _schedule_handler_callback(
+        self,
+        callback: Callable[[dict], Any],
+        message: dict,
+        channel: str,
+    ) -> asyncio.Task[None]:
+        """Schedule one bounded callback after its request predecessor."""
+        await self._handler_semaphore.acquire()
+        request_key = self._request_handler_key(message)
+        predecessor = (
+            self._request_handler_tails.get(request_key) if request_key else None
+        )
+        try:
+            task = asyncio.create_task(
+                self._guarded_callback(
+                    callback,
+                    message,
+                    channel,
+                    predecessor,
+                )
+            )
+        except BaseException:
+            self._handler_semaphore.release()
+            raise
+
+        self._handler_tasks.add(task)
+        if request_key:
+            self._request_handler_tails[request_key] = task
+        task.add_done_callback(
+            lambda completed, key=request_key: self._handler_callback_done(
+                completed,
+                key,
+            )
+        )
+        return task
+
+    def _handler_callback_done(
+        self,
+        task: asyncio.Task[None],
+        request_key: tuple[str, str] | None,
+    ) -> None:
+        """Release completed task references without deleting a newer chain tail."""
+        self._handler_tasks.discard(task)
+        if request_key and self._request_handler_tails.get(request_key) is task:
+            self._request_handler_tails.pop(request_key, None)
 
     async def _guarded_callback(
-        self, callback: Callable[[dict], Any], d: dict, channel: str
+        self,
+        callback: Callable[[dict], Any],
+        d: dict,
+        channel: str,
+        predecessor: asyncio.Task[None] | None = None,
     ) -> None:
-        """Run callback under semaphore guard, releasing on completion."""
+        """Run a callback after its request predecessor and release its slot."""
         try:
+            if predecessor:
+                await asyncio.gather(predecessor, return_exceptions=True)
             await callback(d)
         except Exception as ex:
             if GulpConfig.get_instance().prometheus_enabled():
