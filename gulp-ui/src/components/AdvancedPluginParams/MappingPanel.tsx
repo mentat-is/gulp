@@ -237,7 +237,8 @@ export function MappingPanel({ initialData, onSave, open, setOpen }: MappingPane
               { key: 'name', label: t('common.name') },
               { key: 'force_type', label: t('advancedParams.forceType') },
               { key: 'is_timestamp', label: t('advancedParams.isTimestamp') },
-              { key: 'ecs', label: 'ECS' }
+              { key: 'ecs', label: 'ECS' },
+              { key: 'extra_doc_with_event_code', label: t(`advancedParams.eventCode`)}
             ]} 
             data={fields}
             onEdit={(item, index) => {

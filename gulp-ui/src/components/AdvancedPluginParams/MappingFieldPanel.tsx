@@ -213,7 +213,7 @@ export function MappingFieldPanel({ initialData, onSave, open, setOpen }: Mappin
             placeholder={t('advancedParams.ecsFieldsPlaceholder')} 
             value={ecsStr} 
             onChange={(e) => setEcsStr(e.target.value)} 
-            valid={!!ecsStr}
+            valid={!!ecsStr || !!extraDocWithEventCode} 
           />
 
           <Input 
@@ -232,7 +232,7 @@ export function MappingFieldPanel({ initialData, onSave, open, setOpen }: Mappin
             </Button>
             <Button 
               variant="tertiary" 
-              disabled={!name || !ecsStr} 
+              disabled={!(name && (!!ecsStr || !!extraDocWithEventCode))} 
               onClick={handleSave}
             >
               {initialData ? t('common.update') : t('common.add')}
