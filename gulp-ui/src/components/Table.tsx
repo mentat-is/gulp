@@ -1,13 +1,15 @@
 import React, {
 	useCallback,
+	useEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import s from "./styles/Table.module.css";
-import { cn } from "@/ui/utils";
+import { cn, copy } from "@/ui/utils";
 import { Icon } from "@/ui/Icon";
 import { Stack } from "@/ui/Stack";
 import { Checkbox } from "@/ui/Checkbox";
@@ -52,10 +54,100 @@ interface FormatCellValueCache {
 interface SharedTooltipState {
 	/** Text displayed by the shared cell tooltip. */
 	text: string;
-	/** Viewport-relative top coordinate. */
-	top: number;
-	/** Viewport-relative left coordinate. */
-	left: number;
+	/** Cell that owns the tooltip until it is dismissed. */
+	trigger: HTMLElement;
+	/** Body element in the trigger's document, including detached windows. */
+	portalContainer: HTMLElement;
+	/** Whether pointer interaction has made the tooltip persistent. */
+	pinned: boolean;
+	/** Viewport-relative edge coordinates selected for the available space. */
+	top?: number;
+	bottom?: number;
+	left?: number;
+	right?: number;
+	/** Collision-aware tooltip size limits. */
+	maxWidth: number;
+	maxHeight: number;
+}
+
+const SHARED_TOOLTIP_GAP = 6;
+const SHARED_TOOLTIP_MARGIN = 8;
+const SHARED_TOOLTIP_MAX_WIDTH = 400;
+const SHARED_TOOLTIP_MAX_HEIGHT = 300;
+const SHARED_TOOLTIP_HIDE_DELAY_MSEC = 160;
+
+/**
+ * Places a shared cell tooltip on the viewport sides with the most free space.
+ * @param trigger Cell text element that anchors the tooltip.
+ * @returns Fixed-position coordinates and collision-aware size limits.
+ */
+function resolveSharedTooltipPlacement(
+	trigger: HTMLElement,
+): Pick<
+	SharedTooltipState,
+	"top" | "bottom" | "left" | "right" | "maxWidth" | "maxHeight"
+> {
+	const rect = trigger.getBoundingClientRect();
+	const ownerWindow = trigger.ownerDocument.defaultView ?? window;
+	const viewportWidth = ownerWindow.innerWidth;
+	const viewportHeight = ownerWindow.innerHeight;
+	const availableBelow = Math.max(
+		0,
+		viewportHeight - SHARED_TOOLTIP_MARGIN - rect.bottom - SHARED_TOOLTIP_GAP,
+	);
+	const availableAbove = Math.max(
+		0,
+		rect.top - SHARED_TOOLTIP_MARGIN - SHARED_TOOLTIP_GAP,
+	);
+	const placeBelow = availableBelow >= availableAbove;
+	const availableRight = Math.max(
+		0,
+		viewportWidth - SHARED_TOOLTIP_MARGIN - rect.left,
+	);
+	const availableLeft = Math.max(0, rect.right - SHARED_TOOLTIP_MARGIN);
+	const alignFromLeft = availableRight >= availableLeft;
+	const maxWidth = Math.max(
+		0,
+		Math.min(
+			SHARED_TOOLTIP_MAX_WIDTH,
+			viewportWidth - SHARED_TOOLTIP_MARGIN * 2,
+		),
+	);
+	const maxHeight = Math.max(
+		0,
+		Math.min(
+			SHARED_TOOLTIP_MAX_HEIGHT,
+			placeBelow ? availableBelow : availableAbove,
+		),
+	);
+	const maximumHorizontalInset = Math.max(
+		SHARED_TOOLTIP_MARGIN,
+		viewportWidth - SHARED_TOOLTIP_MARGIN - maxWidth,
+	);
+
+	return {
+		...(placeBelow
+			? { top: rect.bottom + SHARED_TOOLTIP_GAP }
+			: { bottom: viewportHeight - rect.top + SHARED_TOOLTIP_GAP }),
+		...(alignFromLeft
+			? {
+					left: Math.max(
+						SHARED_TOOLTIP_MARGIN,
+						Math.min(rect.left, maximumHorizontalInset),
+					),
+				}
+			: {
+					right: Math.max(
+						SHARED_TOOLTIP_MARGIN,
+						Math.min(
+							viewportWidth - rect.right,
+							maximumHorizontalInset,
+						),
+					),
+				}),
+		maxWidth,
+		maxHeight,
+	};
 }
 
 export namespace Table {
@@ -712,6 +804,12 @@ export function Table<T extends Object>({
 	const [columnMenuMaxHeight, setColumnMenuMaxHeight] = useState<number>();
 	const [sharedTooltip, setSharedTooltip] =
 		useState<SharedTooltipState | null>(null);
+	const sharedTooltipRef = useRef<HTMLDivElement | null>(null);
+	const sharedTooltipTriggerRef = useRef<HTMLElement | null>(null);
+	const sharedTooltipPinnedRef = useRef(false);
+	const sharedTooltipHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
 
 	const hasCustomVirtualizationConfig = typeof virtualizationProp === "object";
 	const virtualizationThreshold =
@@ -1054,12 +1152,56 @@ export function Table<T extends Object>({
 	);
 
 	/**
+	 * Cancels a pending shared-tooltip dismissal.
+	 * @returns Nothing.
+	 */
+	const clearSharedTooltipHideTimer = useCallback(() => {
+		if (sharedTooltipHideTimerRef.current !== null) {
+			clearTimeout(sharedTooltipHideTimerRef.current);
+			sharedTooltipHideTimerRef.current = null;
+		}
+	}, []);
+
+	/**
 	 * Hides the shared overflow tooltip for default table cells.
 	 * @returns Nothing.
 	 */
 	const hideSharedTooltip = useCallback(() => {
+		clearSharedTooltipHideTimer();
+		sharedTooltipPinnedRef.current = false;
+		sharedTooltipTriggerRef.current = null;
 		setSharedTooltip(null);
-	}, []);
+	}, [clearSharedTooltipHideTimer]);
+
+	/**
+	 * Dismisses a passive tooltip after allowing movement across the anchor gap.
+	 * @returns Nothing.
+	 */
+	const scheduleSharedTooltipHide = useCallback(() => {
+		clearSharedTooltipHideTimer();
+		if (sharedTooltipPinnedRef.current) {
+			return;
+		}
+		sharedTooltipHideTimerRef.current = setTimeout(() => {
+			if (!sharedTooltipPinnedRef.current) {
+				sharedTooltipTriggerRef.current = null;
+				setSharedTooltip(null);
+			}
+			sharedTooltipHideTimerRef.current = null;
+		}, SHARED_TOOLTIP_HIDE_DELAY_MSEC);
+	}, [clearSharedTooltipHideTimer]);
+
+	/**
+	 * Keeps the tooltip mounted while its text or controls are being used.
+	 * @returns Nothing.
+	 */
+	const pinSharedTooltip = useCallback(() => {
+		clearSharedTooltipHideTimer();
+		sharedTooltipPinnedRef.current = true;
+		setSharedTooltip((current) =>
+			current && !current.pinned ? { ...current, pinned: true } : current,
+		);
+	}, [clearSharedTooltipHideTimer]);
 
 	/**
 	 * Shows the shared tooltip when a default cell span is visually truncated.
@@ -1068,14 +1210,17 @@ export function Table<T extends Object>({
 	 */
 	const handleTableMouseOver = useCallback(
 		(event: React.MouseEvent<HTMLTableElement>) => {
-			const target =
-				event.target instanceof Element ? event.target : undefined;
+			const target = event.target as HTMLElement | null;
 			const trigger = target?.closest<HTMLElement>(
 				'[data-table-tooltip-trigger="true"]',
 			);
 			if (!trigger || !tableRef.current?.contains(trigger)) {
 				return;
 			}
+			if (sharedTooltipPinnedRef.current) {
+				return;
+			}
+			clearSharedTooltipHideTimer();
 
 			const isOverflowing = trigger.scrollWidth > trigger.clientWidth + 1;
 			if (!isOverflowing) {
@@ -1089,18 +1234,21 @@ export function Table<T extends Object>({
 				return;
 			}
 
-			const rect = trigger.getBoundingClientRect();
-			const ownerWindow = trigger.ownerDocument.defaultView ?? window;
+			if (sharedTooltipTriggerRef.current === trigger) {
+				return;
+			}
+
+			sharedTooltipTriggerRef.current = trigger;
+			sharedTooltipPinnedRef.current = false;
 			setSharedTooltip({
 				text: tooltipText,
-				top: Math.max(
-					8,
-					Math.min(rect.bottom + 6, ownerWindow.innerHeight - 320),
-				),
-				left: Math.max(8, Math.min(rect.left, ownerWindow.innerWidth - 420)),
+				trigger,
+				portalContainer: trigger.ownerDocument.body,
+				pinned: false,
+				...resolveSharedTooltipPlacement(trigger),
 			});
 		},
-		[hideSharedTooltip],
+		[clearSharedTooltipHideTimer, hideSharedTooltip],
 	);
 
 	/**
@@ -1110,8 +1258,7 @@ export function Table<T extends Object>({
 	 */
 	const handleTableMouseOut = useCallback(
 		(event: React.MouseEvent<HTMLTableElement>) => {
-			const target =
-				event.target instanceof Element ? event.target : undefined;
+			const target = event.target as HTMLElement | null;
 			const trigger = target?.closest<HTMLElement>(
 				'[data-table-tooltip-trigger="true"]',
 			);
@@ -1120,15 +1267,68 @@ export function Table<T extends Object>({
 			}
 
 			const relatedTarget =
-				event.relatedTarget instanceof Node ? event.relatedTarget : null;
+				event.relatedTarget &&
+				typeof (event.relatedTarget as Node).nodeType === "number"
+					? (event.relatedTarget as Node)
+					: null;
 			if (relatedTarget && trigger.contains(relatedTarget)) {
 				return;
 			}
 
-			hideSharedTooltip();
+			if (relatedTarget && sharedTooltipRef.current?.contains(relatedTarget)) {
+				clearSharedTooltipHideTimer();
+				return;
+			}
+
+			scheduleSharedTooltipHide();
 		},
-		[hideSharedTooltip],
+		[clearSharedTooltipHideTimer, scheduleSharedTooltipHide],
 	);
+
+	useEffect(() => {
+		return clearSharedTooltipHideTimer;
+	}, [clearSharedTooltipHideTimer]);
+
+	useEffect(() => {
+		if (!sharedTooltip) {
+			return;
+		}
+
+		const ownerDocument = sharedTooltip.trigger.ownerDocument;
+		const ownerWindow = ownerDocument.defaultView;
+		const handleOutsidePointerDown = (event: PointerEvent) => {
+			if (!sharedTooltip.pinned) {
+				return;
+			}
+			const target = event.target as Node | null;
+			if (
+				target &&
+				(sharedTooltipRef.current?.contains(target) ||
+					sharedTooltip.trigger.contains(target))
+			) {
+				return;
+			}
+			hideSharedTooltip();
+		};
+		const handleTooltipKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				hideSharedTooltip();
+			}
+		};
+
+		ownerDocument.addEventListener("pointerdown", handleOutsidePointerDown, true);
+		ownerDocument.addEventListener("keydown", handleTooltipKeyDown);
+		ownerWindow?.addEventListener("resize", hideSharedTooltip);
+		return () => {
+			ownerDocument.removeEventListener(
+				"pointerdown",
+				handleOutsidePointerDown,
+				true,
+			);
+			ownerDocument.removeEventListener("keydown", handleTooltipKeyDown);
+			ownerWindow?.removeEventListener("resize", hideSharedTooltip);
+		};
+	}, [hideSharedTooltip, sharedTooltip]);
 
 	/**
 	 * Preserves caller scroll handling while hiding stale cell tooltips.
@@ -1227,7 +1427,7 @@ export function Table<T extends Object>({
 			style={{ width: totalTableWidth }}
 			onMouseOver={handleTableMouseOver}
 			onMouseOut={handleTableMouseOut}
-			onMouseLeave={hideSharedTooltip}
+			onMouseLeave={scheduleSharedTooltipHide}
 			onClick={hideSharedTooltip}
 		>
 			<colgroup>
@@ -1379,18 +1579,55 @@ export function Table<T extends Object>({
 				) : (
 					tableElement
 				)}
-				{sharedTooltip ? (
-					<div
-						className={s.sharedTooltip}
-						data-table-tooltip="true"
-						style={{
-							top: sharedTooltip.top,
-							left: sharedTooltip.left,
-						}}
-					>
-						{sharedTooltip.text}
-					</div>
-				) : null}
+				{sharedTooltip
+					? createPortal(
+							<div
+								ref={sharedTooltipRef}
+								className={s.sharedTooltip}
+								data-table-tooltip="true"
+								data-table-tooltip-pinned={sharedTooltip.pinned || undefined}
+								style={{
+									...(sharedTooltip.top !== undefined
+										? { top: sharedTooltip.top }
+										: {}),
+									...(sharedTooltip.bottom !== undefined
+										? { bottom: sharedTooltip.bottom }
+										: {}),
+									...(sharedTooltip.left !== undefined
+										? { left: sharedTooltip.left }
+										: {}),
+									...(sharedTooltip.right !== undefined
+										? { right: sharedTooltip.right }
+										: {}),
+									maxWidth: sharedTooltip.maxWidth,
+									maxHeight: sharedTooltip.maxHeight,
+								}}
+								onMouseEnter={clearSharedTooltipHideTimer}
+								onMouseLeave={scheduleSharedTooltipHide}
+								onPointerDown={pinSharedTooltip}
+							>
+								<div className={s.sharedTooltipToolbar}>
+									<Button
+										className={s.sharedTooltipCopyButton}
+										type="button"
+										variant="tertiary"
+										size="sm"
+										icon="Copy"
+										aria-label={t("common.copy")}
+										title={t("common.copy")}
+										onClick={() => copy(sharedTooltip.text)}
+									/>
+								</div>
+								<div
+									className={s.sharedTooltipText}
+									tabIndex={0}
+								>
+									{sharedTooltip.text}
+								</div>
+							</div>,
+							sharedTooltip.portalContainer,
+						)
+					: null}
 			</Stack>
 		</TooltipProvider>
 	);

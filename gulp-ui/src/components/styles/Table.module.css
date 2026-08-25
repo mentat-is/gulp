@@ -255,13 +255,15 @@
 
 .sharedTooltip {
 	position: fixed;
-	max-width: 400px;
-	max-height: 300px;
-	overflow: auto;
-	white-space: pre-wrap;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	width: max-content;
+	min-width: 120px;
+	overflow: hidden;
 	text-align: left;
 	background: var(--background-100);
-	padding: 8px;
+	padding: 6px;
 	border: 1px solid var(--gray-400);
 	border-radius: 6px;
 	z-index: 1500;
@@ -270,5 +272,41 @@
 	font-size: 11px;
 	line-height: 1.35;
 	box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
-	pointer-events: none;
+	pointer-events: auto;
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+.sharedTooltipToolbar {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: flex-end;
+	height: 24px;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.sharedTooltipCopyButton {
+	flex: 0 0 auto;
+}
+
+.sharedTooltipText {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	min-height: 0;
+	max-width: 100%;
+	overflow: auto;
+	padding: 4px 2px 2px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	cursor: text;
+	outline: none;
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+.sharedTooltipText:focus-visible {
+	box-shadow: var(--ring);
 }

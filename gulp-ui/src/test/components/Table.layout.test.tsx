@@ -19,6 +19,8 @@ interface MockContextMenuProps extends MockChildrenProps {
 	onOpenChange?: (open: boolean) => void;
 }
 
+const mockCopiedValues: string[] = [];
+
 jest.mock("@tanstack/react-virtual", () => ({
 	useVirtualizer: () => ({
 		getVirtualItems: () => [],
@@ -53,6 +55,9 @@ jest.mock("@/entities/Glyph", () => ({
 
 jest.mock("@/ui/utils", () => ({
 	cn: (...values: unknown[]): string => values.filter(Boolean).join(" "),
+	copy: (value: string): void => {
+		mockCopiedValues.push(value);
+	},
 }));
 
 jest.mock("@/ui/Icon", () => ({
@@ -101,6 +106,7 @@ describe("Table fixed edge columns", () => {
 	let root: Root;
 
 	beforeEach(() => {
+		mockCopiedValues.length = 0;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -109,6 +115,7 @@ describe("Table fixed edge columns", () => {
 	afterEach(() => {
 		act(() => root.unmount());
 		container.remove();
+		jest.useRealTimers();
 	});
 
 	it("marks optional selection and action cells as sticky edges", () => {
@@ -175,5 +182,146 @@ describe("Table fixed edge columns", () => {
 			'[data-column-visibility-menu="true"]',
 		);
 		expect(columnMenu?.style.maxHeight).toBe("240px");
+	});
+
+	it("places an interactive overflow tooltip in the roomier viewport direction", () => {
+		Object.defineProperty(window, "innerWidth", {
+			configurable: true,
+			value: 800,
+		});
+		Object.defineProperty(window, "innerHeight", {
+			configurable: true,
+			value: 600,
+		});
+		const longValue = "a long cell value that must remain available in full";
+
+		act(() => {
+			root.render(
+				<Table
+					values={[{ value: longValue }]}
+					columns={["value"]}
+					includeIndex={false}
+				/>,
+			);
+		});
+
+		const trigger = container.querySelector<HTMLElement>(
+			'[data-table-tooltip-trigger="true"]',
+		);
+		if (!trigger) {
+			throw new Error("Overflow tooltip trigger was not rendered");
+		}
+		Object.defineProperty(trigger, "clientWidth", {
+			configurable: true,
+			value: 100,
+		});
+		Object.defineProperty(trigger, "scrollWidth", {
+			configurable: true,
+			value: 500,
+		});
+		trigger.getBoundingClientRect = () =>
+			({
+				x: 700,
+				y: 540,
+				width: 80,
+				height: 28,
+				top: 540,
+				right: 780,
+				bottom: 568,
+				left: 700,
+				toJSON: () => undefined,
+			}) as DOMRect;
+
+		act(() => {
+			trigger.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+		});
+
+		const tooltip = document.querySelector<HTMLElement>(
+			'[data-table-tooltip="true"]',
+		);
+		if (!tooltip) {
+			throw new Error("Overflow tooltip was not rendered");
+		}
+		expect((tooltip.textContent ?? "").includes(longValue)).toBe(true);
+		expect(tooltip?.style.bottom).toBe("66px");
+		expect(tooltip?.style.right).toBe("20px");
+		expect(tooltip?.style.maxWidth).toBe("400px");
+		expect(tooltip?.style.maxHeight).toBe("300px");
+
+		const copyButton = tooltip?.querySelector<HTMLButtonElement>(
+			'button[aria-label="common.copy"]',
+		);
+		act(() => copyButton?.click());
+		expect(mockCopiedValues).toEqual([longValue]);
+	});
+
+	it("keeps a pinned overflow tooltip mounted for partial text selection", () => {
+		jest.useFakeTimers();
+		const longValue = "alpha bravo charlie";
+
+		act(() => {
+			root.render(
+				<Table
+					values={[{ value: longValue }]}
+					columns={["value"]}
+					includeIndex={false}
+				/>,
+			);
+		});
+
+		const trigger = container.querySelector<HTMLElement>(
+			'[data-table-tooltip-trigger="true"]',
+		);
+		if (!trigger) {
+			throw new Error("Overflow tooltip trigger was not rendered");
+		}
+		Object.defineProperty(trigger, "clientWidth", {
+			configurable: true,
+			value: 80,
+		});
+		Object.defineProperty(trigger, "scrollWidth", {
+			configurable: true,
+			value: 300,
+		});
+
+		act(() => {
+			trigger.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+		});
+
+		const tooltip = document.querySelector<HTMLElement>(
+			'[data-table-tooltip="true"]',
+		);
+		const tooltipText = tooltip?.querySelector<HTMLElement>('[tabindex="0"]');
+		const textNode = tooltipText?.firstChild;
+		if (!tooltip || !tooltipText || !textNode) {
+			throw new Error("Selectable tooltip text was not rendered");
+		}
+
+		act(() => {
+			tooltipText.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+		});
+		expect(tooltip.dataset.tableTooltipPinned).toBe("true");
+
+		const range = document.createRange();
+		range.setStart(textNode, 6);
+		range.setEnd(textNode, 11);
+		const selection = window.getSelection();
+		selection?.removeAllRanges();
+		selection?.addRange(range);
+		expect(selection?.toString()).toBe("bravo");
+
+		act(() => {
+			trigger.dispatchEvent(
+				new MouseEvent("mouseout", {
+					bubbles: true,
+					relatedTarget: document.body,
+				}),
+			);
+			jest.advanceTimersByTime(200);
+		});
+		expect(document.body.contains(tooltip)).toBe(true);
+		expect(selection?.toString()).toBe("bravo");
+		selection?.removeAllRanges();
+		jest.useRealTimers();
 	});
 });
