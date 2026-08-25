@@ -118,7 +118,7 @@ import {
 	getCanvasEventTimestampRange,
 	isCanvasEventLookupSourceCurrent,
 	isCanvasPixelWithinEventSourceRange,
-	shouldPreferCanvasEventOverOverlay,
+	shouldPreferCanvasEventWhileMagnifying,
 	type CanvasEventLookupGeometry,
 } from "./CanvasEventLookup";
 import {
@@ -1008,7 +1008,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	};
 
 	/**
-	 * Resolves Canvas overlay and exact-event clicks using the active zoom policy.
+	 * Resolves Canvas overlay and exact-event clicks using magnifier intent.
 	 * @param event Native mouse-up click forwarded by the drag interaction bridge.
 	 * @returns Promise settled after an ordered worker hit test and dialog dispatch.
 	 */
@@ -1038,10 +1038,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		const canvasHitX = Math.round(event.clientX - left);
 		const canvasHitY = Math.round(event.clientY - top);
 		const interactionOperationEpoch = DataStore.getRenderOperationEpoch();
-		const preferExactEvent = shouldPreferCanvasEventOverOverlay(
-			isAltPressed,
-			scaleRef.current,
-		);
+		const preferExactEvent = shouldPreferCanvasEventWhileMagnifying(isAltPressed);
 
 		/**
 		 * Resolves and opens the topmost note or link badge at the clicked pixel.

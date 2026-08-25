@@ -727,7 +727,7 @@ describe("WorkerRenderCore", () => {
 		expect(hit).toEqual({ kind: "link", id: "link-offset" });
 	});
 
-	it("draws note and link badges without pointer-dependent overflow", async () => {
+	it("draws bounded hover outlines for note and link badges", async () => {
 		const source = createRenderSource("source-static-badges", 0);
 		await repository.applyDataPatch({
 			globalRevision: 1,
@@ -767,10 +767,16 @@ describe("WorkerRenderCore", () => {
 		});
 		const context = createRecordingContext(1_000, 96);
 		const shadowBlurWrites: number[] = [];
+		const lineWidthWrites: number[] = [];
 		Object.defineProperty(context, "shadowBlur", {
 			configurable: true,
 			get: () => 0,
 			set: (value: number) => shadowBlurWrites.push(value),
+		});
+		Object.defineProperty(context, "lineWidth", {
+			configurable: true,
+			get: () => 1,
+			set: (value: number) => lineWidthWrites.push(value),
 		});
 		const renderCore = new WorkerRenderCore(context, repository, {
 			requestAsset: jest.fn(),
@@ -787,7 +793,10 @@ describe("WorkerRenderCore", () => {
 			id: "note-static",
 			noteIds: ["note-static"],
 		});
+		expect(context.roundRect).toHaveBeenCalledWith(386, 10, 28, 28, 3);
+		expect(lineWidthWrites.includes(2)).toBe(true);
 
+		lineWidthWrites.length = 0;
 		repository.setFrameState(
 			createFrameState([source.id], {
 				pointer: { x: 600, y: 24, inside: true },
@@ -799,6 +808,8 @@ describe("WorkerRenderCore", () => {
 			kind: "link",
 			id: "link-static",
 		});
+		expect(context.roundRect).toHaveBeenCalledWith(590, 10, 20, 20, 2);
+		expect(lineWidthWrites.includes(2)).toBe(true);
 		expect(shadowBlurWrites).toEqual([]);
 	});
 

@@ -4,7 +4,7 @@ import {
 	isCanvasEventLookupSourceCurrent,
 	isCanvasPixelWithinEventSourceRange,
 	isEventInCanvasHitArea,
-	shouldPreferCanvasEventOverOverlay,
+	shouldPreferCanvasEventWhileMagnifying,
 } from "@/app/body/CanvasEventLookup";
 
 const geometry = {
@@ -19,10 +19,9 @@ const geometry = {
 };
 
 describe("Canvas exact event lookup transform", () => {
-	it("prefers exact events for zoomed-in and magnified clicks", () => {
-		expect(shouldPreferCanvasEventOverOverlay(false, 1)).toBe(false);
-		expect(shouldPreferCanvasEventOverOverlay(false, 1.25)).toBe(true);
-		expect(shouldPreferCanvasEventOverOverlay(true, 1)).toBe(true);
+	it("uses the magnifier as explicit exact-event click-through intent", () => {
+		expect(shouldPreferCanvasEventWhileMagnifying(false)).toBe(false);
+		expect(shouldPreferCanvasEventWhileMagnifying(true)).toBe(true);
 	});
 
 	it("inverts every timestamp to a range containing exactly its rounded pixel", () => {

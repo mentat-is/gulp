@@ -482,14 +482,6 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 
 		this.ctx.save();
 
-		// EFFETTO HOVER
-		if (isHovered) {
-			this.ctx.shadowColor = color;
-			this.ctx.shadowBlur = 12;
-			this.ctx.lineWidth = 2;
-			this.ctx.strokeStyle = Color.Themer.theme.FONT_ACCENT;
-		}
-
 		this.drawRect(
 			rectX,
 			rectY,
@@ -497,9 +489,20 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 			size,
 			4,
 			color,
-			Color.Themer.theme.BACKGROUND_SECOND,
+			isHovered
+				? Color.Themer.theme.BACKGROUND_ACCENT
+				: Color.Themer.theme.BACKGROUND_SECOND,
 		);
-		if (isHovered) this.ctx.stroke();
+		if (isHovered) {
+			this.drawBadgeHoverOutline(
+				rectX,
+				rectY,
+				size,
+				size,
+				4,
+				Color.Themer.theme.FONT_ACCENT,
+			);
+		}
 
 		const iconName = Link.Entity.icon(link);
 		const icon = getCanvasIcon({ name: iconName, color });
@@ -659,7 +662,6 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 				rowIndex,
 			) + NOTE_OFFSET;
 
-		// Hit detection per l'Hover
 		const isHovered =
 			this.mouseX !== undefined &&
 			this.mouseY !== undefined &&
@@ -675,16 +677,16 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 		const noteAccent = Note.Entity.resolvedColor(note);
 		const noteIcon = Color.Themer.theme.FONT_ACCENT;
 
-		// EFFETTO HOVER
-		if (isHovered) {
-			this.ctx.shadowColor = noteBorder;
-			this.ctx.shadowBlur = 12; // Effetto Glow
-			this.ctx.lineWidth = 2;
-			this.ctx.strokeStyle = noteBorder;
-		}
-
 		// Main
-		this.drawRect(x, y, NOTE_SIZE, NOTE_SIZE, 5, noteBorder, noteFill);
+		this.drawRect(
+			x,
+			y,
+			NOTE_SIZE,
+			NOTE_SIZE,
+			5,
+			noteBorder,
+			isHovered ? Color.Themer.theme.BACKGROUND_ACCENT : noteFill,
+		);
 		// Accent
 		this.drawRect(
 			x,
@@ -696,7 +698,16 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 			noteAccent,
 		);
 
-		if (isHovered) this.ctx.stroke();
+		if (isHovered) {
+			this.drawBadgeHoverOutline(
+				x,
+				y,
+				NOTE_SIZE,
+				NOTE_SIZE,
+				5,
+				noteIcon,
+			);
+		}
 
 		const icon = getCanvasIcon({
 			name: Note.Entity.icon(note),
@@ -1120,6 +1131,47 @@ export class RenderEngine implements RenderEngineConstructor, Engines {
 			this.ctx.rect(x, y, w, h);
 		}
 		this.ctx.fill();
+		this.ctx.stroke();
+	}
+
+	/**
+	 * Draws a hover outline fully inside a badge to avoid Canvas overflow.
+	 * @param x Badge left coordinate.
+	 * @param y Badge top coordinate.
+	 * @param width Badge width.
+	 * @param height Badge height.
+	 * @param radius Badge corner radius.
+	 * @param color Hover outline color.
+	 * @returns Nothing.
+	 */
+	private drawBadgeHoverOutline(
+		x: number,
+		y: number,
+		width: number,
+		height: number,
+		radius: number,
+		color: string,
+	): void {
+		const inset = 2;
+		this.ctx.strokeStyle = color;
+		this.ctx.lineWidth = 2;
+		this.ctx.beginPath();
+		if (typeof this.ctx.roundRect === "function") {
+			this.ctx.roundRect(
+				x + inset,
+				y + inset,
+				width - inset * 2,
+				height - inset * 2,
+				Math.max(0, radius - inset),
+			);
+		} else {
+			this.ctx.rect(
+				x + inset,
+				y + inset,
+				width - inset * 2,
+				height - inset * 2,
+			);
+		}
 		this.ctx.stroke();
 	}
 

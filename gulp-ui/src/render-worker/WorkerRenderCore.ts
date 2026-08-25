@@ -1920,6 +1920,13 @@ export class WorkerRenderCore {
 	): void {
 		const x = centerX + NOTE_OFFSET;
 		const y = centerY + NOTE_OFFSET;
+		const hovered = this.isPointerInsideBadge(
+			state,
+			x,
+			y,
+			NOTE_SIZE,
+			NOTE_SIZE,
+		);
 		const accent =
 			group.length > 1
 				? state.palette.fontAccent
@@ -1932,7 +1939,9 @@ export class WorkerRenderCore {
 			NOTE_SIZE,
 			5,
 			state.palette.border,
-			state.palette.backgroundSecondary,
+			hovered
+				? state.palette.backgroundAccent
+				: state.palette.backgroundSecondary,
 		);
 		this.drawRoundedRect(
 			x,
@@ -1943,6 +1952,16 @@ export class WorkerRenderCore {
 			state.palette.border,
 			accent,
 		);
+		if (hovered) {
+			this.drawBadgeHoverOutline(
+				x,
+				y,
+				NOTE_SIZE,
+				NOTE_SIZE,
+				5,
+				state.palette.fontAccent,
+			);
+		}
 		this.drawIcon(
 			group.length > 1 ? (note.groupIconKey ?? note.iconKey) : note.iconKey,
 			state.palette.fontAccent,
@@ -2095,6 +2114,7 @@ export class WorkerRenderCore {
 		const x = centerX - size / 2;
 		const y = centerY - size / 2;
 		const color = link.color || state.palette.fontAccent;
+		const hovered = this.isPointerInsideBadge(state, x, y, size, size);
 		this.context.save();
 		this.drawRoundedRect(
 			x,
@@ -2103,8 +2123,20 @@ export class WorkerRenderCore {
 			size,
 			4,
 			color,
-			state.palette.backgroundSecondary,
+			hovered
+				? state.palette.backgroundAccent
+				: state.palette.backgroundSecondary,
 		);
+		if (hovered) {
+			this.drawBadgeHoverOutline(
+				x,
+				y,
+				size,
+				size,
+				4,
+				state.palette.fontAccent,
+			);
+		}
 		this.drawIcon(link.iconKey, color, centerX - 8, centerY - 8, 16);
 		this.context.restore();
 		hitRegions.push({
@@ -2115,6 +2147,72 @@ export class WorkerRenderCore {
 			width: size,
 			height: size,
 		});
+	}
+
+	/**
+	 * Tests whether the active pointer is inside one badge rectangle.
+	 * @param state Current frame pointer state.
+	 * @param x Badge left coordinate.
+	 * @param y Badge top coordinate.
+	 * @param width Badge width.
+	 * @param height Badge height.
+	 * @returns True when the pointer is inside the badge hit area.
+	 */
+	private isPointerInsideBadge(
+		state: RenderFrameState,
+		x: number,
+		y: number,
+		width: number,
+		height: number,
+	): boolean {
+		return (
+			state.pointer.inside &&
+			state.pointer.x >= x &&
+			state.pointer.x <= x + width &&
+			state.pointer.y >= y &&
+			state.pointer.y <= y + height
+		);
+	}
+
+	/**
+	 * Draws a hover outline fully inside a badge to avoid Canvas overflow.
+	 * @param x Badge left coordinate.
+	 * @param y Badge top coordinate.
+	 * @param width Badge width.
+	 * @param height Badge height.
+	 * @param radius Badge corner radius.
+	 * @param color Hover outline color.
+	 * @returns Nothing.
+	 */
+	private drawBadgeHoverOutline(
+		x: number,
+		y: number,
+		width: number,
+		height: number,
+		radius: number,
+		color: string,
+	): void {
+		const inset = 2;
+		this.context.strokeStyle = color;
+		this.context.lineWidth = 2;
+		this.context.beginPath();
+		if (typeof this.context.roundRect === "function") {
+			this.context.roundRect(
+				x + inset,
+				y + inset,
+				width - inset * 2,
+				height - inset * 2,
+				Math.max(0, radius - inset),
+			);
+		} else {
+			this.context.rect(
+				x + inset,
+				y + inset,
+				width - inset * 2,
+				height - inset * 2,
+			);
+		}
+		this.context.stroke();
 	}
 
 	/**

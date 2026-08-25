@@ -7,6 +7,13 @@ links, enrichment, and Send IOC.
 
 Notes attach analyst context to one or more events. They are visible in the event
 detail panel and can be shown on the timeline as markers.
+Clicking a timeline note marker opens its event, or the grouped-note selector when
+multiple notes share a marker. Marker clicks take precedence over events rendered
+beneath them at every zoom level during normal interaction. Hovering a marker
+highlights its fill and displays an inset outline without changing its clickable
+area. While the magnifier is active, an exact event under the pointer takes
+precedence so events covered by the marker remain selectable. If that pixel
+contains no event, the click still selects the marker.
 
 ![Create note](images/create-note.png)
 
@@ -45,6 +52,10 @@ and request behavior shared by detached views.
 
 Links connect related events. They let an analyst represent relationships such as
 cause/effect, repeated activity, or a meaningful investigative sequence.
+Clicking a timeline link marker opens the connected event or the link event group.
+As with note markers, normal link marker clicks take precedence over underlying
+events at every zoom level. Link markers use the same bounded hover highlight and
+allow exact-event click-through while the magnifier is active.
 
 ![Create link](images/create-link.png)
 

@@ -29,18 +29,15 @@ const adjacentFloatBuffer = new ArrayBuffer(8);
 const adjacentFloatView = new DataView(adjacentFloatBuffer);
 
 /**
- * Determines whether an exact event should take precedence over a Canvas overlay.
- * Zoomed-in and magnified views expose event pixels precisely enough to select the
- * raw event beneath a note or link badge; the default view remains badge-first.
+ * Determines whether magnifier-assisted clicks should select an exact event
+ * before resolving a note or link badge drawn over the same pixel.
  * @param magnifierActive Whether the Canvas magnifier is currently visible.
- * @param timelineScale Current horizontal timeline scale.
- * @returns True when exact event lookup should run before badge handling.
+ * @returns True when the magnifier provides precise event click-through.
  */
-export function shouldPreferCanvasEventOverOverlay(
+export function shouldPreferCanvasEventWhileMagnifying(
 	magnifierActive: boolean,
-	timelineScale: number,
 ): boolean {
-	return magnifierActive || timelineScale > 1;
+	return magnifierActive;
 }
 
 /**
