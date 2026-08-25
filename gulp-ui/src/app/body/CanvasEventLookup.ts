@@ -29,6 +29,21 @@ const adjacentFloatBuffer = new ArrayBuffer(8);
 const adjacentFloatView = new DataView(adjacentFloatBuffer);
 
 /**
+ * Determines whether an exact event should take precedence over a Canvas overlay.
+ * Zoomed-in and magnified views expose event pixels precisely enough to select the
+ * raw event beneath a note or link badge; the default view remains badge-first.
+ * @param magnifierActive Whether the Canvas magnifier is currently visible.
+ * @param timelineScale Current horizontal timeline scale.
+ * @returns True when exact event lookup should run before badge handling.
+ */
+export function shouldPreferCanvasEventOverOverlay(
+	magnifierActive: boolean,
+	timelineScale: number,
+): boolean {
+	return magnifierActive || timelineScale > 1;
+}
+
+/**
  * Returns the greatest representable float strictly smaller than a value.
  * @param value Exclusive upper bound produced by the inverse pixel transform.
  * @returns Adjacent lower IEEE-754 value.

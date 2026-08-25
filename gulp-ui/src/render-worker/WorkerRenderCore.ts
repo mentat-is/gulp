@@ -1905,7 +1905,7 @@ export class WorkerRenderCore {
 	 * @param label Text displayed below the icon.
 	 * @param centerX Badge center x coordinate.
 	 * @param centerY Source row center y coordinate.
-	 * @param state Current pointer and palette state.
+	 * @param state Current viewport and palette state.
 	 * @param hitRegions Mutable overlay hit index.
 	 * @returns Nothing.
 	 */
@@ -1920,26 +1920,11 @@ export class WorkerRenderCore {
 	): void {
 		const x = centerX + NOTE_OFFSET;
 		const y = centerY + NOTE_OFFSET;
-		const hovered = this.isPointInside(
-			state.pointer.x,
-			state.pointer.y,
-			x,
-			y,
-			NOTE_SIZE,
-			NOTE_SIZE,
-			state.pointer.inside,
-		);
 		const accent =
 			group.length > 1
 				? state.palette.fontAccent
 				: note.color || state.palette.fontAccent;
 		this.context.save();
-		if (hovered) {
-			this.context.shadowColor = state.palette.border;
-			this.context.shadowBlur = 12;
-			this.context.lineWidth = 2;
-			this.context.strokeStyle = state.palette.border;
-		}
 		this.drawRoundedRect(
 			x,
 			y,
@@ -1958,7 +1943,6 @@ export class WorkerRenderCore {
 			state.palette.border,
 			accent,
 		);
-		if (hovered) this.context.stroke();
 		this.drawIcon(
 			group.length > 1 ? (note.groupIconKey ?? note.iconKey) : note.iconKey,
 			state.palette.fontAccent,
@@ -2096,7 +2080,7 @@ export class WorkerRenderCore {
 	 * @param link Link represented by this badge.
 	 * @param centerX Badge center x coordinate.
 	 * @param centerY Badge center y coordinate.
-	 * @param state Current pointer and palette state.
+	 * @param state Current viewport and palette state.
 	 * @param hitRegions Mutable overlay hit index.
 	 * @returns Nothing.
 	 */
@@ -2111,22 +2095,7 @@ export class WorkerRenderCore {
 		const x = centerX - size / 2;
 		const y = centerY - size / 2;
 		const color = link.color || state.palette.fontAccent;
-		const hovered = this.isPointInside(
-			state.pointer.x,
-			state.pointer.y,
-			x,
-			y,
-			size,
-			size,
-			state.pointer.inside,
-		);
 		this.context.save();
-		if (hovered) {
-			this.context.shadowColor = color;
-			this.context.shadowBlur = 12;
-			this.context.lineWidth = 2;
-			this.context.strokeStyle = state.palette.fontAccent;
-		}
 		this.drawRoundedRect(
 			x,
 			y,
@@ -2136,7 +2105,6 @@ export class WorkerRenderCore {
 			color,
 			state.palette.backgroundSecondary,
 		);
-		if (hovered) this.context.stroke();
 		this.drawIcon(link.iconKey, color, centerX - 8, centerY - 8, 16);
 		this.context.restore();
 		hitRegions.push({
@@ -2398,35 +2366,6 @@ export class WorkerRenderCore {
 		this.context.moveTo(startX, startY);
 		this.context.lineTo(endX, endY);
 		this.context.stroke();
-	}
-
-	/**
-	 * Tests whether a pointer lies inside one interaction rectangle.
-	 * @param pointerX Pointer x coordinate.
-	 * @param pointerY Pointer y coordinate.
-	 * @param x Rectangle x coordinate.
-	 * @param y Rectangle y coordinate.
-	 * @param width Rectangle width.
-	 * @param height Rectangle height.
-	 * @param pointerInside Whether the pointer is currently over the canvas.
-	 * @returns True when the pointer is inside the rectangle.
-	 */
-	private isPointInside(
-		pointerX: number,
-		pointerY: number,
-		x: number,
-		y: number,
-		width: number,
-		height: number,
-		pointerInside: boolean,
-	): boolean {
-		return (
-			pointerInside &&
-			pointerX >= x &&
-			pointerX <= x + width &&
-			pointerY >= y &&
-			pointerY <= y + height
-		);
 	}
 
 	/**

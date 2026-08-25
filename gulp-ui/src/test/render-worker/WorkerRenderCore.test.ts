@@ -705,6 +705,81 @@ describe("WorkerRenderCore", () => {
 		expect(hit).toEqual({ kind: "link", id: "link-offset" });
 	});
 
+	it("draws note and link badges without pointer-dependent overflow", async () => {
+		const source = createRenderSource("source-static-badges", 0);
+		await repository.applyDataPatch({
+			globalRevision: 1,
+			sources: { revision: 1, records: [source], removedSourceIds: [] },
+			overlays: {
+				notes: {
+					revision: 1,
+					records: [
+						{
+							id: "note-static",
+							sourceId: source.id,
+							timestamp: 400,
+							name: "N",
+							color: "#ffaa00",
+							iconKey: "note",
+						},
+					],
+				},
+				links: {
+					revision: 1,
+					records: [
+						{
+							id: "link-static",
+							color: "#00aaff",
+							iconKey: "link",
+							endpoints: [
+								{
+									sourceId: source.id,
+									timestamp: 600,
+									sortKey: "doc-static",
+								},
+							],
+						},
+					],
+				},
+			},
+		});
+		const context = createRecordingContext(1_000, 96);
+		const shadowBlurWrites: number[] = [];
+		Object.defineProperty(context, "shadowBlur", {
+			configurable: true,
+			get: () => 0,
+			set: (value: number) => shadowBlurWrites.push(value),
+		});
+		const renderCore = new WorkerRenderCore(context, repository, {
+			requestAsset: jest.fn(),
+		});
+
+		repository.setFrameState(
+			createFrameState([source.id], {
+				pointer: { x: 400, y: 24, inside: true },
+			}),
+		);
+		renderCore.render(100, DirtyCanvas.Hover);
+		expect(repository.hitTest(400, 24)).toEqual({
+			kind: "note",
+			id: "note-static",
+			noteIds: ["note-static"],
+		});
+
+		repository.setFrameState(
+			createFrameState([source.id], {
+				pointer: { x: 600, y: 24, inside: true },
+				viewportRevision: 2,
+			}),
+		);
+		renderCore.render(200, DirtyCanvas.Hover);
+		expect(repository.hitTest(600, 24)).toEqual({
+			kind: "link",
+			id: "link-static",
+		});
+		expect(shadowBlurWrites).toEqual([]);
+	});
+
 	it("rebuilds graph buckets after a same-revision event-view replacement", async () => {
 		const source = {
 			...createRenderSource("source-graph", 0),

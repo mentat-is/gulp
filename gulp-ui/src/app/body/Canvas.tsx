@@ -118,6 +118,7 @@ import {
 	getCanvasEventTimestampRange,
 	isCanvasEventLookupSourceCurrent,
 	isCanvasPixelWithinEventSourceRange,
+	shouldPreferCanvasEventOverOverlay,
 	type CanvasEventLookupGeometry,
 } from "./CanvasEventLookup";
 import {
@@ -1007,7 +1008,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	};
 
 	/**
-	 * Resolves worker or legacy overlay hits before preserving raw-event click behavior.
+	 * Resolves Canvas overlay and exact-event clicks using the active zoom policy.
 	 * @param event Native mouse-up click forwarded by the drag interaction bridge.
 	 * @returns Promise settled after an ordered worker hit test and dialog dispatch.
 	 */
@@ -1037,72 +1038,79 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		const canvasHitX = Math.round(event.clientX - left);
 		const canvasHitY = Math.round(event.clientY - top);
 		const interactionOperationEpoch = DataStore.getRenderOperationEpoch();
+		const preferExactEvent = shouldPreferCanvasEventOverOverlay(
+			isAltPressed,
+			scaleRef.current,
+		);
 
-		if (rendererBackendRef.current === "worker") {
-			const client = workerClientRef.current;
-			const hitTestViewportRevision = client?.requestedViewportRevision ?? 0;
-			const workerHit = client
-				? await client.hitTest(
-						canvasHitX,
-						canvasHitY,
-						hitTestViewportRevision,
-					)
-				: null;
-			if (
-				DataStore.getRenderOperationEpoch() !== interactionOperationEpoch ||
-				!client ||
-				client.requestedViewportRevision !== hitTestViewportRevision ||
-				client.lastViewportRevision !== hitTestViewportRevision
-			) {
-				return;
-			}
-			if (workerHit?.kind === "link") {
-				const link = DataStore.links.find((item) => item.id === workerHit.id);
-				if (link) {
-					const docs = await getCanvasLinkDialogEvents(link);
+		/**
+		 * Resolves and opens the topmost note or link badge at the clicked pixel.
+		 * @returns True when the click was handled or became stale, otherwise false.
+		 */
+		const resolveOverlayClick = async (): Promise<boolean> => {
+			if (rendererBackendRef.current === "worker") {
+				const client = workerClientRef.current;
+				const hitTestViewportRevision = client?.requestedViewportRevision ?? 0;
+				const workerHit = client
+					? await client.hitTest(
+							canvasHitX,
+							canvasHitY,
+							hitTestViewportRevision,
+						)
+					: null;
+				if (
+					DataStore.getRenderOperationEpoch() !== interactionOperationEpoch ||
+					!client ||
+					client.requestedViewportRevision !== hitTestViewportRevision ||
+					client.lastViewportRevision !== hitTestViewportRevision
+				) {
+					return true;
+				}
+				if (workerHit?.kind === "link") {
+					const link = DataStore.links.find((item) => item.id === workerHit.id);
+					if (link) {
+						const docs = await getCanvasLinkDialogEvents(link);
+						if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
+							return true;
+						}
+						if (docs.length === 1) {
+							spawnDialog(<DisplayEventDialog event={docs[0]} />);
+							return true;
+						}
+						if (docs.length > 1) {
+							setGroupDialogEventStore(null);
+							setGroupDialogEvents(docs);
+							setGroupDialogKind("links");
+							setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
+							return true;
+						}
+					}
+				}
+				if (workerHit?.kind === "note") {
+					const noteDocumentIds = workerHit.noteIds
+						.map((noteId) => DataStore.notes.find((note) => note.id === noteId))
+						.filter((note): note is Note.Type => Boolean(note))
+						.map((note) => note.doc._id);
+					const noteDocuments = await DataStore.Events.getByIds(noteDocumentIds);
 					if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
-						return;
+						return true;
 					}
-					if (docs.length === 1) {
-						spawnDialog(<DisplayEventDialog event={docs[0]} />);
-						return;
+					if (noteDocuments.length === 1) {
+						spawnDialog(<DisplayEventDialog event={noteDocuments[0]} />);
+						return true;
 					}
-					if (docs.length > 1) {
+					if (noteDocuments.length > 1) {
 						setGroupDialogEventStore(null);
-						setGroupDialogEvents(docs);
-						setGroupDialogKind("links");
+						setGroupDialogEvents(noteDocuments);
+						setGroupDialogKind("notes");
 						setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
-						return;
+						return true;
 					}
 				}
+				return false;
 			}
-			if (workerHit?.kind === "note") {
-				const noteDocumentIds = workerHit.noteIds
-					.map((noteId) => DataStore.notes.find((note) => note.id === noteId))
-					.filter((note): note is Note.Type => Boolean(note))
-					.map((note) => note.doc._id);
-				const noteDocuments = await DataStore.Events.getByIds(noteDocumentIds);
-				if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
-					return;
-				}
-				if (noteDocuments.length === 1) {
-					spawnDialog(<DisplayEventDialog event={noteDocuments[0]} />);
-					return;
-				}
-				if (noteDocuments.length > 1) {
-					setGroupDialogEventStore(null);
-					setGroupDialogEvents(noteDocuments);
-					setGroupDialogKind("notes");
-					setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
-					return;
-				}
-			}
-		}
+			if (rendererBackendRef.current !== "legacy") return false;
 
-		if (
-			rendererBackendRef.current === "legacy" &&
-			RenderEngine.interactiveLinks
-		) {
 			for (const item of RenderEngine.interactiveLinks) {
 				if (
 					canvasHitX >= item.rect.x &&
@@ -1110,10 +1118,9 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					canvasHitY >= item.rect.y &&
 					canvasHitY <= item.rect.y + item.rect.h
 				) {
-					const link = item.link;
-					const docs = await getCanvasLinkDialogEvents(link);
+					const docs = await getCanvasLinkDialogEvents(item.link);
 					if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
-						return;
+						return true;
 					}
 					if (docs.length === 1) {
 						spawnDialog(<DisplayEventDialog event={docs[0]} />);
@@ -1123,15 +1130,10 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 						setGroupDialogKind("links");
 						setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
 					}
-					return;
+					return true;
 				}
 			}
-		}
 
-		if (
-			rendererBackendRef.current === "legacy" &&
-			RenderEngine.interactiveNotes
-		) {
 			for (const item of RenderEngine.interactiveNotes) {
 				if (
 					canvasHitX >= item.rect.x &&
@@ -1143,22 +1145,24 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 						item.notes.map((note) => note.doc._id),
 					);
 					if (DataStore.getRenderOperationEpoch() !== interactionOperationEpoch) {
-						return;
+						return true;
 					}
 					if (noteDocuments.length === 1) {
-						return spawnDialog(
-							<DisplayEventDialog event={noteDocuments[0]} />,
-						);
+						spawnDialog(<DisplayEventDialog event={noteDocuments[0]} />);
+						return true;
 					}
 
 					setGroupDialogEventStore(null);
 					setGroupDialogEvents(noteDocuments);
 					setGroupDialogKind("notes");
 					setGroupDialogAnchor({ x: event.clientX, y: event.clientY });
-					return;
+					return true;
 				}
 			}
-		}
+			return false;
+		};
+
+		if (!preferExactEvent && (await resolveOverlayClick())) return;
 
 		const click: XY = {
 			x: canvasHitX,
@@ -1170,9 +1174,15 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		const files = Source.Entity.rendered(Info.app);
 		const file = files[index];
 
-		if (!file) return;
+		if (!file) {
+			if (preferExactEvent) await resolveOverlayClick();
+			return;
+		}
 		const sourceSummary = DataStore.getEventSourceSummary(file.id);
-		if (sourceSummary?.eventCount === 0) return;
+		if (sourceSummary?.eventCount === 0) {
+			if (preferExactEvent) await resolveOverlayClick();
+			return;
+		}
 
 		const lookupGeometry = captureEventLookupGeometry(file);
 		if (
@@ -1184,6 +1194,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				lookupGeometry.renderEngine === "graph" ? 16 : 0,
 			)
 		) {
+			if (preferExactEvent) await resolveOverlayClick();
 			return;
 		}
 
@@ -1242,10 +1253,12 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 
 			if (events[0]) {
 				spawnDialog(<DisplayEventDialog event={events[0]} />);
+				return;
 			}
-		} else {
-			Info.setTimelineTarget(null);
 		}
+
+		if (preferExactEvent && (await resolveOverlayClick())) return;
+		Info.setTimelineTarget(null);
 	};
 
 	useEffect(() => {
