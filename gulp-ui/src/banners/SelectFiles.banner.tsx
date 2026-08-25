@@ -425,6 +425,7 @@ export namespace SelectFiles {
 			setTimeout(() => {
 				spawnBanner(
 					<Frame.Banner
+						centerViewportOnSave
 						//was fixed //(disable close button)
 						onClose={Info.notes_reload}
 						back={() => spawnBanner(<SelectFiles.Banner />)}

@@ -2,6 +2,7 @@ import React, {
 	useCallback,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -14,7 +15,6 @@ import { Menu, MenuItem, PluginNode } from "../components/menu";
 import { Timeline } from "../app/body/Timeline";
 import { Resizer } from "../ui/Resizer";
 import { Hint } from "../dialogs/Hint.dialog";
-import { DataStore } from "../store/DataStore";
 import type { WindowBridge } from "../lib/WindowBridge";
 import { Logger } from "../dto/Logger.class";
 import { Source } from "../entities/Source";
@@ -164,6 +164,7 @@ export function OperationTimeline() {
 	const { t } = Locale.use();
 	const { extensions } = Extension.use();
 	const detachedWindows = DetachedWindow.use();
+	const dialogRef = useRef<HTMLDivElement>(null);
 
 	const [isPreloaded, setIsPreloaded] = useState(false);
 	const detachedDialogDescriptor = useMemo(
@@ -218,14 +219,6 @@ export function OperationTimeline() {
 		dialogsDocked,
 		setDialogsDocked,
 	]);
-
-	// When dock state changes the canvas layout shifts; trigger a canvas redraw after layout settles
-	useEffect(() => {
-		const id = requestAnimationFrame(() => {
-			DataStore.markDirty();
-		});
-		return () => cancelAnimationFrame(id);
-	}, [dialogsDocked]);
 
 	/**
 	 * Builds the extension plugin nodes for the Menu's plugin section.
@@ -425,21 +418,31 @@ export function OperationTimeline() {
 				bottomItems={menuBottomItems}
 				pluginNodes={pluginNodes}
 			/>
-			<Timeline />
+			<Stack
+				className={s.workspace}
+				flex
+				ai="stretch"
+				gap={12}
+			>
+				<Timeline stableCanvasWidth />
+				{dialogsDocked && dialog ? (
+					<Stack
+						ref={dialogRef}
+						className={cn(s.dialog)}
+						style={{ width: app.timeline.dialogSize }}
+						pos="relative"
+						flex="0 1 auto"
+					>
+						<Resizer
+							init={app.timeline.dialogSize}
+							set={Info.setDialogSize}
+							target={dialogRef}
+						/>
+						{dialog}
+					</Stack>
+				) : null}
+			</Stack>
 			{hintOpen ? <Hint.Dialog onClose={() => setHintOpen(false)} /> : null}
-			{dialogsDocked && dialog ? (
-				<Stack
-					className={cn(s.dialog)}
-					style={{ width: app.timeline.dialogSize }}
-					pos="relative"
-				>
-					<Resizer
-						init={app.timeline.dialogSize}
-						set={Info.setDialogSize}
-					/>
-					{dialog}
-				</Stack>
-			) : null}
 		</Stack>
 	);
 }

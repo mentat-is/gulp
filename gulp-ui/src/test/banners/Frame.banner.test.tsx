@@ -4,6 +4,7 @@ import type { Request } from "@/entities/Request";
 import type { Source } from "@/entities/Source";
 import { Frame } from "@/banners/Frame.banner";
 import { requestStore } from "@/store/request.store";
+import { scrollStore } from "@/store/scroll.store";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
 	.IS_REACT_ACT_ENVIRONMENT = true;
@@ -25,17 +26,25 @@ const mockRefetch = jest.fn();
 const mockSetTimelineFrame = jest.fn();
 const mockDestroyBanner = jest.fn();
 const mockSelectedSourceId = "selected-frame-source" as Source.Id;
+const mockTimelineElement = document.createElement("div");
+Object.defineProperty(mockTimelineElement, "clientWidth", {
+	configurable: true,
+	value: 600,
+});
 
 jest.mock("@/context/Application.context", () => ({
 	Application: {
 		/** Returns the minimal application services required by Frame.Banner. */
 		use: (): unknown => ({
 			Info: {
+				width: 1_000,
+				getTimelineScaleSnapshot: (): number => 1,
 				setTimelineFrame: mockSetTimelineFrame,
 				refetch: mockRefetch,
 			},
 			destroyBanner: mockDestroyBanner,
 			app: {},
+			timeline: { current: mockTimelineElement },
 		}),
 	},
 }));
@@ -134,6 +143,7 @@ describe("Frame.Banner date selection", () => {
 
 	beforeEach(() => {
 		requestStore.reset();
+		scrollStore.setScroll(0, -26);
 		mockRefetch.mock.calls.length = 0;
 		mockSetTimelineFrame.mock.calls.length = 0;
 		mockDestroyBanner.mock.calls.length = 0;
@@ -146,6 +156,7 @@ describe("Frame.Banner date selection", () => {
 		act(() => root.unmount());
 		container.remove();
 		requestStore.reset();
+		scrollStore.setScroll(0, -26);
 	});
 
 	it("preserves an uncommitted date while render loading state changes", () => {
@@ -216,5 +227,41 @@ describe("Frame.Banner date selection", () => {
 		});
 		expect(mockSetTimelineFrame).not.toHaveBeenCalled();
 		expect(mockDestroyBanner).toHaveBeenCalled();
+	});
+
+	it("centers a fresh operation frame in the visible viewport", () => {
+		const initialFrame = { min: 0, max: 1_000 };
+
+		act(() => {
+			root.render(
+				<Frame.Banner
+					frame={initialFrame}
+					centerViewportOnSave
+				/>,
+			);
+		});
+
+		const doneButton = container.querySelector<HTMLButtonElement>(
+			'button[data-icon="Check"]',
+		);
+		act(() => doneButton?.click());
+
+		expect(scrollStore.getX()).toBe(200);
+	});
+
+	it("does not replace an existing scroll unless initial centering is requested", () => {
+		const initialFrame = { min: 0, max: 1_000 };
+		scrollStore.setScrollX(137);
+
+		act(() => {
+			root.render(<Frame.Banner frame={initialFrame} />);
+		});
+
+		const doneButton = container.querySelector<HTMLButtonElement>(
+			'button[data-icon="Check"]',
+		);
+		act(() => doneButton?.click());
+
+		expect(scrollStore.getX()).toBe(137);
 	});
 });

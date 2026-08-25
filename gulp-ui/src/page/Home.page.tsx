@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Application } from "@/context/Application.context";
 import { Menu, MenuItem } from "@/components/menu";
@@ -43,6 +43,7 @@ export namespace Home {
 		const { t } = Locale.use();
 		const navigate = useNavigate();
 		const location = useLocation();
+		const dialogRef = useRef<HTMLDivElement>(null);
 		const [loading, setLoading] = useState(true);
 		const isAdmin = Array.isArray(app.general.user?.permission)
 			? app.general.user.permission.includes("admin")
@@ -240,13 +241,16 @@ export namespace Home {
 				{/* Right drawer placeholder — reserved for the upcoming detail panel */}
 				{dialog ? (
 					<Stack
+						ref={dialogRef}
 						className={s.dialog}
 						style={{ width: app.timeline.dialogSize }}
 						pos="relative"
+						flex="0 1 auto"
 					>
 						<Resizer
 							init={app.timeline.dialogSize}
 							set={Info.setDialogSize}
+							target={dialogRef}
 						/>
 						{dialog}
 					</Stack>

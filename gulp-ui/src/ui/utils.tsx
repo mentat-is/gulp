@@ -1,8 +1,7 @@
 import { toast } from "sonner";
 type UUID = string;
-import { Info, MinMax, MinMaxBase } from "@/class/Info";
+import { Info, MinMax } from "@/class/Info";
 import { ChangeEvent, RefObject } from "react";
-import { XY, XYBase } from "@/dto/XY.dto";
 import { SetState } from "@/class/API";
 import { Logger } from "@/dto/Logger.class";
 import { Request } from "@/entities/Request";
@@ -325,47 +324,7 @@ export function download(content: string, type: string, name: string) {
 	URL.revokeObjectURL(url);
 }
 
-export namespace Algorhithm {
-	export interface Constructor {
-		frame: MinMax;
-		scroll: XY;
-		width: number;
-		scale: number;
-	}
-}
-
-export class Algorhithm implements Algorhithm.Constructor {
-	frame: MinMax = MinMaxBase;
-	scroll: XY = XYBase(0);
-	width = 1;
-	scale = 1;
-
-	constructor(constructor: Algorhithm.Constructor) {
-		Object.assign(this, constructor);
-	}
-
-	abs_x_from_timestamp = (timestamp: number) =>
-		Math.round(
-			((timestamp - this.frame.min) / (this.frame.max - this.frame.min)) *
-				this.width,
-		);
-
-	rel_x_from_timestamp = (timestamp: number, scroll: XY = this.scroll) =>
-		scroll ? this.abs_x_from_timestamp(timestamp) - scroll.x : -1;
-
-	center_scroll_from_timestamp = (timestamp: number) =>
-		Math.round(
-			this.abs_x_from_timestamp(timestamp) - this.width / (2 * this.scale),
-		);
-
-	timestamp_from_rel_x = (relX: number, scroll: XY = this.scroll) => {
-		const absX = relX + scroll.x;
-		const ratio = absX / this.width;
-		return Math.round(
-			this.frame.min + ratio * (this.frame.max - this.frame.min),
-		);
-	};
-}
+export { Algorhithm } from "@/class/TimelineAlgorithm";
 
 export type Maybe<T> = T | null;
 

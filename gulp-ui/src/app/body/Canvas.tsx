@@ -143,6 +143,8 @@ import {
 export namespace Canvas {
 	export interface Props extends Stack.Props {
 		timeline: React.RefObject<HTMLDivElement>;
+		/** Sizes the render surface from the nearest stable CSS size container. */
+		stableWidth?: boolean;
 	}
 }
 
@@ -283,7 +285,7 @@ interface CanvasEventStoreGroup {
 	operationEpoch: number;
 }
 
-export function Canvas({ timeline }: Canvas.Props) {
+export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	const { theme } = useTheme();
 	const { t, language } = Locale.use();
 	const timestampTimeZone = useTimestampTimeZone();
@@ -294,10 +296,13 @@ export function Canvas({ timeline }: Canvas.Props) {
 		null as unknown as HTMLCanvasElement,
 	);
 	const wrapper_ref = useRef<HTMLDivElement>(null as unknown as HTMLDivElement);
+	const render_surface_ref = useRef<HTMLDivElement>(
+		null as unknown as HTMLDivElement,
+	);
 	const scrollbar = useRef<HTMLDivElement>(null);
 	const isManualScroll = useRef(false);
 	const isProgramScroll = useRef(false);
-	const { app, banner, spawnDialog, Info, dialog, highlightsOverlay } =
+	const { app, banner, spawnDialog, Info, highlightsOverlay } =
 		Application.use();
 	const scrollX = scrollStore.getX();
 	const scrollY = scrollStore.getY();
@@ -469,10 +474,8 @@ export function Canvas({ timeline }: Canvas.Props) {
 				scrollY,
 				app.timeline.frame,
 				app.timeline.scale,
-				dialog,
 				app.timeline.target,
 				app.timeline.filter,
-				app.timeline.dialogSize,
 				app.hidden,
 				target,
 			],
@@ -695,7 +698,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 			return;
 		}
 		ctx ??= canvas_ref.current?.getContext("2d");
-		if (!wrapper_ref.current || !ctx || !canvas_ref.current) {
+		if (!render_surface_ref.current || !ctx || !canvas_ref.current) {
 			return;
 		}
 
@@ -703,8 +706,8 @@ export function Canvas({ timeline }: Canvas.Props) {
 
 		const oldWidth = canvas_ref.current.width;
 		const oldHeight = canvas_ref.current.height;
-		const newWidth = wrapper_ref.current.clientWidth;
-		const newHeight = wrapper_ref.current.clientHeight;
+		const newWidth = render_surface_ref.current.clientWidth;
+		const newHeight = render_surface_ref.current.clientHeight;
 
 		if (oldWidth !== newWidth || oldHeight !== newHeight) {
 			canvas_ref.current.width = newWidth;
@@ -725,7 +728,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 
 		const currentScrollX = scrollXRef.current;
 		const currentScrollY = scrollYRef.current;
-		const limits = getLimits(app, Info, timeline, currentScrollX);
+		const limits = getLimits(app, Info, render_surface_ref, currentScrollX);
 		const selectedSources = Source.Entity.rendered(app);
 
 		// Create or reuse the singleton RenderEngine with current frame parameters.
@@ -809,13 +812,13 @@ export function Canvas({ timeline }: Canvas.Props) {
 			getPixelPosition(app.timeline.frame.min || app.timeline.frame?.min) - 2,
 			0,
 			3,
-			timeline.current?.clientHeight || 0,
+			render_surface_ref.current?.clientHeight || 0,
 		);
 		ctx.fillRect(
 			getPixelPosition(app.timeline.frame.max || app.timeline.frame?.max) + 2,
 			0,
 			3,
-			timeline.current?.clientHeight || 0,
+			render_surface_ref.current?.clientHeight || 0,
 		);
 
 		render.ruler.sections();
@@ -882,7 +885,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 		Math.max(
 			1,
 			workerCanvasSizeRef.current?.width ??
-				wrapperRectRef.current?.width ??
+				render_surface_ref.current?.clientWidth ??
 				canvas_ref.current?.clientWidth ??
 				1,
 		);
@@ -1018,7 +1021,9 @@ export function Canvas({ timeline }: Canvas.Props) {
 			return;
 		}
 
-		const rect = canvas_ref.current.getBoundingClientRect();
+		const rect = wrapper_ref.current?.getBoundingClientRect();
+		const canvasRect = canvas_ref.current.getBoundingClientRect();
+		if (!rect) return;
 		if (
 			event.clientX < rect.left ||
 			event.clientX > rect.right ||
@@ -1028,7 +1033,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 			return;
 		}
 
-		const { top, left } = canvas_ref.current.getBoundingClientRect();
+		const { top, left } = canvasRect;
 		const canvasHitX = Math.round(event.clientX - left);
 		const canvasHitY = Math.round(event.clientY - top);
 		const interactionOperationEpoch = DataStore.getRenderOperationEpoch();
@@ -1302,12 +1307,11 @@ export function Canvas({ timeline }: Canvas.Props) {
 		};
 	}, [handleViewportScroll, invalidateCanvasGeometry]);
 
-	// Reset cached geometry after known application layout transitions.
+	// Reset cached geometry after application changes that can move the viewport.
 	useEffect(() => {
 		invalidateCanvasGeometry();
 	}, [
 		app.target.files,
-		app.timeline.dialogSize,
 		banner,
 		invalidateCanvasGeometry,
 	]);
@@ -1354,15 +1358,25 @@ export function Canvas({ timeline }: Canvas.Props) {
 		};
 	}, []);
 
-	// Observe wrapper size changes (e.g. when dialog panel is docked/undocked)
-	// and mark canvas dirty so renderCanvas() detects the size mismatch immediately.
+	// Track the clipping viewport without invalidating the stable render surface.
 	useEffect(() => {
 		const el = wrapper_ref.current;
 		if (!el) return;
 		refreshCanvasGeometry();
 		const observer = new ResizeObserver(() => {
 			refreshCanvasGeometry();
-			renderOverlay();
+		});
+		observer.observe(el);
+		return () => {
+			observer.disconnect();
+		};
+	}, [refreshCanvasGeometry]);
+
+	// Only real render-surface changes resize the backing canvas and renderer.
+	useEffect(() => {
+		const el = render_surface_ref.current;
+		if (!el) return;
+		const observer = new ResizeObserver(() => {
 			if (rendererBackendRef.current === "worker") {
 				handleWorkerResizeRef.current();
 				return;
@@ -1373,7 +1387,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 		return () => {
 			observer.disconnect();
 		};
-	}, [refreshCanvasGeometry]);
+	}, []);
 
 	useEffect(() => {
 		if (theme) {
@@ -1563,7 +1577,6 @@ export function Canvas({ timeline }: Canvas.Props) {
 	}, [
 		app.timeline.frame,
 		app.timeline.scale,
-		app.timeline.dialogSize,
 		rendererBackend,
 		requestCanvasRender,
 	]);
@@ -1746,7 +1759,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 			const canvasWidth = Math.max(
 				1,
 				workerCanvasSizeRef.current?.width ??
-					wrapperRectRef.current?.width ??
+					render_surface_ref.current?.clientWidth ??
 					1,
 			);
 			const frameRange =
@@ -1778,17 +1791,17 @@ export function Canvas({ timeline }: Canvas.Props) {
 			inputTimestamp: number,
 			viewportOverride?: WorkerViewportStateOverride,
 		): RenderViewportState => {
-			const cachedRect = wrapperRectRef.current;
+			const renderSurface = render_surface_ref.current;
 			const cachedSize = workerCanvasSizeRef.current;
 			return {
 				width:
 					viewportOverride?.width ??
 					cachedSize?.width ??
-					Math.max(1, cachedRect?.width ?? 1),
+					Math.max(1, renderSurface?.clientWidth ?? 1),
 				height:
 					viewportOverride?.height ??
 					cachedSize?.height ??
-					Math.max(1, cachedRect?.height ?? 1),
+					Math.max(1, renderSurface?.clientHeight ?? 1),
 				frame: {
 					min: Info.app.timeline.frame.min,
 					max: Info.app.timeline.frame.max,
@@ -1837,7 +1850,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 		const width = Math.max(
 			1,
 			workerCanvasSizeRef.current?.width ??
-				wrapperRectRef.current?.width ??
+				render_surface_ref.current?.clientWidth ??
 				1,
 		);
 		const selectedSources = Source.Entity.rendered(Info.app);
@@ -2095,13 +2108,12 @@ export function Canvas({ timeline }: Canvas.Props) {
 				let cursorX = 0;
 				let canvasWidth =
 					workerCanvasSizeRef.current?.width ??
-					wrapperRectRef.current?.width ??
+					render_surface_ref.current?.clientWidth ??
 					1;
 				if (zoomDeltaY !== 0 && batch.wheel.zoomPoint) {
 					const rect = wrapperRectRef.current ?? refreshCanvasGeometry();
 					if (rect) {
 						cursorX = batch.wheel.zoomPoint.clientX - rect.left;
-						canvasWidth = rect.width;
 					} else {
 						zoomDeltaY = 0;
 					}
@@ -2153,12 +2165,13 @@ export function Canvas({ timeline }: Canvas.Props) {
 					: -1000;
 				mouseXRef.current = pointerX;
 				mouseYRef.current = pointerY;
-				// Pointer timestamps must use the render viewport width. The cached DOM
-				// rectangle can briefly describe the pre-dock layout while ResizeObserver
-				// has already committed the worker's narrower canvas viewport.
+				// Timestamp projection uses the stable render world, while label
+				// orientation follows the currently visible clipping viewport.
 				const canvasWidth = Math.max(
 					1,
-					workerCanvasSizeRef.current?.width ?? rect?.width ?? 1,
+					workerCanvasSizeRef.current?.width ??
+						render_surface_ref.current?.clientWidth ??
+						1,
 				);
 				pointerPositionStore.setPosition(
 					projectLocalPointerTimestamp(
@@ -2166,7 +2179,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 							x: pointerX,
 							y: pointerY,
 							timestamp: pointerPositionStore.getSnapshot().timestamp,
-							isRightSide: pointerX > canvasWidth / 2,
+							isRightSide: pointerX > (rect?.width ?? canvasWidth) / 2,
 						},
 						{
 							frame: Info.app.timeline.frame,
@@ -2223,7 +2236,7 @@ export function Canvas({ timeline }: Canvas.Props) {
 				const canvasWidth = Math.max(
 					1,
 					workerCanvasSizeRef.current?.width ??
-						wrapperRectRef.current?.width ??
+						render_surface_ref.current?.clientWidth ??
 						1,
 				);
 				pointerPositionStore.setPosition(
@@ -3191,15 +3204,15 @@ export function Canvas({ timeline }: Canvas.Props) {
 	]);
 
 	/**
-	 * Reconciles wrapper dimensions before posting one atomic worker size/viewport state.
+	 * Reconciles render-surface dimensions before posting one atomic worker state.
 	 * @returns Nothing.
 	 */
 	const handleWorkerResize = useCallback((): void => {
-		const wrapper = wrapper_ref.current;
-		if (!wrapper || rendererBackendRef.current !== "worker") return;
+		const renderSurface = render_surface_ref.current;
+		if (!renderSurface || rendererBackendRef.current !== "worker") return;
 		const nextSize = {
-			width: Math.max(1, wrapper.clientWidth),
-			height: Math.max(1, wrapper.clientHeight),
+			width: Math.max(1, renderSurface.clientWidth),
+			height: Math.max(1, renderSurface.clientHeight),
 		};
 		const previousSize = workerCanvasSizeRef.current;
 		if (
@@ -3282,11 +3295,11 @@ export function Canvas({ timeline }: Canvas.Props) {
 		const initialCanvasSize = {
 			width: Math.max(
 				1,
-				wrapper_ref.current?.clientWidth ?? canvas.clientWidth,
+				render_surface_ref.current?.clientWidth ?? canvas.clientWidth,
 			),
 			height: Math.max(
 				1,
-				wrapper_ref.current?.clientHeight ?? canvas.clientHeight,
+				render_surface_ref.current?.clientHeight ?? canvas.clientHeight,
 			),
 		};
 		// The placeholder must start with the same one-to-one backing size that the
@@ -3718,13 +3731,21 @@ export function Canvas({ timeline }: Canvas.Props) {
 				}}
 				tabIndex={0}
 			>
-				<Highlights.List.Overlay />
-				<canvas
-					key={canvasElementKey}
-					className={s.canvas}
-					ref={canvas_ref}
-					id="canvas"
-				/>
+				<div
+					ref={render_surface_ref}
+					className={cn(
+						s.render_surface,
+						stableWidth && s.stable_render_surface,
+					)}
+				>
+					<Highlights.List.Overlay />
+					<canvas
+						key={canvasElementKey}
+						className={s.canvas}
+						ref={canvas_ref}
+						id="canvas"
+					/>
+				</div>
 				<Stack
 					pos="absolute"
 					className={s.island}
@@ -3744,10 +3765,10 @@ export function Canvas({ timeline }: Canvas.Props) {
 					size={48}
 					className={s.loading_background}
 				/>
-					<Pointers
-						getPixelPosition={getPixelPosition}
-						selfStore={pointerPositionStore}
-					/>
+				<Pointers
+					getPixelPosition={getPixelPosition}
+					selfStore={pointerPositionStore}
+				/>
 				<canvas
 					className={s.resize}
 					ref={overlay_ref}

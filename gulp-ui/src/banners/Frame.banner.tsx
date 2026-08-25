@@ -11,6 +11,8 @@ import { Button } from "@/ui/Button";
 import { Input } from "@/ui/Input";
 import { Stack } from "@/ui/Stack";
 import { Toggle } from "@/ui/Toggle";
+import { Algorhithm } from "@/class/TimelineAlgorithm";
+import { scrollStore } from "@/store/scroll.store";
 import s from "./styles/LimitsBanner.module.css";
 
 type FrameBoundary = keyof MinMax;
@@ -89,6 +91,8 @@ export namespace Frame {
 		export interface Props extends UIBanner.Props {
 			frame?: MinMax;
 			callback?: (frame: MinMax) => void;
+			/** Centers a newly selected operation frame in the visible timeline. */
+			centerViewportOnSave?: boolean;
 		}
 	}
 
@@ -100,9 +104,10 @@ export namespace Frame {
 	export function Banner({
 		frame: initFrame,
 		callback,
+		centerViewportOnSave = false,
 		...props
 	}: Frame.Banner.Props) {
-		const { Info, destroyBanner, app } = Application.use();
+		const { Info, destroyBanner, app, timeline } = Application.use();
 		const { t } = Locale.use();
 		const [frame, setFrame] = useState<MinMax>(
 			initFrame ?? Context.Entity.frame(app),
@@ -110,6 +115,33 @@ export namespace Frame {
 		const [isMinValid, setIsMinValid] = useState(true);
 		const [isMaxValid, setIsMaxValid] = useState(true);
 		const [manual, setManual] = useState(false);
+
+		/**
+		 * Centers the selected frame against the visible timeline, not the Canvas world.
+		 * @param nextFrame Newly selected timeline range.
+		 * @returns Nothing.
+		 */
+		const centerFrameInViewport = (nextFrame: MinMax): void => {
+			if (!centerViewportOnSave) return;
+			const viewportWidth = timeline.current?.clientWidth;
+			if (!viewportWidth) return;
+
+			const scale = Info.getTimelineScaleSnapshot();
+			const algorithm = new Algorhithm({
+				frame: nextFrame,
+				scroll: {
+					x: scrollStore.getX(),
+					y: scrollStore.getY(),
+				},
+				width: Info.width,
+				scale,
+				viewportWidth,
+			});
+			const centerTimestamp = nextFrame.min + (nextFrame.max - nextFrame.min) / 2;
+			scrollStore.setScrollX(
+				algorithm.center_scroll_from_timestamp(centerTimestamp),
+			);
+		};
 
 		/**
 		 * Persists the selected frame and refetches every selected source, or
@@ -132,6 +164,7 @@ export namespace Frame {
 				ids: Source.Entity.selected(app).map((file) => file.id),
 				frame: nextFrame,
 			});
+			centerFrameInViewport(nextFrame);
 			destroyBanner();
 		};
 

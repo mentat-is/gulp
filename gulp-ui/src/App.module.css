@@ -3,3 +3,15 @@
   padding: 12px;
   height: 100vh;
 }
+
+.workspace {
+  container-type: inline-size;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dialog {
+  height: 100%;
+  overflow: visible;
+}

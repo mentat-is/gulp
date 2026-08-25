@@ -1,6 +1,6 @@
 import { Application } from "@/context/Application.context";
 import { scrollStore } from "@/store/scroll.store";
-import { Algorhithm } from "@/ui/utils";
+import { Algorhithm } from "@/class/TimelineAlgorithm";
 import { Source } from "@/entities/Source";
 import { DataStore } from "@/store/DataStore";
 import { Navigator } from "./Navigator";
@@ -22,6 +22,8 @@ export namespace Timeline {
 	export interface Props {
 		/** Prevents scheduling or flushing authenticated session autosave requests. */
 		disableSessionAutosave?: boolean;
+		/** Sizes the Canvas world from the nearest stable CSS size container. */
+		stableCanvasWidth?: boolean;
 	}
 }
 
@@ -37,6 +39,7 @@ const TimelineNavigator = memo(Navigator);
  */
 export function Timeline({
 	disableSessionAutosave = false,
+	stableCanvasWidth = false,
 }: Timeline.Props = {}) {
 	const { app, Info, timeline } = Application.use();
 	const timelineScale = useSyncExternalStore(
@@ -248,6 +251,7 @@ export function Timeline({
 			},
 			width: Info.width,
 			scale: timelineScale,
+			viewportWidth: timeline.current?.clientWidth,
 		});
 	};
 
@@ -263,7 +267,10 @@ export function Timeline({
 			dir="column"
 			ref={timeline}
 		>
-			<TimelineCanvas timeline={timeline} />
+			<TimelineCanvas
+				timeline={timeline}
+				stableWidth={stableCanvasWidth}
+			/>
 			<TimelineNavigator timeline={timeline} />
 		</Stack>
 	);
