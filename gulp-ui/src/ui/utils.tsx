@@ -245,15 +245,18 @@ export const getLimits = (
 export const arrayToLinearGradientCSS = (gradient: string[]): string =>
 	`linear-gradient(to right, ${gradient.map((g) => "#" + g).join(", ")})`;
 
+/**
+ * Selects the ruler timestamp pattern for one section duration.
+ * @param diffInMilliseconds Duration represented by one ruler section.
+ * @returns Date-time pattern with millisecond precision for sub-second sections.
+ */
 export const getDateFormat = (diffInMilliseconds: number) => {
-	const diffInDays = diffInMilliseconds / (1000 * 60 * 60 * 24);
-	const diffInHours = diffInMilliseconds / (1000 * 60 * 60);
-	const diffInMinutes = diffInMilliseconds / (1000 * 60);
-
+	if (diffInMilliseconds < 1000) return "HH:mm:ss.SSS dd.MM.yyyy";
+	let diffInDays = diffInMilliseconds / (1000 * 60 * 60 * 24);
 	if (diffInDays >= 30) return "dd.MM.yyyy";
 	if (diffInDays >= 1) return "dd.MM.yyyy";
-	if (diffInHours >= 1) return "HH:mm dd.MM";
-	if (diffInMinutes >= 1) return "HH:mm:ss dd.MM";
+	if (diffInMilliseconds / (1000 * 60 * 60) >= 1) return "HH:mm dd.MM";
+	if (diffInMilliseconds / (1000 * 60) >= 1) return "HH:mm:ss dd.MM";
 	return "HH:mm:ss dd.MM.yyyy";
 };
 

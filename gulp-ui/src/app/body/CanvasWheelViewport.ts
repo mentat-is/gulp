@@ -18,9 +18,8 @@ export interface TimelineWheelViewportInput {
 	panDeltaX: number;
 	zoomDeltaY: number;
 	cursorX: number;
-	canvasWidth: number;
 	timeRange: number;
-	minimumMillisecondsPerPixel: number;
+	minimumVisibleDurationMilliseconds: number;
 	isScrollReversed: boolean;
 }
 
@@ -93,11 +92,9 @@ export function applyTimelineWheelViewport(
 		directedZoomDelta > 0
 			? Math.pow(WHEEL_ZOOM_DECREASE_FACTOR, zoomMagnitude)
 			: Math.pow(WHEEL_ZOOM_INCREASE_FACTOR, zoomMagnitude);
-	const safeCanvasWidth = Math.max(1, input.canvasWidth);
 	const maximumScale =
 		input.timeRange > 0
-			? input.timeRange /
-				(input.minimumMillisecondsPerPixel * safeCanvasWidth)
+			? input.timeRange / input.minimumVisibleDurationMilliseconds
 			: 9_999_999;
 	const requestedScale = input.scale * zoomFactor;
 	const nextScale = Math.max(0.01, Math.min(maximumScale, requestedScale));

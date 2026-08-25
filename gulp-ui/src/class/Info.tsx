@@ -464,7 +464,7 @@ export class Info implements InfoProps {
 	setInfo: SetState<App.Type>;
 	timeline: React.RefObject<HTMLDivElement>;
 
-	public readonly MIN_MS_PER_PIXEL = 1;
+	public readonly MIN_VISIBLE_TIMELINE_DURATION_MS = 10;
 	private static _latestInstance: Info | null = null;
 	public ingestionProgress = new Map<Source.Id, number>();
 	public activeUploads = new Map<
@@ -6624,16 +6624,15 @@ export class Info implements InfoProps {
 	};
 
 	/**
-	 * Clamps a timeline scale against the current frame and Canvas dimensions.
+	 * Clamps a timeline scale against the current frame and minimum visible duration.
 	 * @param scale Requested timeline scale.
 	 * @returns Canonical scale within the supported viewport range.
 	 */
-	private clampTimelineScale = (scale: number): number => {
+	public clampTimelineScale = (scale: number): number => {
 		const timeRange = this.app.timeline.frame.max - this.app.timeline.frame.min;
-		const canvasWidth = document.getElementById("canvas")?.clientWidth || 1000;
 		const maxScale =
 			timeRange > 0
-				? timeRange / (this.MIN_MS_PER_PIXEL * canvasWidth)
+				? timeRange / this.MIN_VISIBLE_TIMELINE_DURATION_MS
 				: 9999999;
 		return Math.max(0.01, Math.min(maxScale, scale));
 	};

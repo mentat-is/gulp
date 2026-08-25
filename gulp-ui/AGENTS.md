@@ -25,6 +25,7 @@ You are an expert Senior Full-Stack Developer. Your goal is to produce high-qual
   - Every new or modified method must include a JSDoc summary.
   - Clearly explain the function's purpose, input parameters, and return values.
   - Write technical comments in **English** to explain complex logic blocks.
+  - inside gulp/docs/webui there are all user documentation, write any important changes inside documentation; the documentation must to be explain the state of art no prompt, or changes but only what web app do.
 
 ## 3. Cognitive Reasoning & Workflow (Advanced Constraints)
 

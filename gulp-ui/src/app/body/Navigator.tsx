@@ -28,6 +28,7 @@ import { Filter } from "@/entities/Filter";
 import { Source } from "@/entities/Source";
 import { Locale } from "@/locales";
 import { DetachedWindow } from "@/context/DetachedWindow.context";
+import { applyNavigatorZoomStep } from "./NavigatorZoom";
 
 export namespace Navigator {
 	export interface Props extends Stack.Props {
@@ -208,19 +209,16 @@ export function Navigator({
 	const zoom = (out = false): void => {
 		const timelineWidth = timeline.current?.clientWidth || 1;
 		const currentScale = Info.app.timeline.scale;
+		const viewport = applyNavigatorZoomStep({
+			currentScale,
+			currentScrollX: scrollStore.getX(),
+			viewportWidth: timelineWidth,
+			zoomOut: out,
+			clampScale: Info.clampTimelineScale,
+		});
 
-		const newScale = out
-			? currentScale - currentScale / 4
-			: currentScale + currentScale / 4;
-
-		const clampedScale = Math.min(Math.max(newScale, 0.01), 9999999);
-
-		const centerOffset = scrollStore.getX() + timelineWidth / 2;
-		const scaledOffset = (centerOffset * clampedScale) / currentScale;
-		const left = scaledOffset - centerOffset;
-
-		Info.setTimelineScale(clampedScale);
-		scrollStore.setScrollX((x) => Math.round(x + left));
+		Info.setTimelineScale(viewport.scale);
+		scrollStore.setScrollX(viewport.scrollX);
 	};
 
 	/**

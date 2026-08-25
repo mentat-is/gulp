@@ -58,6 +58,22 @@ The Graph engine uses `frequency_sample` as the minimum sample size. When zoomed
 out, the engine dynamically increases the sample rate based on visible time range
 and canvas width to avoid excessive overlap and keep rendering performant.
 
+## Timeline Zoom Limit
+
+All Canvas zoom paths use a maximum scale derived from the active frame. Maximum
+zoom keeps a ten-millisecond duration visible, so the ruler displays approximately
+ten one-millisecond sections independently of Canvas width. Timeline events are
+normalized to whole milliseconds; maximum zoom separates adjacent millisecond
+timestamps but does not invent sub-millisecond event precision.
+
+Render work at maximum zoom remains based on viewport pixels rather than the
+overall frame span. The query worker projects only the visible source rows and an
+overscanned horizontal viewport into pixel-sized buckets. A render window is
+capped at 1,000,000 representatives and automatically uses wider degraded-LOD
+buckets if that cap would be exceeded. Deep zoom can require additional exact-page
+refinement for dense sub-second intervals, but those reads remain worker-owned,
+page-bounded, and superseded by newer viewport requests.
+
 ## Colors and Fields
 
 Default and HeightMap rendering resolve colors from the selected palette and the

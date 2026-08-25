@@ -2522,7 +2522,8 @@ export class WorkerRenderCore {
 		const hour = 3_600_000;
 		const minute = 60_000;
 		let pattern = "HH:mm:ss dd.MM.yyyy";
-		if (step >= day) pattern = "dd.MM.yyyy";
+		if (step < 1_000) pattern = "HH:mm:ss.SSS dd.MM.yyyy";
+		else if (step >= day) pattern = "dd.MM.yyyy";
 		else if (step >= hour) pattern = "HH:mm dd.MM";
 		else if (step >= minute) pattern = "HH:mm:ss dd.MM";
 		return formatTimestampInTimeZone(

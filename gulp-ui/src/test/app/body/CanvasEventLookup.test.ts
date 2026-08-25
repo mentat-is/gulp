@@ -36,6 +36,29 @@ describe("Canvas exact event lookup transform", () => {
 		}
 	});
 
+	it("keeps millisecond events selectable in a ten-millisecond viewport", () => {
+		const frameMin = 1_743_025_550_000;
+		const highZoomGeometry = {
+			...geometry,
+			frameMin,
+			frameMax: frameMin + 1_000,
+			canvasWidth: 1_000,
+			scale: 100,
+			scrollX: 0,
+			sourceOffset: 0,
+		};
+
+		for (let offset = 0; offset <= 10; offset++) {
+			const timestamp = frameMin + offset;
+			const pixel = getCanvasEventPixel(timestamp, highZoomGeometry);
+			const range = getCanvasEventTimestampRange(pixel, highZoomGeometry);
+
+			expect(range !== null).toBe(true);
+			expect(timestamp >= (range?.min ?? Number.POSITIVE_INFINITY)).toBe(true);
+			expect(timestamp <= (range?.max ?? Number.NEGATIVE_INFINITY)).toBe(true);
+		}
+	});
+
 	it("excludes the upper rounding boundary owned by the adjacent pixel", () => {
 		const pixel = 400;
 		const range = getCanvasEventTimestampRange(pixel, geometry);

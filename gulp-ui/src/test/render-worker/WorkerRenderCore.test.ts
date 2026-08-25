@@ -278,6 +278,28 @@ describe("WorkerRenderCore", () => {
 		expect(statistics?.renderedRows).toBe(0);
 	});
 
+	it("renders bounded one-millisecond ruler sections at maximum zoom", () => {
+		repository.setFrameState(
+			createFrameState([], {
+				frame: { min: 0, max: 1_000 },
+				scale: 100,
+			}),
+		);
+		const recordedText: string[] = [];
+		const renderCore = new WorkerRenderCore(
+			createRecordingContext(1_000, 96, recordedText),
+			repository,
+			{ requestAsset: jest.fn() },
+		);
+
+		renderCore.render(100, DirtyCanvas.Viewport);
+
+		expect(
+			recordedText.filter((label) => label === "1 milliseconds"),
+		).toHaveLength(11);
+		expect(recordedText.includes("00:00:00.000 01.01.1970")).toBe(true);
+	});
+
 	it("renders the projected source label", async () => {
 		const source = {
 			...createRenderSource("source-path", 0),

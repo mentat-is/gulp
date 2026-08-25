@@ -2146,10 +2146,10 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					panDeltaX: batch.wheel.panDeltaX,
 					zoomDeltaY,
 					cursorX,
-					canvasWidth,
 					timeRange:
 						Info.app.timeline.frame.max - Info.app.timeline.frame.min,
-					minimumMillisecondsPerPixel: Info.MIN_MS_PER_PIXEL,
+					minimumVisibleDurationMilliseconds:
+						Info.MIN_VISIBLE_TIMELINE_DURATION_MS,
 					isScrollReversed: Info.app.timeline.isScrollReversed,
 				});
 				nextScrollX = wheelViewport.scrollX;
@@ -3245,7 +3245,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				Info.app.timeline.frame.max - Info.app.timeline.frame.min;
 			const maxScale =
 				timeRange > 0
-					? timeRange / (Info.MIN_MS_PER_PIXEL * nextSize.width)
+					? timeRange / Info.MIN_VISIBLE_TIMELINE_DURATION_MS
 					: 9_999_999;
 			nextScale = Math.max(0.01, Math.min(maxScale, requestedScale));
 			nextScrollX = nextScrollX - nextSize.width + previousSize.width;

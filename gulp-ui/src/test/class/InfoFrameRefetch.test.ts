@@ -190,6 +190,28 @@ describe("Info timeline-frame refetch", () => {
 	beforeEach(() => requestStore.reset());
 	afterEach(() => requestStore.reset());
 
+	it("allows long frames to reach a ten-millisecond visible duration", () => {
+		const source = createSource();
+		let currentApp = createApp(source);
+		const info = new Info({
+			app: currentApp,
+			setInfo: (action) => {
+				currentApp =
+					typeof action === "function" ? action(currentApp) : action;
+			},
+			timeline: { current: document.createElement("div") },
+		});
+		const frameRange = sourceTimestamp.max - sourceTimestamp.min;
+		const maximumScale = info.clampTimelineScale(Number.POSITIVE_INFINITY);
+
+		expect(maximumScale).toBe(10_000_000_000);
+		expect(maximumScale > 9_999_999).toBe(true);
+		expect(frameRange / maximumScale).toBe(10);
+
+		info.setTimelineScale(Number.POSITIVE_INFINITY);
+		expect(currentApp.timeline.scale).toBe(maximumScale);
+	});
+
 	it("persists the frame range and reapplies it to subsequent filtered refetches", async () => {
 		const source = createSource();
 		let currentApp = createApp(source);
