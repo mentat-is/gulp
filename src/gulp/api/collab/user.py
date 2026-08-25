@@ -231,18 +231,35 @@ class GulpUser(GulpCollabBase, type=COLLABTYPE_USER):
 
     async def get_query_history(self) -> list[dict]:
         """
-        Retrieves the query history for the user.
+        Retrieve query history ordered from newest to oldest.
 
-        Args:
-            sess (AsyncSession): The database session.
+        The persisted list remains in insertion order because history trimming relies
+        on the oldest entry being stored first.
 
         Returns:
-            list[dict]: The query history entries.
+            list[dict]: A sorted copy of the query history entries.
         """
-        if "query_history" not in self.user_data:
+        if not self.user_data:
             return []
 
-        return self.user_data["query_history"]
+        query_history = self.user_data.get("query_history")
+        if not isinstance(query_history, list):
+            return []
+
+        def _sort_key(indexed_entry: tuple[int, dict]) -> tuple[int, int, int]:
+            """Sort valid timestamps first and use insertion order as a fallback."""
+            index, entry = indexed_entry
+            timestamp = entry.get("timestamp_msec")
+            if isinstance(timestamp, int) and not isinstance(timestamp, bool):
+                return (1, timestamp, index)
+            return (0, 0, index)
+
+        sorted_history = sorted(
+            enumerate(query_history),
+            key=_sort_key,
+            reverse=True,
+        )
+        return [entry for _, entry in sorted_history]
 
     @classmethod
     @override

@@ -1770,7 +1770,8 @@ async def query_single_id_handler(
     },
     summary="Get the query history for the calling user.",
     description="""
-returns the last queries performed by the user.
+returns the last queries performed by the user, ordered by `timestamp_msec`
+from newest to oldest.
 
 if `query_history_max_size` is not set in the configuration, it defaults to 20.
 """,

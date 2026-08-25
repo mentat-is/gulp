@@ -242,17 +242,45 @@ async def test_query_gulp_empty_result(gulp_base_url, gulp_test_user, gulp_test_
 
 @pytest.mark.integration
 async def test_query_history_get(gulp_base_url, gulp_test_user, gulp_test_password):
-    """
-    Fetch query history — should return a list (possibly empty).
-    """
+    """Return newly recorded queries from newest to oldest."""
     from gulp_sdk import GulpClient
 
     async with GulpClient(gulp_base_url) as client:
         await client.auth.login(gulp_test_user, gulp_test_password)
         op_id = await _setup_operation(client)
+        first_name = _unique("history_first")
+        second_name = _unique("history_second")
         try:
+            for name in (first_name, second_name):
+                result = await client.queries.query_gulp(
+                    operation_id=op_id,
+                    flt={},
+                    q_options={"limit": 1, "add_to_history": True, "name": name},
+                    wait=True,
+                    timeout=120,
+                )
+                assert str(result.get("status", "")).lower() in {
+                    "done",
+                    "failed",
+                    "canceled",
+                }
+
             history = await client.queries.query_history_get()
-            assert isinstance(history, (list, dict))
+            assert isinstance(history, list)
+
+            history_names = [
+                entry.get("q_options", {}).get("name") for entry in history
+            ]
+            assert first_name in history_names
+            assert second_name in history_names
+            assert history_names.index(second_name) < history_names.index(first_name)
+
+            timestamps = [
+                entry["timestamp_msec"]
+                for entry in history
+                if isinstance(entry.get("timestamp_msec"), int)
+            ]
+            assert timestamps == sorted(timestamps, reverse=True)
         finally:
             await _teardown_operation(client, op_id)
 
