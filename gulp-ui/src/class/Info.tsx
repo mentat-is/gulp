@@ -21,7 +21,6 @@ import { CustomParameters } from "@/components/CustomParameters";
 import { Highlights } from "@/overlays/Highlights";
 import { RenderEngine } from "./RenderEngine";
 import { SmartSocket } from "./SmartSocket";
-import { OpenSearchQueryBuilder } from "@/components/QueryBuilder";
 import { DataStore } from "@/store/DataStore";
 import { Spinner } from "@/ui/Spinner";
 import { Badge } from "@/ui/Badge";
@@ -278,8 +277,8 @@ export namespace GulpDataset {
 			q: {
 				query: {
 					bool: Record<
-						OpenSearchQueryBuilder.Operator,
-						Record<OpenSearchQueryBuilder.Condition, any>[]
+						Filter.BoolOperator,
+						Record<Filter.Condition, any>[]
 					>;
 				};
 			};
@@ -3349,7 +3348,7 @@ export class Info implements InfoProps {
 					const items: Filter.Item[] = [];
 
 					Object.entries(boolBody).forEach(([bucket, arr]) => {
-						const operator = bucket as OpenSearchQueryBuilder.Operator;
+						const operator = bucket as Filter.BoolOperator;
 						if (!Array.isArray(arr)) return;
 
 						arr.forEach((obj) => {
@@ -3402,7 +3401,7 @@ export class Info implements InfoProps {
 								Object.keys(v).forEach((fieldKey) => {
 									items.push({
 										operator,
-										type: type as OpenSearchQueryBuilder.Condition,
+										type: type as Filter.Condition,
 										id: generateUUID(),
 										field: fieldKey,
 										value:

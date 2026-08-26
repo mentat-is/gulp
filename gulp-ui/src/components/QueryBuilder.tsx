@@ -5,7 +5,7 @@ import { cn } from "@/ui/utils"
 import { Select } from "@/ui/Select"
 import { Switch } from "@/ui/Switch"
 import * as highlight from 'react-syntax-highlighter/dist/esm/styles/hljs'
-import { useMemo, useCallback, ChangeEvent, KeyboardEvent, memo, useState, useEffect, useRef } from "react"
+import { useMemo, useCallback, ChangeEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, memo, useState, useEffect, useRef } from "react"
 import SyntaxHighlighter from "react-syntax-highlighter"
 import s from './styles/QueryBuilder.module.css';
 import { Stack } from "@/ui/Stack"
@@ -17,15 +17,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/Tooltip"
 import { Locale } from "@/locales"
 
 export namespace OpenSearchQueryBuilder {
-  export type Condition =
-    | 'regexp'
-    | 'wildcard'
-    | 'range'
-    | 'LTE'
-    | 'GTE'
-    | 'eq'
+  export type Condition = Filter.Condition
 
-  export type Operator = 'must' | 'should' | 'must_not' | 'filter'
+  export type Operator = Filter.BoolOperator
 
   interface Object<T> {
     value: T
@@ -148,19 +142,16 @@ export namespace OpenSearchQueryBuilder {
 
     export const Add = ({ filters, setFilters, container, ...props }: Query.Add.Props) => {
       const { t } = Locale.use();
+
+      /** Adds a leaf filter using the centralized domain defaults. */
       const addCondition = useCallback(() => {
-        const filter: Filter.Type = {
-          id: `condition-${Date.now()}` as Filter.Id,
-          type: 'wildcard',
-          field: '',
-          case_insensitive: true,
-          value: '',
-          operator: 'must',
-          enabled: true
-        };
+        const filter = Filter.Entity.createCondition(
+          `condition-${Date.now()}` as Filter.Id,
+        );
         setFilters([...filters, filter]);
       }, [filters, setFilters]);
 
+      /** Adds an empty nested filter group. */
       const addGroup = useCallback(() => {
         const group: Filter.Group = {
           id: `group-${Date.now()}` as Filter.Id,
@@ -191,69 +182,90 @@ export namespace OpenSearchQueryBuilder {
       export interface Props extends Stack.Props {
         filters: Filter.Item[];
         setFilters: SetFilters;
-        keys: string[]
+        options: Filter.Options;
         container?: HTMLDivElement | null;
       }
     }
 
+    /** Renders one field-aware leaf condition without owning domain policy. */
     const FilterRow = memo(({
       filter,
       setFilters,
       keys,
+      options,
       container,
     }: {
       filter: Filter.Type;
       setFilters: SetFilters;
       keys: string[];
+      options: Filter.Options;
       container?: HTMLDivElement | null;
     }) => {
       const [isOpen, setIsOpen] = useState(false);
+      const [fieldSearch, setFieldSearch] = useState('');
       const { t } = Locale.use();
-      const [localField, setLocalField] = useState(filter.field);
       const fieldSearchInputRef = useRef<HTMLInputElement>(null);
-
-      useEffect(() => {
-        setLocalField(filter.field);
-      }, [filter.field]);
 
       useEffect(() => {
         if (!isOpen) return;
 
         const focusTimeout = globalThis.setTimeout(() => {
-          fieldSearchInputRef.current?.focus();
+          fieldSearchInputRef.current?.focus({ preventScroll: true });
         }, 0);
 
         return () => globalThis.clearTimeout(focusTimeout);
-      }, [isOpen]);
+      }, [fieldSearch, isOpen]);
 
-      const update = useCallback((key: string, value: any) => {
+      /** Updates one property on the current leaf filter. */
+      const update = useCallback(<Key extends keyof Filter.Type>(
+        key: Key,
+        value: Filter.Type[Key],
+      ) => {
         setFilters((prev) => prev.map((condition) =>
           condition.id === filter.id ? { ...condition, [key]: value } : condition
         ) as Filter.Item[]);
       }, [filter.id, setFilters]);
 
+      /** Removes the current leaf filter from its containing list. */
       const remove = useCallback(() => {
         setFilters((prev) => prev.filter((condition) => condition.id !== filter.id));
       }, [filter.id, setFilters]);
 
       const filteredKeys = useMemo(() => {
         if (!isOpen) return [];
-        const search = localField.toLowerCase();
+        const search = fieldSearch.trim().toLowerCase();
         if (!search) return keys.slice(0, 100);
-        return keys
-          .filter(key => key.toLowerCase().includes(search))
-          .slice(0, 100);
-      }, [keys, localField, isOpen]);
+
+        const matches: string[] = [];
+        for (const key of keys) {
+          if (key.toLowerCase().includes(search)) matches.push(key);
+          if (matches.length === 100) break;
+        }
+        return matches;
+      }, [fieldSearch, isOpen, keys]);
 
       /**
-       * Updates the selected field from either the external input or dropdown search input.
-       * @param val Field name typed by the user or selected from the available keys list.
+       * Assigns a field after direct editing or an explicit dropdown selection.
+       * @param field Field name chosen by the user.
        * @returns Nothing; persists the field value into the filter state.
        */
-      const handleFieldChange = (val: string): void => {
-        setLocalField(val);
-        update('field', val);
-      };
+      const handleFieldSelection = useCallback((field: string): void => {
+        setFilters((prev) => prev.map((condition) =>
+          condition.id === filter.id && !Filter.isGroup(condition)
+            ? Filter.Entity.assignField(condition, field, options)
+            : condition
+        ));
+      }, [filter.id, options, setFilters]);
+
+      /**
+       * Tracks dropdown visibility and clears its search-only value before each opening.
+       * @param open Whether the field selector is opening.
+       * @returns Nothing; updates local presentation state only.
+       */
+      const handleFieldMenuOpenChange = useCallback((open: boolean): void => {
+        setIsOpen(open);
+        if (open) setFieldSearch('');
+      }, []);
 
       /**
        * Keeps field-search keystrokes inside the input instead of triggering Select navigation.
@@ -264,6 +276,23 @@ export namespace OpenSearchQueryBuilder {
         event.stopPropagation();
       };
 
+      /**
+       * Prevents Radix Select hover handling from moving focus away from the search input.
+       * @param event Pointer movement over a field option.
+       * @returns Nothing; marks the hover event as handled.
+       */
+      const handleFieldItemPointerMove = useCallback(
+        (event: ReactPointerEvent<HTMLDivElement>): void => {
+          event.preventDefault();
+        },
+        [],
+      );
+
+      const allowedConditions = useMemo(
+        () => new Set(Filter.Entity.getAllowedConditions(options[filter.field])),
+        [filter.field, options],
+      );
+
       return (
         <Stack
           dir='column'
@@ -273,7 +302,7 @@ export namespace OpenSearchQueryBuilder {
           <Stack style={fws}>
             <Select.Root
               value={filter.operator}
-              onValueChange={(value) => update('operator', value)}
+              onValueChange={(value) => update('operator', value as Filter.BoolOperator)}
             >
               <Select.Trigger className={s.value}>
                 <Select.Value placeholder={t('queryBuilder.operatorPlaceholder')} />
@@ -289,14 +318,18 @@ export namespace OpenSearchQueryBuilder {
             </Select.Root>
             <Select.Root
               value={filter.type}
-              onValueChange={(value) => update('type', value)}
+              onValueChange={(value) => update('type', value as Filter.Condition)}
             >
               <Select.Trigger className={s.value}>
                 <Select.Value placeholder={t('queryBuilder.typePlaceholder')} />
               </Select.Trigger>
               <Select.Content container={container}>
                 {OpenSearchQueryBuilder.CONDITIONS.map((type) => (
-                  <Select.Item key={type.value} value={type.value}>
+                  <Select.Item
+                    key={type.value}
+                    value={type.value}
+                    disabled={!allowedConditions.has(type.value)}
+                  >
                     <Icon name={type.icon} />
                     {t(type.labelKey)}
                   </Select.Item>
@@ -319,26 +352,39 @@ export namespace OpenSearchQueryBuilder {
                     icon='Dot'
                     variant='highlighted'
                     placeholder={t('queryBuilder.fieldName')}
-                    value={localField}
-                    onChange={(e) => handleFieldChange(e.target.value)}
+                    value={filter.field}
+                    onChange={(e) => handleFieldSelection(e.target.value)}
                   />
                 </TooltipTrigger>
-                <TooltipContent>{localField}</TooltipContent>
+                <TooltipContent>{filter.field}</TooltipContent>
               </Tooltip>
-              <Select.Root value={filter.field} onValueChange={(e) => handleFieldChange(e)} onOpenChange={setIsOpen}>
-                <Select.Trigger className={s.trigger} />
+              <Select.Root
+                value={filter.field}
+                onValueChange={handleFieldSelection}
+                onOpenChange={handleFieldMenuOpenChange}
+              >
+                <Select.Trigger
+                  aria-label={t('queryBuilder.fieldName')}
+                  className={s.trigger}
+                />
                 <Select.Content style={{ minHeight: 60 }} container={container}>
                   <Input
                     ref={fieldSearchInputRef}
-                    value={localField}
+                    value={fieldSearch}
                     icon='MagnifyingGlass'
                     variant='highlighted'
                     placeholder={t('common.search')}
-                    onChange={(event) => handleFieldChange(event.target.value)}
+                    autoComplete='off'
+                    spellCheck={false}
+                    onChange={(event) => setFieldSearch(event.target.value)}
                     onKeyDown={handleFieldSearchKeyDown}
                   />
                   {isOpen && filteredKeys.map((k) => (
-                    <Select.Item key={k} value={k}>
+                    <Select.Item
+                      key={k}
+                      value={k}
+                      onPointerMove={handleFieldItemPointerMove}
+                    >
                       {k}
                     </Select.Item>
                   ))}
@@ -419,25 +465,33 @@ export namespace OpenSearchQueryBuilder {
       group,
       setFilters,
       keys,
+      options,
       container,
     }: {
       group: Filter.Group;
       setFilters: SetFilters;
       keys: string[];
+      options: Filter.Options;
       container?: HTMLDivElement | null;
     }) => {
       const { t } = Locale.use();
-      const updateGroup = useCallback((key: string, value: any) => {
+
+      /** Updates one property on the current filter group. */
+      const updateGroup = useCallback(<Key extends keyof Filter.Group>(
+        key: Key,
+        value: Filter.Group[Key],
+      ) => {
         setFilters(prev =>
           prev.map(item => item.id === group.id ? { ...item, [key]: value } : item) as Filter.Item[]
         );
       }, [group.id, setFilters]);
 
+      /** Removes the current group from its containing filter list. */
       const removeGroup = useCallback(() => {
         setFilters(prev => prev.filter(item => item.id !== group.id));
       }, [group.id, setFilters]);
 
-      // Setter that operates on this group's children array
+      /** Applies a filter-state update to this group's child list. */
       const setChildFilters: SetFilters = useCallback(
         (action) => {
           setFilters(prev =>
@@ -456,19 +510,15 @@ export namespace OpenSearchQueryBuilder {
         [group.id, setFilters]
       );
 
+      /** Adds a child condition using the centralized domain defaults. */
       const addChildCondition = useCallback(() => {
-        const filter: Filter.Type = {
-          id: `condition-${Date.now()}` as Filter.Id,
-          type: 'wildcard',
-          field: '',
-          case_insensitive: true,
-          value: '',
-          operator: 'must',
-          enabled: true,
-        };
+        const filter = Filter.Entity.createCondition(
+          `condition-${Date.now()}` as Filter.Id,
+        );
         setChildFilters(prev => [...prev, filter]);
       }, [setChildFilters]);
 
+      /** Adds an empty group below the current group. */
       const addChildGroup = useCallback(() => {
         const child: Filter.Group = {
           id: `group-${Date.now()}` as Filter.Id,
@@ -484,7 +534,7 @@ export namespace OpenSearchQueryBuilder {
         <Stack dir='column' ai='stretch' className={cn(s.group_container, !group.enabled && s.disabled)}>
           <Stack style={fws}>
             {/* Where this group goes in the parent bool */}
-            <Select.Root value={group.operator} onValueChange={v => updateGroup('operator', v)}>
+            <Select.Root value={group.operator} onValueChange={v => updateGroup('operator', v as Filter.BoolOperator)}>
               <Select.Trigger className={s.value}>
                 <Select.Value placeholder={t('queryBuilder.operatorPlaceholder')} />
               </Select.Trigger>
@@ -509,21 +559,32 @@ export namespace OpenSearchQueryBuilder {
           <Stack dir='column' ai='stretch' className={s.group_children}>
             {group.children.map(child =>
               Filter.isGroup(child)
-                ? <GroupRow key={child.id} group={child} setFilters={setChildFilters} keys={keys} container={container} />
-                : <FilterRow key={child.id} filter={child} setFilters={setChildFilters} keys={keys} container={container} />
+                ? <GroupRow key={child.id} group={child} setFilters={setChildFilters} keys={keys} options={options} container={container} />
+                : <FilterRow key={child.id} filter={child} setFilters={setChildFilters} keys={keys} options={options} container={container} />
             )}
           </Stack>
         </Stack>
       );
     });
 
-    export const Filters = memo(({ filters, setFilters, keys, container }: Query.Filters.Props) => {
+    /** Renders and normalizes a generic list of top-level and nested filter items. */
+    export const Filters = memo(({ filters, setFilters, options, container }: Query.Filters.Props) => {
+      const keys = useMemo(
+        () => Object.keys(options).sort((left, right) => left.localeCompare(right)),
+        [options],
+      );
+
+      useEffect(() => {
+        const normalizedFilters = Filter.Entity.normalizeConditions(filters, options);
+        if (normalizedFilters !== filters) setFilters(normalizedFilters);
+      }, [filters, options, setFilters]);
+
       return (
         <Stack ai='stretch' dir='column'>
           {filters.map(item =>
             Filter.isGroup(item)
-              ? <GroupRow key={item.id} group={item} setFilters={setFilters} keys={keys} container={container} />
-              : <FilterRow key={item.id} filter={item} setFilters={setFilters} keys={keys} container={container} />
+              ? <GroupRow key={item.id} group={item} setFilters={setFilters} keys={keys} options={options} container={container} />
+              : <FilterRow key={item.id} filter={item} setFilters={setFilters} keys={keys} options={options} container={container} />
           )}
         </Stack>
       )

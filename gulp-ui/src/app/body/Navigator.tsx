@@ -303,15 +303,13 @@ export function Navigator({
 							hasChanges = true;
 						}
 					} else {
-						const newFilter: Filter.Type = {
-							id: EVENT_FILTER_ID,
-							type: "wildcard" as any,
-							operator: "must" as any,
-							field: "event.original",
-							value: trimmedValue,
-							enabled: true,
-							case_insensitive: true,
-						};
+						const newFilter = Filter.Entity.createCondition(
+							EVENT_FILTER_ID,
+							{
+								field: "event.original",
+								value: trimmedValue,
+							},
+						);
 
 						if (existingFilterIndex !== -1) {
 							query.filters[existingFilterIndex] = newFilter;

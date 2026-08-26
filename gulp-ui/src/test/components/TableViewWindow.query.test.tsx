@@ -1,4 +1,5 @@
 import { act } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import type { App } from "@/entities/App";
@@ -60,6 +61,7 @@ let mockApp = createApp(createSource());
 let mockEventKeysCalls = 0;
 let mockQueryPaginateCalls = 0;
 let mockSyncChange: ((checked: boolean) => void) | null = null;
+let mockTableFilterOptions: Record<string, string> | undefined;
 const mockInfo = {
 	event_keys: async (): Promise<Record<string, string>> => {
 		mockEventKeysCalls += 1;
@@ -149,7 +151,14 @@ jest.mock("@/components/QueryBuilder", () => ({
 		Query: {
 			String: (): null => null,
 			Add: (): null => null,
-			Filters: (): null => null,
+			Filters: ({
+				options,
+			}: {
+				options: Record<string, string>;
+			}): null => {
+				mockTableFilterOptions = options;
+				return null;
+			},
 		},
 	},
 }));
@@ -159,9 +168,21 @@ jest.mock("@/components/Table", () => ({
 }));
 
 jest.mock("@/ui/Input", () => ({ Input: (): null => null }));
-jest.mock("@/ui/Stack", () => ({ Stack: (): null => null }));
+jest.mock("@/ui/Stack", () => ({
+	Stack: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+}));
 jest.mock("@/ui/Checkbox", () => ({ Checkbox: (): null => null }));
-jest.mock("@/ui/Button", () => ({ Button: (): null => null }));
+jest.mock("@/ui/Button", () => ({
+	Button: ({
+		children,
+		icon,
+		variant,
+		...props
+	}: ButtonHTMLAttributes<HTMLButtonElement> & {
+		icon?: string;
+		variant?: string;
+	}) => <button {...props}>{children ?? icon}</button>,
+}));
 jest.mock("@/ui/Label", () => ({ Label: (): null => null }));
 jest.mock("@/ui/Toggle", () => ({
 	Toggle: ({
@@ -233,6 +254,7 @@ describe("TableViewWindow query stability", () => {
 		mockEventKeysCalls = 0;
 		mockQueryPaginateCalls = 0;
 		mockSyncChange = null;
+		mockTableFilterOptions = undefined;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -326,5 +348,19 @@ describe("TableViewWindow query stability", () => {
 		act(() => jest.advanceTimersByTime(1));
 		await flushRequests();
 		expect(mockQueryPaginateCalls).toBe(3);
+	});
+
+	it("passes loaded field metadata to the generic query builder", async () => {
+		act(() => {
+			root.render(<TableViewWindow initialSourceId={SOURCE_ID} />);
+		});
+		await flushRequests();
+
+		const filterButton = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent === "common.filters",
+		);
+		act(() => filterButton?.click());
+
+		expect(mockTableFilterOptions).toEqual({ timestamp: "date" });
 	});
 });

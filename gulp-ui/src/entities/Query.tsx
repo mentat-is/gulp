@@ -1,4 +1,4 @@
-import { Filter } from "./Filter"
+import type { Filter } from "./Filter"
 
 export namespace Query {
   /**
@@ -38,9 +38,9 @@ export namespace Query {
     }
     /**
      * Maps field names to their OpenSearch data type (e.g., "long", "keyword").
-     * Used by `Filter.Entity.query()` to choose correct clause types
-     * (e.g., `query_string` for numeric fields with wildcard patterns).
+     * Used by `Filter.Entity.query()` to validate conditions and convert only
+     * numeric comparison boundaries to numbers.
      */
-    fieldTypeMap?: Record<string, string>
+    fieldTypeMap?: Filter.Options
   }
 }

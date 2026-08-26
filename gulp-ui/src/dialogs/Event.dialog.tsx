@@ -1497,7 +1497,7 @@ export function DisplayEventDialog({
 	);
 
 	/**
-	 * Opens the filter banner with the current action target as a single wildcard filter.
+	 * Opens the filter banner with the current action target as a single equality filter.
 	 * @param target Selection target resolved from the event viewer context menu.
 	 */
 	const applyActionTargetAsFileFilter = useCallback(
@@ -1510,14 +1510,13 @@ export function DisplayEventDialog({
 			const sourceFile = Source.Entity.id(app, event["gulp.source_id"]);
 			const { filters } = Info.getQuery(sourceFile);
 
-			const newFilter: Filter.Type = {
-				id: generateUUID<Filter.Id>(),
-				type: "wildcard",
-				operator: "must",
-				field: target.field,
-				value: target.value,
-				enabled: true,
-			};
+			const newFilter = Filter.Entity.createCondition(
+				generateUUID<Filter.Id>(),
+				{
+					field: target.field,
+					value: target.value,
+				},
+			);
 
 			const updatedQuery = {
 				...Info.getQuery(sourceFile),

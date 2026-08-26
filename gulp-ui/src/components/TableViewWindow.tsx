@@ -392,10 +392,8 @@ export function TableViewWindow({
 
 	const syncedTextFilter = syncedSourceFilter?.text_filter || "";
 
-	const [localFieldTypeMap, setLocalFieldTypeMap] = useState<Record<
-		string,
-		string
-	> | null>(null);
+	const [localFieldTypeMap, setLocalFieldTypeMap] =
+		useState<Filter.Options | null>(null);
 	const fieldMetadataSignature = serializeSourceFieldMetadata(selectedSources);
 	const fieldMetadataSources = useSemanticValue(
 		selectedSources,
@@ -410,17 +408,22 @@ export function TableViewWindow({
 
 		let cancelled = false;
 		(async () => {
-			const map: Record<string, string> = {};
+			const map: Filter.Options = {};
 			await Promise.all(
 				fieldMetadataSources.map(async (source) => {
 					const fileKeys = await Info.event_keys(source);
 					Object.entries(fileKeys).forEach(([key, type]) => {
-						map[key] = type as string;
+						map[key] = type;
 					});
 				}),
 			);
 			if (!cancelled) {
-				setLocalFieldTypeMap(map);
+				setLocalFieldTypeMap((previousMap) =>
+					previousMap !== null &&
+					serializeSemanticValue(previousMap) === serializeSemanticValue(map)
+						? previousMap
+						: map,
+				);
 			}
 		})();
 
@@ -678,7 +681,13 @@ export function TableViewWindow({
 	 * Uses query_paginate to retrieve a specific slice of data based on current state.
 	 */
 	const fetchTableData = useCallback(async () => {
-		if (tableQuery.sourceIds.length === 0 || !tableQuery.operationId) return;
+		if (
+			tableQuery.sourceIds.length === 0 ||
+			!tableQuery.operationId ||
+			localFieldTypeMap === null
+		) {
+			return;
+		}
 		tableRequestControllerRef.current?.abort();
 		const requestController = new AbortController();
 		tableRequestControllerRef.current = requestController;
@@ -726,6 +735,11 @@ export function TableViewWindow({
 					},
 				};
 			}
+
+			queryObj = {
+				...queryObj,
+				fieldTypeMap: localFieldTypeMap ?? Filter.EMPTY_OPTIONS,
+			};
 
 			if (tableQuery.flaggedOnly) {
 				if (tableQuery.flaggedDocIds.length === 0) {
@@ -781,7 +795,7 @@ export function TableViewWindow({
 				setLoading(false);
 			}
 		}
-	}, [Info, tableQuery]);
+	}, [Info, localFieldTypeMap, tableQuery]);
 
 	useEffect(() => {
 		return () => tableRequestControllerRef.current?.abort();
@@ -1164,7 +1178,9 @@ export function TableViewWindow({
 									<OpenSearchQueryBuilder.Query.Filters
 										filters={localFilters}
 										setFilters={setLocalFilters}
-										keys={columns || []}
+										options={
+											localFieldTypeMap ?? Filter.EMPTY_OPTIONS
+										}
 										container={container}
 									/>
 									<Stack

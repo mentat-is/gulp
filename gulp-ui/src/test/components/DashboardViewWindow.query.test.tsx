@@ -1,4 +1,9 @@
 import { act } from "react";
+import type {
+	ButtonHTMLAttributes,
+	ReactElement,
+	ReactNode,
+} from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import type { App } from "@/entities/App";
@@ -60,10 +65,11 @@ function createApp(source: Source.Type): App.Type {
 let mockApp = createApp(createSource());
 let mockEventKeysCalls = 0;
 let mockAggregationCalls = 0;
+let mockSpawnedBanner: ReactElement | null = null;
 const mockInfo = {
 	event_keys: async (): Promise<Record<string, string>> => {
 		mockEventKeysCalls += 1;
-		return {};
+		return { "event.code": "keyword" };
 	},
 	shared_object_list: async (): Promise<unknown[]> => [
 		{
@@ -96,7 +102,9 @@ const mockApplicationContext = {
 		return mockApp;
 	},
 	Info: mockInfo,
-	spawnBanner: (): void => undefined,
+	spawnBanner: (banner: ReactElement): void => {
+		mockSpawnedBanner = banner;
+	},
 	banner: null,
 	currentDocument: document,
 };
@@ -191,10 +199,22 @@ jest.mock("@/components/Table", () => ({
 }));
 
 jest.mock("@/ui/Banner", () => ({ Banner: (): null => null }));
-jest.mock("@/ui/Button", () => ({ Button: (): null => null }));
+jest.mock("@/ui/Button", () => ({
+	Button: ({
+		children,
+		icon,
+		variant,
+		...props
+	}: ButtonHTMLAttributes<HTMLButtonElement> & {
+		icon?: string;
+		variant?: string;
+	}) => <button {...props}>{children ?? icon}</button>,
+}));
 jest.mock("@/ui/Input", () => ({ Input: (): null => null }));
 jest.mock("@/ui/Icon", () => ({ Icon: (): null => null }));
-jest.mock("@/ui/Stack", () => ({ Stack: (): null => null }));
+jest.mock("@/ui/Stack", () => ({
+	Stack: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+}));
 jest.mock("@/ui/Popover", () => ({
 	Popover: {
 		Root: (): null => null,
@@ -242,6 +262,7 @@ describe("DashboardViewWindow query stability", () => {
 		mockApp = createApp(createSource());
 		mockEventKeysCalls = 0;
 		mockAggregationCalls = 0;
+		mockSpawnedBanner = null;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -287,5 +308,25 @@ describe("DashboardViewWindow query stability", () => {
 
 		expect(mockEventKeysCalls).toBe(2);
 		expect(mockAggregationCalls).toBe(1);
+	});
+
+	it("passes loaded field metadata to the generic filter editor", async () => {
+		act(() => {
+			root.render(<DashboardViewWindow />);
+		});
+		await flushRequests();
+
+		const filterButton = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent === "common.filters",
+		);
+		act(() => filterButton?.click());
+
+		expect(
+			(
+				mockSpawnedBanner as ReactElement<{
+					fieldOptions: Record<string, string>;
+				}>
+			)?.props.fieldOptions,
+		).toEqual({ "event.code": "keyword" });
 	});
 });

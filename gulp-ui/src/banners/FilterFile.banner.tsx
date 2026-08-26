@@ -40,7 +40,6 @@ import { Locale } from "@/locales";
 interface FilterFileBannerProps extends Banner.Props {
 	sources: Source.Type[];
 	query?: Query.Type;
-	keys?: string[];
 	create_notes?: boolean;
 	notes_color?: string;
 	notes_tags?: string[];
@@ -66,7 +65,6 @@ import { Icon } from "@/ui/Icon";
 export function FilterFileBanner({
 	sources: initSources,
 	query: initQuery,
-	keys: initKeys,
 	create_notes: initCreateNotes,
 	notes_color,
 	notes_tags,
@@ -94,8 +92,9 @@ export function FilterFileBanner({
 	const [isManual, setIsManual] = useState<boolean>(!!initQuery?.isManual);
 
 	// Available field keys and their OpenSearch types for the query builder
-	const [keys, setKeys] = useState<string[]>(initKeys ?? []);
-	const [fieldTypeMap, setFieldTypeMap] = useState<Record<string, string>>({});
+	const [fieldTypeMap, setFieldTypeMap] = useState<Filter.Options>(
+		initQuery?.fieldTypeMap ?? Filter.EMPTY_OPTIONS,
+	);
 
 	// Refs for tracking file selection changes
 	const isFirstRun = useRef(true);
@@ -305,34 +304,25 @@ export function FilterFileBanner({
 	 * Fetches from each selected file's event_keys and merges results.
 	 */
 	useEffect(() => {
-		if (initKeys?.length) {
-			setKeys(initKeys);
-			return;
-		}
-
 		let cancelled = false;
 		(async () => {
-			const set = new Set<string>();
-			const map: Record<string, string> = {};
+			const map: Filter.Options = {};
 			await Promise.all(
 				files.map(async (file) => {
 					const fileKeys = await Info.event_keys(file);
 					Object.entries(fileKeys).forEach(([k, t]) => {
-						set.add(k);
-						map[k] = t as string;
+						map[k] = t;
 					});
 				}),
 			);
 			if (!cancelled) {
-				const sortedKeys = [...set].sort((a, b) => a.localeCompare(b));
-				setKeys(sortedKeys);
 				setFieldTypeMap(map);
 			}
 		})();
 		return () => {
 			cancelled = true;
 		};
-	}, [Info, files, initKeys]);
+	}, [Info, files]);
 
 	/** Updates the filters array within the query state. */
 	const setFilters = useCallback(
@@ -481,10 +471,10 @@ export function FilterFileBanner({
 			<OpenSearchQueryBuilder.Query.Filters
 				filters={query.filters}
 				setFilters={setFilters}
-				keys={keys}
+				options={fieldTypeMap}
 			/>
 		),
-		[query.filters, setFilters, keys],
+		[query.filters, setFilters, fieldTypeMap],
 	);
 
 	const [isPreviewLoading, setIsPreviewLoading] = useState(false);
@@ -512,7 +502,6 @@ export function FilterFileBanner({
 									<FilterFileBanner
 										sources={files}
 										query={finalQuery}
-										keys={keys}
 										create_notes={initCreateNotes}
 										notes_color={notes_color}
 										notes_tags={notes_tags}
@@ -531,7 +520,6 @@ export function FilterFileBanner({
 		Info,
 		getFinalQuery,
 		files,
-		keys,
 		spawnBanner,
 		props,
 		initCreateNotes,

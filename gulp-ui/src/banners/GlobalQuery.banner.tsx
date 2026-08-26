@@ -58,7 +58,11 @@ export namespace GlobalQuery {
 
     const QueryFilterBuilder = useMemo(() => {
       return (
-        <OpenSearchQueryBuilder.Query.Filters filters={query.filters} setFilters={setFilters} keys={[]} />
+        <OpenSearchQueryBuilder.Query.Filters
+          filters={query.filters}
+          setFilters={setFilters}
+          options={Filter.EMPTY_OPTIONS}
+        />
       )
     }, [query, setFilters]);
 

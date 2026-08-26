@@ -413,7 +413,7 @@ function getEnabledFilterFieldNames(filters: Filter.Item[]): string[] {
  */
 function serializeRelevantFieldTypes(
 	filterState: AnalyticsFilterState,
-	fieldTypeMap: Record<string, string>,
+	fieldTypeMap: Filter.Options,
 ): string {
 	const fieldNames = Array.from(
 		new Set(getEnabledFilterFieldNames(filterState.filters)),
@@ -489,13 +489,13 @@ function resolveDashboardSourceColor(
 function buildAnalyticsQuery(
 	operationId: Operation.Id,
 	filterState: AnalyticsFilterState,
-	fieldTypeMap: Record<string, string>,
+	fieldTypeMap: Filter.Options,
 	defaultSourceIds: Source.Id[] = [],
 ): Record<string, unknown> {
 	const sourceIds =
 		filterState.sourceIds.length > 0 ? filterState.sourceIds : defaultSourceIds;
 	const bool: Record<
-		OpenSearchQueryBuilder.Operator,
+		Filter.BoolOperator,
 		Record<string, unknown>[]
 	> = {
 		must: [{ term: { "gulp.operation_id": operationId } }],
@@ -537,7 +537,7 @@ function buildAnalyticsQuery(
 	});
 
 	Object.keys(bool).forEach((key) => {
-		const operator = key as OpenSearchQueryBuilder.Operator;
+		const operator = key as Filter.BoolOperator;
 		if (bool[operator].length === 0) {
 			delete bool[operator];
 		}
@@ -555,7 +555,7 @@ function buildAnalyticsQuery(
  */
 function resolveAggregationField(
 	field: string,
-	fieldTypeMap: Record<string, string>,
+	fieldTypeMap: Filter.Options,
 ): string {
 	if (fieldTypeMap[field] === "text") {
 		return `${field}.keyword`;
@@ -577,7 +577,7 @@ function resolveAggregationField(
 function buildFieldAggregationBody(
 	query: Record<string, unknown>,
 	field: string,
-	fieldTypeMap: Record<string, string>,
+	fieldTypeMap: Filter.Options,
 	aggregationFunction: AggregationFunction,
 	options: {
 		topValuesSize: number;
@@ -959,12 +959,12 @@ function readChartPalette(documentRef: Document): ChartPalette {
 /**
  * Renders global or card-local dashboard filter fields.
  *
- * @param props - Filter state, available field keys, and optional source selector data.
+ * @param props - Filter state, field metadata, and optional source selector data.
  */
 function DashboardFilterEditor({
 	filterState,
 	setFilterState,
-	fieldKeys,
+	fieldOptions,
 	container,
 	availableSources,
 	inheritedSourceIds = [],
@@ -972,7 +972,7 @@ function DashboardFilterEditor({
 }: {
 	filterState: AnalyticsFilterState;
 	setFilterState: React.Dispatch<React.SetStateAction<AnalyticsFilterState>>;
-	fieldKeys: string[];
+	fieldOptions: Filter.Options;
 	container: HTMLDivElement | null;
 	availableSources?: Source.Type[];
 	inheritedSourceIds?: Source.Id[];
@@ -1073,7 +1073,7 @@ function DashboardFilterEditor({
 			<OpenSearchQueryBuilder.Query.Filters
 				filters={filterState.filters}
 				setFilters={setFilters}
-				keys={fieldKeys}
+				options={fieldOptions}
 				container={container}
 			/>
 		</Stack>
@@ -1089,7 +1089,7 @@ function DashboardFilterBanner({
 	title,
 	initialFilterState,
 	onApply,
-	fieldKeys,
+	fieldOptions,
 	container,
 	availableSources,
 	inheritedSourceIds,
@@ -1098,7 +1098,7 @@ function DashboardFilterBanner({
 	title: string;
 	initialFilterState: AnalyticsFilterState;
 	onApply: (filterState: AnalyticsFilterState) => void;
-	fieldKeys: string[];
+	fieldOptions: Filter.Options;
 	container: HTMLDivElement | null;
 	availableSources?: Source.Type[];
 	inheritedSourceIds?: Source.Id[];
@@ -1137,7 +1137,7 @@ function DashboardFilterBanner({
 			<DashboardFilterEditor
 				filterState={draftFilterState}
 				setFilterState={setDraftFilterState}
-				fieldKeys={fieldKeys}
+				fieldOptions={fieldOptions}
 				container={container}
 				availableSources={availableSources}
 				inheritedSourceIds={inheritedSourceIds}
@@ -1155,14 +1155,14 @@ function DashboardFilterBanner({
 function DashboardFilterControls({
 	filterState,
 	setFilterState,
-	fieldKeys,
+	fieldOptions,
 	container,
 	availableSources,
 	inheritedSourceIds = [],
 }: {
 	filterState: AnalyticsFilterState;
 	setFilterState: React.Dispatch<React.SetStateAction<AnalyticsFilterState>>;
-	fieldKeys: string[];
+	fieldOptions: Filter.Options;
 	container: HTMLDivElement | null;
 	availableSources?: Source.Type[];
 	inheritedSourceIds?: Source.Id[];
@@ -1207,7 +1207,7 @@ function DashboardFilterControls({
 						sourceIds: prev.sourceIds,
 					}))
 				}
-				fieldKeys={fieldKeys}
+				fieldOptions={fieldOptions}
 				container={container}
 				availableSources={availableSources}
 				inheritedSourceIds={inheritedSourceIds}
@@ -1218,7 +1218,7 @@ function DashboardFilterControls({
 	}, [
 		availableSources,
 		container,
-		fieldKeys,
+		fieldOptions,
 		filterState,
 		inheritedSourceIds,
 		setFilterState,
@@ -1436,8 +1436,7 @@ function DashboardTimeRowsTable({ rows }: DashboardTimeRowsTableProps) {
 interface DashboardCardProps {
 	dashboard: DashboardDefinition;
 	globalFilterState: AnalyticsFilterState;
-	fieldTypeMap: Record<string, string>;
-	fieldKeys: string[];
+	fieldTypeMap: Filter.Options;
 	container: HTMLDivElement | null;
 	palette: ChartPalette;
 	sourceNameById: Map<string, string>;
@@ -1455,7 +1454,6 @@ const DashboardCard = memo(function DashboardCard({
 	dashboard,
 	globalFilterState,
 	fieldTypeMap,
-	fieldKeys,
 	container,
 	palette,
 	sourceNameById,
@@ -1515,7 +1513,7 @@ const DashboardCard = memo(function DashboardCard({
 					setLocalFilterState(draftFilterState);
 					setCustomFiltersEnabled(true);
 				}}
-				fieldKeys={fieldKeys}
+				fieldOptions={fieldTypeMap}
 				container={container}
 				availableSources={availableSources}
 				inheritedSourceIds={defaultSourceIds}
@@ -1529,7 +1527,7 @@ const DashboardCard = memo(function DashboardCard({
 		customFiltersEnabled,
 		dashboard.name,
 		defaultSourceIds,
-		fieldKeys,
+		fieldTypeMap,
 		globalFilterState,
 		localFilterState,
 		spawnBanner,
@@ -1806,7 +1804,7 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 		createInitialFilterState(operationSources),
 	);
 	const previousOperationIdRef = useRef<Operation.Id | undefined>(operation?.id);
-	const [fieldTypeMap, setFieldTypeMap] = useState<Record<string, string>>({});
+	const [fieldTypeMap, setFieldTypeMap] = useState<Filter.Options>({});
 	const [fieldSourceCounts, setFieldSourceCounts] = useState<
 		Record<string, number>
 	>({});
@@ -1977,12 +1975,12 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 		)
 			.then((fieldMaps) => {
 				if (cancelled) return;
-				const nextFieldTypeMap: Record<string, string> = {};
+				const nextFieldTypeMap: Filter.Options = {};
 				const nextCounts: Record<string, number> = {};
 
 				fieldMaps.forEach((fieldMap) => {
 					Object.entries(fieldMap).forEach(([field, type]) => {
-						nextFieldTypeMap[field] = String(type);
+						nextFieldTypeMap[field] = type;
 						nextCounts[field] = (nextCounts[field] ?? 0) + 1;
 					});
 				});
@@ -2265,7 +2263,7 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 							<DashboardFilterControls
 								filterState={filterState}
 								setFilterState={setFilterState}
-								fieldKeys={fieldKeys}
+								fieldOptions={fieldTypeMap}
 								container={container}
 								availableSources={operationSources}
 								inheritedSourceIds={operationSourceIds}
@@ -2305,7 +2303,6 @@ export function DashboardViewWindow({ onClose }: DashboardViewWindow.Props) {
 											dashboard={dashboard}
 											globalFilterState={filterState}
 											fieldTypeMap={fieldTypeMap}
-											fieldKeys={fieldKeys}
 											container={container}
 											palette={palette}
 											sourceNameById={sourceNameById}

@@ -1,9 +1,8 @@
-import { OpenSearchQueryBuilder } from "@/components/QueryBuilder";
-import { Acceptable } from "@/dto/ElasticGetMapping.dto";
-import { Query } from "./Query";
-import { MinMax } from "@/class/Info";
+import type { Acceptable } from "@/dto/ElasticGetMapping.dto";
+import type { Query } from "./Query";
+import type { MinMax } from "@/class/Info";
 import { Source } from "./Source";
-import { App } from "./App";
+import type { App } from "./App";
 import { translate } from "@/locales/core";
 type UUID = string;
 import { Internal } from "./addon/Internal";
@@ -25,11 +24,25 @@ export namespace Filter {
 	}
 
 	export type Options = Record<string, Acceptable>;
+	/** Stable empty field catalog for editors without mapping metadata. */
+	export const EMPTY_OPTIONS: Filter.Options = {};
+
+	/** Structured query condition stored on a leaf filter. */
+	export type Condition =
+		| "regexp"
+		| "wildcard"
+		| "range"
+		| "LTE"
+		| "GTE"
+		| "eq";
+
+	/** OpenSearch bool bucket that receives a filter or group. */
+	export type BoolOperator = "must" | "should" | "must_not" | "filter";
 
 	export interface Type {
 		id: Filter.Id;
-		type: OpenSearchQueryBuilder.Condition;
-		operator: OpenSearchQueryBuilder.Operator;
+		type: Filter.Condition;
+		operator: Filter.BoolOperator;
 		field: string;
 		value: any;
 		enabled: boolean;
@@ -51,7 +64,7 @@ export namespace Filter {
 	export interface Group {
 		id: Filter.Id;
 		type: "group";
-		operator: OpenSearchQueryBuilder.Operator;
+		operator: Filter.BoolOperator;
 		children: Filter.Item[];
 		enabled: boolean;
 	}
@@ -64,6 +77,154 @@ export namespace Filter {
 	}
 
 	export class Entity {
+		private static readonly allConditions: readonly Filter.Condition[] = [
+			"regexp",
+			"wildcard",
+			"range",
+			"LTE",
+			"GTE",
+			"eq",
+		];
+
+		private static readonly numericFieldTypes = new Set<Acceptable>([
+			"byte",
+			"short",
+			"integer",
+			"long",
+			"unsigned_long",
+			"half_float",
+			"float",
+			"double",
+			"scaled_float",
+		]);
+
+		/**
+		 * Creates a structured leaf condition with the application-wide defaults.
+		 * @param id Stable identifier assigned by the caller.
+		 * @param overrides Optional values that replace the default filter fields.
+		 * @returns A new condition that defaults to enabled equality in the `must` bucket.
+		 */
+		public static createCondition = (
+			id: Filter.Id,
+			overrides: Partial<Omit<Filter.Type, "id">> = {},
+		): Filter.Type => ({
+			id,
+			type: "eq",
+			field: "",
+			case_insensitive: true,
+			value: "",
+			operator: "must",
+			enabled: true,
+			...overrides,
+		});
+
+		/**
+		 * Returns the structured conditions supported by an OpenSearch field type.
+		 * @param fieldType OpenSearch mapping type, or undefined when metadata is unavailable.
+		 * @returns Conditions allowed for the field type; unknown types allow equality only.
+		 */
+		public static getAllowedConditions = (
+			fieldType?: string,
+		): readonly Filter.Condition[] => {
+			const normalizedType = fieldType?.trim().toLowerCase();
+			if (normalizedType === "keyword" || normalizedType === "wildcard") {
+				return Filter.Entity.allConditions;
+			}
+			if (normalizedType === "text") {
+				return ["eq", "wildcard"];
+			}
+			if (
+				normalizedType === "date" ||
+				normalizedType === "date_nanos" ||
+				normalizedType === "ip" ||
+				Filter.Entity.numericFieldTypes.has(normalizedType as Acceptable)
+			) {
+				return ["eq", "range", "LTE", "GTE"];
+			}
+			return ["eq"];
+		};
+
+		/**
+		 * Checks whether a condition can be applied to an OpenSearch field type.
+		 * @param condition Structured condition to validate.
+		 * @param fieldType OpenSearch mapping type, or undefined when unknown.
+		 * @returns True when the condition is valid for the field type.
+		 */
+		public static isConditionAllowed = (
+			condition: Filter.Condition,
+			fieldType?: string,
+		): boolean =>
+			Filter.Entity.getAllowedConditions(fieldType).includes(condition);
+
+		/**
+		 * Assigns a field to a filter and resets incompatible conditions to equality.
+		 * @param filter Leaf filter being edited.
+		 * @param field Selected or manually entered field name.
+		 * @param options Available field-to-type metadata.
+		 * @returns Updated filter with a condition valid for the selected field.
+		 */
+		public static assignField = (
+			filter: Filter.Type,
+			field: string,
+			options: Filter.Options,
+		): Filter.Type => ({
+			...filter,
+			field,
+			type: Filter.Entity.isConditionAllowed(filter.type, options[field])
+				? filter.type
+				: "eq",
+		});
+
+		/**
+		 * Recursively resets conditions that are incompatible with current field metadata.
+		 * @param items Structured filters and nested groups to validate.
+		 * @param options Available field-to-type metadata.
+		 * @returns Original array when already valid, otherwise a normalized copy.
+		 */
+		public static normalizeConditions = (
+			items: Filter.Item[],
+			options: Filter.Options,
+		): Filter.Item[] => {
+			let changed = false;
+			const normalized = items.map((item): Filter.Item => {
+				if (Filter.isGroup(item)) {
+					const children = Filter.Entity.normalizeConditions(item.children, options);
+					if (children === item.children) return item;
+					changed = true;
+					return { ...item, children };
+				}
+
+				const next = Filter.Entity.assignField(item, item.field, options);
+				if (next.type === item.type) return item;
+				changed = true;
+				return next;
+			});
+
+			return changed ? normalized : items;
+		};
+
+		/**
+		 * Converts a range input into the JSON value expected for its field type.
+		 * @param value User-provided range boundary.
+		 * @param fieldType OpenSearch mapping type for the filtered field.
+		 * @returns A finite number for numeric fields, a trimmed string for other
+		 * fields, or null when a numeric boundary is invalid.
+		 */
+		private static toRangeBoundary = (
+			value: unknown,
+			fieldType?: string,
+		): string | number | null => {
+			const normalizedValue = String(value).trim();
+			const normalizedType = fieldType?.trim().toLowerCase() as
+				| Acceptable
+				| undefined;
+			if (normalizedType && Filter.Entity.numericFieldTypes.has(normalizedType)) {
+				const numericValue = Number(normalizedValue);
+				return Number.isFinite(numericValue) ? numericValue : null;
+			}
+			return normalizedValue;
+		};
+
 		/**
 		 * Checks whether a top-level manual-query clause is one of the structured
 		 * operation, source, or time constraints generated from source_config.
@@ -143,17 +304,19 @@ export namespace Filter {
 		/**
 		 * Builds a single OpenSearch clause for one `Filter.Item` (leaf or group).
 		 *
-		 * - Leaf: produces a match/wildcard/regexp/range clause as before.
+		 * - Leaf: validates its condition and produces a term/wildcard/regexp/range clause.
 		 * - Group: recurses over its children and wraps them in a nested bool whose
 		 *   buckets are populated by each child's own `operator` — so a single group
 		 *   can hold a mix of must / should / must_not / filter children. The group's
 		 *   own `operator` is handled by the caller (placement in the parent bool).
 		 *
-		 * Returns `null` when the item is disabled or produces no clause.
+		 * @param item Leaf condition or group to translate.
+		 * @param fieldTypeMap Available field-to-type metadata.
+		 * @returns OpenSearch clause, or null when the item is disabled or empty.
 		 */
 		static buildItemClause = (
 			item: Filter.Item,
-			fieldTypeMap?: Record<string, string>,
+			fieldTypeMap: Filter.Options = {},
 		): Record<string, any> | null => {
 			if (!item.enabled) return null;
 
@@ -176,39 +339,70 @@ export namespace Filter {
 				return { bool: inner };
 			}
 
-			const { type, field, value, case_insensitive = false } = item;
-			if (!field || !value) return null;
+			const { field, value, case_insensitive = false } = item;
+			if (
+				!field ||
+				(typeof value === "string" && value.trim() === "") ||
+				value === null ||
+				value === undefined
+			) {
+				return null;
+			}
 
 			const fieldType = fieldTypeMap?.[field];
-			if (
-				(type === "wildcard" || type === "regexp") &&
-				(fieldType === "long" || fieldType === "integer")
-			) {
-				return { query_string: { query: `${field}:${value}` } };
-			}
+			const type = Filter.Entity.isConditionAllowed(item.type, fieldType)
+				? item.type
+				: "eq";
 
 			switch (type) {
 				case "regexp":
 					return { regexp: { [field]: { value, flags: "ALL" } } };
 				case "wildcard":
 					return { wildcard: { [field]: { value, case_insensitive } } };
-				case "range":
+				case "range": {
+					const [rawMin = "", rawMax = ""] = String(value).split(",", 2);
+					const range: Record<string, string | number> = {};
+					if (rawMin.trim()) {
+						const min = Filter.Entity.toRangeBoundary(rawMin, fieldType);
+						if (min === null) return null;
+						range.gte = min;
+					}
+					if (rawMax.trim()) {
+						const max = Filter.Entity.toRangeBoundary(rawMax, fieldType);
+						if (max === null) return null;
+						range.lte = max;
+					}
+					if (Object.keys(range).length === 0) return null;
+					return {
+						range: {
+							[field]: range,
+						},
+					};
+				}
+				case "LTE": {
+					const boundary = Filter.Entity.toRangeBoundary(value, fieldType);
+					if (boundary === null) return null;
 					return {
 						range: {
 							[field]: {
-								gte: value.split(",")[0]?.trim() || 0,
-								lte: value.split(",")[1]?.trim() || 0,
+								lte: boundary,
 							},
 						},
 					};
-				case "LTE":
-					return { range: { [field]: { lte: Number(value) } } };
-				case "GTE":
-					return { range: { [field]: { gte: Number(value) } } };
+				}
+				case "GTE": {
+					const boundary = Filter.Entity.toRangeBoundary(value, fieldType);
+					if (boundary === null) return null;
+					return {
+						range: {
+							[field]: {
+								gte: boundary,
+							},
+						},
+					};
+				}
 				case "eq":
 					return { term: { [field]: value } };
-				default:
-					return { match: { [field]: value } };
 			}
 		};
 
