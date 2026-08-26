@@ -28,14 +28,19 @@ import type { Operation } from "@/entities/Operation";
 import type { Source } from "@/entities/Source";
 import type {
 	DocumentChunkReady,
+	DocumentChunkAcknowledgement,
 	DocumentStreamDescriptor,
 	QueryRenderWindowDescriptor,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
 	QueryStreamFailureReason,
+	QueryWorkerDiagnostics,
 } from "@/event-stream";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
 import { normalizeQueryDocumentsCooperatively } from "./QueryDocument.normalizer";
+
+export const QUERY_RAW_GLOBAL_BACKLOG_BYTE_LIMIT = 128 * 1024 ** 2;
+export const QUERY_RAW_STREAM_BACKLOG_BYTE_LIMIT = 64 * 1024 ** 2;
 
 interface UpsertDocumentsInput {
 	documents: readonly Doc.Type[];
@@ -51,6 +56,7 @@ interface QueryPersistenceRepository {
 		sourceId: Source.Id,
 		generation: number,
 	): Promise<EventSourceSummary>;
+	cleanupObsoleteGenerations?: (sourceId: Source.Id) => Promise<void>;
 	cancelGeneration(sourceId: Source.Id, generation: number): Promise<void>;
 	clearSource(sourceId: Source.Id): Promise<void>;
 	upsertDocuments?: (
@@ -88,6 +94,9 @@ export interface QueryPersistenceCallbacks {
 	onStreamFailure: (event: QueryStreamFailureEvent) => void;
 	onStreamFlushing: (requestId: string) => void;
 	onStreamCompleted: (requestId: string) => void;
+	onDocumentChunkAcknowledged: (
+		acknowledgement: DocumentChunkAcknowledgement,
+	) => void;
 }
 
 export interface QueryPersistenceCoordinatorOptions {
@@ -100,6 +109,8 @@ export interface QueryPersistenceCoordinatorOptions {
 	createViewportProjector?: (backend: EventStoreBackend) => QueryViewportProjector;
 	lockManager?: Pick<LockManager, "request">;
 	pendingDocumentLimit?: number;
+	rawGlobalByteLimit?: number;
+	rawStreamByteLimit?: number;
 	maximumConcurrentCommits?: number;
 	now?: () => number;
 }
@@ -134,6 +145,7 @@ interface PersistenceStreamContext {
 	replaceSources: Map<Source.Id, ReplaceSourceContext>;
 	releaseSourceLeases: Array<() => void>;
 	chain: Promise<void>;
+	normalizationChain: Promise<void>;
 	accepting: boolean;
 	canceling: boolean;
 	explicitCompletionRequested: boolean;
@@ -143,6 +155,16 @@ interface PersistenceStreamContext {
 	completed: boolean;
 	released: boolean;
 	cleanupPromise: Promise<void> | null;
+	pendingRawChunkBytes: number;
+	maximumPendingRawChunkBytes: number;
+}
+
+interface NormalizedDocumentChunk {
+	grouped: Map<Source.Id, Doc.Type[]>;
+	documentCredit: number;
+	chunkLast: boolean;
+	requestLast: boolean;
+	acknowledgement: Omit<DocumentChunkAcknowledgement, "stage"> | null;
 }
 
 interface PendingDocumentCreditWaiter {
@@ -184,6 +206,9 @@ export class QueryPersistenceCoordinator {
 	) => QueryViewportProjector;
 	private readonly lockManager?: Pick<LockManager, "request">;
 	private readonly pendingDocumentLimit: number;
+	private readonly pageBuilderLowWatermark: number;
+	private readonly rawGlobalByteLimit: number;
+	private readonly rawStreamByteLimit: number;
 	private readonly maximumConcurrentCommits: number;
 	private readonly now: () => number;
 	private readonly operationPromises = new Map<
@@ -204,8 +229,18 @@ export class QueryPersistenceCoordinator {
 	private readonly pendingDocumentCreditWaiters: PendingDocumentCreditWaiter[] = [];
 	private currentPendingDocuments = 0;
 	private currentPageBuilderDocuments = 0;
+	private maximumPendingDocuments = 0;
 	private currentPendingRawChunkBytes = 0;
+	private maximumPendingRawChunkBytes = 0;
+	private maximumStreamPendingRawChunkBytes = 0;
 	private currentCommitCount = 0;
+	private maximumCommitCount = 0;
+	private completedCommitCount = 0;
+	private totalCommitLatencyMs = 0;
+	private maximumCommitLatencyMs = 0;
+	private createdPageCount = 0;
+	private createdPageDocumentCount = 0;
+	private projectionRetryCount = 0;
 	private destroyed = false;
 
 	/**
@@ -227,6 +262,14 @@ export class QueryPersistenceCoordinator {
 		this.lockManager = options.lockManager ?? globalThis.navigator?.locks;
 		this.pendingDocumentLimit =
 			options.pendingDocumentLimit ?? EVENT_PENDING_DOCUMENT_LIMIT;
+		this.pageBuilderLowWatermark = Math.max(
+			0,
+			this.pendingDocumentLimit - EVENT_PAGE_SIZE,
+		);
+		this.rawGlobalByteLimit =
+			options.rawGlobalByteLimit ?? QUERY_RAW_GLOBAL_BACKLOG_BYTE_LIMIT;
+		this.rawStreamByteLimit =
+			options.rawStreamByteLimit ?? QUERY_RAW_STREAM_BACKLOG_BYTE_LIMIT;
 		this.maximumConcurrentCommits = options.maximumConcurrentCommits ?? 2;
 		this.now = options.now ?? Date.now;
 		this.createOperationStore =
@@ -259,6 +302,18 @@ export class QueryPersistenceCoordinator {
 		) {
 			throw new RangeError("Concurrent commit limit must be a positive integer.");
 		}
+		if (
+			!Number.isSafeInteger(this.rawGlobalByteLimit) ||
+			this.rawGlobalByteLimit <= 0
+		) {
+			throw new RangeError("Global raw backlog limit must be a positive integer.");
+		}
+		if (
+			!Number.isSafeInteger(this.rawStreamByteLimit) ||
+			this.rawStreamByteLimit <= 0
+		) {
+			throw new RangeError("Stream raw backlog limit must be a positive integer.");
+		}
 	}
 
 	/** Returns the number of normalized documents retained by queued stream work. */
@@ -274,6 +329,29 @@ export class QueryPersistenceCoordinator {
 		return this.currentPendingRawChunkBytes;
 	}
 
+	/** Returns the largest global raw backlog observed by this coordinator. */
+	public get maximumPendingRawChunkByteCount(): number {
+		return this.maximumPendingRawChunkBytes;
+	}
+
+	/**
+	 * Returns one active stream's current raw backlog.
+	 * @param requestId Stream identifier to inspect.
+	 * @returns Reserved raw bytes, or zero after the stream is released.
+	 */
+	public getStreamPendingRawChunkByteCount(requestId: string): number {
+		return this.streams.get(requestId)?.pendingRawChunkBytes ?? 0;
+	}
+
+	/**
+	 * Returns one active stream's raw backlog high-water mark.
+	 * @param requestId Stream identifier to inspect.
+	 * @returns Maximum reserved bytes, or zero after the stream is released.
+	 */
+	public getStreamMaximumPendingRawChunkByteCount(requestId: string): number {
+		return this.streams.get(requestId)?.maximumPendingRawChunkBytes ?? 0;
+	}
+
 	/** Returns the number of storage commits currently executing. */
 	public get concurrentCommitCount(): number {
 		return this.currentCommitCount;
@@ -282,6 +360,73 @@ export class QueryPersistenceCoordinator {
 	/** Returns the number of open operation repositories retained by this worker. */
 	public get loadedOperationCount(): number {
 		return this.operations.size;
+	}
+
+	/**
+	 * Returns a detached on-demand diagnostics snapshot with session projection counts.
+	 * @param projections Session-owned projection scheduling counters.
+	 * @returns Current gauges and cumulative persistence high-water marks.
+	 */
+	public getDiagnostics(
+		projections: QueryWorkerDiagnostics["projections"],
+	): QueryWorkerDiagnostics {
+		const pageCapacity = this.createdPageCount * EVENT_PAGE_SIZE;
+		return {
+			capturedAtMs: this.now(),
+			activeStreams: this.streams.size,
+			loadedOperations: this.operations.size,
+			rawBacklog: {
+				currentBytes: this.currentPendingRawChunkBytes,
+				maximumBytes: this.maximumPendingRawChunkBytes,
+				maximumStreamBytes: this.maximumStreamPendingRawChunkBytes,
+			},
+			normalizedBacklog: {
+				currentDocuments: this.pendingDocumentCount,
+				maximumDocuments: this.maximumPendingDocuments,
+			},
+			commits: {
+				active: this.currentCommitCount,
+				maximumActive: this.maximumCommitCount,
+				completed: this.completedCommitCount,
+				averageLatencyMs:
+					this.completedCommitCount === 0
+						? 0
+						: this.totalCommitLatencyMs / this.completedCommitCount,
+				maximumLatencyMs: this.maximumCommitLatencyMs,
+			},
+			pages: {
+				created: this.createdPageCount,
+				documents: this.createdPageDocumentCount,
+				capacity: pageCapacity,
+				fillRatio:
+					pageCapacity === 0
+						? 0
+						: this.createdPageDocumentCount / pageCapacity,
+			},
+			projections: {
+				...projections,
+				retries: this.projectionRetryCount,
+			},
+		};
+	}
+
+	/** Clears cumulative metrics while retaining current queue and commit gauges. */
+	public resetDiagnostics(): void {
+		this.maximumPendingDocuments = this.pendingDocumentCount;
+		this.maximumPendingRawChunkBytes = this.currentPendingRawChunkBytes;
+		this.maximumStreamPendingRawChunkBytes = Math.max(
+			0,
+			...[...this.streams.values()].map(
+				(context) => context.pendingRawChunkBytes,
+			),
+		);
+		this.maximumCommitCount = this.currentCommitCount;
+		this.completedCommitCount = 0;
+		this.totalCommitLatencyMs = 0;
+		this.maximumCommitLatencyMs = 0;
+		this.createdPageCount = 0;
+		this.createdPageDocumentCount = 0;
+		this.projectionRetryCount = 0;
 	}
 
 	/**
@@ -320,6 +465,7 @@ export class QueryPersistenceCoordinator {
 				return isNewest() ? projection : null;
 			} catch (error) {
 				if (error instanceof StaleEventStoreProjectionError) {
+					this.projectionRetryCount += 1;
 					await this.yieldProjectionSlice();
 					continue;
 				}
@@ -451,6 +597,7 @@ export class QueryPersistenceCoordinator {
 					replaceSources: new Map(),
 					releaseSourceLeases,
 					chain: Promise.resolve(),
+					normalizationChain: Promise.resolve(),
 					accepting: true,
 					canceling: false,
 					explicitCompletionRequested: false,
@@ -460,6 +607,8 @@ export class QueryPersistenceCoordinator {
 					completed: false,
 					released: false,
 					cleanupPromise: null,
+					pendingRawChunkBytes: 0,
+					maximumPendingRawChunkBytes: 0,
 				};
 
 				if (isReplace) {
@@ -506,14 +655,15 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Accepts one deduplicated persist-owned chunk and queues only normalized events.
+	 * Accepts one deduplicated persist-owned chunk into independent normalization and
+	 * ordered persistence stages.
 	 * @param chunk Router-owned document chunk and stream descriptor.
-	 * @returns Nothing; persistence continues through the stream's ordered promise chain.
+	 * @returns Nothing; bounded normalization may advance while prior commits settle.
 	 */
 	public handleDocumentChunk(chunk: DocumentChunkReady): void {
 		const context = this.streams.get(chunk.descriptor.requestId);
 		if (!context || context.failed || context.completed || !context.accepting) return;
-		let rawDocuments = chunk.message.payload?.docs ?? [];
+		const rawDocuments = chunk.message.payload?.docs ?? [];
 		if (!Array.isArray(rawDocuments)) {
 			this.beginFailure(
 				context,
@@ -526,78 +676,175 @@ export class QueryPersistenceCoordinator {
 		}
 		const rawByteLength = this.normalizeRawChunkByteLength(chunk.rawByteLength);
 		const queuedDocumentCount = rawDocuments.length;
-		this.currentPendingRawChunkBytes += rawByteLength;
-		const isLast = chunk.message.payload?.last === true;
+		const backlogFailure = this.reserveRawChunkBytes(context, rawByteLength);
+		if (backlogFailure) {
+			if (chunk.message.payload) chunk.message.payload.docs = [];
+			this.beginFailure(context, backlogFailure);
+			return;
+		}
+		const chunkLast = chunk.message.payload?.last === true;
+		const requestLast = chunk.message.payload?.request_last === true;
 		const completesOnLast =
 			(context.descriptor.completionMode ?? "last") === "last";
-		if (isLast && completesOnLast) context.accepting = false;
+		if (requestLast || (chunkLast && completesOnLast)) context.accepting = false;
 
-		let rawBytesRetained = true;
-		let normalizedCredit = 0;
+		const normalization = context.normalizationChain.then(() =>
+			this.normalizeDocumentChunk(
+				context,
+				chunk,
+				rawDocuments,
+				rawByteLength,
+				queuedDocumentCount,
+				chunkLast,
+				requestLast,
+			),
+		);
+		context.normalizationChain = normalization.then(
+			() => undefined,
+			(error: unknown) => {
+				this.signalFailure(context, error);
+			},
+		);
 		const processing = context.chain.then(async () => {
-			try {
-				if (context.failed || context.completed) return;
-				const acquired = await this.acquirePendingDocumentCredit(
-					context,
-					queuedDocumentCount,
-				);
-				if (!acquired || context.failed || context.completed) return;
-				normalizedCredit = queuedDocumentCount;
-				let grouped: Map<Source.Id, Doc.Type[]>;
-				try {
-					grouped = await normalizeQueryDocumentsCooperatively(
-						rawDocuments,
-						context.descriptor,
-					);
-				} catch (error) {
-					throw new QueryPersistenceError(
-						"normalization",
-						error instanceof Error ? error.message : String(error),
-					);
-				} finally {
-					this.releaseRawChunkBytes(rawByteLength);
-					rawBytesRetained = false;
-					if (chunk.message.payload) chunk.message.payload.docs = [];
-					rawDocuments = [];
-				}
-				const sourceIds = [...grouped.keys()].sort();
-				if (!context.hasDeclaredSourceAuthority) {
-					await this.acquireDiscoveredSourceLeases(context, sourceIds);
-					await this.prepareDiscoveredUpsertSources(context, sourceIds);
-				}
-				if ((context.descriptor.kind ?? "query-upsert") === "replace") {
-					this.transferPendingDocumentsToReplaceBuilders(context, grouped);
-					normalizedCredit = 0;
-					await this.flushReplacePages(context);
-				} else {
-					await this.waitForAll(
-						[...grouped.entries()].map(([sourceId, documents]) =>
-							this.persistSourceDocuments(context, sourceId, documents),
-						),
-					);
-				}
-				if (!isLast) return;
-				if ((context.descriptor.completionMode ?? "last") === "explicit") {
-					context.lastChunkCommitted = true;
-					if (!context.explicitCompletionRequested) return;
-					context.accepting = false;
-					await this.finishContext(context);
-					return;
-				}
-				await this.finishContext(context);
-			} finally {
-				if (rawBytesRetained) {
-					this.releaseRawChunkBytes(rawByteLength);
-					rawBytesRetained = false;
-				}
-				if (normalizedCredit > 0) {
-					this.releasePendingDocumentCredit(normalizedCredit);
-					normalizedCredit = 0;
-				}
-			}
+			const normalized = await normalization;
+			if (!normalized) return;
+			await this.persistNormalizedDocumentChunk(context, normalized);
 		});
-		context.chain = processing
-			.catch((error: unknown) => this.failContext(context, error));
+		context.chain = processing.catch((error: unknown) =>
+			this.failContext(context, error),
+		);
+	}
+
+	/**
+	 * Normalizes one raw chunk independently from prior IndexedDB commits.
+	 * @param context Stream owning memory credits and failure state.
+	 * @param chunk Router-owned chunk metadata.
+	 * @param rawDocuments Parsed JSON documents to release after normalization.
+	 * @param rawByteLength Reserved raw backlog bytes.
+	 * @param documentCount Number of normalized-memory credits to acquire.
+	 * @param chunkLast Whether this is the last chunk of one child query.
+	 * @param requestLast Whether this is the terminal chunk of the whole request.
+	 * @returns Normalized ordered work, or null after a terminal lifecycle change.
+	 */
+	private async normalizeDocumentChunk(
+		context: PersistenceStreamContext,
+		chunk: DocumentChunkReady,
+		rawDocuments: readonly unknown[],
+		rawByteLength: number,
+		documentCount: number,
+		chunkLast: boolean,
+		requestLast: boolean,
+	): Promise<NormalizedDocumentChunk | null> {
+		let documentCredit = 0;
+		let normalizedResult: NormalizedDocumentChunk | null = null;
+		try {
+			if (context.failed || context.completed || context.canceling) return null;
+			const acquired = await this.acquirePendingDocumentCredit(
+				context,
+				documentCount,
+			);
+			if (!acquired || context.failed || context.completed || context.canceling) {
+				return null;
+			}
+			documentCredit = documentCount;
+			let grouped: Map<Source.Id, Doc.Type[]>;
+			try {
+				grouped = await normalizeQueryDocumentsCooperatively(
+					rawDocuments,
+					context.descriptor,
+				);
+			} catch (error) {
+				throw new QueryPersistenceError(
+					"normalization",
+					error instanceof Error ? error.message : String(error),
+				);
+			}
+			if (context.failed || context.completed || context.canceling) return null;
+			const sequence = chunk.sequence;
+			const queryName = chunk.message.payload?.name;
+			const acknowledgement =
+				typeof sequence === "number" && typeof queryName === "string"
+					? {
+							requestId: context.descriptor.requestId,
+							queryName,
+							sequence,
+						}
+					: null;
+			normalizedResult = {
+				grouped,
+				documentCredit,
+				chunkLast,
+				requestLast,
+				acknowledgement,
+			};
+			documentCredit = 0;
+		} finally {
+			this.releaseRawChunkBytes(context, rawByteLength);
+			if (chunk.message.payload) chunk.message.payload.docs = [];
+			if (documentCredit > 0) this.releasePendingDocumentCredit(documentCredit);
+		}
+		if (normalizedResult?.acknowledgement) {
+			this.callbacks.onDocumentChunkAcknowledged({
+				...normalizedResult.acknowledgement,
+				stage: "accepted",
+			});
+		}
+		return normalizedResult;
+	}
+
+	/**
+	 * Persists one already-normalized chunk in original stream order.
+	 * @param context Stream owning source builders and finalization state.
+	 * @param normalized Bounded normalized work produced independently of commits.
+	 * @returns Promise settled after required page writes and terminal authority.
+	 */
+	private async persistNormalizedDocumentChunk(
+		context: PersistenceStreamContext,
+		normalized: NormalizedDocumentChunk,
+	): Promise<void> {
+		let documentCredit = normalized.documentCredit;
+		try {
+			if (context.failed || context.completed || context.canceling) return;
+			const sourceIds = [...normalized.grouped.keys()].sort();
+			if (!context.hasDeclaredSourceAuthority) {
+				await this.acquireDiscoveredSourceLeases(context, sourceIds);
+				await this.prepareDiscoveredUpsertSources(context, sourceIds);
+			}
+			if ((context.descriptor.kind ?? "query-upsert") === "replace") {
+				this.transferPendingDocumentsToReplaceBuilders(
+					context,
+					normalized.grouped,
+				);
+				documentCredit = 0;
+				await this.flushReplacePages(context, false);
+			} else {
+				await this.waitForAll(
+					[...normalized.grouped.entries()].map(([sourceId, documents]) =>
+						this.persistSourceDocuments(context, sourceId, documents),
+					),
+				);
+			}
+			if (normalized.chunkLast) context.lastChunkCommitted = true;
+			const completesOnLast =
+				(context.descriptor.completionMode ?? "last") === "last";
+			const shouldFinalize =
+				normalized.requestLast ||
+				(normalized.chunkLast && completesOnLast) ||
+				(normalized.chunkLast && context.explicitCompletionRequested);
+			if (!shouldFinalize) return;
+			context.accepting = false;
+			await this.finishContext(context, () => {
+				if (!normalized.acknowledgement) return;
+				this.callbacks.onDocumentChunkAcknowledged({
+					...normalized.acknowledgement,
+					stage: "durable",
+				});
+			});
+		} finally {
+			if (documentCredit > 0) {
+				this.releasePendingDocumentCredit(documentCredit);
+			}
+		}
 	}
 
 	/**
@@ -607,19 +854,68 @@ export class QueryPersistenceCoordinator {
 	 */
 	private normalizeRawChunkByteLength(byteLength: number): number {
 		return Number.isFinite(byteLength)
-			? Math.max(0, Math.floor(byteLength))
+			? Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(byteLength)))
 			: 0;
 	}
 
 	/**
+	 * Reserves raw backlog capacity synchronously before a chunk joins its stream chain.
+	 * @param context Stream receiving the raw WebSocket frame.
+	 * @param byteLength Normalized raw frame size.
+	 * @returns A typed backlog failure when either configured limit would be exceeded.
+	 */
+	private reserveRawChunkBytes(
+		context: PersistenceStreamContext,
+		byteLength: number,
+	): QueryPersistenceError | null {
+		const nextGlobal = this.currentPendingRawChunkBytes + byteLength;
+		const nextStream = context.pendingRawChunkBytes + byteLength;
+		if (nextStream > this.rawStreamByteLimit) {
+			return new QueryPersistenceError(
+				"backlog",
+				`Raw backlog for ${context.descriptor.requestId} would exceed ${this.rawStreamByteLimit} bytes.`,
+			);
+		}
+		if (nextGlobal > this.rawGlobalByteLimit) {
+			return new QueryPersistenceError(
+				"backlog",
+				`Global raw backlog would exceed ${this.rawGlobalByteLimit} bytes.`,
+			);
+		}
+		this.currentPendingRawChunkBytes = nextGlobal;
+		context.pendingRawChunkBytes = nextStream;
+		this.maximumPendingRawChunkBytes = Math.max(
+			this.maximumPendingRawChunkBytes,
+			nextGlobal,
+		);
+		context.maximumPendingRawChunkBytes = Math.max(
+			context.maximumPendingRawChunkBytes,
+			nextStream,
+		);
+		this.maximumStreamPendingRawChunkBytes = Math.max(
+			this.maximumStreamPendingRawChunkBytes,
+			nextStream,
+		);
+		return null;
+	}
+
+	/**
 	 * Releases raw frame bytes as soon as worker-side normalization drops the payload.
+	 * @param context Stream that reserved the frame.
 	 * @param byteLength Previously reserved raw frame byte length.
 	 * @returns Nothing.
 	 */
-	private releaseRawChunkBytes(byteLength: number): void {
+	private releaseRawChunkBytes(
+		context: PersistenceStreamContext,
+		byteLength: number,
+	): void {
 		this.currentPendingRawChunkBytes = Math.max(
 			0,
 			this.currentPendingRawChunkBytes - byteLength,
+		);
+		context.pendingRawChunkBytes = Math.max(
+			0,
+			context.pendingRawChunkBytes - byteLength,
 		);
 	}
 
@@ -655,6 +951,7 @@ export class QueryPersistenceCoordinator {
 			this.pendingDocumentCount + documentCount <= this.pendingDocumentLimit
 		) {
 			this.currentPendingDocuments += documentCount;
+			this.recordPendingDocumentHighWatermark();
 			return Promise.resolve(true);
 		}
 		return new Promise<boolean>((resolve) => {
@@ -705,6 +1002,7 @@ export class QueryPersistenceCoordinator {
 			}
 			this.pendingDocumentCreditWaiters.shift();
 			this.currentPendingDocuments += waiter.documentCount;
+			this.recordPendingDocumentHighWatermark();
 			waiter.resolve(true);
 		}
 	}
@@ -1124,6 +1422,13 @@ export class QueryPersistenceCoordinator {
 	): Promise<void> {
 		await this.waitForAll(
 			sourceIds.map(async (sourceId) => {
+				const cleanup = context.operation.repository.cleanupObsoleteGenerations;
+				if (cleanup) {
+					await this.withCommitSlot(() =>
+						cleanup.call(context.operation.repository, sourceId),
+					);
+					await this.refreshSourceManifest(context, sourceId, false);
+				}
 				let current = context.operation.manifests.get(sourceId);
 				if (current?.status === "complete") return;
 				if (current) {
@@ -1213,7 +1518,7 @@ export class QueryPersistenceCoordinator {
 
 	/**
 	 * Atomically transfers normalized credit into replace page builders exactly once.
-	 * Partial builders are flushed at the end of every chunk so FIFO waiters always progress.
+	 * Builders retain partial pages across chunks until finalization or global pressure.
 	 * @param context Replacement stream owning the prepared sources.
 	 * @param grouped Normalized documents grouped by their declared source.
 	 * @returns Nothing.
@@ -1333,6 +1638,8 @@ export class QueryPersistenceCoordinator {
 					pages: [page],
 				}),
 			);
+			this.createdPageCount += 1;
+			this.createdPageDocumentCount += documents.length;
 			source.nextHandle = finalHandle + 1;
 			source.nextPageId += 1;
 			source.revision = summary.revision;
@@ -1347,31 +1654,70 @@ export class QueryPersistenceCoordinator {
 	}
 
 	/**
-	 * Flushes partial replace page builders without finalizing their generations.
+	 * Flushes full replace pages and optionally the final partial pages.
+	 * Under global builder pressure, the largest residual owned by this stream is
+	 * committed first so other FIFO streams can acquire normalized capacity.
 	 * @param context Stream whose builders should commit.
-	 * @returns Promise settled after every source builder is empty.
+	 * @param includePartialPages Whether all final residual pages must be committed.
+	 * @returns Promise settled after all currently required pages are committed.
 	 */
 	private async flushReplacePages(
 		context: PersistenceStreamContext,
+		includePartialPages: boolean,
 	): Promise<void> {
+		const sources = [...context.replaceSources.values()];
 		await this.waitForAll(
-			[...context.replaceSources.values()].map(async (source) => {
-				while (source.pendingDocuments.length > 0) {
+			sources.map(async (source) => {
+				while (source.pendingDocuments.length >= EVENT_PAGE_SIZE) {
 					const documents = source.pendingDocuments.splice(0, EVENT_PAGE_SIZE);
 					await this.appendReplacePage(context, source, documents);
 				}
 			}),
 		);
+		if (includePartialPages) {
+			await this.waitForAll(
+				sources.map(async (source) => {
+					if (source.pendingDocuments.length === 0) return;
+					const documents = source.pendingDocuments.splice(
+						0,
+						source.pendingDocuments.length,
+					);
+					await this.appendReplacePage(context, source, documents);
+				}),
+			);
+			return;
+		}
+		while (this.currentPageBuilderDocuments > this.pageBuilderLowWatermark) {
+			const source = sources.reduce<ReplaceSourceContext | null>(
+				(largest, candidate) =>
+					candidate.pendingDocuments.length >
+					(largest?.pendingDocuments.length ?? 0)
+						? candidate
+						: largest,
+				null,
+			);
+			if (!source || source.pendingDocuments.length === 0) return;
+			const documents = source.pendingDocuments.splice(
+				0,
+				source.pendingDocuments.length,
+			);
+			await this.appendReplacePage(context, source, documents);
+		}
 	}
 
 	/**
 	 * Flushes, finalizes replace sources, and completes the router stream after commit.
 	 * @param context Persistence stream reaching its durable terminal point.
+	 * @param onFinalized Callback published after terminal authority is durable.
+	 * @returns Promise settled after best-effort obsolete-generation cleanup.
 	 */
-	private async finishContext(context: PersistenceStreamContext): Promise<void> {
+	private async finishContext(
+		context: PersistenceStreamContext,
+		onFinalized: () => void = () => undefined,
+	): Promise<void> {
 		if (context.completed || context.failed) return;
 		this.callbacks.onStreamFlushing(context.descriptor.requestId);
-		await this.flushReplacePages(context);
+		await this.flushReplacePages(context, true);
 		if ((context.descriptor.kind ?? "query-upsert") === "replace") {
 			await this.waitForAll(
 				[...context.replaceSources.values()].map(async (source) => {
@@ -1387,6 +1733,21 @@ export class QueryPersistenceCoordinator {
 		}
 		context.completed = true;
 		this.callbacks.onStreamCompleted(context.descriptor.requestId);
+		onFinalized();
+		await this.waitForAll(
+			[...context.replaceSources.values()].map(async (source) => {
+				const cleanup = context.operation.repository.cleanupObsoleteGenerations;
+				if (!cleanup) return;
+				try {
+					await this.withCommitSlot(() =>
+						cleanup.call(context.operation.repository, source.sourceId),
+					);
+					await this.refreshSourceManifest(context, source.sourceId, false);
+				} catch {
+					// Finalized authority is durable; the persisted marker retries later.
+				}
+			}),
+		);
 		this.releaseContext(context);
 	}
 
@@ -1521,6 +1882,11 @@ export class QueryPersistenceCoordinator {
 	private releaseContext(context: PersistenceStreamContext): void {
 		if (context.released) return;
 		context.released = true;
+		this.currentPendingRawChunkBytes = Math.max(
+			0,
+			this.currentPendingRawChunkBytes - context.pendingRawChunkBytes,
+		);
+		context.pendingRawChunkBytes = 0;
 		for (const source of context.replaceSources.values()) {
 			this.currentPageBuilderDocuments = Math.max(
 				0,
@@ -1560,6 +1926,7 @@ export class QueryPersistenceCoordinator {
 		if (!publish) return;
 		const summary: EventSourceSummary = {
 			sourceId: manifest.sourceId,
+			generation: manifest.generation,
 			revision: manifest.revision,
 			status: manifest.status,
 			eventCount: manifest.eventCount,
@@ -1630,6 +1997,7 @@ export class QueryPersistenceCoordinator {
 		task: () => Promise<TResult>,
 	): Promise<TResult> {
 		await this.acquireCommitSlot();
+		const startedAt = this.now();
 		try {
 			return await task();
 		} catch (error) {
@@ -1646,6 +2014,13 @@ export class QueryPersistenceCoordinator {
 			}
 			throw error;
 		} finally {
+			const latencyMs = Math.max(0, this.now() - startedAt);
+			this.completedCommitCount += 1;
+			this.totalCommitLatencyMs += latencyMs;
+			this.maximumCommitLatencyMs = Math.max(
+				this.maximumCommitLatencyMs,
+				latencyMs,
+			);
 			this.releaseCommitSlot();
 		}
 	}
@@ -1657,9 +2032,21 @@ export class QueryPersistenceCoordinator {
 			this.commitWaiters.length === 0
 		) {
 			this.currentCommitCount += 1;
+			this.maximumCommitCount = Math.max(
+				this.maximumCommitCount,
+				this.currentCommitCount,
+			);
 			return;
 		}
 		await new Promise<void>((resolve) => this.commitWaiters.push(resolve));
+	}
+
+	/** Captures the combined normalized queue and page-builder high-water mark. */
+	private recordPendingDocumentHighWatermark(): void {
+		this.maximumPendingDocuments = Math.max(
+			this.maximumPendingDocuments,
+			this.pendingDocumentCount,
+		);
 	}
 
 	/** Transfers a released commit permit to the oldest waiter or returns it to the pool. */

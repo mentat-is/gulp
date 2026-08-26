@@ -3,6 +3,7 @@ import type {
 	QueryRenderWindowDescriptor,
 	QuerySocketState,
 	QueryWorkerInitialization,
+	QueryWorkerDiagnostics,
 } from "@/event-stream";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
 import { QuerySocketSession } from "./QuerySocket.session";
@@ -144,6 +145,17 @@ export class DirectQueryTransport implements QueryTransport {
 		descriptor: QueryRenderWindowDescriptor,
 	): Promise<RenderWindowProjection | null> {
 		return this.session.requestRenderWindow(descriptor);
+	}
+
+	/** Returns an on-demand diagnostics snapshot from the direct session. */
+	public getQueryDiagnostics(): Promise<QueryWorkerDiagnostics> {
+		return Promise.resolve(this.session.getQueryDiagnostics());
+	}
+
+	/** Resets direct-session cumulative diagnostics without changing active work. */
+	public resetQueryDiagnostics(): Promise<void> {
+		this.session.resetQueryDiagnostics();
+		return Promise.resolve();
 	}
 
 	/**

@@ -108,7 +108,9 @@ function createRenderWindowSourceProjection(
 ): RenderWindowSourceProjection {
 	return {
 		sourceId: "source-a",
+		sourceGeneration: 1,
 		sourceRevision: 1,
+		sourceStatus: "complete",
 		coveredRange: { min: 0, max: 240_000 },
 		bucketPixelWidth: 1,
 		degradedLod: false,

@@ -8,6 +8,7 @@ import type {
 	QueryRenderWindowDescriptor,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
+	QueryWorkerDiagnostics,
 } from "@/event-stream";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
 
@@ -54,6 +55,12 @@ export interface QueryTransport {
 	requestRenderWindow(
 		descriptor: QueryRenderWindowDescriptor,
 	): Promise<RenderWindowProjection | null>;
+
+	/** Reads QueryWorker counters and gauges only when explicitly requested. */
+	getQueryDiagnostics(): Promise<QueryWorkerDiagnostics>;
+
+	/** Clears cumulative QueryWorker diagnostics without changing active work. */
+	resetQueryDiagnostics(): Promise<void>;
 
 	/** Sends one application payload through the WebSocket. */
 	send(data: object): void;

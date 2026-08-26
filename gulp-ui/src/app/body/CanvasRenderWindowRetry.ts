@@ -65,8 +65,68 @@ export function isCanvasRenderWindowSourceStale(
 
 /** Compact source summary fields used to validate one same-revision projection. */
 export interface CanvasRenderWindowSourceSummary {
+	generation: number;
 	revision: number;
+	status: "building" | "complete" | "incomplete";
 	eventCount: number;
+}
+
+/** Projection authority fields used to reject obsolete source generations. */
+export interface CanvasRenderWindowSourceProjectionState {
+	sourceGeneration: number;
+	sourceRevision: number;
+	sourceStatus: "building" | "complete" | "incomplete";
+	loadedCount: number;
+}
+
+/** Last source generation and revision transferred to the RenderWorker. */
+export interface CanvasAcceptedRenderWindowSourceState {
+	generation: number;
+	revision: number;
+}
+
+/**
+ * Validates a source projection against summary authority and the last accepted snapshot.
+ * Building snapshots may trail a newer summary in the same generation when they still
+ * advance Canvas. Terminal snapshots require exact generation, status, revision, and count.
+ * @param projection Projected manifest identity and event count.
+ * @param summary Latest compact source authority, when known.
+ * @param accepted Last projection transferred for this source, when known.
+ * @returns True when the source is coherent and monotonic for publication.
+ */
+export function isCanvasRenderWindowSourceAcceptable(
+	projection: CanvasRenderWindowSourceProjectionState,
+	summary: CanvasRenderWindowSourceSummary | undefined,
+	accepted: CanvasAcceptedRenderWindowSourceState | undefined,
+): boolean {
+	if (
+		accepted &&
+		(projection.sourceGeneration < accepted.generation ||
+			(projection.sourceGeneration === accepted.generation &&
+				projection.sourceRevision < accepted.revision))
+	) {
+		return false;
+	}
+	if (projection.sourceStatus !== "building") {
+		return (
+			summary !== undefined &&
+			projection.sourceGeneration === summary.generation &&
+			projection.sourceRevision === summary.revision &&
+			projection.sourceStatus === summary.status &&
+			projection.loadedCount === summary.eventCount
+		);
+	}
+	if (!summary) return true;
+	if (projection.sourceGeneration < summary.generation) return false;
+	if (
+		projection.sourceGeneration === summary.generation &&
+		projection.sourceRevision < summary.revision &&
+		accepted?.generation === projection.sourceGeneration &&
+		projection.sourceRevision <= accepted.revision
+	) {
+		return false;
+	}
+	return true;
 }
 
 /**

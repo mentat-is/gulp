@@ -7,7 +7,7 @@ import {
 
 describe("render-worker protocol constants", () => {
 	it("uses an explicit protocol version for every wire envelope", () => {
-		expect(RENDER_PROTOCOL_VERSION).toBe(6);
+		expect(RENDER_PROTOCOL_VERSION).toBe(7);
 	});
 
 	it("describes one atomic multi-source viewport projection", () => {
@@ -18,7 +18,9 @@ describe("render-worker protocol constants", () => {
 			sources: [
 				{
 					sourceId: "source-a",
+					sourceGeneration: 2,
 					sourceRevision: 4,
+					sourceStatus: "complete",
 					coveredRange: { min: 100, max: 200 },
 					bucketPixelWidth: 1,
 					degradedLod: false,
@@ -52,12 +54,15 @@ describe("render-worker protocol constants", () => {
 			payload: {
 				acknowledgedSequence: 1,
 				globalRevision: 4,
-				sourceRevisions: [{ sourceId: "source-a", revision: 3 }],
+				sourceRevisions: [
+					{ sourceId: "source-a", revision: 3, dataSequence: 1 },
+				],
 				rejectedSourceIds: ["source-b"],
 			},
 		};
 
 		expect(acknowledgement.payload.sourceRevisions[0].revision).toBe(3);
+		expect(acknowledgement.payload.sourceRevisions[0].dataSequence).toBe(1);
 		expect(acknowledgement.payload.rejectedSourceIds).toEqual(["source-b"]);
 	});
 

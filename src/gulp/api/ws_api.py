@@ -47,6 +47,7 @@ WSDATA_USER_LOGOUT = (
     "user_logout"  # GulpUserAccessPacket, whenever a user is logged out
 )
 WSDATA_DOCUMENTS_CHUNK = "docs_chunk"  # GulpDocumentsChunkPacket, whenever a chunk of GulpDocuments is transmitted over the ws during ingestion or query
+WSDATA_DOCUMENTS_CHUNK_ACK = "docs_chunk_ack"  # GulpDocumentsChunkAckPacket, client-side query flow-control progress
 WSDATA_INGEST_SOURCE_DONE = "ingest_source_done"  # GulpIngestSourceDonePacket, this is sent in the end of an ingestion operation, one per source
 WSDATA_INGEST_RAW_PROGRESS = "ingest_raw_progress"  # GulpIngestRawProgress, this is sent in the end of an ingestion operation for realtime ingestion using `/ingest_raw` API or `/ws_ingest_raw` websocket
 WSDATA_REBASE_DONE = "rebase_done"  # GulpUpdateDocumentsStats, sent when a rebase operation is done via `/opensearch_rebase_by_query` API
@@ -764,12 +765,31 @@ class GulpDocumentsChunkPacket(BaseModel):
             description="whether this is the terminal chunk of a query or raw-ingestion stream.",
         ),
     ] = False
+    request_last: Annotated[
+        Optional[bool],
+        Field(
+            description="whether this is the terminal chunk of the complete request.",
+        ),
+    ] = None
     enriched: Annotated[
         bool,
         Field(
             description="if the documents have been enriched.",
         ),
     ] = False
+
+
+class GulpDocumentsChunkAckPacket(BaseModel):
+    """Validated client acknowledgement for query document flow control."""
+
+    type: Annotated[
+        str,
+        Field(pattern=f"^{WSDATA_DOCUMENTS_CHUNK_ACK}$"),
+    ]
+    req_id: Annotated[str, Field(min_length=1, max_length=256)]
+    name: Annotated[str, Field(min_length=1, max_length=512)]
+    chunk_num: Annotated[int, Field(ge=0)]
+    stage: Annotated[str, Field(pattern="^(accepted|durable)$")]
 
 
 class GulpConnectedSocket:
@@ -1143,7 +1163,8 @@ class GulpConnectedSocket:
 
             try:
                 # use a shorter timeout to ensure we can yield control regularly
-                await asyncio.wait_for(self.ws.receive_json(), timeout=1.0)
+                message = await asyncio.wait_for(self.ws.receive_json(), timeout=1.0)
+                await self._handle_received_message(message)
             except asyncio.TimeoutError:
                 # no message received
                 continue
@@ -1154,6 +1175,29 @@ class GulpConnectedSocket:
                 raise
             except WebSocketDisconnect:
                 raise
+
+    async def _handle_received_message(self, message: object) -> None:
+        """Validate and persist supported client-to-server control messages."""
+        if not isinstance(message, dict):
+            return
+        if message.get("type") != WSDATA_DOCUMENTS_CHUNK_ACK:
+            return
+        try:
+            acknowledgement = GulpDocumentsChunkAckPacket.model_validate(message)
+        except Exception as ex:
+            MutyLogger.get_instance().warning(
+                "ignoring invalid query chunk acknowledgement for ws_id=%s: %s",
+                self.ws_id,
+                ex,
+            )
+            return
+        await GulpRedis.get_instance().query_chunk_ack_record(
+            ws_id=self.ws_id,
+            req_id=acknowledgement.req_id,
+            query_name=acknowledgement.name,
+            chunk_num=acknowledgement.chunk_num,
+            stage=acknowledgement.stage,
+        )
 
     async def _send_loop(self) -> None:
         """
@@ -1398,6 +1442,7 @@ class GulpConnectedSockets:
                 types=types,
                 operation_ids=operation_ids,
                 socket_type=socket_type.value,
+                data=data,
             )
         except BaseException:
             if self._sockets.get(ws_id) is connected_socket:

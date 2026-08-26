@@ -60,6 +60,21 @@ understanding their relationships and the underlying query mechanics is essentia
 
 This queuing model ensures low-latency preview responses while offloading heavier or multi-query workloads to the worker pool for robust, scalable processing.
 
+### bounded web UI streaming
+
+The scalable web UI advertises a `query_chunk_ack_window` in the optional data
+of its authenticated `/ws` connection. When present, raw queries use a sliding
+window per active child query instead of producing an unbounded sequence of
+`docs_chunk` messages. The UI acknowledges a chunk after it has released the
+raw JSON into its bounded normalization queue. For a terminal single-query
+chunk, the backend waits for a durable acknowledgement before emitting
+`query_done`.
+
+This negotiation is optional. WebSocket clients that do not advertise it keep
+the existing push behavior and are never required to send acknowledgements.
+Cancellation while a worker is waiting for an acknowledgement produces the
+normal `canceled` query result rather than an execution error.
+
 ## debugging query issues
 
 for advanced debugging or to understand exactly what is being executed, be sure to run gulp with debug logs enabled using `--log-level debug` command line paramter!

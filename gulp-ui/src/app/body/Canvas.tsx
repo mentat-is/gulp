@@ -101,11 +101,11 @@ import {
 } from "./CanvasInputCoordinator";
 import {
 	getCanvasRendererPreference,
-	reloadWithLegacyEventPipeline,
 	type CanvasRendererBackend,
 	type CanvasRendererPreference,
 	type RendererBackendStatus,
 } from "./CanvasRendererBackend";
+import { publishEventStoreFallbackRequest } from "@/event-store/EventStoreFallback.request";
 import {
 	applyTimelineWheelViewport,
 	shouldInvalidateCanvasGeometry,
@@ -124,12 +124,15 @@ import {
 import {
 	CANVAS_RENDER_WINDOW_RETRY_DELAY_MS,
 	isCanvasRenderWindowRequestCurrent,
-	isCanvasRenderWindowSourceCountMismatch,
-	isCanvasRenderWindowSourceStale,
+	isCanvasRenderWindowSourceAcceptable,
 	shouldRetryCanvasRenderWindow,
 	type CanvasRenderWindowRequestFence,
 } from "./CanvasRenderWindowRetry";
 import { CanvasTerminalRenderConvergence } from "./CanvasTerminalRenderConvergence";
+import {
+	CanvasRenderWindowScheduler,
+	type CanvasRenderWindowPriority,
+} from "./CanvasRenderWindowScheduler";
 import {
 	EVENT_MAIN_CACHE_SIZE,
 	EVENT_PIXEL_PAGE_SIZE,
@@ -363,6 +366,10 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		() => new RenderProjectionScheduler(),
 		[],
 	);
+	const workerRenderWindowScheduler = useMemo(
+		() => new CanvasRenderWindowScheduler(),
+		[],
+	);
 	const workerTerminalRenderConvergence = useMemo(
 		() => new CanvasTerminalRenderConvergence(),
 		[],
@@ -375,6 +382,9 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	);
 	const workerSceneSignatureRef = useRef<string>("");
 	const workerViewportSignatureRef = useRef<string>("");
+	const workerAcceptedProjectionSourcesRef = useRef(
+		new Map<Source.Id, { generation: number; revision: number }>(),
+	);
 	const [scaleCommitGuard] = useState(
 		() => new CanvasScaleCommitGuard(app.timeline.scale),
 	);
@@ -400,7 +410,9 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	const syncWorkerSourcesRef = useRef<
 		(client: RenderWorkerClient, streamMissingEvents: boolean) => void
 	>(() => undefined);
-	const requestEventStoreRenderWindowRef = useRef<() => void>(() => undefined);
+	const requestEventStoreRenderWindowRef = useRef<
+		(priority?: CanvasRenderWindowPriority) => void
+	>(() => undefined);
 	const scheduleTerminalRenderWatchdogRef = useRef<() => void>(() => undefined);
 	const cancelEventStoreRenderWindowRetry = useCallback((): void => {
 		if (workerLodRetryTimerRef.current === null) return;
@@ -1681,6 +1693,10 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	}, [workerProjectionScheduler]);
 
 	useEffect(() => {
+		return () => workerRenderWindowScheduler.dispose();
+	}, [workerRenderWindowScheduler]);
+
+	useEffect(() => {
 		return () => workerTerminalRenderConvergence.reset();
 	}, [workerTerminalRenderConvergence]);
 
@@ -1721,16 +1737,12 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					const summary = DataStore.getEventSourceSummary(
 						source.sourceId as Source.Id,
 					);
-					return (
-						isCanvasRenderWindowSourceStale(
-							source.sourceRevision,
-							summary?.revision,
-						) ||
-						isCanvasRenderWindowSourceCountMismatch(
-							source.sourceRevision,
-							source.loadedCount,
-							summary,
-						)
+					return !isCanvasRenderWindowSourceAcceptable(
+						source,
+						summary,
+						workerAcceptedProjectionSourcesRef.current.get(
+							source.sourceId as Source.Id,
+						),
 					);
 				}) ||
 				!workerTerminalRenderConvergence.acceptsProjection(
@@ -1740,6 +1752,20 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				)
 			) {
 				return false;
+			}
+			for (const source of projection.sources) {
+				workerAcceptedProjectionSourcesRef.current.set(
+					source.sourceId as Source.Id,
+					{
+						generation: source.sourceGeneration,
+						revision: source.sourceRevision,
+					},
+				);
+			}
+			for (const sourceId of projection.evictedSourceIds) {
+				workerAcceptedProjectionSourcesRef.current.delete(
+					sourceId as Source.Id,
+				);
 			}
 			client.queueDataPatch("render-window", {
 				globalRevision: DataStore.getRenderSequence(),
@@ -1832,10 +1858,11 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	 * QueryWorker. Only vertically visible rows plus the standard two-row overscan
 	 * are included, while horizontal overscan keeps normal pan motion populated.
 	 * The unchanged latest request is retried once after a delivery failure.
+	 * @param priority Whether this trigger represents terminal convergence.
 	 * @returns Nothing; stale and superseded results are discarded by the protocol.
 	 */
-	const requestEventStoreRenderWindow = useCallback((): void => {
-		cancelEventStoreRenderWindowRetry();
+	const requestEventStoreRenderWindow = useCallback(
+		(priority: CanvasRenderWindowPriority = "normal"): void => {
 		const client = workerClientRef.current;
 		const socket = SmartSocket.Class.instance;
 		if (
@@ -1856,6 +1883,12 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		) {
 			return;
 		}
+		const viewportKey = `${operation.id}:${operationEpoch}:${viewportRevision}`;
+		workerRenderWindowScheduler.schedule(
+			viewportKey,
+			priority,
+			async () => {
+				cancelEventStoreRenderWindowRetry();
 
 		const width = Math.max(
 			1,
@@ -1947,7 +1980,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				cancelEventStoreRenderWindowRetry();
 				workerLodRetryTimerRef.current = setTimeout(() => {
 					workerLodRetryTimerRef.current = null;
-					if (isCurrent()) runAttempt(attempt + 1);
+					if (isCurrent()) void runAttempt(attempt + 1);
 				}, CANVAS_RENDER_WINDOW_RETRY_DELAY_MS);
 				return;
 			}
@@ -1959,9 +1992,9 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			);
 		};
 
-		const runAttempt = (attempt: number): void => {
+		const runAttempt = async (attempt: number): Promise<void> => {
 			if (!isCurrent()) return;
-			void socket
+			await socket
 				.requestRenderWindow(descriptor)
 				.then(
 					(projection) => {
@@ -1976,12 +2009,17 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				.finally(() => scheduleTerminalRenderWatchdogRef.current());
 		};
 
-		runAttempt(1);
-	}, [
-		Info,
-		cancelEventStoreRenderWindowRetry,
-		getCurrentCanvasViewportSourceIds,
-	]);
+		await runAttempt(1);
+			},
+		);
+		},
+		[
+			Info,
+			cancelEventStoreRenderWindowRetry,
+			getCurrentCanvasViewportSourceIds,
+			workerRenderWindowScheduler,
+		],
+	);
 	requestEventStoreRenderWindowRef.current = requestEventStoreRenderWindow;
 
 	/**
@@ -2765,6 +2803,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 
 			for (const removedSourceId of removedSourceIds) {
 				workerProjectionScheduler.cancelSource(removedSourceId);
+				workerAcceptedProjectionSourcesRef.current.delete(removedSourceId);
 				workerGraphSignaturesRef.current.delete(removedSourceId);
 				workerSourceMetadataSignaturesRef.current.delete(removedSourceId);
 				workerSourceMetadataRevisionsRef.current.delete(removedSourceId);
@@ -2852,30 +2891,32 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				if (pendingProjection) clearTimeout(pendingProjection);
 				pendingProjection = null;
 				lastProjectionAt = performance.now();
-				requestEventStoreRenderWindowRef.current();
+				requestEventStoreRenderWindowRef.current("terminal");
 				return;
 			}
 			const elapsed = performance.now() - lastProjectionAt;
 			if (elapsed >= 250) {
 				lastProjectionAt = performance.now();
-				requestEventStoreRenderWindowRef.current();
+				requestEventStoreRenderWindowRef.current("normal");
 				return;
 			}
 			if (pendingProjection) return;
 			pendingProjection = setTimeout(() => {
 				pendingProjection = null;
 				lastProjectionAt = performance.now();
-				requestEventStoreRenderWindowRef.current();
+				requestEventStoreRenderWindowRef.current("normal");
 			}, 250 - elapsed);
 		};
 
 		const unsubscribe = DataStore.subscribeEventSourceSummaries((summary) => {
 			const isTerminal = summary.status !== "building";
-			if (isTerminal) {
+			if (summary.status !== "building") {
 				workerTerminalRenderConvergence.record({
 					sourceId: summary.sourceId,
 					operationEpoch: DataStore.getRenderOperationEpoch(),
+					sourceGeneration: summary.generation,
 					sourceRevision: summary.revision,
+					sourceStatus: summary.status,
 					eventCount: summary.eventCount,
 				});
 			}
@@ -2961,6 +3002,8 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			if (change.type === "operation-reset") {
 				workerProjectionGenerationRef.current++;
 				workerProjectionScheduler.cancelAll();
+				workerRenderWindowScheduler.reset();
+				workerAcceptedProjectionSourcesRef.current.clear();
 				workerKnownSourceIdsRef.current.clear();
 				workerGraphSignaturesRef.current.clear();
 				workerSourceMetadataSignaturesRef.current.clear();
@@ -3169,7 +3212,8 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 	handleWorkerResyncRef.current = handleWorkerResync;
 
 	/**
-	 * Switches permanently to a newly mounted legacy canvas after worker failure.
+	 * Requests an explicit compatibility decision or switches an already opted-out
+	 * session to a newly mounted legacy canvas after worker failure.
 	 * @param error Fatal initialization, protocol, or render error.
 	 * @returns Nothing.
 	 */
@@ -3181,12 +3225,18 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 				`The render worker failed while EventStore LOD owned the documents: ${error.message}`,
 				"Canvas.RenderWorker.LodRollback",
 			);
-			if (reloadWithLegacyEventPipeline()) return;
+			publishEventStoreFallbackRequest({
+				reason: "renderer-fatal",
+				message: error.message,
+				estimatedEventCount: Source.Entity.selected(Info.app).reduce(
+					(total, source) => total + source.total,
+					0,
+				),
+			});
 			publishRendererBackendStatus({
 				requestedBackend: requestedRendererBackendRef.current,
 				activeBackend: "initializing",
-				fallbackReason:
-					"Legacy fallback was blocked because the EventStore LOD rollback could not be persisted.",
+				fallbackReason: error.message,
 			});
 			return;
 		}
@@ -3208,6 +3258,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		});
 		setCanvasElementKey((currentKey) => currentKey + 1);
 	}, [
+		Info,
 		publishRendererBackendStatus,
 		workerProjectionScheduler,
 		workerTerminalRenderConvergence,
@@ -3276,9 +3327,16 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 		const capabilities = RenderWorkerClient.probeCapabilities();
 		if (preference === "legacy" || !capabilities.supported) {
 			if (isEventStoreLodEnabled()) {
-				if (reloadWithLegacyEventPipeline()) return;
 				const lodFallbackReason =
 					"Legacy rendering cannot start while EventStore LOD owns document storage.";
+				publishEventStoreFallbackRequest({
+					reason: "renderer-unavailable",
+					message: capabilities.reason ?? lodFallbackReason,
+					estimatedEventCount: Source.Entity.selected(Info.app).reduce(
+						(total, source) => total + source.total,
+						0,
+					),
+				});
 				Logger.error(lodFallbackReason, "Canvas.RenderWorker.LodRollback");
 				publishRendererBackendStatus({
 					requestedBackend: requestedPreference,
@@ -3363,7 +3421,8 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 								workerTerminalRenderConvergence.acknowledgeFrame(
 									DataStore.getRenderOperationEpoch(),
 									getCurrentCanvasViewportSourceIds(),
-									synchronization.acknowledgedSourceRevisions,
+									synchronization.acknowledgedSourceStates,
+									statistics.renderedDataSequence,
 								);
 								if (workerTerminalRenderConvergence.hasTargets()) {
 									scheduleTerminalRenderWatchdogRef.current();
@@ -3459,7 +3518,12 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					expectedGlobalRevision: DataStore.getRenderSequence(),
 					acknowledgedGlobalRevision:
 						synchronization.acknowledgedGlobalRevision,
+					acknowledgedDataSequence:
+						synchronization.acknowledgedDataSequence,
+					acknowledgedDataAtMs: synchronization.acknowledgedDataAtMs,
 					renderedGlobalRevision: synchronization.renderedGlobalRevision,
+					renderedDataSequence: synchronization.renderedDataSequence,
+					renderedDataAtMs: synchronization.renderedDataAtMs,
 					inFlightDataMessages: synchronization.inFlightDataMessages,
 					pendingDataMessages: synchronization.pendingDataMessages,
 					pendingProjectionTasks:
@@ -3469,6 +3533,8 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 					visibleProjectionDepth: projectionMetrics.visibleQueueDepth,
 					backgroundProjectionDepth: projectionMetrics.backgroundQueueDepth,
 					oldestProjectionAgeMs: projectionMetrics.oldestQueuedAgeMs,
+					oldestTerminalTargetAgeMs:
+						workerTerminalRenderConvergence.getOldestTargetAgeMs(),
 					projectionSliceDurationMs: projectionMetrics.lastSliceDurationMs,
 					requestedViewportRevision:
 						synchronization.requestedViewportRevision,
@@ -3480,6 +3546,11 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 							expectedRevision: DataStore.getSourceRevision(sourceId),
 							acknowledgedRevision:
 								synchronization.acknowledgedSourceRevisions.get(sourceId) ?? 0,
+							acknowledgedDataSequence:
+								synchronization.acknowledgedSourceStates.get(sourceId)
+									?.dataSequence ?? 0,
+							acknowledgedAtMs:
+								synchronization.acknowledgedSourceAtMs.get(sourceId) ?? 0,
 						}),
 					),
 				};
@@ -3507,6 +3578,7 @@ export function Canvas({ timeline, stableWidth = false }: Canvas.Props) {
 			client.dispose();
 		};
 	}, [
+		Info,
 		activateLegacyRenderer,
 		canvasElementKey,
 		getCurrentCanvasViewportSourceIds,

@@ -53,6 +53,7 @@ export interface CanvasWorkerProfilerSnapshot {
 	mainFrameIntervalP99Ms: number;
 	mainFrameIntervalCount: number;
 	mainMaxFrameIntervalMs: number;
+	workerMaxFrameIntervalMs: number;
 	mainDroppedFrameCount: number;
 	mainDroppedFrameRatio: number;
 	mainStallsOver50Ms: number;
@@ -69,6 +70,8 @@ export interface CanvasWorkerSourceSynchronization {
 	sourceId: string;
 	expectedRevision: number;
 	acknowledgedRevision: number;
+	acknowledgedDataSequence: number;
+	acknowledgedAtMs: number;
 }
 
 export interface CanvasWorkerSynchronizationSnapshot {
@@ -77,7 +80,11 @@ export interface CanvasWorkerSynchronizationSnapshot {
 	operationEpoch: number;
 	expectedGlobalRevision: number;
 	acknowledgedGlobalRevision: number;
+	acknowledgedDataSequence: number;
+	acknowledgedDataAtMs: number;
 	renderedGlobalRevision: number;
+	renderedDataSequence: number;
+	renderedDataAtMs: number;
 	inFlightDataMessages: number;
 	pendingDataMessages: number;
 	pendingProjectionTasks: number;
@@ -85,6 +92,7 @@ export interface CanvasWorkerSynchronizationSnapshot {
 	visibleProjectionDepth: number;
 	backgroundProjectionDepth: number;
 	oldestProjectionAgeMs: number;
+	oldestTerminalTargetAgeMs: number;
 	projectionSliceDurationMs: number;
 	requestedViewportRevision: number;
 	renderedViewportRevision: number;
@@ -236,6 +244,8 @@ export class CanvasProfiler {
 	private static mainStallsOver50Ms = 0;
 	private static mainStallsOver100Ms = 0;
 	private static mainMaxFrameIntervalMs = 0;
+	private static workerMaxFrameIntervalMs = 0;
+	private static workerPreviousFrameTimestamp: number | null = null;
 	private static mainPreviousFrameTimestamp: number | null = null;
 	private static mainFrameRequest: number | null = null;
 	private static captureReferenceCount = 0;
@@ -329,6 +339,13 @@ export class CanvasProfiler {
 		}
 
 		const now = performance.now();
+		if (CanvasProfiler.workerPreviousFrameTimestamp !== null) {
+			CanvasProfiler.workerMaxFrameIntervalMs = Math.max(
+				CanvasProfiler.workerMaxFrameIntervalMs,
+				now - CanvasProfiler.workerPreviousFrameTimestamp,
+			);
+		}
+		CanvasProfiler.workerPreviousFrameTimestamp = now;
 		CanvasProfiler.scheduleWorkerNotification(now);
 
 		if (metrics.drawDurationMs <= SLOW_FRAME_MS || !CanvasProfiler.isEnabled()) {
@@ -598,6 +615,7 @@ export class CanvasProfiler {
 			),
 			mainFrameIntervalCount: CanvasProfiler.mainFrameIntervalCount,
 			mainMaxFrameIntervalMs: CanvasProfiler.mainMaxFrameIntervalMs,
+			workerMaxFrameIntervalMs: CanvasProfiler.workerMaxFrameIntervalMs,
 			mainDroppedFrameCount: CanvasProfiler.mainDroppedFrameCount,
 			mainDroppedFrameRatio:
 				mainFrameOpportunities === 0
@@ -654,6 +672,8 @@ export class CanvasProfiler {
 		CanvasProfiler.mainStallsOver50Ms = 0;
 		CanvasProfiler.mainStallsOver100Ms = 0;
 		CanvasProfiler.mainMaxFrameIntervalMs = 0;
+		CanvasProfiler.workerMaxFrameIntervalMs = 0;
+		CanvasProfiler.workerPreviousFrameTimestamp = null;
 		CanvasProfiler.mainPreviousFrameTimestamp = null;
 		CanvasProfiler.mainLongTaskCount = 0;
 		CanvasProfiler.mainLongestTaskMs = 0;

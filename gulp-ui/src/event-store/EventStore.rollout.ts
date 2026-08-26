@@ -31,7 +31,7 @@ export interface EventStoreLodDecision {
 /**
  * Selects IndexedDB persistence unless a build or persisted rollback disables it.
  * Browser capability and quota telemetry are deliberately not used as preflight
- * gates: real IndexedDB failures trigger the controlled RAM fallback instead.
+ * gates: real IndexedDB failures request an explicit compatibility decision.
  * @param storage Optional storage implementation, injectable for tests.
  * @returns Stable rollout decision and fallback reason.
  */
@@ -69,7 +69,27 @@ export function isEventStoreLodEnabled(
 }
 
 /**
- * Persists an EventStore rollback and reloads into the legacy RAM pipeline.
+ * Reloads the scalable pipeline without changing its persisted rollout marker.
+ * @param reloadTarget Optional browser location, injectable for tests.
+ * @returns True when the reload request was issued.
+ */
+export function reloadScalableEventPipeline(
+	reloadTarget?: EventStoreReloadTarget,
+): boolean {
+	const selectedReloadTarget =
+		reloadTarget ??
+		(typeof window !== "undefined" ? window.location : undefined);
+	if (!selectedReloadTarget) return false;
+	try {
+		selectedReloadTarget.reload();
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Persists an explicitly confirmed rollback and reloads into the legacy RAM pipeline.
  * @param storage Optional browser storage, injectable for tests.
  * @param reloadTarget Optional browser location, injectable for tests.
  * @returns True after the disabled marker was verified and reload requested.

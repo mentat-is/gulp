@@ -8,6 +8,7 @@ import type {
 	QuerySocketMessage,
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
+	QueryWorkerDiagnostics,
 } from "@/event-stream";
 import type { QueryTransport } from "@/event-store-worker/QueryTransport.types";
 import { createQueryTransport } from "@/event-store-worker/QueryWorker.factory";
@@ -433,6 +434,19 @@ export namespace SmartSocket {
 				);
 			}
 			return projection;
+		}
+
+		/**
+		 * Reads QueryWorker diagnostics for benchmark and troubleshooting tools.
+		 * @returns On-demand persistence and projection snapshot.
+		 */
+		public getQueryDiagnostics(): Promise<QueryWorkerDiagnostics> {
+			return this.transport.getQueryDiagnostics();
+		}
+
+		/** Clears cumulative QueryWorker diagnostics without changing active work. */
+		public resetQueryDiagnostics(): Promise<void> {
+			return this.transport.resetQueryDiagnostics();
 		}
 
 		/**

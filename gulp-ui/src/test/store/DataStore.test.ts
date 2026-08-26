@@ -82,6 +82,7 @@ describe("DataStore source insertion", () => {
 		});
 		const summary = {
 			sourceId: SOURCE_ID,
+			generation: 1,
 			revision: 3,
 			status: "complete",
 			eventCount: 12,

@@ -1,12 +1,15 @@
 import {
+	DOCUMENT_CHUNK_ACK_MESSAGE_TYPE,
 	QueryStreamRouter,
 	getQuerySocketOperationId,
 	isQuerySocketMessage,
+	type DocumentChunkAcknowledgement,
 	type DocumentStreamDescriptor,
 	type QueryRenderWindowDescriptor,
 	type QuerySocketErrorDetails,
 	type QuerySocketState,
 	type QueryWorkerInitialization,
+	type QueryWorkerDiagnostics,
 } from "@/event-stream";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
 import type { QueryTransportCallbacks } from "./QueryTransport.types";
@@ -49,6 +52,9 @@ export class QuerySocketSession {
 	private activeRenderWindowRequest: RenderWindowRequest | null = null;
 	private pendingRenderWindowRequest: RenderWindowRequest | null = null;
 	private readonly backgroundPersistenceCleanups = new Set<Promise<unknown>>();
+	private projectionStartedCount = 0;
+	private projectionCompletedCount = 0;
+	private projectionSupersededCount = 0;
 	private destroyed = false;
 
 	/**
@@ -95,6 +101,8 @@ export class QuerySocketSession {
 				},
 				onStreamFlushing: (requestId) => this.router.flush(requestId),
 				onStreamCompleted: (requestId) => this.router.complete(requestId),
+				onDocumentChunkAcknowledged: (acknowledgement) =>
+					this.sendDocumentChunkAcknowledgement(acknowledgement),
 			},
 			persistenceOptions,
 		);
@@ -224,6 +232,27 @@ export class QuerySocketSession {
 	}
 
 	/**
+	 * Reads persistence and projection diagnostics only for an explicit caller.
+	 * @returns Detached QueryWorker diagnostics snapshot.
+	 */
+	public getQueryDiagnostics(): QueryWorkerDiagnostics {
+		return this.persistence.getDiagnostics({
+			started: this.projectionStartedCount,
+			completed: this.projectionCompletedCount,
+			superseded: this.projectionSupersededCount,
+			retries: 0,
+		});
+	}
+
+	/** Clears cumulative diagnostics while preserving active session state. */
+	public resetQueryDiagnostics(): void {
+		this.projectionStartedCount = 0;
+		this.projectionCompletedCount = 0;
+		this.projectionSupersededCount = 0;
+		this.persistence.resetDiagnostics();
+	}
+
+	/**
 	 * Sends one JSON application payload while the underlying socket is open.
 	 * @param data Serializable payload to send.
 	 * @returns True when the payload was written to the WebSocket.
@@ -237,6 +266,23 @@ export class QuerySocketSession {
 			this.reportProtocolError(error);
 			return false;
 		}
+	}
+
+	/**
+	 * Sends one negotiated query flow-control acknowledgement to the backend.
+	 * @param acknowledgement Request, child query, sequence, and progress stage.
+	 * @returns Nothing; send failures use the existing protocol-error callback.
+	 */
+	private sendDocumentChunkAcknowledgement(
+		acknowledgement: DocumentChunkAcknowledgement,
+	): void {
+		this.send({
+			type: DOCUMENT_CHUNK_ACK_MESSAGE_TYPE,
+			req_id: acknowledgement.requestId,
+			name: acknowledgement.queryName,
+			chunk_num: acknowledgement.sequence,
+			stage: acknowledgement.stage,
+		});
 	}
 
 	/** Closes the current socket and schedules a new connection. */
@@ -292,6 +338,7 @@ export class QuerySocketSession {
 	 */
 	private startRenderWindowRequest(request: RenderWindowRequest): void {
 		this.activeRenderWindowRequest = request;
+		this.projectionStartedCount += 1;
 		void this.persistence
 			.requestRenderWindow(
 				request.descriptor,
@@ -299,13 +346,16 @@ export class QuerySocketSession {
 					!this.destroyed &&
 					!request.canceled &&
 					this.activeRenderWindowRequest === request &&
-					this.pendingRenderWindowRequest === null,
+					this.doesPendingRequestPreserveViewport(request),
 			)
 			.then(
-				(projection) =>
-					request.resolve(
-						this.destroyed || request.canceled ? null : projection,
-					),
+				(projection) => {
+					const accepted =
+						!this.destroyed && !request.canceled && projection !== null;
+					if (accepted) this.projectionCompletedCount += 1;
+					else this.projectionSupersededCount += 1;
+					request.resolve(accepted ? projection : null);
+				},
 				(error: unknown) =>
 					request.reject(
 						error instanceof Error ? error : new Error(String(error)),
@@ -324,12 +374,32 @@ export class QuerySocketSession {
 	}
 
 	/**
+	 * Keeps same-viewport projections valid while a trailing refresh waits, but
+	 * invalidates active storage work immediately at a real viewport boundary.
+	 * @param request Active projection request being guarded.
+	 * @returns True when no pending request changes operation, epoch, or viewport.
+	 */
+	private doesPendingRequestPreserveViewport(
+		request: RenderWindowRequest,
+	): boolean {
+		const pending = this.pendingRenderWindowRequest;
+		if (!pending) return true;
+		return (
+			pending.descriptor.operationId === request.descriptor.operationId &&
+			pending.descriptor.operationEpoch === request.descriptor.operationEpoch &&
+			pending.descriptor.viewportRevision ===
+				request.descriptor.viewportRevision
+		);
+	}
+
+	/**
 	 * Resolves a render request that must never start or publish its projection.
 	 * @param request Pending or invalidated render request.
 	 */
 	private cancelRenderWindowRequest(request: RenderWindowRequest): void {
 		if (request.canceled) return;
 		request.canceled = true;
+		this.projectionSupersededCount += 1;
 		request.resolve(null);
 		request.settle();
 	}
@@ -375,11 +445,14 @@ export class QuerySocketSession {
 		this.clearReconnectTimer();
 		this.setState("authenticating");
 		try {
-			socket.send(
-				JSON.stringify({
-					token: this.initialization.token,
-					ws_id: this.initialization.wsId,
-				}),
+				socket.send(
+					JSON.stringify({
+						token: this.initialization.token,
+						ws_id: this.initialization.wsId,
+						data: {
+							query_chunk_ack_window: 2,
+						},
+					}),
 			);
 		} catch (error) {
 			this.reportProtocolError(error);

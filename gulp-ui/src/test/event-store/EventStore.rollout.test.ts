@@ -2,6 +2,8 @@ import {
 	EVENT_STORE_LOD_ROLLBACK_KEY,
 	getEventStoreLodDecision,
 	isEventStoreLodEnabled,
+	reloadScalableEventPipeline,
+	reloadWithLegacyEventPipeline,
 } from "@/event-store/EventStore.rollout";
 
 describe("EventStore rollout", () => {
@@ -77,5 +79,42 @@ describe("EventStore rollout", () => {
 				},
 			}),
 		).toBe(true);
+	});
+
+	it("retries scalable mode without touching the rollout marker", () => {
+		const reload = jest.fn();
+		const setItem = jest.fn();
+		const storage = { getItem: () => null, setItem };
+
+		expect(reloadScalableEventPipeline({ reload })).toBe(true);
+		expect(setItem).not.toHaveBeenCalled();
+		expect(storage.getItem()).toBeNull();
+		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
+	it("persists and verifies compatibility mode before its explicit reload", () => {
+		const values = new Map<string, string>();
+		const reload = jest.fn();
+		const storage = {
+			getItem: (key: string) => values.get(key) ?? null,
+			setItem: (key: string, value: string) => values.set(key, value),
+		};
+
+		expect(reloadWithLegacyEventPipeline(storage, { reload })).toBe(true);
+		expect(values.get(EVENT_STORE_LOD_ROLLBACK_KEY)).toBe("false");
+		expect(reload).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not reload when compatibility mode cannot be persisted", () => {
+		const reload = jest.fn();
+		const storage = {
+			getItem: () => null,
+			setItem: () => {
+				throw new Error("blocked");
+			},
+		};
+
+		expect(reloadWithLegacyEventPipeline(storage, { reload })).toBe(false);
+		expect(reload).not.toHaveBeenCalled();
 	});
 });

@@ -8,15 +8,25 @@ export const CANVAS_TERMINAL_RENDER_MAX_RETRY_DELAY_MS = 2_000;
 export interface CanvasTerminalRenderTarget {
 	sourceId: string;
 	operationEpoch: number;
+	sourceGeneration: number;
 	sourceRevision: number;
+	sourceStatus: "complete" | "incomplete";
 	eventCount: number;
 }
 
 /** Minimal render-window source fields needed to validate a terminal target. */
 export interface CanvasTerminalRenderProjectionSource {
 	sourceId: string;
+	sourceGeneration: number;
 	sourceRevision: number;
+	sourceStatus: "building" | "complete" | "incomplete";
 	loadedCount: number;
+}
+
+/** ACK-backed source revision and the data message that made it authoritative. */
+export interface CanvasAcknowledgedSourceState {
+	revision: number;
+	dataSequence: number;
 }
 
 /**
@@ -25,9 +35,18 @@ export interface CanvasTerminalRenderProjectionSource {
  * deciding whether the current renderer, viewport, and queue can issue a projection.
  */
 export class CanvasTerminalRenderConvergence {
-	private readonly targets = new Map<string, CanvasTerminalRenderTarget>();
+	private readonly targets = new Map<
+		string,
+		CanvasTerminalRenderTarget & { recordedAtMs: number }
+	>();
 	private retryTimer: ReturnType<typeof setTimeout> | null = null;
 	private nextRetryDelayMs = CANVAS_TERMINAL_RENDER_INITIAL_RETRY_DELAY_MS;
+
+	/**
+	 * Creates terminal convergence state with an injectable monotonic clock.
+	 * @param now Monotonic timestamp provider used by on-demand diagnostics.
+	 */
+	public constructor(private readonly now: () => number = () => performance.now()) {}
 
 	/**
 	 * Records the newest terminal revision for one source.
@@ -40,13 +59,19 @@ export class CanvasTerminalRenderConvergence {
 			current &&
 			(current.operationEpoch > target.operationEpoch ||
 				(current.operationEpoch === target.operationEpoch &&
-					(current.sourceRevision > target.sourceRevision ||
-						(current.sourceRevision === target.sourceRevision &&
-							current.eventCount === target.eventCount))))
+					(current.sourceGeneration > target.sourceGeneration ||
+						(current.sourceGeneration === target.sourceGeneration &&
+							(current.sourceRevision > target.sourceRevision ||
+								(current.sourceRevision === target.sourceRevision &&
+									current.sourceStatus === target.sourceStatus &&
+									current.eventCount === target.eventCount))))))
 		) {
 			return false;
 		}
-		this.targets.set(target.sourceId, { ...target });
+		this.targets.set(target.sourceId, {
+			...target,
+			recordedAtMs: this.now(),
+		});
 		this.cancelWatchdog(true);
 		return true;
 	}
@@ -72,7 +97,6 @@ export class CanvasTerminalRenderConvergence {
 
 	/**
 	 * Checks that one complete render window contains every visible terminal target.
-	 * A newer source revision is valid because its compact summary may still be in transit.
 	 * @param operationEpoch Current render operation epoch.
 	 * @param visibleSourceIds Source identities in the current vertical viewport.
 	 * @param sources Complete source projections returned for that viewport.
@@ -87,11 +111,11 @@ export class CanvasTerminalRenderConvergence {
 		return this.getVisibleTargets(operationEpoch, visibleSourceIds).every(
 			(target) => {
 				const projection = projections.get(target.sourceId);
-				if (!projection || projection.sourceRevision < target.sourceRevision) {
-					return false;
-				}
 				return (
-					projection.sourceRevision > target.sourceRevision ||
+					projection !== undefined &&
+					projection.sourceGeneration === target.sourceGeneration &&
+					projection.sourceRevision === target.sourceRevision &&
+					projection.sourceStatus === target.sourceStatus &&
 					projection.loadedCount === target.eventCount
 				);
 			},
@@ -99,22 +123,29 @@ export class CanvasTerminalRenderConvergence {
 	}
 
 	/**
-	 * Clears visible targets whose ACK was observed before the completed frame callback.
+	 * Clears visible targets only when the completed frame includes their applying patch.
 	 * @param operationEpoch Operation epoch represented by the rendered frame.
 	 * @param visibleSourceIds Source identities rendered in the current viewport.
-	 * @param acknowledgedSourceRevisions Worker repository revisions applied before the frame.
+	 * @param acknowledgedSourceStates Worker revisions and the sequences that applied them.
+	 * @param renderedDataSequence Highest committed DATA_PATCH included in the frame.
 	 * @returns Source IDs whose terminal target converged in this frame.
 	 */
 	public acknowledgeFrame(
 		operationEpoch: number,
 		visibleSourceIds: ReadonlySet<string>,
-		acknowledgedSourceRevisions: ReadonlyMap<string, number>,
+		acknowledgedSourceStates: ReadonlyMap<
+			string,
+			CanvasAcknowledgedSourceState
+		>,
+		renderedDataSequence: number,
 	): string[] {
 		const completed: string[] = [];
 		for (const target of this.getVisibleTargets(operationEpoch, visibleSourceIds)) {
+			const acknowledged = acknowledgedSourceStates.get(target.sourceId);
 			if (
-				(acknowledgedSourceRevisions.get(target.sourceId) ?? 0) <
-				target.sourceRevision
+				!acknowledged ||
+				acknowledged.revision < target.sourceRevision ||
+				renderedDataSequence < acknowledged.dataSequence
 			) {
 				continue;
 			}
@@ -141,6 +172,18 @@ export class CanvasTerminalRenderConvergence {
 	 */
 	public hasTargets(): boolean {
 		return this.targets.size > 0;
+	}
+
+	/**
+	 * Returns the age of the oldest terminal revision still awaiting a frame.
+	 * @returns Oldest target age in milliseconds, or zero without pending targets.
+	 */
+	public getOldestTargetAgeMs(): number {
+		let oldest = Number.POSITIVE_INFINITY;
+		for (const target of this.targets.values()) {
+			oldest = Math.min(oldest, target.recordedAtMs);
+		}
+		return Number.isFinite(oldest) ? Math.max(0, this.now() - oldest) : 0;
 	}
 
 	/**

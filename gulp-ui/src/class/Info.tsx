@@ -86,9 +86,9 @@ import type {
 import {
 	getEventStoreLodDecision,
 	isEventStoreLodEnabled,
-	reloadWithLegacyEventPipeline,
 	type EventSourceSummary,
 } from "@/event-store";
+import { publishEventStoreFallbackRequest } from "@/event-store/EventStoreFallback.request";
 
 export namespace GulpDataset {
 	export namespace GetAvailableLoginApi {
@@ -1388,6 +1388,13 @@ export class Info implements InfoProps {
 		const recoverableSourceIds = Array.from(
 			new Set(options?.sourceIds ?? []),
 		).filter((sourceId) => Boolean(Source.Entity.id(this.app, sourceId)));
+		const estimatedEventCount =
+			options?.expectedEvents ??
+			recoverableSourceIds.reduce(
+				(total, sourceId) =>
+					total + (Source.Entity.id(this.app, sourceId)?.total ?? 0),
+				0,
+			);
 		if (backendDispatched) this.request_cancel(requestId);
 		this.activeEventDocumentStreams.delete(requestId);
 		this.eventDocumentStreamOptions.delete(requestId);
@@ -1396,13 +1403,18 @@ export class Info implements InfoProps {
 			`Event stream ${requestId} failed (${event.reason}): ${event.message}`,
 			Info,
 		);
-		if (
-			(event.reason === "storage" || event.reason === "quota") &&
-			reloadWithLegacyEventPipeline()
-		) {
-			return;
+		const compatibilityReason =
+			event.reason === "storage" || event.reason === "quota"
+				? event.reason
+				: null;
+		if (compatibilityReason) {
+			publishEventStoreFallbackRequest({
+				reason: compatibilityReason,
+				message: event.message,
+				estimatedEventCount,
+			});
 		}
-		if (event.reason !== "superseded") {
+		if (!compatibilityReason && event.reason !== "superseded") {
 			toast.error(translate(EVENT_STREAM_FAILURE_MESSAGE_KEYS[event.reason]), {
 				id: `event-store-stream-failure-${requestId}`,
 				icon: <Icon name="Stop" />,

@@ -5,6 +5,9 @@ import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types"
 /** WebSocket message type carrying query, enrichment, and ingestion documents. */
 export const DOCUMENT_CHUNK_MESSAGE_TYPE = "docs_chunk";
 
+/** Client-to-server flow-control acknowledgement for one query document chunk. */
+export const DOCUMENT_CHUNK_ACK_MESSAGE_TYPE = "docs_chunk_ack";
+
 /** Maximum raw payload retained while a request is waiting for registration. */
 export const UNKNOWN_STREAM_MAILBOX_MAX_BYTES = 64 * 1024 * 1024;
 
@@ -71,8 +74,11 @@ export type DocumentStreamDescriptor = StreamDescriptor;
 export interface QuerySocketPayload {
 	docs?: readonly unknown[];
 	last?: boolean;
+	/** True only for the last chunk of the complete request, including query batches. */
+	request_last?: boolean;
 	chunk_num?: unknown;
 	chunk_number?: unknown;
+	name?: unknown;
 	[key: string]: unknown;
 }
 
@@ -108,6 +114,14 @@ export interface DocumentChunkReady {
 	rawByteLength: number;
 }
 
+/** Durable or accepted progress sent back to the query producer for flow control. */
+export interface DocumentChunkAcknowledgement {
+	requestId: string;
+	queryName: string;
+	sequence: number;
+	stage: "accepted" | "durable";
+}
+
 /** Stream lifecycle update emitted by the router. */
 export interface DocumentStreamStateChange {
 	descriptor: DocumentStreamDescriptor;
@@ -139,6 +153,7 @@ export interface QuerySourceSummaryEvent {
 	replacementMode?: "in-place";
 	summary: {
 		sourceId: Source.Id;
+		generation: number;
 		revision: number;
 		status: "building" | "complete" | "incomplete";
 		eventCount: number;
@@ -165,6 +180,41 @@ export interface QueryStreamFailureEvent {
 	operationEpoch: number;
 	reason: QueryStreamFailureReason;
 	message: string;
+}
+
+/** On-demand persistence and projection telemetry retained inside QueryWorker. */
+export interface QueryWorkerDiagnostics {
+	capturedAtMs: number;
+	activeStreams: number;
+	loadedOperations: number;
+	rawBacklog: {
+		currentBytes: number;
+		maximumBytes: number;
+		maximumStreamBytes: number;
+	};
+	normalizedBacklog: {
+		currentDocuments: number;
+		maximumDocuments: number;
+	};
+	commits: {
+		active: number;
+		maximumActive: number;
+		completed: number;
+		averageLatencyMs: number;
+		maximumLatencyMs: number;
+	};
+	pages: {
+		created: number;
+		documents: number;
+		capacity: number;
+		fillRatio: number;
+	};
+	projections: {
+		started: number;
+		completed: number;
+		superseded: number;
+		retries: number;
+	};
 }
 
 interface QueryWorkerControlCommand {
@@ -220,6 +270,17 @@ export interface RequestQueryRenderWindowCommand {
 	descriptor: QueryRenderWindowDescriptor;
 }
 
+/** Requests a correlated snapshot of QueryWorker diagnostics. */
+export interface GetQueryDiagnosticsCommand {
+	type: "GET_QUERY_DIAGNOSTICS";
+	diagnosticsRequestId: string;
+}
+
+/** Clears cumulative QueryWorker diagnostics while preserving current gauges. */
+export interface ResetQueryDiagnosticsCommand extends QueryWorkerControlCommand {
+	type: "RESET_QUERY_DIAGNOSTICS";
+}
+
 /** Sends an application command through the authenticated WebSocket. */
 export interface SendQuerySocketCommand {
 	type: "SEND";
@@ -247,6 +308,8 @@ export type QueryWorkerCommand =
 	| CancelOperationStreamsCommand
 	| ReleaseQueryOperationCommand
 	| RequestQueryRenderWindowCommand
+	| GetQueryDiagnosticsCommand
+	| ResetQueryDiagnosticsCommand
 	| SendQuerySocketCommand
 	| ReconnectQuerySocketCommand
 	| CloseQuerySocketCommand;
@@ -313,6 +376,13 @@ export interface QueryWorkerRenderWindowResultEvent {
 	error?: string;
 }
 
+/** Completes one correlated on-demand diagnostics request. */
+export interface QueryWorkerDiagnosticsResultEvent {
+	type: "QUERY_DIAGNOSTICS_RESULT";
+	diagnosticsRequestId: string;
+	diagnostics: QueryWorkerDiagnostics;
+}
+
 /** Reports malformed transport input without terminating the socket. */
 export interface QueryWorkerProtocolErrorEvent {
 	type: "PROTOCOL_ERROR";
@@ -331,6 +401,7 @@ export type QueryWorkerEvent =
 	| QueryWorkerSourceSummaryEvent
 	| QueryWorkerStreamFailureEvent
 	| QueryWorkerRenderWindowResultEvent
+	| QueryWorkerDiagnosticsResultEvent
 	| QueryWorkerProtocolErrorEvent;
 
 /**

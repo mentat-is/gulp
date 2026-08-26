@@ -7,6 +7,7 @@ import type {
 	QuerySourceSummaryEvent,
 	QueryStreamFailureEvent,
 	QueryWorkerCommand,
+	QueryWorkerDiagnostics,
 	QueryWorkerEvent,
 } from "@/event-stream";
 import type { QueryTransportCallbacks } from "@/event-store-worker/QueryTransport.types";
@@ -123,6 +124,7 @@ describe("QueryWorkerClient", () => {
 			operationEpoch: 7,
 			summary: {
 				sourceId: "source-one" as Source.Id,
+				generation: 1,
 				revision: 2,
 				status: "complete",
 				eventCount: 1,
@@ -172,6 +174,69 @@ describe("QueryWorkerClient", () => {
 			projection,
 		});
 		expect(await renderWindow).toEqual(projection);
+
+		const diagnostics: QueryWorkerDiagnostics = {
+			capturedAtMs: 100,
+			activeStreams: 1,
+			loadedOperations: 1,
+			rawBacklog: {
+				currentBytes: 0,
+				maximumBytes: 2_000,
+				maximumStreamBytes: 2_000,
+			},
+			normalizedBacklog: {
+				currentDocuments: 0,
+				maximumDocuments: 20_000,
+			},
+			commits: {
+				active: 0,
+				maximumActive: 2,
+				completed: 3,
+				averageLatencyMs: 4,
+				maximumLatencyMs: 6,
+			},
+			pages: {
+				created: 2,
+				documents: 30_000,
+				capacity: 32_768,
+				fillRatio: 30_000 / 32_768,
+			},
+			projections: {
+				started: 1,
+				completed: 1,
+				superseded: 0,
+				retries: 0,
+			},
+		};
+		const diagnosticsRequest = client.getQueryDiagnostics();
+		const diagnosticsCommand = worker.commands.find(
+			(command) => command.type === "GET_QUERY_DIAGNOSTICS",
+		);
+		if (
+			!diagnosticsCommand ||
+			diagnosticsCommand.type !== "GET_QUERY_DIAGNOSTICS"
+		) {
+			throw new Error("Expected GET_QUERY_DIAGNOSTICS command.");
+		}
+		worker.emitWorkerEvent({
+			type: "QUERY_DIAGNOSTICS_RESULT",
+			diagnosticsRequestId: diagnosticsCommand.diagnosticsRequestId,
+			diagnostics,
+		});
+		expect(await diagnosticsRequest).toEqual(diagnostics);
+
+		const diagnosticsReset = client.resetQueryDiagnostics();
+		const resetCommand = worker.commands.find(
+			(command) => command.type === "RESET_QUERY_DIAGNOSTICS",
+		);
+		if (!resetCommand || resetCommand.type !== "RESET_QUERY_DIAGNOSTICS") {
+			throw new Error("Expected RESET_QUERY_DIAGNOSTICS command.");
+		}
+		worker.emitWorkerEvent({
+			type: "CONTROL_RESULT",
+			controlId: resetCommand.controlId,
+		});
+		await diagnosticsReset;
 
 		const completion = client.completeDocumentStream("worker-request");
 		const completeCommand = worker.commands.find(

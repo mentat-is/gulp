@@ -2,6 +2,7 @@ import {
 	CANVAS_RENDER_WINDOW_MAX_ATTEMPTS,
 	CANVAS_RENDER_WINDOW_RETRY_DELAY_MS,
 	isCanvasRenderWindowRequestCurrent,
+	isCanvasRenderWindowSourceAcceptable,
 	isCanvasRenderWindowSourceCountMismatch,
 	isCanvasRenderWindowSourceStale,
 	shouldRetryCanvasRenderWindow,
@@ -45,7 +46,12 @@ describe("Canvas render-window retry policy", () => {
 	});
 
 	it("rejects count mismatches only for the exact committed revision", () => {
-		const summary = { revision: 12, eventCount: 94_391 };
+		const summary = {
+			generation: 2,
+			revision: 12,
+			status: "complete" as const,
+			eventCount: 94_391,
+		};
 		expect(
 			isCanvasRenderWindowSourceCountMismatch(12, 90_000, summary),
 		).toBe(true);
@@ -58,5 +64,65 @@ describe("Canvas render-window retry policy", () => {
 		expect(
 			isCanvasRenderWindowSourceCountMismatch(12, 90_000, undefined),
 		).toBe(false);
+	});
+
+	it("accepts a coherent building snapshot that advances within the current generation", () => {
+		const summary = {
+			generation: 3,
+			revision: 12,
+			status: "building" as const,
+			eventCount: 120_000,
+		};
+		const projection = {
+			sourceGeneration: 3,
+			sourceRevision: 11,
+			sourceStatus: "building" as const,
+			loadedCount: 110_000,
+		};
+		expect(
+			isCanvasRenderWindowSourceAcceptable(projection, summary, {
+				generation: 3,
+				revision: 10,
+			}),
+		).toBe(true);
+		expect(
+			isCanvasRenderWindowSourceAcceptable(projection, summary, {
+				generation: 3,
+				revision: 11,
+			}),
+		).toBe(false);
+	});
+
+	it("rejects obsolete generations and requires exact terminal authority", () => {
+		const summary = {
+			generation: 4,
+			revision: 20,
+			status: "complete" as const,
+			eventCount: 200_000,
+		};
+		expect(
+			isCanvasRenderWindowSourceAcceptable(
+				{
+					sourceGeneration: 3,
+					sourceRevision: 20,
+					sourceStatus: "building",
+					loadedCount: 200_000,
+				},
+				summary,
+				undefined,
+			),
+		).toBe(false);
+		expect(
+			isCanvasRenderWindowSourceAcceptable(
+				{
+					sourceGeneration: 4,
+					sourceRevision: 20,
+					sourceStatus: "complete",
+					loadedCount: 200_000,
+				},
+				summary,
+				undefined,
+			),
+		).toBe(true);
 	});
 });

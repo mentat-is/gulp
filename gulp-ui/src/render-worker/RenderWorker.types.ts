@@ -1,5 +1,5 @@
 /** Current wire-protocol version shared by the main thread and render worker. */
-export const RENDER_PROTOCOL_VERSION = 6 as const;
+export const RENDER_PROTOCOL_VERSION = 7 as const;
 /** Horizontal graph density interval preserved by both QueryWorker and RenderCore. */
 export const RENDER_GRAPH_BUCKET_PIXEL_WIDTH = 10;
 
@@ -264,7 +264,9 @@ export interface RenderNumericRange {
  */
 export interface RenderWindowSourceProjection {
 	sourceId: string;
+	sourceGeneration: number;
 	sourceRevision: number;
+	sourceStatus: "building" | "complete" | "incomplete";
 	coveredRange: RenderTimeRange;
 	bucketPixelWidth: number;
 	degradedLod: boolean;
@@ -471,6 +473,17 @@ export interface RenderFrameStatistics {
 	interactiveRegions: number;
 }
 
+/** Frame statistics extended with the newest committed data message included in the draw. */
+export interface RenderFrameRenderedStatistics extends RenderFrameStatistics {
+	renderedDataSequence: number;
+}
+
+/** Source revision accepted by the worker and the data message that applied it. */
+export interface RenderAcknowledgedSourceState {
+	revision: number;
+	dataSequence: number;
+}
+
 /** Worker capability response emitted once both ports are attached. */
 export type RenderCapabilitiesMessage = RenderProtocolEnvelope<
 	"CAPABILITIES",
@@ -497,7 +510,9 @@ export type RenderAckMessage = RenderProtocolEnvelope<
 	{
 		acknowledgedSequence: number;
 		globalRevision: number;
-		sourceRevisions: Array<{ sourceId: string; revision: number }>;
+		sourceRevisions: Array<
+			RenderAcknowledgedSourceState & { sourceId: string }
+		>;
 		rejectedSourceIds: string[];
 	}
 >;
@@ -505,7 +520,7 @@ export type RenderAckMessage = RenderProtocolEnvelope<
 /** Frame completion response used for profiling and request ordering. */
 export type RenderFrameRenderedMessage = RenderProtocolEnvelope<
 	"FRAME_RENDERED",
-	RenderFrameStatistics
+	RenderFrameRenderedStatistics
 >;
 
 /** Worker response for an overlay hit-test request. */

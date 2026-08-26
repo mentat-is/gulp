@@ -65,6 +65,11 @@ export interface EventPageCatalogEntry {
 	encodedByteLength: number;
 }
 
+/** Minimal address catalog retained until one obsolete generation is reclaimed. */
+export interface EventObsoleteGenerationMarker {
+	generation: number;
+}
+
 /** Fixed-size micro summaries used to refine viewport projections without decoding IDs. */
 export interface EncodedEventPageLod {
 	sourceId: Source.Id;
@@ -117,6 +122,7 @@ export interface EventSourceManifest {
 	hashMax: number;
 	encodedBytes: number;
 	pages: EventPageCatalogEntry[];
+	obsoleteGenerations?: EventObsoleteGenerationMarker[];
 }
 
 /** Stable page cursor used by bounded pixel and navigation reads. */
@@ -138,6 +144,7 @@ export interface EventPixelPage {
 /** Serializable source-level update sent from QueryWorker to browser clients. */
 export interface EventSourceSummary {
 	sourceId: Source.Id;
+	generation: number;
 	revision: number;
 	status: EventSourceManifest["status"];
 	eventCount: number;

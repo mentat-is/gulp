@@ -73,6 +73,92 @@ const callbacks: QueryTransportCallbacks = {
 };
 
 describe("QuerySocketSession render windows", () => {
+	it("advertises the two-chunk query acknowledgement window during authentication", () => {
+		const send = jest.fn();
+		const socket = {
+			close: jest.fn(),
+			readyState: WebSocket.OPEN,
+			send,
+			onopen: null,
+			onclose: null,
+			onerror: null,
+			onmessage: null,
+		} as unknown as WebSocket;
+		const session = new QuerySocketSession(
+			{
+				socketUrl: "ws://gulp.test/ws",
+				token: "token",
+				wsId: "socket-auth",
+				coordinatorId: "test-coordinator",
+			},
+			callbacks,
+			() => socket,
+		);
+
+		session.connect();
+		socket.onopen?.(new Event("open"));
+
+		expect(send).toHaveBeenCalledWith(
+			JSON.stringify({
+				token: "token",
+				ws_id: "socket-auth",
+				data: { query_chunk_ack_window: 2 },
+			}),
+		);
+		session.destroy();
+	});
+
+	it("publishes an active same-viewport snapshot before its trailing refresh", async () => {
+		const deferred: DeferredProjection[] = [];
+		const session = new QuerySocketSession(
+			{
+				socketUrl: "ws://gulp.test/ws",
+				token: "token",
+				wsId: "socket-same-viewport",
+				coordinatorId: "test-coordinator",
+			},
+			callbacks,
+			undefined,
+			{
+				createOperationStore: () => {
+					const backend = new MemoryEventStoreBackend();
+					return {
+						backend,
+						repository: new EventStoreRepository(backend),
+					};
+				},
+				createRevisionBus: () => ({
+					publish: () => undefined,
+					close: () => undefined,
+				}),
+				createViewportProjector: () => ({
+					requestRenderWindow: (descriptor) =>
+						new Promise<RenderWindowProjection>((resolve) => {
+							deferred.push({ descriptor, resolve });
+						}),
+				}),
+			},
+		);
+		const activeDescriptor = {
+			...createDescriptor(1),
+			viewportRevision: 10,
+		};
+		const trailingDescriptor = {
+			...createDescriptor(2),
+			viewportRevision: 10,
+		};
+		const active = session.requestRenderWindow(activeDescriptor);
+		await waitFor(() => deferred.length === 1);
+		const trailing = session.requestRenderWindow(trailingDescriptor);
+
+		deferred[0].resolve(createProjection(deferred[0].descriptor));
+		expect((await active)?.projectionRevision).toBe(1);
+		await waitFor(() => deferred.length === 2);
+		deferred[1].resolve(createProjection(deferred[1].descriptor));
+		expect((await trailing)?.projectionRevision).toBe(2);
+		session.destroy();
+	});
+
 	it("runs one active projection and keeps only the newest pending request", async () => {
 		const deferred: DeferredProjection[] = [];
 		const session = new QuerySocketSession(
@@ -120,6 +206,19 @@ describe("QuerySocketSession render windows", () => {
 		]);
 		deferred[1].resolve(createProjection(deferred[1].descriptor));
 		expect((await newestPending)?.projectionRevision).toBe(3);
+		expect(session.getQueryDiagnostics().projections).toEqual({
+			started: 2,
+			completed: 1,
+			superseded: 2,
+			retries: 0,
+		});
+		session.resetQueryDiagnostics();
+		expect(session.getQueryDiagnostics().projections).toEqual({
+			started: 0,
+			completed: 0,
+			superseded: 0,
+			retries: 0,
+		});
 		session.destroy();
 	});
 
@@ -224,9 +323,11 @@ describe("QuerySocketSession render windows", () => {
 			sourceIds: ["source-one" as Source.Id],
 		};
 		await session.registerDocumentStream(descriptor);
+		const send = jest.fn((_raw: string): void => undefined);
 		const socket = {
 			close: jest.fn(),
 			readyState: WebSocket.OPEN,
+			send,
 		} as unknown as WebSocket;
 		const internalSession = session as unknown as {
 			socket: WebSocket | null;
@@ -251,7 +352,15 @@ describe("QuerySocketSession render windows", () => {
 					],
 					last: true,
 					chunk_num: 0,
+					name: "query-name",
+					request_last: true,
 				},
+			}),
+		);
+		await waitFor(() =>
+			send.mock.calls.some(([raw]) => {
+				const message = JSON.parse(raw) as { stage?: string };
+				return message.stage === "accepted";
 			}),
 		);
 		internalSession.handleSocketMessage(
@@ -266,8 +375,32 @@ describe("QuerySocketSession render windows", () => {
 
 		expect(forwardedTypes.includes("query_done")).toBe(true);
 		expect(states.at(-1)?.state).not.toBe("completed");
+		expect(
+			send.mock.calls.some(([raw]) => {
+				const message = JSON.parse(raw) as { stage?: string };
+				return message.stage === "durable";
+			}),
+		).toBe(false);
 		releaseFinalCommit();
 		await waitFor(() => states.at(-1)?.state === "completed");
+		expect(
+			send.mock.calls.map(([raw]) => JSON.parse(raw)),
+		).toEqual([
+			{
+				type: "docs_chunk_ack",
+				req_id: descriptor.requestId,
+				name: "query-name",
+				chunk_num: 0,
+				stage: "accepted",
+			},
+			{
+				type: "docs_chunk_ack",
+				req_id: descriptor.requestId,
+				name: "query-name",
+				chunk_num: 0,
+				stage: "durable",
+			},
+		]);
 		expect(await repository.getSourceSummary("source-one" as Source.Id)).toMatchObject(
 			{
 				status: "complete",

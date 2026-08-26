@@ -32,6 +32,12 @@ import {
 	type CollabDeleteOperationEnvelope,
 } from "@/context/collabDelete";
 import type { WindowBridge } from "@/lib/WindowBridge";
+import {
+	clearEventStoreFallbackRequest,
+	getEventStoreFallbackRequest,
+	subscribeEventStoreFallbackRequest,
+	type EventStoreFallbackRequest,
+} from "@/event-store/EventStoreFallback.request";
 
 interface CollabPayloadObject {
 	type?: string;
@@ -86,8 +92,15 @@ function _({ children }: { children: ReactNode }) {
 	const timeline = useRef<HTMLDivElement>(null as unknown as HTMLDivElement);
 	const [highlightsOverlay, setHighlightsOverlay] =
 		useState<React.ReactNode>(null);
+	const [eventStoreFallbackRequest, setEventStoreFallbackRequest] =
+		useState<EventStoreFallbackRequest | null>(getEventStoreFallbackRequest);
 
 	const location = useLocation();
+
+	useEffect(
+		() => subscribeEventStoreFallbackRequest(setEventStoreFallbackRequest),
+		[],
+	);
 
 	/**
 	 * Resets the active dialog state to null when either the selected
@@ -482,6 +495,8 @@ function _({ children }: { children: ReactNode }) {
 			timeline,
 			highlightsOverlay,
 			setHighlightsOverlay,
+			eventStoreFallbackRequest,
+			dismissEventStoreFallbackRequest: clearEventStoreFallbackRequest,
 			canvasDocked,
 			setCanvasDocked,
 			dialogsDocked,
@@ -516,6 +531,7 @@ function _({ children }: { children: ReactNode }) {
 			timeline,
 			highlightsOverlay,
 			setHighlightsOverlay,
+			eventStoreFallbackRequest,
 			canvasDocked,
 			dialogsDocked,
 			hintOpen,
@@ -605,6 +621,8 @@ export namespace Application {
 			timeline: React.RefObject<HTMLDivElement>;
 			highlightsOverlay: React.ReactNode;
 			setHighlightsOverlay: SetState<React.ReactNode>;
+			eventStoreFallbackRequest: EventStoreFallbackRequest | null;
+			dismissEventStoreFallbackRequest: () => void;
 			canvasDocked: boolean;
 			setCanvasDocked: React.Dispatch<React.SetStateAction<boolean>>;
 			dialogsDocked: boolean;

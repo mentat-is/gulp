@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -351,6 +351,202 @@ async def test_run_query_batch_updates_stats(monkeypatch):
 
     assert result == [(1, 2, "query-name", False)]
     update_query_stats.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_query_chunk_flow_control_waits_for_accepted_and_durable_ack(
+    monkeypatch,
+):
+    from gulp.api.opensearch.structs import GulpQueryParameters
+    from gulp.api.server import query as query_mod
+
+    acknowledgements: dict[str, int] = {}
+    published: list[dict] = []
+
+    class _FlowControlRedis:
+        async def ws_get_metadata(self, _ws_id: str):
+            return SimpleNamespace(data={"query_chunk_ack_window": 2})
+
+        async def query_chunk_ack_get(
+            self,
+            _ws_id: str,
+            _req_id: str,
+            _query_name: str,
+            stage: str,
+        ):
+            return acknowledgements.get(stage)
+
+        async def query_chunk_ack_clear(self, *_args):
+            acknowledgements.clear()
+
+    async def _publish(**kwargs):
+        published.append(kwargs)
+
+    monkeypatch.setattr(
+        query_mod.GulpRedis,
+        "get_instance",
+        lambda: _FlowControlRedis(),
+    )
+    monkeypatch.setattr(
+        query_mod.GulpRedisBroker,
+        "get_instance",
+        lambda: SimpleNamespace(put=_publish),
+    )
+    monkeypatch.setattr(
+        query_mod.GulpRequestStats,
+        "is_canceled",
+        AsyncMock(return_value=False),
+    )
+    context = {
+        "user_id": "user-flow-control",
+        "operation_id": "op-flow-control",
+        "ws_id": "ws-flow-control",
+        "q_options": GulpQueryParameters(name="query-name"),
+        "q": {"query": {"match_all": {}}},
+        "tags": [],
+        "sigma_yml": None,
+        "query_ordinal": 0,
+        "request_terminal": True,
+    }
+
+    await query_mod._query_raw_chunk_callback(
+        "fake-session",
+        [{"_id": "doc-0"}],
+        chunk_num=0,
+        total_hits=3,
+        last=False,
+        req_id="req-flow-control",
+        q_name="query-name",
+        cb_context=context,
+    )
+    accepted_wait = asyncio.create_task(
+        query_mod._query_raw_chunk_callback(
+            "fake-session",
+            [{"_id": "doc-1"}],
+            chunk_num=1,
+            total_hits=3,
+            last=False,
+            req_id="req-flow-control",
+            q_name="query-name",
+            cb_context=context,
+        )
+    )
+    await asyncio.sleep(0)
+    assert accepted_wait.done() is False
+    acknowledgements["accepted"] = 0
+    await accepted_wait
+
+    durable_wait = asyncio.create_task(
+        query_mod._query_raw_chunk_callback(
+            "fake-session",
+            [{"_id": "doc-2"}],
+            chunk_num=2,
+            total_hits=3,
+            last=True,
+            req_id="req-flow-control",
+            q_name="query-name",
+            cb_context=context,
+        )
+    )
+    await asyncio.sleep(0)
+    assert durable_wait.done() is False
+    assert published[-1]["d"]["request_last"] is True
+    acknowledgements["durable"] = 2
+    await durable_wait
+    assert acknowledgements == {}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_query_chunk_flow_control_remains_opt_in(monkeypatch):
+    from gulp.api.opensearch.structs import GulpQueryParameters
+    from gulp.api.server import query as query_mod
+
+    publish = AsyncMock()
+    acknowledgement_read = AsyncMock(
+        side_effect=AssertionError("unnegotiated query must not wait for ACK")
+    )
+    redis_client = SimpleNamespace(
+        ws_get_metadata=AsyncMock(return_value=None),
+        query_chunk_ack_get=acknowledgement_read,
+    )
+    monkeypatch.setattr(
+        query_mod.GulpRedis,
+        "get_instance",
+        lambda: redis_client,
+    )
+    monkeypatch.setattr(
+        query_mod.GulpRedisBroker,
+        "get_instance",
+        lambda: SimpleNamespace(put=publish),
+    )
+
+    result = await query_mod._query_raw_chunk_callback(
+        "fake-session",
+        [{"_id": "doc-unnegotiated"}],
+        chunk_num=0,
+        total_hits=1,
+        last=True,
+        req_id="req-unnegotiated",
+        q_name="query-unnegotiated",
+        cb_context={
+            "user_id": "user-unnegotiated",
+            "operation_id": "op-unnegotiated",
+            "ws_id": "ws-unnegotiated",
+            "q_options": GulpQueryParameters(name="query-unnegotiated"),
+            "q": {"query": {"match_all": {}}},
+            "tags": [],
+            "sigma_yml": None,
+            "request_terminal": True,
+        },
+    )
+
+    assert result == [{"_id": "doc-unnegotiated"}]
+    acknowledgement_read.assert_not_awaited()
+    publish.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_run_query_returns_canceled_without_error_logging(monkeypatch):
+    from gulp.api.collab.stats import RequestCanceledError
+    from gulp.api.collab.structs import GulpRequestStatus
+    from gulp.api.opensearch.structs import GulpQuery, GulpQueryParameters
+    from gulp.api.server import query as query_mod
+
+    logger = MagicMock()
+    publish = AsyncMock()
+    monkeypatch.setattr(query_mod.MutyLogger, "get_instance", lambda: logger)
+    monkeypatch.setattr(
+        query_mod.GulpOpenSearch,
+        "get_instance",
+        lambda: SimpleNamespace(
+            search_dsl=AsyncMock(side_effect=RequestCanceledError())
+        ),
+    )
+    monkeypatch.setattr(
+        query_mod.GulpRedisBroker,
+        "get_instance",
+        lambda: SimpleNamespace(put=publish),
+    )
+
+    result = await query_mod.run_query(
+        user_id="user-canceled",
+        req_id="req-canceled",
+        operation_id="op-canceled",
+        ws_id="ws-canceled",
+        gq=GulpQuery(q={"query": {"match_all": {}}}, q_name="query-name"),
+        q_options=GulpQueryParameters(name="query-name"),
+        index="index-canceled",
+    )
+
+    assert result == (0, 0, "query-name", True)
+    logger.exception.assert_not_called()
+    publish.assert_awaited_once()
+    packet = publish.await_args.kwargs["d"]
+    assert packet["status"] == GulpRequestStatus.CANCELED.value
+    assert packet["errors"] == []
 
 
 @pytest.mark.unit

@@ -1,482 +1,337 @@
-# Timeline rendering architecture
+# Timeline rendering engine
 
-The timeline is rendered by a dedicated render worker that owns the primary
-canvas through `OffscreenCanvas`. The worker receives compact, revisioned state
-and viewport-resolution event projections. It performs transforms, culling,
-drawing, overlay layout, and overlay hit testing without blocking React or
-browser input handling on the main thread.
+The timeline is designed to show operations that are much larger than browser
+memory. Exact event documents live in IndexedDB. The main thread coordinates UI
+state, a query worker owns the high-volume socket and storage path, and a render
+worker draws compact viewport projections on an `OffscreenCanvas`.
 
-Exact event ingestion and storage are described in the
-[query worker and EventStore architecture](query-worker.md). Rendering engine
-behavior visible to users is described in [Rendering engines](engine.md).
+The important rule is simple: the number of events in an operation must not
+determine how many document objects are kept on the main thread. The main thread
+receives summaries, bounded lookups, and render projections; it never receives a
+complete `docs_chunk` from the scalable path.
 
-## Rendering topology
+The detailed socket, IndexedDB schema, and projection protocol are documented in
+[Query worker and event storage architecture](query-worker.md). This guide
+explains how the pieces cooperate and how to diagnose the current engine.
+
+## The path from query to pixels
 
 ```mermaid
 flowchart LR
-    QS[QueryWorker viewport projector] -->|transferable typed arrays| QB[Render-window bus]
-    QB -->|synchronous handoff| C[Canvas coordinator]
-    C -->|data port: render window, source metadata, overlays| RC[RenderWorkerClient]
-    C -->|control port: viewport, pointer, interactions| RC
-    RC -->|OffscreenCanvas and two MessagePorts| RW[Render worker]
-    RW --> WR[WorkerRenderRepository]
-    WR --> CORE[WorkerRenderCore]
-    CORE --> OC[OffscreenCanvas 2D]
-    RW -->|ACK, frame metrics, hit results, asset requests| C
-    C -->|DOM dialogs, menus, tooltips| DOM[React UI]
+    UI[Main thread<br/>React and Canvas coordinator]
+    API[gULP /query_raw]
+    QW[Query worker<br/>WebSocket and persistence]
+    DB[(IndexedDB<br/>exact pages and LOD)]
+    RW[Render worker<br/>OffscreenCanvas]
+
+    UI -->|register req_id| QW
+    UI -->|POST query_raw| API
+    API -->|docs_chunk JSON| QW
+    QW -->|accepted / durable ACK| API
+    QW -->|atomic page commits| DB
+    QW -->|source summaries| UI
+    UI -->|viewport request| QW
+    DB -->|bounded projection read| QW
+    QW -->|transferable render window| UI
+    UI -->|DATA_PATCH| RW
+    RW -->|ACK| UI
+    RW -->|FRAME_RENDERED| UI
 ```
 
-There is one render-worker session for each mounted primary timeline Canvas.
-The HTML canvas is transferred once and is not used to acquire a main-thread 2D
-context afterward.
+A normal raw query follows these stages:
 
-## Responsibilities
+1. The main thread generates the request ID and registers its stream in the
+   query worker before calling `/query_raw`.
+2. `docs_chunk` WebSocket messages are parsed and normalized inside the query
+   worker. Their document arrays do not cross the main thread. Once raw memory
+   has been released, the worker acknowledges acceptance so the backend can
+   advance its negotiated two-chunk window.
+3. IndexedDB transactions atomically update exact pages, document indexes, LOD,
+   height data, and source metadata.
+4. After a durable commit, the query worker publishes only a compact source
+   summary. Canvas uses the summary to schedule a viewport projection.
+5. The query worker reads the exact pages and LOD records needed by the current
+   viewport and transfers typed arrays back to Canvas.
+6. Canvas immediately transfers the projection to the render worker. The worker
+   applies it to its repository, acknowledges the data patch, and draws a frame.
+
+`query_done` remains a backend lifecycle message. It does not prove that the
+last `docs_chunk` is durable or visible. Storage completion and frame completion
+have their own explicit fences.
+
+## Responsibilities of the three threads
 
 ### Main thread
 
-The main thread owns:
+The main thread owns React state and user interaction. In the rendering path it:
 
-- React components and application state;
-- browser input events and viewport calculation;
-- source selection, order, labels, settings, and loading state;
-- conversion of CSS theme values into concrete render colors;
-- compact note, link, highlight, and flag projections;
-- icon discovery and `ImageBitmap` creation;
-- event dialog, group dialog, menus, tooltips, and other DOM surfaces;
-- exact event lookup through `DataStore.Events` after an empty-canvas click.
+- registers queries before dispatching backend work;
+- retains compact source summaries and current viewport state;
+- coalesces projection triggers into one active request and one trailing request;
+- transfers render windows and other incremental scene patches;
+- correlates terminal source revisions with worker ACKs and frames;
+- performs bounded exact-event lookups for dialogs, notes, links, and selections.
 
-The main thread sends render-only records. It does not send canonical source,
-note, link, or event class instances to the worker.
+The main thread does not decode or retain a source-wide event collection while
+the scalable EventStore mode is active.
 
 ### Query worker
 
-The query worker reads the operation EventStore and creates an atomic render
-window for the current viewport. Each source projection contains only the typed
-arrays and aggregate values needed by its selected drawing engine. The main
-thread is an ephemeral transfer hop for these buffers and does not cache the
-window.
+The query worker owns the authenticated WebSocket and the persistence pipeline.
+It:
+
+- routes document chunks by registered request ID;
+- accounts for raw bytes before a chunk enters an ordered promise chain;
+- normalizes documents cooperatively so socket/control work can continue;
+- writes exact pages and their indexes to IndexedDB;
+- publishes durable source summaries;
+- builds render-window projections from IndexedDB;
+- exposes diagnostics only when `GET_QUERY_DIAGNOSTICS` is requested.
+
+The query worker never sends full source documents to React or the render worker.
 
 ### Render worker
 
-The render worker owns:
+The render worker owns the transferred canvas, its render repository, drawing
+caches, and hit regions. It receives:
 
-- the `OffscreenCanvasRenderingContext2D`;
-- the latest accepted viewport and scene state;
-- current visible-source render windows;
-- compact overlay records and their hit regions;
-- loaded icon bitmaps and font readiness;
-- frame invalidation, scheduling, drawing, and profiling.
+- viewport and input state over the control channel;
+- source, overlay, and projection patches over the data channel;
+- bounded asset responses for icons and fonts.
 
-It does not query IndexedDB and it does not retrieve full event details. This
-keeps storage concerns in QueryWorker and drawing concerns in the renderer.
+It applies a data patch atomically before acknowledging it. A frame reports the
+highest applied data sequence actually included in that draw.
 
-## Worker bootstrap
+## What is stored and what is rendered
 
-Before starting a renderer, Canvas checks for all required browser facilities:
+IndexedDB is a rebuildable exact-event cache. It contains source manifests,
+encoded event pages, LOD records, height/graph aggregates, and paged document
+indexes. The backend remains authoritative.
 
-- dedicated workers;
-- `MessageChannel`;
-- `OffscreenCanvas` and `transferControlToOffscreen()`;
-- `createImageBitmap()`.
+A render window is not a page of documents. It is a bounded projection for the
+visible time range and visible source rows, plus horizontal and vertical
+overscan. Depending on zoom and source settings it contains representative
+handles, timestamps, hashes, height counts, or graph buckets. Exact event detail
+is fetched separately when the user selects or opens an item.
 
-`RenderWorkerClient.start()` creates the module worker and two message channels,
-transfers their worker-side ports and the canvas in one `INIT` message, and waits
-for capability and readiness responses. The worker loads declared fonts when
-possible and reports whether a font fallback is active.
+The render worker supports the current source engines:
 
-The active render protocol has a fixed version. Every message envelope also
-contains an operation epoch and a monotonically increasing sequence. A protocol
-version mismatch, malformed envelope, or invalid transferred window is rejected
-instead of being partially applied.
+- **Default** draws representative events and grouped counts;
+- **HeightMap** draws density columns from persisted height aggregates;
+- **Graph** draws fixed-frequency count buckets.
 
-## Priority-separated channels
+Projection budgets may reduce visual density when the viewport would otherwise
+exceed its representative limit. This degradation changes detail, not the exact
+event authority stored in IndexedDB.
 
-The worker uses two `MessagePort` channels so high-volume data cannot indefinitely
-delay interactive control state.
+## Revisions, generations, ACKs, and frames
 
-### Control channel
+Several counters exist because they answer different questions.
 
-The control port carries:
+| Fence | Meaning |
+| --- | --- |
+| operation epoch | Rejects work from an operation that is no longer active. |
+| viewport revision | Identifies the current dimensions, scroll, scale, and visible rows. |
+| projection revision | Orders accepted snapshots for the same viewport. |
+| source generation | Identifies one replacement build; older generations are obsolete. |
+| source revision | Orders durable changes within one generation. |
+| source status | Distinguishes `building`, `complete`, and `incomplete` authority. |
+| data sequence | Identifies the `DATA_PATCH` that applied a source revision. |
+| `globalRevision` | Aggregate telemetry; it is not terminal-render proof. |
 
-- viewport state and an optional pointer captured in the same input batch;
-- standalone pointer changes;
-- scene configuration changes;
-- overlay hit-test requests;
-- magnifier requests;
-- icon responses and unavailable notices;
-- page visibility;
-- operation reset and disposal.
+The render protocol is version 7. ACKs travel on the data port and frames travel
+on the control port, so their delivery order can be inverted. Canvas therefore
+stores, for each acknowledged source revision, the data sequence that applied
+it. A terminal target is cleared only when all of these statements are true:
 
-Worker responses on the control path include capabilities, readiness, rendered
-frame statistics, hover changes, hit-test results, magnifier bitmaps, asset
-requests, resynchronization requests, and fatal errors.
+- the frame belongs to the current operation epoch and viewport;
+- the acknowledged source revision covers the exact terminal revision;
+- the frame's `renderedDataSequence` covers the ACK's applying sequence;
+- the terminal projection has the exact generation, status, revision, and event
+  count from the complete summary.
 
-### Data channel
+A stale frame received after a newer ACK cannot complete convergence. A watchdog
+requests another projection after 500 ms and backs off to at most two seconds
+until the correct frame arrives or the lifecycle changes.
 
-The data port carries revisioned patches for:
+## Behavior while a query is loading
 
-- source render metadata;
-- the complete current render window;
-- notes, links, highlights, and flags.
+Backend chunks remain 10,000 events. EventStore pages hold 16,384 events. A
+replacement builder carries a partial page across chunks, writes every complete
+page, and writes the last partial page only at the terminal chunk. A 14,000,000
+event source therefore creates 855 pages, of which only the last may be partial.
 
-Each successfully staged data envelope produces an acknowledgement containing
-the accepted global revision, accepted source revisions, and any rejected
-source IDs.
-
-The client permits one data message in flight and one coalesced pending message.
-New source or overlay records are merged into the pending envelope. For render
-windows, only the newest operation, viewport, and projection revision remains
-eligible. Queue depth therefore cannot grow with pan rate or incoming query
-rate.
-
-## State model
-
-The wire state is split by update frequency.
-
-### Viewport state
-
-Viewport state contains:
-
-- physical canvas width and height;
-- timeline frame minimum and maximum;
-- horizontal scale and scroll;
-- vertical scroll;
-- viewport revision;
-- input sequence and original input timestamp.
-
-Canvas coalesces browser wheel, drag, resize, and pointer input into the latest
-viewport state. If a viewport is awaiting a rendered frame, only one newer
-viewport state is retained. Dirty reasons are accumulated rather than losing
-the invalidation represented by a superseded message.
-
-### Scene state
-
-Scene state contains less frequently changing values:
-
-- selected source order;
-- note and link visibility;
-- target marker;
-- concrete theme palette and target guide color;
-- localized renderer strings;
-- settings, sources, overlays, theme, and asset revisions.
-
-Source render metadata is stored separately from the scene header. It includes
-row order, label, context color, time range, full event count, loading state,
-timestamp offset, engine kind, graph frequency, palette, and explicit color
-overrides.
-
-### Render window
-
-A render window is a complete multi-source projection identified by:
-
-- operation epoch;
-- viewport revision;
-- projection revision;
-- projected source records;
-- explicit source IDs to evict.
-
-Each projected source carries:
-
-- source revision and covered time range;
-- selected bucket width and degraded-LOD marker;
-- full committed event count and full hash range;
-- representative handles, timestamps, and hashes;
-- HeightMap timestamps, counts, and global maximum count;
-- Graph timestamps and counts.
-
-The typed arrays have exact backing-buffer capacity. The render repository adopts
-their transferred buffers directly and does not construct spare-capacity arrays
-or a dense handle-to-position index.
-
-All source views in a window are staged before any becomes active. The worker
-then atomically publishes the window and applies explicit evictions. A frame
-cannot observe a mixture of old and new sources from the same projection.
-
-## Revision fences
-
-The renderer uses revisions as consistency boundaries rather than relying on
-message timing.
-
-- `operationEpoch` rejects all state from an operation that has been reset.
-- `viewportRevision` rejects a projection older than the latest known viewport.
-- `projectionRevision` orders complete replacements for the same viewport.
-- source revisions order source metadata and its event projection.
-- collection revisions independently order notes, links, highlights, and flags.
-- the global data revision is acknowledged after a complete data patch stages.
-
-An invalid or stale projection is rejected as a unit. Missing source or
-collection revisions produce a scoped resynchronization request. Canvas can
-replay only that render-only state rather than rebuilding unrelated worker
-state.
-
-## Render repository
-
-`WorkerRenderRepository` is the worker-local state authority. It stores compact
-records in maps keyed by source or asset ID and arrays for overlays. Its event
-views cover only the current render window.
-
-When staging a source window, the repository may allocate small derived arrays
-for:
-
-- color-override representative indexes;
-- suffix sums used by HeightMap aggregation;
-- suffix sums used by Graph aggregation.
-
-It reuses transferred representative arrays as their backing storage. Staging
-yields through a worker-local `MessageChannel`, allowing control-port tasks to
-run between large source projections. If a newer epoch or projection arrives,
-stale staging stops without publishing partial state.
-
-Invisible source rows are removed through `evictedSourceIds`. Horizontal data
-outside the visible area is bounded by the render window's overscan. The
-repository therefore has no reason to retain a full-source event snapshot.
-
-## On-demand frame scheduling
-
-Rendering is invalidation-driven. The worker records a bitmask of dirty reasons:
-
-- size;
-- viewport;
-- sources;
-- events;
-- overlays;
-- theme;
-- assets;
-- hover;
-- forced redraw.
-
-At most one worker `requestAnimationFrame` is scheduled. Additional messages
-merge their dirty bits into that pending frame. The renderer captures and clears
-the bitmask before drawing; an invalidation raised during the frame schedules
-the next frame.
-
-Interactive viewport controls can cancel a passive pending frame and render in
-the current worker task. Data-only updates use a short quiet window so a burst of
-commits produces a final guaranteed redraw without redrawing every intermediate
-revision. A subsequent interaction consumes all committed data dirtiness
+Canvas allows one projection in flight and one coalesced trailing trigger for a
+viewport. Repeated building summaries do not continuously invalidate useful
+work. A coherent building snapshot from the current generation may be published
+even when a newer summary already exists; the trailing request then catches up.
+A real operation, epoch, or viewport change invalidates the old request
 immediately.
 
-When the document is hidden, passive drawing pauses while state continues to be
-validated. Visibility restoration marks the necessary state dirty and schedules
-a current frame.
+The render worker normally waits for an 8 ms quiet window before drawing a dirty
+data batch. Continuous traffic cannot postpone drawing indefinitely: while the
+page is visible, a non-renewable 100 ms deadline forces a frame of the latest
+atomically committed repository state.
 
-## Coordinate system and culling
+## Terminal behavior
 
-The worker converts timestamps into canvas x coordinates from the frame range,
-horizontal scale, and scroll. Source timestamp offsets are applied consistently
-to event bars, overlays, target markers, and the inverse click transform used by
-Canvas.
+The final chunk first flushes every residual page and commits a `complete`
+manifest. That manifest makes the new generation authoritative and records any
+old generation as pending cleanup. The complete source summary and completed
+stream state are published before old physical records are removed.
 
-Vertical scroll and source row order determine y coordinates. Rendering first
-culls sources that do not overlap the visible rows or timeline frame. Each
-engine then clips its own projected values to the canvas and its source row.
+Canvas requests an exact terminal projection as soon as it observes the complete
+summary. Cleanup continues independently in IndexedDB batches of at most 256
+delete operations. A cleanup failure is non-fatal for the already authoritative
+generation; its marker is retried before the next source mutation.
 
-The query projection normally includes one canvas width of horizontal overscan
-on each side and two source rows of vertical overscan. Small continuous pans can
-therefore reuse already resident values while the next projection is prepared.
+This separation ensures that an old multi-million-event generation cannot make
+the terminal transaction unbounded or delay the final render.
 
-## Drawing engines
+## Memory and queue limits
 
-### Default
+The scalable path has explicit UI-side bounds:
 
-Default rendering draws one vertical activity mark per projected pixel bucket.
-The hash selects a palette color unless an explicit override applies. The
-projection already resolves multiple exact events in one bucket to the correct
-visual representative, so the render worker performs no exact-event search.
+| Resource | Bound |
+| --- | ---: |
+| raw `docs_chunk` backlog, all requests | 128 MiB |
+| raw backlog, one request | 64 MiB |
+| normalized documents, including page builders | 32,768 |
+| normal EventStore page | 16,384 events |
+| concurrent persistence commits | 2 |
+| render data queue | 1 in flight + 1 pending |
+| obsolete-generation cleanup transaction | 256 deletes |
 
-### HeightMap
+Raw bytes are reserved synchronously before a chunk is queued. A chunk that
+would exceed either raw limit is cleared immediately, the affected stream fails
+with reason `backlog`, and the existing `/request_cancel` path stops backend
+work. Other streams remain valid.
 
-HeightMap draws event density from persisted one-minute counts aggregated for
-the current viewport. Bar height is normalized against the source-wide maximum
-provided with the render window. The worker does not reconstruct counts by
-iterating exact events.
+The authenticated UI socket negotiates a two-chunk acknowledgement window with
+the backend. Normalization and ordered persistence use separate chains, so raw
+JSON can be released while an earlier IndexedDB transaction is still pending.
+An `accepted` ACK advances normal streaming only after bounded normalized credit
+exists; the terminal `durable` ACK follows the authoritative manifest commit.
 
-### Graph
+The byte limits remain independent safety boundaries. They still stop and
+cancel an overloaded request if negotiation is unavailable, several child
+queries combine into a larger request backlog, one frame is oversized, or the
+consumer stops advancing.
 
-Graph rendering consumes projected timestamps and counts, aggregates them into
-the configured graph pixel interval, applies semi-log scaling, and connects the
-visible points. The source frequency setting supplies the minimum sampling
-interval used by the projection and renderer.
+Under normalized-memory pressure, a replacement stream flushes the largest
+residual builder in its current context until global capacity is available. The
+low watermark is 16,384 documents. This prevents four concurrent replacements
+from waiting indefinitely while preserving densely filled pages in the normal
+single-source case.
 
-### LOD budget
+## Errors and compatibility mode
 
-A single render window is capped at 1,000,000 representatives. During atomic
-replacement, old and new windows may coexist briefly, so the resident limit is
-2,000,000 representatives. If a viewport would exceed its projection budget,
-the query worker increases the bucket width. Drawing remains bounded even when
-the IndexedDB operation contains tens of millions of exact events.
+Normalization, backlog, and disconnect failures close only the affected stream
+and use the normal user-visible failure path. Storage and quota failures preserve
+the last coherent generation and publish an explicit compatibility decision.
 
-## Overlay rendering and hit regions
+An unavailable or fatal render worker follows the same explicit policy while
+EventStore owns the documents. No error writes the legacy marker or reloads the
+page automatically. The localized banner offers:
 
-Notes, links, highlights, and flags are sent as independent revisioned
-collections. The worker receives only their render fields:
+- **Retry scalable mode**, which reloads without changing the marker;
+- **Use compatibility mode**, which remains disabled until explicit confirmation,
+  writes and reads back `gulp:event-store-lod-enabled=false`, and then reloads.
 
-- IDs and resolved source/timestamp anchors;
-- label and color data;
-- icon keys;
-- already resolved link endpoints;
-- highlight time ranges;
-- source-local event handles for flags.
+If the marker cannot be persisted, the page does not reload and the banner shows
+a recoverable error. Compatibility mode has no event-count threshold, but it
+keeps canonical events in main-thread RAM and can consume substantial memory.
 
-During drawing, the worker builds the note and link hit regions that correspond
-to the completed frame. Hit-test responses contain only compact identities:
-note IDs or a link ID. React resolves the entity and opens the corresponding DOM
-surface.
+Operation reset, hidden-document state, unmount, and worker disposal cancel their
+timers, projection relevance, pending interactions, and transient bitmaps. An
+operation epoch prevents late asynchronous work from becoming visible afterward.
 
-Hover state is evaluated after a completed frame and published only when the
-compact hit identity changes. This avoids sending repeated hover messages for
-the same region.
+## Diagnostics
 
-## Icons, fonts, and magnifier
+Diagnostics are passive until a benchmark or troubleshooting tool asks for them.
+The query worker accepts:
 
-The main thread resolves SVG or browser assets and creates colored
-`ImageBitmap` objects. The render worker requests an asset by key and color,
-caches the transferred bitmap, and redraws after it becomes available. Missing
-assets are reported without creating an endless repaint loop.
+- `GET_QUERY_DIAGNOSTICS`, returning a correlated snapshot;
+- `RESET_QUERY_DIAGNOSTICS`, clearing cumulative counters while preserving
+  current gauges and active work.
 
-Font descriptions are provided during bootstrap. Font readiness is completed
-before the worker publishes `READY`; an explicit fallback reason accompanies a
-failed worker font load.
+The query snapshot includes current and maximum raw/normalized backlog, active
+and maximum commits, commit count and latency, pages created and fill ratio,
+loaded operations, active streams, and projection started/completed/superseded/
+retry counts.
 
-The DOM magnifier asks the worker for a crop associated with a viewport
-revision. The worker copies the relevant primary-canvas area into a reusable
-scratch `OffscreenCanvas` and transfers an `ImageBitmap` result. Only the newest
-pending magnifier request is retained.
+Canvas diagnostics add maximum worker-frame interval, render queue depth,
+resync/error/fallback counts, oldest terminal-target age, current ACK/frame data
+sequences, and their timestamps. This makes it possible to distinguish storage
+progress, projection delay, data-channel delay, and a missing frame.
 
-## Canvas click and exact event selection
+### Renderer test profiles
 
-LOD representatives determine pixels, but they do not determine which exact
-events are selectable. Canvas uses this ordered interaction flow:
+The existing EventStore resource benchmarks remain available:
 
-1. Request a render-worker hit test at the currently rendered viewport revision.
-2. If a note or link is hit, resolve that overlay identity and handle it.
-3. Otherwise, convert the clicked pixel to an exact raw timestamp interval,
-   accounting for frame, scale, scroll, source row, and source timestamp offset.
-4. Call `DataStore.Events.queryPixelBucket()` for the exact source and interval.
-5. If no event exists, repeat the exact lookup for the adjacent `x - 1` and
-   `x + 1` pixel intervals.
-6. Open the event dialog for one match or the paginated group dialog for
-   multiple matches.
+```text
+/renderer-test?docs=10m
+/renderer-test?docs=20m
+/renderer-test?docs=30m
+```
 
-Each exact read returns at most 100 event records plus a total and cursor. The
-group dialog requests further pages instead of receiving an unbounded array.
-Full event detail continues through the normal backend retrieval path when the
-dialog needs fields beyond the compact timeline document.
+The query replay profiles exercise the real JSON socket/persistence path in a
+dedicated worker:
 
-Hit-test requests are ordered behind earlier control and data messages and are
-answered only after the requested viewport revision has rendered. If the user
-moves again while awaiting the result, Canvas discards the obsolete interaction.
-An exact EventStore result is also checked against operation, viewport, and
-source revisions; a source-only revision change can be retried once.
+```text
+/renderer-test?queryReplay=steady
+/renderer-test?queryReplay=burst
+```
 
-## Projection request timing
+The steady profile produces 14,000,000 events for one source in 10,000-event
+chunks, allows at most two chunks to await persistence, and sends `query_done`
+immediately after the last chunk. Its machine-readable gate requires 855 pages,
+an exact terminal render count, ACK-covered building frames at least every two
+seconds while the source advances, terminal projection within five seconds,
+terminal frame within 250 ms of its ACK, and no resync, worker error, fallback,
+or queue overflow.
 
-Canvas requests a render window when viewport geometry, selected source rows,
-source revision, engine settings, or render-affecting overrides change. The
-query worker may skip an obsolete pending request because every response is a
-complete replacement.
+The burst profile deliberately outruns persistence. It passes only when the
+stream ends with controlled reason `backlog` and the recorded raw high-water
+marks remain within 128 MiB globally and 64 MiB for the request.
 
-Committed updates for a building source are projected at most four times per
-second. A terminal source revision bypasses that throttle so the final state is
-requested immediately. Canvas retains that terminal source revision and exact
-event count as a convergence target. A later ordinary viewport request may
-supersede the projection request, but it cannot discard the target.
+Automation can read `window.__rendererQueryReplayDiagnostics`, the
+`rendererQueryReplay*` document data attributes, or listen for
+`renderer-query-replay-complete`. The existing benchmark publishes its original
+diagnostics and release-gate events unchanged.
 
-The render-window bus has one synchronous consumer: the mounted Canvas. Canvas
-validates operation and viewport revisions, creates a data patch, and transfers
-the buffers immediately to `RenderWorkerClient`. If the current request produces
-no usable projection while the same viewport is still active, Canvas performs
-one short delayed retry. A later viewport revision cancels the relevance of that
-retry. For terminal targets, Canvas additionally rejects a same-revision window
-whose `loadedCount` differs from the committed source summary, and requires every
-terminal source in the visible rows to be present.
+## Troubleshooting
 
-A terminal target is complete only when a worker `ACK` at or above its source
-revision is followed by `FRAME_RENDERED` for the current viewport. The worker
-posts the ACK after the atomic repository commit and before its guaranteed final
-redraw, so the ordered frame proves the revision was drawn. Until then, one
-watchdog reprojects after 500 milliseconds with exponential backoff capped at
-two seconds. It never adds work while the two-slot render data queue is busy and
-is canceled on success, operation reset, source removal, hidden-document state,
-legacy fallback, or unmount.
+Use the diagnostics in pipeline order:
 
-## Failure and lifecycle behavior
+1. **Raw backlog grows**: verify that the socket advertised
+   `query_chunk_ack_window`, then inspect normalization progress. With negotiated
+   flow control a slow commit may fill normalized credit, but the backend stops
+   after its bounded unaccepted window. A `backlog` failure means the independent
+   UI safety bound stopped an oversized or non-advancing request.
+2. **Raw is low but normalized backlog stays high**: inspect commit latency,
+   active commits, quota, and IndexedDB errors.
+3. **Summaries advance but projections do not complete**: inspect started,
+   superseded, retry counts, viewport churn, and oldest projection age.
+4. **Projection completes but ACK does not advance**: inspect the two-slot data
+   queue and any resync request.
+5. **ACK advances but the target remains pending**: compare the source's ACK data
+   sequence with `renderedDataSequence`, viewport revision, and terminal age.
+6. **Frames arrive slowly during traffic**: compare maximum frame interval with
+   the 100 ms visible-page deadline and check tab visibility or fatal errors.
 
-Operation reset is an explicit protocol boundary. Canvas increments the epoch,
-sends `RESET_OPERATION`, clears pending data and interactions, and requests a
-fresh scene and render window. The worker closes staged snapshots, render views,
-hit regions, and transient bitmaps that no longer belong to the active epoch.
-
-Unmount sends `DISPOSE`, closes both ports, terminates the dedicated worker, and
-releases pending hit-test and magnifier promises.
-
-Before canvas transfer, an unsupported browser can select the configured
-renderer fallback. After transfer, the main thread cannot safely reclaim the
-same canvas. A fatal worker or LOD pipeline failure therefore persists the
-rollback flag and reloads the application before mounting the alternate event
-pipeline. It never silently constructs a full main-thread event collection in
-the active session.
-
-Non-fatal asset failures and scoped revision gaps use retry or resynchronization
-without resetting the renderer. Fatal protocol, initialization, data-staging,
-or drawing errors include a phase, message, and optional stack for diagnostics.
-
-## Diagnostics and performance gates
-
-Each completed worker frame reports:
-
-- draw duration and worker wait duration;
-- input-to-worker receive duration;
-- committed-data-to-frame latency;
-- dirty reason mask;
-- viewport and data revisions;
-- visible source and rendered row counts;
-- rendered event pixels;
-- graph samples and buckets;
-- visible notes, links, and interactive region counts.
-
-The main client also exposes readiness, data queue depth, acknowledged data
-revision, requested viewport revision, and rendered viewport revision. These
-values make a blank or delayed frame distinguishable from a storage failure,
-stale projection, render backlog, or drawing failure.
-
-The renderer benchmark page and focused tests cover:
-
-- continuous pan, zoom, and wheel input;
-- queue depth of one in-flight plus one pending data patch;
-- atomic render-window replacement and source eviction;
-- stale epoch, viewport, projection, and source revisions;
-- Default, HeightMap, and Graph drawing at multiple scales;
-- overlay hit testing and magnifier ordering;
-- representative and resident memory limits;
-- frame p95, FPS, input latency, and data latency gates.
+For schema fields, stream descriptors, exact-read APIs, and projection selection
+rules, continue with [query-worker.md](query-worker.md).
 
 ## Extension rules
 
-New rendering behavior should preserve these boundaries:
+Changes to the engine must preserve these boundaries:
 
-1. Keep canonical event persistence and exact lookup in EventStore.
-2. Add only render-required fields to a worker projection.
-3. Use transferable typed arrays for high-volume numeric data.
-4. Give mutable collections an explicit revision and replacement contract.
-5. Keep control traffic independent from bulk data traffic.
-6. Bound every queue and coalesce replaceable viewport work.
-7. Stage a multi-source projection fully before publishing it.
-8. Resolve DOM interaction from compact IDs on the main thread.
-9. Add frame counters or timings when a new path can affect release gates.
-
-## Source reference
-
-The main implementation entry points are:
-
-- [`Canvas.tsx`](../../gulp-ui/src/app/body/Canvas.tsx)
-- [`CanvasViewport.ts`](../../gulp-ui/src/app/body/CanvasViewport.ts)
-- [`CanvasEventLookup.ts`](../../gulp-ui/src/app/body/CanvasEventLookup.ts)
-- [`RenderWorker.client.ts`](../../gulp-ui/src/render-worker/RenderWorker.client.ts)
-- [`Render.worker.ts`](../../gulp-ui/src/render-worker/Render.worker.ts)
-- [`RenderWorkerController.ts`](../../gulp-ui/src/render-worker/RenderWorkerController.ts)
-- [`WorkerRenderRepository.ts`](../../gulp-ui/src/render-worker/WorkerRenderRepository.ts)
-- [`WorkerRenderCore.ts`](../../gulp-ui/src/render-worker/WorkerRenderCore.ts)
-- [`RenderWindowProjection.bus.ts`](../../gulp-ui/src/render-worker/RenderWindowProjection.bus.ts)
-- [`RenderDataQueue.ts`](../../gulp-ui/src/render-worker/RenderDataQueue.ts)
-- [`RenderWorker.types.ts`](../../gulp-ui/src/render-worker/RenderWorker.types.ts)
+- do not move complete documents onto the main thread or into the render worker;
+- keep persisted pages and render projections versioned and atomically replaceable;
+- retain one active and one trailing projection/data slot rather than unbounded
+  queues;
+- carry operation epoch and relevant revisions across every asynchronous boundary;
+- close superseded typed-array and bitmap resources;
+- add protocol fields to validators, tests, and documentation together;
+- keep benchmark diagnostics machine-readable and off the production hot path.

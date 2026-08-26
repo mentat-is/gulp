@@ -383,7 +383,9 @@ export class EventStoreViewportProjector {
 
 		return {
 			sourceId: source.sourceId,
+			sourceGeneration: manifest.generation,
 			sourceRevision: manifest.revision,
+			sourceStatus: manifest.status,
 			coveredRange,
 			bucketPixelWidth,
 			degradedLod: bucketPixelWidth > 1,
@@ -1315,7 +1317,24 @@ export class EventStoreViewportProjector {
 				projection.sourceId,
 			);
 			this.assertProjectionCurrent(isCurrent);
-			if ((current?.revision ?? 0) !== projection.sourceRevision) {
+			if (
+				!current &&
+				projection.sourceGeneration === 0 &&
+				projection.sourceRevision === 0 &&
+				projection.loadedCount === 0
+			) {
+				continue;
+			}
+			const generationChanged =
+				(current?.generation ?? 0) !== projection.sourceGeneration;
+			const revisionMovedBackwards =
+				(current?.revision ?? 0) < projection.sourceRevision;
+			const terminalChanged =
+				projection.sourceStatus !== "building" &&
+				((current?.revision ?? 0) !== projection.sourceRevision ||
+					current?.status !== projection.sourceStatus ||
+					(current?.eventCount ?? 0) !== projection.loadedCount);
+			if (generationChanged || revisionMovedBackwards || terminalChanged) {
 				throw new StaleEventStoreProjectionError(
 					`Source ${projection.sourceId} changed while its viewport was projected.`,
 				);
@@ -1463,7 +1482,9 @@ export class EventStoreViewportProjector {
 	): RenderWindowSourceProjection {
 		return {
 			sourceId,
+			sourceGeneration: 0,
 			sourceRevision: 0,
+			sourceStatus: "incomplete",
 			coveredRange,
 			bucketPixelWidth,
 			degradedLod: bucketPixelWidth > 1,

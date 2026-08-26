@@ -75,6 +75,8 @@ import {
     type RendererBenchmarkDiagnostics,
     type RendererBenchmarkEventStore,
 } from './RendererTest.benchmark';
+import { RendererQueryReplayPage } from './RendererQueryReplay.page';
+import { getRendererQueryReplayProfile } from './RendererTest.query-replay';
 
 declare global {
     interface Window {
@@ -1272,10 +1274,21 @@ const RendererTestTimeline = memo(RendererTestTimelineComponent);
 
 export namespace RendererTest {
     /**
-     * Renders the deterministic timeline stress harness and streams synthetic data.
+     * Selects the existing EventStore benchmark or the QuerySocketSession replay.
      * @returns Renderer benchmark page.
      */
     export function Page() {
+        const replayProfile = getRendererQueryReplayProfile(window.location.search);
+        return replayProfile
+            ? <RendererQueryReplayPage profile={replayProfile} />
+            : <BenchmarkPage />;
+    }
+
+    /**
+     * Renders the existing deterministic 10M, 20M, or 30M storage stress harness.
+     * @returns Existing renderer benchmark page.
+     */
+    function BenchmarkPage() {
         const { setInfo, app, Info } = Application.use();
         const [releaseGateEnabled] = useState<boolean>(isRendererReleaseGateEnabled);
         const [releaseGateSupported] = useState<boolean>(supportsRendererReleaseGate);

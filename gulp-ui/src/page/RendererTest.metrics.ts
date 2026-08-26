@@ -298,6 +298,7 @@ export function createEmptyWorkerSnapshot(): CanvasWorkerProfilerSnapshot {
 		mainFrameIntervalP99Ms: 0,
 		mainFrameIntervalCount: 0,
 		mainMaxFrameIntervalMs: 0,
+		workerMaxFrameIntervalMs: 0,
 		mainDroppedFrameCount: 0,
 		mainDroppedFrameRatio: 0,
 		mainStallsOver50Ms: 0,

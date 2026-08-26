@@ -86,7 +86,9 @@ function createRenderWindowProjection(
 		sources: [
 			{
 				sourceId,
+				sourceGeneration: 1,
 				sourceRevision: projectionRevision,
+				sourceStatus: "complete",
 				coveredRange: { min: 100, max: 200 },
 				bucketPixelWidth: 1,
 				degradedLod: false,

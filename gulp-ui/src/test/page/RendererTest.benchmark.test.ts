@@ -155,6 +155,7 @@ class RendererBenchmarkWriterSpy {
 	): EventSourceSummary {
 		return {
 			sourceId,
+			generation: 1,
 			revision: this.revisions.get(sourceId) ?? 0,
 			status,
 			eventCount: this.counts.get(sourceId) ?? 0,
@@ -181,7 +182,9 @@ class RendererBenchmarkProjectorSpy {
 			projectionRevision: descriptor.projectionRevision,
 			sources: descriptor.sources.map((source) => ({
 				sourceId: source.sourceId,
+				sourceGeneration: 1,
 				sourceRevision: 1,
+				sourceStatus: "complete",
 				coveredRange: descriptor.frame,
 				bucketPixelWidth: 1,
 				degradedLod: false,

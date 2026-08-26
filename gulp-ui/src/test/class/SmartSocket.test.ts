@@ -377,6 +377,7 @@ describe("SmartSocket lifecycle", () => {
 		expect(JSON.parse(directSocket.sent[0])).toEqual({
 			token: "test-token",
 			ws_id: "ready-client",
+			data: { query_chunk_ack_window: 2 },
 		});
 	});
 

@@ -35,10 +35,15 @@ class _FakeRedisRaw:
     async def get(self, key: str):
         return self._data.get(key)
 
-    async def delete(self, key: str):
-        existed = 1 if key in self._data else 0
-        self._data.pop(key, None)
-        return existed
+    async def delete(self, *keys: str):
+        deleted = 0
+        for key in keys:
+            deleted += 1 if key in self._data else 0
+            self._data.pop(key, None)
+        return deleted
+
+    async def expire(self, _key: str, _ttl: int):
+        return True
 
     async def publish(self, channel: str, payload: bytes):
         self.published.append((channel, payload))
@@ -602,6 +607,98 @@ async def test_gulp_redis_ws_get_metadata_uses_owner_server_lookup():
     result = await redis_client.ws_get_metadata("ws-remote")
 
     assert result == metadata
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_query_chunk_ack_keeps_monotonic_progress_and_clears_both_stages():
+    GulpRedis._instance = None
+    redis_client = GulpRedis.get_instance()
+    redis_client._redis = _FakeRedisRaw()
+    redis_client.server_id = "server-query-ack"
+
+    await redis_client.query_chunk_ack_record(
+        "ws-query-ack", "req-query-ack", "query-name", 4, "accepted"
+    )
+    await redis_client.query_chunk_ack_record(
+        "ws-query-ack", "req-query-ack", "query-name", 2, "accepted"
+    )
+    await redis_client.query_chunk_ack_record(
+        "ws-query-ack", "req-query-ack", "query-name", 4, "durable"
+    )
+
+    assert (
+        await redis_client.query_chunk_ack_get(
+            "ws-query-ack", "req-query-ack", "query-name", "accepted"
+        )
+        == 4
+    )
+    assert (
+        await redis_client.query_chunk_ack_get(
+            "ws-query-ack", "req-query-ack", "query-name", "durable"
+        )
+        == 4
+    )
+
+    await redis_client.query_chunk_ack_clear(
+        "ws-query-ack", "req-query-ack", "query-name"
+    )
+    assert (
+        await redis_client.query_chunk_ack_get(
+            "ws-query-ack", "req-query-ack", "query-name", "accepted"
+        )
+        is None
+    )
+    assert (
+        await redis_client.query_chunk_ack_get(
+            "ws-query-ack", "req-query-ack", "query-name", "durable"
+        )
+        is None
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_connected_socket_accepts_only_valid_query_chunk_ack(monkeypatch):
+    record = AsyncMock()
+    monkeypatch.setattr(
+        GulpRedis,
+        "get_instance",
+        lambda: SimpleNamespace(query_chunk_ack_record=record),
+    )
+    connected_socket = GulpConnectedSocket(
+        ws=MagicMock(),
+        ws_id="ws-query-control",
+        socket_type=GulpWsType.WS_DEFAULT,
+    )
+
+    await connected_socket._handle_received_message(
+        {
+            "type": "docs_chunk_ack",
+            "req_id": "req-query-control",
+            "name": "query-name",
+            "chunk_num": 8,
+            "stage": "accepted",
+        }
+    )
+    await connected_socket._handle_received_message(
+        {
+            "type": "docs_chunk_ack",
+            "req_id": "req-query-control",
+            "name": "query-name",
+            "chunk_num": -1,
+            "stage": "accepted",
+        }
+    )
+    await connected_socket._handle_received_message({"type": "unrelated"})
+
+    record.assert_awaited_once_with(
+        ws_id="ws-query-control",
+        req_id="req-query-control",
+        query_name="query-name",
+        chunk_num=8,
+        stage="accepted",
+    )
 
 
 @pytest.mark.unit

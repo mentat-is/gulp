@@ -1,13 +1,14 @@
 import {
 	DirtyCanvas,
 	RENDER_PROTOCOL_VERSION,
+	type RenderAcknowledgedSourceState,
 	type RenderAssetRequestMessage,
 	type RenderCapabilitiesMessage,
 	type RenderControlMessage,
 	type RenderDataMessage,
 	type RenderDataPatch,
 	type RenderErrorMessage,
-	type RenderFrameStatistics,
+	type RenderFrameRenderedStatistics,
 	type RenderHitTestResult,
 	type RenderPointerState,
 	type RenderReadyMessage,
@@ -66,8 +67,14 @@ export interface RenderWorkerClientSynchronizationState {
 	inFlightDataMessages: number;
 	pendingDataMessages: number;
 	acknowledgedGlobalRevision: number;
+	acknowledgedDataSequence: number;
+	acknowledgedDataAtMs: number;
 	acknowledgedSourceRevisions: ReadonlyMap<string, number>;
+	acknowledgedSourceStates: ReadonlyMap<string, RenderAcknowledgedSourceState>;
+	acknowledgedSourceAtMs: ReadonlyMap<string, number>;
 	renderedGlobalRevision: number;
+	renderedDataSequence: number;
+	renderedDataAtMs: number;
 	requestedViewportRevision: number;
 	renderedViewportRevision: number;
 }
@@ -79,7 +86,7 @@ export interface RenderWorkerClientOptions {
 	workerFactory?: () => Worker;
 	onCapabilities?: (capabilities: RenderCapabilities) => void;
 	onReady?: (state: RenderReadyState) => void;
-	onFrameRendered?: (statistics: RenderFrameStatistics) => void;
+	onFrameRendered?: (statistics: RenderFrameRenderedStatistics) => void;
 	onDataQueueDepthChanged?: (depth: RenderWorkerDataQueueDepth) => void;
 	onFatalError?: (error: Error) => void;
 	onWorkerError?: (error: RenderWorkerError) => void;
@@ -138,7 +145,11 @@ export class RenderWorkerClient {
 	private readonly readyResolve: (state: RenderReadyState) => void;
 	private readonly readyReject: (error: Error) => void;
 	private readonly dataQueue = new RenderDataQueue();
-	private readonly acknowledgedSourceRevisions = new Map<string, number>();
+	private readonly acknowledgedSourceStates = new Map<
+		string,
+		RenderAcknowledgedSourceState
+	>();
+	private readonly acknowledgedSourceAtMs = new Map<string, number>();
 	private readonly pendingHitTests = new Map<
 		number,
 		PendingInteraction<RenderHitTestResult | null>
@@ -159,7 +170,11 @@ export class RenderWorkerClient {
 	private postedViewportRevisionAwaitingFrame: number | null = null;
 	private pendingViewportControl: PendingViewportControl | null = null;
 	private acknowledgedGlobalRevision = 0;
+	private lastAcknowledgedDataSequence = 0;
+	private lastAcknowledgedDataAtMs = 0;
 	private lastRenderedGlobalRevision = 0;
+	private lastRenderedDataSequence = 0;
+	private lastRenderedDataAtMs = 0;
 
 	public readonly ready: Promise<RenderReadyState>;
 
@@ -325,16 +340,26 @@ export class RenderWorkerClient {
 	 * @returns Current worker readiness, queue occupancy, and synchronized revisions.
 	 */
 	public getSynchronizationState(): RenderWorkerClientSynchronizationState {
+		const acknowledgedSourceStates = new Map(this.acknowledgedSourceStates);
 		return {
 			ready: this.isReady,
 			operationEpoch: this.operationEpoch,
 			inFlightDataMessages: this.dataQueue.depth.inFlight,
 			pendingDataMessages: this.dataQueue.depth.pending,
 			acknowledgedGlobalRevision: this.acknowledgedGlobalRevision,
+			acknowledgedDataSequence: this.lastAcknowledgedDataSequence,
+			acknowledgedDataAtMs: this.lastAcknowledgedDataAtMs,
 			acknowledgedSourceRevisions: new Map(
-				this.acknowledgedSourceRevisions,
+				Array.from(acknowledgedSourceStates, ([sourceId, state]) => [
+					sourceId,
+					state.revision,
+				]),
 			),
+			acknowledgedSourceStates,
+			acknowledgedSourceAtMs: new Map(this.acknowledgedSourceAtMs),
 			renderedGlobalRevision: this.lastRenderedGlobalRevision,
+			renderedDataSequence: this.lastRenderedDataSequence,
+			renderedDataAtMs: this.lastRenderedDataAtMs,
 			requestedViewportRevision: this.latestFrameViewportRevision,
 			renderedViewportRevision: this.lastRenderedViewportRevision,
 		};
@@ -569,9 +594,14 @@ export class RenderWorkerClient {
 		this.operationEpoch = nextOperationEpoch;
 		this.dataQueue.clear();
 		this.notifyDataQueueDepth();
-		this.acknowledgedSourceRevisions.clear();
+		this.acknowledgedSourceStates.clear();
+		this.acknowledgedSourceAtMs.clear();
 		this.acknowledgedGlobalRevision = 0;
+		this.lastAcknowledgedDataSequence = 0;
+		this.lastAcknowledgedDataAtMs = 0;
 		this.lastRenderedGlobalRevision = 0;
+		this.lastRenderedDataSequence = 0;
+		this.lastRenderedDataAtMs = 0;
 		this.lastRenderedViewportRevision = 0;
 		this.latestFrameViewportRevision = 0;
 		this.clearViewportControls();
@@ -811,6 +841,11 @@ export class RenderWorkerClient {
 					this.lastRenderedGlobalRevision,
 					message.payload.dataRevision,
 				);
+				this.lastRenderedDataSequence = Math.max(
+					this.lastRenderedDataSequence,
+					message.payload.renderedDataSequence,
+				);
+				this.lastRenderedDataAtMs = performance.now();
 				this.acknowledgeRenderedViewport(message.payload.viewportRevision);
 				this.options.onFrameRendered?.(message.payload);
 				break;
@@ -908,10 +943,22 @@ export class RenderWorkerClient {
 			this.acknowledgedGlobalRevision,
 			acknowledgement.globalRevision,
 		);
+		this.lastAcknowledgedDataSequence = Math.max(
+			this.lastAcknowledgedDataSequence,
+			acknowledgement.acknowledgedSequence,
+		);
+		const acknowledgedAtMs = performance.now();
+		this.lastAcknowledgedDataAtMs = acknowledgedAtMs;
 		applyAcknowledgedSourceRevisions(
-			this.acknowledgedSourceRevisions,
+			this.acknowledgedSourceStates,
 			acknowledgement,
 		);
+		for (const source of acknowledgement.sourceRevisions) {
+			this.acknowledgedSourceAtMs.set(source.sourceId, acknowledgedAtMs);
+		}
+		for (const sourceId of acknowledgement.rejectedSourceIds) {
+			this.acknowledgedSourceAtMs.delete(sourceId);
+		}
 		this.flushDataQueue();
 	}
 
@@ -924,11 +971,13 @@ export class RenderWorkerClient {
 		request: RenderResyncRequest,
 	): void {
 		if (request.scope === "source" && request.id) {
-			this.acknowledgedSourceRevisions.delete(request.id);
+			this.acknowledgedSourceStates.delete(request.id);
+			this.acknowledgedSourceAtMs.delete(request.id);
 			return;
 		}
 		if (request.scope === "sources") {
-			this.acknowledgedSourceRevisions.clear();
+			this.acknowledgedSourceStates.clear();
+			this.acknowledgedSourceAtMs.clear();
 		}
 	}
 
@@ -1123,9 +1172,14 @@ export class RenderWorkerClient {
 		this.worker.terminate();
 		this.dataQueue.clear();
 		this.notifyDataQueueDepth();
-		this.acknowledgedSourceRevisions.clear();
+		this.acknowledgedSourceStates.clear();
+		this.acknowledgedSourceAtMs.clear();
 		this.acknowledgedGlobalRevision = 0;
+		this.lastAcknowledgedDataSequence = 0;
+		this.lastAcknowledgedDataAtMs = 0;
 		this.lastRenderedGlobalRevision = 0;
+		this.lastRenderedDataSequence = 0;
+		this.lastRenderedDataAtMs = 0;
 		this.clearViewportControls();
 	}
 

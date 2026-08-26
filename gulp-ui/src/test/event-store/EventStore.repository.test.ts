@@ -76,6 +76,8 @@ class CountingMemoryEventStoreBackend extends MemoryEventStoreBackend {
 	public maximumIndexBytesPerCommit = 0;
 	public totalIndexEntriesWritten = 0;
 	public failNextDeleteCommit = false;
+	public failDeleteCommitNumber: number | null = null;
+	public deleteCommitCount = 0;
 
 	/** Counts exact-page reads while retaining normal clone semantics. */
 	public override async get<TValue>(
@@ -143,9 +145,16 @@ class CountingMemoryEventStoreBackend extends MemoryEventStoreBackend {
 			this.maximumIndexBytesPerCommit,
 			indexBytes,
 		);
+		if (deletes > 0) this.deleteCommitCount++;
 		if (this.failNextDeleteCommit && deletes > 0) {
 			this.failNextDeleteCommit = false;
 			throw new Error("Injected generation cleanup failure.");
+		}
+		if (
+			deletes > 0 &&
+			this.failDeleteCommitNumber === this.deleteCommitCount
+		) {
+			throw new Error("Injected generation cleanup interruption.");
 		}
 		await super.commit(operations);
 	}
@@ -156,6 +165,7 @@ class CountingMemoryEventStoreBackend extends MemoryEventStoreBackend {
 		this.maximumDeletesPerCommit = 0;
 		this.maximumIndexBytesPerCommit = 0;
 		this.totalIndexEntriesWritten = 0;
+		this.deleteCommitCount = 0;
 	}
 }
 
@@ -857,6 +867,84 @@ describe("EventStoreRepository", () => {
 			"complete",
 		);
 		expect(backend.getStoreSize("pages")).toBe(1);
+	});
+
+	it("finalizes before bounded cleanup and resumes an interrupted marker on reopen", async () => {
+		const backend = new CountingMemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		await repository.beginGeneration({ sourceId: SOURCE_ID, generation: 1 });
+		for (let pageId = 0; pageId < 90; pageId++) {
+			await repository.appendPages({
+				sourceId: SOURCE_ID,
+				generation: 1,
+				pages: [
+					createPage(
+						pageId,
+						1,
+						pageId + 1,
+						[createDocument(`obsolete-${pageId}`, 1_000 - pageId)],
+						[pageId + 1],
+					),
+				],
+			});
+		}
+		await repository.finalizeGeneration(SOURCE_ID, 1);
+		await repository.beginGeneration({ sourceId: SOURCE_ID, generation: 2 });
+		await repository.appendPages({
+			sourceId: SOURCE_ID,
+			generation: 2,
+			pages: [
+				createPage(0, 2, 1, [createDocument("authoritative", 2_000)], [1]),
+			],
+		});
+
+		backend.resetWriteMetrics();
+		const complete = await repository.finalizeGeneration(SOURCE_ID, 2);
+		const pending = await backend.get<EventSourceManifest>("sources", SOURCE_ID);
+		expect(complete).toMatchObject({
+			generation: 2,
+			status: "complete",
+			eventCount: 1,
+		});
+		expect(backend.maximumDeletesPerCommit).toBe(0);
+		expect(pending?.obsoleteGenerations).toEqual([{ generation: 1 }]);
+		expect(
+			await backend.getAllByPrefix("pages", [SOURCE_ID, 1]),
+		).toHaveLength(90);
+
+		backend.failDeleteCommitNumber = 2;
+		await expect(repository.cleanupObsoleteGenerations(SOURCE_ID)).rejects.toThrow(
+			"Injected generation cleanup interruption",
+		);
+		expect(backend.maximumDeletesPerCommit <= 256).toBe(true);
+		expect(
+			(await backend.getAllByPrefix("pages", [SOURCE_ID, 1])).length < 90,
+		).toBe(true);
+		expect(
+			(await backend.get<EventSourceManifest>("sources", SOURCE_ID))
+				?.obsoleteGenerations,
+		).toHaveLength(1);
+		expect(await repository.getSourceSummary(SOURCE_ID)).toMatchObject({
+			generation: 2,
+			status: "complete",
+			eventCount: 1,
+		});
+
+		backend.failDeleteCommitNumber = null;
+		const reopened = new EventStoreRepository(backend);
+		await reopened.beginGeneration({ sourceId: SOURCE_ID, generation: 3 });
+		expect(
+			await backend.getAllByPrefix("pages", [SOURCE_ID, 1]),
+		).toHaveLength(0);
+		expect(
+			(await backend.get<EventSourceManifest>("sources", SOURCE_ID))
+				?.obsoleteGenerations,
+		).toBeUndefined();
+		expect(await reopened.getSourceSummary(SOURCE_ID)).toMatchObject({
+			generation: 3,
+			status: "building",
+		});
+		expect(backend.maximumDeletesPerCommit <= 256).toBe(true);
 	});
 
 	it("discards rollback storage in bounded batches and cancels in place as incomplete", async () => {

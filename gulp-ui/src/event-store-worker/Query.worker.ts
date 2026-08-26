@@ -153,6 +153,21 @@ async function handleCommand(command: QueryWorkerCommand): Promise<void> {
 				});
 			}
 			break;
+		case "GET_QUERY_DIAGNOSTICS":
+			postWorkerEvent({
+				type: "QUERY_DIAGNOSTICS_RESULT",
+				diagnosticsRequestId: command.diagnosticsRequestId,
+				diagnostics: requireSession().getQueryDiagnostics(),
+			});
+			break;
+		case "RESET_QUERY_DIAGNOSTICS":
+			try {
+				requireSession().resetQueryDiagnostics();
+				completeControl(command.controlId);
+			} catch (error) {
+				completeControl(command.controlId, error);
+			}
+			break;
 		case "SEND":
 			requireSession().send(command.data);
 			break;

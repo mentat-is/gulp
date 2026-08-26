@@ -64,6 +64,7 @@ class CountingMemoryEventStoreBackend extends MemoryEventStoreBackend {
 /** Cancels one viewport guard immediately after its first persisted LOD read. */
 class SupersedingMemoryEventStoreBackend extends CountingMemoryEventStoreBackend {
 	public supersedeAfterFirstLodRead: (() => void) | null = null;
+	public commitAfterInitialManifestRead: (() => Promise<void>) | null = null;
 
 	/**
 	 * Completes one real read, then simulates a newer worker request taking ownership.
@@ -84,6 +85,11 @@ class SupersedingMemoryEventStoreBackend extends CountingMemoryEventStoreBackend
 			const supersede = this.supersedeAfterFirstLodRead;
 			this.supersedeAfterFirstLodRead = null;
 			supersede();
+		}
+		if (store === "sources" && this.commitAfterInitialManifestRead) {
+			const commit = this.commitAfterInitialManifestRead;
+			this.commitAfterInitialManifestRead = null;
+			await commit();
 		}
 		return value;
 	}
@@ -385,6 +391,55 @@ describe("EventStoreViewportProjector", () => {
 		expect(latest.sources[0].representativeHandles.length > 0).toBe(true);
 		expect(backend.pageLodReads).toBe(2);
 		expect(backend.exactPageReads).toBe(2);
+	});
+
+	it("publishes a coherent building snapshot after a newer same-generation commit", async () => {
+		const backend = new SupersedingMemoryEventStoreBackend();
+		const repository = new EventStoreRepository(backend);
+		const sourceId = "projector-building-advance" as Source.Id;
+		await repository.beginGeneration({ sourceId, generation: 1 });
+		const firstSummary = await repository.appendPages({
+			sourceId,
+			generation: 1,
+			pages: [
+				createPage(
+					sourceId,
+					0,
+					[createDocument("building-first", 100, 1, sourceId)],
+					[1],
+				),
+			],
+		});
+		backend.resetReads();
+		backend.commitAfterInitialManifestRead = async () => {
+			await repository.appendPages({
+				sourceId,
+				generation: 1,
+				pages: [
+					createPage(
+						sourceId,
+						1,
+						[createDocument("building-second", 200, 2, sourceId)],
+						[2],
+					),
+				],
+			});
+		};
+
+		const projection = await new EventStoreViewportProjector(
+			backend,
+		).requestRenderWindow({
+			...createDescriptor(sourceId),
+			width: 4_096,
+		});
+		const currentSummary = await repository.getSourceSummary(sourceId);
+		expect(projection.sources[0]).toMatchObject({
+			sourceGeneration: 1,
+			sourceRevision: firstSummary.revision,
+			sourceStatus: "building",
+			loadedCount: 1,
+		});
+		expect((currentSummary?.revision ?? 0) > firstSummary.revision).toBe(true);
 	});
 
 	it("never projects overscan events outside the selected timeline frame", async () => {

@@ -3,6 +3,7 @@ import type { Source } from "@/entities/Source";
 import { EventStoreRepository } from "@/event-store/EventStore.repository";
 import {
 	EVENT_PAGE_LOD_RECORD_KIND,
+	EVENT_PAGE_SIZE,
 	EVENT_PENDING_DOCUMENT_LIMIT,
 	type EncodedEventPageLod,
 	type EventSourceManifest,
@@ -10,8 +11,12 @@ import {
 	type EventStoreNamespace,
 } from "@/event-store/EventStore.types";
 import { MemoryEventStoreBackend } from "@/event-store/MemoryEventStore.backend";
-import { QueryPersistenceCoordinator } from "@/event-store-worker/QueryPersistenceCoordinator";
+import {
+	QueryPersistenceCoordinator,
+	type QueryPersistenceCoordinatorOptions,
+} from "@/event-store-worker/QueryPersistenceCoordinator";
 import type {
+	DocumentChunkAcknowledgement,
 	DocumentChunkReady,
 	DocumentStreamDescriptor,
 	QuerySourceSummaryEvent,
@@ -67,13 +72,20 @@ interface PersistenceHarness {
 	flushing: string[];
 	completed: string[];
 	broadcasts: EventSourceSummary[];
+	acknowledgements: DocumentChunkAcknowledgement[];
 }
 
 /**
  * Creates one isolated coordinator backed by deterministic in-memory storage.
+ * @param limits Optional raw backlog limits for boundary tests.
  * @returns Coordinator harness and captured lifecycle events.
  */
-function createHarness(): PersistenceHarness {
+function createHarness(
+	limits: Pick<
+		QueryPersistenceCoordinatorOptions,
+		"rawGlobalByteLimit" | "rawStreamByteLimit"
+	> = {},
+): PersistenceHarness {
 	const backends = new Map<string, MemoryEventStoreBackend>();
 	const repositories = new Map<string, EventStoreRepository>();
 	const summaries: QuerySourceSummaryEvent[] = [];
@@ -81,6 +93,7 @@ function createHarness(): PersistenceHarness {
 	const flushing: string[] = [];
 	const completed: string[] = [];
 	const broadcasts: EventSourceSummary[] = [];
+	const acknowledgements: DocumentChunkAcknowledgement[] = [];
 	const coordinator = new QueryPersistenceCoordinator(
 		"test-coordinator",
 		{
@@ -88,8 +101,11 @@ function createHarness(): PersistenceHarness {
 			onStreamFailure: (event) => failures.push(event),
 			onStreamFlushing: (requestId) => flushing.push(requestId),
 			onStreamCompleted: (requestId) => completed.push(requestId),
+			onDocumentChunkAcknowledged: (acknowledgement) =>
+				acknowledgements.push(acknowledgement),
 		},
 		{
+			...limits,
 			createOperationStore: (namespace: EventStoreNamespace) => {
 				const operationId = namespace.operationId as string;
 				const backend = new MemoryEventStoreBackend();
@@ -113,6 +129,7 @@ function createHarness(): PersistenceHarness {
 		flushing,
 		completed,
 		broadcasts,
+		acknowledgements,
 	};
 }
 
@@ -354,13 +371,208 @@ describe("QueryPersistenceCoordinator", () => {
 			60_000,
 		);
 		const repository = harness.repositories.get(descriptor.operationId);
+		const backend = harness.backends.get(descriptor.operationId);
+		const manifest = await backend?.get<EventSourceManifest>(
+			"sources",
+			SOURCE_ONE,
+		);
 		expect(await repository?.getSourceSummary(SOURCE_ONE)).toMatchObject({
 			status: "complete",
 			eventCount: 30_000,
 		});
+		expect(
+			manifest?.pages.map((page) => page.count).sort((left, right) => right - left),
+		).toEqual([EVENT_PAGE_SIZE, 30_000 - EVENT_PAGE_SIZE]);
+		expect(Math.ceil(14_000_000 / EVENT_PAGE_SIZE)).toBe(855);
 		expect(harness.failures).toHaveLength(0);
 		expect(harness.coordinator.pendingDocumentCount).toBe(0);
 		expect(harness.coordinator.pendingRawChunkByteCount).toBe(0);
+		const diagnostics = harness.coordinator.getDiagnostics({
+			started: 0,
+			completed: 0,
+			superseded: 0,
+			retries: 0,
+		});
+		expect(diagnostics.pages).toEqual({
+			created: 2,
+			documents: 30_000,
+			capacity: 2 * EVENT_PAGE_SIZE,
+			fillRatio: 30_000 / (2 * EVENT_PAGE_SIZE),
+		});
+		expect(
+			diagnostics.normalizedBacklog.maximumDocuments <=
+				EVENT_PENDING_DOCUMENT_LIMIT,
+		).toBe(true);
+		expect(diagnostics.commits.completed > 0).toBe(true);
+		expect(diagnostics.commits.maximumActive <= 2).toBe(true);
+		harness.coordinator.resetDiagnostics();
+		expect(
+			harness.coordinator.getDiagnostics({
+				started: 0,
+				completed: 0,
+				superseded: 0,
+				retries: 0,
+			}).pages.created,
+		).toBe(0);
+		harness.coordinator.destroy();
+	});
+
+	it("releases raw chunks after normalization while an earlier page commit is blocked", async () => {
+		const harness = createHarness({
+			rawGlobalByteLimit: 90,
+			rawStreamByteLimit: 90,
+		});
+		const descriptor = createDescriptor("flow-controlled-replace", {
+			expectedEvents: 40_000,
+		});
+		await harness.coordinator.register(descriptor);
+		const repository = harness.repositories.get(descriptor.operationId);
+		if (!repository) throw new Error("Expected operation repository.");
+		const appendPages = repository.appendPages.bind(repository);
+		let releaseFirstCommit = (): void => undefined;
+		const firstCommitGate = new Promise<void>((resolve) => {
+			releaseFirstCommit = resolve;
+		});
+		let appendCalls = 0;
+		repository.appendPages = async (input) => {
+			appendCalls += 1;
+			if (appendCalls === 1) await firstCommitGate;
+			return appendPages(input);
+		};
+
+		for (let chunkIndex = 0; chunkIndex < 3; chunkIndex++) {
+			const chunk = createChunk(
+				descriptor,
+				createRawDocuments(
+					`flow-${chunkIndex}`,
+					10_000,
+					SOURCE_ONE,
+					1_700_000_000_000 + chunkIndex * 10_000,
+				),
+				false,
+				chunkIndex,
+				30,
+			);
+			if (chunk.message.payload) chunk.message.payload.name = "flow-query";
+			harness.coordinator.handleDocumentChunk(chunk);
+		}
+
+		await waitFor(() => appendCalls === 1, 60_000);
+		await waitFor(
+			() => harness.coordinator.pendingRawChunkByteCount === 0,
+			60_000,
+		);
+		expect(
+			harness.acknowledgements.filter(({ stage }) => stage === "accepted"),
+		).toHaveLength(3);
+
+		const terminalChunk = createChunk(
+			descriptor,
+			createRawDocuments(
+				"flow-3",
+				10_000,
+				SOURCE_ONE,
+				1_700_000_030_000,
+			),
+			true,
+			3,
+			30,
+		);
+		if (terminalChunk.message.payload) {
+			terminalChunk.message.payload.name = "flow-query";
+			terminalChunk.message.payload.request_last = true;
+		}
+		harness.coordinator.handleDocumentChunk(terminalChunk);
+		expect(harness.failures).toHaveLength(0);
+
+		releaseFirstCommit();
+		await waitFor(
+			() => harness.completed.includes(descriptor.requestId),
+			60_000,
+		);
+		expect(harness.failures).toHaveLength(0);
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(0);
+		expect(
+			harness.acknowledgements.map(({ sequence, stage }) => ({ sequence, stage })),
+		).toEqual([
+			{ sequence: 0, stage: "accepted" },
+			{ sequence: 1, stage: "accepted" },
+			{ sequence: 2, stage: "accepted" },
+			{ sequence: 3, stage: "accepted" },
+			{ sequence: 3, stage: "durable" },
+		]);
+		expect(await repository.getSourceSummary(SOURCE_ONE)).toMatchObject({
+			status: "complete",
+			eventCount: 40_000,
+		});
+		harness.coordinator.destroy();
+	});
+
+	it("publishes terminal authority before bounded obsolete-generation cleanup", async () => {
+		const harness = createHarness();
+		const original = createDescriptor("cleanup-original");
+		await seedCompleteReplacement(harness, original, [
+			createRawDocument("cleanup-old"),
+		]);
+		const backend = harness.backends.get(original.operationId);
+		const repository = harness.repositories.get(original.operationId);
+		if (!backend || !repository) throw new Error("Expected operation store.");
+		const originalManifest = await backend.get<EventSourceManifest>(
+			"sources",
+			SOURCE_ONE,
+		);
+		if (!originalManifest) throw new Error("Expected original manifest.");
+
+		const replacement = createDescriptor("cleanup-replacement");
+		await harness.coordinator.register(replacement);
+		const cleanupObsoleteGenerations =
+			repository.cleanupObsoleteGenerations.bind(repository);
+		let releaseCleanup = (): void => undefined;
+		let cleanupStarted = false;
+		const cleanupBlocked = new Promise<void>((resolve) => {
+			releaseCleanup = resolve;
+		});
+		repository.cleanupObsoleteGenerations = async (sourceId) => {
+			cleanupStarted = true;
+			await cleanupBlocked;
+			await cleanupObsoleteGenerations(sourceId);
+		};
+
+		harness.coordinator.handleDocumentChunk(
+			createChunk(replacement, [createRawDocument("cleanup-new")], true),
+		);
+		await waitFor(() => harness.completed.includes(replacement.requestId));
+
+		expect(cleanupStarted).toBe(true);
+		expect(harness.coordinator.hasStream(replacement.requestId)).toBe(true);
+		expect(await repository.getSourceSummary(SOURCE_ONE)).toMatchObject({
+			status: "complete",
+			eventCount: 1,
+		});
+		expect(
+			await backend.getAllByPrefix("pages", [
+				SOURCE_ONE,
+				originalManifest.generation,
+			]),
+		).toHaveLength(1);
+		expect(harness.failures).toHaveLength(0);
+
+		const cancelAfterTerminal = harness.coordinator.cancel(
+			replacement.requestId,
+		);
+		releaseCleanup();
+		expect(await cancelAfterTerminal).toBe(true);
+		await waitFor(() => !harness.coordinator.hasStream(replacement.requestId));
+		expect(
+			await backend.getAllByPrefix("pages", [
+				SOURCE_ONE,
+				originalManifest.generation,
+			]),
+		).toHaveLength(0);
+		expect(
+			await repository.getById("cleanup-new" as Doc.Id, SOURCE_ONE),
+		).not.toBeNull();
+		expect(harness.failures).toHaveLength(0);
 		harness.coordinator.destroy();
 	});
 
@@ -447,7 +659,7 @@ describe("QueryPersistenceCoordinator", () => {
 						sourceId,
 						1_700_100_000_000 + index * 10_000,
 					),
-					true,
+					false,
 					0,
 					rawBytesPerStream,
 				),
@@ -468,6 +680,11 @@ describe("QueryPersistenceCoordinator", () => {
 		).toBe(true);
 		expect(harness.failures).toHaveLength(0);
 		releaseWrites();
+		for (const descriptor of descriptors) {
+			harness.coordinator.handleDocumentChunk(
+				createChunk(descriptor, [], true, 1),
+			);
+		}
 
 		await waitFor(
 			() => descriptors.every(({ requestId }) => harness.completed.includes(requestId)),
@@ -483,6 +700,181 @@ describe("QueryPersistenceCoordinator", () => {
 			});
 		}
 		harness.coordinator.destroy();
+	});
+
+	it("accepts the exact raw stream limit and rejects one byte beyond it", async () => {
+		const harness = createHarness({
+			rawGlobalByteLimit: 200,
+			rawStreamByteLimit: 100,
+		});
+		const accepted = createDescriptor("raw-exact-limit");
+		await harness.coordinator.register(accepted);
+		harness.coordinator.handleDocumentChunk(
+			createChunk(accepted, [createRawDocument("raw-60")], false, 0, 60),
+		);
+		harness.coordinator.handleDocumentChunk(
+			createChunk(
+				accepted,
+				[createRawDocument("raw-40", SOURCE_ONE, 1_700_000_000_001)],
+				true,
+				1,
+				40,
+			),
+		);
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(100);
+		expect(
+			harness.coordinator.getStreamPendingRawChunkByteCount(accepted.requestId),
+		).toBe(100);
+		expect(
+			harness.coordinator.getStreamMaximumPendingRawChunkByteCount(
+				accepted.requestId,
+			),
+		).toBe(100);
+		await waitFor(() => harness.completed.includes(accepted.requestId));
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(0);
+		expect(harness.coordinator.maximumPendingRawChunkByteCount).toBe(100);
+
+		const rejected = createDescriptor("raw-one-byte-over", {
+			sourceIds: [SOURCE_TWO],
+		});
+		await harness.coordinator.register(rejected);
+		const oversized = createChunk(
+			rejected,
+			[createRawDocument("raw-101", SOURCE_TWO)],
+			true,
+			0,
+			101,
+		);
+		harness.coordinator.handleDocumentChunk(oversized);
+
+		expect(oversized.message.payload?.docs).toEqual([]);
+		expect(harness.failures.at(-1)).toMatchObject({
+			requestId: rejected.requestId,
+			reason: "backlog",
+		});
+		expect(harness.completed.includes(rejected.requestId)).toBe(false);
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(0);
+		await waitFor(() => !harness.coordinator.hasStream(rejected.requestId));
+		expect(harness.coordinator.pendingDocumentCount).toBe(0);
+		harness.coordinator.destroy();
+	});
+
+	it("isolates a global raw backlog rejection from accepted concurrent streams", async () => {
+		const harness = createHarness({
+			rawGlobalByteLimit: 100,
+			rawStreamByteLimit: 80,
+		});
+		const first = createDescriptor("raw-global-first", {
+			sourceIds: [SOURCE_ONE],
+		});
+		const second = createDescriptor("raw-global-second", {
+			sourceIds: [SOURCE_TWO],
+		});
+		const rejected = createDescriptor("raw-global-rejected", {
+			sourceIds: [SOURCE_THREE],
+		});
+		for (const descriptor of [first, second, rejected]) {
+			await harness.coordinator.register(descriptor);
+		}
+		harness.coordinator.handleDocumentChunk(
+			createChunk(first, [createRawDocument("global-60")], true, 0, 60),
+		);
+		harness.coordinator.handleDocumentChunk(
+			createChunk(
+				second,
+				[createRawDocument("global-40", SOURCE_TWO)],
+				true,
+				0,
+				40,
+			),
+		);
+		const overflow = createChunk(
+			rejected,
+			[createRawDocument("global-overflow", SOURCE_THREE)],
+			true,
+			0,
+			1,
+		);
+		harness.coordinator.handleDocumentChunk(overflow);
+
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(100);
+		expect(harness.coordinator.maximumPendingRawChunkByteCount).toBe(100);
+		expect(overflow.message.payload?.docs).toEqual([]);
+		expect(harness.failures.at(-1)).toMatchObject({
+			requestId: rejected.requestId,
+			reason: "backlog",
+		});
+		await waitFor(() =>
+			[first, second].every(({ requestId }) =>
+				harness.completed.includes(requestId),
+			),
+		);
+		await waitFor(() => !harness.coordinator.hasStream(rejected.requestId));
+		expect(harness.completed.includes(rejected.requestId)).toBe(false);
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(0);
+		for (const sourceId of [SOURCE_ONE, SOURCE_TWO]) {
+			expect(
+				await harness.repositories
+					.get(first.operationId)
+					?.getSourceSummary(sourceId),
+			).toMatchObject({ status: "complete", eventCount: 1 });
+		}
+		harness.coordinator.destroy();
+	});
+
+	it("releases reserved raw bytes on cancel, disconnect, and destruction", async () => {
+		const harness = createHarness({
+			rawGlobalByteLimit: 100,
+			rawStreamByteLimit: 100,
+		});
+		const canceled = createDescriptor("raw-canceled");
+		await harness.coordinator.register(canceled);
+		const canceledChunk = createChunk(
+			canceled,
+			[createRawDocument("raw-canceled")],
+			false,
+			0,
+			50,
+		);
+		harness.coordinator.handleDocumentChunk(canceledChunk);
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(50);
+		expect(await harness.coordinator.cancel(canceled.requestId)).toBe(true);
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(0);
+		expect(canceledChunk.message.payload?.docs).toEqual([]);
+
+		const disconnected = createDescriptor("raw-disconnected", {
+			sourceIds: [SOURCE_TWO],
+		});
+		await harness.coordinator.register(disconnected);
+		const disconnectedChunk = createChunk(
+			disconnected,
+			[createRawDocument("raw-disconnected", SOURCE_TWO)],
+			false,
+			0,
+			60,
+		);
+		harness.coordinator.handleDocumentChunk(disconnectedChunk);
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(60);
+		await harness.coordinator.handleDisconnect();
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(0);
+		expect(disconnectedChunk.message.payload?.docs).toEqual([]);
+
+		const destroyed = createDescriptor("raw-destroyed", {
+			sourceIds: [SOURCE_THREE],
+		});
+		await harness.coordinator.register(destroyed);
+		const destroyedChunk = createChunk(
+			destroyed,
+			[createRawDocument("raw-destroyed", SOURCE_THREE)],
+			false,
+			0,
+			70,
+		);
+		harness.coordinator.handleDocumentChunk(destroyedChunk);
+		expect(harness.coordinator.pendingRawChunkByteCount).toBe(70);
+		harness.coordinator.destroy();
+		await waitFor(() => harness.coordinator.pendingRawChunkByteCount === 0);
+		expect(destroyedChunk.message.payload?.docs).toEqual([]);
 	});
 
 	it("releases transferred builder credit when replacement storage fails", async () => {
@@ -562,13 +954,15 @@ describe("QueryPersistenceCoordinator", () => {
 		harness.coordinator.handleDocumentChunk(
 			createChunk(descriptor, [createRawDocument("rule-one")], true, 0),
 		);
-		await waitFor(() =>
+		await waitFor(() => harness.coordinator.pendingDocumentCount === 1);
+		expect(harness.coordinator.hasStream(descriptor.requestId)).toBe(true);
+		expect(
 			harness.summaries.some(
 				(event) =>
 					event.requestId === descriptor.requestId &&
 					event.summary.eventCount === 1,
 			),
-		);
+		).toBe(false);
 
 		harness.coordinator.handleDocumentChunk(
 			createChunk(
@@ -1006,6 +1400,7 @@ describe("QueryPersistenceCoordinator", () => {
 					onStreamFailure: () => undefined,
 					onStreamFlushing: () => undefined,
 					onStreamCompleted: (requestId) => completed.push(requestId),
+					onDocumentChunkAcknowledged: () => undefined,
 				},
 				{
 					createOperationStore: () => ({

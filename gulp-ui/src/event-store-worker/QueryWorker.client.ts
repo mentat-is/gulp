@@ -5,6 +5,7 @@ import type {
 	QueryWorkerCommand,
 	QueryWorkerEvent,
 	QueryWorkerInitialization,
+	QueryWorkerDiagnostics,
 } from "@/event-stream";
 import type { RenderWindowProjection } from "@/render-worker/RenderWorker.types";
 import type {
@@ -39,6 +40,12 @@ interface PendingRenderWindow {
 	reject: (error: Error) => void;
 }
 
+interface PendingDiagnostics {
+	resolve: (diagnostics: QueryWorkerDiagnostics) => void;
+	reject: (error: Error) => void;
+	timer: ReturnType<typeof setTimeout>;
+}
+
 /** Main-thread facade for the browser QueryWorker protocol. */
 export class QueryWorkerClient implements QueryTransport {
 	private readonly worker: QueryWorkerLike;
@@ -46,9 +53,11 @@ export class QueryWorkerClient implements QueryTransport {
 	private readonly pendingControls = new Map<string, PendingControl>();
 	private readonly readyWaiters = new Set<ReadyWaiter>();
 	private readonly pendingRenderWindows = new Map<string, PendingRenderWindow>();
+	private readonly pendingDiagnostics = new Map<string, PendingDiagnostics>();
 	private socketState: QuerySocketState = "disconnected";
 	private controlCounter = 0;
 	private projectionCounter = 0;
+	private diagnosticsCounter = 0;
 	private destroyed = false;
 
 	/**
@@ -71,6 +80,7 @@ export class QueryWorkerClient implements QueryTransport {
 			});
 			this.rejectPendingControls("QueryWorker execution failed.");
 			this.rejectPendingRenderWindows("QueryWorker execution failed.");
+			this.rejectPendingDiagnostics("QueryWorker execution failed.");
 			this.rejectReadyWaiters("QueryWorker execution failed.");
 		};
 
@@ -88,6 +98,7 @@ export class QueryWorkerClient implements QueryTransport {
 			this.callbacks.onProtocolError({ message });
 			this.rejectPendingControls(message);
 			this.rejectPendingRenderWindows(message);
+			this.rejectPendingDiagnostics(message);
 			this.rejectReadyWaiters(message);
 		});
 	}
@@ -219,6 +230,46 @@ export class QueryWorkerClient implements QueryTransport {
 	}
 
 	/**
+	 * Requests one correlated QueryWorker diagnostics snapshot.
+	 * @returns Current persistence and projection counters and gauges.
+	 */
+	public getQueryDiagnostics(): Promise<QueryWorkerDiagnostics> {
+		if (this.destroyed) {
+			return Promise.reject(new Error("QueryWorker transport is destroyed."));
+		}
+		const diagnosticsRequestId = this.nextDiagnosticsRequestId();
+		return new Promise<QueryWorkerDiagnostics>((resolve, reject) => {
+			const timer = setTimeout(() => {
+				this.pendingDiagnostics.delete(diagnosticsRequestId);
+				reject(new Error("QueryWorker diagnostics request timed out."));
+			}, CONTROL_TIMEOUT_MS);
+			this.pendingDiagnostics.set(diagnosticsRequestId, {
+				resolve,
+				reject,
+				timer,
+			});
+			try {
+				this.worker.postMessage({
+					type: "GET_QUERY_DIAGNOSTICS",
+					diagnosticsRequestId,
+				});
+			} catch (error) {
+				clearTimeout(timer);
+				this.pendingDiagnostics.delete(diagnosticsRequestId);
+				reject(error instanceof Error ? error : new Error(String(error)));
+			}
+		});
+	}
+
+	/** Clears cumulative QueryWorker diagnostics through an acknowledged command. */
+	public resetQueryDiagnostics(): Promise<void> {
+		return this.sendControl({
+			type: "RESET_QUERY_DIAGNOSTICS",
+			controlId: this.nextControlId(),
+		});
+	}
+
+	/**
 	 * Sends an application payload through the worker-owned WebSocket.
 	 * @param data Serializable payload to send.
 	 */
@@ -260,6 +311,7 @@ export class QueryWorkerClient implements QueryTransport {
 		}
 		this.pendingControls.clear();
 		this.rejectPendingRenderWindows("QueryWorker transport was destroyed.");
+		this.rejectPendingDiagnostics("QueryWorker transport was destroyed.");
 	}
 
 	/**
@@ -365,6 +417,16 @@ export class QueryWorkerClient implements QueryTransport {
 				else pending.resolve(event.projection);
 				break;
 			}
+			case "QUERY_DIAGNOSTICS_RESULT": {
+				const pending = this.pendingDiagnostics.get(
+					event.diagnosticsRequestId,
+				);
+				if (!pending) return;
+				clearTimeout(pending.timer);
+				this.pendingDiagnostics.delete(event.diagnosticsRequestId);
+				pending.resolve(event.diagnostics);
+				break;
+			}
 			case "PROTOCOL_ERROR":
 				this.callbacks.onProtocolError(event.details);
 				break;
@@ -412,6 +474,15 @@ export class QueryWorkerClient implements QueryTransport {
 		this.pendingRenderWindows.clear();
 	}
 
+	/** Rejects correlated diagnostics requests after worker failure or destruction. */
+	private rejectPendingDiagnostics(message: string): void {
+		for (const pending of this.pendingDiagnostics.values()) {
+			clearTimeout(pending.timer);
+			pending.reject(new Error(message));
+		}
+		this.pendingDiagnostics.clear();
+	}
+
 	/** Returns a unique correlation identifier for the next control command. */
 	private nextControlId(): string {
 		this.controlCounter += 1;
@@ -422,5 +493,11 @@ export class QueryWorkerClient implements QueryTransport {
 	private nextProjectionRequestId(): string {
 		this.projectionCounter += 1;
 		return `query_projection_${this.projectionCounter}`;
+	}
+
+	/** Returns a unique correlation identifier for one diagnostics request. */
+	private nextDiagnosticsRequestId(): string {
+		this.diagnosticsCounter += 1;
+		return `query_diagnostics_${this.diagnosticsCounter}`;
 	}
 }

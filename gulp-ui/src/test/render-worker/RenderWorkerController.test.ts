@@ -14,10 +14,14 @@ import {
 	type RenderSource,
 	type RenderViewportState,
 	type RenderViewportStateMessage,
+	type RenderVisibilityMessage,
 	type RenderWorkerBootstrapMessage,
 	type RenderWorkerResponse,
 } from "@/render-worker/RenderWorker.types";
-import { RenderWorkerController } from "@/render-worker/RenderWorkerController";
+import {
+	DATA_REDRAW_MAXIMUM_WAIT_MS,
+	RenderWorkerController,
+} from "@/render-worker/RenderWorkerController";
 
 const originalMessageChannel = globalThis.MessageChannel;
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
@@ -513,8 +517,208 @@ describe("RenderWorkerController", () => {
 
 		expect(renderedFrames[1].payload).toMatchObject({
 			dataRevision: 2,
+			renderedDataSequence: 4,
 			dirtyMask: DirtyCanvas.Sources,
 		});
+		expect(animationFrames.size).toBe(0);
+	});
+
+	it("forces a committed data frame within 100 ms during continuous traffic", async () => {
+		const harness = createControllerHarness(1);
+		harnesses.push(harness);
+		await waitForCondition(() =>
+			harness.responses.some((response) => response.type === "READY"),
+		);
+		const source = createRenderSource();
+		const state = createFrameState(1);
+		state.sourceOrder = [source.id];
+		harness.controlPort.postMessage({
+			protocolVersion: RENDER_PROTOCOL_VERSION,
+			operationEpoch: 1,
+			sequence: 1,
+			type: "SCENE_STATE",
+			payload: { state: createSceneState(state), dirty: DirtyCanvas.Force },
+		} satisfies RenderSceneStateMessage);
+		harness.controlPort.postMessage({
+			protocolVersion: RENDER_PROTOCOL_VERSION,
+			operationEpoch: 1,
+			sequence: 2,
+			type: "VIEWPORT_STATE",
+			payload: { state: createViewportState(state), dirty: DirtyCanvas.Force },
+		} satisfies RenderViewportStateMessage);
+		await waitForCondition(() => animationFrames.size === 1);
+		const initialFrame = Array.from(animationFrames.entries())[0];
+		animationFrames.delete(initialFrame[0]);
+		initialFrame[1](100);
+		await waitForCondition(
+			() =>
+				harness.responses.filter(
+					(response) => response.type === "FRAME_RENDERED",
+				).length === 1,
+		);
+
+		let nextPatch = 0;
+		const sentSequences = new Set<number>();
+		const interval = setInterval(() => {
+			nextPatch++;
+			const sequence = nextPatch + 2;
+			sentSequences.add(sequence);
+			harness.dataPort.postMessage({
+				protocolVersion: RENDER_PROTOCOL_VERSION,
+				operationEpoch: 1,
+				sequence,
+				type: "DATA_PATCH",
+				payload: {
+					globalRevision: nextPatch,
+					sources: {
+						revision: nextPatch,
+						records: [
+							{
+								...source,
+								revision: nextPatch,
+								name: `Source ${nextPatch}`,
+							},
+						],
+						removedSourceIds: [],
+					},
+				},
+			} satisfies RenderDataMessage);
+		}, 2);
+		await new Promise<void>((resolve) =>
+			setTimeout(resolve, DATA_REDRAW_MAXIMUM_WAIT_MS + 25),
+		);
+		clearInterval(interval);
+
+		expect(nextPatch > 0).toBe(true);
+		expect(animationFrames.size).toBe(1);
+		const forcedFrame = Array.from(animationFrames.entries())[0];
+		animationFrames.delete(forcedFrame[0]);
+		forcedFrame[1](200);
+		await waitForCondition(
+			() =>
+				harness.responses.filter(
+					(response) => response.type === "FRAME_RENDERED",
+				).length === 2,
+		);
+		const frame = harness.responses.filter(
+			(response) => response.type === "FRAME_RENDERED",
+		)[1];
+		expect(frame.type).toBe("FRAME_RENDERED");
+		if (frame.type === "FRAME_RENDERED") {
+			expect(sentSequences.has(frame.payload.renderedDataSequence)).toBe(true);
+			expect(frame.payload.dirtyMask & DirtyCanvas.Sources).toBe(
+				DirtyCanvas.Sources,
+			);
+		}
+	});
+
+	it("defers hidden data frames and cancels redraw deadlines on dispose", async () => {
+		const harness = createControllerHarness(1);
+		harnesses.push(harness);
+		await waitForCondition(() =>
+			harness.responses.some((response) => response.type === "READY"),
+		);
+		const source = createRenderSource();
+		const state = createFrameState(1);
+		state.sourceOrder = [source.id];
+		harness.controlPort.postMessage({
+			protocolVersion: RENDER_PROTOCOL_VERSION,
+			operationEpoch: 1,
+			sequence: 1,
+			type: "SCENE_STATE",
+			payload: { state: createSceneState(state), dirty: DirtyCanvas.Force },
+		} satisfies RenderSceneStateMessage);
+		harness.controlPort.postMessage({
+			protocolVersion: RENDER_PROTOCOL_VERSION,
+			operationEpoch: 1,
+			sequence: 2,
+			type: "VIEWPORT_STATE",
+			payload: { state: createViewportState(state), dirty: DirtyCanvas.Force },
+		} satisfies RenderViewportStateMessage);
+		await waitForCondition(() => animationFrames.size === 1);
+		const initialFrame = Array.from(animationFrames.entries())[0];
+		animationFrames.delete(initialFrame[0]);
+		initialFrame[1](100);
+		await waitForCondition(() =>
+			harness.responses.some((response) => response.type === "FRAME_RENDERED"),
+		);
+
+		harness.controlPort.postMessage({
+			protocolVersion: RENDER_PROTOCOL_VERSION,
+			operationEpoch: 1,
+			sequence: 3,
+			type: "VISIBILITY",
+			payload: { visible: false },
+		} satisfies RenderVisibilityMessage);
+		harness.dataPort.postMessage({
+			protocolVersion: RENDER_PROTOCOL_VERSION,
+			operationEpoch: 1,
+			sequence: 4,
+			type: "DATA_PATCH",
+			payload: {
+				globalRevision: 1,
+				sources: {
+					revision: 1,
+					records: [source],
+					removedSourceIds: [],
+				},
+			},
+		} satisfies RenderDataMessage);
+		await waitForCondition(() =>
+			harness.responses.some(
+				(response) =>
+					response.type === "ACK" &&
+					response.payload.acknowledgedSequence === 4,
+			),
+		);
+		await new Promise<void>((resolve) =>
+			setTimeout(resolve, DATA_REDRAW_MAXIMUM_WAIT_MS + 10),
+		);
+		expect(animationFrames.size).toBe(0);
+
+		harness.controlPort.postMessage({
+			protocolVersion: RENDER_PROTOCOL_VERSION,
+			operationEpoch: 1,
+			sequence: 5,
+			type: "VISIBILITY",
+			payload: { visible: true },
+		} satisfies RenderVisibilityMessage);
+		await waitForCondition(() => animationFrames.size === 1);
+		const visibleFrame = Array.from(animationFrames.entries())[0];
+		animationFrames.delete(visibleFrame[0]);
+		visibleFrame[1](200);
+		await waitForCondition(
+			() =>
+				harness.responses.filter(
+					(response) => response.type === "FRAME_RENDERED",
+				).length === 2,
+		);
+
+		harness.dataPort.postMessage({
+			protocolVersion: RENDER_PROTOCOL_VERSION,
+			operationEpoch: 1,
+			sequence: 6,
+			type: "DATA_PATCH",
+			payload: {
+				globalRevision: 2,
+				sources: {
+					revision: 2,
+					records: [{ ...source, revision: 2 }],
+					removedSourceIds: [],
+				},
+			},
+		} satisfies RenderDataMessage);
+		await waitForCondition(() =>
+			harness.responses.some(
+				(response) =>
+					response.type === "ACK" &&
+					response.payload.acknowledgedSequence === 6,
+			),
+		);
+		harness.controller.dispose();
+		await new Promise<void>((resolve) =>
+			setTimeout(resolve, DATA_REDRAW_MAXIMUM_WAIT_MS + 10),
+		);
 		expect(animationFrames.size).toBe(0);
 	});
 
@@ -1347,7 +1551,9 @@ describe("RenderWorkerController", () => {
 					sources: [
 						{
 							sourceId: sourceA.id,
+							sourceGeneration: 3,
 							sourceRevision: 7,
+							sourceStatus: "complete",
 							coveredRange: { min: 0, max: 1_000 },
 							bucketPixelWidth: 1,
 							degradedLod: false,
@@ -1390,8 +1596,8 @@ describe("RenderWorkerController", () => {
 		);
 		expect(acknowledgement?.payload).toMatchObject({
 			sourceRevisions: [
-				{ sourceId: "source-a", revision: 7 },
-				{ sourceId: "source-b", revision: 0 },
+				{ sourceId: "source-a", revision: 7, dataSequence: 1 },
+				{ sourceId: "source-b", revision: 0, dataSequence: 1 },
 			],
 			rejectedSourceIds: [],
 		});
@@ -1421,7 +1627,9 @@ describe("RenderWorkerController", () => {
 					sources: [
 						{
 							sourceId: "source-a",
+							sourceGeneration: 4,
 							sourceRevision: 9,
+							sourceStatus: "complete",
 							coveredRange: { min: 0, max: 1_000 },
 							bucketPixelWidth: 1,
 							degradedLod: false,

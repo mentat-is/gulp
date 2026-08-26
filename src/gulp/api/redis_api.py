@@ -47,6 +47,13 @@ class GulpWsMetadata(BaseModel):
     socket_type: Annotated[
         str, Field(description="The socket type (default, ingest, client_data)")
     ]
+    data: Annotated[
+        dict[str, Any],
+        Field(
+            description="Negotiated client capabilities and connection metadata.",
+            default_factory=dict,
+        ),
+    ]
 
 
 class TaskQueueFullError(RuntimeError):
@@ -139,6 +146,7 @@ class GulpRedis:
     HEARTBEAT_INTERVAL: float = 10.0  # seconds between heartbeat updates
     # TTL for websocket metadata and lookup keys (seconds)
     WS_KEY_TTL: int = 300  # 5 minutes, refreshed periodically by live connections
+    QUERY_CHUNK_ACK_TTL: int = 300
 
     def __init__(self):
         self._redis: redis.Redis = None
@@ -309,12 +317,26 @@ class GulpRedis:
         """Get Redis key for quick ws_id to server_id lookup."""
         return f"gulp:ws:lookup:{ws_id}"
 
+    @classmethod
+    def _get_query_chunk_ack_key(
+        cls,
+        ws_id: str,
+        req_id: str,
+        query_name: str,
+        stage: str,
+    ) -> str:
+        """Return a bounded-cardinality Redis key for query chunk progress."""
+        identity = "\0".join((ws_id, req_id, query_name, stage))
+        digest = hashlib.sha256(identity.encode()).hexdigest()
+        return f"gulp:query:chunk_ack:{digest}"
+
     async def ws_register(
         self,
         ws_id: str,
         types: list[str] = None,
         operation_ids: list[str] = None,
         socket_type: str = "default",
+        data: dict[str, Any] = None,
     ) -> bool:
         """
         Register a websocket in Redis.
@@ -324,7 +346,7 @@ class GulpRedis:
             types (list[str], optional): List of message types this ws is interested in
             operation_ids (list[str], optional): List of operation_ids this ws is interested in
             socket_type (str): The socket type
-            ttl (int): Time to live in seconds
+            data (dict[str, Any], optional): Negotiated client capabilities.
 
         Returns:
             bool: True if registered successfully
@@ -335,6 +357,7 @@ class GulpRedis:
             types=types or [],
             operation_ids=operation_ids or [],
             socket_type=socket_type,
+            data=data or {},
         )
 
         # store metadata
@@ -355,6 +378,49 @@ class GulpRedis:
             self.server_id,
         )
         return True
+
+    async def query_chunk_ack_record(
+        self,
+        ws_id: str,
+        req_id: str,
+        query_name: str,
+        chunk_num: int,
+        stage: str,
+    ) -> None:
+        """Record the greatest acknowledged chunk for one request stage."""
+        key = self._get_query_chunk_ack_key(ws_id, req_id, query_name, stage)
+        current = await self._redis.get(key)
+        current_num = int(current) if current is not None else -1
+        if chunk_num > current_num:
+            await self._redis.set(key, str(chunk_num), ex=self.QUERY_CHUNK_ACK_TTL)
+        else:
+            await self._redis.expire(key, self.QUERY_CHUNK_ACK_TTL)
+
+    async def query_chunk_ack_get(
+        self,
+        ws_id: str,
+        req_id: str,
+        query_name: str,
+        stage: str,
+    ) -> int | None:
+        """Return the greatest acknowledged chunk for one request stage."""
+        key = self._get_query_chunk_ack_key(ws_id, req_id, query_name, stage)
+        value = await self._redis.get(key)
+        if value is None:
+            return None
+        return int(value)
+
+    async def query_chunk_ack_clear(
+        self,
+        ws_id: str,
+        req_id: str,
+        query_name: str,
+    ) -> None:
+        """Delete accepted and durable progress after terminal completion."""
+        await self._redis.delete(
+            self._get_query_chunk_ack_key(ws_id, req_id, query_name, "accepted"),
+            self._get_query_chunk_ack_key(ws_id, req_id, query_name, "durable"),
+        )
 
     async def ws_unregister(self, ws_id: str) -> bool:
         """

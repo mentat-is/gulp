@@ -9,6 +9,7 @@ import { Application } from "./Application.context";
 import React from "react";
 import { Version } from "@/dto/Dataset";
 import { Icon } from "@/ui/Icon";
+import { EventStoreFallbackBanner } from "@/banners/EventStoreFallback.banner";
 
 const __component = Symbol("__extension_component");
 
@@ -18,7 +19,7 @@ const extensionPromises = new Map<
 >();
 
 function _({ children, filenames, slots }: Extension.Provider.Props) {
-	const { banner } = Application.use();
+	const { banner, eventStoreFallbackRequest } = Application.use();
 	const [extensions, setExtensions] = useState<
 		Record<string, Extension.Interface>
 	>({});
@@ -162,7 +163,10 @@ function _({ children, filenames, slots }: Extension.Provider.Props) {
 	return (
 		<Extension.Context.Provider value={extensionProps}>
 			{children}
-			{banner?.target === "main" && banner.node}
+			{banner?.target === "main" ? banner.node : null}
+			{!banner && eventStoreFallbackRequest ? (
+				<EventStoreFallbackBanner request={eventStoreFallbackRequest} />
+			) : null}
 		</Extension.Context.Provider>
 	);
 }

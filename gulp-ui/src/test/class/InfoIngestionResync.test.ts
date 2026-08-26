@@ -15,6 +15,10 @@ import { DataStore } from "@/store/DataStore";
 import { requestStore } from "@/store/request.store";
 import { generateUUID } from "@/ui/utils";
 import { toast } from "sonner";
+import {
+	clearEventStoreFallbackRequest,
+	getEventStoreFallbackRequest,
+} from "@/event-store/EventStoreFallback.request";
 
 jest.mock("@/class/IndexedDB", () => ({
 	GulpIndexedDB: class MockGulpIndexedDB {},
@@ -305,6 +309,7 @@ describe("Info ingestion resynchronization lifecycle", () => {
 describe("Info event stream registration", () => {
 	beforeEach(() => {
 		requestStore.reset();
+		clearEventStoreFallbackRequest();
 		localStorage.removeItem("gulp:event-store-lod-enabled");
 		(
 			generateUUID as unknown as {
@@ -325,6 +330,7 @@ describe("Info event stream registration", () => {
 	});
 
 	afterEach(() => {
+		clearEventStoreFallbackRequest();
 		localStorage.removeItem("gulp:event-store-lod-enabled");
 		setEventStreamSocket(null);
 		DataStore.resetRenderOperation();
@@ -527,9 +533,12 @@ describe("Info event stream registration", () => {
 			});
 
 			expect(requestCancel).not.toHaveBeenCalled();
-			expect(localStorage.getItem("gulp:event-store-lod-enabled")).toBe(
-				"false",
-			);
+			expect(localStorage.getItem("gulp:event-store-lod-enabled")).toBeNull();
+			expect(getEventStoreFallbackRequest()).toMatchObject({
+				reason,
+				message: "registration failed",
+				estimatedEventCount: 0,
+			});
 			expect(
 				info.attachEventDocumentStreamCleanup(queryRequestId, jest.fn()),
 			).toBe(false);
@@ -622,6 +631,7 @@ describe("Info event stream registration", () => {
 			replacementMode: "in-place" as const,
 			summary: {
 				sourceId,
+				generation: 1,
 				revision: 1,
 				status: "building" as const,
 				eventCount: 0,

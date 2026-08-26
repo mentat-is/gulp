@@ -15,7 +15,9 @@ function recordTerminalTarget(
 	controller.record({
 		sourceId: SOURCE_ONE,
 		operationEpoch: OPERATION_EPOCH,
+		sourceGeneration: 3,
 		sourceRevision: 12,
+		sourceStatus: "complete",
 		eventCount: 94_391,
 	});
 }
@@ -34,7 +36,9 @@ describe("Canvas terminal render convergence", () => {
 			controller.acceptsProjection(OPERATION_EPOCH, visible, [
 				{
 					sourceId: SOURCE_ONE,
+					sourceGeneration: 3,
 					sourceRevision: 11,
+					sourceStatus: "building",
 					loadedCount: 90_000,
 				},
 			]),
@@ -43,7 +47,10 @@ describe("Canvas terminal render convergence", () => {
 			controller.acknowledgeFrame(
 				OPERATION_EPOCH,
 				visible,
-				new Map([[SOURCE_ONE, 11]]),
+				new Map([
+					[SOURCE_ONE, { revision: 11, dataSequence: 20 }],
+				]),
+				20,
 			),
 		).toEqual([]);
 		expect(controller.hasTargets()).toBe(true);
@@ -59,7 +66,9 @@ describe("Canvas terminal render convergence", () => {
 				controller.acceptsProjection(OPERATION_EPOCH, visible, [
 					{
 						sourceId: SOURCE_ONE,
+						sourceGeneration: 3,
 						sourceRevision: 12,
+						sourceStatus: "complete",
 						loadedCount: 94_391,
 					},
 				]),
@@ -69,7 +78,10 @@ describe("Canvas terminal render convergence", () => {
 				controller.acknowledgeFrame(
 					OPERATION_EPOCH,
 					visible,
-					new Map([[SOURCE_ONE, 12]]),
+					new Map([
+						[SOURCE_ONE, { revision: 12, dataSequence: 21 }],
+					]),
+					21,
 				),
 			).toEqual([SOURCE_ONE]);
 			expect(controller.hasTargets()).toBe(false);
@@ -82,7 +94,9 @@ describe("Canvas terminal render convergence", () => {
 		controller.record({
 			sourceId: SOURCE_TWO,
 			operationEpoch: OPERATION_EPOCH,
+			sourceGeneration: 5,
 			sourceRevision: 7,
+			sourceStatus: "incomplete",
 			eventCount: 10,
 		});
 		const visible = new Set([SOURCE_ONE, SOURCE_TWO]);
@@ -91,7 +105,9 @@ describe("Canvas terminal render convergence", () => {
 			controller.acceptsProjection(OPERATION_EPOCH, visible, [
 				{
 					sourceId: SOURCE_ONE,
+					sourceGeneration: 3,
 					sourceRevision: 12,
+					sourceStatus: "complete",
 					loadedCount: 90_000,
 				},
 			]),
@@ -100,16 +116,57 @@ describe("Canvas terminal render convergence", () => {
 			controller.acceptsProjection(OPERATION_EPOCH, visible, [
 				{
 					sourceId: SOURCE_ONE,
-					sourceRevision: 13,
-					loadedCount: 95_000,
+					sourceGeneration: 3,
+					sourceRevision: 12,
+					sourceStatus: "complete",
+					loadedCount: 94_391,
 				},
 				{
 					sourceId: SOURCE_TWO,
+					sourceGeneration: 5,
 					sourceRevision: 7,
+					sourceStatus: "incomplete",
 					loadedCount: 10,
 				},
 			]),
 		).toBe(true);
+	});
+
+	it("retains the terminal target when a pre-terminal frame arrives after the final ACK", () => {
+		jest.useFakeTimers();
+		const controller = new CanvasTerminalRenderConvergence();
+		recordTerminalTarget(controller);
+		const visible = new Set([SOURCE_ONE]);
+		const retry = jest.fn();
+		const acknowledged = new Map([
+			[SOURCE_ONE, { revision: 12, dataSequence: 42 }],
+		]);
+
+		expect(
+			controller.acknowledgeFrame(
+				OPERATION_EPOCH,
+				visible,
+				acknowledged,
+				41,
+			),
+		).toEqual([]);
+		expect(controller.hasTargets()).toBe(true);
+		controller.scheduleWatchdog(retry);
+		jest.advanceTimersByTime(
+			CANVAS_TERMINAL_RENDER_INITIAL_RETRY_DELAY_MS,
+		);
+		expect(retry).toHaveBeenCalledTimes(1);
+		expect(
+			controller.acknowledgeFrame(
+				OPERATION_EPOCH,
+				visible,
+				acknowledged,
+				42,
+			),
+		).toEqual([SOURCE_ONE]);
+		controller.scheduleWatchdog(retry);
+		jest.advanceTimersByTime(CANVAS_TERMINAL_RENDER_MAX_RETRY_DELAY_MS);
+		expect(retry).toHaveBeenCalledTimes(1);
 	});
 
 	it("keeps offscreen targets dormant and discards them at lifecycle boundaries", () => {
@@ -123,7 +180,10 @@ describe("Canvas terminal render convergence", () => {
 			controller.acknowledgeFrame(
 				OPERATION_EPOCH,
 				new Set([SOURCE_TWO]),
-				new Map([[SOURCE_ONE, 12]]),
+				new Map([
+					[SOURCE_ONE, { revision: 12, dataSequence: 20 }],
+				]),
+				20,
 			),
 		).toEqual([]);
 		expect(controller.hasTargets()).toBe(true);
@@ -162,5 +222,15 @@ describe("Canvas terminal render convergence", () => {
 		controller.scheduleWatchdog(callback);
 		jest.advanceTimersByTime(CANVAS_TERMINAL_RENDER_MAX_RETRY_DELAY_MS);
 		expect(callback).toHaveBeenCalledTimes(4);
+	});
+
+	it("reports the oldest pending terminal target age on demand", () => {
+		let now = 1_000;
+		const controller = new CanvasTerminalRenderConvergence(() => now);
+		recordTerminalTarget(controller);
+		now = 1_275;
+		expect(controller.getOldestTargetAgeMs()).toBe(275);
+		controller.removeSources([SOURCE_ONE]);
+		expect(controller.getOldestTargetAgeMs()).toBe(0);
 	});
 });

@@ -1194,6 +1194,8 @@ export function DetachedAppProvider({
 			timeline,
 			highlightsOverlay,
 			setHighlightsOverlay,
+			eventStoreFallbackRequest: null,
+			dismissEventStoreFallbackRequest: () => {},
 			canvasDocked: true,
 			setCanvasDocked: setDockedState,
 			dialogsDocked: true,

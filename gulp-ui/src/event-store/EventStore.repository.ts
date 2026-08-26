@@ -27,6 +27,9 @@ import {
 	EVENT_PAGE_SIZE,
 	EVENT_PIXEL_PAGE_SIZE,
 	type EncodedEventPage,
+	type EncodedEventPageHeight,
+	type EncodedEventPageLod,
+	type EventObsoleteGenerationMarker,
 	type EventPageCatalogEntry,
 	type EventPageCursor,
 	type EventPixelPage,
@@ -143,6 +146,7 @@ export interface EventStoreWriter {
 		sourceId: Source.Id,
 		generation: number,
 	): Promise<EventSourceSummary>;
+	cleanupObsoleteGenerations?(sourceId: Source.Id): Promise<void>;
 	discardGenerationRollback(
 		sourceId: Source.Id,
 		generation: number,
@@ -256,6 +260,7 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 		input: BeginEventStoreGenerationInput,
 	): Promise<EventSourceSummary> {
 		this.assertGeneration(input.generation);
+		await this.cleanupObsoleteGenerations(input.sourceId);
 		const current = await this.getStoredManifest(input.sourceId);
 		if (current && input.generation <= current.generation) {
 			throw new StaleEventStoreGenerationError(
@@ -263,10 +268,9 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 			);
 		}
 
-		const operations: EventStoreWriteOperation[] = [];
 		let rollback: StoredEventGenerationManifest | undefined;
 		if (current?.status === "building" || current?.status === "incomplete") {
-			operations.push(...this.createGenerationDeleteOperations(current));
+			await this.commitGenerationDeletesBounded(current);
 			rollback = current.rollback;
 		} else if (current) {
 			rollback = this.toGenerationManifest(current);
@@ -297,13 +301,14 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 			documentIndexSegments: [],
 			...(rollback ? { rollback } : {}),
 		};
-		operations.push({
-			type: "put",
-			store: "sources",
-			key: input.sourceId,
-			value: manifest,
-		});
-		await this.backend.commit(operations);
+		await this.backend.commit([
+			{
+				type: "put",
+				store: "sources",
+				key: input.sourceId,
+				value: manifest,
+			},
+		]);
 		return this.toSummary(manifest);
 	}
 
@@ -836,6 +841,10 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 			...building,
 			revision: manifest.revision + 1,
 			inPlaceReplacement: true,
+			obsoleteGenerations: this.mergeObsoleteGenerationMarkers(
+				manifest.obsoleteGenerations,
+				[this.createObsoleteGenerationMarker(rollback)],
+			),
 		};
 		await this.backend.commit([
 			{
@@ -845,12 +854,13 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 				value: inPlaceManifest,
 			},
 		]);
-		await this.commitGenerationDeletesBounded(rollback);
+		await this.cleanupObsoleteGenerations(sourceId);
 		return this.toSummary(inPlaceManifest);
 	}
 
 	/**
-	 * Makes a building generation complete and removes its retained rollback pages.
+	 * Makes a building generation authoritative and records retained rollback pages
+	 * for bounded cleanup without coupling summary publication to physical deletion.
 	 * @param sourceId Source being finalized.
 	 * @param generation Expected active generation.
 	 * @returns Complete source summary.
@@ -860,22 +870,61 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 		generation: number,
 	): Promise<EventSourceSummary> {
 		const manifest = await this.requireBuildingManifest(sourceId, generation);
-		const operations = manifest.rollback
-			? this.createGenerationDeleteOperations(manifest.rollback)
-			: [];
 		const complete: StoredEventSourceManifest = {
 			...this.toGenerationManifest(manifest),
 			revision: manifest.revision + 1,
 			status: "complete",
+			...(manifest.rollback || manifest.obsoleteGenerations?.length
+				? {
+						obsoleteGenerations: this.mergeObsoleteGenerationMarkers(
+							manifest.obsoleteGenerations,
+							manifest.rollback
+								? [this.createObsoleteGenerationMarker(manifest.rollback)]
+								: [],
+						),
+					}
+				: {}),
 		};
-		operations.push({
-			type: "put",
-			store: "sources",
-			key: sourceId,
-			value: complete,
-		});
-		await this.backend.commit(operations);
+		await this.backend.commit([
+			{
+				type: "put",
+				store: "sources",
+				key: sourceId,
+				value: complete,
+			},
+		]);
 		return this.toSummary(complete);
+	}
+
+	/**
+	 * Reclaims obsolete generations in idempotent batches and removes each marker
+	 * only after every corresponding physical record has been deleted.
+	 * @param sourceId Source whose pending cleanup should be resumed.
+	 * @returns Promise settled when no obsolete-generation marker remains.
+	 */
+	public async cleanupObsoleteGenerations(sourceId: Source.Id): Promise<void> {
+		while (true) {
+			const manifest = await this.getStoredManifest(sourceId);
+			const marker = manifest?.obsoleteGenerations?.[0];
+			if (!manifest || !marker) return;
+			await this.commitObsoleteGenerationDeletesBounded(sourceId, marker);
+			const current = await this.getStoredManifest(sourceId);
+			if (!current) return;
+			const remaining = (current.obsoleteGenerations ?? []).filter(
+				(candidate) => candidate.generation !== marker.generation,
+			);
+			const next: StoredEventSourceManifest = { ...current };
+			if (remaining.length > 0) next.obsoleteGenerations = remaining;
+			else delete next.obsoleteGenerations;
+			await this.backend.commit([
+				{
+					type: "put",
+					store: "sources",
+					key: sourceId,
+					value: next,
+				},
+			]);
+		}
 	}
 
 	/**
@@ -906,22 +955,31 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 			]);
 			return;
 		}
-		const operations = this.createGenerationDeleteOperations(manifest);
 		if (manifest.rollback) {
-			operations.push({
-				type: "put",
-				store: "sources",
-				key: sourceId,
-				value: {
-					...manifest.rollback,
-					revision: manifest.revision + 1,
-					status: "complete",
-				} satisfies StoredEventSourceManifest,
-			});
-		} else {
-			operations.push({ type: "delete", store: "sources", key: sourceId });
+			const restored: StoredEventSourceManifest = {
+				...manifest.rollback,
+				revision: manifest.revision + 1,
+				status: "complete",
+				obsoleteGenerations: this.mergeObsoleteGenerationMarkers(
+					manifest.obsoleteGenerations,
+					[this.createObsoleteGenerationMarker(manifest)],
+				),
+			};
+			await this.backend.commit([
+				{
+					type: "put",
+					store: "sources",
+					key: sourceId,
+					value: restored,
+				},
+			]);
+			await this.cleanupObsoleteGenerations(sourceId);
+			return;
 		}
-		await this.backend.commit(operations);
+		await this.commitGenerationDeletesBounded(manifest);
+		await this.backend.commit([
+			{ type: "delete", store: "sources", key: sourceId },
+		]);
 	}
 
 	/**
@@ -958,14 +1016,16 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	 * @returns Nothing.
 	 */
 	public async clearSource(sourceId: Source.Id): Promise<void> {
+		await this.cleanupObsoleteGenerations(sourceId);
 		const manifest = await this.getStoredManifest(sourceId);
 		if (!manifest) return;
-		const operations = this.createGenerationDeleteOperations(manifest);
+		await this.commitGenerationDeletesBounded(manifest);
 		if (manifest.rollback) {
-			operations.push(...this.createGenerationDeleteOperations(manifest.rollback));
+			await this.commitGenerationDeletesBounded(manifest.rollback);
 		}
-		operations.push({ type: "delete", store: "sources", key: sourceId });
-		await this.backend.commit(this.deduplicateDeleteOperations(operations));
+		await this.backend.commit([
+			{ type: "delete", store: "sources", key: sourceId },
+		]);
 	}
 
 	/**
@@ -2839,6 +2899,7 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 		const {
 			rollback: _rollback,
 			inPlaceReplacement: _inPlaceReplacement,
+			obsoleteGenerations: _obsoleteGenerations,
 			...generationManifest
 		} = manifest;
 		return generationManifest;
@@ -2852,6 +2913,7 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	private toSummary(manifest: EventSourceManifest): EventSourceSummary {
 		return {
 			sourceId: manifest.sourceId,
+			generation: manifest.generation,
 			revision: manifest.revision,
 			status: manifest.status,
 			eventCount: manifest.eventCount,
@@ -2968,6 +3030,36 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 	}
 
 	/**
+	 * Captures only the physical addresses required to reclaim one generation later.
+	 * @param manifest Generation being detached from source authority.
+	 * @returns Compact idempotent cleanup marker stored with the active manifest.
+	 */
+	private createObsoleteGenerationMarker(
+		manifest: StoredEventGenerationManifest,
+	): EventObsoleteGenerationMarker {
+		return { generation: manifest.generation };
+	}
+
+	/**
+	 * Merges cleanup markers by generation while retaining deterministic order.
+	 * @param existing Markers already persisted by an earlier interrupted cleanup.
+	 * @param additions Newly detached generations.
+	 * @returns Stable unique cleanup marker list.
+	 */
+	private mergeObsoleteGenerationMarkers(
+		existing: readonly EventObsoleteGenerationMarker[] | undefined,
+		additions: readonly EventObsoleteGenerationMarker[],
+	): EventObsoleteGenerationMarker[] {
+		const byGeneration = new Map<number, EventObsoleteGenerationMarker>();
+		for (const marker of [...(existing ?? []), ...additions]) {
+			byGeneration.set(marker.generation, marker);
+		}
+		return [...byGeneration.values()].sort(
+			(left, right) => left.generation - right.generation,
+		);
+	}
+
+	/**
 	 * Deletes one non-authoritative generation through bounded idempotent write sets.
 	 * @param manifest Detached generation whose pages, summaries, and indexes are removed.
 	 * @returns Promise settled after every cleanup batch commits.
@@ -2976,6 +3068,90 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 		manifest: StoredEventGenerationManifest,
 	): Promise<void> {
 		const operations = this.createGenerationDeleteOperations(manifest);
+		await this.commitDeleteOperationsBounded(operations);
+	}
+
+	/**
+	 * Deletes one persisted cleanup marker through bounded idempotent write sets.
+	 * @param sourceId Source owning the obsolete generation.
+	 * @param marker Persisted generation cleanup marker.
+	 * @returns Promise settled after every cleanup batch commits.
+	 */
+	private async commitObsoleteGenerationDeletesBounded(
+		sourceId: Source.Id,
+		marker: EventObsoleteGenerationMarker,
+	): Promise<void> {
+		while (true) {
+			const pages = await this.backend.getAllByPrefix<EncodedEventPage>(
+				"pages",
+				[sourceId, marker.generation],
+				EVENT_GENERATION_CLEANUP_OPERATION_LIMIT,
+			);
+			if (pages.length === 0) break;
+			await this.backend.commit(
+				pages.map((page) => ({
+					type: "delete" as const,
+					store: "pages" as const,
+					key: this.createPageKey(sourceId, marker.generation, page.pageId),
+				})),
+			);
+		}
+		while (true) {
+			const summaries = await this.backend.getAllByPrefix<
+				EncodedEventPageLod | EncodedEventPageHeight
+			>(
+				"page_lod",
+				[sourceId, marker.generation],
+				EVENT_GENERATION_CLEANUP_OPERATION_LIMIT,
+			);
+			if (summaries.length === 0) break;
+			await this.backend.commit(
+				summaries.map((summary) => ({
+					type: "delete" as const,
+					store: "page_lod" as const,
+					key: this.createPageSummaryKey(
+						sourceId,
+						marker.generation,
+						summary.pageId,
+						"blockCount" in summary
+							? EVENT_PAGE_LOD_RECORD_KIND
+							: EVENT_PAGE_HEIGHT_RECORD_KIND,
+					),
+				})),
+			);
+		}
+		while (true) {
+			const segments = await this.backend.getAllByPrefix<
+				EncodedDocumentIndexSegment
+			>(
+				"document_index_pages",
+				[sourceId, marker.generation],
+				EVENT_GENERATION_CLEANUP_OPERATION_LIMIT,
+			);
+			if (segments.length === 0) break;
+			await this.backend.commit(
+				segments.map((segment) => ({
+					type: "delete" as const,
+					store: "document_index_pages" as const,
+					key: this.createDocumentIndexKey(
+						sourceId,
+						marker.generation,
+						segment.shard,
+						segment.segmentId,
+					),
+				})),
+			);
+		}
+	}
+
+	/**
+	 * Commits one prepared delete list in fixed-size transactions.
+	 * @param operations Idempotent physical deletes.
+	 * @returns Promise settled after every bounded transaction commits.
+	 */
+	private async commitDeleteOperationsBounded(
+		operations: readonly EventStoreWriteOperation[],
+	): Promise<void> {
 		for (
 			let offset = 0;
 			offset < operations.length;
@@ -2988,28 +3164,5 @@ export class EventStoreRepository implements EventStoreReader, EventStoreWriter 
 				),
 			);
 		}
-	}
-
-	/**
-	 * Removes duplicate delete operations produced by overlapping rollback metadata.
-	 * @param operations Prepared delete operations.
-	 * @returns Stable unique write set.
-	 */
-	private deduplicateDeleteOperations(
-		operations: readonly EventStoreWriteOperation[],
-	): EventStoreWriteOperation[] {
-		const seen = new Set<string>();
-		const unique: EventStoreWriteOperation[] = [];
-		for (const operation of operations) {
-			if (operation.type !== "delete") {
-				unique.push(operation);
-				continue;
-			}
-			const signature = `${operation.store}:${JSON.stringify(operation.key)}`;
-			if (seen.has(signature)) continue;
-			seen.add(signature);
-			unique.push(operation);
-		}
-		return unique;
 	}
 }

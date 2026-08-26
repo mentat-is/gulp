@@ -99,6 +99,7 @@ export class EventStoreFacade implements EventStoreReader {
 		}
 		return {
 			sourceId,
+			generation: 0,
 			revision: this.fallbacks.resolveSourceRevision?.(sourceId) ?? 0,
 			status: "complete",
 			eventCount: events.length,

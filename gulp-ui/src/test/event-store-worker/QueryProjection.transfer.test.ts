@@ -11,7 +11,9 @@ describe("getRenderWindowProjectionTransferables", () => {
 			sources: [
 				{
 					sourceId: "source-one",
+					sourceGeneration: 2,
 					sourceRevision: 4,
+					sourceStatus: "complete",
 					coveredRange: { min: 0, max: 10 },
 					bucketPixelWidth: 1,
 					degradedLod: false,

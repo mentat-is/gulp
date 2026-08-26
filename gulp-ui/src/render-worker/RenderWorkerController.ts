@@ -17,6 +17,7 @@ import { WorkerRenderCore } from "./WorkerRenderCore";
 import { WorkerRenderRepository } from "./WorkerRenderRepository";
 
 const DATA_REDRAW_QUIET_WINDOW_MS = 8;
+export const DATA_REDRAW_MAXIMUM_WAIT_MS = 100;
 
 interface WorkerFontScope {
 	fonts?: FontFaceSet;
@@ -38,11 +39,17 @@ export class RenderWorkerController {
 	private readonly outOfOrderIncomingSequences = new Set<number>();
 	private readonly activeDataPatchSequences = new Set<number>();
 	private readonly dataSequencesAwaitingRender = new Set<number>();
+	private readonly acknowledgedSourceStates = new Map<
+		string,
+		{ revision: number; dataSequence: number }
+	>();
 	private readonly controlSequencesAwaitingRender = new Set<number>();
+	private highestCommittedDataSequence = 0;
 	private dataProcessingChain: Promise<void> = Promise.resolve();
 	private dirtyMask = DirtyCanvas.None;
 	private pendingDataDirtyMask = DirtyCanvas.None;
 	private dataRedrawTimeout: ReturnType<typeof setTimeout> | null = null;
+	private dataRedrawMaximumTimeout: ReturnType<typeof setTimeout> | null = null;
 	private frameRequest: number | null = null;
 	private ready = false;
 	private visible = true;
@@ -337,6 +344,10 @@ export class RenderWorkerController {
 			if (result.committedOverlays) dirty |= DirtyCanvas.Overlays;
 			if (dirty !== DirtyCanvas.None) {
 				this.dataSequencesAwaitingRender.add(message.sequence);
+				this.highestCommittedDataSequence = Math.max(
+					this.highestCommittedDataSequence,
+					message.sequence,
+				);
 				this.dataReceivedAtByRevision.set(
 					message.payload.globalRevision,
 					receivedAt,
@@ -666,7 +677,33 @@ export class RenderWorkerController {
 	 * @returns Nothing.
 	 */
 	private markDataDirty(reason: DirtyCanvas): void {
+		const startsDirtyWindow = this.pendingDataDirtyMask === DirtyCanvas.None;
 		this.pendingDataDirtyMask |= reason;
+		if (startsDirtyWindow) this.scheduleMaximumDataRedraw();
+	}
+
+	/**
+	 * Starts the non-renewable deadline for committed data awaiting a visible frame.
+	 * Additional envelopes may reset the quiet timer but never this maximum wait.
+	 * @returns Nothing.
+	 */
+	private scheduleMaximumDataRedraw(): void {
+		if (this.dataRedrawMaximumTimeout !== null || this.disposed) return;
+		this.dataRedrawMaximumTimeout = setTimeout(() => {
+			this.dataRedrawMaximumTimeout = null;
+			if (
+				this.pendingDataDirtyMask === DirtyCanvas.None ||
+				!this.ready ||
+				!this.visible ||
+				this.disposed
+			) {
+				return;
+			}
+			const reason = this.pendingDataDirtyMask;
+			this.pendingDataDirtyMask = DirtyCanvas.None;
+			this.suspendPendingDataRedraw();
+			this.markDirty(reason);
+		}, DATA_REDRAW_MAXIMUM_WAIT_MS);
 	}
 
 	/**
@@ -706,9 +743,20 @@ export class RenderWorkerController {
 	 */
 	private takePendingDataDirty(): DirtyCanvas {
 		this.suspendPendingDataRedraw();
+		this.cancelMaximumDataRedraw();
 		const reason = this.pendingDataDirtyMask;
 		this.pendingDataDirtyMask = DirtyCanvas.None;
 		return reason;
+	}
+
+	/**
+	 * Cancels the maximum data-redraw deadline after its dirty state is consumed.
+	 * @returns Nothing.
+	 */
+	private cancelMaximumDataRedraw(): void {
+		if (this.dataRedrawMaximumTimeout === null) return;
+		clearTimeout(this.dataRedrawMaximumTimeout);
+		this.dataRedrawMaximumTimeout = null;
 	}
 
 	/**
@@ -737,6 +785,12 @@ export class RenderWorkerController {
 	private renderFrame(timestamp: number): void {
 		this.frameRequest = null;
 		const reasons = this.dirtyMask;
+		const renderedDataSequence = this.highestCommittedDataSequence;
+		const dataSequencesInFrame = new Set(
+			Array.from(this.dataSequencesAwaitingRender).filter(
+				(sequence) => sequence <= renderedDataSequence,
+			),
+		);
 		const controlSequencesInFrame = new Set(
 			this.controlSequencesAwaitingRender,
 		);
@@ -762,8 +816,13 @@ export class RenderWorkerController {
 				statistics.dataLatency = this.consumeDataLatency(
 					statistics.dataRevision,
 				);
-				this.postControl("FRAME_RENDERED", statistics);
-				this.dataSequencesAwaitingRender.clear();
+				this.postControl("FRAME_RENDERED", {
+					...statistics,
+					renderedDataSequence,
+				});
+				for (const sequence of dataSequencesInFrame) {
+					this.dataSequencesAwaitingRender.delete(sequence);
+				}
 				for (const sequence of controlSequencesInFrame) {
 					this.controlSequencesAwaitingRender.delete(sequence);
 				}
@@ -908,7 +967,9 @@ export class RenderWorkerController {
 		this.viewportReceivedAtByRevision.clear();
 		this.activeDataPatchSequences.clear();
 		this.dataSequencesAwaitingRender.clear();
+		this.acknowledgedSourceStates.clear();
 		this.controlSequencesAwaitingRender.clear();
+		this.highestCommittedDataSequence = 0;
 		this.repository.resetOperation();
 		this.renderer.reset();
 		this.replayInitializationState();
@@ -940,7 +1001,9 @@ export class RenderWorkerController {
 		this.viewportReceivedAtByRevision.clear();
 		this.activeDataPatchSequences.clear();
 		this.dataSequencesAwaitingRender.clear();
+		this.acknowledgedSourceStates.clear();
 		this.controlSequencesAwaitingRender.clear();
+		this.highestCommittedDataSequence = 0;
 		this.renderer.dispose();
 		this.repository.dispose();
 		this.controlPort.close();
@@ -1027,15 +1090,25 @@ export class RenderWorkerController {
 		message: RenderDataMessage,
 		rejectedSourceIds: ReadonlySet<string>,
 	): Extract<RenderWorkerResponse, { type: "ACK" }>["payload"] {
+		const sourceRevisions = this.getDataPatchSourceIds(message)
+			.filter((sourceId) => !rejectedSourceIds.has(sourceId))
+			.map((sourceId) => {
+				const revision = this.repository.getEventRevision(sourceId);
+				const previous = this.acknowledgedSourceStates.get(sourceId);
+				const state =
+					previous?.revision === revision
+						? previous
+						: { revision, dataSequence: message.sequence };
+				this.acknowledgedSourceStates.set(sourceId, state);
+				return { sourceId, ...state };
+			});
+		for (const sourceId of rejectedSourceIds) {
+			this.acknowledgedSourceStates.delete(sourceId);
+		}
 		return {
 			acknowledgedSequence: message.sequence,
 			globalRevision: this.repository.getAcknowledgedGlobalRevision(),
-			sourceRevisions: this.getDataPatchSourceIds(message)
-				.filter((sourceId) => !rejectedSourceIds.has(sourceId))
-				.map((sourceId) => ({
-					sourceId,
-					revision: this.repository.getEventRevision(sourceId),
-				})),
+			sourceRevisions,
 			rejectedSourceIds: Array.from(rejectedSourceIds),
 		};
 	}

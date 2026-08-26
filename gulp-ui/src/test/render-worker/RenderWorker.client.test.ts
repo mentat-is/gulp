@@ -3,12 +3,16 @@ import {
 	applyAcknowledgedSourceRevisions,
 	isRenderWorkerResponse,
 } from "@/render-worker/RenderWorker.response";
-import { RenderWorkerClient } from "@/render-worker/RenderWorker.client";
+import {
+	RenderWorkerClient,
+	type RenderWorkerClientOptions,
+} from "@/render-worker/RenderWorker.client";
 import {
 	DirtyCanvas,
 	RENDER_PROTOCOL_VERSION,
 	type RenderAckMessage,
 	type RenderControlMessage,
+	type RenderDataMessage,
 	type RenderFrameRenderedMessage,
 	type RenderHitTestMessage,
 	type RenderHitTestResult,
@@ -53,6 +57,7 @@ interface RenderWorkerClientHarness {
 	workerControlPort: MessagePort;
 	workerDataPort: MessagePort;
 	controlMessages: RenderControlMessage[];
+	dataMessages: RenderDataMessage[];
 	dispose(): void;
 }
 
@@ -93,12 +98,14 @@ function createViewportState(viewportRevision: number): RenderViewportState {
  * @param operationEpoch Worker operation epoch represented by the frame.
  * @param viewportRevision Rendered viewport revision.
  * @param responseSequence Worker-to-client response sequence.
+ * @param renderedDataSequence Highest data message included in the frame.
  * @returns FRAME_RENDERED response envelope.
  */
 function createFrameRenderedResponse(
 	operationEpoch: number,
 	viewportRevision: number,
 	responseSequence: number,
+	renderedDataSequence = 0,
 ): RenderFrameRenderedMessage {
 	return {
 		protocolVersion: RENDER_PROTOCOL_VERSION,
@@ -114,6 +121,7 @@ function createFrameRenderedResponse(
 			viewportRevision,
 			inputSequence: viewportRevision,
 			dataRevision: 0,
+			renderedDataSequence,
 			dataLatency: null,
 			visibleSources: 0,
 			renderedRows: 0,
@@ -130,10 +138,12 @@ function createFrameRenderedResponse(
 /**
  * Starts a real RenderWorkerClient around Node MessagePorts and a captured worker endpoint.
  * @param operationEpoch Initial operation epoch.
+ * @param options Optional callbacks used by the scenario.
  * @returns Ready client, worker-side ports, and captured main-to-worker controls.
  */
 async function createClientHarness(
 	operationEpoch = 1,
+	options: RenderWorkerClientOptions = {},
 ): Promise<RenderWorkerClientHarness> {
 	const worker = new ClientTestWorker();
 	const offscreenCanvas = {} as OffscreenCanvas;
@@ -143,14 +153,19 @@ async function createClientHarness(
 	const client = RenderWorkerClient.start(canvas, operationEpoch, {
 		workerFactory: () => worker as unknown as Worker,
 		initializationTimeoutMs: 1_000,
+		...options,
 	});
 	const bootstrap = worker.bootstrap;
 	if (!bootstrap) throw new Error("Render worker bootstrap was not captured");
 	const controlMessages: RenderControlMessage[] = [];
+	const dataMessages: RenderDataMessage[] = [];
 	bootstrap.payload.controlPort.addEventListener("message", (event) => {
 		controlMessages.push(event.data as RenderControlMessage);
 	});
 	bootstrap.payload.controlPort.start();
+	bootstrap.payload.dataPort.addEventListener("message", (event) => {
+		dataMessages.push(event.data as RenderDataMessage);
+	});
 	bootstrap.payload.dataPort.start();
 	bootstrap.payload.controlPort.postMessage({
 		protocolVersion: RENDER_PROTOCOL_VERSION,
@@ -167,6 +182,7 @@ async function createClientHarness(
 		workerControlPort: bootstrap.payload.controlPort,
 		workerDataPort: bootstrap.payload.dataPort,
 		controlMessages,
+		dataMessages,
 		/** Releases both client-side and worker-side test resources. */
 		dispose(): void {
 			client.dispose();
@@ -214,7 +230,9 @@ describe("RenderWorkerClient acknowledgement telemetry", () => {
 	});
 
 	it("does not reinstate a rejected revision when RESYNC arrives before ACK", () => {
-		const revisions = new Map<string, number>([["source-a", 1]]);
+		const revisions = new Map([
+			["source-a", { revision: 1, dataSequence: 1 }],
+		]);
 		revisions.delete("source-a");
 		applyAcknowledgedSourceRevisions(revisions, rejectedAcknowledgement);
 
@@ -222,7 +240,9 @@ describe("RenderWorkerClient acknowledgement telemetry", () => {
 	});
 
 	it("does not reinstate a rejected revision when ACK arrives before RESYNC", () => {
-		const revisions = new Map<string, number>([["source-a", 1]]);
+		const revisions = new Map([
+			["source-a", { revision: 1, dataSequence: 1 }],
+		]);
 		applyAcknowledgedSourceRevisions(revisions, rejectedAcknowledgement);
 		revisions.delete("source-a");
 
@@ -230,15 +250,22 @@ describe("RenderWorkerClient acknowledgement telemetry", () => {
 	});
 
 	it("uses the worker's accepted revision instead of an optimistic patch revision", () => {
-		const revisions = new Map<string, number>([["source-a", 1]]);
+		const revisions = new Map([
+			["source-a", { revision: 1, dataSequence: 1 }],
+		]);
 		applyAcknowledgedSourceRevisions(revisions, {
 			acknowledgedSequence: 8,
 			globalRevision: 11,
-			sourceRevisions: [{ sourceId: "source-a", revision: 2 }],
+			sourceRevisions: [
+				{ sourceId: "source-a", revision: 2, dataSequence: 8 },
+			],
 			rejectedSourceIds: [],
 		});
 
-		expect(revisions.get("source-a")).toBe(2);
+		expect(revisions.get("source-a")).toEqual({
+			revision: 2,
+			dataSequence: 8,
+		});
 	});
 });
 
@@ -336,6 +363,88 @@ describe("RenderWorkerClient viewport control backpressure", () => {
 			"transferControlToOffscreen",
 			originalTransferDescriptor,
 		);
+	});
+
+	it("keeps the ACK applying sequence distinct from stale frames across both ports", async () => {
+		const renderedFrames: RenderFrameRenderedMessage["payload"][] = [];
+		const harness = await createClientHarness(1, {
+			onFrameRendered: (statistics) => renderedFrames.push(statistics),
+		});
+		try {
+			harness.client.queueDataPatch("source-a", {
+				globalRevision: 1,
+				events: [
+					{
+						sourceId: "source-a",
+						baseRevision: 0,
+						revision: 1,
+						mode: "replace",
+						handles: new Uint32Array(0),
+						timestamps: new Float64Array(0),
+						hashes: new Float64Array(0),
+					},
+				],
+			});
+			await waitForCondition(() => harness.dataMessages.length === 1);
+			const dataSequence = harness.dataMessages[0].sequence;
+
+			harness.workerControlPort.postMessage(
+				createFrameRenderedResponse(1, 0, 2, dataSequence - 1),
+			);
+			await waitForCondition(() => renderedFrames.length === 1);
+			expect(
+				harness.client.getSynchronizationState().acknowledgedSourceStates.size,
+			).toBe(0);
+
+			harness.workerDataPort.postMessage({
+				protocolVersion: RENDER_PROTOCOL_VERSION,
+				operationEpoch: 1,
+				sequence: 3,
+				type: "ACK",
+				payload: {
+					acknowledgedSequence: dataSequence,
+					globalRevision: 1,
+					sourceRevisions: [
+						{
+							sourceId: "source-a",
+							revision: 1,
+							dataSequence,
+						},
+					],
+					rejectedSourceIds: [],
+				},
+			} satisfies RenderAckMessage);
+			await waitForCondition(
+				() =>
+					harness.client.getSynchronizationState().acknowledgedSourceStates
+						.size === 1,
+			);
+			expect(
+				harness.client.getSynchronizationState().acknowledgedDataSequence,
+			).toBe(dataSequence);
+
+			harness.workerControlPort.postMessage(
+				createFrameRenderedResponse(1, 0, 4, dataSequence - 1),
+			);
+			await waitForCondition(() => renderedFrames.length === 2);
+			expect(
+				harness.client
+					.getSynchronizationState()
+					.acknowledgedSourceStates.get("source-a"),
+			).toEqual({ revision: 1, dataSequence });
+			expect(renderedFrames[1].renderedDataSequence).toBe(dataSequence - 1);
+
+			harness.workerControlPort.postMessage(
+				createFrameRenderedResponse(1, 0, 5, dataSequence),
+			);
+			await waitForCondition(() => renderedFrames.length === 3);
+			expect(renderedFrames[2].renderedDataSequence).toBe(dataSequence);
+			expect(
+				harness.client.getSynchronizationState().renderedDataSequence,
+			).toBe(dataSequence);
+		} finally {
+			harness.dispose();
+		}
 	});
 
 	it("posts one viewport and coalesces rapid revisions until its frame arrives", async () => {

@@ -1,5 +1,6 @@
 import {
 	RENDER_PROTOCOL_VERSION,
+	type RenderAcknowledgedSourceState,
 	type RenderHitTestResult,
 	type RenderWorkerResponse,
 } from "./RenderWorker.types";
@@ -93,7 +94,10 @@ function isRenderWorkerResponsePayload(type: string, payload: unknown): boolean 
 						typeof sourceRevision.sourceId === "string" &&
 						typeof sourceRevision.revision === "number" &&
 						Number.isSafeInteger(sourceRevision.revision) &&
-						sourceRevision.revision >= 0,
+						sourceRevision.revision >= 0 &&
+						typeof sourceRevision.dataSequence === "number" &&
+						Number.isSafeInteger(sourceRevision.dataSequence) &&
+						sourceRevision.dataSequence >= 0,
 				) &&
 				Array.isArray(payload.rejectedSourceIds) &&
 				payload.rejectedSourceIds.every(
@@ -111,6 +115,7 @@ function isRenderWorkerResponsePayload(type: string, payload: unknown): boolean 
 					"viewportRevision",
 					"inputSequence",
 					"dataRevision",
+					"renderedDataSequence",
 					"visibleSources",
 					"renderedRows",
 					"renderedEventPixels",
@@ -198,24 +203,24 @@ export function isRenderWorkerResponse(value: unknown): value is RenderWorkerRes
 }
 
 /**
- * Applies worker-authored source revision telemetry without inferring patch acceptance.
+ * Applies worker-authored source revision and applying-sequence telemetry.
  * Rejected identities are removed after accepted revisions so response ordering with
  * RESYNC_REQUIRED cannot reinstate an optimistic revision.
- * @param acknowledgedSourceRevisions Client synchronization map to update.
+ * @param acknowledgedSourceStates Client synchronization map to update.
  * @param acknowledgement Authoritative ACK payload emitted by the worker repository.
  * @returns Nothing.
  */
 export function applyAcknowledgedSourceRevisions(
-	acknowledgedSourceRevisions: Map<string, number>,
+	acknowledgedSourceStates: Map<string, RenderAcknowledgedSourceState>,
 	acknowledgement: RenderAcknowledgement,
 ): void {
 	for (const sourceRevision of acknowledgement.sourceRevisions) {
-		acknowledgedSourceRevisions.set(
-			sourceRevision.sourceId,
-			sourceRevision.revision,
-		);
+		acknowledgedSourceStates.set(sourceRevision.sourceId, {
+			revision: sourceRevision.revision,
+			dataSequence: sourceRevision.dataSequence,
+		});
 	}
 	for (const rejectedSourceId of acknowledgement.rejectedSourceIds) {
-		acknowledgedSourceRevisions.delete(rejectedSourceId);
+		acknowledgedSourceStates.delete(rejectedSourceId);
 	}
 }

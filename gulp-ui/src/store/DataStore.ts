@@ -413,11 +413,17 @@ export class DataStore {
 	): EventSourceSummary {
 		const currentRevision = DataStore.getSourceRevision(summary.sourceId);
 		const currentSummary = DataStore.eventSourceSummaries.get(summary.sourceId);
-		if (summary.revision < currentRevision) {
+		if (
+			currentSummary &&
+			(summary.generation < currentSummary.generation ||
+				(summary.generation === currentSummary.generation &&
+					summary.revision < currentRevision))
+		) {
 			return currentSummary ?? summary;
 		}
 		if (
 			currentSummary &&
+			currentSummary.generation === summary.generation &&
 			currentSummary.revision === summary.revision &&
 			currentSummary.status === summary.status &&
 			currentSummary.eventCount === summary.eventCount &&

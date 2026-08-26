@@ -340,7 +340,9 @@ describe("WorkerRenderCore", () => {
 				sources: [
 					{
 						sourceId: source.id,
+						sourceGeneration: 1,
 						sourceRevision: 1,
+						sourceStatus: "complete",
 						coveredRange: { min: 300, max: 700 },
 						bucketPixelWidth: 1,
 						degradedLod: false,
@@ -410,7 +412,9 @@ describe("WorkerRenderCore", () => {
 					sources: [
 						{
 							sourceId: source.id,
+							sourceGeneration: 5,
 							sourceRevision: 12,
+							sourceStatus: "complete",
 							coveredRange: { min: 0, max: 1_000 },
 							bucketPixelWidth: 1,
 							degradedLod: false,
@@ -515,7 +519,9 @@ describe("WorkerRenderCore", () => {
 				sources: [
 					{
 						sourceId: source.id,
+						sourceGeneration: 2,
 						sourceRevision: 4,
+						sourceStatus: "complete",
 						coveredRange: { min: 0, max: 180_000 },
 						bucketPixelWidth: 1,
 						degradedLod: false,

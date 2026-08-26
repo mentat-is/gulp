@@ -162,6 +162,13 @@ including packets originating on another gULP instance. An unset or empty list
 accepts all values. When both lists are non-empty, both must match; a packet
 without an operation ID does not match a non-empty `operation_ids` list.
 
+The optional authentication `data` object stores negotiated connection
+capabilities in Redis with the websocket ownership metadata. The scalable web UI
+uses `query_chunk_ack_window` to opt in to bounded raw-query delivery. On such a
+connection the default receive loop accepts validated `docs_chunk_ack` control
+messages and records monotonic accepted/durable progress for the query worker;
+other client messages retain their endpoint-specific behavior.
+
 Response from the websocket is a [GulpWsData](../src/gulp/api/ws_api.py) object like the following:
 
 > the `data` object in this case is a [WSDATA_STATS_UPDATE](../src/gulp/api/ws_api.py) containing a [GulpRequestStats](../src/gulp/api/collab/stats.py) object.

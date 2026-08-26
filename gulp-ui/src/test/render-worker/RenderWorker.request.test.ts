@@ -20,7 +20,9 @@ function createProjection(): RenderWindowProjection {
 		sources: [
 			{
 				sourceId: "source-a",
+				sourceGeneration: 2,
 				sourceRevision: 4,
+				sourceStatus: "complete",
 				coveredRange: { min: 100, max: 200 },
 				bucketPixelWidth: 1,
 				degradedLod: false,

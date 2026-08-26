@@ -97,6 +97,10 @@ from gulp.structs import GulpMappingParameters, GulpPluginParameters, ObjectNotF
 router: APIRouter = APIRouter()
 _mapping_parameters_cache: dict[str, dict] = {}
 _MAPPING_PARAMETERS_CACHE_MAX_SIZE = 100
+_QUERY_CHUNK_ACK_POLL_SECONDS = 0.05
+_QUERY_CHUNK_CANCEL_POLL_SECONDS = 0.5
+_QUERY_CHUNK_ACK_TIMEOUT_SECONDS = 300.0
+_QUERY_CHUNK_ACK_MAX_WINDOW = 8
 
 
 async def _mapping_parameters_entry_to_dict(mp: GulpMappingParametersEntry) -> dict:
@@ -118,6 +122,62 @@ async def _mapping_parameters_entry_to_dict(mp: GulpMappingParametersEntry) -> d
 async def _null_async_context(value=None):
     """Yield a value through an async context manager."""
     yield value
+
+
+async def _query_chunk_ack_window(ws_id: str, cb_context: dict) -> int:
+    """Return the bounded acknowledgement window negotiated by one websocket."""
+    cached = cb_context.get("query_chunk_ack_window")
+    if isinstance(cached, int):
+        return cached
+    metadata = await GulpRedis.get_instance().ws_get_metadata(ws_id)
+    advertised = metadata.data.get("query_chunk_ack_window", 0) if metadata else 0
+    try:
+        window = int(advertised)
+    except (TypeError, ValueError):
+        window = 0
+    window = min(_QUERY_CHUNK_ACK_MAX_WINDOW, max(0, window))
+    cb_context["query_chunk_ack_window"] = window
+    return window
+
+
+async def _wait_for_query_chunk_ack(
+    sess: AsyncSession,
+    ws_id: str,
+    req_id: str,
+    query_name: str,
+    stage: str,
+    required_chunk_num: int,
+) -> None:
+    """Wait until the negotiated UI consumer reaches one query chunk."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _QUERY_CHUNK_ACK_TIMEOUT_SECONDS
+    next_cancel_check = 0.0
+    redis_client = GulpRedis.get_instance()
+    while True:
+        acknowledged = await redis_client.query_chunk_ack_get(
+            ws_id,
+            req_id,
+            query_name,
+            stage,
+        )
+        if acknowledged is not None and acknowledged >= required_chunk_num:
+            return
+        now = loop.time()
+        if now >= deadline:
+            raise TimeoutError(
+                f"timed out waiting for {stage} acknowledgement of query "
+                f"{query_name!r} chunk {required_chunk_num}"
+            )
+        if now >= next_cancel_check:
+            if sess:
+                canceled = await GulpRequestStats.is_canceled(sess, req_id)
+            else:
+                async with GulpCollab.get_instance().session() as cancel_sess:
+                    canceled = await GulpRequestStats.is_canceled(cancel_sess, req_id)
+            if canceled:
+                raise RequestCanceledError()
+            next_cancel_check = now + _QUERY_CHUNK_CANCEL_POLL_SECONDS
+        await asyncio.sleep(_QUERY_CHUNK_ACK_POLL_SECONDS)
 
 
 EXAMPLE_SIGMA_RULE = """title: Match All Events
@@ -192,6 +252,7 @@ async def _query_raw_chunk_callback(
     q_options: GulpQueryParameters = cb_context["q_options"]
     q: dict = cb_context["q"]
     query_ordinal: int = cb_context.get("query_ordinal")
+    request_last = bool(last and cb_context.get("request_terminal", False))
 
     # we also have these for sigma query
     sigma_yml: str = cb_context.get("sigma_yml")
@@ -221,6 +282,7 @@ async def _query_raw_chunk_callback(
         total_hits=total_hits,
         name=q_name,
         last=last,
+        request_last=True if request_last else None,
     )
     await GulpRedisBroker.get_instance().put(
         t=WSDATA_DOCUMENTS_CHUNK,
@@ -230,6 +292,28 @@ async def _query_raw_chunk_callback(
         req_id=req_id,
         d=c.model_dump(exclude_none=True),
     )
+
+    acknowledgement_window = await _query_chunk_ack_window(ws_id, cb_context)
+    if acknowledgement_window > 0:
+        acknowledgement_stage = "durable" if request_last else "accepted"
+        required_chunk_num = (
+            chunk_num if request_last else chunk_num - acknowledgement_window + 1
+        )
+        if required_chunk_num >= 0:
+            await _wait_for_query_chunk_ack(
+                sess,
+                ws_id,
+                req_id,
+                q_name,
+                acknowledgement_stage,
+                required_chunk_num,
+            )
+        if request_last:
+            await GulpRedis.get_instance().query_chunk_ack_clear(
+                ws_id,
+                req_id,
+                q_name,
+            )
 
     if q_options.create_notes:
         # create notes for this chunk and send them to the websocket as well
@@ -375,6 +459,7 @@ async def run_query(
     index: str = None,
     plugin: str = None,
     plugin_params: GulpPluginParameters = None,
+    request_terminal: bool = True,
 ) -> tuple[int, int, str, bool]:
     """
     runs a single query in a coroutine running in a worker process (through aiomultiprocess)
@@ -389,6 +474,7 @@ async def run_query(
         index: str - local operation index or external index to query
         plugin: str - plugin name (for external queries)
         plugin_params: GulpPluginParameters - plugin parameters (for external queries)
+        request_terminal: whether this query owns the terminal chunk of the request
 
     Returns:
         total_hits: int - number of hits
@@ -403,6 +489,7 @@ async def run_query(
     canceled: bool = False
     stats: GulpRequestStats = None
     exx: Exception = None
+    cb_context: dict | None = None
     MutyLogger.get_instance().debug(
         "---> run_query: user_id=%s, req_id=%s, operation_id=%s, ws_id=%s, gq=%s, q_options=%s, index=%s, plugin=%s, plugin_params=%s",
         user_id,
@@ -446,7 +533,7 @@ async def run_query(
                     )
                 else:
                     # raw query to gulp's opensearch
-                    cb_context: dict = {
+                    cb_context = {
                         "user_id": user_id,
                         "operation_id": operation_id,
                         "ws_id": ws_id,
@@ -457,6 +544,7 @@ async def run_query(
                         "total_hits": 0,
                         "q_name": gq.q_name,
                         "query_ordinal": gq.query_ordinal,
+                        "request_terminal": request_terminal,
                     }
                     await GulpOpenSearch.get_instance().search_dsl(
                         sess,
@@ -479,25 +567,28 @@ async def run_query(
                 # process_queries expects a tuple in the form: (processed, hits, q_name, canceled)
                 return total_processed, total_hits, q_options.name, canceled
 
-            except Exception as ex:
-                if not isinstance(ex, ObjectNotFound):
-                    # log this
-                    MutyLogger.get_instance().exception(
-                        "EXCEPTION=%s,\nquery=\n%s", str(ex), gq
-                    )
-                if isinstance(ex, RequestCanceledError):
-                    # request is canceled
-                    canceled = True
+            except RequestCanceledError as ex:
+                canceled = True
                 exx = ex
-                if not isinstance(ex, ObjectNotFound):
-                    # do not reraise ObjectNotFound here, we want to send a done packet with 0 hits
-                    raise
+                if cb_context:
+                    total_hits = cb_context.get("total_hits", total_hits)
+                    total_processed = cb_context.get("total_processed", total_processed)
+                return total_processed, total_hits, q_options.name, True
+            except ObjectNotFound as ex:
+                exx = ex
+                return total_processed, total_hits, q_options.name, False
+            except Exception as ex:
+                exx = ex
+                MutyLogger.get_instance().exception(
+                    "EXCEPTION=%s,\nquery=\n%s", str(ex), gq
+                )
+                raise
             finally:
                 if mod:
                     # finalize external query stats
                     await mod.update_final_stats_and_unload(ex=exx)
     finally:
-        if not isinstance(exx, RequestCanceledError):
+        if exx and not isinstance(exx, (ObjectNotFound, RequestCanceledError)):
             err = muty.log.exception_to_string(exx)
 
         # signal WSDATA_QUERY_DONE on the websocket
@@ -532,6 +623,7 @@ async def run_query_batch(
     plugin: str = None,
     plugin_params: GulpPluginParameters | dict = None,
     ignore_failures: bool = False,
+    request_terminal: bool = True,
 ) -> list[tuple[int, int, str, bool] | Exception]:
     """Run a list of queries inside a single worker process.
 
@@ -563,7 +655,7 @@ async def run_query_batch(
     per_query_results: list[tuple[int, int, str, bool] | Exception] = []
 
     # execute each query sequentially inside this worker (keeps per-query websocket packets unchanged)
-    for q_item in queries:
+    for query_index, q_item in enumerate(queries):
         try:
             gq = (
                 GulpQuery.model_validate(q_item) if isinstance(q_item, dict) else q_item
@@ -588,8 +680,11 @@ async def run_query_batch(
                 index=index,
                 plugin=plugin,
                 plugin_params=plugin_params_input,
+                request_terminal=(request_terminal and query_index == len(queries) - 1),
             )
             per_query_results.append(res)
+        except RequestCanceledError:
+            per_query_results.append((0, 0, q_opts.name, True))
         except Exception as ex:
             MutyLogger.get_instance().exception("error running query in batch: %s", ex)
             per_query_results.append(ex)
@@ -760,10 +855,11 @@ async def process_queries(
                 plugin_params.model_dump(exclude_none=True) if plugin_params else None
             ),
             ignore_failures=ignore_failures,
+            request_terminal=num_total_queries == len(queries),
         )
         req_canceled = any(
             (isinstance(result, tuple) and result[3])
-            or (isinstance(result, Exception) and "RequestCanceledError" in str(result))
+            or isinstance(result, RequestCanceledError)
             for result in results
         )
         return req_canceled
