@@ -1773,7 +1773,7 @@ class GulpRedis:
         )
 
     async def task_enqueue_many(self, tasks: list[dict]) -> None:
-        """Atomically enqueue one request's tasks on its own fair stream."""
+        """Atomically enqueue one request with a stable-stream wake-up task."""
         if not tasks:
             return
 
@@ -1785,8 +1785,14 @@ class GulpRedis:
         req_ids = {task.get("req_id") for task in tasks}
         if None in req_ids or len(req_ids) != 1:
             raise ValueError("batched enqueue requires one non-empty req_id")
-        req_hash = hashlib.sha256(str(req_ids.pop()).encode()).hexdigest()
-        stream_key = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}:{req_hash}"
+        req_id = req_ids.pop()
+        stable_stream = f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}"
+        request_stream = (
+            f"{GulpRedis.STREAM_TASK_PREFIX}:{task_type}:"
+            f"{hashlib.sha256(str(req_id).encode()).hexdigest()}"
+            if len(tasks) > 1
+            else None
+        )
         queue_depth = await self.task_queue_depth(task_type)
         if (
             GulpRedis.STREAM_TASK_MAXLEN > 0
@@ -1802,10 +1808,16 @@ class GulpRedis:
             )
 
         pipe = self._redis.pipeline(transaction=True)
-        for task in tasks:
-            pipe.xadd(stream_key, {"data": orjson.dumps(task)})
+        # The dispatcher already blocks on the stable type stream. Publishing
+        # the first task there wakes it without waiting for another discovery
+        # cycle; only the remaining work needs a request-scoped rotating stream.
+        pipe.xadd(stable_stream, {"data": orjson.dumps(tasks[0])})
+        if request_stream:
+            for task in tasks[1:]:
+                pipe.xadd(request_stream, {"data": orjson.dumps(task)})
         pipe.sadd(GulpRedis.TASK_TYPES_SET, task_type)
-        pipe.sadd(GulpRedis.TASK_BATCH_STREAMS_SET, stream_key)
+        if request_stream:
+            pipe.sadd(GulpRedis.TASK_BATCH_STREAMS_SET, request_stream)
         try:
             await pipe.execute()
         except Exception:
@@ -1818,10 +1830,11 @@ class GulpRedis:
         for _ in tasks:
             self._record_task_transition("enqueue", task_type, "queued")
         MutyLogger.get_instance().debug(
-            "enqueued %d individual task_type=%s messages on %s",
+            "enqueued %d task_type=%s messages with stable wake stream=%s request_stream=%s",
             len(tasks),
             task_type,
-            stream_key,
+            stable_stream,
+            request_stream,
         )
 
     async def task_dequeue_batch(

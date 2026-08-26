@@ -39,6 +39,7 @@ async def isolated_task_redis(
     server_id = f"integration-task-queue-{suffix}"
     task_type = f"query-{suffix}"
     task_types_key = f"gulp:test:queue:types:{suffix}"
+    batch_streams_key = f"gulp:test:queue:batch_streams:{suffix}"
     stream_prefix = f"gulp:test:stream:tasks:{suffix}"
     consumer_group = f"gulp:test:stream:group:tasks:{suffix}"
     stream_key = f"{stream_prefix}:{task_type}"
@@ -59,6 +60,7 @@ async def isolated_task_redis(
         pytest.skip(f"Redis is not available through current gULP config: {exc}")
 
     monkeypatch.setattr(GulpRedis, "TASK_TYPES_SET", task_types_key)
+    monkeypatch.setattr(GulpRedis, "TASK_BATCH_STREAMS_SET", batch_streams_key)
     monkeypatch.setattr(GulpRedis, "STREAM_TASK_PREFIX", stream_prefix)
     monkeypatch.setattr(GulpRedis, "STREAM_CONSUMER_GROUP", consumer_group)
     monkeypatch.setattr(GulpRedis, "STREAM_TASK_MAXLEN", 10)
@@ -67,12 +69,104 @@ async def isolated_task_redis(
     try:
         yield redis_client, task_type, stream_key
     finally:
-        keys_to_delete = [task_types_key]
+        keys_to_delete = [task_types_key, batch_streams_key]
         async for key in raw_redis.scan_iter(match=f"{stream_prefix}:*"):
             keys_to_delete.append(key)
         await raw_redis.delete(*keys_to_delete)
         await redis_client.shutdown()
         GulpRedis._instance = None
+
+
+@pytest.mark.integration
+async def test_single_query_batch_wakes_existing_stable_stream_reader(
+    isolated_task_redis: tuple[GulpRedis, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A singleton batch must wake a reader that already discovered its type stream."""
+    redis_client, task_type, stream_key = isolated_task_redis
+    raw_redis = redis_client.client()
+    await raw_redis.sadd(GulpRedis.TASK_TYPES_SET, task_type)
+
+    streams_discovered = asyncio.Event()
+    original_task_stream_keys = redis_client._task_stream_keys
+
+    async def _tracked_task_stream_keys(*args, **kwargs):
+        keys = await original_task_stream_keys(*args, **kwargs)
+        streams_discovered.set()
+        return keys
+
+    monkeypatch.setattr(redis_client, "_task_stream_keys", _tracked_task_stream_keys)
+    reader = asyncio.create_task(
+        redis_client.task_pop_blocking(timeout=5, task_types=[task_type])
+    )
+    await asyncio.wait_for(streams_discovered.wait(), timeout=1)
+
+    task = {
+        "task_type": task_type,
+        "operation_id": "op-stable-wake",
+        "user_id": "admin",
+        "ws_id": "ws-stable-wake",
+        "req_id": f"req-stable-wake-{task_type}",
+        "params": {"query": {"match_none": {}}},
+    }
+    started = asyncio.get_running_loop().time()
+    await redis_client.task_enqueue_many([task])
+    claimed = await asyncio.wait_for(reader, timeout=2)
+    wake_msec = (asyncio.get_running_loop().time() - started) * 1000
+
+    print(
+        "stable task stream wake-up:",
+        {"stream": stream_key, "wake_msec": wake_msec, "task": claimed},
+    )
+    assert claimed is not None
+    assert claimed["req_id"] == task["req_id"]
+    assert claimed["__redis_stream__"] == stream_key
+    assert await raw_redis.smembers(GulpRedis.TASK_BATCH_STREAMS_SET) == set()
+    await redis_client.task_ack_delete(claimed)
+
+
+@pytest.mark.integration
+async def test_multi_query_batch_keeps_only_tail_request_scoped(
+    isolated_task_redis: tuple[GulpRedis, str, str],
+):
+    """A multi-task request exposes one wake task and keeps its tail fair."""
+    redis_client, task_type, stable_stream = isolated_task_redis
+    raw_redis = redis_client.client()
+    req_id = f"req-batch-layout-{task_type}"
+    tasks = [
+        {
+            "task_type": task_type,
+            "operation_id": "op-batch-layout",
+            "user_id": "admin",
+            "ws_id": "ws-batch-layout",
+            "req_id": req_id,
+            "params": {"query_num": query_num},
+        }
+        for query_num in range(3)
+    ]
+
+    await redis_client.task_enqueue_many(tasks)
+
+    raw_request_streams = await raw_redis.smembers(GulpRedis.TASK_BATCH_STREAMS_SET)
+    request_streams = {
+        value.decode() if isinstance(value, bytes) else value
+        for value in raw_request_streams
+    }
+    assert len(request_streams) == 1
+    request_stream = request_streams.pop()
+    assert request_stream.startswith(f"{stable_stream}:")
+    assert await raw_redis.xlen(stable_stream) == 1
+    assert await raw_redis.xlen(request_stream) == 2
+
+    claimed = await redis_client.task_dequeue_batch(3, task_types=[task_type])
+    assert {task["params"]["query_num"] for task in claimed} == {0, 1, 2}
+    assert sum(task["__redis_stream__"] == stable_stream for task in claimed) == 1
+    for task in claimed:
+        await redis_client.task_ack_delete(task)
+
+    assert await raw_redis.xlen(stable_stream) == 0
+    assert await raw_redis.exists(request_stream) == 0
+    assert await raw_redis.smembers(GulpRedis.TASK_BATCH_STREAMS_SET) == set()
 
 
 @pytest.fixture

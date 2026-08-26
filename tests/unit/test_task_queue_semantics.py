@@ -428,7 +428,7 @@ async def test_task_enqueue_queue_full_uses_fixed_wait_hint(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_task_enqueue_many_keeps_queries_as_individual_messages(monkeypatch):
+async def test_task_enqueue_many_uses_stable_wake_then_request_stream(monkeypatch):
     redis_client = GulpRedis.get_instance()
     fake_redis = _FakeTaskRedisClient()
     redis_client._redis = fake_redis
@@ -446,14 +446,97 @@ async def test_task_enqueue_many_keeps_queries_as_individual_messages(monkeypatc
         orjson.loads(fields["data"])["params"]["queries"][0]
         for _, fields in fake_redis.xadd_calls
     ] == [0, 1, 2]
-    batch_stream = fake_redis.xadd_calls[0][0]
-    assert all(stream == batch_stream for stream, _ in fake_redis.xadd_calls)
-    assert batch_stream.startswith("gulp:stream:tasks:query:")
+    stable_stream = "gulp:stream:tasks:query"
+    batch_stream = fake_redis.xadd_calls[1][0]
+    assert [stream for stream, _ in fake_redis.xadd_calls] == [
+        stable_stream,
+        batch_stream,
+        batch_stream,
+    ]
+    assert batch_stream.startswith(f"{stable_stream}:")
     assert fake_redis.sadd_calls == [
         (GulpRedis.TASK_TYPES_SET, "query"),
         (GulpRedis.TASK_BATCH_STREAMS_SET, batch_stream),
     ]
     assert fake_redis.pipeline_exec_count == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_task_enqueue_many_singleton_uses_only_stable_stream(monkeypatch):
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeTaskRedisClient()
+    redis_client._redis = fake_redis
+    redis_client.server_id = "server-a"
+    monkeypatch.setattr(GulpRedis, "STREAM_TASK_MAXLEN", 10)
+
+    task = {"task_type": "query", "req_id": "req-single", "params": {}}
+    await redis_client.task_enqueue_many([task])
+
+    assert len(fake_redis.xadd_calls) == 1
+    stream, fields = fake_redis.xadd_calls[0]
+    assert stream == "gulp:stream:tasks:query"
+    assert orjson.loads(fields["data"]) == task
+    assert fake_redis.sadd_calls == [(GulpRedis.TASK_TYPES_SET, "query")]
+    assert fake_redis.known_batch_streams == set()
+    assert fake_redis.pipeline_calls == [True]
+    assert fake_redis.pipeline_exec_count == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_task_enqueue_many_singleton_wakes_existing_stable_reader(monkeypatch):
+    redis_client = GulpRedis.get_instance()
+    fake_redis = _FakeTaskRedisClient()
+    redis_client._redis = fake_redis
+    redis_client.server_id = "server-a"
+    redis_client._task_stream_cursor = 0
+    fake_redis.known_task_types.add("query")
+    monkeypatch.setattr(GulpRedis, "STREAM_TASK_MAXLEN", 10)
+
+    stable_stream = "gulp:stream:tasks:query"
+    read_started = asyncio.Event()
+    stable_enqueued = asyncio.Event()
+    task = {"task_type": "query", "req_id": "req-wake", "params": {}}
+
+    async def _xreadgroup(*args, **kwargs):
+        fake_redis.xreadgroup_calls.append((args, kwargs))
+        assert kwargs["streams"] == {stable_stream: ">"}
+        read_started.set()
+        await stable_enqueued.wait()
+        return [
+            (
+                stable_stream,
+                [("1-0", {b"data": orjson.dumps(task)})],
+            )
+        ]
+
+    original_pipeline = fake_redis.pipeline
+
+    def _pipeline(transaction: bool = False):
+        pipe = original_pipeline(transaction)
+        original_execute = pipe.execute
+
+        async def _execute():
+            result = await original_execute()
+            if any(stream == stable_stream for stream, _ in fake_redis.xadd_calls):
+                stable_enqueued.set()
+            return result
+
+        pipe.execute = _execute
+        return pipe
+
+    fake_redis.xreadgroup = _xreadgroup
+    fake_redis.pipeline = _pipeline
+
+    reader = asyncio.create_task(redis_client.task_pop_blocking(timeout=5))
+    await asyncio.wait_for(read_started.wait(), timeout=1)
+    await redis_client.task_enqueue_many([task])
+    claimed = await asyncio.wait_for(reader, timeout=1)
+
+    assert claimed is not None
+    assert claimed["req_id"] == task["req_id"]
+    assert claimed["__redis_stream__"] == stable_stream
 
 
 @pytest.mark.unit
@@ -473,13 +556,15 @@ async def test_task_enqueue_many_separates_requests_for_fair_dequeue(monkeypatch
             ]
         )
 
+    stable_stream = "gulp:stream:tasks:query"
     streams = {stream for stream, _ in fake_redis.xadd_calls}
-    assert len(streams) == 2
-    assert streams == fake_redis.known_batch_streams
+    assert streams == {stable_stream, *fake_redis.known_batch_streams}
+    assert len(fake_redis.known_batch_streams) == 2
 
     req_by_stream = {
         stream: orjson.loads(fields["data"])["req_id"]
         for stream, fields in fake_redis.xadd_calls
+        if stream != stable_stream
     }
 
     async def _xreadgroup(*args, **kwargs):
