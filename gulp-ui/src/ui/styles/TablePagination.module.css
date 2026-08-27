@@ -1,0 +1,46 @@
+.root {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 12px;
+}
+
+.label {
+	opacity: 0.8;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	white-space: pre-wrap;
+}
+
+.pageSizeControl,
+.pageEditor,
+.navigationButtons {
+	display: flex;
+	align-items: center;
+}
+
+.pageSizeControl {
+	gap: 8px;
+}
+
+.pageSizeSelect {
+	width: 75px;
+}
+
+.pageEditor {
+	gap: 4px;
+}
+
+.pageInputContainer {
+	width: 52px;
+}
+
+.pageInput input {
+	padding: 0 4px;
+	text-align: center;
+}
+
+.navigationButtons {
+	gap: 4px;
+}

@@ -57,15 +57,9 @@
   padding: 0 12px;
 }
 
-.visibleSourceFilter button,
-.selectionControl button {
+.visibleSourceFilter button {
   width: 20px;
   height: 20px;
-}
-
-.selectionControl {
-  min-height: 28px;
-  padding: 0 12px;
 }
 
 .newNotesWarning {
@@ -82,59 +76,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.actionBar {
-  width: 100%;
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.actionBarLeft,
-.actionBarRight {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
-.pageSelect {
-  width: 75px;
-}
-
-.popoverContent {
-  min-width: 190px;
-  padding: 4px;
-  border: 1px solid var(--gray-alpha-400);
-  border-radius: 8px;
-  background: var(--background-100);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.menuItem {
-  padding: 6px 8px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--gray-1000);
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  transition: background-color 0.15s;
-  user-select: none;
-}
-
-.menuItem:hover {
-  background: var(--gray-alpha-200);
-}
-
-.menuItem svg {
-  opacity: 0.8;
 }
 
 .result {

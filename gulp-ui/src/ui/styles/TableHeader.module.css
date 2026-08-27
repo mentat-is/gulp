@@ -1,0 +1,95 @@
+.root {
+	display: flex;
+	width: 100%;
+	flex: none;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.leftControls,
+.selectionControl,
+.sortingControl {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+}
+
+.leftControls {
+	gap: 12px;
+}
+
+.selectionControl,
+.sortingControl {
+	gap: 8px;
+}
+
+.selectionControl {
+	min-height: 28px;
+	padding: 0 12px;
+}
+
+.selectionControl > button:first-child {
+	width: 20px;
+	height: 20px;
+}
+
+.selectionLabel {
+	border: 0;
+	background: transparent;
+	color: inherit;
+	opacity: 0.8;
+	padding: 0;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	cursor: pointer;
+	user-select: none;
+	white-space: nowrap;
+}
+
+.selectionLabel:disabled,
+.menuItem:disabled {
+	cursor: default;
+	opacity: 0.5;
+}
+
+.sortSelect {
+	width: 120px;
+}
+
+.sortSelect[data-no-icon] > svg {
+	display: none;
+}
+
+.popoverContent {
+	min-width: 140px;
+	padding: 4px;
+}
+
+.menuItem {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--gray-1000);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	text-align: start;
+	cursor: pointer;
+	transition: background-color 0.15s;
+	user-select: none;
+}
+
+.menuItem:hover:not(:disabled) {
+	background: var(--gray-alpha-200);
+}
+
+.menuItem svg {
+	flex: none;
+	opacity: 0.8;
+}

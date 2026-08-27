@@ -18,12 +18,12 @@ import { DataStore, type NotesSyncChange } from "@/store/DataStore";
 import { Checkbox } from "@/ui/Checkbox";
 import { Button } from "@/ui/Button";
 import { Toggle } from "@/ui/Toggle";
-import { Popover } from "@/ui/Popover";
 import { Notification } from "@/ui/Notification";
 import { formatTimestampToReadableString } from "../ui/utils";
 import { WindowBridge } from "@/lib/WindowBridge";
 import { Table } from "./Table";
 import { Icon } from "@/ui/Icon";
+import { TableHeader } from "@/ui/TableHeader";
 import { Locale } from "@/locales";
 import {
 	acknowledgeNotesChangeSequence,
@@ -924,135 +924,37 @@ export function NotesWindow({ onClose: _onClose }: FloatingWindowProps) {
 					</Stack>
 				</div>
 
-				<div className={s.actionBar}>
-					<div className={s.actionBarLeft}>
-						<Stack
-							gap={10}
-							ai="center"
-							flex={false}
-							className={s.selectionControl}
-						>
-							<Checkbox
-								checked={isAllFilteredSelected}
-								onCheckedChange={(checked) =>
-									handleSelectAllFiltered(checked === true)
-								}
-							/>
-							<span
-								className={s.helperText}
-								onClick={() =>
-									handleSelectAllFiltered(!isAllFilteredSelected)
-								}
-							>
-								{t("notes.selectAllFiltered", {
-									count: allFilteredNoteIds.length,
-								})}
-							</span>
-						</Stack>
-
-						<Popover.Root>
-							<Popover.Trigger asChild>
-								<Button
-									variant="secondary"
-									icon="ChevronDown"
-									disabled={selectedNoteIds.size === 0}
-								>
-									{t("common.action")}
-								</Button>
-							</Popover.Trigger>
-							<Popover.Content
-								align="start"
-								sideOffset={4}
-								className={s.popoverContent}
-								container={windowRef.current}
-							>
-								<div
-									className={s.menuItem}
-									onClick={handleBulkDelete}
-								>
-									<Icon
-										name="Trash2"
-										size={14}
-									/>
-									<span>
-										{t("notes.deleteSelected", {
-											count: selectedNoteIds.size,
-										})}
-									</span>
-								</div>
-							</Popover.Content>
-						</Popover.Root>
-
-					</div>
-
-					<div className={s.actionBarRight}>
-						<span className={s.helperText}>
-							{t("tableView.showingRange", {
-								from:
-									totalHits > 0 ? pageSize * (currentPage - 1) + 1 : 0,
-								to: Math.min(pageSize * currentPage, totalHits),
-								total: totalHits,
-							})}
-						</span>
-						<Stack
-							gap={8}
-							ai="center"
-						>
-							<Select.Root
-								value={pageSize.toString()}
-								onValueChange={(value) => {
-									setPageSize(Number(value));
-									setCurrentPage(1);
-								}}
-							>
-								<Select.Trigger className={s.pageSelect}>
-									<Select.Value />
-								</Select.Trigger>
-								<Select.Content container={windowRef.current ?? undefined}>
-									{NOTES_PAGE_SIZES.map((size) => (
-										<Select.Item
-											key={size}
-											value={size.toString()}
-										>
-											{size}
-										</Select.Item>
-									))}
-								</Select.Content>
-							</Select.Root>
-							<span className={s.helperText}>
-								{t("tableView.perPage")}
-							</span>
-						</Stack>
-						<span className={s.helperText}>
-							{t("tableView.pageOf", {
-								page: currentPage,
-								total: totalPages,
-							})}
-						</span>
-						<Stack gap={4}>
-							<Button
-								variant="secondary"
-								icon="ChevronLeft"
-								disabled={currentPage <= 1 || loading}
-								onClick={() =>
-									setCurrentPage((page) => Math.max(1, page - 1))
-								}
-								title={t("tableView.previousPage")}
-							/>
-							<Button
-								variant="secondary"
-								icon="ChevronRight"
-								disabled={currentPage >= totalPages || loading}
-								onClick={() =>
-									setCurrentPage((page) =>
-										Math.min(totalPages, page + 1),
-									)
-								}
-								title={t("tableView.nextPage")}
-							/>
-						</Stack>
-					</div>
-				</div>
+				<TableHeader
+					allSelected={isAllFilteredSelected}
+					selectionLabel={t("notes.selectAllFiltered", {
+						count: allFilteredNoteIds.length,
+					})}
+					onSelectionChange={handleSelectAllFiltered}
+					actionsDisabled={selectedNoteIds.size === 0}
+					actions={[
+						{
+							id: "delete",
+							icon: "Trash2",
+							label: t("notes.deleteSelected", {
+								count: selectedNoteIds.size,
+							}),
+							onSelect: handleBulkDelete,
+						},
+					]}
+					pagination={{
+						currentPage,
+						totalItems: totalHits,
+						pageSize,
+						pageSizeOptions: NOTES_PAGE_SIZES,
+						disabled: loading,
+						onPageChange: setCurrentPage,
+						onPageSizeChange: (value) => {
+							setPageSize(value);
+							setCurrentPage(1);
+						},
+					}}
+					container={windowRef.current}
+				/>
 
 				<div className={s.result}>
 					{loading ? (
